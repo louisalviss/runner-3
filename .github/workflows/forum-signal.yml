@@ -10,6 +10,7 @@ on:
       - 'forum_signal_delta.py'
       - 'forum_signal_score.py'
       - 'forum_signal_route.py'
+      - 'forum_signal_health.py'
       - '.github/workflows/forum-signal.yml'
   schedule:
     # Every 3 hours, aligned to :30 Asia/Ho_Chi_Minh. Includes 20:30 VN,
@@ -76,6 +77,7 @@ jobs:
           JOB='${{ steps.job.outputs.job_file }}'
           python forum_signal_delta.py "$JOB" --validate-only
           python forum_signal_score.py --input /tmp/nonexistent.jsonl --output /tmp/forum-candidates.jsonl --summary /tmp/forum-insights.md --min-score 3
+          python forum_signal_health.py --job "$JOB" --validate-only
           MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","http"))' "$JOB")"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
 
@@ -104,6 +106,10 @@ jobs:
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_route.py --input crawl_output/forum_insight_candidates.jsonl --output-dir crawl_output
 
+      - name: Evaluate source health
+        if: steps.crawl.outcome == 'success'
+        run: python forum_signal_health.py --manifest crawl_output/manifest.json --job '${{ steps.job.outputs.job_file }}' --state .forum-state/health-baseline.json --output crawl_output/forum_health.json --summary crawl_output/forum_health.md
+
       - name: Save forum delta state
         if: steps.crawl.outcome == 'success'
         uses: actions/cache/save@v4
@@ -118,7 +124,23 @@ jobs:
           name: forum-signal-${{ github.run_id }}
           path: crawl_output/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 30
+
+      - name: Enforce critical health gate
+        if: always() && steps.crawl.outcome == 'success'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path('crawl_output/forum_health.json')
+          if not p.exists():
+              print('forum_health.json missing')
+              sys.exit(1)
+          h = json.loads(p.read_text(encoding='utf-8'))
+          print('Forum Signal health:', h.get('overall_status'))
+          if h.get('overall_status') == 'FAILED':
+              sys.exit(1)
+          PY
 
       - name: Remove local output
         if: always()
