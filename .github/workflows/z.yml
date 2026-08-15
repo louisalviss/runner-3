@@ -1,0 +1,28 @@
+name: z
+
+on:
+  workflow_run:
+    workflows: ["x"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  z:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OLD='redacted@users.noreply.github.com'
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | select((.head_commit.author.email == "'"$OLD"'") or (.head_commit.committer.email == "'"$OLD"'")) | .id' \
+            | while read -r id; do
+                [ -z "$id" ] && continue
+                [ "$id" = "$GITHUB_RUN_ID" ] && continue
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id" || true
+              done
