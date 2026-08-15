@@ -1,0 +1,33 @@
+name: VBTH Hetushu Visible Extract
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "story_pipeline/hetushu_visible_trigger.json"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Extract visible chapter text
+        run: python story_pipeline/hetushu_visible.py
+      - name: Upload exact visible text
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbth-hetushu-visible-${{ github.run_id }}
+          path: hetushu_visible/
+          retention-days: 3
+          if-no-files-found: error
