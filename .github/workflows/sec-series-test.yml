@@ -15,17 +15,18 @@ jobs:
       - run: |
           python - <<'PY'
           import urllib.request, urllib.parse, xml.etree.ElementTree as ET
-          params={'action':'getcompany','CIK':'S000050154','type':'NPORT-P','owner':'exclude','count':'100','output':'atom'}
-          u='https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(params)
-          req=urllib.request.Request(u,headers={'User-Agent':'Louis research contact@example.com'})
-          with urllib.request.urlopen(req,timeout=30) as r:
-              data=r.read()
-          print('BYTES',len(data))
-          print(data[:1000].decode('utf-8','replace'))
-          root=ET.fromstring(data)
-          ns={'a':'http://www.w3.org/2005/Atom'}
-          es=root.findall('a:entry',ns)
-          print('ENTRIES',len(es))
-          for e in es[:5]:
-              print(ET.tostring(e,encoding='unicode')[:1500])
+          for form in ['NPORT-P','N-CSR','N-CSRS','N-Q']:
+              params={'action':'getcompany','CIK':'S000050154','type':form,'owner':'exclude','count':'100','output':'atom'}
+              u='https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(params)
+              req=urllib.request.Request(u,headers={'User-Agent':'Louis research contact@example.com'})
+              with urllib.request.urlopen(req,timeout=30) as r:data=r.read()
+              root=ET.fromstring(data); ns={'a':'http://www.w3.org/2005/Atom'}
+              es=root.findall('a:entry',ns)
+              print('\nFORM',form,'ENTRIES',len(es))
+              for e in es:
+                  c=e.find('a:content',ns)
+                  if c is None: continue
+                  def tx(tag):
+                      n=c.find('a:'+tag,ns); return n.text if n is not None else None
+                  print(tx('filing-date'),tx('filing-type'),tx('accession-number'))
           PY
