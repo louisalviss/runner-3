@@ -1,4 +1,8 @@
 rebalance_date,snapshot_date,exit_date,top1,reconstructed_top1_value,close_to_close_return,next_open_return,candidate_scope,source_accession,status,notes
+2020-03-20,2020-05-31,2020-09-18,AAPL,2484503.0,0.8726637233,0.8416691799,"Automated SEC NPORT holdings >=1.5% NAV",0001752724-20-148736,sanity_pass,"Automated Jina->SEC NPORT parser; ranks AAPL #1, MSFT #2, V #3"
+2020-09-18,2020-11-30,2021-03-19,MSFT,4848436.0,0.1551727059,0.1735107334,"Automated SEC NPORT holdings >=1.5% NAV",0001752724-21-016818,sanity_pass,"Automated Jina->SEC NPORT parser; ranks MSFT #1, AMZN #2, AAPL #3"
+2021-03-19,2021-05-31,2021-09-17,AMZN,7306105.0,0.1260374499,0.1069641672,"Automated SEC NPORT holdings >=1.5% NAV",0001752724-21-161170,sanity_pass,"Very close reconstruction: AMZN #1, MSFT #2, AAPL #3; margin about 0.16% vs MSFT"
+2021-09-17,2021-11-30,2022-03-18,GOOG,9520494.0,-0.0329553252,-0.0154868769,"Automated SEC NPORT holdings >=1.5% NAV",0001752724-22-018016,sanity_pass,"Automated Jina->SEC NPORT parser; ranks GOOG #1, GOOGL #2, BRK-B #3"
 2022-03-18,2022-05-31,2022-09-16,GOOGL,6626589.0,-0.2448144291,-0.2527365058,"SEC snapshot holdings >=2% NAV",0001752724-22-170575,sanity_pass,"Matches article claim: Alphabet worst period about -24.3%; candidate reconstruction ranks GOOGL #1, GOOG #2, BRK-B #3"
 2022-09-16,2022-11-30,2023-03-17,XOM,15956810.0,0.0880609501,0.1120188506,"SEC snapshot holdings >=2.73% NAV",0001752724-23-017322,sanity_pass,"Candidate reconstruction ranks XOM #1, BRK-B #2, UNH #3"
 2023-03-17,2023-05-31,2023-09-15,XOM,16528012.1444,0.1886780652,0.1996553209,"SEC snapshot holdings >=2.38% NAV",0001752724-23-166926,sanity_pass,"Candidate reconstruction ranks XOM #1, MRK #2, LLY #3"
