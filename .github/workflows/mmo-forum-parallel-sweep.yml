@@ -1,0 +1,46 @@
+name: MMO Forum Parallel Sweep
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mmo-parallel-trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: afflift
+            config: mmo-parallel-config/afflift.json
+          - key: buildersociety
+            config: mmo-parallel-config/buildersociety.json
+          - key: wickedfire
+            config: mmo-parallel-config/wickedfire.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: python -m pip install requests beautifulsoup4
+      - name: Sweep ${{ matrix.key }}
+        run: python scripts/run_mmo_sweep_config.py '${{ matrix.config }}' --output 'mmo_sweep_output/${{ matrix.key }}'
+      - name: Upload source artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-${{ matrix.key }}-${{ github.run_id }}
+          path: mmo_sweep_output/${{ matrix.key }}/
+          if-no-files-found: warn
+          retention-days: 3
