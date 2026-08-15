@@ -15,12 +15,18 @@ jobs:
       - run: |
           python - <<'PY'
           import urllib.request
-          u='https://www.sec.gov/Archives/edgar/data/1378872/000175272425180531/0001752724-25-180531.txt'
-          req=urllib.request.Request(u,headers={'User-Agent':'Louis research contact@example.com'})
-          try:
-              with urllib.request.urlopen(req,timeout=30) as r:
-                  data=r.read(200000)
-                  print('STATUS',r.status,'BYTES',len(data),'SERIES',b'S000050154' in data)
-          except Exception as e:
-              print('ERROR',repr(e)); raise
+          H={'User-Agent':'Louis research contact@example.com'}
+          urls=[
+            'https://www.sec.gov/Archives/edgar/data/1378872/000175272425180531/0001752724-25-180531.txt',
+            'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=1378872&type=NPORT-P&dateb=&owner=exclude&count=100&output=atom',
+            'https://www.sec.gov/Archives/edgar/full-index/2025/QTR2/master.idx'
+          ]
+          for u in urls:
+              try:
+                  req=urllib.request.Request(u,headers=H)
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      data=r.read(300000)
+                      print('OK',r.status,len(data),u,'HEAD',data[:80])
+              except Exception as e:
+                  print('ERROR',repr(e),u)
           PY
