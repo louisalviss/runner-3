@@ -7,7 +7,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: vidian-semantic-v2
+  group: vidian-semantic-v3
   cancel-in-progress: true
 
 jobs:
@@ -84,8 +84,15 @@ jobs:
         with:
           name: vidian-inventory
           path: vidian_inventory
+      - name: Try newest checkpoint
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-snapshot-${{ matrix.chunk }}
+          path: latest_snapshot
+          github-token: ${{ github.token }}
+          run-id: 31881272334
       - name: Try previous checkpoint
-        id: previous_checkpoint
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -93,24 +100,32 @@ jobs:
           path: previous_snapshot
           github-token: ${{ github.token }}
           run-id: 31878857405
-      - name: Seed resumable snapshot
+      - name: Seed best resumable snapshot
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p snapshot_out
           f=$(printf 'vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
-          if [[ -f "previous_snapshot/$f" ]]; then
-            cp "previous_snapshot/$f" "snapshot_out/$f"
-            python - "$f" <<'PY'
-          import json,sys
+          python - "$f" <<'PY'
+          import json,sys,shutil
           from pathlib import Path
-          p=Path('snapshot_out')/sys.argv[1]
-          rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
-          print({'seed_rows':len(rows),'seed_fetched':sum(r.get('status')=='fetched' for r in rows)})
+          name=sys.argv[1]
+          candidates=[]
+          for root in (Path('latest_snapshot'), Path('previous_snapshot')):
+              p=root/name
+              if not p.exists():
+                  continue
+              rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+              fetched=sum(r.get('status')=='fetched' for r in rows)
+              candidates.append((fetched,len(rows),p))
+          out=Path('snapshot_out')/name
+          if candidates:
+              fetched,total,p=max(candidates,key=lambda x:(x[0],x[1]))
+              shutil.copy2(p,out)
+              print({'seed_source':str(p),'seed_rows':total,'seed_fetched':fetched})
+          else:
+              print({'seed_source':None,'seed_rows':0,'seed_fetched':0})
           PY
-          else
-            echo '{"seed_rows":0,"seed_fetched":0}'
-          fi
       - name: Resume snapshot until complete
         run: |
           f=$(printf 'snapshot_out/vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
