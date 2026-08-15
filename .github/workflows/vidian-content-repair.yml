@@ -1,0 +1,270 @@
+name: vidian-content-repair
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-content-repair.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vidian-content-repair-v2
+  cancel-in-progress: true
+
+env:
+  BASELINE_RUN: '31904000468'
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audit dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - name: Regression smoke
+        run: python scripts/vidian_content_fix.py smoke
+      - name: Download baseline inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: baseline_inventory
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BASELINE_RUN }}
+      - name: Download baseline snapshots
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-snapshot-*
+          path: baseline_snapshots
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BASELINE_RUN }}
+      - name: Build targeted refresh set
+        run: |
+          python scripts/vidian_content_fix.py audit \
+            --input baseline_snapshots \
+            --out audit_out \
+            --expected 8826 \
+            --max-paragraphs 12 \
+            --max-chars 2500 \
+            --sample-per-chunk 3
+          cp baseline_inventory/vidian_inventory.json audit_out/vidian_inventory.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-content-fix-audit
+          path: audit_out
+          retention-days: 7
+          compression-level: 9
+
+  refresh:
+    needs: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install snapshot dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - name: Download audit set
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-content-fix-audit
+          path: audit
+      - name: Download baseline shard
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-snapshot-${{ matrix.chunk }}
+          path: baseline_snapshot
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BASELINE_RUN }}
+      - name: Seed and refresh suspects only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot_out
+          f=$(printf 'vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
+          cp "baseline_snapshot/$f" "snapshot_out/$f"
+          python scripts/vidian_content_fix.py refresh \
+            --inventory audit/vidian_inventory.json \
+            --snapshot "snapshot_out/$f" \
+            --candidates audit/candidates.json \
+            --out snapshot_out \
+            --index ${{ matrix.chunk }} \
+            --passes 6 \
+            --delay 0.6 \
+            --timeout 15 \
+            --cooldown-429 40 \
+            --max-429-retries 8
+      - name: Validate fixed snapshot
+        run: |
+          python - <<'PY'
+          import glob,json
+          p=glob.glob('snapshot_out/snapshot_*_summary.json')[0]
+          x=json.load(open(p,encoding='utf-8'))
+          print(x)
+          assert x['failed'] == 0, x
+          PY
+      - name: Upload fixed snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-fixed-snapshot-${{ matrix.chunk }}
+          path: snapshot_out
+          retention-days: 7
+          compression-level: 6
+
+  coverage:
+    needs: [audit, refresh]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install QA dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-content-fix-audit
+          path: audit
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-fixed-snapshot-*
+          path: fixed_snapshots
+          merge-multiple: false
+      - name: Holdout and regression QA
+        run: python scripts/vidian_content_fix.py coverage --candidates audit/candidates.json --snapshots fixed_snapshots --out coverage_out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-content-fix-coverage
+          path: coverage_out
+          retention-days: 7
+          compression-level: 9
+
+  parser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub/checkpoints
+          key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+      - name: Validate dependency parser
+        run: python scripts/vidian_pipeline.py smoke
+
+  semantic:
+    needs: [coverage, parser-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub/checkpoints
+          key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-fixed-snapshot-${{ matrix.chunk }}
+          path: snapshot_in
+      - name: Rebuild semantic frame with short-fragment preservation
+        run: |
+          f=$(printf 'snapshot_in/vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
+          python scripts/vidian_content_fix.py semantic \
+            --snapshot "$f" \
+            --out semantic_out \
+            --index ${{ matrix.chunk }} \
+            --parse-group-size 512
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-fixed-semantic-${{ matrix.chunk }}
+          path: semantic_out
+          retention-days: 7
+          compression-level: 6
+
+  merge:
+    needs: [audit, coverage, semantic]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install merge dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-content-fix-audit
+          path: audit
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-fixed-semantic-*
+          path: semantic_all
+          merge-multiple: false
+      - name: Merge fixed corpus
+        run: |
+          python scripts/vidian_pipeline.py merge \
+            --inventory audit/vidian_inventory.json \
+            --input semantic_all \
+            --out vidian_semantic_corpus_v2 \
+            --count 64
+      - name: Final QA
+        run: python scripts/vidian_content_fix.py qa --corpus vidian_semantic_corpus_v2 --out final_qa --expected 8826
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2
+          path: vidian_semantic_corpus_v2
+          retention-days: 7
+          compression-level: 6
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2-qa
+          path: final_qa
+          retention-days: 7
+          compression-level: 9
