@@ -1,0 +1,98 @@
+name: SPMO Legacy Parser Test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/spmo-legacy-parser-test.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install beautifulsoup4 lxml pandas
+      - run: |
+          python - <<'PY'
+          import re, urllib.request, html
+          import pandas as pd
+          from bs4 import BeautifulSoup
+          CIK='1378872'; UA={'User-Agent':'Louis research contact@example.com'}
+          files={
+            '2016-03':('0001193125-16-644489','2016-04-30'),
+            '2016-09':('0001193125-17-002614','2016-10-31'),
+            '2017-03':('0001193125-17-221822','2017-04-30'),
+            '2017-09':('0001193125-18-002695','2017-10-31'),
+            '2018-03':('0001193125-18-214392','2018-04-30'),
+            '2018-09':('0001193125-19-020397','2018-11-30'),
+            '2019-03':('0001193125-19-190405','2019-04-30'),
+          }
+          def get(acc):
+            u=f'https://www.sec.gov/Archives/edgar/data/{CIK}/{acc.replace("-","")}/{acc}.txt'
+            req=urllib.request.Request(u,headers=UA)
+            with urllib.request.urlopen(req,timeout=90) as r:return r.read().decode('utf-8','replace')
+          def number(x):
+            s=str(x).replace(',','').replace('$','').replace('(','-').replace(')','').strip()
+            s=re.sub(r'[^0-9eE+\-.]','',s)
+            try:return float(s)
+            except:return None
+          def norm(s):
+            s=re.sub(r'\([a-z]{1,3}\)','',s,flags=re.I)
+            return re.sub(r'\s+',' ',s).strip(' *†‡')
+          def extract(txt, expected):
+            low=txt.lower(); pats=['powerShares s&p 500 momentum portfolio (spmo)','invesco s&p 500 momentum etf (spmo)']
+            occ=[]
+            for p in pats:
+              occ += [m.start() for m in re.finditer(re.escape(p.lower()),low)]
+            cands=[]
+            for pos in sorted(occ):
+              prev=low.rfind('schedule of investments',max(0,pos-30000),pos+1)
+              if prev<0:continue
+              # heading must be near the fund name, otherwise it belongs to another fund.
+              if pos-prev>12000:continue
+              nxt=low.find('schedule of investments',pos+500)
+              end=nxt if nxt>0 else min(len(txt),pos+300000)
+              sec=txt[prev:end]
+              plain=BeautifulSoup(sec[:25000],'html.parser').get_text(' ',strip=True)
+              if expected.replace('-','/') not in plain and expected not in plain:
+                # Accept month-name representation.
+                dt=pd.Timestamp(expected)
+                month=dt.strftime('%B %-d, %Y')
+                if month not in plain:continue
+              soup=BeautifulSoup(sec,'html.parser')
+              rows=[]
+              for tr in soup.find_all('tr'):
+                cells=[c.get_text(' ',strip=True) for c in tr.find_all('td')]
+                vals=[v for v in cells if v and v not in ('$','\xa0')]
+                if len(vals)<3:continue
+                nums=[number(v) for v in vals]
+                ni=[(i,n) for i,n in enumerate(nums) if n is not None]
+                if len(ni)<2:continue
+                i1,sh=ni[0]; i2,val=ni[-1]
+                if i2<=i1 or sh<=0 or val<=0:continue
+                words=[vals[j] for j in range(i1+1,i2) if nums[j] is None and vals[j] not in ('$','-','—')]
+                name=norm(' '.join(words))
+                if len(name)<2:continue
+                nl=name.lower()
+                if any(x in nl for x in ['total investments','net assets','other assets','money market fund']):continue
+                if nl.startswith(('common stocks','common stock','number of shares','value')):continue
+                if '%' in name:continue
+                rows.append((name,sh,val))
+              if len(rows)>=50:cands.append((len(rows),pos-prev,plain[:500],rows))
+            if not cands:return None
+            cands.sort(key=lambda x:(-x[0],x[1]))
+            return cands[0]
+          for label,(acc,expected) in files.items():
+            print('\n###',label,acc,expected)
+            txt=get(acc)
+            r=extract(txt,expected)
+            if not r:
+              print('FAILED');continue
+            count,dist,head,rows=r
+            rows=sorted(rows,key=lambda x:x[2],reverse=True)
+            print('ROWS',count,'HEADING_DIST',dist)
+            print('HEAD',head)
+            print('TOP10')
+            for x in rows[:10]:print(x)
+          PY
