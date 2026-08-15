@@ -14,21 +14,42 @@ a=p.parse_args()
 
 rb=pd.Timestamp(a.rebalance); snap=pd.Timestamp(a.snapshot); ex=pd.Timestamp(a.exit)
 df=pd.read_csv(a.csv); tickers=df.ticker.tolist()
-data=yf.download(tickers,start=(rb-pd.Timedelta(days=5)).strftime('%Y-%m-%d'),end=(ex+pd.Timedelta(days=6)).strftime('%Y-%m-%d'),auto_adjust=False,actions=True,threads=True,progress=False)
+start=(rb-pd.Timedelta(days=5)).strftime('%Y-%m-%d')
+end=(ex+pd.Timedelta(days=6)).strftime('%Y-%m-%d')
+# Sequential downloads avoid intermittent yfinance/peewee "database is locked" failures on GitHub runners.
+data=yf.download(tickers,start=start,end=end,auto_adjust=False,actions=True,threads=False,progress=False)
 
 def fld(n):
     x=data[n]
     return x.to_frame(tickers[0]) if isinstance(x,pd.Series) else x
 close=fld('Close'); adj=fld('Adj Close'); op=fld('Open')
+
+def ensure_ticker(t):
+    global close,adj,op
+    ok=(t in close.columns and not close[t].dropna().empty and t in adj.columns and not adj[t].dropna().empty and t in op.columns and not op[t].dropna().empty)
+    if ok:return
+    one=yf.download(t,start=start,end=end,auto_adjust=False,actions=True,threads=False,progress=False)
+    if one.empty:raise RuntimeError(f'No price data for {t}')
+    def onef(n):
+        x=one[n]
+        if isinstance(x,pd.DataFrame):
+            if t in x.columns:return x[t]
+            return x.iloc[:,0]
+        return x
+    close[t]=onef('Close'); adj[t]=onef('Adj Close'); op[t]=onef('Open')
+
 def at(f,d,t):
     s=f[t].dropna(); s=s[s.index<=d]
+    if s.empty:raise RuntimeError(f'No {t} price on/before {d.date()}')
     return float(s.iloc[-1])
 def after(f,d,t):
     s=f[t].dropna(); s=s[s.index>=d]
+    if s.empty:raise RuntimeError(f'No {t} price on/after {d.date()}')
     return s.index[0],float(s.iloc[0])
 rows=[]
 for _,r in df.iterrows():
-    t=r.ticker; pr=at(close,rb,t); ps=at(close,snap,t)
+    t=r.ticker; ensure_ticker(t)
+    pr=at(close,rb,t); ps=at(close,snap,t)
     rv=float(r.snapshot_value)*pr/ps
     cr=at(adj,ex,t)/at(adj,rb,t)-1
     ed,eo=after(op,rb+pd.Timedelta(days=1),t); xd,xo=after(op,ex+pd.Timedelta(days=1),t)
