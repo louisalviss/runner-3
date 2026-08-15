@@ -5,7 +5,6 @@ import hashlib
 import json
 import re
 import subprocess
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -30,6 +29,11 @@ SENSITIVE_QUERY_KEYS = {
     "password", "passwd", "session", "sessionid", "jwt"
 }
 ALLOWED_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
+X_ERROR_MARKERS = (
+    "something went wrong, but don’t fret",
+    "something went wrong, but don't fret",
+    "some privacy related extensions may cause issues on x.com",
+)
 
 
 def now_iso():
@@ -165,6 +169,17 @@ def status_identity(url):
     return {"author_handle": m.group(1), "post_id": m.group(2)}
 
 
+def classify_surface(url, post_id):
+    path = urlparse(url).path.rstrip("/")
+    if post_id:
+        return "status"
+    if path == "/search":
+        return "search"
+    if re.fullmatch(r"/[A-Za-z0-9_]{1,30}", path or ""):
+        return "profile"
+    return "other"
+
+
 def safe_name(url, index):
     p = urlparse(url)
     path = re.sub(r"[^a-zA-Z0-9._-]+", "_", p.path.strip("/"))[:100] or "root"
@@ -208,6 +223,7 @@ def fetch_one(index, url, timeout, artifact_policy, output_root):
         parse_error = None
 
     identity = status_identity(final_url or url)
+    surface = classify_surface(final_url or url, identity["post_id"])
     description = (
         meta_tags.get("og:description")
         or meta_tags.get("twitter:description")
@@ -215,22 +231,43 @@ def fetch_one(index, url, timeout, artifact_policy, output_root):
         or ""
     )
     image = meta_tags.get("og:image") or meta_tags.get("twitter:image") or ""
+    lower_text = text.lower()
+    search_error_present = any(marker in lower_text for marker in X_ERROR_MARKERS)
+    login_wall_present = "log in or sign up for x" in lower_text
+    comment_scope = None
+    if identity["post_id"]:
+        comment_scope = "sample_only" if login_wall_present else "unknown"
+
     structured = {
         **identity,
+        "surface": surface,
         "canonical_url": canonical or (final_url.split("?", 1)[0] if final_url else url.split("?", 1)[0]),
         "description": description,
         "image": image,
         "og_title": meta_tags.get("og:title", ""),
         "twitter_title": meta_tags.get("twitter:title", ""),
+        "login_wall_present": login_wall_present,
+        "search_error_present": search_error_present,
+        "comment_scope": comment_scope,
     }
 
     elapsed = round(time.time() - started, 3)
-    ok = bool(proc.returncode == 0 and status is not None and 200 <= status < 300 and len(text) >= 80)
+    ok = bool(
+        proc.returncode == 0
+        and status is not None
+        and 200 <= status < 300
+        and len(text) >= 300
+        and not search_error_present
+    )
     errors = []
     if proc.returncode != 0:
         errors.append((proc.stderr or f"curl exit {proc.returncode}").strip())
     if parse_error:
         errors.append(f"parse: {parse_error}")
+    if search_error_present:
+        errors.append("X returned an anonymous search/error shell instead of usable results")
+    elif status is not None and 200 <= status < 300 and len(text) < 300:
+        errors.append("X returned too little visible text to treat as usable content")
 
     record = {
         "engine": "x-fast-http",
@@ -308,6 +345,7 @@ def main():
             results[i] = record
             print(json.dumps({
                 "url": record.get("requested_url"),
+                "surface": record.get("surface"),
                 "status": record.get("status"),
                 "ok": record.get("ok"),
                 "seconds": record.get("elapsed_seconds"),
@@ -328,7 +366,7 @@ def main():
         "ok_count": sum(1 for r in results if r and r.get("ok")),
         "failed_count": sum(1 for r in results if not r or not r.get("ok")),
         "results": results,
-        "note": "Anonymous X pages may expose only a sample of replies; full comment threads are not guaranteed.",
+        "note": "Status/profile pages are anonymous public snapshots. Status pages may expose only a sample of replies; full comment threads are not guaranteed. Anonymous X search can return an unusable error shell and is marked failed.",
     }
     if cfg["artifact_policy"] != "none":
         (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
