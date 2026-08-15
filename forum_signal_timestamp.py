@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -82,7 +83,6 @@ def build_post_timestamp_map(html):
             if m:
                 out[m.group(1)] = ts
 
-    # Some XenForo themes place the attribution timestamp outside the message body node.
     for a in soup.find_all("a", href=True):
         href = str(a.get("href") or "")
         m = re.search(r"(?:post-|/post-?|#post-?)(\d{5,})", href)
@@ -102,10 +102,10 @@ def recover_for_url(url, headers, timeout):
     try:
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         if r.status_code >= 400:
-            return {}, f"http_{r.status_code}"
-        return build_post_timestamp_map(r.text), ""
+            return url, {}, f"http_{r.status_code}"
+        return url, build_post_timestamp_map(r.text), ""
     except requests.RequestException as exc:
-        return {}, type(exc).__name__
+        return url, {}, type(exc).__name__
 
 
 def enrich(rows, cache):
@@ -117,6 +117,8 @@ def enrich(rows, cache):
         if str(row.get("timestamp") or "").strip():
             continue
         url = str(row.get("fetched_url") or row.get("thread_url") or "")
+        if url not in cache:
+            continue
         pid = str(row.get("post_id") or "")
         mapping = cache.get(url) or {}
         ts = mapping.get(pid, "")
@@ -136,42 +138,54 @@ def enrich(rows, cache):
 def main():
     ap = argparse.ArgumentParser(description="Recover missing Otofun/XenForo post timestamps")
     ap.add_argument("--output-dir", default="crawl_output")
-    ap.add_argument("--timeout", type=int, default=25)
+    ap.add_argument("--timeout", type=int, default=10)
+    ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--validate-only", action="store_true")
     args = ap.parse_args()
     if args.validate_only:
-        print(json.dumps({"timestamp_recovery": "forum-signal-timestamp-v1", "validated": True}))
+        print(json.dumps({"timestamp_recovery": "forum-signal-timestamp-v2", "validated": True}))
         return
 
     root = Path(args.output_dir)
-    files = [root / "forum_signal_snapshot.jsonl", root / "forum_signal.jsonl"]
-    all_rows = {p: read_jsonl(p) for p in files}
+    delta_path = root / "forum_signal.jsonl"
+    snapshot_path = root / "forum_signal_snapshot.jsonl"
+    delta_rows = read_jsonl(delta_path)
+    snapshot_rows = read_jsonl(snapshot_path)
+
+    # Only delta rows can reach the scorer. Refetching every selected Otofun thread
+    # would add latency without improving the current decision.
     urls = sorted({
         str(r.get("fetched_url") or r.get("thread_url") or "")
-        for rows in all_rows.values() for r in rows
-        if str(r.get("source") or "").startswith("OF-") and not str(r.get("timestamp") or "").strip()
+        for r in delta_rows
+        if str(r.get("source") or "").startswith("OF-")
+        and not str(r.get("timestamp") or "").strip()
         and str(r.get("fetched_url") or r.get("thread_url") or "")
     })
     headers = {"User-Agent": DEFAULT_UA, "Accept": "text/html,application/xhtml+xml"}
     cache = {}
     errors = {}
-    for url in urls:
-        mapping, err = recover_for_url(url, headers, args.timeout)
-        cache[url] = mapping
-        if err:
-            errors[url] = err
+    if urls:
+        with ThreadPoolExecutor(max_workers=max(1, min(args.workers, 12))) as pool:
+            futures = [pool.submit(recover_for_url, url, headers, args.timeout) for url in urls]
+            for fut in as_completed(futures):
+                url, mapping, err = fut.result()
+                cache[url] = mapping
+                if err:
+                    errors[url] = err
 
-    stats = {}
-    for p, rows in all_rows.items():
-        recovered, unresolved = enrich(rows, cache)
-        write_jsonl(p, rows)
-        stats[p.name] = {"recovered": recovered, "unresolved": unresolved}
+    delta_recovered, delta_unresolved = enrich(delta_rows, cache)
+    snapshot_recovered, snapshot_unresolved = enrich(snapshot_rows, cache)
+    write_jsonl(delta_path, delta_rows)
+    write_jsonl(snapshot_path, snapshot_rows)
 
     print(json.dumps({
-        "timestamp_recovery": "forum-signal-timestamp-v1",
-        "urls_refetched": len(urls),
+        "timestamp_recovery": "forum-signal-timestamp-v2",
+        "delta_urls_refetched": len(urls),
         "url_errors": len(errors),
-        "files": stats,
+        "delta_recovered": delta_recovered,
+        "delta_unresolved": delta_unresolved,
+        "snapshot_recovered_for_same_threads": snapshot_recovered,
+        "snapshot_unresolved_for_same_threads": snapshot_unresolved,
     }, ensure_ascii=False))
 
 
