@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'jobs/forum-signal*.json'
+      - 'forum-jobs/forum-signal*.json'
   workflow_dispatch:
     inputs:
       job_file:
         description: 'Path to forum signal job JSON'
         required: true
-        default: 'jobs/forum-signal-vn.json'
+        default: 'forum-jobs/forum-signal-vn.json'
         type: string
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             JOB_FILE='${{ inputs.job_file }}'
           else
-            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/forum-signal*.json' | tail -n 1 || true)"
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'forum-jobs/forum-signal*.json' | tail -n 1 || true)"
           fi
           if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
             echo "No valid forum signal job found: $JOB_FILE" >&2
