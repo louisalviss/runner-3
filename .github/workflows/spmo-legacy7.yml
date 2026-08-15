@@ -1,0 +1,28 @@
+name: SPMO Legacy 7
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-legacy/parse_all7.py'
+      - '.github/workflows/spmo-legacy7.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pandas requests
+      - run: python -u spmo-legacy/parse_all7.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spmo-legacy7-${{ github.run_id }}
+          path: spmo-legacy7/output/
+          if-no-files-found: error
+          retention-days: 7
