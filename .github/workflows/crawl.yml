@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Resolve job file
         id: job
@@ -31,7 +33,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             JOB_FILE='${{ inputs.job_file }}'
           else
-            JOB_FILE="$(git show --pretty='' --name-only "$GITHUB_SHA" | grep -E '^jobs/.+\.json$' | tail -n 1 || true)"
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/*.json' | tail -n 1 || true)"
           fi
 
           if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
