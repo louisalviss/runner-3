@@ -34,7 +34,7 @@ jobs:
           python -m pip install pandas numpy requests yfinance beautifulsoup4 lxml python-dateutil html5lib
 
       - name: Run SPMO backtest
-        run: python spmo-backtest/run_proxy.py
+        run: python spmo-backtest/backtest_efts.py
 
       - name: Upload results
         if: always()
