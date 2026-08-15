@@ -81,7 +81,7 @@ jobs:
           name: vidian-inventory
           path: vidian_inventory
       - name: Build semantic frame chunk
-        run: python scripts/vidian_pipeline.py chunk --inventory vidian_inventory/vidian_inventory.json --out semantic_out --index ${{ matrix.chunk }} --count 32 --workers 8 --batch-sentences 512
+        run: python scripts/vidian_pipeline.py chunk --inventory vidian_inventory/vidian_inventory.json --out semantic_out --index ${{ matrix.chunk }} --count 32 --fetch-workers 8 --parse-group-size 512
       - uses: actions/upload-artifact@v4
         with:
           name: vidian-semantic-${{ matrix.chunk }}
@@ -109,7 +109,7 @@ jobs:
           pattern: vidian-semantic-*
           path: semantic_all
       - name: Merge and validate corpus
-        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus
+        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus --count 32
       - uses: actions/upload-artifact@v4
         with:
           name: vidian-semantic-corpus
