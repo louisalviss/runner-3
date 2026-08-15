@@ -1,0 +1,31 @@
+name: SPMO HF Filing List
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-hf/list_filings.py'
+      - '.github/workflows/spmo-hf-filings.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install duckdb pandas
+      - run: python -u spmo-hf/list_filings.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spmo-hf-filings-${{ github.run_id }}
+          path: spmo-hf/filings-output/
+          if-no-files-found: error
+          retention-days: 7
