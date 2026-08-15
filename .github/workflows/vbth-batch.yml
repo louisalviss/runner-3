@@ -91,6 +91,22 @@ jobs:
             --bible story_pipeline/config/story_bible.json
           cp story_pipeline/config/story_bible.json vbth_work/story_bible.snapshot.json
 
+      - name: Validate verified chapter boundaries 1-3
+        if: ${{ env.START_PART == '1' && env.END_PART == '8' }}
+        run: |
+          mkdir -p vbth_work/merge_validation_input
+          cp vbth_work/clean/part-*.json vbth_work/merge_validation_input/
+          python story_pipeline/merge_segments.py \
+            --edited vbth_work/merge_validation_input \
+            --map story_pipeline/config/chapter_map.001-003.json \
+            --output vbth_work/merge_validation
+          python - <<'PY'
+          import json
+          m = json.load(open('vbth_work/merge_validation/manifest.json', encoding='utf-8'))
+          assert m['count'] == 3 and m['failed'] == 0, m
+          print({'verified_original_chapters': m['chapters']})
+          PY
+
       - name: Batch summary
         run: |
           python - <<'PY'
