@@ -2,11 +2,6 @@ name: v
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/vidian_pipeline.py'
-      - '.github/workflows/vidian.yml'
 
 permissions:
   contents: read
