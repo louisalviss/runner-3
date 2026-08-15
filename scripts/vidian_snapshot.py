@@ -16,7 +16,7 @@ import vidian_pipeline as vp
 def http_session():
     s = requests.Session()
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (compatible; runner-3/VidianSnapshot/1.1)",
+        "User-Agent": "Mozilla/5.0 (compatible; runner-3/VidianSnapshot/1.2)",
         "Accept-Language": "vi,en;q=0.8",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Connection": "close",
@@ -31,6 +31,7 @@ def fetch_article(s, row, timeout_sec):
         "listing_title": row.get("listing_title", ""),
         "status": "fetch-error",
         "http_status": 0,
+        "retry_after": "",
         "title": "",
         "paragraphs": [],
         "paragraph_count": 0,
@@ -41,6 +42,7 @@ def fetch_article(s, row, timeout_sec):
     try:
         r = s.get(row["url"], timeout=(5, timeout_sec), allow_redirects=True)
         rec["http_status"] = r.status_code
+        rec["retry_after"] = r.headers.get("Retry-After", "")
         rec["html_sha256"] = hashlib.sha256(r.content).hexdigest()
         if not r.ok:
             rec["status"] = f"http-{r.status_code}"
@@ -87,7 +89,17 @@ def save_checkpoint(path, selected, rows):
     tmp.replace(p)
 
 
-def run(inventory_path, outdir, index, count, passes, delay, timeout_sec, resume, allow_incomplete):
+def cooldown_seconds(rec, default_sec):
+    raw = str(rec.get("retry_after", "")).strip()
+    if raw:
+        try:
+            return max(5.0, min(120.0, float(raw)))
+        except ValueError:
+            pass
+    return default_sec
+
+
+def run(inventory_path, outdir, index, count, passes, delay, timeout_sec, resume, allow_incomplete, cooldown_429, max_429_retries):
     inv = json.loads(Path(inventory_path).read_text(encoding="utf-8"))
     trusted = [r for r in inv["rows"] if r.get("trusted")]
     selected = [r for i, r in enumerate(trusted) if i % count == index]
@@ -97,6 +109,7 @@ def run(inventory_path, outdir, index, count, passes, delay, timeout_sec, resume
     rows = load_existing(resume or path)
     by_url = {r["url"]: r for r in selected}
     started = time.time()
+    rate_limit_events = 0
 
     for attempt in range(1, passes + 1):
         pending = [u for u in by_url if rows.get(u, {}).get("status") != "fetched"]
@@ -105,18 +118,39 @@ def run(inventory_path, outdir, index, count, passes, delay, timeout_sec, resume
         print(f"SNAPSHOT_PASS {attempt}/{passes} pending={len(pending)} timeout={timeout_sec}s", flush=True)
         s = http_session()
         for n, url in enumerate(pending, 1):
-            rows[url] = fetch_article(s, by_url[url], timeout_sec)
-            if n % 10 == 0 or n == len(pending):
+            rec = fetch_article(s, by_url[url], timeout_sec)
+            retry_429 = 0
+            while rec.get("status") == "http-429" and retry_429 < max_429_retries:
+                retry_429 += 1
+                rate_limit_events += 1
+                rows[url] = rec
+                save_checkpoint(path, selected, rows)
+                pause = cooldown_seconds(rec, cooldown_429)
+                print(
+                    f"RATE_LIMIT chunk={index} item={n}/{len(pending)} retry={retry_429}/{max_429_retries} cooldown={pause:.1f}s",
+                    flush=True,
+                )
+                time.sleep(pause)
+                s.close()
+                s = http_session()
+                rec = fetch_article(s, by_url[url], timeout_sec)
+
+            rows[url] = rec
+            if n % 5 == 0 or n == len(pending):
                 save_checkpoint(path, selected, rows)
                 fetched = sum(rows.get(u, {}).get("status") == "fetched" for u in by_url)
                 failed = sum(u in rows and rows[u].get("status") != "fetched" for u in by_url)
-                print(f"SNAPSHOT {index} pass={attempt} {n}/{len(pending)} fetched={fetched}/{len(selected)} failed_now={failed}", flush=True)
+                print(
+                    f"SNAPSHOT {index} pass={attempt} {n}/{len(pending)} fetched={fetched}/{len(selected)} failed_now={failed} rate_limits={rate_limit_events}",
+                    flush=True,
+                )
             if delay > 0:
                 time.sleep(delay)
+        s.close()
         if attempt < passes:
             left = sum(rows.get(u, {}).get("status") != "fetched" for u in by_url)
             if left:
-                pause = min(12, 3 * attempt)
+                pause = min(20, 5 * attempt)
                 print(f"SNAPSHOT_REPAIR_BACKOFF {pause}s failures={left}", flush=True)
                 time.sleep(pause)
 
@@ -134,6 +168,8 @@ def run(inventory_path, outdir, index, count, passes, delay, timeout_sec, resume
         "passes_this_step": passes,
         "request_delay_sec": delay,
         "read_timeout_sec": timeout_sec,
+        "cooldown_429_sec": cooldown_429,
+        "rate_limit_events": rate_limit_events,
         "elapsed_sec": round(time.time() - started, 3),
         "completed_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -157,8 +193,14 @@ def main():
     ap.add_argument("--timeout", type=float, default=8.0)
     ap.add_argument("--resume", default="")
     ap.add_argument("--allow-incomplete", action="store_true")
+    ap.add_argument("--cooldown-429", type=float, default=32.0)
+    ap.add_argument("--max-429-retries", type=int, default=3)
     a = ap.parse_args()
-    run(a.inventory, a.out, a.index, a.count, a.passes, a.delay, a.timeout, a.resume, a.allow_incomplete)
+    run(
+        a.inventory, a.out, a.index, a.count, a.passes, a.delay,
+        a.timeout, a.resume, a.allow_incomplete,
+        a.cooldown_429, a.max_429_retries,
+    )
 
 
 if __name__ == "__main__":
