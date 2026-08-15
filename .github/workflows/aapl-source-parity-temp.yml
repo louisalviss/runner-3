@@ -1,0 +1,121 @@
+name: AAPL source parity temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/aapl-source-parity-temp.yml']
+permissions:
+  contents: write
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - name: Extract validated historical engine harness
+        run: |
+          git show 20939d0767153cef6b8af0bc275cc8b64064aaae:jobs/wave_stage2_smoke.py > /tmp/base.py
+          git show 740c5b611235be83d1caa621649e5db59a4ed01e:.github/workflows/wave-cme-hist-temp.yml > /tmp/old.yml
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('/tmp/old.yml').read_text()
+          marker="          cat > /tmp/hist.py <<'PY'\n"
+          a=s.index(marker)+len(marker)
+          b=s.index("\n          PY\n          python /tmp/hist.py",a)
+          block=s[a:b]
+          lines=[]
+          for line in block.splitlines():
+              lines.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/template.py').write_text('\n'.join(lines)+'\n')
+          PY
+      - name: Raw 3m candle parity on Aug 12-14
+        run: |
+          python - <<'PY'
+          import importlib.util,json,urllib.request
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          spec=importlib.util.spec_from_file_location('m','/tmp/base.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          NY=ZoneInfo('America/New_York')
+          tv=m.fetch('NASDAQ','AAPL',bars=1000,timeout=30)
+          url='https://api.marketdata.app/v1/stocks/candles/3/AAPL/?from=2026-08-07&to=2026-08-15&extended=false&adjustsplits=false'
+          with urllib.request.urlopen(url,timeout=60) as r:p=json.load(r)
+          md=list(zip(p['t'],p['o'],p['h'],p['l'],p['c'],p['v']))
+          tmap={int(x[0]):x for x in tv}; mmap={int(x[0]):x for x in md}
+          out={'sessions':{},'overall':{}}
+          all_diffs=[]; missing_tv=missing_md=exact=common=0
+          for d in ['2026-08-12','2026-08-13','2026-08-14']:
+              keys=sorted(set(k for k in tmap if datetime.fromtimestamp(k,NY).date().isoformat()==d)|set(k for k in mmap if datetime.fromtimestamp(k,NY).date().isoformat()==d))
+              sd=[];ex=co=mt=mm=0
+              for k in keys:
+                  a=tmap.get(k);b=mmap.get(k)
+                  if a is None:mm+=1;continue
+                  if b is None:mt+=1;continue
+                  co+=1
+                  diffs=[abs(float(a[j])-float(b[j])) for j in range(1,5)]
+                  sd.extend(diffs);all_diffs.extend(diffs)
+                  if max(diffs)<1e-9:ex+=1
+              out['sessions'][d]={'tv_bars':sum(1 for k in tmap if datetime.fromtimestamp(k,NY).date().isoformat()==d),'md_bars':sum(1 for k in mmap if datetime.fromtimestamp(k,NY).date().isoformat()==d),'common':co,'exact_ohlc':ex,'max_ohlc_abs_diff':max(sd) if sd else None,'missing_in_tv':mm,'missing_in_md':mt}
+              common+=co;exact+=ex;missing_tv+=mm;missing_md+=mt
+          out['overall']={'common':common,'exact_ohlc':exact,'exact_pct':round(100*exact/common,4) if common else 0,'max_ohlc_abs_diff':max(all_diffs) if all_diffs else None,'missing_in_tv':missing_tv,'missing_in_md':missing_md}
+          open('aapl_raw_parity.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Build TradingView and MarketData overlap backtests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          base=Path('/tmp/template.py').read_text()
+          tv=base.replace("m.fetch('NASDAQ','CME',bars=BARS_REQUESTED,timeout=30)","m.fetch('NASDAQ','AAPL',bars=BARS_REQUESTED,timeout=30)").replace("'symbol':'CME'","'symbol':'AAPL'").replace("wave_cme_hist.json","aapl_tv_overlap.json")
+          Path('/tmp/tv.py').write_text(tv)
+          md_fetch="""(lambda p: sorted(zip(p['t'],p['o'],p['h'],p['l'],p['c'],p['v'])))(__import__('json').load(__import__('urllib.request',fromlist=['urlopen']).urlopen('https://api.marketdata.app/v1/stocks/candles/3/AAPL/?from=2026-06-22&to=2026-08-15&extended=false&adjustsplits=false',timeout=60)))"""
+          md=base.replace("m.fetch('NASDAQ','CME',bars=BARS_REQUESTED,timeout=30)",md_fetch).replace("'symbol':'CME'","'symbol':'AAPL'").replace("wave_cme_hist.json","aapl_md_overlap.json")
+          Path('/tmp/md.py').write_text(md)
+          PY
+          python /tmp/tv.py
+          python /tmp/md.py
+      - name: Compare overlap trades and gate continuation
+        run: |
+          python - <<'PY'
+          import json
+          tv=json.load(open('aapl_tv_overlap.json')); md=json.load(open('aapl_md_overlap.json'))
+          def sig(t):return (t['side'],t['signal_vn'],t['entry_vn'],t['exit_vn'],t['reason'],round(float(t['r']),4))
+          a=[sig(x) for x in tv['trades']];b=[sig(x) for x in md['trades']]
+          sa=set(a);sb=set(b)
+          out={'tv_summary':tv['summary'],'md_summary':md['summary'],'tv_trades':len(a),'md_trades':len(b),'exact_trade_list':a==b,'only_tv':[list(x) for x in sorted(sa-sb)],'only_md':[list(x) for x in sorted(sb-sa)]}
+          raw=json.load(open('aapl_raw_parity.json'))
+          # Continue if trades are exact and no bars are missing on the 3 inspected sessions.
+          passed=(a==b and raw['overall']['missing_in_tv']==0 and raw['overall']['missing_in_md']==0)
+          out['gate_pass']=passed
+          open('aapl_trade_parity.json','w').write(json.dumps(out,indent=2)+'\n')
+          open('/tmp/gate','w').write('PASS' if passed else 'FAIL')
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Continue to AAPL 2026 YTD if parity passes
+        run: |
+          if [ "$(cat /tmp/gate)" != "PASS" ]; then
+            echo 'Parity gate failed; not running longer backtest.'
+            exit 0
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          base=Path('/tmp/template.py').read_text()
+          md_fetch="""(lambda p: sorted(zip(p['t'],p['o'],p['h'],p['l'],p['c'],p['v'])))(__import__('json').load(__import__('urllib.request',fromlist=['urlopen']).urlopen('https://api.marketdata.app/v1/stocks/candles/3/AAPL/?from=2026-01-01&to=2026-08-15&extended=false&adjustsplits=false',timeout=120)))"""
+          y=base.replace("m.fetch('NASDAQ','CME',bars=BARS_REQUESTED,timeout=30)",md_fetch).replace("'symbol':'CME'","'symbol':'AAPL'").replace("wave_cme_hist.json","aapl_md_ytd_2026.json")
+          Path('/tmp/ytd.py').write_text(y)
+          PY
+          python /tmp/ytd.py
+      - name: Persist reports
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add aapl_raw_parity.json aapl_trade_parity.json
+          [ ! -f aapl_tv_overlap.json ] || git add aapl_tv_overlap.json
+          [ ! -f aapl_md_overlap.json ] || git add aapl_md_overlap.json
+          [ ! -f aapl_md_ytd_2026.json ] || git add aapl_md_ytd_2026.json
+          git commit -m 'temp: AAPL source parity and gated backtest [skip ci]' || true
+          git push
