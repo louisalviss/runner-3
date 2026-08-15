@@ -1,5 +1,4 @@
 name: v
-
 on:
   workflow_dispatch:
 
@@ -7,32 +6,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: vidian-public-preservation
+  group: vidian-semantic
   cancel-in-progress: true
 
 jobs:
-  inventory:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install inventory dependencies
-        run: pip install requests beautifulsoup4 lxml
-      - name: Discover current Vidian public inventory
-        run: python scripts/vidian_pipeline.py inventory --out vidian_inventory
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vidian-inventory
-          path: vidian_inventory/
-          retention-days: 30
-
   parser-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -48,14 +27,35 @@ jobs:
       - name: Install CPU NLP stack
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install numpy requests beautifulsoup4 lxml "underthesea[deep]==9.5.0"
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
       - name: Validate dependency parser
         run: python scripts/vidian_pipeline.py smoke
 
-  semantic-frames:
-    needs: [inventory, parser-smoke]
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install inventory dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - name: Discover current Vidian public inventory
+        run: python scripts/vidian_pipeline.py inventory --out vidian_inventory
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory/vidian_inventory.json
+          retention-days: 3
+          compression-level: 9
+
+  semantic:
+    needs: [parser-smoke, inventory]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       max-parallel: 16
@@ -72,66 +72,47 @@ jobs:
         with:
           path: ~/.cache/torch/hub/checkpoints
           key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
       - uses: actions/download-artifact@v4
         with:
           name: vidian-inventory
           path: vidian_inventory
-      - name: Install CPU NLP stack
-        run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install numpy requests beautifulsoup4 lxml "underthesea[deep]==9.5.0"
       - name: Build semantic frame chunk
-        run: |
-          python scripts/vidian_pipeline.py chunk \
-            --inventory vidian_inventory/vidian_inventory.json \
-            --out vidian_chunk \
-            --index ${{ matrix.chunk }} \
-            --count 32 \
-            --fetch-workers 8 \
-            --parse-group-size 512
-      - name: Upload checkpoint
-        if: always()
-        uses: actions/upload-artifact@v4
+        run: python scripts/vidian_pipeline.py chunk --inventory vidian_inventory/vidian_inventory.json --out semantic_out --index ${{ matrix.chunk }} --count 32 --workers 8 --batch-sentences 512
+      - uses: actions/upload-artifact@v4
         with:
-          name: vidian-frame-${{ matrix.chunk }}
-          path: vidian_chunk/
-          if-no-files-found: warn
-          overwrite: true
-          retention-days: 30
+          name: vidian-semantic-${{ matrix.chunk }}
+          path: semantic_out
+          retention-days: 3
+          compression-level: 6
 
   merge:
-    needs: [inventory, parser-smoke, semantic-frames]
-    if: always() && needs.inventory.result == 'success' && needs.parser-smoke.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    needs: semantic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
       - uses: actions/download-artifact@v4
         with:
           name: vidian-inventory
           path: vidian_inventory
       - uses: actions/download-artifact@v4
         with:
-          pattern: vidian-frame-*
-          path: collected
+          pattern: vidian-semantic-*
+          path: semantic_all
       - name: Merge and validate corpus
-        run: |
-          python scripts/vidian_pipeline.py merge \
-            --inventory vidian_inventory/vidian_inventory.json \
-            --input collected \
-            --out vidian_final \
-            --count 32
-      - name: Upload canonical Vidian corpus
-        if: always()
-        uses: actions/upload-artifact@v4
+        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus
+      - uses: actions/upload-artifact@v4
         with:
           name: vidian-semantic-corpus
-          path: vidian_final/
-          if-no-files-found: warn
-          overwrite: true
-          retention-days: 30
+          path: vidian_semantic_corpus
+          retention-days: 7
+          compression-level: 6
