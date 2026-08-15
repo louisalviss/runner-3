@@ -1,0 +1,106 @@
+name: Vidian Public Preservation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/vidian_pipeline.py'
+      - '.github/workflows/vidian.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vidian-public-preservation
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install inventory dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - name: Discover current Vidian public inventory
+        run: python scripts/vidian_pipeline.py inventory --out vidian_inventory
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory/
+          retention-days: 30
+
+  semantic-frames:
+    needs: inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install requests beautifulsoup4 lxml underthesea==9.5.0
+      - name: Build semantic frame chunk
+        run: |
+          python scripts/vidian_pipeline.py chunk \
+            --inventory vidian_inventory/vidian_inventory.json \
+            --out vidian_chunk \
+            --index ${{ matrix.chunk }} \
+            --count 32
+      - name: Upload checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-frame-${{ matrix.chunk }}
+          path: vidian_chunk/
+          if-no-files-found: warn
+          retention-days: 30
+
+  merge:
+    needs: [inventory, semantic-frames]
+    if: always() && needs.inventory.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-frame-*
+          path: collected
+      - name: Merge and validate corpus
+        run: |
+          python scripts/vidian_pipeline.py merge \
+            --inventory vidian_inventory/vidian_inventory.json \
+            --input collected \
+            --out vidian_final
+      - name: Upload canonical Vidian corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus
+          path: vidian_final/
+          if-no-files-found: warn
+          retention-days: 30
