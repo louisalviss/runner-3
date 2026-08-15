@@ -30,13 +30,20 @@ def jina(u,timeout=180):
 def primary_for(acc,known=None):
  folder=acc.replace('-','')
  if known:return f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{known}',known
- idx=f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{acc}-index.htm'
- t,_=jina(idx,90)
- cand=re.findall(r'\b([A-Za-z0-9_-]+dncsr[s]?\.htm)\b',t,re.I)
- if not cand:cand=re.findall(r'\b([A-Za-z0-9_-]+ncsr[s]?\.htm)\b',t,re.I)
- if not cand:raise RuntimeError('No NCSR primary in '+idx+' head='+t[:2500])
- doc=cand[0]
- return f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{doc}',doc
+ # Jina's rendered SEC index omits Document Format Files. Read the complete
+ # submission instead and extract the filename from the N-CSRS/N-CSR document block.
+ complete=f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{acc}.txt'
+ t,_=jina(complete,180)
+ blocks=re.findall(r'<DOCUMENT>([\s\S]*?)</DOCUMENT>',t,re.I)
+ for b in blocks:
+  tm=re.search(r'<TYPE>\s*([^\r\n<]+)',b,re.I)
+  fm=re.search(r'<FILENAME>\s*([^\r\n<]+)',b,re.I)
+  typ=tm.group(1).strip().upper() if tm else ''
+  if fm and typ in ('N-CSRS','N-CSR'):
+   doc=fm.group(1).strip()
+   print('RESOLVED_FROM_COMPLETE',acc,typ,doc,flush=True)
+   return f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{doc}',doc
+ raise RuntimeError('No N-CSRS/N-CSR document in complete submission '+complete)
 
 def stock_line_count(z):
  n=0
@@ -47,22 +54,22 @@ def stock_line_count(z):
  return n
 
 def segment(t):
- # Jina has two render modes: tab-preserving and Markdown. Select the SPMO
- # occurrence that is immediately followed by an actual portfolio table.
  occ=[m.start() for m in re.finditer(r'(?:PowerShares|Invesco) S&P 500(?:®)? Momentum (?:Portfolio|ETF)[^\n]{0,80}\(SPMO\)',t,re.I)]
  if not occ:raise RuntimeError('No SPMO occurrence')
  candidates=[]
  for s0 in occ:
-  # Include nearby schedule heading if present.
+  line=t[s0:t.find('\n',s0) if t.find('\n',s0)>=0 else s0+300]
+  if 'continued' in line.lower():
+   continue
   prev=t.rfind('Schedule of Investments',max(0,s0-1200),s0)
   s=prev if prev>=0 else s0
-  # Next schedule marks the following fund. Require at least 1.5k chars so page headers do not terminate early.
   m=re.search(r'(?:\*\*)?Schedule of Investments(?:\([^\n]*\))?',t[s0+1500:],re.I)
   e=s0+1500+m.start() if m else min(len(t),s0+120000)
   z=t[s:e]
   n=stock_line_count(z)
   score=n + 200*('Total Investments' in z) + 100*('Net Assets' in z) + 50*('Common Stocks' in z)
   candidates.append((score,n,s,e,z))
+ if not candidates:raise RuntimeError('No non-continuation SPMO schedule candidate')
  candidates.sort(reverse=True,key=lambda x:x[0])
  score,n,s,e,z=candidates[0]
  print('SEGMENT_CHOSEN','score',score,'stock_lines',n,'range',s,e,'candidates',[(x[0],x[1],x[2]) for x in candidates],flush=True)
@@ -77,7 +84,6 @@ def clean_name(name):
 def parse(z):
  rows=[]
  for line in z.splitlines():
-  # Mode A: original tabular text.
   p=[x.strip() for x in line.replace('\xa0',' ').split('\t')]
   p=[x for x in p if x not in ('','$')]
   if len(p)>=3 and re.fullmatch(r'[\d,]+',p[0]) and re.fullmatch(r'[\d,]+',p[-1]):
@@ -86,7 +92,6 @@ def parse(z):
     name=clean_name(max(names,key=len));low=name.lower()
     if not any(x in low for x in ['common stocks','total investments','net assets','money market fund','other assets less']):
      rows.append((int(p[0].replace(',','')),name,int(p[-1].replace(',',''))));continue
-  # Mode B: Markdown lines, e.g. "98 Amazon.com, Inc.(b)$77,402".
   x=line.replace('\xa0',' ').strip().strip('*')
   m=re.match(r'^([\d,]+)\s+(.+?)(?:\$)?([\d,]+)$',x)
   if not m:continue
@@ -97,13 +102,10 @@ def parse(z):
  return pd.DataFrame(rows,columns=['shares','name','value']).drop_duplicates().reset_index(drop=True)
 
 def stated_total(z):
- # Tab mode.
  for pat in [r'Total Common Stocks(?: and Other Equity Interests)?[\s\S]{0,400}?\t\s*\$?\s*([\d,]+)\s*\t',r'Total Investments[\s\S]{0,400}?\t\s*\$?\s*([\d,]+)\s*\t']:
   ms=list(re.finditer(pat,z,re.I))
   if ms:return int(ms[-1].group(1).replace(',',''))
- # Markdown mode: value follows the percentage after the cost parenthetical.
- for pat in [r'Total Common Stocks[^\n]{0,300}?(?:\)|\*\*)\s*\$?([\d,]+)\s*(?:\n|$)',
-             r'Total Investments[\s\S]{0,250}?[\d.]+%\s*\$?([\d,]+)']:
+ for pat in [r'Total Common Stocks[^\n]{0,300}?(?:\)|\*\*)\s*\$?([\d,]+)\s*(?:\n|$)',r'Total Investments[\s\S]{0,250}?[\d.]+%\s*\$?([\d,]+)']:
   ms=list(re.finditer(pat,z,re.I))
   if ms:return int(ms[-1].group(1).replace(',',''))
  return None
@@ -122,7 +124,6 @@ for rb,rd,acc,known in SPECS:
  meta.append({'rebalance':rb,'report_date':rd,'accession':acc,'doc':doc,'rows':len(d),'sum':sm,'stated_total':st,'coverage':cov,'source_url':u})
 allh=pd.concat(alls,ignore_index=True);allh.to_csv(OUT/'legacy7_holdings.csv',index=False)
 pd.DataFrame(meta).to_csv(OUT/'legacy7_meta.csv',index=False);Path(OUT/'legacy7_meta.json').write_text(json.dumps(meta,indent=2))
-# Allow tiny money-market residuals: equity rows must cover >=98% of total investments.
 bad=[m for m in meta if m['rows']<90 or m['coverage'] is None or not (.98<=m['coverage']<=1.015)]
 if bad:raise RuntimeError('GATE_FAIL '+json.dumps(bad))
 print('\nALL7_GATE PASS',flush=True)
