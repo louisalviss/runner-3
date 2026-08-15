@@ -18,9 +18,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          OLD='redacted@users.noreply.github.com'
           ids="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100" \
-            --jq '.workflow_runs[] | select((.head_commit.author.email == "'"$OLD"'") or (.head_commit.committer.email == "'"$OLD"'")) | .id')"
+            --jq '.workflow_runs[]
+              | select(.head_commit != null)
+              | select(
+                  (((.head_commit.author.email // "") != "") and (((.head_commit.author.email // "") | endswith("@users.noreply.github.com")) | not))
+                  or
+                  (((.head_commit.committer.email // "") != "") and (((.head_commit.committer.email // "") | endswith("@users.noreply.github.com")) | not))
+                )
+              | .id')"
           for id in $ids; do
             [ -z "$id" ] && continue
             [ "$id" = "$GITHUB_RUN_ID" ] && continue
