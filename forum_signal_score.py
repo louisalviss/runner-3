@@ -38,7 +38,7 @@ NOISE_PATTERNS = [
     re.compile(r"^(ngon|hay|đẹp|xấu|ảo|ghê|kinh|chịu|thôi|đúng|sai)[.!? ]*$", re.I),
 ]
 NUMERIC_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:%|km|km/h|kwh|wh|mah|gb|tb|fps|hz|triệu|tỷ|tr|usd|vnd|đồng)?\b", re.I)
-URL_RE = re.compile(r"https?://|www\.", re.I)
+URL_FULL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
 
 
 def norm(text):
@@ -80,9 +80,12 @@ def age_hours(row):
 
 def score_row(row, max_age_hours):
     raw = str(row.get("text") or "").strip()
-    text = norm(raw)
+    urls = URL_FULL_RE.findall(raw)
+    plain_raw = URL_FULL_RE.sub(" ", raw)
+    text = norm(plain_raw)
     title = norm(row.get("thread_title") or "")
-    n = len(raw)
+    n = len(plain_raw)
+    link_ratio = sum(len(u) for u in urls) / max(1, len(raw))
 
     firsthand = hits(text, FIRSTHAND)
     reasoning = hits(text, REASONING)
@@ -141,14 +144,14 @@ def score_row(row, max_age_hours):
     if any(p.match(text) for p in NOISE_PATTERNS):
         score -= 1.5
         reasons.append("reaction_noise")
-    if URL_RE.search(raw) and n < 180:
-        score -= 0.55
+    if urls and (n < 180 or link_ratio > 0.25):
+        score -= 1.0
         reasons.append("link_heavy")
 
     source_article = (
         title.startswith("[dịch]")
         or title.startswith("[dich]")
-        or any(src in norm(raw[:180]) for src in ("[bloomberg", "[reuters", "[bbc", "[cnn", "theo bloomberg", "theo reuters"))
+        or any(src in norm(plain_raw[:180]) for src in ("[bloomberg", "[reuters", "[bbc", "[cnn", "theo bloomberg", "theo reuters"))
     )
     if source_article:
         score -= 2.6
@@ -160,6 +163,11 @@ def score_row(row, max_age_hours):
     if row.get("extraction") == "page_fallback":
         score -= 1.2
         reasons.append("page_fallback")
+
+    # A candidate must contain at least one core community signal. Numbers/links alone are not insight.
+    if not firsthand and not reasoning and not current and score >= 3.0:
+        score = 2.85
+        reasons.append("no_core_signal")
 
     score = round(max(0.0, min(5.0, score)), 2)
 
@@ -192,6 +200,8 @@ def score_row(row, max_age_hours):
         "needs_verification": needs_verification,
         "age_hours": round(age, 2) if age is not None else None,
         "fresh": age is None or age <= max_age_hours,
+        "url_count": len(urls),
+        "link_ratio": round(link_ratio, 3),
     }
 
 
@@ -227,7 +237,7 @@ def main():
         meta = score_row(row, args.max_age_hours)
         item = dict(row)
         item.update(meta)
-        item["scorer"] = "forum-signal-heuristic-v2"
+        item["scorer"] = "forum-signal-heuristic-v3"
         item["thread_delta_posts"] = thread_counts[str(row.get("thread_key") or "")]
         scored.append(item)
 
@@ -256,7 +266,7 @@ def main():
         f"Unseen delta rows: {len(rows)}",
         f"Stale unseen rows excluded (> {args.max_age_hours:g}h): {stale_count}",
         f"Fresh candidates score >= {args.min_score:g}: {len(kept)}",
-        "Scorer: forum-signal-heuristic-v2 (deterministic prefilter; not an LLM)",
+        "Scorer: forum-signal-heuristic-v3 (deterministic prefilter; not an LLM)",
         "",
     ]
     for row in kept[:50]:
@@ -274,7 +284,7 @@ def main():
     Path(args.summary).write_text("\n".join(md), encoding="utf-8")
 
     print(json.dumps({
-        "scorer": "forum-signal-heuristic-v2",
+        "scorer": "forum-signal-heuristic-v3",
         "unseen_delta_rows": len(rows),
         "stale_excluded": stale_count,
         "candidates": len(kept),
