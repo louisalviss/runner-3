@@ -1,0 +1,77 @@
+name: MMO BHW Canonical Full Text
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mmo-bhw-fulltext-trigger/**'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: mmo-bhw-canonical-fulltext-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fulltext:
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: python -m pip install requests beautifulsoup4
+      - name: Full-read canonical BHW shard
+        run: >-
+          python scripts/mmo_forum_fulltext.py shard
+          mmo-sweep/jobs/2026-08-15-bhw-canonical-fulltext.json
+          mmo-sweep/bhw-canonical-manifest.json
+          --output 'mmo_bhw_fulltext_output/BHW-${{ matrix.shard }}'
+          --source BHW
+          --shard-index '${{ matrix.shard }}'
+          --shard-total 8
+      - name: Upload BHW audit shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-bhw-fulltext-${{ matrix.shard }}-${{ github.run_id }}
+          path: mmo_bhw_fulltext_output/BHW-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+  aggregate:
+    needs: fulltext
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download BHW shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mmo-bhw-fulltext-*-${{ github.run_id }}
+          path: downloaded_bhw_shards
+          merge-multiple: false
+      - name: Aggregate BHW audit
+        run: python scripts/mmo_fulltext_aggregate.py downloaded_bhw_shards --output mmo_bhw_fulltext_aggregate
+      - name: Upload BHW aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-bhw-fulltext-aggregate-${{ github.run_id }}
+          path: mmo_bhw_fulltext_aggregate/
+          if-no-files-found: error
+          retention-days: 7
