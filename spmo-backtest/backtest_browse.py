@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import backtest_archive as b
 
 SEC_UA='Louis research contact@example.com'
+_series_nport_cache=None
 
 class UResp:
     def __init__(self, content, status=200):
@@ -42,43 +43,75 @@ def complete_url_folder(fn):
     return f'https://www.sec.gov/Archives/edgar/data/{b.CIK}/{folder}/{acc}.txt'
 
 
+def parse_atom_entries(content, form, start_date=None, end_date=None):
+    soup=BeautifulSoup(content,'xml')
+    entries=soup.find_all('entry')
+    out=[]
+    for e in entries:
+        fd=e.find('filing-date'); ft=e.find('filing-type'); href=e.find('filing-href')
+        accnode=e.find('accession-number')
+        if not fd: continue
+        filed=pd.Timestamp(fd.get_text(strip=True))
+        if start_date is not None and filed < pd.Timestamp(start_date): continue
+        if end_date is not None and filed > pd.Timestamp(end_date): continue
+        filing_type=ft.get_text(strip=True) if ft else form
+        acc=accnode.get_text(strip=True) if accnode else None
+        if not acc and href:
+            h=href.get_text(strip=True)
+            m=re.search(r'/([0-9]{10}-[0-9]{2}-[0-9]{6})-index\.html',h,re.I)
+            if m: acc=m.group(1)
+            else:
+                m2=re.search(r'/([0-9]{18})/',h)
+                if m2:
+                    s=m2.group(1); acc=f'{s[:10]}-{s[10:12]}-{s[12:]}'
+        if not acc: continue
+        out.append({
+            'cik':b.CIK,'company':'Invesco Exchange-Traded Fund Trust II',
+            'form':filing_type,'filed':filed,
+            'filename':f'edgar/data/{b.CIK}/{acc}.txt'
+        })
+    return out, entries
+
+
+def series_nport_rows():
+    global _series_nport_cache
+    if _series_nport_cache is not None: return _series_nport_cache
+    params={
+        'action':'getcompany','CIK':b.SERIES,'type':'NPORT-P',
+        'owner':'exclude','count':'100','output':'atom'
+    }
+    url='https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(params)
+    content=urllib_get(url,timeout=45).content
+    rows,entries=parse_atom_entries(content,'NPORT-P')
+    df=pd.DataFrame(rows).drop_duplicates(['form','filed','filename']).sort_values('filed')
+    print('SERIES NPORT inventory',len(df),'filings; range',df.filed.min().date(),df.filed.max().date())
+    _series_nport_cache=df
+    return df
+
+
 def atom_rows_range(form, start_date, end_date):
     out=[]
     offset=0
     for page in range(12):
-        base='https://www.sec.gov/cgi-bin/browse-edgar'
         params={
             'action':'getcompany','CIK':b.CIK,'type':form,
             'dateb':pd.Timestamp(end_date).strftime('%Y%m%d'),
             'owner':'exclude','count':'100','start':str(offset),'output':'atom'
         }
-        url=base+'?'+urllib.parse.urlencode(params)
+        url='https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(params)
         content=urllib_get(url,timeout=45).content
-        soup=BeautifulSoup(content,'xml')
-        entries=soup.find_all('entry')
-        print('ATOM',form,'page',page,'offset',offset,'entries',len(entries))
+        rows,entries=parse_atom_entries(content,form,start_date,end_date)
+        print('ATOM',form,'page',page,'offset',offset,'entries',len(entries),'matched',len(rows))
+        out += rows
         if not entries: break
-        oldest=None
-        for e in entries:
-            fd=e.find('filing-date'); ft=e.find('filing-type'); href=e.find('filing-href')
-            if not fd or not href: continue
-            filed=pd.Timestamp(fd.get_text(strip=True))
-            oldest=filed if oldest is None or filed<oldest else oldest
-            if filed < pd.Timestamp(start_date) or filed > pd.Timestamp(end_date): continue
-            filing_type=ft.get_text(strip=True) if ft else form
-            h=href.get_text(strip=True)
-            m=re.search(r'/([0-9]{10}-[0-9]{2}-[0-9]{6})-index\.html',h,re.I)
-            if not m:
-                m2=re.search(r'/([0-9]{18})/',h)
-                if not m2: continue
-                s=m2.group(1); acc=f'{s[:10]}-{s[10:12]}-{s[12:]}'
-            else:
-                acc=m.group(1)
-            out.append({
-                'cik':b.CIK,'company':'Invesco Exchange-Traded Fund Trust',
-                'form':filing_type,'filed':filed,
-                'filename':f'edgar/data/{b.CIK}/{acc}.txt'
-            })
+        dates=[]
+        soup=BeautifulSoup(content,'xml')
+        for e in soup.find_all('entry'):
+            fd=e.find('filing-date')
+            if fd:
+                try: dates.append(pd.Timestamp(fd.get_text(strip=True)))
+                except: pass
+        oldest=min(dates) if dates else None
         if oldest is not None and oldest < pd.Timestamp(start_date): break
         if len(entries)<100: break
         offset += len(entries)
@@ -89,8 +122,9 @@ def atom_rows_range(form, start_date, end_date):
 def master_rows_from_atom(year,q):
     start=pd.Timestamp(year=year,month=3*(q-1)+1,day=1)
     end=start+pd.offsets.QuarterEnd(startingMonth=3)
-    rows=[]
-    for form in ('NPORT-P','N-CSR','N-CSRS','N-Q'):
+    ndf=series_nport_rows()
+    rows=ndf[(ndf.filed>=start)&(ndf.filed<=end)].to_dict('records')
+    for form in ('N-CSR','N-CSRS','N-Q'):
         rows += atom_rows_range(form,start,end)
     if not rows:
         print('ATOM QUARTER',year,q,'candidates 0')
