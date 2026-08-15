@@ -1,0 +1,28 @@
+name: SPMO 2026 Jina NPORT
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-2026/jina_nport.py'
+      - '.github/workflows/spmo-2026-jina.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests
+      - run: python -u spmo-2026/jina_nport.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-2026-jina-${{ github.run_id }}
+          path: spmo-2026-jina.txt
+          if-no-files-found: warn
+          retention-days: 3
