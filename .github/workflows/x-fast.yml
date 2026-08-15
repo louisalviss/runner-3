@@ -1,0 +1,70 @@
+name: X Fast Crawl
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/x-fast/**/*.json'
+      - 'jobs/x-fast/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to an X Fast job JSON file'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x-fast-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Resolve job file
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/x-fast/*.json' 'jobs/x-fast/**/*.json' | tail -n 1 || true)"
+          fi
+          if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
+            echo "No valid X Fast job JSON found: $JOB_FILE" >&2
+            exit 2
+          fi
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using X Fast job: $JOB_FILE"
+
+      - name: Validate X Fast job
+        run: python3 x_fast.py '${{ steps.job.outputs.job_file }}' --validate-only
+
+      - name: Crawl X fast
+        id: crawl
+        run: python3 x_fast.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+
+      - name: Upload X Fast artifact
+        if: always() && steps.crawl.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-fast-output-${{ github.run_id }}
+          path: crawl_output/
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf crawl_output
