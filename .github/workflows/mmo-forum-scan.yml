@@ -1,0 +1,81 @@
+name: MMO Forum Full Scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mmo-scan/**/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to an MMO public-source job JSON file under mmo-scan/'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mmo-forum-scan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Resolve job file
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'mmo-scan/*.json' 'mmo-scan/**/*.json' | tail -n 1 || true)"
+          fi
+          if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
+            echo "No valid MMO job JSON found: $JOB_FILE" >&2
+            exit 2
+          fi
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using MMO public-source job: $JOB_FILE"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate security policy
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          JOB='${{ steps.job.outputs.job_file }}'
+          python crawler.py "$JOB" --validate-only
+          MODE="$(python -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("mode","auto"))' "$JOB")"
+          POLICY="$(python -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("artifact_policy","none"))' "$JOB")"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "artifact_policy=$POLICY" >> "$GITHUB_OUTPUT"
+      - name: Install Chromium for browser-capable jobs
+        if: steps.config.outputs.mode != 'http'
+        run: python -m playwright install --with-deps chromium
+      - name: Crawl
+        run: python crawler.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+      - name: Upload MMO scan artifact
+        if: always() && steps.config.outcome == 'success' && steps.config.outputs.artifact_policy != 'none'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-forum-output-${{ github.run_id }}
+          path: crawl_output/
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Remove local crawl output
+        if: always()
+        run: rm -rf crawl_output
