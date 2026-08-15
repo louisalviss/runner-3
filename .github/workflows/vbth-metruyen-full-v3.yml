@@ -1,0 +1,62 @@
+name: VBTH MeTruyen Full Build v3
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "story_pipeline/metruyen_full_v3_trigger.json"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Build corrected full authorized EPUB
+        run: |
+          python vbth_metruyen_v2.py \
+            --bible story_pipeline/config/story_bible.json \
+            --out vbth_metruyen_full \
+            --workers 10
+      - name: Validate complete EPUB
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          root=Path('vbth_metruyen_full')
+          m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          q=json.load(open(root/'qa.json',encoding='utf-8'))
+          epub=root/'Vuong_Bai_Tien_Hoa_MeTruyen_BienTap.epub'
+          assert m['failed']==0, m
+          assert m['content_chapters']==1212, m
+          assert m['ok']==1212, m
+          assert len(m['ignored_empty_terminal_shells']) in (0,2), m
+          assert epub.exists() and epub.stat().st_size>500_000
+          with zipfile.ZipFile(epub) as z:
+              assert z.read('mimetype')==b'application/epub+zip'
+              assert 'OEBPS/content.opf' in z.namelist()
+              assert 'OEBPS/nav.xhtml' in z.namelist()
+              chapter_files=[n for n in z.namelist() if n.startswith('OEBPS/ch') and n.endswith('.xhtml')]
+              assert len(chapter_files)==1212, len(chapter_files)
+          print({'chapters':m['content_chapters'],'total_chars':m['total_chars'],'qa_issues':q['issue_count'],'epub_bytes':epub.stat().st_size})
+          PY
+      - name: Upload final result
+        uses: actions/upload-artifact@v4
+        with:
+          name: VBTH-Final-v3-${{ github.run_id }}
+          path: |
+            vbth_metruyen_full/Vuong_Bai_Tien_Hoa_MeTruyen_BienTap.epub
+            vbth_metruyen_full/manifest.json
+            vbth_metruyen_full/qa.json
+            vbth_metruyen_full/chapters.json
+            vbth_metruyen_full/sample_spread.txt
+          retention-days: 7
+          if-no-files-found: error
