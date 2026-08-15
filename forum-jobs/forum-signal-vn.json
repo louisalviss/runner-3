@@ -1,0 +1,45 @@
+{
+  "name": "forum-signal-vn",
+  "runner": "forum_signal",
+  "source_visibility": "public",
+  "artifact_policy": "text",
+  "mode": "auto",
+  "timeout_seconds": 35,
+  "wait_after_load_ms": 700,
+  "max_threads_per_source": 8,
+  "max_posts_per_thread": 12,
+  "request_delay_ms": 150,
+  "sources": [
+    {
+      "name": "VOZ",
+      "discovery_urls": [
+        "https://voz.vn/whats-new/",
+        "https://voz.vn/"
+      ],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$"
+    },
+    {
+      "name": "Otofun",
+      "discovery_urls": [
+        "https://www.otofun.net/whats-new/",
+        "https://www.otofun.net/"
+      ],
+      "thread_regex": "^/threads/[^?#]+\\.\\d+(?:/page-\\d+)?/?$"
+    },
+    {
+      "name": "GameVN",
+      "discovery_urls": [
+        "https://forum.gamevn.com/whats-new/posts/",
+        "https://forum.gamevn.com/"
+      ],
+      "thread_regex": "^/threads/[^?#]+\\.\\d+(?:/page-\\d+)?/?$"
+    },
+    {
+      "name": "Tinhte",
+      "discovery_urls": [
+        "https://tinhte.vn/"
+      ],
+      "thread_regex": "^/thread/[^?#]+\\.\\d+(?:/page-\\d+)?/?$"
+    }
+  ]
+}
