@@ -1,0 +1,27 @@
+name: SPMO Legacy Occurrence Probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-backtest/diagnostics/legacy_occurrence_probe.py'
+      - '.github/workflows/spmo-legacy-occurrence-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests beautifulsoup4 lxml
+      - run: python -u spmo-backtest/diagnostics/legacy_occurrence_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-occurrence-${{ github.run_id }}
+          path: /tmp/legacy_occurrences.txt
+          if-no-files-found: warn
+          retention-days: 2
