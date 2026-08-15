@@ -1,0 +1,80 @@
+name: Generic Crawl
+
+on:
+  push:
+    paths:
+      - 'jobs/**/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to a job JSON file, e.g. jobs/example.json'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crawl-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: self-hosted
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve job file
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git show --pretty='' --name-only "$GITHUB_SHA" | grep -E '^jobs/.+\.json$' | tail -n 1 || true)"
+          fi
+
+          if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
+            echo "No valid job JSON found: $JOB_FILE" >&2
+            exit 2
+          fi
+
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using job: $JOB_FILE"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Read crawl mode
+        id: config
+        shell: bash
+        run: |
+          MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","auto"))' '${{ steps.job.outputs.job_file }}')"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Mode: $MODE"
+
+      - name: Install Chromium for browser-capable jobs
+        if: steps.config.outputs.mode != 'http'
+        run: python -m playwright install chromium
+
+      - name: Crawl
+        run: python crawler.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+
+      - name: Upload crawl artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawl-output-${{ github.run_id }}
+          path: crawl_output/
+          if-no-files-found: warn
+          retention-days: 14
