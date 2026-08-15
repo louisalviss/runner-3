@@ -1,0 +1,64 @@
+name: VBTH MeTruyen Full Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "story_pipeline/metruyen_full_trigger.json"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build full authorized EPUB from MeTruyen
+        run: |
+          python story_pipeline/metruyen_full.py \
+            --bible story_pipeline/config/story_bible.json \
+            --out vbth_metruyen_full \
+            --workers 10
+
+      - name: Validate EPUB and manifest
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          root = Path('vbth_metruyen_full')
+          m = json.load(open(root/'manifest.json', encoding='utf-8'))
+          q = json.load(open(root/'qa.json', encoding='utf-8'))
+          epub = root/'Vuong_Bai_Tien_Hoa_MeTruyen_BienTap.epub'
+          assert m['failed'] == 0, m
+          assert m['ok'] == m['requested'], m
+          assert m['index_chapters'] >= 1200, m
+          assert epub.exists() and epub.stat().st_size > 500_000
+          with zipfile.ZipFile(epub) as z:
+              assert z.read('mimetype') == b'application/epub+zip'
+              assert 'OEBPS/content.opf' in z.namelist()
+              assert 'OEBPS/nav.xhtml' in z.namelist()
+          print({'manifest': m, 'qa_issue_count': q['issue_count'], 'epub_bytes': epub.stat().st_size})
+          PY
+
+      - name: Upload final authorized result
+        uses: actions/upload-artifact@v4
+        with:
+          name: VBTH-MeTruyen-Final-${{ github.run_id }}
+          path: |
+            vbth_metruyen_full/Vuong_Bai_Tien_Hoa_MeTruyen_BienTap.epub
+            vbth_metruyen_full/manifest.json
+            vbth_metruyen_full/qa.json
+            vbth_metruyen_full/chapters.json
+            vbth_metruyen_full/sample_spread.txt
+          retention-days: 7
+          if-no-files-found: error
