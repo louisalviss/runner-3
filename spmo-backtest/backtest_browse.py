@@ -8,6 +8,39 @@ from bs4 import BeautifulSoup
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import backtest_archive as b
 
+SEC_UA='Louis research contact@example.com'
+
+class UResp:
+    def __init__(self, content, status=200):
+        self.content=content
+        self.status_code=status
+        self.text=content.decode('utf-8','replace')
+    def raise_for_status(self):
+        if self.status_code>=400: raise RuntimeError(f'HTTP {self.status_code}')
+    def close(self): pass
+
+
+def urllib_get(url, *, stream=False, headers=None, tries=5, timeout=60):
+    h={'User-Agent':SEC_UA}
+    if headers: h.update(headers)
+    last=None
+    for i in range(tries):
+        try:
+            req=urllib.request.Request(url,headers=h)
+            with urllib.request.urlopen(req,timeout=timeout) as resp:
+                data=resp.read(); status=resp.status
+            return UResp(data,status)
+        except Exception as e:
+            last=e; print('URLLIB GETERR',repr(e),url)
+            time.sleep(0.7*(i+1))
+    raise last
+
+
+def complete_url_folder(fn):
+    acc=Path(fn).stem
+    folder=acc.replace('-','')
+    return f'https://www.sec.gov/Archives/edgar/data/{b.CIK}/{folder}/{acc}.txt'
+
 
 def atom_rows_range(form, start_date, end_date):
     out=[]
@@ -20,12 +53,10 @@ def atom_rows_range(form, start_date, end_date):
             'owner':'exclude','count':'100','start':str(offset),'output':'atom'
         }
         url=base+'?'+urllib.parse.urlencode(params)
-        req=urllib.request.Request(url,headers={'User-Agent':'Louis research contact@example.com'})
-        with urllib.request.urlopen(req,timeout=45) as resp:
-            content=resp.read(); status=resp.status
+        content=urllib_get(url,timeout=45).content
         soup=BeautifulSoup(content,'xml')
         entries=soup.find_all('entry')
-        print('ATOM',form,'page',page,'offset',offset,'status',status,'entries',len(entries))
+        print('ATOM',form,'page',page,'offset',offset,'entries',len(entries))
         if not entries: break
         oldest=None
         for e in entries:
@@ -69,5 +100,7 @@ def master_rows_from_atom(year,q):
     return df.to_dict('records')
 
 
+b.get = urllib_get
+b.complete_url = complete_url_folder
 b.master_rows = master_rows_from_atom
 b.main()
