@@ -22,10 +22,10 @@ TIMEOUT = 45
 
 UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 runner-3-rss/2.0"
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 runner-3-rss/3.0"
 )
 
-# Runner3 intentionally owns only the seven non-direct sources below.
+# Runner3 owns the ten non-direct sources below.
 # ChatGPT reads these three Substack publications directly at reader runtime:
 #   hoquoctuan, vohoanghac, vnhacker
 SOURCES = [
@@ -63,6 +63,29 @@ SOURCES = [
         "key": "projectsyndicate",
         "name": "Project Syndicate",
         "urls": ["https://www.project-syndicate.org/rss"],
+    },
+    {
+        "key": "economist",
+        "name": "The Economist",
+        "mergeFeeds": True,
+        "urls": [
+            "https://www.economist.com/finance-and-economics/rss.xml",
+            "https://www.economist.com/science-and-technology/rss.xml",
+            "https://www.economist.com/business/rss.xml",
+            "https://www.economist.com/china/rss.xml",
+            "https://www.economist.com/asia/rss.xml",
+            "https://www.economist.com/leaders/rss.xml",
+        ],
+    },
+    {
+        "key": "theatlantic",
+        "name": "The Atlantic",
+        "urls": ["https://www.theatlantic.com/feed/all/"],
+    },
+    {
+        "key": "grimlogs",
+        "name": "Grimlogs",
+        "urls": ["https://grimlogs.com/feed.xml"],
     },
 ]
 
@@ -232,18 +255,41 @@ def parse_feed(xml_content, source):
     return items
 
 
+def dedupe_fresh_items(items):
+    merged = {}
+    for item in items:
+        identity = item.get("canonicalUrl") or item.get("key")
+        if identity:
+            merged[identity] = item
+    values = list(merged.values())
+    values.sort(key=lambda x: x.get("publishedTs") or 0, reverse=True)
+    return values
+
+
 def collect_source(source):
     attempts = []
+    merged_fresh = []
+    successful_urls = []
+    merge_feeds = bool(source.get("mergeFeeds"))
+
     for url in source["urls"]:
         try:
             r = SESSION.get(url, timeout=TIMEOUT, allow_redirects=True)
             attempts.append({"transport": "rss", "url": url, "status": r.status_code})
-            if r.status_code < 400:
-                items = parse_feed(r.content, source)
-                if items:
-                    return items, r.url, attempts
+            if r.status_code >= 400:
+                continue
+            items = parse_feed(r.content, source)
+            if not items:
+                continue
+            if not merge_feeds:
+                return items, r.url, attempts
+            merged_fresh.extend(items)
+            successful_urls.append(r.url)
         except Exception as exc:
             attempts.append({"transport": "rss", "url": url, "error": f"{type(exc).__name__}: {exc}"})
+
+    if merge_feeds and merged_fresh:
+        return dedupe_fresh_items(merged_fresh), successful_urls, attempts
     raise RuntimeError(json.dumps(attempts, ensure_ascii=False))
 
 
@@ -277,9 +323,9 @@ def write_json(path, obj):
 def main():
     SOURCES_ROOT.mkdir(parents=True, exist_ok=True)
     health = {
-        "version": 2,
+        "version": 3,
         "collector": "runner-3",
-        "scope": "7-non-direct-sources",
+        "scope": "10-runner3-sources",
         "directSources": ["hoquoctuan", "vohoanghac", "vnhacker"],
         "runStartedAt": now_iso(),
         "sourceCount": len(SOURCES),
@@ -296,11 +342,14 @@ def main():
             fresh_items, final_url, attempts = collect_source(source)
             merged = merge_items(old_items, fresh_items)
             newest = merged[0].get("publishedAt") if merged else None
+            is_multi = isinstance(final_url, list)
+            primary_final_url = final_url[0] if is_multi and final_url else final_url
             content_changed = (
                 not old
                 or old.get("items") != merged
                 or old.get("transport") != "rss"
-                or old.get("finalFeedUrl") != final_url
+                or old.get("finalFeedUrl") != primary_final_url
+                or (is_multi and old.get("finalFeedUrls") != final_url)
             )
             if content_changed:
                 mirror = {
@@ -309,7 +358,7 @@ def main():
                     "collector": "runner-3",
                     "transport": "rss",
                     "feedUrl": source["urls"][0],
-                    "finalFeedUrl": final_url,
+                    "finalFeedUrl": primary_final_url,
                     "lastContentChangeAt": now_iso(),
                     "freshItemCount": len(fresh_items),
                     "totalStored": len(merged),
@@ -317,8 +366,11 @@ def main():
                     "newestPublishedAt": newest,
                     "items": merged,
                 }
+                if source.get("mergeFeeds"):
+                    mirror["feedUrls"] = source["urls"]
+                    mirror["finalFeedUrls"] = final_url
                 write_json(path, mirror)
-            health["sources"][key] = {
+            health_entry = {
                 "ok": True,
                 "transport": "rss",
                 "checkedAt": now_iso(),
@@ -328,6 +380,10 @@ def main():
                 "totalStored": len(merged),
                 "attempts": attempts,
             }
+            if source.get("mergeFeeds"):
+                health_entry["successfulFeedCount"] = len(final_url)
+                health_entry["configuredFeedCount"] = len(source["urls"])
+            health["sources"][key] = health_entry
             ok_count += 1
         except Exception as exc:
             health["sources"][key] = {
@@ -348,7 +404,7 @@ def main():
         json.dumps(
             {
                 "collector": "runner-3",
-                "scope": "7-non-direct-sources",
+                "scope": "10-runner3-sources",
                 "status": health["status"],
                 "ok": ok_count,
                 "failed": len(SOURCES) - ok_count,
