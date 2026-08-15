@@ -1,0 +1,97 @@
+name: VBTH Batch Prepare
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_part:
+        description: "First TiênVuc part"
+        required: true
+        default: "1"
+      end_part:
+        description: "Last TiênVuc part (max 50 parts per run)"
+        required: true
+        default: "8"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate tests
+        run: |
+          cd story_pipeline
+          python -m unittest -v
+
+      - name: Build public crawl job
+        env:
+          START_PART: ${{ inputs.start_part }}
+          END_PART: ${{ inputs.end_part }}
+        run: |
+          python - <<'PY'
+          import json, os
+          start = int(os.environ['START_PART'])
+          end = int(os.environ['END_PART'])
+          if start < 1 or end < start:
+              raise SystemExit('invalid range')
+          if end - start + 1 > 50:
+              raise SystemExit('maximum 50 parts per batch')
+          urls = [f'https://tienvuc.info/vuong-bai-tien-hoa-ban-dich/chuong-{i}' for i in range(start, end + 1)]
+          job = {
+              'name': f'vbth-{start}-{end}',
+              'source_visibility': 'public',
+              'artifact_policy': 'text',
+              'mode': 'http',
+              'timeout_seconds': 20,
+              'wait_after_load_ms': 0,
+              'urls': urls,
+          }
+          with open('/tmp/vbth-job.json', 'w', encoding='utf-8') as f:
+              json.dump(job, f, ensure_ascii=False, indent=2)
+          PY
+          python crawler.py /tmp/vbth-job.json --validate-only
+
+      - name: Crawl TiênVuc
+        run: python crawler.py /tmp/vbth-job.json --output vbth_work/raw
+
+      - name: Clean and build editor packets
+        run: |
+          python story_pipeline/pipeline.py clean \
+            --input vbth_work/raw \
+            --output vbth_work/clean \
+            --bible story_pipeline/config/story_bible.json
+          python story_pipeline/pipeline.py packet \
+            --clean vbth_work/clean \
+            --output vbth_work/editor_packets \
+            --bible story_pipeline/config/story_bible.json
+          cp story_pipeline/config/story_bible.json vbth_work/story_bible.snapshot.json
+
+      - name: Batch summary
+        run: |
+          python - <<'PY'
+          import json
+          m = json.load(open('vbth_work/raw/manifest.json', encoding='utf-8'))
+          c = json.load(open('vbth_work/clean/manifest.json', encoding='utf-8'))
+          print({'requested': m['url_count'], 'crawl_ok': m['ok_count'], 'failed': m['failed_count'], 'clean_parts': c['count']})
+          if m['failed_count']:
+              raise SystemExit('crawl has failed URLs; do not silently edit an incomplete batch')
+          PY
+
+      - name: Upload private working artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbth-parts-${{ inputs.start_part }}-${{ inputs.end_part }}-${{ github.run_id }}
+          path: vbth_work/
+          retention-days: 7
+          if-no-files-found: error
