@@ -1,0 +1,26 @@
+name: SEC Archive Test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sec-archive-test.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python - <<'PY'
+          import urllib.request
+          u='https://www.sec.gov/Archives/edgar/data/1378872/000175272425180531/0001752724-25-180531.txt'
+          req=urllib.request.Request(u,headers={'User-Agent':'Louis research contact@example.com'})
+          try:
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  data=r.read(200000)
+                  print('STATUS',r.status,'BYTES',len(data),'SERIES',b'S000050154' in data)
+          except Exception as e:
+              print('ERROR',repr(e)); raise
+          PY
