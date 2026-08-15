@@ -16,12 +16,59 @@ import vidian_pipeline as vp
 def http_session():
     s = requests.Session()
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (compatible; runner-3/VidianSnapshot/1.2)",
+        "User-Agent": "Mozilla/5.0 (compatible; runner-3/VidianSnapshot/1.3)",
         "Accept-Language": "vi,en;q=0.8",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Connection": "close",
     })
     return s
+
+
+def extract_article(root):
+    try:
+        return vp.extract(root)
+    except ValueError as exc:
+        if str(exc) != "article-region-too-short":
+            raise
+
+    # Some legitimate Vidian posts are genuinely very short. Preserve the
+    # same h1->marker boundary as the canonical extractor, but relax only the
+    # minimum-length gate for this explicit fallback case.
+    h1s = root.xpath("//h1[1]")
+    if not h1s:
+        raise ValueError("missing-h1")
+    h1 = h1s[0]
+    paras = []
+    buf = []
+    last_parent = None
+
+    def flush():
+        nonlocal buf
+        text = vp.clean(" ".join(buf))
+        buf = []
+        if len(text) >= 10:
+            paras.append(text)
+
+    for node in h1.xpath("following::text()"):
+        parent = node.getparent()
+        text = vp.clean(str(node))
+        if not text:
+            continue
+        if vp.is_marker(text):
+            flush()
+            break
+        if text.lower() in {"video", "rank", "tìm kiếm", "chat", "user"}:
+            continue
+        pid = id(parent)
+        if last_parent is not None and pid != last_parent:
+            flush()
+        buf.append(text)
+        last_parent = pid
+    flush()
+
+    if sum(map(len, paras)) < 20:
+        raise ValueError("article-region-too-short")
+    return paras
 
 
 def fetch_article(s, row, timeout_sec):
@@ -48,7 +95,7 @@ def fetch_article(s, row, timeout_sec):
             rec["status"] = f"http-{r.status_code}"
             return rec
         root = html.fromstring(r.content, base_url=r.url)
-        paras = vp.extract(root)
+        paras = extract_article(root)
         full = vp.clean(" ".join(paras))
         title = root.xpath('//meta[@property="og:title"]/@content') or root.xpath('//h1[1]//text()') or root.xpath('//title/text()')
         rec.update({
