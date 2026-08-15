@@ -33,7 +33,7 @@ jobs:
 
   inventory:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +44,7 @@ jobs:
       - name: Install inventory dependencies
         run: pip install requests beautifulsoup4 lxml
       - name: Discover current Vidian public inventory
-        run: python scripts/vidian_pipeline.py inventory --out vidian_inventory
+        run: python scripts/vidian_inventory.py --out vidian_inventory --initial-workers 6 --repair-rounds 6
       - uses: actions/upload-artifact@v4
         if: always()
         with:
