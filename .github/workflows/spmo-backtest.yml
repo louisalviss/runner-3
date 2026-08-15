@@ -36,8 +36,8 @@ jobs:
       - name: Test SEC static Archives
         run: python spmo-backtest/sec_archive_smoke.py
 
-      - name: Run SPMO backtest from SEC static index
-        run: python spmo-backtest/backtest_static.py
+      - name: Run targeted SPMO backtest
+        run: python -u spmo-backtest/backtest_targeted.py
 
       - name: Upload results
         if: always()
