@@ -18,14 +18,19 @@ DEFAULT_UA = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 runner-3/1.1"
 )
 
-BLOCK_MARKERS = [
+HARD_BLOCK_STATUSES = {401, 403, 407, 429}
+
+RAW_CHALLENGE_MARKERS = [
     "cf-chl-",
+    "/cdn-cgi/challenge-platform/",
+    "challenges.cloudflare.com",
+]
+
+VISIBLE_CHALLENGE_MARKERS = [
     "cloudflare ray id",
     "checking your browser",
     "verify you are human",
-    "captcha",
-    "access denied",
-    "attention required",
+    "attention required! | cloudflare",
     "temporarily blocked",
 ]
 
@@ -180,10 +185,34 @@ def extract_text(html: str):
 
 
 def looks_blocked(status, html, text):
-    sample = ((html or "") + "\n" + (text or ""))[:200000].lower()
-    if status in (401, 403, 407, 429, 503):
+    """Detect real access challenges without matching unrelated page content."""
+    if status in HARD_BLOCK_STATUSES:
         return True
-    return any(marker in sample for marker in BLOCK_MARKERS)
+
+    visible = (text or "")[:8000].lower()
+    visible_head = visible[:1200]
+
+    if any(marker in visible for marker in VISIBLE_CHALLENGE_MARKERS):
+        return True
+    if visible_head.startswith("access denied") or "\naccess denied\n" in visible_head:
+        return True
+
+    text_len = len(text or "")
+
+    # Successful pages with substantial visible content are not challenge
+    # interstitials merely because a script/asset mentions Cloudflare tokens.
+    if status is not None and 200 <= status < 300 and text_len >= 3000:
+        return False
+
+    raw_head = (html or "")[:60000].lower()
+    if any(marker in raw_head for marker in RAW_CHALLENGE_MARKERS):
+        return True
+
+    # Generic CAPTCHA words are only meaningful on a short interstitial.
+    if text_len < 3000 and "captcha" in visible_head:
+        return True
+
+    return False
 
 
 def http_fetch(url, timeout, headers):
