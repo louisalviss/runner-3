@@ -1,0 +1,89 @@
+name: Forum Signal Crawl
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/forum-signal*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to forum signal job JSON'
+        required: true
+        default: 'jobs/forum-signal-vn.json'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forum-signal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Resolve job file
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/forum-signal*.json' | tail -n 1 || true)"
+          fi
+          if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
+            echo "No valid forum signal job found: $JOB_FILE" >&2
+            exit 2
+          fi
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using forum signal job: $JOB_FILE"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          JOB='${{ steps.job.outputs.job_file }}'
+          python forum_signal.py "$JOB" --validate-only
+          MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","http"))' "$JOB")"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      - name: Install Chromium when needed
+        if: steps.config.outputs.mode != 'http'
+        run: python -m playwright install --with-deps chromium
+
+      - name: Crawl
+        run: python forum_signal.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+
+      - name: Upload forum signal artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forum-signal-${{ github.run_id }}
+          path: crawl_output/
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Remove local output
+        if: always()
+        run: rm -rf crawl_output
