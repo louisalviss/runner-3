@@ -7,6 +7,7 @@ on:
       - 'forum-jobs/forum-signal*.json'
       - 'forum_signal_v2.py'
       - 'forum_signal_rank.py'
+      - 'forum_signal_delta.py'
       - '.github/workflows/forum-signal.yml'
   workflow_dispatch:
     inputs:
@@ -67,16 +68,33 @@ jobs:
         run: |
           set -euo pipefail
           JOB='${{ steps.job.outputs.job_file }}'
-          python forum_signal_rank.py "$JOB" --validate-only
+          python forum_signal_delta.py "$JOB" --validate-only
           MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","http"))' "$JOB")"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      - name: Restore forum delta state
+        id: restore-state
+        uses: actions/cache/restore@v4
+        with:
+          path: .forum-state
+          key: forum-signal-state-${{ github.run_id }}
+          restore-keys: |
+            forum-signal-state-
 
       - name: Install Chromium when needed
         if: steps.config.outputs.mode != 'http'
         run: python -m playwright install --with-deps chromium
 
       - name: Crawl
-        run: python forum_signal_rank.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+        id: crawl
+        run: python forum_signal_delta.py '${{ steps.job.outputs.job_file }}' --output crawl_output --state-file .forum-state/state.json
+
+      - name: Save forum delta state
+        if: steps.crawl.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .forum-state
+          key: forum-signal-state-${{ github.run_id }}
 
       - name: Upload forum signal artifact
         if: always()
