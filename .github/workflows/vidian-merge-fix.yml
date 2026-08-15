@@ -1,0 +1,53 @@
+name: vidian-merge-fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-merge-fix.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  merge:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[vidian-merge-fix]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install merge dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4 lxml
+      - name: Download inventory from completed repair run
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+          repository: louisalviss/runner-3
+          run-id: 31904000468
+          github-token: ${{ github.token }}
+      - name: Download all semantic shards from completed repair run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-semantic-*
+          path: semantic_all
+          merge-multiple: false
+          repository: louisalviss/runner-3
+          run-id: 31904000468
+          github-token: ${{ github.token }}
+      - name: Merge and validate corpus
+        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus --count 64
+      - name: Upload final corpus
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus
+          path: vidian_semantic_corpus
+          retention-days: 7
+          if-no-files-found: error
