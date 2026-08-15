@@ -474,25 +474,36 @@ def main():
             fresh_items, transport, final_url, attempts = collect_source(source)
             merged = merge_items(old_items, fresh_items)
             newest = merged[0].get("publishedAt") if merged else None
-            mirror = {
-                "source": source["name"],
-                "sourceKey": key,
-                "collector": "runner-3",
-                "transport": transport,
-                "feedUrl": source["urls"][0],
-                "finalFeedUrl": final_url,
-                "lastCollectedAt": now_iso(),
-                "freshItemCount": len(fresh_items),
-                "totalStored": len(merged),
-                "count": len(merged),
-                "newestPublishedAt": newest,
-                "items": merged,
-            }
-            write_json(path, mirror)
+            content_changed = (
+                not old
+                or old.get("items") != merged
+                or old.get("transport") != transport
+                or old.get("finalFeedUrl") != final_url
+            )
+            if content_changed:
+                mirror = {
+                    "source": source["name"],
+                    "sourceKey": key,
+                    "collector": "runner-3",
+                    "transport": transport,
+                    "feedUrl": source["urls"][0],
+                    "finalFeedUrl": final_url,
+                    "lastContentChangeAt": now_iso(),
+                    "freshItemCount": len(fresh_items),
+                    "totalStored": len(merged),
+                    "count": len(merged),
+                    "newestPublishedAt": newest,
+                    "items": merged,
+                }
+                write_json(path, mirror)
+            else:
+                mirror = old
+
             health["sources"][key] = {
                 "ok": True,
                 "transport": transport,
-                "lastCollectedAt": mirror["lastCollectedAt"],
+                "checkedAt": now_iso(),
+                "contentChanged": content_changed,
                 "newestPublishedAt": newest,
                 "freshItemCount": len(fresh_items),
                 "totalStored": len(merged),
@@ -503,7 +514,7 @@ def main():
             health["sources"][key] = {
                 "ok": False,
                 "preservedExistingMirror": bool(old_items),
-                "lastKnownCollectedAt": old.get("lastCollectedAt"),
+                "lastKnownContentChangeAt": old.get("lastContentChangeAt") or old.get("lastCollectedAt"),
                 "newestPublishedAt": old.get("newestPublishedAt"),
                 "error": str(exc),
             }
