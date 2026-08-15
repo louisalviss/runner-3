@@ -54,7 +54,23 @@ jobs:
 
       - name: Crawl X fast
         id: crawl
-        run: python3 x_fast.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+        shell: bash
+        run: |
+          set +e
+          python3 x_fast.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+          crawl_code=$?
+          echo "crawl_code=$crawl_code" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('crawl_output/manifest.json')
+          if not p.exists():
+              raise SystemExit('manifest missing')
+          m = json.loads(p.read_text())
+          print(f"X Fast usable={m['ok_count']} failed={m['failed_count']} wall={m['wall_seconds']}s")
+          if m['ok_count'] < 1:
+              raise SystemExit('no usable X pages in batch')
+          PY
 
       - name: Upload X Fast artifact
         if: always() && steps.crawl.outcome != 'skipped'
