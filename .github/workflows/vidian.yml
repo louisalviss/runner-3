@@ -78,12 +78,12 @@ jobs:
   snapshot:
     needs: inventory
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
-        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,10 +97,29 @@ jobs:
         with:
           name: vidian-inventory
           path: vidian_inventory
-      - name: Fetch temporary article snapshot
-        run: python scripts/vidian_snapshot.py --inventory vidian_inventory/vidian_inventory.json --out snapshot_out --index ${{ matrix.chunk }} --count 32 --passes 5 --delay 0.6
-      - uses: actions/upload-artifact@v4
+      - name: Fast snapshot pass
+        run: python scripts/vidian_snapshot.py --inventory vidian_inventory/vidian_inventory.json --out snapshot_out --index ${{ matrix.chunk }} --count 64 --passes 1 --delay 0.35 --timeout 8 --allow-incomplete
+      - name: Upload fast checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-snapshot-fast-${{ matrix.chunk }}
+          path: snapshot_out
+          retention-days: 2
+          compression-level: 6
+      - name: Repair only failed URLs
+        run: python scripts/vidian_snapshot.py --inventory vidian_inventory/vidian_inventory.json --out snapshot_out --index ${{ matrix.chunk }} --count 64 --passes 2 --delay 1.0 --timeout 12 --resume snapshot_out/vidian_snapshot_chunk_$(printf '%02d' ${{ matrix.chunk }}).jsonl --allow-incomplete
+      - name: Validate repaired snapshot
+        run: |
+          python - <<'PY'
+          import json, glob
+          p=glob.glob('snapshot_out/snapshot_*_summary.json')[0]
+          x=json.load(open(p,encoding='utf-8'))
+          print(x)
+          assert x['failed'] == 0, x
+          PY
+      - name: Upload final snapshot
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: vidian-snapshot-${{ matrix.chunk }}
           path: snapshot_out
@@ -110,12 +129,12 @@ jobs:
   semantic:
     needs: [parser-smoke, snapshot]
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 16
       matrix:
-        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -136,7 +155,7 @@ jobs:
           name: vidian-snapshot-${{ matrix.chunk }}
           path: snapshot_in
       - name: Build semantic frame chunk from snapshot
-        run: python scripts/vidian_semantic_snapshot.py --snapshot snapshot_in/vidian_snapshot_chunk_$(printf '%02d' ${{ matrix.chunk }}).jsonl --out semantic_out --index ${{ matrix.chunk }} --count 32 --parse-group-size 512
+        run: python scripts/vidian_semantic_snapshot.py --snapshot snapshot_in/vidian_snapshot_chunk_$(printf '%02d' ${{ matrix.chunk }}).jsonl --out semantic_out --index ${{ matrix.chunk }} --count 64 --parse-group-size 512
       - uses: actions/upload-artifact@v4
         with:
           name: vidian-semantic-${{ matrix.chunk }}
@@ -164,7 +183,7 @@ jobs:
           pattern: vidian-semantic-*
           path: semantic_all
       - name: Merge and validate corpus
-        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus --count 32
+        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus --count 64
       - uses: actions/upload-artifact@v4
         with:
           name: vidian-semantic-corpus
