@@ -10,6 +10,10 @@ on:
       - 'forum_signal_delta.py'
       - 'forum_signal_score.py'
       - '.github/workflows/forum-signal.yml'
+  schedule:
+    # Every 3 hours, aligned to :30 Asia/Ho_Chi_Minh. Includes 20:30 VN,
+    # giving the 21:00 Vietnam radar a buffer to consume the latest artifact.
+    - cron: '30 1,4,7,10,13,16,19,22 * * *'
   workflow_dispatch:
     inputs:
       job_file:
