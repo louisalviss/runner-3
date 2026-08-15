@@ -1,0 +1,43 @@
+name: MarketData 3m Test Temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/marketdata-3m-test-temp.yml']
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Test MarketData 3m one-year history
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.error
+          from datetime import datetime
+          out={}
+          for sym in ['AAPL','CME']:
+              url=f'https://api.marketdata.app/v1/stocks/candles/3/{sym}/?from=2025-08-15&to=2026-08-15'
+              try:
+                  req=urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0','Accept':'application/json'})
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      body=r.read(); status=r.status
+                  p=json.loads(body)
+                  ts=p.get('t') or []
+                  out[sym]={'http':status,'status':p.get('s'),'bars':len(ts),'first':datetime.fromtimestamp(ts[0]).isoformat() if ts else None,'last':datetime.fromtimestamp(ts[-1]).isoformat() if ts else None,'errmsg':p.get('errmsg')}
+              except urllib.error.HTTPError as e:
+                  body=e.read().decode('utf-8','replace')
+                  out[sym]={'http':e.code,'body':body[:500]}
+              except Exception as e:
+                  out[sym]={'error':repr(e)}
+          open('marketdata_3m_test.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Persist
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add marketdata_3m_test.json
+          git commit -m 'temp: MarketData 3m source test [skip ci]'
+          git push
