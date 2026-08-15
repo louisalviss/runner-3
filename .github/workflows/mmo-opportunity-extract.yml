@@ -1,0 +1,106 @@
+name: MMO Opportunity Extract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mmo-opportunity-trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mmo-opportunity-extract-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: python -m pip install requests beautifulsoup4
+      - name: Discover defined corpus
+        run: python scripts/mmo_forum_fulltext.py discover mmo-sweep/jobs/2026-08-15-all-forums-deep-sweep.json --output mmo_opportunity_manifest
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-opportunity-manifest-${{ github.run_id }}
+          path: mmo_opportunity_manifest/
+          retention-days: 3
+
+  extract:
+    needs: discover
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        source: [affLIFT, BuilderSociety, WickedFire]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: python -m pip install requests beautifulsoup4
+      - name: Download manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: mmo-opportunity-manifest-${{ github.run_id }}
+          path: mmo_opportunity_manifest
+      - name: Extract evidence shard
+        run: >-
+          python scripts/mmo_opportunity_extract.py shard
+          mmo-sweep/jobs/2026-08-15-all-forums-deep-sweep.json
+          mmo_opportunity_manifest/manifest.json
+          --output 'mmo_opportunity_output/${{ matrix.source }}-${{ matrix.shard }}'
+          --source '${{ matrix.source }}'
+          --shard-index '${{ matrix.shard }}'
+          --shard-total 24
+      - name: Upload extraction shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-opportunity-${{ matrix.source }}-${{ matrix.shard }}-${{ github.run_id }}
+          path: mmo_opportunity_output/${{ matrix.source }}-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 3
+
+  aggregate:
+    needs: extract
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download all extraction shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mmo-opportunity-*-${{ github.run_id }}
+          path: mmo_opportunity_shards
+          merge-multiple: true
+      - name: Aggregate opportunity evidence
+        run: python scripts/mmo_opportunity_extract.py aggregate mmo_opportunity_shards --output mmo_opportunity_aggregate
+      - name: Upload aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-opportunity-aggregate-${{ github.run_id }}
+          path: mmo_opportunity_aggregate/
+          if-no-files-found: error
+          retention-days: 7
