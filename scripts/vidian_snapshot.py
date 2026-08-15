@@ -9,8 +9,6 @@ from pathlib import Path
 
 import requests
 from lxml import html
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 import vidian_pipeline as vp
 
@@ -18,28 +16,15 @@ import vidian_pipeline as vp
 def http_session():
     s = requests.Session()
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (compatible; runner-3/VidianSnapshot/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; runner-3/VidianSnapshot/1.1)",
         "Accept-Language": "vi,en;q=0.8",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Connection": "close",
     })
-    retry = Retry(
-        total=2,
-        connect=2,
-        read=2,
-        status=2,
-        backoff_factor=1.0,
-        status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset(["GET"]),
-        respect_retry_after_header=True,
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=1, pool_maxsize=1)
-    s.mount("https://", adapter)
-    s.mount("http://", adapter)
     return s
 
 
-def fetch_article(s, row):
+def fetch_article(s, row, timeout_sec):
     started = time.time()
     rec = {
         "url": row["url"],
@@ -54,7 +39,7 @@ def fetch_article(s, row):
         "source_prose_scope": "temporary-snapshot-only",
     }
     try:
-        r = s.get(row["url"], timeout=(8, 30), allow_redirects=True)
+        r = s.get(row["url"], timeout=(5, timeout_sec), allow_redirects=True)
         rec["http_status"] = r.status_code
         rec["html_sha256"] = hashlib.sha256(r.content).hexdigest()
         if not r.ok:
@@ -78,47 +63,67 @@ def fetch_article(s, row):
     return rec
 
 
-def run(inventory_path, outdir, index, count, passes, delay):
+def load_existing(path):
+    rows = {}
+    p = Path(path)
+    if not p.exists():
+        return rows
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        rows[rec["url"]] = rec
+    return rows
+
+
+def save_checkpoint(path, selected, rows):
+    p = Path(path)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for src in selected:
+            rec = rows.get(src["url"])
+            if rec is not None:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    tmp.replace(p)
+
+
+def run(inventory_path, outdir, index, count, passes, delay, timeout_sec, resume, allow_incomplete):
     inv = json.loads(Path(inventory_path).read_text(encoding="utf-8"))
     trusted = [r for r in inv["rows"] if r.get("trusted")]
     selected = [r for i, r in enumerate(trusted) if i % count == index]
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
-    rows = {r["url"]: None for r in selected}
+    path = out / f"vidian_snapshot_chunk_{index:02d}.jsonl"
+    rows = load_existing(resume or path)
     by_url = {r["url"]: r for r in selected}
-    pending = list(rows)
-    s = http_session()
     started = time.time()
 
     for attempt in range(1, passes + 1):
+        pending = [u for u in by_url if rows.get(u, {}).get("status") != "fetched"]
         if not pending:
             break
-        current = pending
-        pending = []
-        print(f"SNAPSHOT_PASS {attempt}/{passes} pending={len(current)}", flush=True)
-        for n, url in enumerate(current, 1):
-            rec = fetch_article(s, by_url[url])
-            rows[url] = rec
-            if rec["status"] != "fetched":
-                pending.append(url)
-            if n % 25 == 0 or n == len(current):
-                counts = Counter((rows[u] or {}).get("status", "pending") for u in rows)
-                print(f"SNAPSHOT {index} pass={attempt} {n}/{len(current)} fetched={counts.get('fetched', 0)} retry={len(pending)}", flush=True)
+        print(f"SNAPSHOT_PASS {attempt}/{passes} pending={len(pending)} timeout={timeout_sec}s", flush=True)
+        s = http_session()
+        for n, url in enumerate(pending, 1):
+            rows[url] = fetch_article(s, by_url[url], timeout_sec)
+            if n % 10 == 0 or n == len(pending):
+                save_checkpoint(path, selected, rows)
+                fetched = sum(rows.get(u, {}).get("status") == "fetched" for u in by_url)
+                failed = sum(u in rows and rows[u].get("status") != "fetched" for u in by_url)
+                print(f"SNAPSHOT {index} pass={attempt} {n}/{len(pending)} fetched={fetched}/{len(selected)} failed_now={failed}", flush=True)
             if delay > 0:
                 time.sleep(delay)
-        if pending and attempt < passes:
-            pause = min(30, 2 ** attempt * 2)
-            print(f"SNAPSHOT_BACKOFF {pause}s failures={len(pending)}", flush=True)
-            time.sleep(pause)
+        if attempt < passes:
+            left = sum(rows.get(u, {}).get("status") != "fetched" for u in by_url)
+            if left:
+                pause = min(12, 3 * attempt)
+                print(f"SNAPSHOT_REPAIR_BACKOFF {pause}s failures={left}", flush=True)
+                time.sleep(pause)
 
-    ordered = [rows[r["url"]] for r in selected]
-    path = out / f"vidian_snapshot_chunk_{index:02d}.jsonl"
-    with path.open("w", encoding="utf-8", buffering=1) as f:
-        for rec in ordered:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-    failures = [r for r in ordered if not r or r.get("status") != "fetched"]
-    status_counts = Counter((r or {}).get("status", "missing") for r in ordered)
+    save_checkpoint(path, selected, rows)
+    ordered = [rows.get(r["url"], {"url": r["url"], "status": "missing"}) for r in selected]
+    failures = [r for r in ordered if r.get("status") != "fetched"]
+    status_counts = Counter(r.get("status", "missing") for r in ordered)
     summary = {
         "chunk": index,
         "chunks": count,
@@ -126,8 +131,9 @@ def run(inventory_path, outdir, index, count, passes, delay):
         "fetched": len(ordered) - len(failures),
         "failed": len(failures),
         "status_counts": dict(status_counts),
-        "passes": passes,
+        "passes_this_step": passes,
         "request_delay_sec": delay,
+        "read_timeout_sec": timeout_sec,
         "elapsed_sec": round(time.time() - started, 3),
         "completed_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -136,7 +142,8 @@ def run(inventory_path, outdir, index, count, passes, delay):
     if failures:
         sample = [{"url": r.get("url"), "status": r.get("status")} for r in failures[:10]]
         print("SNAPSHOT_FAILURE_SAMPLE", json.dumps(sample, ensure_ascii=False), flush=True)
-        raise SystemExit(f"snapshot incomplete: {len(failures)} article failures")
+        if not allow_incomplete:
+            raise SystemExit(f"snapshot incomplete: {len(failures)} article failures")
 
 
 def main():
@@ -144,11 +151,14 @@ def main():
     ap.add_argument("--inventory", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--index", type=int, required=True)
-    ap.add_argument("--count", type=int, default=32)
-    ap.add_argument("--passes", type=int, default=5)
-    ap.add_argument("--delay", type=float, default=0.6)
+    ap.add_argument("--count", type=int, default=64)
+    ap.add_argument("--passes", type=int, default=1)
+    ap.add_argument("--delay", type=float, default=0.4)
+    ap.add_argument("--timeout", type=float, default=8.0)
+    ap.add_argument("--resume", default="")
+    ap.add_argument("--allow-incomplete", action="store_true")
     a = ap.parse_args()
-    run(a.inventory, a.out, a.index, a.count, a.passes, a.delay)
+    run(a.inventory, a.out, a.index, a.count, a.passes, a.delay, a.timeout, a.resume, a.allow_incomplete)
 
 
 if __name__ == "__main__":
