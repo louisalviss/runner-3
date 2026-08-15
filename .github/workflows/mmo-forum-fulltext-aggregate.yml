@@ -1,0 +1,36 @@
+name: MMO Forum Full Text Aggregate
+
+on:
+  workflow_run:
+    workflows: ["MMO Forum Full Text"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download all full-text shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mmo-fulltext-*-${{ github.event.workflow_run.id }}
+          path: downloaded_shards
+          merge-multiple: false
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Aggregate audit
+        run: python scripts/mmo_fulltext_aggregate.py downloaded_shards --output mmo_fulltext_aggregate
+      - name: Upload aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-fulltext-aggregate-${{ github.event.workflow_run.id }}
+          path: mmo_fulltext_aggregate/
+          if-no-files-found: error
+          retention-days: 7
