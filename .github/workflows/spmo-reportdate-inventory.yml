@@ -1,0 +1,56 @@
+name: SPMO Legacy Report-Date Inventory
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/spmo-reportdate-inventory.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python - <<'PY'
+          import re, urllib.request, urllib.parse, xml.etree.ElementTree as ET, html
+          CIK='1378872'; SERIES='S000050154'; UA={'User-Agent':'Louis research contact@example.com'}
+          forms=['N-Q','N-CSR','N-CSRS']
+          def get(u):
+              with urllib.request.urlopen(urllib.request.Request(u,headers=UA),timeout=90) as r:return r.read()
+          def atom(form):
+              p={'action':'getcompany','CIK':SERIES,'type':form,'owner':'exclude','count':'100','output':'atom'}
+              root=ET.fromstring(get('https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(p)))
+              ns={'a':'http://www.w3.org/2005/Atom'}; out=[]
+              for e in root.findall('a:entry',ns):
+                  c=e.find('a:content',ns)
+                  if c is None:continue
+                  def tx(tag):
+                      n=c.find('a:'+tag,ns);return n.text if n is not None else None
+                  out.append((tx('filing-date'),tx('accession-number'),tx('filing-type')))
+              return out
+          date_re=re.compile(r'Date\s+of\s+reporting\s+period\s*:?\s*(?:</?[^>]+>|&nbsp;|&#160;|\s)*([A-Za-z]+\s+\d{1,2},\s+20\d{2}|\d{1,2}/\d{1,2}/20\d{2})',re.I)
+          anydate=re.compile(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}',re.I)
+          for form in forms:
+              print('\n###',form)
+              for filed,acc,typ in atom(form):
+                  if not filed or not acc or filed<'2016-01-01' or filed>'2020-06-30':continue
+                  u=f'https://www.sec.gov/Archives/edgar/data/{CIK}/{acc.replace("-","")}/{acc}.txt'
+                  try: txt=get(u).decode('utf-8','replace')
+                  except Exception as e:
+                      print(filed,acc,'ERR',repr(e));continue
+                  low=txt.lower()
+                  # SEC header and body both often include reporting period. Extract nearby plain text too.
+                  m=date_re.search(txt)
+                  report=m.group(1) if m else None
+                  sp=[x.start() for x in re.finditer('spmo',low)]
+                  ctx=''
+                  if sp:
+                      i=sp[-1]
+                      c=txt[max(0,i-6000):i+6000]
+                      c=re.sub(r'<[^>]+>',' ',c);c=html.unescape(c);c=re.sub(r'\s+',' ',c)
+                      ds=[x.group(0) for x in anydate.finditer(c)]
+                      ctx=' | '.join(ds[:8])
+                  print('ROW',filed,acc,'report=',report,'spmo_hits=',len(sp),'ctx_dates=',ctx)
+          PY
