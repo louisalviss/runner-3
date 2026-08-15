@@ -63,15 +63,19 @@ def series_rows(form):
     return df
 
 def master_rows_from_series(year,q):
-    start=pd.Timestamp(year=year,month=3*(q-1)+1,day=1)
-    end=start+pd.offsets.QuarterEnd(startingMonth=3)
+    qstart=pd.Timestamp(year=year,month=3*(q-1)+1,day=1)
+    # Legacy SPMO shareholder reports shifted filing cadence in 2019 (Apr-30 report filed in May,
+    # while earlier years were filed in July). Include the preceding 100 days; the legacy parser
+    # still requires the portfolio report date itself to be after the rebalance and <=120d later.
+    start=qstart-pd.Timedelta(days=100)
+    end=qstart+pd.offsets.QuarterEnd(startingMonth=3)
     parts=[]
     for form in ('NPORT-P','N-CSR','N-CSRS','N-Q'):
         df=series_rows(form)
         if len(df): parts.append(df[(df.filed>=start)&(df.filed<=end)])
     if not parts: return []
     df=pd.concat(parts,ignore_index=True).drop_duplicates(['form','filed','filename']).sort_values(['filed','form'])
-    print('SERIES QUARTER',year,q,'candidates',len(df),'forms',df.groupby('form').size().to_dict() if len(df) else {})
+    print('SERIES WINDOW',year,q,start.date(),end.date(),'candidates',len(df),'forms',df.groupby('form').size().to_dict() if len(df) else {})
     return df.to_dict('records')
 
 # Modern N-PORT: retain SEC ticker when present so CUSIP/name heuristics are only fallbacks.
@@ -130,7 +134,6 @@ def resolve_symbol(name,cusip=None,sec_ticker=None):
       'Berkshire Hathaway Inc. Class B':'BRK-B','NVIDIA Corp.':'NVDA','NVIDIA Corporation':'NVDA','Broadcom Inc.':'AVGO','Broadcom, Inc.':'AVGO'
     }
     if name in overrides: return overrides[name]
-    # CUSIP is much safer than fuzzy issuer-name search for N-PORT records.
     if cusip and str(cusip) not in ('nan','None',''):
         for z in yahoo_candidates(str(cusip)):
             sym=z.get('symbol','').replace('.','-')
@@ -161,10 +164,10 @@ def resolve_all_fixed(frames):
 def rank_frames_fixed(frames,meta):
     tickers=sorted(set(t for f in frames.values() for t in f.ticker.dropna()))
     print('DOWNLOAD PRICE',len(tickers),'tickers')
-    raw=yf.download(tickers,start='2016-03-01',end='2026-08-25',auto_adjust=False,actions=True,threads=False,progress=False)
+    raw=yf.download(tickers,start='2016-03-01',end='2026-08-25',auto_adjust=False,actions=True,threads=True,progress=False)
     rc=b.field_df(raw,'Close'); ac=b.field_df(raw,'Adj Close'); ro=b.field_df(raw,'Open')
     if ac.empty:
-        adj=yf.download(tickers,start='2016-03-01',end='2026-08-25',auto_adjust=True,threads=False,progress=False)
+        adj=yf.download(tickers,start='2016-03-01',end='2026-08-25',auto_adjust=True,threads=True,progress=False)
         ac=b.field_df(adj,'Close'); ao=b.field_df(adj,'Open')
     else:
         ao=ro*(ac/rc)
@@ -176,8 +179,8 @@ def rank_frames_fixed(frames,meta):
             t=r.ticker
             if not t or t not in rc.columns: vals.append(np.nan); continue
             ps=b.before(rc,snap,t); pr=b.before(rc,rb,t)
-            # Critical: use disclosed portfolio VALUE times price ratio. Yahoo historical OHLC is
-            # split-back-adjusted; multiplying SEC pre-split share counts by Yahoo price is wrong.
+            # Rewind disclosed portfolio value by the Yahoo price ratio. This is invariant to
+            # Yahoo's backward split adjustment, unlike multiplying SEC pre-split share counts.
             val=float(r.value)*(pr/ps) if np.isfinite(ps) and ps>0 and np.isfinite(pr) else np.nan
             vals.append(val)
         z['rb_value']=vals
@@ -188,10 +191,18 @@ def rank_frames_fixed(frames,meta):
     pd.concat(allz,ignore_index=True).to_csv(b.OUT/'ranked_holdings.csv',index=False)
     return ranked,ac,ao
 
+_orig_build=b.build_snapshots
+def build_snapshots_strict(rbs):
+    frames,meta,errors=_orig_build(rbs)
+    if len(frames)!=len(rbs):
+        raise RuntimeError(f'Strict gate: only {len(frames)}/{len(rbs)} rebalance snapshots; errors={errors}')
+    return frames,meta,errors
+
 b.get=urllib_get
 b.complete_url=complete_url_folder
 b.master_rows=master_rows_from_series
 b.parse_nport_xml=parse_nport_xml_fixed
 b.resolve_all=resolve_all_fixed
 b.rank_frames=rank_frames_fixed
+b.build_snapshots=build_snapshots_strict
 b.main()
