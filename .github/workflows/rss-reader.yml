@@ -39,6 +39,30 @@ jobs:
       - name: Collect all RSS sources
         run: python scripts/rss_reader_collect.py
 
+      - name: Normalize known canonical article hosts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import urlparse, urlunparse
+
+          path = Path("data/rss-reader/sources/gamek.json")
+          if path.exists():
+              obj = json.loads(path.read_text(encoding="utf-8"))
+              changed = False
+              for item in obj.get("items", []):
+                  url = item.get("canonicalUrl")
+                  if not url:
+                      continue
+                  p = urlparse(url)
+                  if p.netloc.lower().endswith(".cnnd.vn"):
+                      item["canonicalUrl"] = urlunparse(("https", "gamek.vn", p.path, "", "", ""))
+                      changed = True
+              if changed:
+                  path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
       - name: Upload per-run health
         if: always()
         uses: actions/upload-artifact@v4
