@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys, re, time
+import urllib.parse, urllib.request
 from pathlib import Path
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -14,15 +15,18 @@ def atom_rows(form, stop_before):
     out=[]
     start=0
     for page in range(80):
-        url='https://www.sec.gov/cgi-bin/browse-edgar'
+        base='https://www.sec.gov/cgi-bin/browse-edgar'
         params={
             'action':'getcompany','CIK':b.CIK,'type':form,'dateb':'',
             'owner':'exclude','count':'100','start':str(start),'output':'atom'
         }
-        r=b.S.get(url,params=params,timeout=45)
-        print('ATOM',form,'page',page,'start',start,'status',r.status_code,'bytes',len(r.content))
-        r.raise_for_status()
-        soup=BeautifulSoup(r.content,'xml')
+        url=base+'?'+urllib.parse.urlencode(params)
+        req=urllib.request.Request(url,headers={'User-Agent':'Louis research contact@example.com'})
+        with urllib.request.urlopen(req,timeout=45) as resp:
+            content=resp.read()
+            status=resp.status
+        print('ATOM',form,'page',page,'start',start,'status',status,'bytes',len(content))
+        soup=BeautifulSoup(content,'xml')
         entries=soup.find_all('entry')
         if not entries: break
         oldest=None
@@ -38,7 +42,6 @@ def atom_rows(form, stop_before):
             h=href.get_text(strip=True)
             m=re.search(r'/([0-9]{10}-[0-9]{2}-[0-9]{6})-index\.html',h,re.I)
             if not m:
-                # Fallback to accession directory segment.
                 m2=re.search(r'/([0-9]{18})/',h)
                 if not m2: continue
                 s=m2.group(1); acc=f'{s[:10]}-{s[10:12]}-{s[12:]}'
@@ -62,9 +65,7 @@ def ensure_inventory():
     global _inventory
     if _inventory is not None: return _inventory
     rows=[]
-    # N-PORT started in 2019; retrieve far enough back to cover the first structured snapshots.
     rows += atom_rows('NPORT-P','2018-12-01')
-    # Legacy portfolio schedules for 2016-2019.
     rows += atom_rows('N-CSR','2015-01-01')
     rows += atom_rows('N-CSRS','2015-01-01')
     rows += atom_rows('N-Q','2015-01-01')
