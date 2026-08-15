@@ -14,12 +14,67 @@
   "request_delay_ms": 150,
   "sources": [
     {
-      "name": "VOZ",
-      "discovery_urls": [
-        "https://voz.vn/whats-new/",
-        "https://voz.vn/"
-      ],
-      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$"
+      "name": "VOZ-F17",
+      "discovery_urls": ["https://voz.vn/f/chuyen-tro-linh-tinh.17/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["kinh nghiệm", "trải nghiệm", "thực tế", "việc làm", "nghề nghiệp", "lương", "công ty", "nhà nước", "visa", "định cư", "kinh doanh", "mở quán", "chi phí", "mua sắm", "dịch vụ", "helpdesk", "bảo hiểm", "ngân hàng"],
+      "deprioritize_keywords": ["report", "nội quy", "tình cảm", "gái", "gym girl", "truyện", "tâm sự", "meme", "clip vui", "ảnh vui"]
+    },
+    {
+      "name": "VOZ-F33",
+      "discovery_urls": ["https://voz.vn/f/diem-bao.33/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["kinh tế", "thị trường", "bất động sản", "việc làm", "thất nghiệp", "thuế", "ngân hàng", "lãi suất", "giá", "chính sách", "xã hội", "công nghệ", "ai", "doanh nghiệp", "đầu tư", "tiêu dùng"],
+      "deprioritize_keywords": ["report f33", "nội quy", "[dịch]", "dịch báo", "theo báo", "meme", "clip vui", "ảnh vui"]
+    },
+    {
+      "name": "VOZ-F91",
+      "discovery_urls": ["https://voz.vn/f/lap-trinh-cntt.91/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["ai", "claude", "codex", "cursor", "lập trình", "developer", "devops", "linux", "cloud", "server", "database", "security", "bug", "performance", "benchmark", "lương", "phỏng vấn", "công ty", "sa thải", "việc làm", "kinh nghiệm", "review"],
+      "deprioritize_keywords": ["nội quy", "bài tập", "xin code", "spam", "meme", "waifu"]
+    },
+    {
+      "name": "VOZ-F92",
+      "discovery_urls": ["https://voz.vn/f/kinh-te-luat.92/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["lãi suất", "ngân hàng", "thẻ tín dụng", "vàng", "chứng khoán", "đầu tư", "bất động sản", "nhà", "thuê", "thuế", "luật", "bảo hiểm", "tài sản", "vnd", "usd", "kinh nghiệm", "thực tế", "chi phí", "logistics", "xuất nhập khẩu"],
+      "deprioritize_keywords": ["nội quy", "khóa học", "quảng cáo", "tuyển sinh", "spam", "ref"]
+    },
+    {
+      "name": "VOZ-F95",
+      "discovery_urls": ["https://voz.vn/f/tuyen-dung-tim-viec.95/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["lương", "deal lương", "phỏng vấn", "review công ty", "công ty", "tuyển dụng", "việc làm", "nhảy việc", "sa thải", "intern", "fresher", "senior", "remote", "offer", "career", "nghề", "kiểm toán", "supply chain", "viettel", "kinh nghiệm"],
+      "deprioritize_keywords": ["đăng tuyển", "tìm người", "tuyển gấp", "cv hộ", "spam", "headhunt"]
+    },
+    {
+      "name": "VOZ-F38",
+      "discovery_urls": ["https://voz.vn/f/4-banh.38/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["xe điện", "ev", "bev", "phev", "sạc", "pin", "range", "tiêu hao", "bảo dưỡng", "đăng kiểm", "bảo hiểm", "lỗi", "roadtrip", "cao tốc", "trạm sạc", "kinh nghiệm", "trải nghiệm", "review", "giá", "mua xe"],
+      "deprioritize_keywords": ["nội quy", "map", "ảnh xe", "khoe xe", "meme", "rao bán"]
+    },
+    {
+      "name": "VOZ-F10",
+      "discovery_urls": ["https://voz.vn/f/do-dien-tu-thiet-bi-gia-dung.10/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["review", "đánh giá", "trải nghiệm", "thực tế", "điều hòa", "máy lạnh", "máy giặt", "máy sấy", "máy rửa", "quạt", "điện", "pin", "nhiệt", "tiết kiệm điện", "lỗi", "bảo hành", "sửa", "best p/p", "so sánh"],
+      "deprioritize_keywords": ["rao bán", "khuyến mãi", "giảm giá", "voucher", "spam", "quà tặng"]
+    },
+    {
+      "name": "VOZ-F93-MMO",
+      "discovery_urls": ["https://voz.vn/f/make-money-online.93/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["kiếm tiền", "mmo", "affiliate", "seo", "traffic", "ads", "cpm", "youtube", "tiktok", "x", "facebook", "paypal", "payoneer", "shopify", "amazon", "etsy", "kdp", "website", "automation", "ai", "tool", "case study", "doanh thu", "payout", "kinh nghiệm"],
+      "deprioritize_keywords": ["airdrop", "coin", "token", "ref", "mời", "telegram", "zalo", "đào free", "kèo chắc ăn", "spam"]
+    },
+    {
+      "name": "VOZ-F94-CRYPTO",
+      "discovery_urls": ["https://voz.vn/f/tien-dien-tu.94/"],
+      "thread_regex": "^/t/[^?#]+\\.\\d+(?:/page-\\d+)?/?$",
+      "priority_keywords": ["p2p", "otc", "usdt", "vnd", "binance", "okx", "mexc", "kucoin", "rút", "nạp", "phí", "bảo mật", "scam", "lừa đảo", "lỗi", "kinh nghiệm", "thực tế", "thuế", "off-ramp", "on-ramp", "wallet"],
+      "deprioritize_keywords": ["airdrop", "thưởng người dùng mới", "ref", "đào free", "kèo chắc ăn", "bottrade", "tín hiệu", "shill", "spam"]
     },
     {
       "name": "Otofun",
@@ -39,9 +94,7 @@
     },
     {
       "name": "Tinhte",
-      "discovery_urls": [
-        "https://tinhte.vn/"
-      ],
+      "discovery_urls": ["https://tinhte.vn/"],
       "thread_regex": "^/thread/[^?#]+\\.\\d+(?:/page-\\d+)?/?$"
     }
   ]
