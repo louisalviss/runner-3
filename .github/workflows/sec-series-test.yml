@@ -1,0 +1,31 @@
+name: SEC Series Test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sec-series-test.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python - <<'PY'
+          import urllib.request, urllib.parse, xml.etree.ElementTree as ET
+          params={'action':'getcompany','CIK':'S000050154','type':'NPORT-P','owner':'exclude','count':'100','output':'atom'}
+          u='https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(params)
+          req=urllib.request.Request(u,headers={'User-Agent':'Louis research contact@example.com'})
+          with urllib.request.urlopen(req,timeout=30) as r:
+              data=r.read()
+          print('BYTES',len(data))
+          print(data[:1000].decode('utf-8','replace'))
+          root=ET.fromstring(data)
+          ns={'a':'http://www.w3.org/2005/Atom'}
+          es=root.findall('a:entry',ns)
+          print('ENTRIES',len(es))
+          for e in es[:5]:
+              print(ET.tostring(e,encoding='unicode')[:1500])
+          PY
