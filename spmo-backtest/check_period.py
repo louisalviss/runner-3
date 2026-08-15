@@ -16,7 +16,6 @@ rb=pd.Timestamp(a.rebalance); snap=pd.Timestamp(a.snapshot); ex=pd.Timestamp(a.e
 df=pd.read_csv(a.csv); tickers=df.ticker.tolist()
 start=(rb-pd.Timedelta(days=5)).strftime('%Y-%m-%d')
 end=(ex+pd.Timedelta(days=6)).strftime('%Y-%m-%d')
-# Sequential downloads avoid intermittent yfinance/peewee "database is locked" failures on GitHub runners.
 data=yf.download(tickers,start=start,end=end,auto_adjust=False,actions=True,threads=False,progress=False)
 
 def fld(n):
@@ -42,9 +41,9 @@ def at(f,d,t):
     s=f[t].dropna(); s=s[s.index<=d]
     if s.empty:raise RuntimeError(f'No {t} price on/before {d.date()}')
     return float(s.iloc[-1])
-def after(f,d,t):
+def after_or_none(f,d,t):
     s=f[t].dropna(); s=s[s.index>=d]
-    if s.empty:raise RuntimeError(f'No {t} price on/after {d.date()}')
+    if s.empty:return None
     return s.index[0],float(s.iloc[0])
 rows=[]
 for _,r in df.iterrows():
@@ -52,9 +51,14 @@ for _,r in df.iterrows():
     pr=at(close,rb,t); ps=at(close,snap,t)
     rv=float(r.snapshot_value)*pr/ps
     cr=at(adj,ex,t)/at(adj,rb,t)-1
-    ed,eo=after(op,rb+pd.Timedelta(days=1),t); xd,xo=after(op,ex+pd.Timedelta(days=1),t)
-    eao=eo*(at(adj,ed,t)/at(close,ed,t)); xao=xo*(at(adj,xd,t)/at(close,xd,t))
-    rows.append({**r.to_dict(),'rb_close':pr,'snapshot_close':ps,'reconstructed_rb_value':rv,'close_to_close_return':cr,'next_open_return':xao/eao-1})
+    ent=after_or_none(op,rb+pd.Timedelta(days=1),t)
+    ext=after_or_none(op,ex+pd.Timedelta(days=1),t)
+    no_ret=float('nan')
+    if ent is not None and ext is not None:
+        ed,eo=ent; xd,xo=ext
+        eao=eo*(at(adj,ed,t)/at(close,ed,t)); xao=xo*(at(adj,xd,t)/at(close,xd,t))
+        no_ret=xao/eao-1
+    rows.append({**r.to_dict(),'rb_close':pr,'snapshot_close':ps,'reconstructed_rb_value':rv,'close_to_close_return':cr,'next_open_return':no_ret})
 z=pd.DataFrame(rows).sort_values('reconstructed_rb_value',ascending=False).reset_index(drop=True)
 z['reconstructed_rank']=z.index+1
 Path(a.output).parent.mkdir(parents=True,exist_ok=True); z.to_csv(a.output,index=False)
