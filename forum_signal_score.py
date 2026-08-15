@@ -4,13 +4,16 @@ import argparse
 import json
 import re
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 FIRSTHAND = [
-    "tôi", "mình", "nhà tôi", "xe tôi", "máy tôi", "đang dùng", "đã dùng", "đang xài", "đã xài",
-    "mua", "bán", "thuê", "cho thuê", "đang ở", "đã ở", "đi thử", "test", "thử", "trải nghiệm",
-    "gặp lỗi", "bị lỗi", "sạc", "chạy được", "đi được", "đã cài", "đang cài", "đã chơi", "đang chơi",
+    "mình mua", "tôi mua", "đã mua", "đang dùng", "đã dùng", "mình dùng", "tôi dùng",
+    "đang xài", "đã xài", "xe tôi", "xe của tôi", "nhà tôi", "máy tôi", "của tôi",
+    "lái thử", "đi thử", "gặp lỗi", "bị lỗi", "xe lỗi", "đã cài", "đang cài",
+    "đã chơi", "đang chơi", "đang thuê", "đã thuê", "đang cho thuê", "đã bán",
+    "đã sạc", "đang sạc", "vẫn hài lòng với", "hotline", "bảo hành",
 ]
 REASONING = [
     "vì", "do đó", "nên", "nếu", "thì", "nhưng", "tuy nhiên", "theo mình", "theo tôi", "có thể",
@@ -18,17 +21,17 @@ REASONING = [
     "không hợp lý", "lý do", "kết quả là",
 ]
 CURRENT = [
-    "hôm nay", "vừa", "mới", "hiện tại", "bây giờ", "patch", "update", "beta", "leak", "rumor",
-    "banner", "meta", "giá", "lãi suất", "thuê", "rao", "bán", "lỗi", "fix", "nerf", "buff",
-    "ra mắt", "trailer", "release", "phiên bản", "3.8", "1.18",
+    "hôm nay", "vừa", "mới", "hiện tại", "bây giờ", "tới giờ", "patch", "update", "beta", "leak",
+    "rumor", "tin đồn", "banner", "meta", "fix", "nerf", "buff", "ra mắt", "trailer", "release",
+    "phiên bản",
 ]
 EVIDENCE = [
-    "ảnh", "video", "screenshot", "benchmark", "đo", "test", "log", "km", "kwh", "mah", "fps", "%",
+    "ảnh", "video", "screenshot", "benchmark", "test", "log", "km", "kwh", "mah", "fps", "%",
     "triệu", "tỷ", "usd", "vnd", "gb", "hz", "km/h", "rc3", "rc6", "np",
 ]
 NEWSISH = [
-    "theo báo", "báo viết", "nguồn tin", "reuters", "cnn", "bbc", "vnexpress", "tuổi trẻ", "dantri",
-    "cafef", "cafebiz", "zing", "link báo", "bài báo",
+    "theo báo", "báo viết", "nguồn tin", "reuters", "bloomberg", "cnn", "bbc", "vnexpress", "tuổi trẻ",
+    "dantri", "cafef", "cafebiz", "zing", "link báo", "bài báo",
 ]
 NOISE_PATTERNS = [
     re.compile(r"^(\+1|up|ké|hóng|chấm|lol|vl|vãi|ok|oke|thanks|thank|=\)+|:v|haha+)[.!? ]*$", re.I),
@@ -46,9 +49,39 @@ def hits(text, markers):
     return sorted({m for m in markers if m in text})
 
 
-def score_row(row):
+def parse_dt(value):
+    value = str(value or "").strip()
+    if not value:
+        return None
+    candidates = [value, value.replace("Z", "+00:00")]
+    for item in candidates:
+        try:
+            dt = datetime.fromisoformat(item)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            pass
+    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S%z"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def age_hours(row):
+    post_dt = parse_dt(row.get("timestamp"))
+    fetched_dt = parse_dt(row.get("fetched_at")) or datetime.now(timezone.utc)
+    if not post_dt:
+        return None
+    return (fetched_dt.astimezone(timezone.utc) - post_dt.astimezone(timezone.utc)).total_seconds() / 3600.0
+
+
+def score_row(row, max_age_hours):
     raw = str(row.get("text") or "").strip()
     text = norm(raw)
+    title = norm(row.get("thread_title") or "")
     n = len(raw)
 
     firsthand = hits(text, FIRSTHAND)
@@ -57,9 +90,26 @@ def score_row(row):
     evidence = hits(text, EVIDENCE)
     newsish = hits(text, NEWSISH)
     numbers = NUMERIC_RE.findall(text)
+    age = age_hours(row)
 
     score = 0.55
     reasons = []
+
+    if age is not None:
+        if age < -6:
+            return {
+                "score": 0.0, "signal_type": "timestamp_error", "reasons": ["future_timestamp"],
+                "firsthand_hits": firsthand[:8], "reasoning_hits": reasoning[:8], "current_hits": current[:8],
+                "evidence_hits": evidence[:8], "numeric_count": len(numbers), "needs_verification": True,
+                "age_hours": round(age, 2), "fresh": False,
+            }
+        if age > max_age_hours:
+            return {
+                "score": 0.0, "signal_type": "stale", "reasons": ["stale_timestamp"],
+                "firsthand_hits": firsthand[:8], "reasoning_hits": reasoning[:8], "current_hits": current[:8],
+                "evidence_hits": evidence[:8], "numeric_count": len(numbers), "needs_verification": False,
+                "age_hours": round(age, 2), "fresh": False,
+            }
 
     if n >= 120:
         score += 0.4
@@ -70,24 +120,19 @@ def score_row(row):
         score += 0.3
 
     if firsthand:
-        add = min(1.55, 0.45 * len(firsthand))
-        score += add
+        score += min(1.7, 0.55 * len(firsthand))
         reasons.append("firsthand")
     if reasoning:
-        add = min(1.15, 0.23 * len(reasoning))
-        score += add
+        score += min(1.15, 0.23 * len(reasoning))
         reasons.append("reasoning")
     if current:
-        add = min(0.9, 0.24 * len(current))
-        score += add
+        score += min(0.9, 0.24 * len(current))
         reasons.append("current_signal")
     if evidence:
-        add = min(0.8, 0.2 * len(evidence))
-        score += add
+        score += min(0.8, 0.2 * len(evidence))
         reasons.append("evidence_marker")
     if numbers:
-        add = min(1.0, 0.16 * len(numbers))
-        score += add
+        score += min(1.0, 0.16 * len(numbers))
         reasons.append("numeric_detail")
 
     if n < 45:
@@ -99,9 +144,19 @@ def score_row(row):
     if URL_RE.search(raw) and n < 180:
         score -= 0.55
         reasons.append("link_heavy")
-    if newsish and not firsthand and len(reasoning) < 2:
-        score -= 0.8
+
+    source_article = (
+        title.startswith("[dịch]")
+        or title.startswith("[dich]")
+        or any(src in norm(raw[:180]) for src in ("[bloomberg", "[reuters", "[bbc", "[cnn", "theo bloomberg", "theo reuters"))
+    )
+    if source_article:
+        score -= 2.6
+        reasons.append("source_article_repost")
+    elif newsish and not firsthand and len(reasoning) < 2:
+        score -= 1.0
         reasons.append("news_repost_risk")
+
     if row.get("extraction") == "page_fallback":
         score -= 1.2
         reasons.append("page_fallback")
@@ -135,6 +190,8 @@ def score_row(row):
         "evidence_hits": evidence[:8],
         "numeric_count": len(numbers),
         "needs_verification": needs_verification,
+        "age_hours": round(age, 2) if age is not None else None,
+        "fresh": age is None or age <= max_age_hours,
     }
 
 
@@ -143,41 +200,42 @@ def load_jsonl(path):
     if not path.exists():
         return rows
     for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        rows.append(json.loads(line))
+        if line.strip():
+            rows.append(json.loads(line))
     return rows
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Score forum delta rows into signal candidates")
+    parser = argparse.ArgumentParser(description="Score fresh forum delta rows into signal candidates")
     parser.add_argument("--input", default="crawl_output/forum_signal.jsonl")
     parser.add_argument("--output", default="crawl_output/forum_insight_candidates.jsonl")
     parser.add_argument("--summary", default="crawl_output/forum_insights.md")
     parser.add_argument("--min-score", type=float, default=3.0)
+    parser.add_argument("--max-age-hours", type=float, default=72.0)
     args = parser.parse_args()
 
     if not 0 <= args.min_score <= 5:
         raise SystemExit("min-score must be 0..5")
+    if not 1 <= args.max_age_hours <= 720:
+        raise SystemExit("max-age-hours must be 1..720")
 
     rows = load_jsonl(Path(args.input))
     scored = []
     thread_counts = Counter(str(r.get("thread_key") or "") for r in rows)
 
     for row in rows:
-        meta = score_row(row)
+        meta = score_row(row, args.max_age_hours)
         item = dict(row)
         item.update(meta)
-        item["scorer"] = "forum-signal-heuristic-v1"
+        item["scorer"] = "forum-signal-heuristic-v2"
         item["thread_delta_posts"] = thread_counts[str(row.get("thread_key") or "")]
-        if item["thread_delta_posts"] >= 3 and item["score"] >= args.min_score:
-            item["consensus_candidate"] = True
-        else:
-            item["consensus_candidate"] = False
         scored.append(item)
 
-    kept = [r for r in scored if r["score"] >= args.min_score]
+    kept = [r for r in scored if r["score"] >= args.min_score and r.get("fresh", True)]
     kept.sort(key=lambda r: (-r["score"], r.get("source", ""), r.get("thread_title", "")))
+    kept_counts = Counter(str(r.get("thread_key") or "") for r in kept)
+    for item in kept:
+        item["consensus_candidate"] = kept_counts[str(item.get("thread_key") or "")] >= 3
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,12 +249,14 @@ def main():
         by_source[row.get("source", "unknown")] += 1
         by_type[row.get("signal_type", "unknown")] += 1
 
+    stale_count = sum(1 for r in scored if r.get("signal_type") == "stale")
     md = [
         "# Forum Signal Candidates",
         "",
-        f"Delta rows: {len(rows)}",
-        f"Candidates score >= {args.min_score:g}: {len(kept)}",
-        f"Scorer: forum-signal-heuristic-v1 (deterministic prefilter; not an LLM)",
+        f"Unseen delta rows: {len(rows)}",
+        f"Stale unseen rows excluded (> {args.max_age_hours:g}h): {stale_count}",
+        f"Fresh candidates score >= {args.min_score:g}: {len(kept)}",
+        "Scorer: forum-signal-heuristic-v2 (deterministic prefilter; not an LLM)",
         "",
     ]
     for row in kept[:50]:
@@ -205,7 +265,7 @@ def main():
             text = text[:357] + "..."
         md.extend([
             f"## [{row['score']}/5] {row.get('source','')} — {row.get('thread_title','')}",
-            f"Type: `{row.get('signal_type')}` | verify: `{row.get('needs_verification')}` | author: `{row.get('author','')}`",
+            f"Type: `{row.get('signal_type')}` | age_h: `{row.get('age_hours')}` | verify: `{row.get('needs_verification')}` | author: `{row.get('author','')}`",
             "",
             text,
             "",
@@ -214,10 +274,12 @@ def main():
     Path(args.summary).write_text("\n".join(md), encoding="utf-8")
 
     print(json.dumps({
-        "scorer": "forum-signal-heuristic-v1",
-        "delta_rows": len(rows),
+        "scorer": "forum-signal-heuristic-v2",
+        "unseen_delta_rows": len(rows),
+        "stale_excluded": stale_count,
         "candidates": len(kept),
         "min_score": args.min_score,
+        "max_age_hours": args.max_age_hours,
         "by_source": dict(by_source),
         "by_type": dict(by_type),
         "output": str(out_path),
