@@ -30,9 +30,15 @@ jobs:
         with:
           pattern: mmo-opportunity-*-31869561648
           path: mmo_opportunity_shards
-          merge-multiple: true
+          merge-multiple: false
           repository: louisalviss/runner-3
           run-id: 31869561648
+      - name: Verify candidate files
+        run: |
+          set -euo pipefail
+          COUNT="$(find mmo_opportunity_shards -type f -name 'candidates-*.jsonl' | wc -l)"
+          echo "candidate_files=$COUNT"
+          test "$COUNT" -ge 48
       - name: Aggregate opportunity evidence
         run: python scripts/mmo_opportunity_extract.py aggregate mmo_opportunity_shards --output mmo_opportunity_aggregate
       - name: Upload aggregate
