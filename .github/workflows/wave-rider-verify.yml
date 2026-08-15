@@ -1,0 +1,33 @@
+name: Wave Rider Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requests
+        run: python -m pip install 'requests>=2.32,<3'
+      - name: Run independent WR 2.5.13 verifier
+        run: python wave-rider-verify/reference_verify.py
+      - name: Upload verification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave-rider-verify-${{ github.run_id }}
+          path: wave-rider-verify/output/
+          if-no-files-found: warn
+          retention-days: 7
