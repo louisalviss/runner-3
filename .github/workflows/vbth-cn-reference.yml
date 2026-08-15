@@ -1,0 +1,36 @@
+name: VBTH CN Reference
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "story_pipeline/cn_reference_trigger.json"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Chinese full-text reference
+        run: |
+          python - <<'PY'
+          import requests
+          url='https://d.noveless.com/d/one/books/2194.txt.zip'
+          headers={'User-Agent':'Mozilla/5.0','Referer':'https://noveless.com/archives/2194/'}
+          r=requests.get(url,headers=headers,timeout=60,allow_redirects=True)
+          print('status',r.status_code,'bytes',len(r.content),'type',r.headers.get('content-type'))
+          r.raise_for_status()
+          open('2194.txt.zip','wb').write(r.content)
+          PY
+          unzip -l 2194.txt.zip | head -30
+      - name: Upload reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbth-cn-reference-${{ github.run_id }}
+          path: 2194.txt.zip
+          retention-days: 3
+          if-no-files-found: error
