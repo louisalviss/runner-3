@@ -50,7 +50,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install requests beautifulsoup4
       - name: Run canonical forum sweep
-        run: python scripts/mmo_forum_sweep.py '${{ steps.cfg.outputs.config }}' --output mmo_sweep_output
+        run: python scripts/run_mmo_sweep_config.py '${{ steps.cfg.outputs.config }}' --output mmo_sweep_output
       - name: Upload sweep artifact
         if: always()
         uses: actions/upload-artifact@v4
