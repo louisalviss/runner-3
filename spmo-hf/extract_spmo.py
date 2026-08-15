@@ -28,15 +28,14 @@ SELECT f.ACCESSION_NUMBER,f.SERIES_NAME,f.SERIES_ID,f.NET_ASSETS,
        s.FILING_DATE,s.SUB_TYPE,s.REPORT_ENDING_PERIOD,s.REPORT_DATE,s.IS_LAST_FILING,
        f.year,f.quarter
 FROM f JOIN s USING (ACCESSION_NUMBER)
+WHERE month(s.REPORT_DATE) IN (5,11)
 ORDER BY s.REPORT_DATE,s.FILING_DATE,f.ACCESSION_NUMBER
 """
 filings=con.execute(q).fetchdf()
-print('SPMO_FILINGS',len(filings),flush=True)
+print('SPMO_TARGET_FILINGS',len(filings),flush=True)
 print(filings.to_string(index=False),flush=True)
 filings.to_csv(OUT/'spmo_filings.csv',index=False)
 
-# Keep one as-filed public filing per report date. Prefer rows marked last filing,
-# then the latest filing date/accession to handle amendments/re-filings.
 filings['REPORT_DATE']=pd.to_datetime(filings['REPORT_DATE'])
 filings['FILING_DATE']=pd.to_datetime(filings['FILING_DATE'])
 filings['last_rank']=(filings['IS_LAST_FILING'].astype(str).str.upper()=='Y').astype(int)
@@ -44,7 +43,7 @@ canon=(filings.sort_values(['REPORT_DATE','last_rank','FILING_DATE','ACCESSION_N
        .groupby('REPORT_DATE',as_index=False).tail(1)
        .sort_values('REPORT_DATE').reset_index(drop=True))
 canon.to_csv(OUT/'spmo_filings_canonical.csv',index=False)
-print('\nCANONICAL',len(canon),flush=True)
+print('\nCANONICAL_TARGETS',len(canon),flush=True)
 print(canon[['REPORT_DATE','FILING_DATE','ACCESSION_NUMBER','NET_ASSETS','year','quarter']].to_string(index=False),flush=True)
 
 all_hold=[]
@@ -67,14 +66,11 @@ for _,r in canon.iterrows():
     d=con.execute(sql).fetchdf()
     print('HOLDINGS',r['REPORT_DATE'].date(),acc,'rows',len(d),'equities',int((d.ASSET_CAT=='EC').sum()) if len(d) else 0,flush=True)
     all_hold.append(d)
-if all_hold:
-    holdings=pd.concat(all_hold,ignore_index=True)
-else:
-    holdings=pd.DataFrame()
+
+holdings=pd.concat(all_hold,ignore_index=True) if all_hold else pd.DataFrame()
 holdings.to_csv(OUT/'spmo_holdings.csv',index=False)
 print('TOTAL_HOLDING_ROWS',len(holdings),flush=True)
 
-# Compact sanity view: top 5 equity positions at each reported date.
 if len(holdings):
     eq=holdings[holdings.ASSET_CAT.eq('EC')].copy()
     eq['rank']=eq.groupby('REPORT_DATE')['CURRENCY_VALUE'].rank(method='first',ascending=False)
