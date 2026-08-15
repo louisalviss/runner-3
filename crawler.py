@@ -8,14 +8,14 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 DEFAULT_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 runner-3/1.0"
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 runner-3/1.1"
 )
 
 BLOCK_MARKERS = [
@@ -29,9 +29,135 @@ BLOCK_MARKERS = [
     "temporarily blocked",
 ]
 
+FORBIDDEN_JOB_KEYS = {
+    "authorization",
+    "cookie",
+    "cookies",
+    "password",
+    "passwd",
+    "secret",
+    "secrets",
+    "token",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "apikey",
+    "client_secret",
+    "private_key",
+    "service_account",
+    "credentials",
+    "credential",
+    "session",
+    "sessionid",
+}
+
+FORBIDDEN_HEADER_NAMES = {
+    "authorization",
+    "cookie",
+    "proxy-authorization",
+    "x-api-key",
+    "x-auth-token",
+}
+
+FORBIDDEN_QUERY_KEYS = {
+    "access_token",
+    "refresh_token",
+    "auth_token",
+    "api_key",
+    "apikey",
+    "client_secret",
+    "password",
+    "passwd",
+    "session",
+    "sessionid",
+    "jwt",
+}
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def normalized_key(value):
+    return re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
+
+
+def validate_public_url(url):
+    if not isinstance(url, str):
+        raise ValueError("every job URL must be a string")
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("only http/https URLs are supported")
+    if not parsed.netloc:
+        raise ValueError("URL must contain a hostname")
+    if parsed.username or parsed.password:
+        raise ValueError("URL userinfo credentials are forbidden in this public repository")
+    for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
+        if normalized_key(key) in FORBIDDEN_QUERY_KEYS:
+            raise ValueError(f"sensitive query parameter is forbidden: {key}")
+
+
+def scan_for_forbidden_keys(value, path="job"):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            nk = normalized_key(key)
+            if nk in FORBIDDEN_JOB_KEYS:
+                raise ValueError(f"sensitive field is forbidden in public job JSON: {path}.{key}")
+            scan_for_forbidden_keys(child, f"{path}.{key}")
+    elif isinstance(value, list):
+        for i, child in enumerate(value):
+            scan_for_forbidden_keys(child, f"{path}[{i}]")
+
+
+def validate_job(job):
+    if not isinstance(job, dict):
+        raise ValueError("job JSON must be an object")
+
+    scan_for_forbidden_keys(job)
+
+    source_visibility = str(job.get("source_visibility", "")).strip().lower()
+    if source_visibility != "public":
+        raise ValueError(
+            "runner-3 accepts only public Internet sources; set source_visibility to 'public'"
+        )
+
+    artifact_policy = str(job.get("artifact_policy", "none")).strip().lower()
+    if artifact_policy not in {"none", "text", "raw"}:
+        raise ValueError("artifact_policy must be one of: none, text, raw")
+
+    urls = job.get("urls") or []
+    if not isinstance(urls, list) or not urls:
+        raise ValueError("job.urls must be a non-empty array")
+    for url in urls:
+        validate_public_url(url)
+
+    custom_headers = job.get("headers") or {}
+    if not isinstance(custom_headers, dict):
+        raise ValueError("job.headers must be an object")
+    for key in custom_headers:
+        if normalized_key(key) in FORBIDDEN_HEADER_NAMES:
+            raise ValueError(f"sensitive request header is forbidden: {key}")
+
+    mode = str(job.get("mode", "auto")).lower()
+    if mode not in {"http", "browser", "auto"}:
+        raise ValueError("job.mode must be http, browser, or auto")
+
+    timeout = int(job.get("timeout_seconds", 30))
+    wait_ms = int(job.get("wait_after_load_ms", 1200))
+    if not 1 <= timeout <= 120:
+        raise ValueError("timeout_seconds must be between 1 and 120")
+    if not 0 <= wait_ms <= 30000:
+        raise ValueError("wait_after_load_ms must be between 0 and 30000")
+
+    return {
+        "source_visibility": source_visibility,
+        "artifact_policy": artifact_policy,
+        "mode": mode,
+        "timeout": timeout,
+        "wait_ms": wait_ms,
+        "urls": urls,
+        "custom_headers": custom_headers,
+    }
 
 
 def safe_name(url: str, index: int) -> str:
@@ -76,7 +202,6 @@ def http_fetch(url, timeout, headers):
         "final_url": r.url,
         "status": r.status_code,
         "content_type": r.headers.get("content-type", ""),
-        "headers": dict(r.headers),
         "html": html,
         "title": title,
         "text": text,
@@ -101,11 +226,9 @@ def browser_fetch(url, timeout, wait_ms, headers, user_agent):
         final_url = page.url
         status = response.status if response else None
         content_type = ""
-        response_headers = {}
         if response:
             try:
-                response_headers = response.all_headers()
-                content_type = response_headers.get("content-type", "")
+                content_type = response.all_headers().get("content-type", "")
             except Exception:
                 pass
         title, text = extract_text(html)
@@ -117,7 +240,6 @@ def browser_fetch(url, timeout, wait_ms, headers, user_agent):
         "final_url": final_url,
         "status": status,
         "content_type": content_type,
-        "headers": response_headers,
         "html": html,
         "title": title,
         "text": text,
@@ -134,7 +256,9 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
             result = http_fetch(url, timeout, headers)
             blocked = looks_blocked(result.get("status"), result.get("html"), result.get("text"))
             too_thin = len(result.get("text") or "") < 300
-            if mode == "http" or (not blocked and not too_thin and (result.get("status") or 0) < 400):
+            if mode == "http" or (
+                not blocked and not too_thin and (result.get("status") or 0) < 400
+            ):
                 result["blocked_or_challenge"] = blocked
                 result["fallback_used"] = False
                 return result, errors
@@ -145,7 +269,9 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
         try:
             browser_result = browser_fetch(url, timeout, wait_ms, headers, user_agent)
             browser_result["blocked_or_challenge"] = looks_blocked(
-                browser_result.get("status"), browser_result.get("html"), browser_result.get("text")
+                browser_result.get("status"),
+                browser_result.get("html"),
+                browser_result.get("text"),
             )
             browser_result["fallback_used"] = mode == "auto"
             return browser_result, errors
@@ -162,32 +288,54 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
     return None, errors
 
 
+def load_and_validate(job_file):
+    job_path = Path(job_file)
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    policy = validate_job(job)
+    return job_path, job, policy
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Generic targeted URL crawler")
+    parser = argparse.ArgumentParser(description="Generic public-source targeted URL crawler")
     parser.add_argument("job_file")
     parser.add_argument("--output", default="crawl_output")
+    parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
 
-    job_path = Path(args.job_file)
-    job = json.loads(job_path.read_text(encoding="utf-8"))
+    try:
+        job_path, job, policy = load_and_validate(args.job_file)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"SECURITY_POLICY_ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(2)
 
-    urls = job.get("urls") or []
-    if not isinstance(urls, list) or not urls:
-        raise SystemExit("job.urls must be a non-empty array")
+    if args.validate_only:
+        print(
+            json.dumps(
+                {
+                    "job": job.get("name", job_path.stem),
+                    "source_visibility": policy["source_visibility"],
+                    "artifact_policy": policy["artifact_policy"],
+                    "mode": policy["mode"],
+                    "url_count": len(policy["urls"]),
+                    "validated": True,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
 
-    mode = str(job.get("mode", "auto")).lower()
-    if mode not in {"http", "browser", "auto"}:
-        raise SystemExit("job.mode must be http, browser, or auto")
-
-    timeout = int(job.get("timeout_seconds", 30))
-    wait_ms = int(job.get("wait_after_load_ms", 1200))
+    mode = policy["mode"]
+    timeout = policy["timeout"]
+    wait_ms = policy["wait_ms"]
+    urls = policy["urls"]
+    artifact_policy = policy["artifact_policy"]
     user_agent = str(job.get("user_agent", DEFAULT_UA))
-    custom_headers = job.get("headers") or {}
-    if not isinstance(custom_headers, dict):
-        raise SystemExit("job.headers must be an object")
 
-    headers = {"User-Agent": user_agent, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
-    headers.update({str(k): str(v) for k, v in custom_headers.items()})
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    headers.update({str(k): str(v) for k, v in policy["custom_headers"].items()})
 
     out_root = Path(args.output)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -195,6 +343,9 @@ def main():
     manifest = {
         "job_name": job.get("name", job_path.stem),
         "job_file": str(job_path),
+        "source_visibility": "public",
+        "artifact_policy": artifact_policy,
+        "response_headers_persisted": False,
         "mode": mode,
         "started_at": now_iso(),
         "url_count": len(urls),
@@ -202,14 +353,6 @@ def main():
     }
 
     for index, url in enumerate(urls, start=1):
-        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
-            manifest["results"].append({
-                "requested_url": url,
-                "ok": False,
-                "errors": ["invalid URL: only http/https URLs are supported"],
-            })
-            continue
-
         item_dir = out_root / safe_name(url, index)
         item_dir.mkdir(parents=True, exist_ok=True)
 
@@ -221,43 +364,71 @@ def main():
                 "fetched_at": now_iso(),
                 "errors": errors,
             }
-            (item_dir / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+            (item_dir / "meta.json").write_text(
+                json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
             manifest["results"].append(meta)
             continue
 
         html = result.pop("html", "")
         text = result.pop("text", "")
-        result.update({
-            "ok": bool(result.get("status") and result.get("status") < 400 and not result.get("blocked_or_challenge")),
-            "fetched_at": now_iso(),
-            "html_bytes": len(html.encode("utf-8", errors="ignore")),
-            "text_chars": len(text),
-            "errors": errors,
-            "output_dir": item_dir.name,
-        })
+        result.update(
+            {
+                "ok": bool(
+                    result.get("status")
+                    and result.get("status") < 400
+                    and not result.get("blocked_or_challenge")
+                ),
+                "fetched_at": now_iso(),
+                "html_bytes": len(html.encode("utf-8", errors="ignore")),
+                "text_chars": len(text),
+                "errors": errors,
+                "output_dir": item_dir.name,
+            }
+        )
 
-        (item_dir / "page.html").write_text(html, encoding="utf-8", errors="ignore")
-        (item_dir / "page.txt").write_text(text, encoding="utf-8", errors="ignore")
-        (item_dir / "meta.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        if artifact_policy == "raw":
+            (item_dir / "page.html").write_text(
+                html, encoding="utf-8", errors="ignore"
+            )
+            (item_dir / "page.txt").write_text(
+                text, encoding="utf-8", errors="ignore"
+            )
+        elif artifact_policy == "text":
+            (item_dir / "page.txt").write_text(
+                text, encoding="utf-8", errors="ignore"
+            )
+
+        (item_dir / "meta.json").write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         manifest["results"].append(result)
 
     manifest["finished_at"] = now_iso()
     manifest["ok_count"] = sum(1 for r in manifest["results"] if r.get("ok"))
-    manifest["blocked_count"] = sum(1 for r in manifest["results"] if r.get("blocked_or_challenge"))
+    manifest["blocked_count"] = sum(
+        1 for r in manifest["results"] if r.get("blocked_or_challenge")
+    )
     manifest["failed_count"] = len(manifest["results"]) - manifest["ok_count"]
 
     (out_root / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    print(json.dumps({
-        "job": manifest["job_name"],
-        "urls": manifest["url_count"],
-        "ok": manifest["ok_count"],
-        "blocked": manifest["blocked_count"],
-        "failed": manifest["failed_count"],
-        "output": str(out_root),
-    }, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "job": manifest["job_name"],
+                "urls": manifest["url_count"],
+                "ok": manifest["ok_count"],
+                "blocked": manifest["blocked_count"],
+                "failed": manifest["failed_count"],
+                "artifact_policy": artifact_policy,
+                "output": str(out_root),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":
