@@ -1,0 +1,64 @@
+name: Runner3 AI RSS Reader
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rss-reader.yml"
+      - "scripts/rss_reader_collect.py"
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-ai-rss-reader
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install collector dependencies
+        run: python -m pip install "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
+
+      - name: Collect all RSS sources
+        run: python scripts/rss_reader_collect.py
+
+      - name: Upload per-run health
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-reader-health-${{ github.run_id }}
+          path: data/rss-reader/health.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Persist source mirrors only when content changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "runner3-rss-bot"
+          git config user.email "runner3-rss-bot@users.noreply.github.com"
+          git add data/rss-reader/sources/
+          if git diff --cached --quiet; then
+            echo "No RSS content changes"
+            exit 0
+          fi
+          git commit -m "Update Runner3 RSS source mirrors"
+          git pull --rebase origin main
+          git push origin HEAD:main
