@@ -1,0 +1,61 @@
+name: MMO Forum Deep Sweep
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mmo-sweep/**/*.json'
+  workflow_dispatch:
+    inputs:
+      config_file:
+        description: 'Path to MMO sweep config JSON'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mmo-forum-deep-sweep-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Resolve config
+        id: cfg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CFG='${{ inputs.config_file }}'
+          else
+            CFG="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'mmo-sweep/*.json' 'mmo-sweep/**/*.json' | tail -n 1 || true)"
+          fi
+          if [ -z "$CFG" ] || [ ! -f "$CFG" ]; then
+            echo "No valid config: $CFG" >&2
+            exit 2
+          fi
+          echo "config=$CFG" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: python -m pip install requests beautifulsoup4
+      - name: Run canonical forum sweep
+        run: python scripts/mmo_forum_sweep.py '${{ steps.cfg.outputs.config }}' --output mmo_sweep_output
+      - name: Upload sweep artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmo-deep-sweep-${{ github.run_id }}
+          path: mmo_sweep_output/
+          if-no-files-found: warn
+          retention-days: 3
