@@ -7,7 +7,7 @@ on:
       - ".github/workflows/rss-reader.yml"
       - "scripts/rss_reader_collect.py"
       - "scripts/rss_substack_collect.py"
-      - "scripts/rss_substack_collect_strict.py"
+      - "scripts/rss_substack_collect_v2.py"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
         run: python scripts/rss_reader_collect.py
 
       - name: Collect 3 Substack RSS sources
-        run: python scripts/rss_substack_collect_strict.py
+        run: python scripts/rss_substack_collect_v2.py
 
       - name: Upload per-run health
         if: always()
