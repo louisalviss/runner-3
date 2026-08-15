@@ -1,0 +1,30 @@
+name: SPMO Sep 2023 Sanity Check
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-backtest/check_period.py'
+      - 'spmo-backtest/data/2023-11-30_top_candidates.csv'
+      - '.github/workflows/spmo-2023-sep-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pandas yfinance
+      - name: Reconstruct September 2023 top weight and returns
+        run: python -u spmo-backtest/check_period.py --csv spmo-backtest/data/2023-11-30_top_candidates.csv --rebalance 2023-09-15 --snapshot 2023-11-30 --exit 2024-03-15 --output spmo-backtest/output/check_2023_sep_results.csv
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spmo-2023-sep-check-${{ github.run_id }}
+          path: spmo-backtest/output/check_2023_sep_results.csv
+          if-no-files-found: warn
+          retention-days: 7
