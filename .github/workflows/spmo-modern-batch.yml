@@ -1,0 +1,27 @@
+name: SPMO Modern Batch 2020-2021
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-backtest/run_modern_batch.py'
+      - '.github/workflows/spmo-modern-batch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas yfinance
+      - run: python -u spmo-backtest/run_modern_batch.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-modern-batch-${{ github.run_id }}
+          path: spmo-backtest/output/modern_batch_results.csv
+          if-no-files-found: warn
+          retention-days: 7
