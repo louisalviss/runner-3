@@ -9,6 +9,7 @@ on:
       - 'forum_signal_rank.py'
       - 'forum_signal_delta.py'
       - 'forum_signal_score.py'
+      - 'forum_signal_route.py'
       - '.github/workflows/forum-signal.yml'
   schedule:
     # Every 3 hours, aligned to :30 Asia/Ho_Chi_Minh. Includes 20:30 VN,
@@ -98,6 +99,10 @@ jobs:
       - name: Score insight candidates
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_score.py --input crawl_output/forum_signal.jsonl --output crawl_output/forum_insight_candidates.jsonl --summary crawl_output/forum_insights.md --min-score 3
+
+      - name: Route and final-filter candidates
+        if: steps.crawl.outcome == 'success'
+        run: python forum_signal_route.py --input crawl_output/forum_insight_candidates.jsonl --output-dir crawl_output
 
       - name: Save forum delta state
         if: steps.crawl.outcome == 'success'
