@@ -1,0 +1,38 @@
+name: SPMO Modern HF Backtest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-modern2/**'
+      - '.github/workflows/spmo-modern2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spmo-modern2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install duckdb pandas numpy requests yfinance
+      - name: Run modern SPMO reconstruction
+        run: python -u spmo-modern2/backtest.py
+      - name: Upload backtest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spmo-modern2-${{ github.run_id }}
+          path: spmo-modern2/output/
+          if-no-files-found: error
+          retention-days: 7
