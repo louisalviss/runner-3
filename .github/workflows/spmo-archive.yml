@@ -4,10 +4,14 @@ on:
     branches: [main]
     paths:
       - 'spmo-backtest/backtest_archive.py'
+      - 'spmo-backtest/backtest_browse.py'
       - '.github/workflows/spmo-archive.yml'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: spmo-archive-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   backtest:
     runs-on: ubuntu-latest
@@ -21,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pandas numpy requests yfinance beautifulsoup4 lxml html5lib
       - name: Run archive backtest
-        run: python spmo-backtest/backtest_archive.py
+        run: python spmo-backtest/backtest_browse.py
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
