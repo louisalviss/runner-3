@@ -26,9 +26,11 @@ jobs:
           python-version: '3.12'
       - run: |
           python -m pip install --upgrade pip
-          python -m pip install pandas numpy requests yfinance beautifulsoup4 lxml python-dateutil html5lib
-      - name: Run modern SPMO diagnostic
-        run: python -u spmo-modern/modern.py
+          python -m pip install pandas numpy requests yfinance beautifulsoup4 lxml python-dateutil html5lib gdown
+      - name: Download Notre Dame master-index mirror
+        run: gdown 'https://drive.google.com/uc?id=1yfQxR45DZ_vM5pkFvgyexc10NNqbxpFN' -O MasterIndex_20260318.zip
+      - name: Run mirror-backed modern SPMO diagnostic
+        run: python -u spmo-modern/modern_mirror.py
       - name: Upload modern results
         if: always()
         uses: actions/upload-artifact@v4
