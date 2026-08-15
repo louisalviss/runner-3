@@ -14,10 +14,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: crawl-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   crawl:
     runs-on: ubuntu-latest
