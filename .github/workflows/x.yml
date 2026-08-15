@@ -20,20 +20,44 @@ jobs:
           set -euo pipefail
           NEW_NAME='github-actions[bot]'
           NEW_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
-          FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --env-filter '
-            case "$GIT_AUTHOR_EMAIL" in
-              *@users.noreply.github.com) ;;
-              *)
-                export GIT_AUTHOR_NAME="'"$NEW_NAME"'"
-                export GIT_AUTHOR_EMAIL="'"$NEW_EMAIL"'"
-                ;;
-            esac
-            case "$GIT_COMMITTER_EMAIL" in
-              *@users.noreply.github.com) ;;
-              *)
-                export GIT_COMMITTER_NAME="'"$NEW_NAME"'"
-                export GIT_COMMITTER_EMAIL="'"$NEW_EMAIL"'"
-                ;;
-            esac
-          ' HEAD
+
+          cat > /tmp/scrub_repo_history.py <<'PY'
+          from pathlib import Path
+          import re
+
+          email_re = re.compile(r'(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![A-Za-z0-9._%+-])')
+          for path in (Path('.github/workflows/x.yml'), Path('.github/workflows/z.yml')):
+              if not path.is_file():
+                  continue
+              text = path.read_text(encoding='utf-8')
+              def replace(match):
+                  email = match.group(1)
+                  if email.endswith('@users.noreply.github.com'):
+                      return email
+                  return 'redacted@users.noreply.github.com'
+              cleaned = email_re.sub(replace, text)
+              if cleaned != text:
+                  path.write_text(cleaned, encoding='utf-8')
+          PY
+
+          FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f \
+            --env-filter '
+              case "$GIT_AUTHOR_EMAIL" in
+                *@users.noreply.github.com) ;;
+                *)
+                  export GIT_AUTHOR_NAME="'"$NEW_NAME"'"
+                  export GIT_AUTHOR_EMAIL="'"$NEW_EMAIL"'"
+                  ;;
+              esac
+              case "$GIT_COMMITTER_EMAIL" in
+                *@users.noreply.github.com) ;;
+                *)
+                  export GIT_COMMITTER_NAME="'"$NEW_NAME"'"
+                  export GIT_COMMITTER_EMAIL="'"$NEW_EMAIL"'"
+                  ;;
+              esac
+            ' \
+            --tree-filter 'python3 /tmp/scrub_repo_history.py' \
+            HEAD
+
           git push --force origin HEAD:main
