@@ -2,17 +2,22 @@ name: Generic Crawl
 
 on:
   push:
+    branches: [main]
     paths:
       - 'jobs/**/*.json'
   workflow_dispatch:
     inputs:
       job_file:
-        description: 'Path to a job JSON file, e.g. jobs/example.json'
+        description: 'Path to a public-source job JSON file, e.g. jobs/example.json'
         required: true
         type: string
 
 permissions:
   contents: read
+
+concurrency:
+  group: crawl-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   crawl:
@@ -24,6 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          persist-credentials: false
 
       - name: Resolve job file
         id: job
@@ -42,7 +48,7 @@ jobs:
           fi
 
           echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
-          echo "Using job: $JOB_FILE"
+          echo "Using public-source job: $JOB_FILE"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -53,26 +59,40 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Read crawl mode
+      - name: Validate security policy
         id: config
         shell: bash
         run: |
-          MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","auto"))' '${{ steps.job.outputs.job_file }}')"
+          set -euo pipefail
+          JOB='${{ steps.job.outputs.job_file }}'
+          python crawler.py "$JOB" --validate-only
+
+          MODE="$(python -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("mode","auto"))' "$JOB")"
+          POLICY="$(python -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("artifact_policy","none"))' "$JOB")"
+
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "artifact_policy=$POLICY" >> "$GITHUB_OUTPUT"
           echo "Mode: $MODE"
+          echo "Artifact policy: $POLICY"
 
       - name: Install Chromium for browser-capable jobs
         if: steps.config.outputs.mode != 'http'
         run: python -m playwright install --with-deps chromium
 
       - name: Crawl
+        id: crawl
         run: python crawler.py '${{ steps.job.outputs.job_file }}' --output crawl_output
 
-      - name: Upload crawl artifact
-        if: always()
+      - name: Upload approved public artifact
+        if: always() && steps.config.outcome == 'success' && steps.config.outputs.artifact_policy != 'none'
         uses: actions/upload-artifact@v4
         with:
           name: crawl-output-${{ github.run_id }}
           path: crawl_output/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
+
+      - name: Remove local crawl output
+        if: always()
+        shell: bash
+        run: rm -rf crawl_output
