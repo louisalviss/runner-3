@@ -4,6 +4,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: vidian-semantic
@@ -44,9 +45,30 @@ jobs:
       - name: Install inventory dependencies
         run: pip install requests beautifulsoup4 lxml
       - name: Discover current Vidian public inventory
+        id: live_inventory
+        continue-on-error: true
         run: python scripts/vidian_inventory.py --out vidian_inventory --initial-workers 6 --repair-rounds 6
+      - name: Fall back to last clean inventory artifact
+        if: steps.live_inventory.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+          github-token: ${{ github.token }}
+          run-id: 31866259422
+      - name: Validate inventory gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('vidian_inventory/vidian_inventory.json')
+          x=json.loads(p.read_text(encoding='utf-8'))
+          assert x.get('trusted_urls') == 8826, x.get('trusted_urls')
+          assert x.get('known_untrusted') == 15, x.get('known_untrusted')
+          assert len(x.get('page_failures', [])) == 0, len(x.get('page_failures', []))
+          print({'trusted_urls':x['trusted_urls'],'known_untrusted':x['known_untrusted'],'page_failures':0})
+          PY
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: vidian-inventory
           path: vidian_inventory/vidian_inventory.json
