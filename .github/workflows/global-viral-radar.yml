@@ -1,0 +1,54 @@
+name: Global Viral Radar Daily
+
+on:
+  schedule:
+    - cron: '0 14 * * *' # 21:00 Asia/Ho_Chi_Minh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-viral-radar-daily
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate job
+        run: python crawler.py jobs/global-viral-daily.json --validate-only
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Crawl TopHub + NewsNow/Hottest
+        run: python crawler.py jobs/global-viral-daily.json --output crawl_output
+
+      - name: Upload radar snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: global-viral-radar-${{ github.run_id }}
+          path: crawl_output/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove local output
+        if: always()
+        run: rm -rf crawl_output
