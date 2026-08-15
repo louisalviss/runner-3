@@ -1,0 +1,118 @@
+name: TV range CME temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tv-range-cme-temp.yml']
+permissions:
+  contents: write
+jobs:
+  range:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - name: Test TradingView ranged historical fetch
+        run: |
+          git show 20939d0767153cef6b8af0bc275cc8b64064aaae:jobs/wave_stage2_smoke.py > /tmp/base.py
+          cat > /tmp/range.py <<'PY'
+          import json,random,re,string,time,websocket,importlib.util
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          TV='wss://data.tradingview.com/socket.io/websocket?from=chart%2F';RX=re.compile(r'~m~(\d+)~m~');NY=ZoneInfo('America/New_York')
+          def frame(s):return f'~m~{len(s)}~m~{s}'
+          def cmd(m,p):return frame(json.dumps({'m':m,'p':p},separators=(',',':')))
+          def payloads(raw):
+              pos=0
+              while pos<len(raw):
+                  m=RX.match(raw,pos)
+                  if not m:break
+                  n=int(m.group(1));a=m.end();b=a+n
+                  if b>len(raw):break
+                  yield raw[a:b];pos=b
+          def epoch(s):return int(datetime.fromisoformat(s).replace(tzinfo=NY).timestamp())
+          def fetch_range(start_local,end_local,timeout=20):
+              cs='cs_'+''.join(random.choice(string.ascii_lowercase) for _ in range(12));rows={}
+              ws=websocket.create_connection(TV,timeout=timeout,origin='https://www.tradingview.com',header=['User-Agent: Mozilla/5.0'])
+              try:
+                  ws.send(cmd('set_auth_token',['unauthorized_user_token']));ws.send(cmd('chart_create_session',[cs,'']))
+                  spec={'symbol':'NASDAQ:CME','adjustment':'splits','session':'regular'}
+                  ws.send(cmd('resolve_symbol',[cs,'sym_0','='+json.dumps(spec,separators=(',',':'))]))
+                  rng=f"r,{epoch(start_local)}:{epoch(end_local)}"
+                  ws.send(cmd('create_series',[cs,'ser_0','ser_0','sym_0','3',0,rng]))
+                  end=time.monotonic()+timeout
+                  while time.monotonic()<end:
+                      try:raw=ws.recv()
+                      except Exception:break
+                      if not isinstance(raw,str):continue
+                      for p in payloads(raw):
+                          if p.startswith('~h~'):ws.send(frame(p));continue
+                          try:msg=json.loads(p)
+                          except:continue
+                          if msg.get('m')=='timescale_update':
+                              u=msg.get('p',[None,{}])[1];s=u.get('ser_0') if isinstance(u,dict) else None
+                              if isinstance(s,dict):
+                                  for x in s.get('s',[]):
+                                      v=x.get('v',[])
+                                      if len(v)>=6:
+                                          try:rows[int(float(v[0]))]=tuple(map(float,v[:6]))
+                                          except:pass
+                          if msg.get('m')=='series_completed':return [rows[k] for k in sorted(rows)]
+                  return [rows[k] for k in sorted(rows)]
+              finally:ws.close()
+          # Compare ranged Aug-14 against normal latest fetch.
+          spec=importlib.util.spec_from_file_location('m','/tmp/base.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          recent=m.fetch('NASDAQ','CME',bars=700,timeout=20)
+          ranged=fetch_range('2026-08-14T09:30:00','2026-08-14T16:00:00')
+          rmap={int(x[0]):x for x in recent}; qmap={int(x[0]):x for x in ranged}
+          daykeys=sorted(k for k in rmap if datetime.fromtimestamp(k,NY).date().isoformat()=='2026-08-14')
+          common=[k for k in daykeys if k in qmap];diffs=[];exact=0
+          for k in common:
+              d=[abs(rmap[k][j]-qmap[k][j]) for j in range(1,5)];diffs.extend(d)
+              if max(d)<1e-9:exact+=1
+          old=fetch_range('2026-01-05T09:30:00','2026-01-10T00:00:00')
+          out={'aug14':{'normal_bars':len(daykeys),'range_bars':len(ranged),'common':len(common),'exact_ohlc':exact,'max_diff':max(diffs) if diffs else None},'old_range':{'bars':len(old),'from':datetime.fromtimestamp(old[0][0],NY).isoformat() if old else None,'to':datetime.fromtimestamp(old[-1][0],NY).isoformat() if old else None}}
+          open('tv_range_cme_test.json','w').write(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))
+          PY
+          python /tmp/range.py
+      - name: Fetch CME 2026 YTD by monthly TradingView ranges and backtest if range parity passes
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('tv_range_cme_test.json'))
+          ok=p['aug14']['common']==130 and p['aug14']['exact_ohlc']==130 and p['aug14']['max_diff']==0 and p['old_range']['bars']>0
+          open('/tmp/range_gate','w').write('PASS' if ok else 'FAIL')
+          print('RANGE_GATE',ok)
+          PY
+          if [ "$(cat /tmp/range_gate)" != "PASS" ]; then exit 0; fi
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('/tmp/range.py').read_text(); prefix=s.split("# Compare ranged Aug-14 against normal latest fetch.")[0]
+          months=[('2026-01-01T00:00:00','2026-02-01T00:00:00'),('2026-02-01T00:00:00','2026-03-01T00:00:00'),('2026-03-01T00:00:00','2026-04-01T00:00:00'),('2026-04-01T00:00:00','2026-05-01T00:00:00'),('2026-05-01T00:00:00','2026-06-01T00:00:00'),('2026-06-01T00:00:00','2026-07-01T00:00:00'),('2026-07-01T00:00:00','2026-08-01T00:00:00'),('2026-08-01T00:00:00','2026-08-15T23:59:00')]
+          body="\nrows={}\n"
+          for a,b in months: body+=f"\nfor x in fetch_range('{a}','{b}',timeout=25): rows[int(x[0])]=x\n"
+          body+="\nbars=[rows[k] for k in sorted(rows)]\nopen('/tmp/cme_ytd_bars.json','w').write(json.dumps(bars))\nprint('YTD_BARS',len(bars))\n"
+          Path('/tmp/fetch_ytd.py').write_text(prefix+body)
+          PY
+          python /tmp/fetch_ytd.py
+          git show 740c5b611235be83d1caa621649e5db59a4ed01e:.github/workflows/wave-cme-hist-temp.yml > /tmp/old.yml
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('/tmp/old.yml').read_text();marker="          cat > /tmp/hist.py <<'PY'\n";a=s.index(marker)+len(marker);b=s.index("\n          PY\n          python /tmp/hist.py",a)
+          lines=[line[10:] if line.startswith('          ') else line for line in s[a:b].splitlines()];code='\n'.join(lines)+'\n'
+          code=code.replace("m.fetch('NASDAQ','CME',bars=BARS_REQUESTED,timeout=30)","json.load(open('/tmp/cme_ytd_bars.json'))").replace("wave_cme_hist.json","cme_tv_range_ytd_2026.json")
+          Path('/tmp/backtest_ytd.py').write_text(code)
+          PY
+          python /tmp/backtest_ytd.py
+      - name: Persist reports
+        run: |
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tv_range_cme_test.json
+          [ ! -f cme_tv_range_ytd_2026.json ] || git add cme_tv_range_ytd_2026.json
+          git commit -m 'temp: TradingView ranged CME test [skip ci]' || true
+          git push
