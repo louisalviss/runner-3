@@ -1,0 +1,55 @@
+name: Substack Live Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/substack-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install requests
+      - name: Probe
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, requests
+          targets = {
+            "hoq_feed": "https://hoquoctuan.substack.com/feed",
+            "hoq_archive": "https://hoquoctuan.substack.com/archive",
+            "hoq_api_archive": "https://hoquoctuan.substack.com/api/v1/archive?sort=new&search=&offset=0&limit=12",
+            "hoq_jina_feed": "https://r.jina.ai/https://hoquoctuan.substack.com/feed",
+            "hoq_jina_archive": "https://r.jina.ai/https://hoquoctuan.substack.com/archive",
+            "vnh_feed": "https://vnhacker.substack.com/feed",
+            "vnh_archive": "https://vnhacker.substack.com/archive",
+            "vnh_api_archive": "https://vnhacker.substack.com/api/v1/archive?sort=new&search=&offset=0&limit=12",
+            "vnh_jina_feed": "https://r.jina.ai/https://vnhacker.substack.com/feed",
+            "vnh_jina_archive": "https://r.jina.ai/https://vnhacker.substack.com/archive",
+          }
+          headers={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
+          out={}
+          for k,u in targets.items():
+              try:
+                  r=requests.get(u,headers=headers,timeout=30,allow_redirects=True)
+                  out[k]={"status":r.status_code,"final_url":r.url,"content_type":r.headers.get("content-type"),"length":len(r.content),"head":r.text[:3000]}
+              except Exception as e:
+                  out[k]={"error":f"{type(e).__name__}: {e}"}
+          open("substack-probe.json","w",encoding="utf-8").write(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps({k:{kk:vv for kk,vv in v.items() if kk not in {'head'}} for k,v in out.items()},ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: substack-probe-${{ github.run_id }}
+          path: substack-probe.json
+          retention-days: 1
