@@ -1,0 +1,33 @@
+name: SPMO PXD Dukascopy
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spmo-pxd-dukascopy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Dukascopy CLI
+        run: npm install -g dukascopy-cli
+      - name: Fetch PXD daily OHLC
+        run: |
+          mkdir -p spmo-modern2/pxd-output
+          dukascopy-cli -i pxdususd -from 2022-09-01 -to 2023-03-21 -t d1 -f csv -dir spmo-modern2/pxd-output
+          find spmo-modern2/pxd-output -type f -maxdepth 2 -print
+          cat spmo-modern2/pxd-output/* || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-pxd-${{ github.run_id }}
+          path: spmo-modern2/pxd-output/
+          if-no-files-found: error
+          retention-days: 7
