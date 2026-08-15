@@ -1,0 +1,96 @@
+name: VBTH MeTruyen Matrix Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "story_pipeline/metruyen_matrix_trigger.json"
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        page: [1,2,3,4,5,6,7,8,9,10,11,12,13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+      - name: Crawl one chapter-list page safely
+        run: |
+          mkdir -p batch
+          python story_pipeline/metruyen_batch.py \
+            --page ${{ matrix.page }} \
+            --out batch/page-$(printf '%02d' ${{ matrix.page }}).json \
+            --workers 2
+      - name: Upload checkpoint batch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbth-page-${{ matrix.page }}
+          path: batch/
+          retention-days: 7
+          if-no-files-found: error
+
+  combine:
+    needs: crawl
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download all batch checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vbth-page-*
+          path: batches
+          merge-multiple: true
+      - name: Combine, clean, QA and build EPUB
+        run: |
+          python -m story_pipeline.metruyen_combine \
+            --input batches \
+            --out final \
+            --bible story_pipeline/config/story_bible.json
+      - name: Validate final EPUB
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          root=Path('final')
+          m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          q=json.load(open(root/'qa.json',encoding='utf-8'))
+          epub=root/'Vuong_Bai_Tien_Hoa_MeTruyen_BienTap.epub'
+          assert m['failed']==0 and m['content_chapters']==1212, m
+          assert len(m['ignored_empty_terminal_shells'])==2, m
+          assert epub.exists() and epub.stat().st_size>500000
+          with zipfile.ZipFile(epub) as z:
+              assert z.read('mimetype')==b'application/epub+zip'
+              chapters=[n for n in z.namelist() if n.startswith('OEBPS/ch') and n.endswith('.xhtml')]
+              assert len(chapters)==1212, len(chapters)
+          print({'chapters':1212,'total_chars':m['total_chars'],'qa_issues':q['issue_count'],'epub_bytes':epub.stat().st_size})
+          PY
+      - name: Upload final result
+        uses: actions/upload-artifact@v4
+        with:
+          name: VBTH-FINAL-${{ github.run_id }}
+          path: |
+            final/Vuong_Bai_Tien_Hoa_MeTruyen_BienTap.epub
+            final/manifest.json
+            final/qa.json
+            final/chapters.json
+            final/sample_spread.txt
+          retention-days: 7
+          if-no-files-found: error
