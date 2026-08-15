@@ -1,0 +1,59 @@
+name: SPMO Legacy Diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/spmo-legacy-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python - <<'PY'
+          import re, urllib.request, urllib.parse, xml.etree.ElementTree as ET
+          from datetime import datetime
+          CIK='1378872'; UA={'User-Agent':'Louis research contact@example.com'}
+          targets=[(2017,1),(2018,1),(2019,1),(2019,3)]
+          forms=['N-CSR','N-CSRS','N-Q']
+          months=['January','February','March','April','May','June','July','August','September','October','November','December']
+          def get(u):
+              with urllib.request.urlopen(urllib.request.Request(u,headers=UA),timeout=60) as r:return r.read()
+          def quarter_bounds(y,q):
+              sm=3*(q-1)+1; em=sm+2
+              return datetime(y,sm,1), datetime(y,em,28 if em==2 else 30 if em in [4,6,9,11] else 31)
+          for y,q in targets:
+              start,end=quarter_bounds(y,q)
+              print('\n=== TARGET',y,'Q'+str(q),'===')
+              for form in forms:
+                  params={'action':'getcompany','CIK':CIK,'type':form,'dateb':end.strftime('%Y%m%d'),'owner':'exclude','count':'100','output':'atom'}
+                  u='https://www.sec.gov/cgi-bin/browse-edgar?'+urllib.parse.urlencode(params)
+                  root=ET.fromstring(get(u)); ns={'a':'http://www.w3.org/2005/Atom'}
+                  for e in root.findall('a:entry',ns):
+                      c=e.find('a:content',ns)
+                      if c is None:continue
+                      def tx(tag):
+                          n=c.find('a:'+tag,ns);return n.text if n is not None else None
+                      fd=tx('filing-date'); acc=tx('accession-number'); typ=tx('filing-type')
+                      if not fd or not acc:continue
+                      d=datetime.strptime(fd,'%Y-%m-%d')
+                      if not(start<=d<=end):continue
+                      folder=acc.replace('-','')
+                      fu=f'https://www.sec.gov/Archives/edgar/data/{CIK}/{folder}/{acc}.txt'
+                      try:data=get(fu).decode('utf-8','replace')
+                      except Exception as ex:
+                          print(form,fd,acc,'DOWNLOAD_ERR',repr(ex));continue
+                      low=data.lower(); poss=[m.start() for m in re.finditer('spmo',low)]
+                      print(form,fd,acc,'bytes',len(data),'SPMO_occ',len(poss))
+                      for i in poss[:6]:
+                          s=data[max(0,i-700):i+1800]
+                          plain=re.sub(r'<[^>]+>',' ',s)
+                          plain=re.sub(r'&nbsp;|&#160;',' ',plain,flags=re.I)
+                          plain=re.sub(r'\s+',' ',plain)
+                          dates=re.findall(r'(?:'+ '|'.join(months) +r')\s+\d{1,2},\s+20\d{2}',plain,re.I)
+                          print('  CONTEXT',plain[:1800])
+                          print('  DATES',dates[:10])
+          PY
