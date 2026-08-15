@@ -20,10 +20,10 @@ HEALTH_PATH = DATA_ROOT / "substack-health.json"
 MAX_ARCHIVE_ITEMS = 1000
 TIMEOUT = 45
 
+# Hồ Quốc Tuấn and vnhacker are intentionally NOT collected by Runner3 RSS.
+# They are checked directly by ChatGPT at reader runtime.
 SOURCES = [
-    {"key": "hoquoctuan", "name": "Hồ Quốc Tuấn / Đọc Chậm", "url": "https://hoquoctuan.substack.com/feed"},
     {"key": "vohoanghac", "name": "Võ Hoàng Hạc", "url": "https://vohoanghac.com/feed", "track_content_hash": True},
-    {"key": "vnhacker", "name": "ThaiDN / vnhacker", "url": "https://vnhacker.substack.com/feed"},
 ]
 
 SESSION = requests.Session()
@@ -197,7 +197,7 @@ def detect_hash_changes(old_items, fresh_items):
 
 def main():
     SOURCES_ROOT.mkdir(parents=True, exist_ok=True)
-    health = {"version": 1, "collector": "runner-3", "scope": "3-substack-rss", "runStartedAt": now_iso(), "sources": {}}
+    health = {"version": 1, "collector": "runner-3", "scope": "1-substack-rss", "runStartedAt": now_iso(), "sources": {}}
     ok = 0
     for source in SOURCES:
         key = source["key"]
@@ -221,9 +221,8 @@ def main():
                     "totalStored": len(merged), "count": len(merged),
                     "newestPublishedAt": merged[0]["publishedAt"], "items": merged,
                 }
-                if source.get("track_content_hash"):
-                    mirror["lastContentHashChangeAt"] = now_iso() if changes else old.get("lastContentHashChangeAt")
-                    mirror["lastContentHashChanges"] = changes if changes else old.get("lastContentHashChanges", [])
+                mirror["lastContentHashChangeAt"] = now_iso() if changes else old.get("lastContentHashChangeAt")
+                mirror["lastContentHashChanges"] = changes if changes else old.get("lastContentHashChanges", [])
                 write_json(path, mirror)
             health["sources"][key] = {
                 "ok": True, "transport": "rss", "checkedAt": now_iso(),
@@ -242,10 +241,10 @@ def main():
     health["runFinishedAt"] = now_iso()
     health["okCount"] = ok
     health["failedCount"] = len(SOURCES) - ok
-    health["status"] = "healthy" if ok == len(SOURCES) else ("degraded" if ok else "failed")
+    health["status"] = "healthy" if ok == len(SOURCES) else "failed"
     write_json(HEALTH_PATH, health)
-    print(json.dumps({"collector": "runner-3", "scope": "3-substack-rss", "status": health["status"], "ok": ok, "failed": len(SOURCES)-ok}, ensure_ascii=False))
-    return 0 if ok else 2
+    print(json.dumps({"collector": "runner-3", "scope": "1-substack-rss", "status": health["status"], "ok": ok, "failed": len(SOURCES)-ok}, ensure_ascii=False))
+    return 0 if ok == len(SOURCES) else 2
 
 
 if __name__ == "__main__":
