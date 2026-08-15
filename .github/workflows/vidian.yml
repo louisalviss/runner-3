@@ -34,22 +34,9 @@ jobs:
 
   inventory:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install inventory dependencies
-        run: pip install requests beautifulsoup4 lxml
-      - name: Discover current Vidian public inventory
-        id: live_inventory
-        continue-on-error: true
-        run: python scripts/vidian_inventory.py --out vidian_inventory --initial-workers 6 --repair-rounds 6
-      - name: Fall back to last clean inventory artifact
-        if: steps.live_inventory.outcome == 'failure'
+      - name: Load last clean inventory artifact
         uses: actions/download-artifact@v4
         with:
           name: vidian-inventory
