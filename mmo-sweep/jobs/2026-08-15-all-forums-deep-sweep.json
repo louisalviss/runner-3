@@ -1,0 +1,40 @@
+{
+  "sources": [
+    {
+      "name": "affLIFT",
+      "select_threads": 50,
+      "max_thread_pages": 30,
+      "delay_seconds": 0.02,
+      "timeout_seconds": 35,
+      "sections": [
+        {"name": "follow_alongs", "base": "https://afflift.com/f/follow-alongs/", "pages": 78},
+        {"name": "case_studies", "base": "https://afflift.com/f/case-studies/", "pages": 11}
+      ]
+    },
+    {
+      "name": "BuilderSociety",
+      "select_threads": 50,
+      "max_thread_pages": 30,
+      "delay_seconds": 0.02,
+      "timeout_seconds": 35,
+      "sections": [
+        {"name": "laboratory", "base": "https://www.buildersociety.com/forums/laboratory.15/", "pages": 18},
+        {"name": "board_room", "base": "https://www.buildersociety.com/forums/board-room.2/", "pages": 34},
+        {"name": "marketing", "base": "https://www.buildersociety.com/forums/marketing.32/", "pages": 21},
+        {"name": "search", "base": "https://www.buildersociety.com/forums/search.31/", "pages": 47}
+      ]
+    },
+    {
+      "name": "WickedFire",
+      "select_threads": 35,
+      "max_thread_pages": 30,
+      "delay_seconds": 0.02,
+      "timeout_seconds": 35,
+      "sections": [
+        {"name": "education", "base": "https://mail.wickedfire.com/forums/education-center.15/", "pages": 36},
+        {"name": "startups", "base": "https://mail.wickedfire.com/forums/startups-product-development-business-strategy.81/", "pages": 5},
+        {"name": "products", "base": "https://mail.wickedfire.com/forums/products-merchants.69/", "pages": 32}
+      ]
+    }
+  ]
+}
