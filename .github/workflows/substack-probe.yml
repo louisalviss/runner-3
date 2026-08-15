@@ -24,29 +24,34 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import json, requests
-          targets = {
-            "hoq_feed": "https://hoquoctuan.substack.com/feed",
-            "hoq_archive": "https://hoquoctuan.substack.com/archive",
-            "hoq_api_archive": "https://hoquoctuan.substack.com/api/v1/archive?sort=new&search=&offset=0&limit=12",
-            "hoq_jina_feed": "https://r.jina.ai/https://hoquoctuan.substack.com/feed",
-            "hoq_jina_archive": "https://r.jina.ai/https://hoquoctuan.substack.com/archive",
-            "vnh_feed": "https://vnhacker.substack.com/feed",
-            "vnh_archive": "https://vnhacker.substack.com/archive",
-            "vnh_api_archive": "https://vnhacker.substack.com/api/v1/archive?sort=new&search=&offset=0&limit=12",
-            "vnh_jina_feed": "https://r.jina.ai/https://vnhacker.substack.com/feed",
-            "vnh_jina_archive": "https://r.jina.ai/https://vnhacker.substack.com/archive",
+          import json, requests, urllib.parse, time
+          feeds={
+            "hoq":"https://hoquoctuan.substack.com/feed",
+            "vnh":"https://vnhacker.substack.com/feed",
           }
+          def variants(url):
+              q=urllib.parse.quote(url, safe='')
+              nonce=str(int(time.time()))
+              return {
+                "direct": url,
+                "codetabs": "https://api.codetabs.com/v1/proxy?quest="+q,
+                "allorigins_raw": "https://api.allorigins.win/raw?url="+q+"&_="+nonce,
+                "allorigins_get": "https://api.allorigins.win/get?url="+q+"&_="+nonce,
+                "corsproxy_io": "https://corsproxy.io/?url="+q,
+                "isomorphic_git": "https://cors.isomorphic-git.org/"+url,
+              }
           headers={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
           out={}
-          for k,u in targets.items():
+          for key,url in feeds.items():
+            for kind,u in variants(url).items():
+              k=f"{key}_{kind}"
               try:
-                  r=requests.get(u,headers=headers,timeout=30,allow_redirects=True)
-                  out[k]={"status":r.status_code,"final_url":r.url,"content_type":r.headers.get("content-type"),"length":len(r.content),"head":r.text[:3000]}
+                r=requests.get(u,headers=headers,timeout=30,allow_redirects=True)
+                out[k]={"status":r.status_code,"final_url":r.url,"content_type":r.headers.get("content-type"),"length":len(r.content),"head":r.text[:1500]}
               except Exception as e:
-                  out[k]={"error":f"{type(e).__name__}: {e}"}
+                out[k]={"error":f"{type(e).__name__}: {e}"}
           open("substack-probe.json","w",encoding="utf-8").write(json.dumps(out,ensure_ascii=False,indent=2))
-          print(json.dumps({k:{kk:vv for kk,vv in v.items() if kk not in {'head'}} for k,v in out.items()},ensure_ascii=False,indent=2))
+          print(json.dumps({k:{kk:vv for kk,vv in v.items() if kk!='head'} for k,v in out.items()},ensure_ascii=False,indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
