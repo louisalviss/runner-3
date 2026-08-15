@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   crawl:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
@@ -65,7 +65,7 @@ jobs:
 
       - name: Install Chromium for browser-capable jobs
         if: steps.config.outputs.mode != 'http'
-        run: python -m playwright install chromium
+        run: python -m playwright install --with-deps chromium
 
       - name: Crawl
         run: python crawler.py '${{ steps.job.outputs.job_file }}' --output crawl_output
