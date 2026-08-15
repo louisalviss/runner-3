@@ -1,0 +1,48 @@
+name: SPMO Four Legacy Inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/spmo-four-legacy.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python - <<'PY'
+          import re, urllib.request, html
+          CIK='1378872'; UA={'User-Agent':'Louis research contact@example.com'}
+          filings={
+            '2016-09':'0001193125-17-002614',
+            '2017-09':'0001193125-18-002695',
+            '2018-09':'0001193125-18-321151',
+            '2019-03':'0001193125-19-138363',
+          }
+          def fetch(acc):
+              u=f'https://www.sec.gov/Archives/edgar/data/{CIK}/{acc.replace("-","")}/{acc}.txt'
+              req=urllib.request.Request(u,headers=UA)
+              with urllib.request.urlopen(req,timeout=90) as r:return r.read().decode('utf-8','replace')
+          def plain(x):
+              x=re.sub(r'<script.*?</script>|<style.*?</style>',' ',x,flags=re.I|re.S)
+              x=re.sub(r'<[^>]+>',' ',x)
+              x=html.unescape(x)
+              return re.sub(r'\s+',' ',x).strip()
+          datepat=re.compile(r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}',re.I)
+          for label,acc in filings.items():
+              txt=fetch(acc); low=txt.lower()
+              print('\n\n########',label,acc,'bytes',len(txt),'########')
+              hits=[]
+              for pat in ['spmo','momentum portfolio','momentum etf','schedule of investments']:
+                  pos=[m.start() for m in re.finditer(pat,low)]
+                  print('PAT',pat,'COUNT',len(pos),'FIRST',pos[:20])
+                  hits += pos[:20]
+              for i in sorted(set(hits))[:35]:
+                  c=plain(txt[max(0,i-1400):i+4000])
+                  ds=datepat.findall(c)
+                  print('\nCTXPOS',i,'DATES',ds[:10])
+                  print(c[:3000])
+          PY
