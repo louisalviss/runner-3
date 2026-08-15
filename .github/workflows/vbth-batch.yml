@@ -11,6 +11,9 @@ on:
         description: "Last TiênVuc part (max 50 parts per run)"
         required: true
         default: "8"
+  push:
+    paths:
+      - "story_pipeline/trigger.json"
 
 permissions:
   contents: read
@@ -19,12 +22,26 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      START_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.start_part || '1' }}
+      END_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.end_part || '8' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Resolve push trigger range
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          import json, os
+          d = json.load(open('story_pipeline/trigger.json', encoding='utf-8'))
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              f.write(f"START_PART={int(d['start_part'])}\n")
+              f.write(f"END_PART={int(d['end_part'])}\n")
+          PY
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -35,9 +52,6 @@ jobs:
           python -m unittest -v
 
       - name: Build public crawl job
-        env:
-          START_PART: ${{ inputs.start_part }}
-          END_PART: ${{ inputs.end_part }}
         run: |
           python - <<'PY'
           import json, os
@@ -91,7 +105,7 @@ jobs:
       - name: Upload private working artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vbth-parts-${{ inputs.start_part }}-${{ inputs.end_part }}-${{ github.run_id }}
+          name: vbth-parts-${{ env.START_PART }}-${{ env.END_PART }}-${{ github.run_id }}
           path: vbth_work/
           retention-days: 7
           if-no-files-found: error
