@@ -1,0 +1,64 @@
+name: VBTH Full Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "story_pipeline/full_trigger.json"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build complete cleaned EPUB from TiênVuc
+        run: |
+          python story_pipeline/full_build.py \
+            --start 1 \
+            --end 2888 \
+            --workers 8 \
+            --bible story_pipeline/config/story_bible.json \
+            --out vbth_full
+
+      - name: Validate EPUB archive
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          p=Path('vbth_full/Vuong_Bai_Tien_Hoa_TienVuc_BienTap.epub')
+          assert p.exists() and p.stat().st_size > 1_000_000, p
+          with zipfile.ZipFile(p) as z:
+              bad=z.testzip()
+              assert bad is None, bad
+              names=z.namelist()
+              assert names[0]=='mimetype'
+              assert 'OEBPS/content.opf' in names
+              assert sum(n.startswith('OEBPS/ch') and n.endswith('.xhtml') for n in names)==2888
+          m=json.load(open('vbth_full/manifest.json',encoding='utf-8'))
+          assert m['failed']==0 and m['ok']==2888, m
+          print({'epub_bytes':p.stat().st_size,'chapters':2888,'manifest':m})
+          PY
+
+      - name: Upload final result
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vuong-Bai-Tien-Hoa-TienVuc-Final-${{ github.run_id }}
+          path: |
+            vbth_full/Vuong_Bai_Tien_Hoa_TienVuc_BienTap.epub
+            vbth_full/manifest.json
+            vbth_full/qa.json
+            vbth_full/chapters.json
+          retention-days: 30
+          if-no-files-found: error
