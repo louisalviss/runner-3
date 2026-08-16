@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse, collections, hashlib, json, math, sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import vidian_pipeline as vp
 import vidian_knowledge as vk
@@ -36,6 +37,18 @@ TECH=['cách','phương pháp','kỹ thuật','mẹo','bí quyết','thủ pháp
 EXAMPLE=['ví dụ','chẳng hạn','thí dụ','có thể lấy','như trong','ví như']
 DIAG=['nếu','khi','trường hợp','dấu hiệu','kiểm tra','xem xét','đánh giá']
 
+def _article_category(url):
+    try:
+        r=vp.session().get(url,timeout=20); r.raise_for_status(); soup=vp.BeautifulSoup(r.text,'html.parser'); h1=soup.find('h1')
+        if not h1: return url,None,'missing-h1'
+        checked=0
+        for a in h1.find_all_next('a',href=True):
+            checked+=1; c=vp.category(a.get('href'))
+            if c: return url,c,None
+            if checked>=12: break
+        return url,None,'category-anchor-not-found'
+    except Exception as e: return url,None,f'{type(e).__name__}:{e}'
+
 def inventory(out=None):
     last=vp.last_page(CATEGORY)
     if last<1: raise SystemExit('cannot resolve chi-dao-sang-tac pages')
@@ -45,7 +58,16 @@ def inventory(out=None):
         if err: failures.append({'page':page,'error':err})
         for u,t in d.items(): by[u]=max(by.get(u,''),t,key=len)
     if failures: raise SystemExit('listing failures: '+json.dumps(failures,ensure_ascii=False))
-    x={'schema':'vidian-writing-category-inventory-v1','category':CATEGORY,'last_page':last,'urls':len(by),'rows':[{'url':u,'listing_title':by[u]} for u in sorted(by)]}
+    verified={}; rejected=[]; verify_fail=[]
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        fs=[ex.submit(_article_category,u) for u in sorted(by)]
+        for f in as_completed(fs):
+            u,c,err=f.result()
+            if err: verify_fail.append({'url':u,'error':err})
+            elif c==CATEGORY: verified[u]=by[u]
+            else: rejected.append({'url':u,'listing_title':by[u],'actual_category':c})
+    if verify_fail: raise SystemExit('category verification failures: '+json.dumps(verify_fail[:20],ensure_ascii=False))
+    x={'schema':'vidian-writing-category-inventory-v1.1','category':CATEGORY,'last_page':last,'listing_candidate_urls':len(by),'verified_urls':len(verified),'rejected_non_writing_urls':len(rejected),'rejected':sorted(rejected,key=lambda x:x['url']),'rows':[{'url':u,'listing_title':verified[u]} for u in sorted(verified)]}
     if out: Path(out).write_text(json.dumps(x,ensure_ascii=False,indent=2),encoding='utf-8')
     return x
 
@@ -135,9 +157,9 @@ def build(corpus,outdir,semantic_dim=96,max_features=40000):
         if d>=2:
             svd=TruncatedSVD(d,random_state=17,n_iter=7); nm=Normalizer(copy=False); D=nm.fit_transform(svd.fit_transform(X)).astype('float32'); np.save(out/'vectors.npy',D,allow_pickle=False); np.save(out/'passage_ids.npy',np.array([x[0] for x in vecrows],dtype='int64'),allow_pickle=False); joblib.dump({'v':v,'svd':svd,'nm':nm},out/'semantic.joblib',compress=3); sem={'enabled':True,'method':'TF-IDF + TruncatedSVD + cosine','dimensions':d,'features':X.shape[1],'vectors':len(vecrows)}
     except Exception as e: sem={'enabled':False,'error':f'{type(e).__name__}:{e}'}
-    counts={'canonical_articles_scanned':scanned,'category_urls':len(wanted),'matched_articles':len(found),'missing_category_urls':len(missing),'passages':con.execute('select count(*) from passages').fetchone()[0],'directive_rules':con.execute("select count(*) from passages where kind in ('do','dont','warning','technique')").fetchone()[0],'do_rules':con.execute("select count(*) from passages where kind='do'").fetchone()[0],'dont_rules':con.execute("select count(*) from passages where kind='dont'").fetchone()[0],'warnings':con.execute("select count(*) from passages where kind='warning'").fetchone()[0],'topics_with_rules':con.execute('select count(distinct topic) from passages').fetchone()[0]}
+    counts={'canonical_articles_scanned':scanned,'listing_candidate_urls':inv['listing_candidate_urls'],'rejected_non_writing_urls':inv['rejected_non_writing_urls'],'category_urls':len(wanted),'matched_articles':len(found),'missing_category_urls':len(missing),'passages':con.execute('select count(*) from passages').fetchone()[0],'directive_rules':con.execute("select count(*) from passages where kind in ('do','dont','warning','technique')").fetchone()[0],'do_rules':con.execute("select count(*) from passages where kind='do'").fetchone()[0],'dont_rules':con.execute("select count(*) from passages where kind='dont'").fetchone()[0],'warnings':con.execute("select count(*) from passages where kind='warning'").fetchone()[0],'topics_with_rules':con.execute('select count(distinct topic) from passages').fetchone()[0]}
     tops=[{'topic':r[0],'passages':r[1],'avg_confidence':round(r[2],3)} for r in con.execute('select topic,count(*),avg(confidence) from passages group by topic order by count(*) desc')]; con.close()
-    m={'schema':'vidian-writing-knowledge-v1','source_category':CATEGORY,'source_prose_persisted':False,'evidence_surface':'reconstructed from dependency-edge token order; not verbatim source prose','taxonomy_version':'1.1','topics':list(TOPICS),'counts':counts,'top_topics':tops,'retrieval':{'lexical':'SQLite FTS5 BM25','semantic':sem,'filters':['topic','kind']},'limitations':['Original source prose is not persisted in the canonical semantic corpus.','Rule text is reconstructed from parser token order and must not be represented as a verbatim quotation.','Directive/topic labels are heuristic candidates; source URL + sentence SHA are retained for verification.']}
+    m={'schema':'vidian-writing-knowledge-v1','source_category':CATEGORY,'source_prose_persisted':False,'evidence_surface':'reconstructed from dependency-edge token order; not verbatim source prose','taxonomy_version':'1.1','category_verification':'live article metadata: first category anchor after h1','topics':list(TOPICS),'counts':counts,'top_topics':tops,'retrieval':{'lexical':'SQLite FTS5 BM25','semantic':sem,'filters':['topic','kind']},'limitations':['Original source prose is not persisted in the canonical semantic corpus.','Rule text is reconstructed from parser token order and must not be represented as a verbatim quotation.','Directive/topic labels are heuristic candidates; source URL + sentence SHA are retained for verification.']}
     (out/'manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8'); print(json.dumps(m,ensure_ascii=False,indent=2))
 
 def scale(xs):
