@@ -1,0 +1,29 @@
+name: SPMO corrected legacy three
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spmo-corrected-legacy-three.yml'
+      - 'spmo-backtest/run_corrected_legacy_three.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas yfinance beautifulsoup4 lxml
+      - name: Run corrected legacy backtest
+        run: python -u spmo-backtest/run_corrected_legacy_three.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-corrected-legacy-three-${{ github.run_id }}
+          path: spmo-backtest/output/corrected_legacy_three.csv
+          if-no-files-found: warn
+          retention-days: 7
