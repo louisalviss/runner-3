@@ -1,0 +1,71 @@
+name: SPMO audit legacy old4 direct SEC
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/spmo-audit-legacy-old4-direct.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: 2016-mar
+            rb: '2016-03-18'
+            snap: '2016-04-30'
+            exit: '2016-09-16'
+            acc: '0001193125-16-644489'
+            url: 'https://www.sec.gov/Archives/edgar/data/1378872/000119312516644489/d176916dncsrs.htm'
+          - key: 2016-sep
+            rb: '2016-09-16'
+            snap: '2016-10-31'
+            exit: '2017-03-17'
+            acc: '0001193125-17-002614'
+            url: 'https://www.sec.gov/Archives/edgar/data/1378872/000119312517002614/d269293dncsr.htm'
+          - key: 2017-mar
+            rb: '2017-03-17'
+            snap: '2017-04-30'
+            exit: '2017-09-15'
+            acc: '0001193125-17-221822'
+            url: 'https://www.sec.gov/Archives/edgar/data/1378872/000119312517221822/0001193125-17-221822.txt'
+          - key: 2017-sep
+            rb: '2017-09-15'
+            snap: '2017-10-31'
+            exit: '2018-03-16'
+            acc: '0001193125-18-002695'
+            url: 'https://www.sec.gov/Archives/edgar/data/1378872/000119312518002695/d473179dncsr.htm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas yfinance beautifulsoup4 lxml
+      - name: Build direct one-period audit from corrected parser
+        env:
+          RB: ${{ matrix.rb }}
+          SNAP: ${{ matrix.snap }}
+          EXIT: ${{ matrix.exit }}
+          ACC: ${{ matrix.acc }}
+          URL: ${{ matrix.url }}
+        run: |
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          s=Path('spmo-backtest/run_corrected_legacy_three.py').read_text()
+          new="PERIODS=[\n ('%s','%s','%s','%s','%s'),\n]"%(os.environ['RB'],os.environ['SNAP'],os.environ['EXIT'],os.environ['ACC'],os.environ['URL'])
+          s=re.sub(r'PERIODS=\[.*?\]\nALIASES=',new+'\nALIASES=',s,flags=re.S)
+          Path('/tmp/audit_one.py').write_text(s)
+          PY
+      - name: Audit period direct SEC
+        run: python -u /tmp/audit_one.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-old4-${{ matrix.key }}-${{ github.run_id }}
+          path: spmo-backtest/output/corrected_legacy_three.csv
+          if-no-files-found: warn
+          retention-days: 7
