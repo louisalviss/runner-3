@@ -1,0 +1,45 @@
+name: moxing-vi-manifest-clean
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/moxing-vi-manifest-clean.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download, sanitize metadata, repack, and replace translation release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: moxing-vi-translation-v1-2026-08-17
+          ASSET: moxing-vi-translation-v1-2026-08-17.zip
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo louisalviss/runner-3 --pattern "$ASSET"
+          mkdir unpacked
+          unzip -q "$ASSET" -d unpacked
+          python - <<'PY'
+          import json,pathlib,zipfile,hashlib,os
+          root=pathlib.Path('unpacked/moxing_vi_translation')
+          for name in ('manifest.json','release_manifest.json'):
+              p=root/name
+              if not p.exists(): continue
+              m=json.loads(p.read_text(encoding='utf-8'))
+              m['selected_by']='12-sentence Moxing webnovel-craft A/B probe versus HachimiMT-60; pinned domain-specialized model selected for production.'
+              if name=='release_manifest.json': m.pop('package',None)
+              p.write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          asset=pathlib.Path(os.environ['ASSET']);asset.unlink()
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(pathlib.Path('unpacked').rglob('*')):
+                  if p.is_file():z.write(p,p.relative_to('unpacked').as_posix())
+          digest=hashlib.sha256(asset.read_bytes()).hexdigest()
+          print('SANITIZED_SHA256='+digest)
+          pathlib.Path('sanitized_sha256.txt').write_text(digest)
+          PY
+          gh release upload "$TAG" "$ASSET" --repo louisalviss/runner-3 --clobber
