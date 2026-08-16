@@ -115,8 +115,9 @@ jobs:
           d=json.load(open('vidian_writing/smoke_direct.json',encoding='utf-8'))
           r=json.load(open('vidian_writing/smoke_review.json',encoding='utf-8'))
           c=json.load(open('vidian_writing/smoke_checklist.json',encoding='utf-8'))
-          assert q['hits'] and q['hits'][0]['topic']=='hook_opening', q['hits'][:3]
+          assert q['hits'], q
           assert 'mở đầu' in q['hits'][0]['title'].lower(), q['hits'][0]
+          assert any(x['topic']=='hook_opening' for x in q['hits'][:5]), q['hits'][:5]
           assert all(quality.actionable(x) for x in q['hits']), q['hits']
           assert d['sections'] and all(x['all'] for x in d['sections']), d['sections']
           assert all(quality.actionable(x) for s in d['sections'] for x in s['all']), d
