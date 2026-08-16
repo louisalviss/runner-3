@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 TARGETS={
  'youshu_books':'https://www.youshu.me/book_reviewsnum_1_0_0_0_0_0_1.html',
  'youshu_booklists':'https://www.youshu.me/booklists',
+ 'youshu_mobile':'https://m.youshu.me/',
+ 'youshu_backup':'https://xiaoshuo.me/',
  'lkong_forums':'https://www.lkong.com/forums',
  'lkong_review':'https://www.lkong.com/forum/8',
  'lkong_recommend':'https://www.lkong.com/forum/60',
@@ -38,11 +40,11 @@ def summarize(name,url,out):
     if cells: rows.append(cells)
    tables.append(rows)
   likely=[]
-  pats={'youshu':r'(book|review|booklist)','lkong':r'(thread|forum)'}
-  key='youshu' if 'youshu' in name else 'lkong'
+  key='youshu' if ('youshu' in name or 'backup' in name) else 'lkong'
+  pat=r'(book|review|booklist|sort)' if key=='youshu' else r'(thread|forum)'
   for a in soup.find_all('a',href=True):
    href=urljoin(r.url,a['href'])
-   if re.search(pats[key],urlparse(href).path,re.I):
+   if re.search(pat,urlparse(href).path,re.I):
     par=a.find_parent(['li','tr','article','div'])
     txt=' '.join((par or a).get_text(' ',strip=True).split())
     if txt and len(txt)>8:
@@ -60,5 +62,5 @@ def main():
  for n,u in TARGETS.items():
   rows.append(summarize(n,u,out)); time.sleep(1.2)
  (out/'probe.json').write_text(json.dumps(rows,ensure_ascii=False,indent=2),encoding='utf-8')
- print(json.dumps([{k:r.get(k) for k in ('name','status','bytes','title','anchors_count','error')} for r in rows],ensure_ascii=False,indent=2))
+ print(json.dumps([{k:r.get(k) for k in ('name','status','bytes','title','anchors_count','final_url','error')} for r in rows],ensure_ascii=False,indent=2))
 if __name__=='__main__': main()
