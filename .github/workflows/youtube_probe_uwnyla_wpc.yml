@@ -1,0 +1,37 @@
+name: YouTube probe UwnylaM15So WPC
+on:
+  push:
+    paths:
+      - '.github/workflows/youtube_probe_uwnyla_wpc.yml'
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          python -m pip install -U 'yt-dlp[default,curl-cffi]' yt-dlp-getpot-wpc
+          which google-chrome || which chromium || which chromium-browser || true
+          yt-dlp --version
+      - name: Probe via WebPoClient
+        shell: bash
+        run: |
+          set +e
+          mkdir -p ytwpc
+          URL='https://www.youtube.com/watch?v=UwnylaM15So'
+          CHROME=$(which google-chrome || which chromium || which chromium-browser)
+          echo "CHROME=$CHROME" | tee ytwpc/env.txt
+          yt-dlp -v --extractor-args "youtubepot-wpc:browser_path=$CHROME" --dump-single-json --skip-download "$URL" > ytwpc/metadata.json 2> ytwpc/debug.log
+          echo $? > ytwpc/meta_rc.txt
+          yt-dlp -v --extractor-args "youtubepot-wpc:browser_path=$CHROME" -f 'worstaudio/worst' -o 'ytwpc/video.%(ext)s' "$URL" > ytwpc/dl_stdout.log 2> ytwpc/dl_debug.log
+          echo $? > ytwpc/dl_rc.txt
+          cat ytwpc/meta_rc.txt ytwpc/dl_rc.txt
+          cat ytwpc/debug.log
+          cat ytwpc/dl_debug.log
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: youtube-uwnyla-wpc
+          path: ytwpc/
+          if-no-files-found: warn
