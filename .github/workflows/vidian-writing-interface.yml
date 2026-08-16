@@ -55,7 +55,7 @@ jobs:
           gh release download "$RELEASE_TAG" --pattern "$ASSET" --dir writing_work
           unzip -q "writing_work/$ASSET" -d writing_work/index
           test -f writing_work/index/vidian_writing/vidian_writing.sqlite
-      - name: Run interface
+      - name: Run quality interface
         shell: bash
         run: |
           set -euo pipefail
@@ -67,25 +67,17 @@ jobs:
               case "$MODE" in hybrid|semantic|lexical) ;; *) echo "invalid mode" >&2; exit 2;; esac
               ARGS=(query --index "$IDX" --q "$TEXT" --limit "$LIMIT" --mode "$MODE" --json-out writing_work/result.json --md-out writing_work/result.md)
               if [ -n "$TOPIC" ]; then ARGS+=(--topic "$TOPIC"); fi
-              python scripts/vidian_writing.py "${ARGS[@]}" > /dev/null
+              python scripts/vidian_writing_agent.py "${ARGS[@]}" > /dev/null
               ;;
             direct)
-              python scripts/vidian_writing.py direct --index "$IDX" --brief "$TEXT" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
+              python scripts/vidian_writing_agent.py direct --index "$IDX" --brief "$TEXT" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
               ;;
             review)
-              python scripts/vidian_writing.py review --index "$IDX" --text "$TEXT" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
+              python scripts/vidian_writing_agent.py review --index "$IDX" --text "$TEXT" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
               ;;
             checklist)
               test -n "$TOPIC" || { echo 'topic required for checklist' >&2; exit 2; }
-              python scripts/vidian_writing.py checklist --index "$IDX" --topic "$TOPIC" --limit "$LIMIT" --json-out writing_work/result.json > /dev/null
-              python - <<'PY'
-              import json
-              p=json.load(open('writing_work/result.json',encoding='utf-8'))
-              lines=['# Vidian Writing Checklist','',f"Topic: {p['topic']}",'']
-              for x in p['items']:
-                  lines += [f"- **{x['kind']}** ({x['confidence']:.2f}) — {x['rule']}",f"  - {x['title']} — {x['url']}"]
-              open('writing_work/result.md','w',encoding='utf-8').write('\n'.join(lines)+'\n')
-              PY
+              python scripts/vidian_writing_agent.py checklist --index "$IDX" --topic "$TOPIC" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
               ;;
             *) echo "invalid action: $ACTION" >&2; exit 2;;
           esac
@@ -95,11 +87,19 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json
+          import json,sys
+          sys.path.insert(0,'scripts')
+          import vidian_writing_quality as quality
           p=json.load(open('writing_work/result.json',encoding='utf-8'))
           assert p.get('schema')
-          assert any(k in p for k in ('hits','sections','evidence_buckets','items')), p
-          print('Writing interface PASS:',p['schema'])
+          groups=[]
+          if 'hits' in p: groups+=p['hits']
+          for s in p.get('sections',[]): groups+=s.get('all',[])
+          for b in p.get('evidence_buckets',[]): groups+=b.get('hits',[])
+          groups+=p.get('items',[])
+          assert groups, p
+          assert all(quality.actionable(x) for x in groups), 'non-actionable evidence leaked'
+          print('Writing quality interface PASS:',p['schema'],len(groups))
           PY
       - uses: actions/upload-artifact@v4
         with:
