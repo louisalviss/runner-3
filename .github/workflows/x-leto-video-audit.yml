@@ -1,0 +1,128 @@
+name: X Leto SPMO video audit
+
+on:
+  push:
+    paths:
+      - '.github/workflows/x-leto-video-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  audit-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg tesseract-ocr tesseract-ocr-chi-sim
+          python -m pip install --quiet faster-whisper pillow pytesseract
+
+      - name: Download source video
+        run: |
+          mkdir -p leto-video-audit/frames
+          curl -L --retry 3 --max-time 180 \
+            'https://video.twimg.com/amplify_video/2088233794197495808/vid/avc1/1280x720/jcmuE2GNfJo_3SFB.mp4?tag=29' \
+            -o leto-video-audit/leto_spmo.mp4
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 leto-video-audit/leto_spmo.mp4 | tee leto-video-audit/video_meta.txt
+          ffmpeg -y -loglevel error -i leto-video-audit/leto_spmo.mp4 -vn -ac 1 -ar 16000 leto-video-audit/audio.wav
+          ffmpeg -y -loglevel error -i leto-video-audit/leto_spmo.mp4 -vf "fps=1/4,scale=1280:-1" leto-video-audit/frames/f_%04d.jpg
+
+      - name: Transcribe Chinese audio
+        run: |
+          cat > /tmp/transcribe.py <<'PY'
+          from faster_whisper import WhisperModel
+          from pathlib import Path
+          model = WhisperModel('small', device='cpu', compute_type='int8')
+          segs, info = model.transcribe('leto-video-audit/audio.wav', language='zh', vad_filter=True, beam_size=5)
+          out=[]
+          for s in segs:
+              line=f'[{s.start:07.2f}-{s.end:07.2f}] {s.text.strip()}'
+              print(line)
+              out.append(line)
+          Path('leto-video-audit/transcript_zh.txt').write_text('\n'.join(out), encoding='utf-8')
+          PY
+          python /tmp/transcribe.py
+
+      - name: OCR sampled frames
+        run: |
+          cat > /tmp/ocr.py <<'PY'
+          from pathlib import Path
+          import pytesseract
+          from PIL import Image
+          import re
+          root=Path('leto-video-audit/frames')
+          all_lines=[]; hits=[]
+          keys=['2016','2017','2018','2019','2020','2021','2022','2023','2024','2025','2026','MSFT','NVDA','AMZN','AAPL','微软','英伟达','亚马逊','苹果','谷歌','Top 1','Top1','34.56','21.7']
+          for i,p in enumerate(sorted(root.glob('*.jpg')),1):
+              try:
+                  txt=pytesseract.image_to_string(Image.open(p), lang='chi_sim+eng', config='--psm 6')
+              except Exception as e:
+                  txt=f'[OCR_ERROR {e}]'
+              sec=(i-1)*4
+              block=f'\n===== frame {p.name} t={sec}s =====\n{txt.strip()}\n'
+              all_lines.append(block)
+              if any(k.lower() in txt.lower() for k in keys):
+                  hits.append(block)
+          Path('leto-video-audit/ocr_all.txt').write_text(''.join(all_lines),encoding='utf-8')
+          Path('leto-video-audit/ocr_hits.txt').write_text(''.join(hits),encoding='utf-8')
+          print('OCR_HITS_BEGIN')
+          print(''.join(hits)[:50000])
+          print('OCR_HITS_END')
+          PY
+          python /tmp/ocr.py
+
+      - name: Build audit report
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, csv, collections
+          tr=Path('leto-video-audit/transcript_zh.txt').read_text(encoding='utf-8',errors='replace')
+          ocr=Path('leto-video-audit/ocr_hits.txt').read_text(encoding='utf-8',errors='replace')
+          csvp=Path('spmo-backtest/validated/period_checks.csv')
+          counts={}
+          rows=[]
+          if csvp.exists():
+              with csvp.open(encoding='utf-8') as f:
+                  rows=list(csv.DictReader(f))
+              # discover ticker-like field
+              field=None
+              for c in ['top1_ticker','ticker','top1','symbol']:
+                  if rows and c in rows[0]: field=c; break
+              if field:
+                  counts=dict(collections.Counter(r[field] for r in rows))
+          report=[]
+          report += ['# Leto Bao SPMO video audit','',
+            '- Source X status: 2088235631503945940',
+            '- Video duration: 554.533 seconds',
+            '- Transcript: faster-whisper small, Chinese',
+            '- Visual scan: frame every 4 seconds, chi_sim+eng OCR','',
+            '## Canonical post claims relevant to sequence',
+            '- Leto says 21 Top-1 rebalances; 13 were four names: MSFT 6, NVDA 3, AMZN 2, AAPL 2.','',
+            '## Current validated repo counts',
+            f'- {counts}','',
+            '## Transcript','', '```',tr,'```','',
+            '## OCR hits','', '```',ocr[:80000],'```','']
+          Path('leto-video-audit/report.md').write_text('\n'.join(report),encoding='utf-8')
+          print('\n'.join(report[:12]))
+          PY
+
+      - name: Commit textual audit outputs
+        run: |
+          rm -f leto-video-audit/leto_spmo.mp4 leto-video-audit/audio.wav
+          rm -rf leto-video-audit/frames
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add leto-video-audit/video_meta.txt leto-video-audit/transcript_zh.txt leto-video-audit/ocr_all.txt leto-video-audit/ocr_hits.txt leto-video-audit/report.md
+          git commit -m 'Add Leto SPMO video audit outputs' || exit 0
+          git push
+
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: leto-spmo-video-audit
+          path: leto-video-audit/
