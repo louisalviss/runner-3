@@ -14,6 +14,11 @@ on:
         description: 'Top article hits'
         required: false
         default: '10'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/vidian_rag.py'
+      - '.github/workflows/vidian-rag-query.yml'
 
 permissions:
   contents: read
@@ -26,6 +31,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: vidian-knowledge-v1.1-2026-08-17
       RELEASE_ASSET: vidian-knowledge-v1.1-2026-08-17.zip
+      QUERY: ${{ inputs.q || 'Ngải Lộ' }}
+      MODE: ${{ inputs.mode || 'hybrid' }}
+      LIMIT: ${{ inputs.limit || '5' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,12 +58,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MODE='${{ inputs.mode }}'
           case "$MODE" in hybrid|semantic|lexical) ;; *) echo "invalid mode: $MODE" >&2; exit 2;; esac
-          LIMIT='${{ inputs.limit }}'
+          case "$LIMIT" in ''|*[!0-9]*) echo "invalid limit: $LIMIT" >&2; exit 2;; esac
+          test "$LIMIT" -ge 1 && test "$LIMIT" -le 50
           python scripts/vidian_rag.py \
             --index rag_work/index/vidian_knowledge \
-            --q '${{ inputs.q }}' \
+            --q "$QUERY" \
             --mode "$MODE" \
             --limit "$LIMIT" \
             --json-out rag_work/evidence.json \
@@ -68,11 +76,15 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json
+          import json, os
           p=json.load(open('rag_work/evidence.json',encoding='utf-8'))
-          assert p.get('question')
+          assert p.get('question') == os.environ['QUERY']
           assert p.get('top_hits'), p
           assert all(x.get('url') and x.get('title') for x in p['top_hits'])
+          if os.environ['QUERY'] == 'Ngải Lộ':
+              assert p['top_hits'][0]['title'] == 'Ác Ma Pháp Tắc: Ngải Lộ', p['top_hits'][:2]
+              assert any(x.get('name') == 'Ngải Lộ' for x in p.get('matched_entities', []))
+              assert any(r.get('type') == 'APPEARS_IN' for r in p.get('candidate_relations', []))
           print('Vidian RAG packet PASS:', len(p['top_hits']), 'hits')
           PY
 
