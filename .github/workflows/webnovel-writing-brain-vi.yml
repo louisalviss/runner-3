@@ -19,6 +19,8 @@ env:
   SOURCE_SHA256: ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f
   TRANSLATION_TAG: moxing-vi-translation-v1-2026-08-17
   TRANSLATION_ASSET: moxing-vi-translation-v1-2026-08-17.zip
+  MODEL_ID: DanVP/MoxhiMT-60
+  MODEL_REVISION: 3ae60c790cf21deebeab8e1a82f4024fbdc1fc87
   TAG: webnovel-writing-brain-vi-v1-2026-08-17
   ASSET: webnovel-writing-brain-vi-v1-2026-08-17.zip
 
@@ -32,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Download durable fused brain and Vietnamese translation layer
+      - name: Download durable fused brain and Moxhi Vietnamese translation layer
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -47,20 +49,41 @@ jobs:
           unzip -q "translation/$TRANSLATION_ASSET" -d translation/unpacked
           test -f source/unpacked/writing_brain/writing_brain.sqlite
           test -f translation/unpacked/moxing_vi_translation/translations.jsonl
+          python - <<'PY'
+          import json,os
+          m=json.load(open('translation/unpacked/moxing_vi_translation/manifest.json',encoding='utf-8'))
+          assert m['model_id']==os.environ['MODEL_ID'],m
+          assert m['model_revision']==os.environ['MODEL_REVISION'],m
+          assert m['runtime']=='CTranslate2 INT8',m
+          assert m['quality']['rows']==9538 and m['quality']['empty']==0 and m['quality']['sha_mismatch']==0,m
+          assert 'Helsinki' not in json.dumps(m),m
+          PY
       - name: Prepare 1,022 unique Moxing titles
         run: |
           python - <<'PY'
-          import sqlite3,json,pathlib
+          import sqlite3,json
           db='source/unpacked/writing_brain/writing_brain.sqlite';con=sqlite3.connect(db)
           rows=[r[0] for r in con.execute("select distinct title from passages where source='moxing' order by title")]
           assert len(rows)==1022,len(rows)
           with open('moxing-titles-zh.jsonl','w',encoding='utf-8') as f:
               for t in rows:f.write(json.dumps({'title_zh':t},ensure_ascii=False)+'\n')
           PY
-      - name: Install translation and Vietnamese retrieval runtime
-        run: python -m pip install --disable-pip-version-check 'transformers<5' torch sentencepiece sacremoses numpy scipy scikit-learn joblib
+      - name: Install Moxhi title translation and Vietnamese retrieval runtime
+        run: python -m pip install --disable-pip-version-check 'transformers<5' ctranslate2 sentencepiece sacremoses huggingface_hub numpy scipy scikit-learn joblib
       - name: Translate Moxing titles to Vietnamese
-        run: python scripts/moxing_translate_titles_vi.py --input moxing-titles-zh.jsonl --out moxing-titles-vi.jsonl --batch-size 24
+        run: python scripts/moxing_translate_titles_vi.py --input moxing-titles-zh.jsonl --out moxing-titles-vi.jsonl --batch-size 32
+      - name: QA title translation identity
+        run: |
+          python - <<'PY'
+          import json,os,re
+          rows=[json.loads(x) for x in open('moxing-titles-vi.jsonl',encoding='utf-8') if x.strip()]
+          assert len(rows)==1022,len(rows)
+          assert all(x['model_id']==os.environ['MODEL_ID'] and x['model_revision']==os.environ['MODEL_REVISION'] and x['runtime']=='CTranslate2 INT8' for x in rows)
+          assert all(x['title_vi'].strip() for x in rows)
+          assert not any('Helsinki' in json.dumps(x) for x in rows)
+          ZH=re.compile(r'[\u3400-\u9fff]'); total=sum(map(len,(x['title_vi'] for x in rows))); zh=sum(len(ZH.findall(x['title_vi'])) for x in rows)
+          assert zh/max(total,1)<.15,(zh,total)
+          PY
       - name: Build Vietnamese-first Writing Brain
         run: |
           python scripts/webnovel_writing_brain_vi.py build \
@@ -73,7 +96,7 @@ jobs:
       - name: QA Vietnamese coverage and provenance
         run: |
           python - <<'PY'
-          import json,sqlite3,re,pathlib
+          import json,sqlite3,pathlib,os
           m=json.load(open('writing_brain_vi/manifest.json',encoding='utf-8'));c=m['counts']
           assert m['language_mode']=='vi-first'
           assert c['passages']==21210,c
@@ -83,11 +106,11 @@ jobs:
           assert c['moxing_title_translation_count']==1022,c
           assert m['retrieval']['semantic']['dimensions']==128,m['retrieval']
           tm=json.load(open('writing_brain_vi/moxing_translation_manifest.json',encoding='utf-8'))
-          assert tm['quality']['rows']==9538,tm
-          assert tm['quality']['empty']==0,tm
-          assert tm['quality']['sha_mismatch']==0,tm
+          assert tm['model_id']==os.environ['MODEL_ID'] and tm['model_revision']==os.environ['MODEL_REVISION'],tm
+          assert tm['quality']['rows']==9538 and tm['quality']['empty']==0 and tm['quality']['sha_mismatch']==0,tm
           con=sqlite3.connect('writing_brain_vi/writing_brain_vi.sqlite')
           assert con.execute("select count(*) from passages where source='moxing' and length(trim(text_vi))>0 and length(trim(text_zh))>0").fetchone()[0]==9538
+          assert con.execute("select count(*) from passages where source='moxing' and translation_model=? and translation_revision=?",(os.environ['MODEL_ID'],os.environ['MODEL_REVISION'])).fetchone()[0]==9538
           assert con.execute("select count(*) from passages where source='vidian' and text_vi=text and coalesce(text_zh,'')=''").fetchone()[0]==11672
           assert con.execute("select count(distinct title_vi) from passages where source='moxing' and length(trim(title_vi))>0").fetchone()[0]>=950
           con.close()
@@ -103,9 +126,10 @@ jobs:
           python scripts/webnovel_writing_brain_vi.py review --index writing_brain_vi --text 'Nhân vật chính vào tông môn, tu luyện nhiều chương rồi đột phá và nhận bảo vật. Cuối chương xuất hiện một bí ẩn mới.' --limit 28 --json-out writing_brain_vi/smoke_review.json >/dev/null
           python scripts/webnovel_writing_brain_vi.py checklist --index writing_brain_vi --topic character_design --limit 20 --json-out writing_brain_vi/smoke_checklist.json >/dev/null
           python - <<'PY'
-          import json,re
+          import json
           q=json.load(open('writing_brain_vi/smoke_query.json',encoding='utf-8'));d=json.load(open('writing_brain_vi/smoke_direct.json',encoding='utf-8'));r=json.load(open('writing_brain_vi/smoke_review.json',encoding='utf-8'));c=json.load(open('writing_brain_vi/smoke_checklist.json',encoding='utf-8'))
           assert q['language']=='vi' and q['hits']
+          assert {'vidian','moxing'} <= {x['source'] for x in q['hits']}
           assert all(x['text'] and x['title'] for x in q['hits'])
           assert all('source_text_zh' in x['provenance'] for x in q['hits'])
           assert len(d['sections'])>=6,d
@@ -133,9 +157,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title 'Webnovel Writing Brain VI v1 — Vidian + Moxing — 2026-08-17' --notes 'Vietnamese-first fused authoring brain. All 9,538 retained Moxing passages and 1,022 Moxing titles have a Vietnamese machine-translation layer; original Chinese remains in provenance. Vidian stays native Vietnamese.'
+            gh release create "$TAG" --title 'Webnovel Writing Brain VI v1 — Vidian + Moxing — 2026-08-17' --notes 'Vietnamese-first fused authoring brain. All 9,538 retained Moxing passages and 1,022 Moxing titles translated with pinned MoxhiMT-60; original Chinese remains provenance. Vidian stays native Vietnamese.'
           fi
-          gh release edit "$TAG" --notes 'Vietnamese-first fused authoring brain: 21,210 passages total; 11,672 native-Vietnamese Vidian passages + 9,538 Moxing passages translated to Vietnamese; 1,022 Moxing titles translated; unified Vietnamese FTS5 + 128-dim TF-IDF/SVD semantic retrieval; balanced Vidian/Moxing Direct, Review and Checklist. Chinese originals remain canonical provenance. Machine translation may contain terminology errors.'
+          gh release edit "$TAG" --notes 'Vietnamese-first fused authoring brain: 21,210 passages total; 11,672 native-Vietnamese Vidian + 9,538 Moxing translated by DanVP/MoxhiMT-60 @ 3ae60c790cf21deebeab8e1a82f4024fbdc1fc87; 1,022 Moxing titles translated; unified Vietnamese FTS5 + 128-dim TF-IDF/SVD semantic retrieval; balanced Vidian/Moxing Query, Direct, Review, Checklist. Chinese originals remain canonical provenance. Machine translation may contain terminology errors.'
           gh release upload "$TAG" "$ASSET" --clobber
       - uses: actions/upload-artifact@v4
         with:
