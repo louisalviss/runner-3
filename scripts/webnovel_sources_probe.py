@@ -9,6 +9,9 @@ TARGETS={
  'youshu_books':'https://www.youshu.me/book_reviewsnum_1_0_0_0_0_0_1.html',
  'youshu_booklists':'https://www.youshu.me/booklists',
  'lkong_forums':'https://www.lkong.com/forums',
+ 'lkong_review':'https://www.lkong.com/forum/8',
+ 'lkong_recommend':'https://www.lkong.com/forum/60',
+ 'lkong_industry':'https://www.lkong.com/forum/15',
 }
 UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/139 Safari/537.36 runner-3/webnovel-probe'
 
@@ -28,7 +31,7 @@ def summarize(name,url,out):
    if text or re.search(r'(book|thread|forum|review|list)',href,re.I):
     anchors.append({'text':text[:180],'href':href})
   tables=[]
-  for ti,t in enumerate(soup.find_all('table')[:5]):
+  for t in soup.find_all('table')[:5]:
    rows=[]
    for tr in t.find_all('tr')[:20]:
     cells=[' '.join(x.get_text(' ',strip=True).split()) for x in tr.find_all(['th','td'])]
@@ -44,8 +47,8 @@ def summarize(name,url,out):
     txt=' '.join((par or a).get_text(' ',strip=True).split())
     if txt and len(txt)>8:
      likely.append({'href':href,'anchor':' '.join(a.get_text(' ',strip=True).split())[:100],'parent':txt[:700], 'tag':(par.name if par else a.name), 'class':((par.get('class') if par else a.get('class')) or [])})
-    if len(likely)>=80: break
-  rec={'name':name,'requested_url':url,'final_url':r.url,'status':r.status_code,'bytes':len(r.content),'title':title,'anchors_count':len(anchors),'anchors':anchors[:400],'tables':tables,'likely':likely,'html_sha256':__import__('hashlib').sha256(r.content).hexdigest()}
+    if len(likely)>=120: break
+  rec={'name':name,'requested_url':url,'final_url':r.url,'status':r.status_code,'bytes':len(r.content),'title':title,'anchors_count':len(anchors),'anchors':anchors[:600],'tables':tables,'likely':likely,'html_sha256':__import__('hashlib').sha256(r.content).hexdigest()}
   (out/f'{name}.html').write_text(html,encoding='utf-8',errors='replace')
   return rec
  except Exception as e:
