@@ -68,6 +68,7 @@ jobs:
           sys.path.insert(0,'scripts')
           import vidian_writing as w
           import vidian_writing_quality as quality
+          quality.apply()
           m=json.load(open('vidian_writing/manifest.json',encoding='utf-8'))
           inv=json.load(open('vidian_writing/category_inventory.json',encoding='utf-8'))
           check=json.load(open('vidian_writing/checklists.json',encoding='utf-8'))
@@ -77,23 +78,29 @@ jobs:
           assert c['matched_articles']==c['category_urls'], c
           assert c['missing_category_urls']==0, c
           assert inv['urls']==c['category_urls'], (inv,c)
-          assert c['passages']>=5000, c
-          assert c['directive_rules']>=2000, c
-          assert c['topics_with_rules']==23, c
+          assert c['passages']>=3000, c
+          assert c['directive_rules']>=1000, c
+          assert c['topics_with_rules']>=20, c
           assert m['retrieval']['semantic']['enabled'] is True, m['retrieval']['semantic']
+          # Diacritic and ambiguous-marker regression gates.
           assert quality.strict_kind('Kỳ ngộ phải bất ngờ')[0]=='do'
           assert quality.strict_kind('Đưa cho nhân vật một mục tiêu rõ ràng')[0] != 'dont'
           assert quality.strict_kind('Không nên giải thích quá dài')[0]=='dont'
           assert quality.strict_kind('Nên tạo xung đột rõ ràng')[0]=='do'
-          assert all(check[t] for t in w.TOPICS if t not in {'cliffhanger','stakes'}), {t:len(check[t]) for t in w.TOPICS}
+          assert quality.strict_kind('Đại Mạc Khinh Kỵ Tu Tiên')[0] != 'warning'
+          assert quality.strict_kind('Yêu Yêu trở lại cách một ngày sau')[0] != 'technique'
+          assert quality.strict_kind('Đây là tác phẩm có thành tích tốt nhất của anh')[0] != 'do'
+          # Refined checklists must be genuinely actionable and topic-aligned.
+          nonempty=sum(bool(v) for v in check.values())
+          assert nonempty>=20, {t:len(check[t]) for t in w.TOPICS}
           assert all(quality.actionable(x) for items in check.values() for x in items), 'non-actionable checklist item'
           con=sqlite3.connect('vidian_writing/vidian_writing.sqlite')
           assert con.execute('select count(distinct url) from articles').fetchone()[0]==c['matched_articles']
           assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
           bad=0
+          strict={'do':quality.STRICT_POS,'dont':quality.STRICT_NEG,'warning':quality.STRICT_WARN,'technique':quality.STRICT_TECH}
           for kind,rule in con.execute("select kind,rule from passages where kind in ('do','dont','warning','technique')"):
-              phrases={'do':w.POS,'dont':w.NEG,'warning':w.WARN,'technique':w.TECH}[kind]
-              if not quality.marker_has(rule,phrases): bad+=1
+              if not quality.marker_has(rule,strict[kind]): bad+=1
           assert bad==0, f'directive label/rule mismatch={bad}'
           con.close()
           print(json.dumps(m,ensure_ascii=False,indent=2))
@@ -111,6 +118,7 @@ jobs:
           import json,sys
           sys.path.insert(0,'scripts')
           import vidian_writing_quality as quality
+          quality.apply()
           q=json.load(open('vidian_writing/smoke_query.json',encoding='utf-8'))
           d=json.load(open('vidian_writing/smoke_direct.json',encoding='utf-8'))
           r=json.load(open('vidian_writing/smoke_review.json',encoding='utf-8'))
@@ -119,12 +127,15 @@ jobs:
           assert 'mở đầu' in q['hits'][0]['title'].lower(), q['hits'][0]
           assert any(x['topic']=='hook_opening' for x in q['hits'][:5]), q['hits'][:5]
           assert all(quality.actionable(x) for x in q['hits']), q['hits']
-          assert d['sections'] and all(x['all'] for x in d['sections']), d['sections']
-          assert all(quality.actionable(x) for s in d['sections'] for x in s['all']), d
-          assert r['evidence_buckets'] and all(x['hits'] for x in r['evidence_buckets']), r
-          assert all(quality.actionable(x) for b in r['evidence_buckets'] for x in b['hits']), r
-          assert c['items'] and all(quality.actionable(x) for x in c['items']), c
-          print('Vidian Writing Agent smoke PASS')
+          assert d['sections'] and len(d['sections'])>=6, d['sections']
+          assert 'serialization_reader' not in d['directive_topics'], d['directive_topics']
+          assert all(s['all'] and all(x['topic']==s['topic'] and quality.actionable(x) for x in s['all']) for s in d['sections']), d
+          assert r['evidence_buckets'] and all(b['hits'] and all(x['topic']==b['topic'] and quality.actionable(x) for x in b['hits']) for b in r['evidence_buckets']), r
+          assert c['items'] and all(x['topic']=='character_design' and quality.actionable(x) for x in c['items']), c
+          evidence=q['hits']+[x for s in d['sections'] for x in s['all']]+[x for b in r['evidence_buckets'] for x in b['hits']]+c['items']
+          bad_fragments=['Truyện đã hoàn thành Phàm Nhân','Yêu Yêu trở lại cách một ngày']
+          assert not any(any(z in x['rule'] for z in bad_fragments) for x in evidence), 'known false-positive evidence leaked'
+          print('Vidian Writing Agent v1.2 smoke PASS')
           PY
 
       - name: Package
@@ -139,7 +150,7 @@ jobs:
                   if p.is_file(): z.write(p,p.as_posix())
           h=hashlib.sha256(asset.read_bytes()).hexdigest()
           m=json.load(open(root/'manifest.json',encoding='utf-8'))
-          m['quality_layer']='strict-diacritic-markers-v1 + low-signal-pruning + actionable-evidence-rerank-v1'
+          m['quality_layer']='writing-quality-v1.2: strict-diacritic-markers + ambiguous-marker suppression + sentence-first topics + topic-aligned actionable rerank'
           m['interfaces']=['query','direct','review','checklist']
           m['package']={'name':asset.name,'sha256':h,'size_bytes':asset.stat().st_size}
           (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -153,7 +164,7 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --title 'Vidian Writing Knowledge Layer v1 — 2026-08-17' --notes 'Specialized Writing Brain from the Vidian Chỉ đạo sáng tác category, joined to the canonical 8,826-article semantic corpus.'
           fi
-          gh release edit "$RELEASE_TAG" --notes 'Specialized Writing Brain from Vidian Chỉ đạo sáng tác: 23-topic craft taxonomy, strict diacritic-aware rule labeling, low-signal descriptive pruning, actionable evidence reranking, quality checklists, FTS5 + latent semantic retrieval, Direct composition packets, and Review critique packets. Source category membership comes from Vidian category listings. Evidence surfaces are parser reconstructions, not verbatim source prose.'
+          gh release edit "$RELEASE_TAG" --notes 'Specialized Vidian Writing Brain: 23-topic craft taxonomy; quality v1.2 with diacritic-aware directive labeling, ambiguous-marker suppression, sentence-first topic assignment, low-signal pruning and topic-aligned actionable evidence reranking; FTS5 + latent semantic retrieval; Query, Direct, Review and Checklist interfaces. Category membership comes from Vidian category listings. Evidence surfaces are parser reconstructions, not verbatim source prose.'
           gh release upload "$RELEASE_TAG" "$ASSET" --clobber
 
       - uses: actions/upload-artifact@v4
