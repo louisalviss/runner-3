@@ -1,0 +1,87 @@
+name: vidian-search
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Run containing vidian-semantic-corpus-v2-full'
+        required: false
+        default: '31945936628'
+      query:
+        description: 'Optional smoke/search query'
+        required: false
+        default: 'Cửu Giới'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-search.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: vidian-search-v1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download canonical Vidian corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2-full
+          path: corpus
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id || '31945936628' }}
+      - name: Repack corpus directory for indexer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/vidian_search.py build --corpus corpus --db vidian_search/vidian_fts.sqlite
+      - name: Cardinality QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sqlite3, json
+          db='vidian_search/vidian_fts.sqlite'
+          con=sqlite3.connect(db)
+          a=con.execute('select count(*) from articles').fetchone()[0]
+          u=con.execute('select count(distinct url) from articles').fetchone()[0]
+          f=con.execute('select count(*) from articles_fts').fetchone()[0]
+          print(json.dumps({'articles':a,'unique_urls':u,'fts_rows':f}))
+          assert (a,u,f)==(8826,8826,8826)
+          PY
+      - name: Query smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/vidian_search.py query --db vidian_search/vidian_fts.sqlite --q "${{ inputs.query || 'Cửu Giới' }}" --limit 8 | tee vidian_search/smoke_query.json
+          test -s vidian_search/smoke_query.json
+      - name: Write manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os
+          p='vidian_search/vidian_fts.sqlite'
+          h=hashlib.sha256(open(p,'rb').read()).hexdigest()
+          out={'source_run_id':'${{ inputs.source_run_id || '31945936628' }}','corpus_artifact':'vidian-semantic-corpus-v2-full','records':8826,'index':'vidian_fts.sqlite','sha256':h,'size_bytes':os.path.getsize(p),'engine':'SQLite FTS5 BM25 unicode61'}
+          open('vidian_search/manifest.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-search-index
+          path: vidian_search
+          retention-days: 30
+          compression-level: 6
