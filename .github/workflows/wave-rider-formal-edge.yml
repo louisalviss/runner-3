@@ -1,0 +1,45 @@
+name: Wave Rider Formal Edge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'formal-tests/wave_rider_edge.py'
+      - '.github/workflows/wave-rider-formal-edge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  edge-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [SOLUSDT, ETHUSDT, XRPUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: '2025-01-01'
+      WR_END: '2026-08-14'
+      WR_BOOT: '10000'
+      WR_PERM: '5000'
+      WR_SEED: '2513'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requests
+        run: python -m pip install 'requests>=2.32,<3'
+      - name: Run formal Wave Rider edge test
+        run: python formal-tests/wave_rider_edge.py
+      - name: Upload formal test artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave-rider-formal-${{ matrix.symbol }}-${{ github.run_id }}
+          path: formal-tests/output/
+          if-no-files-found: warn
+          retention-days: 7
