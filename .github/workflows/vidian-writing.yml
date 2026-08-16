@@ -13,12 +13,12 @@ permissions:
 
 concurrency:
   group: vidian-writing-v1
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: vidian-writing-v1-2026-08-17
@@ -48,11 +48,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/vidian_writing.py build \
-            --corpus "corpus/$CORPUS_ASSET" \
-            --out vidian_writing \
-            --semantic-dim 96 \
-            --max-features 40000
+          python - <<'PY'
+          import sys, requests
+          sys.path.insert(0,'scripts')
+          import vidian_writing as w
+
+          BasePool=w.ThreadPoolExecutor
+          class FastPool(BasePool):
+              def __init__(self,max_workers=None,*a,**kw):
+                  super().__init__(max_workers=36,*a,**kw)
+          w.ThreadPoolExecutor=FastPool
+
+          def fast_article_category(url):
+              last=None
+              for timeout in (7,10):
+                  try:
+                      r=requests.get(url,headers={'User-Agent':w.vp.UA,'Accept-Language':'vi,en;q=0.8'},timeout=timeout)
+                      r.raise_for_status()
+                      soup=w.vp.BeautifulSoup(r.text,'html.parser'); h1=soup.find('h1')
+                      if not h1: return url,None,'missing-h1'
+                      checked=0
+                      for a in h1.find_all_next('a',href=True):
+                          checked+=1; c=w.vp.category(a.get('href'))
+                          if c: return url,c,None
+                          if checked>=12: break
+                      return url,None,'category-anchor-not-found'
+                  except Exception as e:
+                      last=e
+              return url,None,f'{type(last).__name__}:{last}'
+          w._article_category=fast_article_category
+          w.build('corpus/'+__import__('os').environ['CORPUS_ASSET'],'vidian_writing',96,40000)
+          PY
 
       - name: QA gate
         shell: bash
@@ -63,6 +89,8 @@ jobs:
           m=json.load(open('vidian_writing/manifest.json',encoding='utf-8'))
           c=m['counts']
           assert c['canonical_articles_scanned']==8826, c
+          assert c['listing_candidate_urls']>c['category_urls'], c
+          assert c['rejected_non_writing_urls']>0, c
           assert c['category_urls']>=40, c
           assert c['matched_articles']>=40, c
           assert c['missing_category_urls']<=3, c
@@ -70,6 +98,9 @@ jobs:
           assert c['directive_rules']>=25, c
           assert c['topics_with_rules']>=8, c
           assert m['retrieval']['semantic']['enabled'] is True, m['retrieval']['semantic']
+          inv=json.load(open('vidian_writing/category_inventory.json',encoding='utf-8'))
+          assert inv['verified_urls']==c['category_urls'], (inv,c)
+          assert inv['rejected_non_writing_urls']==c['rejected_non_writing_urls'], (inv,c)
           con=sqlite3.connect('vidian_writing/vidian_writing.sqlite')
           assert con.execute('select count(distinct url) from articles').fetchone()[0]==c['matched_articles']
           assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
@@ -93,6 +124,7 @@ jobs:
           c=json.load(open('vidian_writing/smoke_checklist.json',encoding='utf-8'))
           assert q['hits'], q
           assert any(x['topic']=='hook_opening' for x in q['hits'][:8]), q['hits'][:8]
+          assert all('/chi-tiet/' in x['url'] for x in q['hits']), q['hits']
           assert d['sections'] and d['directive_topics'], d
           assert any(x['all'] for x in d['sections']), d['sections']
           assert r['evidence_buckets'] and any(x['hits'] for x in r['evidence_buckets']), r
@@ -124,7 +156,7 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
               --title 'Vidian Writing Knowledge Layer v1 — 2026-08-17' \
-              --notes 'Writing-focused knowledge layer extracted from Vidian Chỉ đạo sáng tác and joined to the canonical semantic corpus. Includes 23-topic taxonomy, rule/anti-pattern candidates, checklists, FTS5 + latent semantic retrieval, Direct packets for composition planning, and Review packets for evidence-backed critique. Evidence surfaces are parser reconstructions, not verbatim source prose.'
+              --notes 'Writing-focused knowledge layer extracted from verified Vidian Chỉ đạo sáng tác articles and joined to the canonical semantic corpus. Includes 23-topic taxonomy, rule/anti-pattern candidates, checklists, FTS5 + latent semantic retrieval, Direct packets for composition planning, and Review packets for evidence-backed critique. Category membership is verified against each article metadata. Evidence surfaces are parser reconstructions, not verbatim source prose.'
           fi
           gh release upload "$RELEASE_TAG" "$ASSET" --clobber
 
