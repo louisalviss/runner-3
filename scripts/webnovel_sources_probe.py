@@ -14,11 +14,16 @@ TARGETS={
  'lkong_review':'https://www.lkong.com/forum/8',
  'lkong_recommend':'https://www.lkong.com/forum/60',
  'lkong_industry':'https://www.lkong.com/forum/15',
+ 'moxing_home':'https://www.mx-xz.com/',
+ 'qidian_home':'https://www.qidian.com/',
+ 'zhihu_writing':'https://www.zhihu.com/question/454846719/answer/109960694064',
+ 'chivi_qtran':'https://qtran.app/wn/books',
+ 'voz_webnovel':'https://voz.vn/t/ban-luan-ve-cac-truyen-tien-hiep-kiem-hiep-ky-ao-ver-nextvoz.1421/page-1150',
 }
 UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/139 Safari/537.36 runner-3/webnovel-probe'
 
 def fetch(url):
- s=requests.Session(); s.headers.update({'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9,en;q=0.4'})
+ s=requests.Session(); s.headers.update({'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9,vi;q=0.7,en;q=0.4'})
  r=s.get(url,timeout=30,allow_redirects=True); return r
 
 def summarize(name,url,out):
@@ -30,7 +35,7 @@ def summarize(name,url,out):
   for a in soup.find_all('a',href=True):
    text=' '.join(a.get_text(' ',strip=True).split())
    href=urljoin(r.url,a['href'])
-   if text or re.search(r'(book|thread|forum|review|list)',href,re.I):
+   if text or re.search(r'(book|thread|forum|review|list|article|post|answer)',href,re.I):
     anchors.append({'text':text[:180],'href':href})
   tables=[]
   for t in soup.find_all('table')[:5]:
@@ -40,8 +45,13 @@ def summarize(name,url,out):
     if cells: rows.append(cells)
    tables.append(rows)
   likely=[]
-  key='youshu' if ('youshu' in name or 'backup' in name) else 'lkong'
-  pat=r'(book|review|booklist|sort)' if key=='youshu' else r'(thread|forum)'
+  if 'youshu' in name or 'backup' in name: pat=r'(book|review|booklist|sort)'
+  elif 'lkong' in name: pat=r'(thread|forum)'
+  elif 'voz' in name: pat=r'(threads|/t/|post)'
+  elif 'qidian' in name: pat=r'(book|rank|finish|booklist)'
+  elif 'moxing' in name: pat=r'(article|news|course|skill|write|book)'
+  elif 'chivi' in name: pat=r'(wn|book|crit|review)'
+  else: pat=r'(question|answer|p/)'
   for a in soup.find_all('a',href=True):
    href=urljoin(r.url,a['href'])
    if re.search(pat,urlparse(href).path,re.I):
@@ -50,7 +60,11 @@ def summarize(name,url,out):
     if txt and len(txt)>8:
      likely.append({'href':href,'anchor':' '.join(a.get_text(' ',strip=True).split())[:100],'parent':txt[:700], 'tag':(par.name if par else a.name), 'class':((par.get('class') if par else a.get('class')) or [])})
     if len(likely)>=120: break
-  rec={'name':name,'requested_url':url,'final_url':r.url,'status':r.status_code,'bytes':len(r.content),'title':title,'anchors_count':len(anchors),'anchors':anchors[:600],'tables':tables,'likely':likely,'html_sha256':__import__('hashlib').sha256(r.content).hexdigest()}
+  next_data=''
+  nd=soup.find('script',id='__NEXT_DATA__')
+  if nd: next_data=(nd.string or '')[:2000]
+  body_text=' '.join(soup.get_text(' ',strip=True).split())[:2000]
+  rec={'name':name,'requested_url':url,'final_url':r.url,'status':r.status_code,'bytes':len(r.content),'title':title,'anchors_count':len(anchors),'anchors':anchors[:600],'tables':tables,'likely':likely,'next_data':next_data,'body_text':body_text,'html_sha256':__import__('hashlib').sha256(r.content).hexdigest()}
   (out/f'{name}.html').write_text(html,encoding='utf-8',errors='replace')
   return rec
  except Exception as e:
