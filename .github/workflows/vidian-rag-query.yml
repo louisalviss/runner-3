@@ -1,0 +1,86 @@
+name: vidian-rag-query
+
+on:
+  workflow_dispatch:
+    inputs:
+      q:
+        description: 'Question / retrieval query'
+        required: true
+      mode:
+        description: 'hybrid | semantic | lexical'
+        required: false
+        default: 'hybrid'
+      limit:
+        description: 'Top article hits'
+        required: false
+        default: '10'
+
+permissions:
+  contents: read
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: vidian-knowledge-v1.1-2026-08-17
+      RELEASE_ASSET: vidian-knowledge-v1.1-2026-08-17.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install retrieval dependencies
+        run: python -m pip install --disable-pip-version-check numpy joblib scikit-learn==1.9.0
+
+      - name: Download Vidian knowledge layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rag_work
+          gh release download "$RELEASE_TAG" --pattern "$RELEASE_ASSET" --dir rag_work
+          unzip -q "rag_work/$RELEASE_ASSET" -d rag_work/index
+          test -f rag_work/index/vidian_knowledge/vidian_knowledge.sqlite
+          test -f rag_work/index/vidian_knowledge/semantic.joblib
+
+      - name: Build evidence packet
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE='${{ inputs.mode }}'
+          case "$MODE" in hybrid|semantic|lexical) ;; *) echo "invalid mode: $MODE" >&2; exit 2;; esac
+          LIMIT='${{ inputs.limit }}'
+          python scripts/vidian_rag.py \
+            --index rag_work/index/vidian_knowledge \
+            --q '${{ inputs.q }}' \
+            --mode "$MODE" \
+            --limit "$LIMIT" \
+            --json-out rag_work/evidence.json \
+            --md-out rag_work/evidence.md \
+            > /dev/null
+          cat rag_work/evidence.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: QA packet
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('rag_work/evidence.json',encoding='utf-8'))
+          assert p.get('question')
+          assert p.get('top_hits'), p
+          assert all(x.get('url') and x.get('title') for x in p['top_hits'])
+          print('Vidian RAG packet PASS:', len(p['top_hits']), 'hits')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-rag-evidence
+          path: |
+            rag_work/evidence.json
+            rag_work/evidence.md
+          retention-days: 14
+          compression-level: 6
