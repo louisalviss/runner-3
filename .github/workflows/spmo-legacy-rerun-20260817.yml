@@ -1,0 +1,27 @@
+name: SPMO Legacy Rerun 2026-08-17
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spmo-legacy-rerun-20260817.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas yfinance beautifulsoup4 lxml
+      - name: Reconstruct all legacy SPMO periods
+        run: python -u spmo-backtest/run_legacy_batch.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-legacy-rerun-${{ github.run_id }}
+          path: spmo-backtest/output/legacy_batch_results.csv
+          if-no-files-found: warn
+          retention-days: 7
