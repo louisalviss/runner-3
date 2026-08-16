@@ -1,0 +1,99 @@
+name: webnovel-intelligence
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/webnovel_intelligence.py'
+      - '.github/workflows/webnovel-intelligence.yml'
+permissions:
+  contents: write
+concurrency:
+  group: webnovel-intelligence-v1
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      RELEASE_TAG: webnovel-intelligence-v1-2026-08-17
+      ASSET: webnovel-intelligence-v1-2026-08-17.zip
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4 lxml
+      - name: Build intelligence layer
+        run: python scripts/webnovel_intelligence.py build --out webnovel_intelligence --workers 3 --moxing-pages 12
+      - name: QA gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sqlite3
+          m=json.load(open('webnovel_intelligence/manifest.json',encoding='utf-8'))
+          c=m['counts']; v=m['collectors']['voz']; src={x['source']:x for x in m['sources']}
+          assert v['thread_last_page']>=1200,v
+          assert v['pages_done']>=v['thread_last_page']-2,v
+          assert len(v['failed_pages'])<=2,v['failed_pages']
+          assert c['voz_posts']>=20000,c
+          assert c['moxing_items']>=100,c
+          assert c['zhihu_items']>=1,c
+          assert c['chivi_taxonomy_items']>=10,c
+          assert c['fts_rows']==c['items'],c
+          assert c['signal_edges']>=2000,c
+          assert src['youshu']['status']=='blocked_from_runner'
+          assert src['lkong']['status']=='login_gated_listing'
+          assert src['qidian']['status']=='challenge_from_runner'
+          con=sqlite3.connect('webnovel_intelligence/webnovel_intelligence.sqlite')
+          assert con.execute("select count(*) from items where source='voz' and length(content_sha256)=64").fetchone()[0]==c['voz_posts']
+          assert con.execute("select count(*) from items where length(excerpt)>800").fetchone()[0]==0
+          con.close()
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+      - name: Retrieval smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/webnovel_intelligence.py query --index webnovel_intelligence --q 'tu luyện cảnh giới tài nguyên' --limit 10 > webnovel_intelligence/smoke_progression.json
+          python scripts/webnovel_intelligence.py query --index webnovel_intelligence --q '小说开头 写作技巧' --source moxing --limit 10 > webnovel_intelligence/smoke_writing.json
+          python - <<'PY'
+          import json
+          a=json.load(open('webnovel_intelligence/smoke_progression.json')); b=json.load(open('webnovel_intelligence/smoke_writing.json'))
+          assert a and any(x['source']=='voz' for x in a),a
+          assert b and all(x['source']=='moxing' for x in b),b
+          assert all(x['url'].startswith('http') for x in a+b)
+          print('retrieval smoke PASS')
+          PY
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,zipfile,os
+          root=pathlib.Path('webnovel_intelligence'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,p.as_posix())
+          m=json.load(open(root/'manifest.json',encoding='utf-8')); m['package']={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(m['package'],indent=2))
+          PY
+      - name: Publish release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title 'Webnovel Intelligence v1 — 2026-08-17' --notes 'Multi-source webnovel intelligence: Moxing writing metadata, VOZ Vietnamese reader signals, Zhihu seeded writing evidence and Chivi/qtran taxonomy. Blocked/login-gated sources are explicitly tracked without bypass.'
+          fi
+          gh release upload "$RELEASE_TAG" "$ASSET" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webnovel-intelligence-v1
+          path: |
+            webnovel_intelligence
+            webnovel-intelligence-v1-2026-08-17.zip
+          retention-days: 90
