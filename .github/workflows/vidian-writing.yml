@@ -7,6 +7,7 @@ on:
     paths:
       - 'scripts/vidian_writing.py'
       - 'scripts/vidian_writing_quality.py'
+      - 'scripts/vidian_writing_agent.py'
       - '.github/workflows/vidian-writing.yml'
 
 permissions:
@@ -55,6 +56,7 @@ jobs:
           import vidian_writing_quality as quality
           w=quality.apply()
           w.build('corpus/'+os.environ['CORPUS_ASSET'],'vidian_writing',96,40000)
+          quality.refine_checklists('vidian_writing',25)
           PY
 
       - name: QA gate
@@ -68,6 +70,7 @@ jobs:
           import vidian_writing_quality as quality
           m=json.load(open('vidian_writing/manifest.json',encoding='utf-8'))
           inv=json.load(open('vidian_writing/category_inventory.json',encoding='utf-8'))
+          check=json.load(open('vidian_writing/checklists.json',encoding='utf-8'))
           c=m['counts']
           assert c['canonical_articles_scanned']==8826, c
           assert c['category_urls']>=250, c
@@ -82,6 +85,8 @@ jobs:
           assert quality.strict_kind('Đưa cho nhân vật một mục tiêu rõ ràng')[0] != 'dont'
           assert quality.strict_kind('Không nên giải thích quá dài')[0]=='dont'
           assert quality.strict_kind('Nên tạo xung đột rõ ràng')[0]=='do'
+          assert all(check[t] for t in w.TOPICS if t not in {'cliffhanger','stakes'}), {t:len(check[t]) for t in w.TOPICS}
+          assert all(quality.actionable(x) for items in check.values() for x in items), 'non-actionable checklist item'
           con=sqlite3.connect('vidian_writing/vidian_writing.sqlite')
           assert con.execute('select count(distinct url) from articles').fetchone()[0]==c['matched_articles']
           assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
@@ -94,28 +99,31 @@ jobs:
           print(json.dumps(m,ensure_ascii=False,indent=2))
           PY
 
-      - name: Query smoke
+      - name: Agent smoke
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/vidian_writing.py query --index vidian_writing --q 'mở đầu tiên hiệp thu hút độc giả' --limit 8 --json-out vidian_writing/smoke_query.json > /dev/null
-          python scripts/vidian_writing.py checklist --index vidian_writing --topic character_design --limit 10 --json-out vidian_writing/smoke_checklist.json > /dev/null
-          python scripts/vidian_writing.py direct --index vidian_writing --brief 'Tiên hiệp, nam chính thận trọng, progression rõ, tài nguyên và kỳ ngộ, arc 30 chương' --limit 32 --json-out vidian_writing/smoke_direct.json --md-out vidian_writing/smoke_direct.md > /dev/null
-          python scripts/vidian_writing.py review --index vidian_writing --text 'Nhân vật chính bước vào tông môn. Sau nhiều chương anh ta tu luyện, đột phá cảnh giới và nhận được bảo vật.' --limit 20 --json-out vidian_writing/smoke_review.json --md-out vidian_writing/smoke_review.md > /dev/null
+          python scripts/vidian_writing_agent.py query --index vidian_writing --q 'mở đầu tiên hiệp thu hút độc giả' --limit 8 --json-out vidian_writing/smoke_query.json > /dev/null
+          python scripts/vidian_writing_agent.py checklist --index vidian_writing --topic character_design --limit 10 --json-out vidian_writing/smoke_checklist.json > /dev/null
+          python scripts/vidian_writing_agent.py direct --index vidian_writing --brief 'Tiên hiệp, nam chính thận trọng, progression rõ, tài nguyên và kỳ ngộ, arc 30 chương' --limit 32 --json-out vidian_writing/smoke_direct.json --md-out vidian_writing/smoke_direct.md > /dev/null
+          python scripts/vidian_writing_agent.py review --index vidian_writing --text 'Nhân vật chính bước vào tông môn. Sau nhiều chương anh ta tu luyện, đột phá cảnh giới và nhận được bảo vật.' --limit 20 --json-out vidian_writing/smoke_review.json --md-out vidian_writing/smoke_review.md > /dev/null
           python - <<'PY'
-          import json
+          import json,sys
+          sys.path.insert(0,'scripts')
+          import vidian_writing_quality as quality
           q=json.load(open('vidian_writing/smoke_query.json',encoding='utf-8'))
           d=json.load(open('vidian_writing/smoke_direct.json',encoding='utf-8'))
           r=json.load(open('vidian_writing/smoke_review.json',encoding='utf-8'))
           c=json.load(open('vidian_writing/smoke_checklist.json',encoding='utf-8'))
           assert q['hits'] and q['hits'][0]['topic']=='hook_opening', q['hits'][:3]
           assert 'mở đầu' in q['hits'][0]['title'].lower(), q['hits'][0]
-          assert d['sections'] and d['directive_topics'], d
-          assert any(x['all'] for x in d['sections']), d['sections']
-          assert r['evidence_buckets'] and any(x['hits'] for x in r['evidence_buckets']), r
-          assert c['items'], c
-          assert all(len(x['rule'])>=20 for x in c['items']), c['items']
-          print('Vidian Writing smoke PASS')
+          assert all(quality.actionable(x) for x in q['hits']), q['hits']
+          assert d['sections'] and all(x['all'] for x in d['sections']), d['sections']
+          assert all(quality.actionable(x) for s in d['sections'] for x in s['all']), d
+          assert r['evidence_buckets'] and all(x['hits'] for x in r['evidence_buckets']), r
+          assert all(quality.actionable(x) for b in r['evidence_buckets'] for x in b['hits']), r
+          assert c['items'] and all(quality.actionable(x) for x in c['items']), c
+          print('Vidian Writing Agent smoke PASS')
           PY
 
       - name: Package
@@ -130,7 +138,8 @@ jobs:
                   if p.is_file(): z.write(p,p.as_posix())
           h=hashlib.sha256(asset.read_bytes()).hexdigest()
           m=json.load(open(root/'manifest.json',encoding='utf-8'))
-          m['quality_layer']='strict-diacritic-markers-v1 + low-signal-principle-pruning'
+          m['quality_layer']='strict-diacritic-markers-v1 + low-signal-pruning + actionable-evidence-rerank-v1'
+          m['interfaces']=['query','direct','review','checklist']
           m['package']={'name':asset.name,'sha256':h,'size_bytes':asset.stat().st_size}
           (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(m['package'],indent=2))
@@ -143,7 +152,7 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --title 'Vidian Writing Knowledge Layer v1 — 2026-08-17' --notes 'Specialized Writing Brain from the Vidian Chỉ đạo sáng tác category, joined to the canonical 8,826-article semantic corpus.'
           fi
-          gh release edit "$RELEASE_TAG" --notes 'Specialized Writing Brain from Vidian Chỉ đạo sáng tác: 23-topic craft taxonomy, strict diacritic-aware rule labeling, low-signal descriptive pruning, checklists, FTS5 + latent semantic retrieval, Direct composition packets, and Review critique packets. Source category membership comes from Vidian category listings. Evidence surfaces are parser reconstructions, not verbatim source prose.'
+          gh release edit "$RELEASE_TAG" --notes 'Specialized Writing Brain from Vidian Chỉ đạo sáng tác: 23-topic craft taxonomy, strict diacritic-aware rule labeling, low-signal descriptive pruning, actionable evidence reranking, quality checklists, FTS5 + latent semantic retrieval, Direct composition packets, and Review critique packets. Source category membership comes from Vidian category listings. Evidence surfaces are parser reconstructions, not verbatim source prose.'
           gh release upload "$RELEASE_TAG" "$ASSET" --clobber
 
       - uses: actions/upload-artifact@v4
