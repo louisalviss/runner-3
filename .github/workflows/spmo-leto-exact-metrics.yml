@@ -1,0 +1,55 @@
+name: SPMO Leto exact metrics
+
+on:
+  push:
+    paths:
+      - '.github/workflows/spmo-leto-exact-metrics.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q yfinance pandas numpy
+      - name: Compute daily stitched curve
+        run: |
+          python - <<'PY'
+          import pandas as pd, numpy as np, yfinance as yf, math, json
+          from pathlib import Path
+          seq=[('2016-03-21','MSFT'),('2016-09-19','JNJ'),('2017-03-20','JPM'),('2017-09-18','MSFT'),('2018-03-19','MSFT'),('2018-09-24','MSFT'),('2019-03-18','AMZN'),('2019-09-23','MSFT'),('2020-03-23','AAPL'),('2020-09-21','MSFT'),('2021-03-22','AAPL'),('2021-09-20','GOOGL'),('2022-03-21','GOOGL'),('2022-09-19','XOM'),('2023-03-20','XOM'),('2023-09-18','META'),('2024-03-18','NVDA'),('2024-09-23','AMZN'),('2025-03-24','NVDA'),('2025-09-22','AVGO'),('2026-03-23','NVDA')]
+          end=pd.Timestamp('2026-08-12'); start=pd.Timestamp(seq[0][0])
+          tickers=sorted(set(t for _,t in seq)); cache={}
+          for t in tickers:
+              d=yf.download(t,start='2016-03-15',end='2026-08-16',auto_adjust=False,progress=False,threads=False)
+              s=d['Adj Close'];
+              if isinstance(s,pd.DataFrame): s=s.iloc[:,0]
+              s.index=pd.to_datetime(s.index).tz_localize(None); cache[t]=s.dropna()
+          chunks=[]; wealth=1.0
+          for i,(ds,t) in enumerate(seq):
+              s=pd.Timestamp(ds); e=pd.Timestamp(seq[i+1][0]) if i+1<len(seq) else end
+              x=cache[t][(cache[t].index>=s)&(cache[t].index<=e)]
+              norm=x/x.iloc[0]; c=wealth*norm
+              if i: c=c.iloc[1:]
+              chunks.append(c); wealth*=float(norm.iloc[-1])
+          curve=pd.concat(chunks); daily=curve.pct_change().dropna()
+          years=(end-start).days/365.2425; multiple=float(curve.iloc[-1]/curve.iloc[0]); cagr=multiple**(1/years)-1
+          vol=float(daily.std(ddof=1)*math.sqrt(252)); ann=float(daily.mean()*252); sharpe=ann/vol
+          dd=curve/curve.cummax()-1; trough=dd.idxmin(); peak=curve.loc[:trough].idxmax(); maxdd=float(dd.loc[trough])
+          out={'start':start.strftime('%Y-%m-%d'),'end':end.strftime('%Y-%m-%d'),'multiple':multiple,'cagr':cagr,'annualized_volatility':vol,'annualized_arithmetic_return':ann,'sharpe_rf0':sharpe,'max_drawdown':maxdd,'max_dd_peak':peak.strftime('%Y-%m-%d'),'max_dd_trough':trough.strftime('%Y-%m-%d'),'n_daily_returns':len(daily),'price':'Yahoo Adjusted Close'}
+          print(json.dumps(out,indent=2))
+          p=Path('spmo-backtest/leto-source');p.mkdir(parents=True,exist_ok=True)
+          (p/'leto_exact_metrics.json').write_text(json.dumps(out,indent=2))
+          (p/'leto_exact_metrics.md').write_text('\n'.join(['# Leto exact daily metrics','',f"- Window: {out['start']} -> {out['end']}",f"- Multiple: {multiple:.9f}x",f"- CAGR: {cagr:.9%}",f"- Volatility: {vol:.6%}",f"- Sharpe (rf=0): {sharpe:.6f}",f"- Max drawdown: {maxdd:.6%}",f"- DD peak/trough: {out['max_dd_peak']} -> {out['max_dd_trough']}"])+'\n')
+          PY
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add spmo-backtest/leto-source/leto_exact_metrics.*
+          git commit -m 'Add exact Leto daily metrics' || exit 0
+          git pull --rebase origin main
+          git push
