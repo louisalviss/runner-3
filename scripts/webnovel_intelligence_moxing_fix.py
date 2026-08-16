@@ -1,11 +1,40 @@
 #!/usr/bin/env python3
-"""Build wrapper that corrects Moxing detail-link discovery.
-Moxing category listings live under /sf-jq/<category>/ but article detail URLs are /show_<id>.html.
-The detail anchor wraps the full card, so title must come from its title/H4 while card text becomes the excerpt.
+"""Quality wrapper for Webnovel Intelligence v1.
+- Moxing detail URLs are /show_<id>.html and each anchor wraps the full card.
+- Preference signals use narrower terms to avoid substring inflation in Vietnamese forum text.
 """
 import re,time
 from urllib.parse import urljoin,urlparse
 import webnovel_intelligence as w
+
+REFINED_SIGNALS={
+ 'cautious_main':['thận trọng','cẩn thận','cẩu đạo','谨慎','稳健'],
+ 'smart_main':['thông minh','main khôn','main não','não to','iq cao','聪明','智商在线'],
+ 'progression':['thăng cấp','cảnh giới','tu luyện','đột phá','progression','升级','境界','修炼'],
+ 'resource_loop':['tài nguyên','pháp bảo','công pháp','kỳ ngộ','loot','资源','法宝','功法','机缘'],
+ 'worldbuilding':['thế giới','bối cảnh','thế lực','tông môn','worldbuilding','世界观','势力'],
+ 'pacing':['nhịp truyện','tiết tấu','kéo dài','câu giờ','拖沓','节奏'],
+ 'logic':['logic','hợp lý','vô lý','智障','降智','逻辑'],
+ 'character':['nhân vật','tính cách','main','nữ chính','角色','人物','主角'],
+ 'romance_harem':['hậu cung','nữ chính','tình cảm','harem','后宫','感情线'],
+ 'payoff':['sảng','đánh mặt','thỏa mãn','爽','打脸','高潮'],
+ 'ending':['kết thúc','kết truyện','kết cục','ending','烂尾','结局'],
+ 'originality':['mới lạ','sáng tạo','ý tưởng','não động','创意','脑洞'],
+ 'prose':['văn phong','câu chữ','dịch thuật','bản dịch','文笔','文风'],
+ 'mystery':['bí ẩn','mystery','伏笔','悬疑'],
+}
+
+def _has(text,term):
+    t=text.lower(); q=term.lower()
+    if re.search(r'[\u4e00-\u9fff]',q): return q in t
+    return re.search(r'(?<![0-9A-Za-zÀ-ỹĐđ])'+re.escape(q)+r'(?![0-9A-Za-zÀ-ỹĐđ])',t,re.I) is not None
+
+def signal_hits(text):
+    out={}
+    for k,terms in REFINED_SIGNALS.items():
+        score=sum(len(re.findall(re.escape(term),text,re.I)) if re.search(r'[\u4e00-\u9fff]',term) else (1 if _has(text,term) else 0) for term in terms)
+        if score: out[k]=score
+    return out
 
 
 def moxing_collect(c,max_pages=12):
@@ -41,5 +70,6 @@ def moxing_collect(c,max_pages=12):
         c.commit()
     return {'items':count,'unique_urls':len(seen),'failures':failures[:20]}
 
+w.signal_hits=signal_hits
 w.moxing_collect=moxing_collect
 if __name__=='__main__': w.main()
