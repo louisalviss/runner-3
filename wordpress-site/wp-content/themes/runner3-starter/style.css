@@ -1,0 +1,57 @@
+/*
+Theme Name: Runner3 Starter
+Theme URI: https://github.com/louisalviss/runner-3
+Author: Runner3
+Description: Lightweight responsive starter theme deployed by Runner3.
+Version: 1.0.0
+Requires at least: 6.6
+Requires PHP: 8.1
+Text Domain: runner3-starter
+*/
+
+:root {
+  --bg: #f7f7f4;
+  --surface: #ffffff;
+  --text: #171717;
+  --muted: #666;
+  --line: #e7e7e2;
+  --accent: #111;
+  --max: 1120px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+a { color: inherit; }
+.wrap { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+.site-header { background: rgba(247,247,244,.92); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; backdrop-filter: blur(10px); }
+.site-header .wrap { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.brand { font-weight: 800; text-decoration: none; letter-spacing: -.02em; }
+.nav ul { display: flex; list-style: none; padding: 0; margin: 0; gap: 20px; }
+.nav a { text-decoration: none; font-size: 14px; }
+.hero { padding: 110px 0 80px; }
+.hero-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: 48px; align-items: center; }
+.eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 700; color: var(--muted); }
+h1 { font-size: clamp(48px, 8vw, 88px); line-height: .98; letter-spacing: -.055em; margin: 16px 0 24px; max-width: 900px; }
+h2 { font-size: clamp(30px, 4vw, 48px); line-height: 1.08; letter-spacing: -.035em; margin: 0 0 18px; }
+p.lead { font-size: clamp(18px, 2vw, 22px); color: var(--muted); max-width: 720px; }
+.button { display: inline-block; padding: 13px 18px; border-radius: 10px; background: var(--accent); color: white; text-decoration: none; font-weight: 700; margin-top: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 28px; }
+.card strong { display: block; font-size: 28px; margin-bottom: 6px; }
+.section { padding: 72px 0; border-top: 1px solid var(--line); }
+.grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; }
+.site-footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--muted); font-size: 14px; }
+.content { padding: 72px 0; max-width: 780px; }
+.content h1 { font-size: clamp(38px, 6vw, 64px); }
+
+@media (max-width: 760px) {
+  .hero { padding-top: 72px; }
+  .hero-grid, .grid-3 { grid-template-columns: 1fr; }
+  .nav { display: none; }
+}
