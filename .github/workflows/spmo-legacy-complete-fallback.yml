@@ -1,0 +1,28 @@
+name: SPMO Legacy Complete Fallback
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-backtest/run_legacy_complete_fallback.py'
+      - '.github/workflows/spmo-legacy-complete-fallback.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas yfinance beautifulsoup4 lxml
+      - run: python -u spmo-backtest/run_legacy_complete_fallback.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-legacy-complete-${{ github.run_id }}
+          path: spmo-backtest/output/legacy_complete_results.csv
+          if-no-files-found: warn
+          retention-days: 7
