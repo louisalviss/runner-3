@@ -1,0 +1,308 @@
+name: vidian-content-finalize
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-content-finalize.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vidian-content-finalize-v1
+  cancel-in-progress: true
+
+env:
+  SOURCE_RUN: '31908990986'
+  RESUME_RUN: '31917485601'
+
+jobs:
+  prep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download audit bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-content-fix-bundle
+          path: bundle
+          github-token: ${{ github.token }}
+          run-id: ${{ env.SOURCE_RUN }}
+      - name: Download timed-out checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-fixed-snapshot-batch-*
+          path: checkpoint
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ env.SOURCE_RUN }}
+      - name: Download completed resume shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-missing-*
+          path: missing
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ env.RESUME_RUN }}
+      - name: Assemble and enumerate only incomplete rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p prep/snapshots
+          find checkpoint -name 'vidian_snapshot_chunk_*.jsonl' -exec cp {} prep/snapshots/ \;
+          find missing -name 'vidian_snapshot_chunk_*.jsonl' -exec cp -f {} prep/snapshots/ \;
+          cp bundle/audit_out/candidates.json prep/original_candidates.json
+          cp bundle/audit_out/vidian_inventory.json prep/vidian_inventory.json
+          python - <<'PY'
+          import glob,json,re
+          from pathlib import Path
+          files=sorted(glob.glob('prep/snapshots/vidian_snapshot_chunk_*.jsonl'))
+          assert len(files)==64, len(files)
+          rows=[]; remaining=[]; by_status={}
+          for p in files:
+              chunk=int(re.search(r'chunk_(\d+)\.jsonl$',p).group(1))
+              part=[json.loads(x) for x in open(p,encoding='utf-8') if x.strip()]
+              rows.extend(part)
+              for r in part:
+                  st=r.get('status','missing')
+                  by_status[st]=by_status.get(st,0)+1
+                  if st!='fetched' or not r.get('paragraphs'):
+                      remaining.append({'url':r['url'],'chunk':chunk,'reasons':['resume-incomplete']})
+          urls=[r['url'] for r in rows]
+          assert len(rows)==8826,(len(rows),len(set(urls)))
+          assert len(set(urls))==8826
+          payload={'expected':8826,'candidate_count':len(remaining),'records':sorted(remaining,key=lambda x:(x['chunk'],x['url']))}
+          Path('prep/remaining_candidates.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
+          summary={'snapshot_files':64,'records':8826,'unique_urls':8826,'remaining':len(remaining),'status_counts':by_status,'affected_chunks':sorted(set(x['chunk'] for x in remaining))}
+          Path('prep/prep_summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-finalize-prep
+          path: prep
+          retention-days: 7
+          compression-level: 6
+
+  parser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub/checkpoints
+          key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+      - name: Validate dependency parser
+        run: python scripts/vidian_pipeline.py smoke
+
+  repair:
+    needs: prep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        batch: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install refresh dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-finalize-prep
+          path: prep
+      - name: Repair only incomplete rows in eight shards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot_out
+          start=$(( ${{ matrix.batch }} * 8 ))
+          end=$(( start + 7 ))
+          for chunk in $(seq "$start" "$end"); do
+            f=$(printf 'vidian_snapshot_chunk_%02d.jsonl' "$chunk")
+            cp "prep/snapshots/$f" "snapshot_out/$f"
+            python scripts/vidian_content_fix.py refresh \
+              --inventory prep/vidian_inventory.json \
+              --snapshot "snapshot_out/$f" \
+              --candidates prep/remaining_candidates.json \
+              --out snapshot_out \
+              --index "$chunk" \
+              --passes 8 \
+              --delay 0.8 \
+              --timeout 18 \
+              --cooldown-429 45 \
+              --max-429-retries 10
+          done
+      - name: Validate repaired batch
+        run: |
+          python - <<'PY'
+          import glob,json
+          ps=glob.glob('snapshot_out/vidian_snapshot_chunk_*.jsonl')
+          assert len(ps)==8,len(ps)
+          bad=[]
+          for p in ps:
+              rows=[json.loads(x) for x in open(p,encoding='utf-8') if x.strip()]
+              bad.extend((p,r.get('url'),r.get('status')) for r in rows if r.get('status')!='fetched' or not r.get('paragraphs'))
+          assert not bad,bad[:10]
+          print({'chunks':8,'bad':0})
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-final-snapshot-batch-${{ matrix.batch }}
+          path: snapshot_out
+          retention-days: 7
+          compression-level: 6
+
+  coverage:
+    needs: [prep, repair]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install QA dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-finalize-prep
+          path: prep
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-final-snapshot-batch-*
+          path: snapshot_final
+          merge-multiple: true
+      - name: Exact snapshot validation
+        run: |
+          python - <<'PY'
+          import glob,json
+          files=glob.glob('snapshot_final/vidian_snapshot_chunk_*.jsonl')
+          assert len(files)==64,len(files)
+          rows=[]
+          for p in files:
+              part=[json.loads(x) for x in open(p,encoding='utf-8') if x.strip()]
+              assert all(r.get('status')=='fetched' and r.get('paragraphs') for r in part),p
+              rows+=part
+          urls=[r['url'] for r in rows]
+          print({'files':64,'records':len(rows),'unique_urls':len(set(urls))})
+          assert len(rows)==8826 and len(set(urls))==8826
+          PY
+      - name: Holdout and regression QA
+        run: python scripts/vidian_content_fix.py coverage --candidates prep/original_candidates.json --snapshots snapshot_final --out coverage_out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-content-fix-coverage-final
+          path: coverage_out
+          retention-days: 7
+          compression-level: 9
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-final-snapshots
+          path: snapshot_final
+          retention-days: 7
+          compression-level: 6
+
+  semantic:
+    needs: [coverage, parser-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub/checkpoints
+          key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-final-snapshots
+          path: snapshot_in
+      - name: Build semantic v2
+        run: |
+          f=$(printf 'snapshot_in/vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
+          python scripts/vidian_content_fix.py semantic --snapshot "$f" --out semantic_out --index ${{ matrix.chunk }} --parse-group-size 512
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-fixed-semantic-${{ matrix.chunk }}
+          path: semantic_out
+          retention-days: 7
+          compression-level: 6
+
+  merge:
+    needs: [prep, coverage, semantic]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install merge dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-finalize-prep
+          path: prep
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-fixed-semantic-*
+          path: semantic_all
+          merge-multiple: false
+      - name: Merge fixed corpus
+        run: python scripts/vidian_pipeline.py merge --inventory prep/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus_v2 --count 64
+      - name: Final QA
+        run: python scripts/vidian_content_fix.py qa --corpus vidian_semantic_corpus_v2 --out final_qa --expected 8826
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2
+          path: vidian_semantic_corpus_v2
+          retention-days: 7
+          compression-level: 6
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2-qa
+          path: final_qa
+          retention-days: 7
+          compression-level: 9
