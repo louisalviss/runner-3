@@ -1,0 +1,46 @@
+name: SPMO Leto report window test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/spmo-leto-window-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-window:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare report window to canonical window
+        run: |
+          python - <<'PY'
+          import json, urllib.request, datetime as dt
+          def ts(d): return int(dt.datetime.strptime(d,'%Y-%m-%d').replace(tzinfo=dt.timezone.utc).timestamp())
+          def prices(ticker, dates):
+              lo=min(dates); hi=max(dates)
+              url=f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?period1={ts(lo)-432000}&period2={ts(hi)+432000}&interval=1d&events=div%2Csplits&includeAdjustedClose=true'
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+              d=json.load(urllib.request.urlopen(req,timeout=30))['chart']['result'][0]
+              return {dt.datetime.fromtimestamp(t,dt.timezone.utc).strftime('%Y-%m-%d'):v for t,v in zip(d['timestamp'],d['indicators']['adjclose'][0]['adjclose']) if v is not None}
+          m=prices('MSFT',['2016-03-18','2016-03-21'])
+          n=prices('NVDA',['2026-08-12','2026-08-14'])
+          base=17.756268183083446
+          start_factor=m['2016-03-18']/m['2016-03-21']
+          end_factor=n['2026-08-12']/n['2026-08-14']
+          window=base*start_factor*end_factor
+          years=(dt.datetime(2026,8,12)-dt.datetime(2016,3,21)).days/365.2425
+          print('MSFT',m)
+          print('NVDA',n)
+          print('start_factor',start_factor)
+          print('end_factor',end_factor)
+          print('canonical sequence, Leto report window multiple',window)
+          print('canonical sequence, Leto report window CAGR',window**(1/years)-1)
+          # prior hypothesized two swaps factor
+          swap=1.08675553
+          alt=window*swap
+          print('two-swaps + Leto report window multiple',alt)
+          print('two-swaps + Leto report window CAGR',alt**(1/years)-1)
+          print('years',years)
+          PY
