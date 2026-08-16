@@ -1,0 +1,33 @@
+name: SPMO full 21-period metrics
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spmo-full-metrics.yml'
+      - 'spmo-backtest/compute_full_metrics.py'
+      - 'spmo-backtest/validated/period_checks.csv'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pandas numpy yfinance
+      - name: Build full daily equity and metrics
+        run: python -u spmo-backtest/compute_full_metrics.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-full-metrics-${{ github.run_id }}
+          path: |
+            spmo-backtest/validated/full_backtest_metrics.json
+            spmo-backtest/validated/period_return_recheck.csv
+            spmo-backtest/validated/daily_equity.csv
+          if-no-files-found: warn
+          retention-days: 14
