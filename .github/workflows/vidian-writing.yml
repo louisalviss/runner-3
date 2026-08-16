@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/vidian_writing.py'
+      - 'scripts/vidian_writing_quality.py'
       - '.github/workflows/vidian-writing.yml'
 
 permissions:
@@ -49,35 +50,11 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import sys, requests
+          import os,sys
           sys.path.insert(0,'scripts')
-          import vidian_writing as w
-
-          BasePool=w.ThreadPoolExecutor
-          class FastPool(BasePool):
-              def __init__(self,max_workers=None,*a,**kw):
-                  super().__init__(max_workers=36,*a,**kw)
-          w.ThreadPoolExecutor=FastPool
-
-          def fast_article_category(url):
-              last=None
-              for timeout in (7,10):
-                  try:
-                      r=requests.get(url,headers={'User-Agent':w.vp.UA,'Accept-Language':'vi,en;q=0.8'},timeout=timeout)
-                      r.raise_for_status()
-                      soup=w.vp.BeautifulSoup(r.text,'html.parser'); h1=soup.find('h1')
-                      if not h1: return url,None,'missing-h1'
-                      checked=0
-                      for a in h1.find_all_next('a',href=True):
-                          checked+=1; c=w.vp.category(a.get('href'))
-                          if c: return url,c,None
-                          if checked>=12: break
-                      return url,None,'category-anchor-not-found'
-                  except Exception as e:
-                      last=e
-              return url,None,f'{type(last).__name__}:{last}'
-          w._article_category=fast_article_category
-          w.build('corpus/'+__import__('os').environ['CORPUS_ASSET'],'vidian_writing',96,40000)
+          import vidian_writing_quality as quality
+          w=quality.apply()
+          w.build('corpus/'+os.environ['CORPUS_ASSET'],'vidian_writing',96,40000)
           PY
 
       - name: QA gate
@@ -85,25 +62,34 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, sqlite3
+          import json,sqlite3,sys
+          sys.path.insert(0,'scripts')
+          import vidian_writing as w
+          import vidian_writing_quality as quality
           m=json.load(open('vidian_writing/manifest.json',encoding='utf-8'))
+          inv=json.load(open('vidian_writing/category_inventory.json',encoding='utf-8'))
           c=m['counts']
           assert c['canonical_articles_scanned']==8826, c
-          assert c['listing_candidate_urls']>c['category_urls'], c
-          assert c['rejected_non_writing_urls']>0, c
-          assert c['category_urls']>=40, c
-          assert c['matched_articles']>=40, c
-          assert c['missing_category_urls']<=3, c
-          assert c['passages']>=100, c
-          assert c['directive_rules']>=25, c
-          assert c['topics_with_rules']>=8, c
+          assert c['category_urls']>=250, c
+          assert c['matched_articles']==c['category_urls'], c
+          assert c['missing_category_urls']==0, c
+          assert inv['urls']==c['category_urls'], (inv,c)
+          assert c['passages']>=5000, c
+          assert c['directive_rules']>=2000, c
+          assert c['topics_with_rules']==23, c
           assert m['retrieval']['semantic']['enabled'] is True, m['retrieval']['semantic']
-          inv=json.load(open('vidian_writing/category_inventory.json',encoding='utf-8'))
-          assert inv['verified_urls']==c['category_urls'], (inv,c)
-          assert inv['rejected_non_writing_urls']==c['rejected_non_writing_urls'], (inv,c)
+          assert quality.strict_kind('Kỳ ngộ phải bất ngờ')[0]=='do'
+          assert quality.strict_kind('Đưa cho nhân vật một mục tiêu rõ ràng')[0] != 'dont'
+          assert quality.strict_kind('Không nên giải thích quá dài')[0]=='dont'
+          assert quality.strict_kind('Nên tạo xung đột rõ ràng')[0]=='do'
           con=sqlite3.connect('vidian_writing/vidian_writing.sqlite')
           assert con.execute('select count(distinct url) from articles').fetchone()[0]==c['matched_articles']
           assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
+          bad=0
+          for kind,rule in con.execute("select kind,rule from passages where kind in ('do','dont','warning','technique')"):
+              phrases={'do':w.POS,'dont':w.NEG,'warning':w.WARN,'technique':w.TECH}[kind]
+              if not quality.marker_has(rule,phrases): bad+=1
+          assert bad==0, f'directive label/rule mismatch={bad}'
           con.close()
           print(json.dumps(m,ensure_ascii=False,indent=2))
           PY
@@ -122,13 +108,13 @@ jobs:
           d=json.load(open('vidian_writing/smoke_direct.json',encoding='utf-8'))
           r=json.load(open('vidian_writing/smoke_review.json',encoding='utf-8'))
           c=json.load(open('vidian_writing/smoke_checklist.json',encoding='utf-8'))
-          assert q['hits'], q
-          assert any(x['topic']=='hook_opening' for x in q['hits'][:8]), q['hits'][:8]
-          assert all('/chi-tiet/' in x['url'] for x in q['hits']), q['hits']
+          assert q['hits'] and q['hits'][0]['topic']=='hook_opening', q['hits'][:3]
+          assert 'mở đầu' in q['hits'][0]['title'].lower(), q['hits'][0]
           assert d['sections'] and d['directive_topics'], d
           assert any(x['all'] for x in d['sections']), d['sections']
           assert r['evidence_buckets'] and any(x['hits'] for x in r['evidence_buckets']), r
           assert c['items'], c
+          assert all(len(x['rule'])>=20 for x in c['items']), c['items']
           print('Vidian Writing smoke PASS')
           PY
 
@@ -144,6 +130,7 @@ jobs:
                   if p.is_file(): z.write(p,p.as_posix())
           h=hashlib.sha256(asset.read_bytes()).hexdigest()
           m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          m['quality_layer']='strict-diacritic-markers-v1 + low-signal-principle-pruning'
           m['package']={'name':asset.name,'sha256':h,'size_bytes':asset.stat().st_size}
           (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(m['package'],indent=2))
@@ -154,10 +141,9 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --title 'Vidian Writing Knowledge Layer v1 — 2026-08-17' \
-              --notes 'Writing-focused knowledge layer extracted from verified Vidian Chỉ đạo sáng tác articles and joined to the canonical semantic corpus. Includes 23-topic taxonomy, rule/anti-pattern candidates, checklists, FTS5 + latent semantic retrieval, Direct packets for composition planning, and Review packets for evidence-backed critique. Category membership is verified against each article metadata. Evidence surfaces are parser reconstructions, not verbatim source prose.'
+            gh release create "$RELEASE_TAG" --title 'Vidian Writing Knowledge Layer v1 — 2026-08-17' --notes 'Specialized Writing Brain from the Vidian Chỉ đạo sáng tác category, joined to the canonical 8,826-article semantic corpus.'
           fi
+          gh release edit "$RELEASE_TAG" --notes 'Specialized Writing Brain from Vidian Chỉ đạo sáng tác: 23-topic craft taxonomy, strict diacritic-aware rule labeling, low-signal descriptive pruning, checklists, FTS5 + latent semantic retrieval, Direct composition packets, and Review critique packets. Source category membership comes from Vidian category listings. Evidence surfaces are parser reconstructions, not verbatim source prose.'
           gh release upload "$RELEASE_TAG" "$ASSET" --clobber
 
       - uses: actions/upload-artifact@v4
