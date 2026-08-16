@@ -1,0 +1,76 @@
+name: zhvi-model-probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/zhvi-model-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: moxhi60
+            model: DanVP/MoxhiMT-60
+            penalty: '1.0'
+          - slug: hachimi60
+            model: ngocdang83/HachimiMT-60-zh-vi
+            penalty: '1.2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime
+        run: python -m pip install --disable-pip-version-check 'transformers<5' torch sentencepiece sacremoses huggingface_hub
+      - name: Translate fixed Moxing QA sample
+        env:
+          MODEL: ${{ matrix.model }}
+          PENALTY: ${{ matrix.penalty }}
+          SLUG: ${{ matrix.slug }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from huggingface_hub import model_info
+          from transformers import AutoTokenizer,AutoModelForSeq2SeqLM
+          import torch
+          samples=[
+          '总之，千万不能代替文章中的 人物说话，或见景物空发议论、赞美之辞。',
+          '因此，例一个比较简单的地点，描述一下，然后合理地安排主角配角出场，地名与人名不要出现太多，弄得读者眼花，好的作者是以浅入深。',
+          '设定角色性格之后，最好再能够想到几句可以代表角色性格的语句，经常说出，这样更能加深角色性格的鲜明。',
+          '切忌描写无用的铺垫，例如主角要穿越，却花费了太多的笔墨描写穿越前的人和事。',
+          '这件事情本身有很多要素，我们可以提炼出来塑造讨喜的人物。',
+          '这是一个很重要的问题，因为基本上这决定了无所不能的主角在一开始时必须学习何种语言技能。',
+          '3.对于角色的性格设定：塑造主角(角色)必须要塑造好角色的欲望，欲望要满足 清晰、强烈、自然合理',
+          '对于这类小说作者而言，显然，涉及具体的历史、地理、文化、军事、政治、经济等知识的剧情，要尽量避开，尽量不要让小说主角在官场升级，去描写庙堂斗争；',
+          '设计剧情时，思路的连贯性很重要，不要让设计人物这种小事，影响了你的思路，准备工作先做好，到时候就可以全心全意设计剧情了。',
+          '但是，无论情节多扯淡、主角多智障，三观绝对不能崩。',
+          '比如：一本玄幻小说，主角穿越到了异界，你不能为了名字好听就起个《花开百日红》这种满是文青味的名字，随大流叫个《XX异界逍遥记》都比让人看到名字就一头雾水的书名好。',
+          '当然，在考虑这些之前，还得明确创作的作品题材，人物的设定需要符合故事背景。'
+          ]
+          model_id=os.environ['MODEL']; rev=model_info(model_id).sha
+          tok=AutoTokenizer.from_pretrained(model_id,revision=rev)
+          model=AutoModelForSeq2SeqLM.from_pretrained(model_id,revision=rev);model.eval();torch.set_num_threads(4)
+          enc=tok(samples,return_tensors='pt',padding=True,truncation=True,max_length=512)
+          kw=dict(max_new_tokens=320,num_beams=4,early_stopping=True)
+          if float(os.environ['PENALTY'])>1:kw.update(no_repeat_ngram_size=2,repetition_penalty=float(os.environ['PENALTY']))
+          with torch.inference_mode(): out=model.generate(**enc,**kw)
+          vi=tok.batch_decode(out,skip_special_tokens=True)
+          rows=[{'zh':z,'vi':v} for z,v in zip(samples,vi)]
+          payload={'model':model_id,'revision':rev,'rows':rows}
+          open(f"probe-{os.environ['SLUG']}.json",'w',encoding='utf-8').write(json.dumps(payload,ensure_ascii=False,indent=2))
+          print(json.dumps(payload,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zhvi-probe-${{ matrix.slug }}
+          path: probe-${{ matrix.slug }}.json
+          retention-days: 7
