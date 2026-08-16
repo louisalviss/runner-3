@@ -1,0 +1,125 @@
+name: vidian-full-feed-audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-full-feed-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vidian-full-feed-audit-v1
+  cancel-in-progress: true
+
+env:
+  RELEASE_TAG: 'vidian-corpus-canonical'
+  RELEASE_ASSET: 'vidian-semantic-corpus-canonical.zip'
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests beautifulsoup4 lxml
+      - name: Download canonical corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" -p "$RELEASE_ASSET" -D .
+          test -s "$RELEASE_ASSET"
+      - name: Scan every /n/bai-moi page and exact URL diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python - <<'PY'
+          import gzip,io,json,re,threading,time,zipfile
+          from concurrent.futures import ThreadPoolExecutor,as_completed
+          from datetime import datetime,timezone
+          from pathlib import Path
+          from urllib.parse import urljoin,urlparse
+          import requests
+          from bs4 import BeautifulSoup
+          import vidian_pipeline as vp
+
+          known=set()
+          with zipfile.ZipFile('vidian-semantic-corpus-canonical.zip') as z:
+              for n in sorted(x for x in z.namelist() if x.endswith('.jsonl.gz')):
+                  with gzip.GzipFile(fileobj=io.BytesIO(z.read(n))) as g:
+                      for raw in g:
+                          if raw.strip(): known.add(json.loads(raw)['url'])
+          if len(known)<8800: raise SystemExit(f'canonical set unexpectedly small: {len(known)}')
+
+          local=threading.local()
+          def session():
+              s=getattr(local,'s',None)
+              if s is None:
+                  s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 (compatible; runner-3/VidianFullFeedAudit/1.0)','Accept-Language':'vi,en;q=0.8','Connection':'close'}); local.s=s
+              return s
+          def fetch(page):
+              url=f'https://vidian.vn/n/bai-moi/{page}'
+              last=''
+              for attempt in range(1,7):
+                  try:
+                      r=session().get(url,timeout=(5,20)); r.raise_for_status(); soup=BeautifulSoup(r.text,'html.parser'); d={}
+                      for a in soup.find_all('a',href=True):
+                          u=vp.canon(a['href'])
+                          if u:
+                              t=vp.clean(a.get_text(' ',strip=True)); d[u]=max(d.get(u,''),t,key=len)
+                      if not d: raise RuntimeError('no-article-links')
+                      return page,d,''
+                  except Exception as e:
+                      last=f'{type(e).__name__}:{e}'
+                      try: local.s.close(); del local.s
+                      except Exception: pass
+                      time.sleep(min(12,attempt*2))
+              return page,{},last
+
+          p1,d1,e1=fetch(1)
+          if e1: raise SystemExit(f'page1 failed: {e1}')
+          r=requests.get('https://vidian.vn/n/bai-moi/1',headers={'User-Agent':'Mozilla/5.0'},timeout=20); r.raise_for_status(); soup=BeautifulSoup(r.text,'html.parser')
+          nums=[]; rx=re.compile(r'/n/bai-moi/(\d+)/?')
+          for a in soup.find_all('a',href=True):
+              m=rx.search(urlparse(urljoin('https://vidian.vn',a['href'])).path)
+              if m: nums.append(int(m.group(1)))
+          if not nums: raise SystemExit('cannot resolve last page')
+          last=max(nums)
+
+          all_by={}; failures=[]; done=0
+          with ThreadPoolExecutor(max_workers=12) as ex:
+              fs={ex.submit(fetch,p):p for p in range(1,last+1)}
+              for f in as_completed(fs):
+                  page,d,err=f.result(); done+=1
+                  if err: failures.append({'page':page,'error':err})
+                  else:
+                      for u,t in d.items(): all_by[u]=max(all_by.get(u,''),t,key=len)
+                  if done%50==0 or done==last: print(f'FEED {done}/{last} urls={len(all_by)} failures={len(failures)}',flush=True)
+          if failures:
+              Path('full_feed_failures.json').write_text(json.dumps(failures,ensure_ascii=False,indent=2),encoding='utf-8')
+              raise SystemExit(f'feed page failures: {len(failures)}')
+
+          live={u for u in all_by if u not in vp.UNTRUSTED}
+          new=sorted(live-known); missing=sorted(known-live)
+          report={'scan_utc':datetime.now(timezone.utc).isoformat(),'last_page':last,'pages_scanned':last,'canonical_urls':len(known),'live_unique_urls':len(live),'new_urls':len(new),'missing_canonical_from_feed':len(missing),'new_items':[{'url':u,'listing_title':all_by.get(u,'')} for u in new],'missing_sample':missing[:100]}
+          Path('full_feed_audit.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vidian-full-feed-audit-${{ github.run_id }}
+          path: |
+            full_feed_audit.json
+            full_feed_failures.json
+          if-no-files-found: warn
+          retention-days: 30
