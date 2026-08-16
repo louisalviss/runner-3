@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build wrapper that corrects Moxing detail-link discovery.
 Moxing category listings live under /sf-jq/<category>/ but article detail URLs are /show_<id>.html.
+The detail anchor wraps the full card, so title must come from its title/H4 while card text becomes the excerpt.
 """
 import re,time
 from urllib.parse import urljoin,urlparse
@@ -20,11 +21,10 @@ def moxing_collect(c,max_pages=12):
             for a in s.find_all('a',href=True):
                 href=urljoin(r.url,a['href']); path=urlparse(href).path
                 if not re.fullmatch(r'/show_\d+\.html',path): continue
-                title=w.txt(a.get_text(' ',strip=True))
-                if len(title)<5 or href in seen or href in page_seen: continue
-                par=a.find_parent(['article','li','div'])
-                context=w.txt((par or a).get_text(' ',strip=True))
-                if len(context)<len(title)+8: continue
+                h=a.find(['h1','h2','h3','h4'])
+                title=w.txt(a.get('title') or (h.get_text(' ',strip=True) if h else ''))
+                context=w.txt(a.get_text(' ',strip=True))
+                if len(title)<5 or len(context)<len(title)+8 or href in seen or href in page_seen: continue
                 unique.append((href,title,context)); page_seen.add(href)
             if not unique and pg>1: break
             for href,title,context in unique:
