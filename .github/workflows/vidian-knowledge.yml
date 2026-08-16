@@ -1,0 +1,131 @@
+name: vidian-knowledge
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/vidian_knowledge.py'
+      - '.github/workflows/vidian-knowledge.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vidian-knowledge-v1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: vidian-knowledge-v1-2026-08-17
+      CORPUS_TAG: vidian-corpus-v2-2026-08-16
+      CORPUS_ASSET: vidian-semantic-corpus-v2-full-2026-08-16.zip
+      CORPUS_SHA256: 493296addf0608878f3f007578e29bf2ad658defb44c12a2bdd964121f3b65a1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install offline retrieval dependencies
+        run: python -m pip install --disable-pip-version-check numpy scikit-learn joblib
+
+      - name: Download canonical Vidian corpus release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p corpus
+          gh release download "$CORPUS_TAG" --pattern "$CORPUS_ASSET" --dir corpus
+          echo "$CORPUS_SHA256  corpus/$CORPUS_ASSET" | sha256sum -c -
+
+      - name: Build knowledge layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/vidian_knowledge.py build \
+            --corpus "corpus/$CORPUS_ASSET" \
+            --out vidian_knowledge \
+            --semantic-dim 160 \
+            --max-features 60000
+
+      - name: Canonical QA gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, sqlite3
+          m=json.load(open('vidian_knowledge/manifest.json',encoding='utf-8'))
+          c=m['counts']
+          assert c['articles']==8826, c
+          assert c['fts_rows']==8826, c
+          assert c['entities']>1000, c
+          assert c['relations']>1000, c
+          assert m['retrieval']['semantic']['enabled'] is True, m['retrieval']['semantic']
+          con=sqlite3.connect('vidian_knowledge/vidian_knowledge.sqlite')
+          assert con.execute('select count(distinct url) from articles').fetchone()[0]==8826
+          con.close()
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Retrieval smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/vidian_knowledge.py query --index vidian_knowledge --q 'Ngải Lộ' --limit 5 > vidian_knowledge/smoke_ngai_lo.json
+          python scripts/vidian_knowledge.py entity --index vidian_knowledge --name 'Ngải Lộ' --limit 10 > vidian_knowledge/entity_ngai_lo.json
+          python scripts/vidian_knowledge.py query --index vidian_knowledge --q 'nhân vật thận trọng tài nguyên tu luyện' --limit 8 > vidian_knowledge/smoke_concept.json
+          python - <<'PY'
+          import json
+          a=json.load(open('vidian_knowledge/smoke_ngai_lo.json',encoding='utf-8'))
+          e=json.load(open('vidian_knowledge/entity_ngai_lo.json',encoding='utf-8'))
+          s=json.load(open('vidian_knowledge/smoke_concept.json',encoding='utf-8'))
+          assert a and 'Ngải Lộ' in a[0]['title'], a[:2]
+          assert e.get('entity',{}).get('name')=='Ngải Lộ', e
+          assert any(r.get('type')=='APPEARS_IN' for r in e.get('relations',[])), e.get('relations',[])
+          assert s, s
+          print('retrieval smoke PASS')
+          PY
+
+      - name: Package knowledge layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          root=pathlib.Path('vidian_knowledge')
+          asset=pathlib.Path('vidian-knowledge-v1-2026-08-17.zip')
+          with zipfile.ZipFile(asset,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,p.as_posix())
+          h=hashlib.sha256(asset.read_bytes()).hexdigest()
+          m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          m['package']={'name':asset.name,'sha256':h,'size_bytes':asset.stat().st_size}
+          open(root/'release_manifest.json','w',encoding='utf-8').write(json.dumps(m,ensure_ascii=False,indent=2))
+          print(json.dumps(m['package'],indent=2))
+          PY
+
+      - name: Publish durable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET='vidian-knowledge-v1-2026-08-17.zip'
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title 'Vidian Knowledge Layer v1 — 2026-08-17' \
+              --notes 'Offline Vidian knowledge layer built from canonical 8,826-article semantic corpus: SQLite FTS5 BM25, filtered entity graph, parser-derived typed relations, and TF-IDF + TruncatedSVD latent semantic retrieval. No paid API.'
+          fi
+          gh release upload "$RELEASE_TAG" "$ASSET" --clobber
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-knowledge-v1
+          path: |
+            vidian_knowledge
+            vidian-knowledge-v1-2026-08-17.zip
+          retention-days: 90
+          compression-level: 6
