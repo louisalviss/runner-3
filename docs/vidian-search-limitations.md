@@ -1,0 +1,1 @@
+The current ChatGPT Dropbox connector can create UTF-8 text files but does not expose a byte-preserving binary upload action. Binary corpus ZIP / SQLite persistence must therefore use another byte-preserving path rather than `dropbox.create_file`.
