@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'spmo-backtest/run_legacy_batch.py'
       - '.github/workflows/spmo-legacy-matrix.yml'
   workflow_dispatch:
 permissions:
@@ -42,13 +43,14 @@ jobs:
             rb: '2018-09-21'
             snap: '2018-10-31'
             exit: '2019-03-15'
-            acc: '0001193125-18-321151'
+            acc: '0001193125-19-002456'
           - key: 2019-mar
             rb: '2019-03-15'
             snap: '2019-04-30'
             exit: '2019-09-20'
-            acc: '0001193125-19-138363'
+            acc: '0001193125-19-190405'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,7 +70,7 @@ jobs:
           p=Path('spmo-backtest/run_legacy_batch.py')
           s=p.read_text()
           one="PERIODS=[\n ('%s','%s','%s','%s'),\n]"%(os.environ['RB'],os.environ['SNAP'],os.environ['EXIT'],os.environ['ACC'])
-          s=re.sub(r'PERIODS=\[.*?\]\n\nALIASES=',one+'\n\nALIASES=',s,flags=re.S)
+          s=re.sub(r'PERIODS=\[.*?\]\nPRIMARY_DOCS=',one+'\nPRIMARY_DOCS=',s,flags=re.S)
           Path('/tmp/run_one.py').write_text(s)
           PY
       - name: Reconstruct period
