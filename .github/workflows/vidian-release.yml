@@ -1,0 +1,111 @@
+name: vidian-release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-release.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: vidian-release-v2
+  cancel-in-progress: false
+
+env:
+  SOURCE_ARTIFACT_ID: '9266385941'
+  RELEASE_TAG: 'vidian-corpus-v2-2026-08-16'
+  RELEASE_ASSET: 'vidian-semantic-corpus-v2-full-2026-08-16.zip'
+  EXPECTED_URLS: '8826'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download archived canonical corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" > "$RELEASE_ASSET"
+          test -s "$RELEASE_ASSET"
+          sha256sum "$RELEASE_ASSET" | tee release-asset.sha256
+
+      - name: Validate release payload
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip, io, json, os, zipfile
+          path=os.environ['RELEASE_ASSET']
+          expected=int(os.environ['EXPECTED_URLS'])
+          urls=[]
+          records=0
+          with zipfile.ZipFile(path) as z:
+              gz_names=[n for n in z.namelist() if n.endswith('.jsonl.gz')]
+              if len(gz_names) != 64:
+                  raise SystemExit(f'expected 64 semantic chunks, got {len(gz_names)}')
+              for name in sorted(gz_names):
+                  with gzip.GzipFile(fileobj=io.BytesIO(z.read(name))) as g:
+                      for raw in g:
+                          if not raw.strip():
+                              continue
+                          obj=json.loads(raw)
+                          records += 1
+                          u=obj.get('url')
+                          if not u:
+                              raise SystemExit(f'missing url in {name}')
+                          urls.append(u)
+          if records != expected:
+              raise SystemExit(f'record count {records} != {expected}')
+          if len(set(urls)) != expected:
+              raise SystemExit(f'unique URL count {len(set(urls))} != {expected}')
+          print(json.dumps({'semantic_chunks':64,'records':records,'unique_urls':len(set(urls))}, ensure_ascii=False))
+          PY
+
+      - name: Create durable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NOTES=$(cat <<'EOF'
+          Vidian canonical semantic corpus v2.
+
+          Coverage: 8,826 records / 8,826 unique URLs / 64 semantic chunks.
+          Source: canonical full-refresh pipeline completed 2026-08-16.
+          This release asset is the durable copy intended to outlive GitHub Actions artifact retention.
+          EOF
+          )
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_ASSET" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_ASSET" \
+              --title 'Vidian Semantic Corpus v2 — 2026-08-16' \
+              --notes "$NOTES"
+          fi
+
+      - name: Verify release asset exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,assets,url | tee release.json
+          python - <<'PY'
+          import json, os
+          d=json.load(open('release.json'))
+          wanted=os.environ['RELEASE_ASSET']
+          names=[a['name'] for a in d.get('assets',[])]
+          if wanted not in names:
+              raise SystemExit(f'missing release asset {wanted}: {names}')
+          if d.get('isDraft'):
+              raise SystemExit('release is unexpectedly draft')
+          print('release asset verified:', wanted)
+          PY
