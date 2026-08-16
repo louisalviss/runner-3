@@ -49,18 +49,31 @@ def inventory(out=None):
     if out: Path(out).write_text(json.dumps(x,ensure_ascii=False,indent=2),encoding='utf-8')
     return x
 
+def _phrase_present(norm_text,norm_phrase):
+    return bool(norm_phrase) and f' {norm_phrase} ' in f' {norm_text} '
+
+def _matched_phrases(text,phrases):
+    n=vk.norm(text); out=[]; seen=set()
+    for raw in phrases:
+        z=vk.norm(raw)
+        if not z or z in seen: continue
+        seen.add(z)
+        if _phrase_present(n,z): out.append((raw,z))
+    return out
+
 def topic_scores(text):
-    n=vk.norm(text); out=[]
+    out=[]
     for topic,keys in TOPICS.items():
-        hit=[]; score=0
-        for k in keys:
-            z=vk.norm(k)
-            if z and z in n: hit.append(k); score+=2 if ' ' in z else 1
-        if score: out.append((topic,float(score),hit))
-    return sorted(out,key=lambda x:(-x[1],x[0]))
+        matches=_matched_phrases(text,keys)
+        if not matches: continue
+        score=sum(2 if ' ' in z else 1 for _,z in matches)
+        specificity=max(len(z.split()) for _,z in matches)
+        out.append((topic,float(score),[raw for raw,_ in matches],specificity))
+    out.sort(key=lambda x:(-x[1],-x[3],x[0]))
+    return [(t,s,h) for t,s,h,_ in out]
 
 def kind(text):
-    n=vk.norm(text); has=lambda xs:any(vk.norm(x) in n for x in xs)
+    has=lambda xs:bool(_matched_phrases(text,xs))
     if has(NEG): return 'dont',.92
     if has(WARN): return 'warning',.82
     if has(POS): return 'do',.88
@@ -124,7 +137,7 @@ def build(corpus,outdir,semantic_dim=96,max_features=40000):
     except Exception as e: sem={'enabled':False,'error':f'{type(e).__name__}:{e}'}
     counts={'canonical_articles_scanned':scanned,'category_urls':len(wanted),'matched_articles':len(found),'missing_category_urls':len(missing),'passages':con.execute('select count(*) from passages').fetchone()[0],'directive_rules':con.execute("select count(*) from passages where kind in ('do','dont','warning','technique')").fetchone()[0],'do_rules':con.execute("select count(*) from passages where kind='do'").fetchone()[0],'dont_rules':con.execute("select count(*) from passages where kind='dont'").fetchone()[0],'warnings':con.execute("select count(*) from passages where kind='warning'").fetchone()[0],'topics_with_rules':con.execute('select count(distinct topic) from passages').fetchone()[0]}
     tops=[{'topic':r[0],'passages':r[1],'avg_confidence':round(r[2],3)} for r in con.execute('select topic,count(*),avg(confidence) from passages group by topic order by count(*) desc')]; con.close()
-    m={'schema':'vidian-writing-knowledge-v1','source_category':CATEGORY,'source_prose_persisted':False,'evidence_surface':'reconstructed from dependency-edge token order; not verbatim source prose','taxonomy_version':'1.0','topics':list(TOPICS),'counts':counts,'top_topics':tops,'retrieval':{'lexical':'SQLite FTS5 BM25','semantic':sem,'filters':['topic','kind']},'limitations':['Original source prose is not persisted in the canonical semantic corpus.','Rule text is reconstructed from parser token order and must not be represented as a verbatim quotation.','Directive/topic labels are heuristic candidates; source URL + sentence SHA are retained for verification.']}
+    m={'schema':'vidian-writing-knowledge-v1','source_category':CATEGORY,'source_prose_persisted':False,'evidence_surface':'reconstructed from dependency-edge token order; not verbatim source prose','taxonomy_version':'1.1','topics':list(TOPICS),'counts':counts,'top_topics':tops,'retrieval':{'lexical':'SQLite FTS5 BM25','semantic':sem,'filters':['topic','kind']},'limitations':['Original source prose is not persisted in the canonical semantic corpus.','Rule text is reconstructed from parser token order and must not be represented as a verbatim quotation.','Directive/topic labels are heuristic candidates; source URL + sentence SHA are retained for verification.']}
     (out/'manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8'); print(json.dumps(m,ensure_ascii=False,indent=2))
 
 def scale(xs):
@@ -142,7 +155,7 @@ def search(index,q,limit=12,mode='hybrid',topic=None,kind_filter=None):
         for i,s in scale([(int(r['id']),float(r['s'])) for r in rr]).items(): score[i]['lexical']=s
     if mode!='lexical' and (idx/'semantic.joblib').exists():
         import joblib,numpy as np
-        m=joblib.load(idx/'semantic.joblib'); D=np.load(idx/'vectors.npy',mmap_mode='r'); ids=np.load(idx/'passage_ids.npy',mmap_mode='r'); v=m['nm'].transform(m['svd'].transform(m['v'].transform([q])))[0].astype('float32'); ss=D@v; k=min(250,len(ss)); ix=np.argpartition(ss,-k)[-k:] if k else [] ; pairs=[]
+        m=joblib.load(idx/'semantic.joblib'); D=np.load(idx/'vectors.npy',mmap_mode='r'); ids=np.load(idx/'passage_ids.npy',mmap_mode='r'); v=m['nm'].transform(m['svd'].transform(m['v'].transform([q])))[0].astype('float32');ss=D@v;k=min(250,len(ss));ix=np.argpartition(ss,-k)[-k:] if k else [];pairs=[]
         for j in ix:
             if ss[j]<=0: continue
             pid=int(ids[j]); r=con.execute('select topic,kind from passages where id=?',(pid,)).fetchone()
