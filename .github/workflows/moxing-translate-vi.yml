@@ -21,7 +21,7 @@ env:
   SOURCE_SHA256: ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f
   TAG: moxing-vi-translation-v1-2026-08-17
   ASSET: moxing-vi-translation-v1-2026-08-17.zip
-  SHARDS: 4
+  SHARDS: 16
 
 jobs:
   prepare:
@@ -62,10 +62,11 @@ jobs:
     needs: prepare
     strategy:
       fail-fast: false
+      max-parallel: 16
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -107,7 +108,7 @@ jobs:
       - name: Merge and quality-gate Vietnamese translations
         run: |
           set -euo pipefail
-          cat shards/translation-0.jsonl shards/translation-1.jsonl shards/translation-2.jsonl shards/translation-3.jsonl > translations.unsorted.jsonl
+          cat shards/translation-*.jsonl > translations.unsorted.jsonl
           python - <<'PY'
           import json,pathlib,hashlib,re
           inp={}
@@ -135,7 +136,7 @@ jobs:
           with open(root/'translations.jsonl','w',encoding='utf-8') as f:
               for x in out:f.write(json.dumps(x,ensure_ascii=False)+'\n')
           quality={'rows':len(out),'empty':empty,'sha_mismatch':bad_sha,'zh_char_ratio':round(ratio,6),'zh_heavy_rows':zh_heavy}
-          manifest={'schema':'moxing-vi-translation-v1','source_tag':'webnovel-writing-brain-v1-2026-08-17','source_sha256':'ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f','model_id':'Helsinki-NLP/opus-mt-zh-vi','model_revision':'e048b2d21aebc6da81d050a4bac4e5b5178bba58','model_license':'Apache-2.0','quality':quality,'policy':'Machine translation layer; Chinese source text remains canonical evidence. Vietnamese text is for retrieval and reading, not a verbatim authoritative translation.'}
+          manifest={'schema':'moxing-vi-translation-v1','source_tag':'webnovel-writing-brain-v1-2026-08-17','source_sha256':'ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f','model_id':'Helsinki-NLP/opus-mt-zh-vi','model_revision':'e048b2d21aebc6da81d050a4bac4e5b5178bba58','model_license':'Apache-2.0','quality':quality,'shards':16,'policy':'Machine translation layer; Chinese source text remains canonical evidence. Vietnamese text is for retrieval and reading, not a verbatim authoritative translation.'}
           (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(manifest,ensure_ascii=False,indent=2))
           PY
@@ -144,7 +145,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
-          import zipfile,pathlib,hashlib,json,os
+          import zipfile,pathlib,hashlib,os
           asset=pathlib.Path(os.environ['ASSET']); root=pathlib.Path('moxing_vi_translation')
           with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               for p in sorted(root.rglob('*')):
