@@ -1,0 +1,83 @@
+name: moxing-writing
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/moxing_writing.py'
+      - '.github/workflows/moxing-writing.yml'
+permissions:
+  contents: write
+concurrency:
+  group: moxing-writing-v1
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TAG: moxing-writing-v1-2026-08-17
+      ASSET: moxing-writing-v1-2026-08-17.zip
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check requests beautifulsoup4 lxml
+      - name: Build Moxing Writing Layer
+        run: python scripts/moxing_writing.py build --out moxing_writing --pages 55 --workers 8
+      - name: QA gate
+        run: |
+          python - <<'PY'
+          import json,sqlite3
+          m=json.load(open('moxing_writing/manifest.json',encoding='utf-8')); c=m['counts']
+          assert c['listing_pages']==55,c
+          assert c['inventory_urls']>=900,c
+          assert c['listing_failures']==0,c
+          assert c['articles_ok']>=int(c['inventory_urls']*.95),c
+          assert c['passages']>=1500,c
+          assert c['directive_passages']>=500,c
+          assert c['topics']>=15,c
+          con=sqlite3.connect('moxing_writing/moxing_writing.sqlite')
+          assert con.execute('select count(*) from articles').fetchone()[0]==c['articles_ok']
+          assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
+          con.close()
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+      - name: Query smoke
+        run: |
+          python scripts/moxing_writing.py query --index moxing_writing --q 'mở đầu tiên hiệp thu hút độc giả' --limit 10 --json-out moxing_writing/smoke_opening.json >/dev/null
+          python scripts/moxing_writing.py query --index moxing_writing --q 'nhân vật chính progression sảng điểm' --limit 10 --json-out moxing_writing/smoke_character.json >/dev/null
+          python - <<'PY'
+          import json
+          for f in ['smoke_opening.json','smoke_character.json']:
+            x=json.load(open('moxing_writing/'+f,encoding='utf-8')); assert x['hits'],f
+            assert all(h['url'].startswith('https://www.mx-xz.com/show_') for h in x['hits']),f
+          print('Moxing query smoke PASS')
+          PY
+      - name: Package
+        run: |
+          python - <<'PY'
+          import hashlib,json,pathlib,zipfile,os
+          root=pathlib.Path('moxing_writing'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+            for p in sorted(root.rglob('*')):
+              if p.is_file(): z.write(p,p.as_posix())
+          m=json.load(open(root/'manifest.json',encoding='utf-8')); m['package']={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(m['package'],indent=2))
+          PY
+      - name: Publish release
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Moxing Writing Knowledge Layer v1 — 2026-08-17' --notes 'Derived craft knowledge from public Moxing 手法技巧 listings/articles. Stores metadata and capped actionable passages, not full article mirrors.'
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moxing-writing-v1
+          path: |
+            moxing_writing
+            moxing-writing-v1-2026-08-17.zip
+          retention-days: 90
