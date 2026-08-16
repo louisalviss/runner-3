@@ -1,6 +1,11 @@
 name: WordPress Site Factory
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'wordpress-site/**'
+      - '.github/workflows/wordpress-site.yml'
   workflow_dispatch:
     inputs:
       deploy:
