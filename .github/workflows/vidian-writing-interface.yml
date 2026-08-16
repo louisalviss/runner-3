@@ -23,6 +23,10 @@ on:
         description: 'Maximum evidence items'
         required: false
         default: '24'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-writing-interface.yml'
 
 permissions:
   contents: read
@@ -35,11 +39,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: vidian-writing-v1-2026-08-17
       ASSET: vidian-writing-v1-2026-08-17.zip
-      ACTION: ${{ inputs.action }}
-      TEXT: ${{ inputs.text }}
-      TOPIC: ${{ inputs.topic }}
-      MODE: ${{ inputs.mode }}
-      LIMIT: ${{ inputs.limit }}
+      ACTION: ${{ inputs.action || 'direct' }}
+      TEXT: ${{ inputs.text || 'Tiên hiệp, nhân vật chính thận trọng, progression rõ, tài nguyên và kỳ ngộ' }}
+      TOPIC: ${{ inputs.topic || '' }}
+      MODE: ${{ inputs.mode || 'hybrid' }}
+      LIMIT: ${{ inputs.limit || '24' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -90,6 +94,7 @@ jobs:
           import json,sys
           sys.path.insert(0,'scripts')
           import vidian_writing_quality as quality
+          quality.apply()
           p=json.load(open('writing_work/result.json',encoding='utf-8'))
           assert p.get('schema')
           groups=[]
@@ -99,6 +104,7 @@ jobs:
           groups+=p.get('items',[])
           assert groups, p
           assert all(quality.actionable(x) for x in groups), 'non-actionable evidence leaked'
+          assert all(x.get('url') and x.get('sentence_sha') for x in groups), 'missing provenance'
           print('Writing quality interface PASS:',p['schema'],len(groups))
           PY
       - uses: actions/upload-artifact@v4
