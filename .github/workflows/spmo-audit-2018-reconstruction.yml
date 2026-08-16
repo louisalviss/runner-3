@@ -1,0 +1,17 @@
+name: SPMO audit 2018 reconstruction
+on:
+  push:
+    paths:
+      - 'spmo-backtest/audit_2018_reconstruction_bug.py'
+      - '.github/workflows/spmo-audit-2018-reconstruction.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q requests beautifulsoup4 lxml
+      - name: Audit raw SEC filing
+        run: python spmo-backtest/audit_2018_reconstruction_bug.py
