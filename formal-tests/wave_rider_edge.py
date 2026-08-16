@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import importlib.util, json, math, os
+import importlib.util, json, math, os, sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import random
@@ -8,8 +8,9 @@ import random
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / 'wave-rider-verify' / 'reference_verify.py'
 spec = importlib.util.spec_from_file_location('wrref', REF)
-wr = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
+wr = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = wr
 spec.loader.exec_module(wr)
 
 BOOT = int(os.getenv('WR_BOOT', '10000'))
@@ -81,7 +82,6 @@ def block_bootstrap_ci(a, rng, reps=BOOT):
 
 
 def null_mean_p(a, rng, reps=BOOT):
-    # One-sided H0: E[R] <= 0. Bootstrap centered residuals under mean=0.
     n = len(a)
     if n < 2:
         return None
