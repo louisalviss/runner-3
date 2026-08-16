@@ -39,7 +39,6 @@ def exact_spmo_section(t,snapshot):
         if re.search(r'Number of\s*Shares',post[:12000],re.I): score+=100
         if 'Common Stocks' in post[:12000]: score+=80
         if 'Total Investments' in post[:35000]: score+=50
-        # Actual schedule, unlike TOC/manager analysis, should contain many tabular stock rows soon.
         rows=sum(1 for ln in post[:25000].splitlines() if '\t' in ln and re.match(r'^\s*[\d,]+\t',ln))
         score+=min(rows,120)
         cand.append((score,rows,m.start(),m.group(0),post[:500].replace('\n',' ')))
@@ -48,7 +47,23 @@ def exact_spmo_section(t,snapshot):
     print('SECTION_CANDIDATES',cand[:8],flush=True)
     score,rows,start,_,_=cand[0]
     if score<250 or rows<20: raise RuntimeError(f'No credible SPMO schedule candidate score={score} rows={rows}')
-    # Bound the schedule at its own Net Assets total, avoiding all subsequent Trust II funds.
+
+    # Some annual reports split the SPMO Schedule of Investments over two pages.
+    # If the best explicit SPMO title is the '(continued)' page, recover the prior
+    # page from its nearest preceding 'Number of Shares' header. We still terminate
+    # at this SPMO schedule's own Net Assets line, so adjacent Trust II funds cannot leak in.
+    head=t[start:start+700]
+    if re.search(r'\(continued\)',head,re.I):
+        lookback=max(0,start-20000)
+        prior=t[lookback:start]
+        headers=list(re.finditer(r'Number of\s*Shares',prior,re.I))
+        if headers:
+            recovered=lookback+headers[-1].start()
+            prior_rows=sum(1 for ln in t[recovered:start].splitlines() if '\t' in ln and re.match(r'^\s*[\d,]+\t',ln))
+            print('CONTINUATION_RECOVERY',start,'->',recovered,'prior_rows',prior_rows,flush=True)
+            if prior_rows>=20:
+                start=recovered
+
     m_end=re.search(r'Net Assets\s*[—-]\s*100\.0%[^\n]*',t[start:start+80000],re.I)
     if not m_end: raise RuntimeError('No SPMO Net Assets boundary')
     end=start+m_end.end()
@@ -62,7 +77,6 @@ def parse_holdings(z):
         parts=[' '.join(x.strip().split()) for x in line.split('\t')]
         parts=[x for x in parts if x not in ('','$','—','-')]
         if len(parts)<3: continue
-        # Find first integer as shares and last integer as value.
         nums=[]
         for i,x in enumerate(parts):
             y=x.replace('$','').replace(',','').replace('(','').replace(')','').strip()
@@ -111,7 +125,7 @@ def after(f,d,t):
     return (s.index[0],float(s.iloc[0])) if len(s) else None
 
 def main():
-    ap=argparse.ArgumentParser();
+    ap=argparse.ArgumentParser()
     for a in ['rb','snapshot','exit','accession','url']:ap.add_argument('--'+a,required=True)
     a=ap.parse_args()
     z=exact_spmo_section(flatten(fetch(a.url)),a.snapshot)
