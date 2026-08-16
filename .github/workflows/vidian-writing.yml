@@ -1,0 +1,138 @@
+name: vidian-writing
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/vidian_writing.py'
+      - '.github/workflows/vidian-writing.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vidian-writing-v1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: vidian-writing-v1-2026-08-17
+      ASSET: vidian-writing-v1-2026-08-17.zip
+      CORPUS_TAG: vidian-corpus-v2-2026-08-16
+      CORPUS_ASSET: vidian-semantic-corpus-v2-full-2026-08-16.zip
+      CORPUS_SHA256: 493296addf0608878f3f007578e29bf2ad658defb44c12a2bdd964121f3b65a1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4 lxml numpy joblib scikit-learn
+
+      - name: Download canonical corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p corpus
+          gh release download "$CORPUS_TAG" --pattern "$CORPUS_ASSET" --dir corpus
+          echo "$CORPUS_SHA256  corpus/$CORPUS_ASSET" | sha256sum -c -
+
+      - name: Build Writing Knowledge Layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/vidian_writing.py build \
+            --corpus "corpus/$CORPUS_ASSET" \
+            --out vidian_writing \
+            --semantic-dim 96 \
+            --max-features 40000
+
+      - name: QA gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, sqlite3
+          m=json.load(open('vidian_writing/manifest.json',encoding='utf-8'))
+          c=m['counts']
+          assert c['canonical_articles_scanned']==8826, c
+          assert c['category_urls']>=40, c
+          assert c['matched_articles']>=40, c
+          assert c['missing_category_urls']<=3, c
+          assert c['passages']>=100, c
+          assert c['directive_rules']>=25, c
+          assert c['topics_with_rules']>=8, c
+          assert m['retrieval']['semantic']['enabled'] is True, m['retrieval']['semantic']
+          con=sqlite3.connect('vidian_writing/vidian_writing.sqlite')
+          assert con.execute('select count(distinct url) from articles').fetchone()[0]==c['matched_articles']
+          assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
+          con.close()
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Query smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/vidian_writing.py query --index vidian_writing --q 'mở đầu tiên hiệp thu hút độc giả' --limit 8 --json-out vidian_writing/smoke_query.json > /dev/null
+          python scripts/vidian_writing.py checklist --index vidian_writing --topic character_design --limit 10 --json-out vidian_writing/smoke_checklist.json > /dev/null
+          python scripts/vidian_writing.py direct --index vidian_writing --brief 'Tiên hiệp, nam chính thận trọng, progression rõ, tài nguyên và kỳ ngộ, arc 30 chương' --limit 32 --json-out vidian_writing/smoke_direct.json --md-out vidian_writing/smoke_direct.md > /dev/null
+          python scripts/vidian_writing.py review --index vidian_writing --text 'Nhân vật chính bước vào tông môn. Sau nhiều chương anh ta tu luyện, đột phá cảnh giới và nhận được bảo vật.' --limit 20 --json-out vidian_writing/smoke_review.json --md-out vidian_writing/smoke_review.md > /dev/null
+          python - <<'PY'
+          import json
+          q=json.load(open('vidian_writing/smoke_query.json',encoding='utf-8'))
+          d=json.load(open('vidian_writing/smoke_direct.json',encoding='utf-8'))
+          r=json.load(open('vidian_writing/smoke_review.json',encoding='utf-8'))
+          c=json.load(open('vidian_writing/smoke_checklist.json',encoding='utf-8'))
+          assert q['hits'], q
+          assert any(x['topic']=='hook_opening' for x in q['hits'][:8]), q['hits'][:8]
+          assert d['sections'] and d['directive_topics'], d
+          assert any(x['all'] for x in d['sections']), d['sections']
+          assert r['evidence_buckets'] and any(x['hits'] for x in r['evidence_buckets']), r
+          assert c['items'], c
+          print('Vidian Writing smoke PASS')
+          PY
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,zipfile,os
+          root=pathlib.Path('vidian_writing'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,p.as_posix())
+          h=hashlib.sha256(asset.read_bytes()).hexdigest()
+          m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          m['package']={'name':asset.name,'sha256':h,'size_bytes':asset.stat().st_size}
+          (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(m['package'],indent=2))
+          PY
+
+      - name: Publish durable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title 'Vidian Writing Knowledge Layer v1 — 2026-08-17' \
+              --notes 'Writing-focused knowledge layer extracted from Vidian Chỉ đạo sáng tác and joined to the canonical semantic corpus. Includes 23-topic taxonomy, rule/anti-pattern candidates, checklists, FTS5 + latent semantic retrieval, Direct packets for composition planning, and Review packets for evidence-backed critique. Evidence surfaces are parser reconstructions, not verbatim source prose.'
+          fi
+          gh release upload "$RELEASE_TAG" "$ASSET" --clobber
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-writing-v1
+          path: |
+            vidian_writing
+            vidian-writing-v1-2026-08-17.zip
+          retention-days: 90
+          compression-level: 6
