@@ -1,0 +1,16 @@
+name: SPMO audit 2021 raw snapshot
+on:
+  push:
+    paths:
+      - 'spmo-backtest/audit_2021_snapshot_raw.py'
+      - '.github/workflows/spmo-audit-2021-snapshot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q requests beautifulsoup4 lxml
+      - run: python spmo-backtest/audit_2021_snapshot_raw.py
