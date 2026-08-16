@@ -17,8 +17,9 @@ jobs:
       - name: Query SEC submissions
         run: |
           python - <<'PY'
-          import requests
-          d=requests.get('https://data.sec.gov/submissions/CIK0001378872.json',headers={'User-Agent':'SPMO research louis@example.com'},timeout=30).json()
+          import json, urllib.request
+          req=urllib.request.Request('https://data.sec.gov/submissions/CIK0001378872.json',headers={'User-Agent':'SPMO research louis@example.com'})
+          with urllib.request.urlopen(req,timeout=30) as f: d=json.load(f)
           r=d['filings']['recent']
           for acc,form,fd,rd,pd in zip(r['accessionNumber'],r['form'],r['filingDate'],r['reportDate'],r['primaryDocument']):
               if '2018-01-01' <= fd <= '2019-12-31' and form in ('N-Q','N-CSR','N-CSRS'):
