@@ -1,0 +1,418 @@
+name: vidian-delta
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-delta.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: vidian-delta-v1
+  cancel-in-progress: false
+
+env:
+  PRIMARY_RELEASE: 'vidian-corpus-canonical'
+  PRIMARY_ASSET: 'vidian-semantic-corpus-canonical.zip'
+  FALLBACK_RELEASE: 'vidian-corpus-v2-2026-08-16'
+  FALLBACK_ASSET: 'vidian-semantic-corpus-v2-full-2026-08-16.zip'
+
+jobs:
+  delta:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install crawl dependencies
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Validate extractor v2 smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Test-only cleanup for the old fixture's unnecessary bytes conversion.
+          sed -i 's/html.fromstring(fixture.encode())/html.fromstring(fixture)/' scripts/vidian_content_fix.py
+          PYTHONPATH=scripts python scripts/vidian_content_fix.py smoke
+
+      - name: Download current durable canonical source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source_dl
+          if gh release view "$PRIMARY_RELEASE" >/dev/null 2>&1; then
+            SRC_RELEASE="$PRIMARY_RELEASE"
+            SRC_ASSET="$PRIMARY_ASSET"
+          else
+            SRC_RELEASE="$FALLBACK_RELEASE"
+            SRC_ASSET="$FALLBACK_ASSET"
+          fi
+          gh release download "$SRC_RELEASE" -p "$SRC_ASSET" -D source_dl
+          cp "source_dl/$SRC_ASSET" source.zip
+          echo "SRC_RELEASE=$SRC_RELEASE" >> "$GITHUB_ENV"
+          echo "SRC_ASSET=$SRC_ASSET" >> "$GITHUB_ENV"
+          test -s source.zip
+          sha256sum source.zip | tee source.sha256
+
+      - name: Validate source corpus and extract URL set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip, io, json, zipfile
+          from pathlib import Path
+          urls=[]; records=0; failed=0; parse_failed=0
+          with zipfile.ZipFile('source.zip') as z:
+              names=sorted(n for n in z.namelist() if n.endswith('.jsonl.gz'))
+              if not names:
+                  raise SystemExit('source release has no semantic chunks')
+              for name in names:
+                  with gzip.GzipFile(fileobj=io.BytesIO(z.read(name))) as g:
+                      for raw in g:
+                          if not raw.strip(): continue
+                          r=json.loads(raw); records+=1
+                          u=r.get('url')
+                          if not u: raise SystemExit(f'missing url in {name}')
+                          urls.append(u)
+                          if r.get('status') not in {'ok','partial-parse'}: failed+=1
+                          parse_failed += int(r.get('parse_failed_sentences') or 0)
+          if len(set(urls)) != records:
+              raise SystemExit(f'source duplicate URLs: {records} rows / {len(set(urls))} unique')
+          if failed or parse_failed:
+              raise SystemExit(f'source semantic failures: articles={failed}, parse_failed={parse_failed}')
+          Path('source_urls.json').write_text(json.dumps(sorted(urls),ensure_ascii=False),encoding='utf-8')
+          Path('source_summary.json').write_text(json.dumps({'semantic_files':len(names),'records':records,'unique_urls':len(set(urls))},indent=2),encoding='utf-8')
+          print(json.dumps({'semantic_files':len(names),'records':records,'unique_urls':len(set(urls))}))
+          PY
+
+      - name: Discover full live Vidian inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python scripts/vidian_inventory.py \
+            --out live_inventory \
+            --initial-workers 4 \
+            --repair-rounds 8
+
+      - name: Diff live inventory against canonical
+        id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          src=set(json.loads(Path('source_urls.json').read_text(encoding='utf-8')))
+          inv=json.loads(Path('live_inventory/vidian_inventory.json').read_text(encoding='utf-8'))
+          trusted=[r for r in inv['rows'] if r.get('trusted')]
+          live={r['url'] for r in trusted}
+          new=[r for r in trusted if r['url'] not in src]
+          missing=sorted(src-live)
+          delta={
+            'generated_utc':datetime.now(timezone.utc).isoformat(),
+            'categories':inv.get('categories',{}),
+            'page_failures':inv.get('page_failures',[]),
+            'all_urls':len(new),
+            'trusted_urls':len(new),
+            'known_untrusted':0,
+            'rows':[dict(r, trusted=True) for r in new],
+          }
+          Path('delta_inventory.json').write_text(json.dumps(delta,ensure_ascii=False,indent=2),encoding='utf-8')
+          report={
+            'scan_utc':delta['generated_utc'],
+            'source_release':os.environ.get('SRC_RELEASE',''),
+            'source_records':len(src),
+            'live_trusted_urls':len(live),
+            'new_urls':len(new),
+            'missing_from_live_listing':len(missing),
+            'page_failures':len(inv.get('page_failures',[])),
+            'new_items':[{'url':r['url'],'listing_title':r.get('listing_title','')} for r in new],
+            'missing_sample':missing[:50],
+          }
+          Path('scan_summary.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False))
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as f:
+              f.write(f"delta_count={len(new)}\n")
+              f.write(f"source_count={len(src)}\n")
+              f.write(f"expected_count={len(src)+len(new)}\n")
+          PY
+
+      - name: Fetch only new articles with extractor v2
+        if: steps.diff.outputs.delta_count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python - <<'PY'
+          import vidian_content_fix as vcf
+          import vidian_snapshot as vs
+          vcf.patch_runtime()
+          vs.run(
+              'delta_inventory.json','delta_snapshot',0,1,
+              8,0.7,20.0,'',False,40.0,10
+          )
+          PY
+
+      - name: QA new article snapshots
+        if: steps.diff.outputs.delta_count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python - <<'PY'
+          import json
+          from pathlib import Path
+          import vidian_content_fix as vcf
+          p=Path('delta_snapshot/vidian_snapshot_chunk_00.jsonl')
+          rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          bad=[r for r in rows if r.get('status')!='fetched' or not r.get('paragraphs')]
+          stop=[]; separators=[]
+          for r in rows:
+              for para in r.get('paragraphs') or []:
+                  low=vcf.norm(para).lower().strip(' :-–—')
+                  if any(low.startswith(x) for x in ('ủng hộ tác giả','thư hữu cần','bài viết ngẫu nhiên','liên hệ quảng cáo')):
+                      stop.append(r['url'])
+                  if not vcf.meaningful_fragment(para): separators.append((r['url'],para))
+          if bad or stop or separators:
+              raise SystemExit({'bad':len(bad),'stop':len(set(stop)),'separators':len(separators)})
+          print(json.dumps({'new_snapshots':len(rows),'bad':0,'stop_marker_leaks':0,'separator_only':0}))
+          PY
+
+      - name: Install CPU NLP stack for new articles
+        if: steps.diff.outputs.delta_count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+
+      - name: Semanticize new articles
+        if: steps.diff.outputs.delta_count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python scripts/vidian_pipeline.py smoke
+          PYTHONPATH=scripts python scripts/vidian_content_fix.py semantic \
+            --snapshot delta_snapshot/vidian_snapshot_chunk_00.jsonl \
+            --out delta_semantic \
+            --index 99 \
+            --parse-group-size 512
+          gzip -n -c delta_semantic/vidian_semantic_frame_chunk_99.jsonl \
+            > "delta_semantic/vidian_semantic_frame_delta_${GITHUB_RUN_ID}.jsonl.gz"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('delta_semantic/vidian_semantic_frame_chunk_99.jsonl')
+          rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          bad=[r for r in rows if r.get('status') not in {'ok','partial-parse'}]
+          parse_failed=sum(int(r.get('parse_failed_sentences') or 0) for r in rows)
+          zero=[]
+          def walk(x,url):
+              if isinstance(x,dict):
+                  if 'word_count' in x and x.get('word_count')==0: zero.append(url)
+                  for v in x.values(): walk(v,url)
+              elif isinstance(x,list):
+                  for v in x: walk(v,url)
+          for r in rows: walk(r,r.get('url'))
+          if bad or parse_failed or zero:
+              raise SystemExit({'bad_articles':len(bad),'parse_failed':parse_failed,'zero_word_frames':len(zero)})
+          print(json.dumps({'semantic_new':len(rows),'parse_failed':0,'zero_word_frames':0}))
+          PY
+
+      - name: Build updated canonical corpus ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.diff.outputs.delta_count }}" = "0" ]; then
+            cp source.zip "$PRIMARY_ASSET"
+          else
+            python - <<'PY'
+          import gzip, io, json, os, zipfile
+          from pathlib import Path
+
+          source='source.zip'
+          out=os.environ['PRIMARY_ASSET']
+          delta_file=next(Path('delta_semantic').glob('vidian_semantic_frame_delta_*.jsonl.gz'))
+
+          records=[]
+          def read_gz_bytes(data):
+              with gzip.GzipFile(fileobj=io.BytesIO(data)) as g:
+                  return [json.loads(x) for x in g if x.strip()]
+
+          with zipfile.ZipFile(source) as zin:
+              semantic_names=sorted(n for n in zin.namelist() if n.endswith('.jsonl.gz'))
+              for n in semantic_names:
+                  records.extend(read_gz_bytes(zin.read(n)))
+              delta_rows=read_gz_bytes(delta_file.read_bytes())
+              old_urls={r['url'] for r in records}
+              overlap=[r['url'] for r in delta_rows if r['url'] in old_urls]
+              if overlap:
+                  raise SystemExit(f'delta overlaps canonical URLs: {overlap[:5]}')
+              records.extend(delta_rows)
+
+              urls=[r.get('url') for r in records]
+              if any(not u for u in urls) or len(set(urls))!=len(records):
+                  raise SystemExit(f'canonical uniqueness failure {len(records)} / {len(set(urls))}')
+
+              manifest=[]; total_sent=parsed=parse_failed=failed=0
+              for r in records:
+                  status=r.get('status')
+                  if status not in {'ok','partial-parse'}: failed+=1
+                  total_sent += int(r.get('sentence_count') or 0)
+                  parsed += int(r.get('parse_success_sentences') or 0)
+                  parse_failed += int(r.get('parse_failed_sentences') or 0)
+                  manifest.append({
+                      'url':r['url'], 'title':r.get('title',''), 'status':status,
+                      'clean_body_sha256':r.get('clean_body_sha256',''),
+                      'html_sha256':r.get('html_sha256',''),
+                      'paragraph_count':r.get('paragraph_count',0),
+                      'sentence_count':r.get('sentence_count',0),
+                  })
+              if failed or parse_failed:
+                  raise SystemExit(f'merge semantic failures articles={failed}, parse_failed={parse_failed}')
+              summary={
+                  'records':len(records),'unique_urls':len(set(urls)),
+                  'failed_articles':failed,'total_sentences':total_sent,
+                  'parse_success_sentences':parsed,'parse_failed_sentences':parse_failed,
+                  'parse_rate': parsed/total_sent if total_sent else 0,
+                  'delta_added':len(delta_rows), 'source_release':os.environ.get('SRC_RELEASE',''),
+                  'schema':'semantic-reconstruction-frames-v3',
+              }
+
+              with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,allowZip64=True) as zout:
+                  for info in zin.infolist():
+                      if info.filename in {'manifest.json','summary.json'}:
+                          continue
+                      zout.writestr(info,zin.read(info.filename))
+                  zout.write(delta_file,arcname='chunks/'+delta_file.name,compress_type=zipfile.ZIP_STORED)
+                  zout.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2).encode())
+                  zout.writestr('summary.json',json.dumps(summary,ensure_ascii=False,indent=2).encode())
+                  zout.writestr('delta_scan_summary.json',Path('scan_summary.json').read_bytes())
+          print(json.dumps(summary,ensure_ascii=False))
+          PY
+          fi
+          test -s "$PRIMARY_ASSET"
+          sha256sum "$PRIMARY_ASSET" | tee canonical.sha256
+
+      - name: Final canonical QA
+        id: finalqa
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip, io, json, os, zipfile
+          from pathlib import Path
+          path=os.environ['PRIMARY_ASSET']
+          expected=int('${{ steps.diff.outputs.expected_count }}')
+          records=[]
+          with zipfile.ZipFile(path) as z:
+              names=sorted(n for n in z.namelist() if n.endswith('.jsonl.gz'))
+              for name in names:
+                  with gzip.GzipFile(fileobj=io.BytesIO(z.read(name))) as g:
+                      records.extend(json.loads(x) for x in g if x.strip())
+          urls=[r.get('url') for r in records]
+          failed=[r for r in records if r.get('status') not in {'ok','partial-parse'}]
+          parse_failed=sum(int(r.get('parse_failed_sentences') or 0) for r in records)
+          zero=[]
+          def walk(x,url):
+              if isinstance(x,dict):
+                  if 'word_count' in x and x.get('word_count')==0: zero.append(url)
+                  for v in x.values(): walk(v,url)
+              elif isinstance(x,list):
+                  for v in x: walk(v,url)
+          for r in records: walk(r,r.get('url'))
+          known=['https://vidian.vn/chi-tiet/de-ba-toan-tap-phan-i','https://vidian.vn/chi-tiet/de-ba-toan-tap-phan-ii']
+          miss_known=[u for u in known if u not in set(urls)]
+          report={
+              'expected':expected,'semantic_files':len(names),'records':len(records),
+              'unique_urls':len(set(urls)),'failed_articles':len(failed),
+              'parse_failed_sentences':parse_failed,'zero_word_frames':len(zero),
+              'known_regressions_missing':miss_known,'delta_added':int('${{ steps.diff.outputs.delta_count }}'),
+          }
+          Path('final_summary.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False))
+          if len(records)!=expected or len(set(urls))!=expected or failed or parse_failed or zero or miss_known:
+              raise SystemExit('FINAL CANONICAL QA FAILED')
+          PY
+
+      - name: Build and smoke-test search index
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p search_out
+          python scripts/vidian_search.py build --corpus "$PRIMARY_ASSET" --db search_out/vidian-search.sqlite3
+          python scripts/vidian_search.py query --db search_out/vidian-search.sqlite3 --q 'Cửu Giới' --limit 5 \
+            | tee search_out/smoke-query.json
+          cp final_summary.json search_out/final_summary.json
+          cp scan_summary.json search_out/scan_summary.json
+
+      - name: Publish durable canonical release when needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DELTA='${{ steps.diff.outputs.delta_count }}'
+          EXPECTED='${{ steps.diff.outputs.expected_count }}'
+          SHOULD_PUBLISH=0
+          if [ "$DELTA" != "0" ] || [ "$SRC_RELEASE" != "$PRIMARY_RELEASE" ]; then SHOULD_PUBLISH=1; fi
+          NOTES=$(cat <<EOF
+          Vidian durable canonical semantic corpus.
+
+          Records: ${EXPECTED} unique trusted URLs.
+          New URLs added in this scan: ${DELTA}.
+          Live inventory is diffed against the previous durable canonical release.
+          Extractor: v2 (Nguồn is not treated as a body terminator).
+          Final gates: exact URL cardinality, no failed semantic articles, no parse failures, no zero-word frames, search-index smoke test.
+          EOF
+          )
+          if [ "$SHOULD_PUBLISH" = "1" ]; then
+            if gh release view "$PRIMARY_RELEASE" >/dev/null 2>&1; then
+              gh release upload "$PRIMARY_RELEASE" "$PRIMARY_ASSET" --clobber
+              gh release edit "$PRIMARY_RELEASE" --title 'Vidian Semantic Corpus — Canonical' --notes "$NOTES"
+            else
+              gh release create "$PRIMARY_RELEASE" "$PRIMARY_ASSET" \
+                --title 'Vidian Semantic Corpus — Canonical' --notes "$NOTES"
+            fi
+          fi
+          gh release view "$PRIMARY_RELEASE" --json tagName,isDraft,isPrerelease,assets,url | tee canonical-release.json
+          python - <<'PY'
+          import json, os
+          d=json.load(open('canonical-release.json'))
+          wanted=os.environ['PRIMARY_ASSET']
+          assets=[a for a in d.get('assets',[]) if a.get('name')==wanted]
+          if len(assets)!=1 or d.get('isDraft'):
+              raise SystemExit(f'canonical release asset verification failed: {assets}')
+          print(json.dumps({'release':d['tagName'],'url':d.get('url'),'asset':assets[0]},ensure_ascii=False))
+          PY
+
+      - name: Upload scan and search artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-delta-${{ github.run_id }}
+          path: |
+            scan_summary.json
+            final_summary.json
+            source_summary.json
+            canonical.sha256
+            canonical-release.json
+            live_inventory/vidian_inventory.json
+            delta_inventory.json
+            search_out/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
