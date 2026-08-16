@@ -13,6 +13,30 @@ def acceptable(x):
     return True
 
 
+def _dedup_pool(pool):
+    best={}
+    for x in pool:
+        pid=x.get('passage_id')
+        if pid is None: continue
+        old=best.get(pid)
+        if old is None or x.get('score',0)>old.get('score',0): best[pid]=x
+    return list(best.values())
+
+
+def source_balanced_pool(index,text,topic,per_source=40):
+    terms=' '.join(brain.TOPIC_TERMS[topic][:10])
+    pool=[]
+    for src in ('vidian','moxing'):
+        # Retrieve independently so one source cannot crowd the other out before balancing.
+        got=brain.search(index,text+' '+terms,per_source,topic,src)
+        if not got:
+            got=brain.search(index,terms,per_source,topic,src)
+        pool.extend(got)
+    # Mixed retrieval supplies additional high-scoring candidates and consensus-rich items.
+    pool.extend(brain.search(index,text+' '+terms,max(24,per_source//2),topic))
+    return _dedup_pool(pool)
+
+
 def balanced_take(pool,limit,used=None):
     used=used if used is not None else set()
     pool=[x for x in pool if acceptable(x) and x.get('passage_id') not in used]
@@ -24,7 +48,6 @@ def balanced_take(pool,limit,used=None):
         for x in pool:
             if x['source']==src and x['passage_id'] not in used:
                 keep.append(x); used.add(x['passage_id']); counts[src]+=1; break
-            
     # Then fill with a soft 65% per-source ceiling while both sources have candidates.
     cap=max(2,math.ceil(limit*.65))
     for x in pool:
@@ -42,16 +65,19 @@ def balanced_take(pool,limit,used=None):
 
 
 def evidence_for_topic(index,text,topic,limit,used):
-    terms=' '.join(brain.TOPIC_TERMS[topic][:10])
-    pool=brain.search(index,text+' '+terms,max(limit*8,48),topic)
+    pool=source_balanced_pool(index,text,topic,max(40,limit*8))
     return balanced_take(pool,limit,used)
 
 
 def checklist(index,topic,limit=20):
-    pool=brain.search(index,' '.join(brain.TOPIC_TERMS[topic]),max(limit*6,80),topic)
-    keep=balanced_take(pool,limit,set())
+    terms=' '.join(brain.TOPIC_TERMS[topic][:10])
+    pool=[]
+    for src in ('vidian','moxing'):
+        pool.extend(brain.search(index,terms,max(50,limit*5),topic,src))
+    pool.extend(brain.search(index,terms,max(40,limit*3),topic))
+    keep=balanced_take(_dedup_pool(pool),limit,set())
     src=collections.Counter(x['source'] for x in keep)
-    return {'schema':'webnovel-writing-checklist-v1.1','topic':topic,'items':keep,'sources':dict(src),'consensus_items':sum(x.get('cross_source_support',0)>0 for x in keep),'quality_layer':'balanced-source-v1.1'}
+    return {'schema':'webnovel-writing-checklist-v1.2','topic':topic,'items':keep,'sources':dict(src),'consensus_items':sum(x.get('cross_source_support',0)>0 for x in keep),'quality_layer':'balanced-per-source-retrieval-v1.2'}
 
 # Patch the base module globals used by direct/review/main.
 brain.evidence_for_topic=evidence_for_topic
