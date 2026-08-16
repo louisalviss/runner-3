@@ -1,0 +1,121 @@
+{
+  "canonical_multiple": 21.707138975255027,
+  "canonical_cagr": 0.3446364064098655,
+  "max_drawdown": -0.389244726298439,
+  "max_drawdown_peak": "2021-09-07",
+  "max_drawdown_trough": "2022-09-26",
+  "longest_underwater_trading_days": 573,
+  "longest_underwater_start": "2021-09-08",
+  "longest_underwater_end": "2023-12-15",
+  "rolling": {
+    "1y": {
+      "observations": 2362,
+      "min": -0.34694938409273535,
+      "p10": -0.02598076569353582,
+      "median": 0.3332509024488757,
+      "p90": 0.994652431965612,
+      "max": 1.8437089860096023,
+      "positive_fraction": 0.8911939034716342,
+      "negative_fraction": 0.10880609652836579,
+      "min_end_date": "2022-09-26",
+      "max_end_date": "2024-06-18"
+    },
+    "3y": {
+      "observations": 1858,
+      "min": 0.014376716806095535,
+      "p10": 0.18094577586837188,
+      "median": 0.3235872578313944,
+      "p90": 0.5662978007741366,
+      "max": 0.6963009950858248,
+      "positive_fraction": 1.0,
+      "negative_fraction": 0.0,
+      "min_end_date": "2023-09-05",
+      "max_end_date": "2025-10-01"
+    },
+    "5y": {
+      "observations": 1354,
+      "min": 0.19824085573219485,
+      "p10": 0.24642144161875787,
+      "median": 0.3391792324627835,
+      "p90": 0.4023455157117817,
+      "max": 0.44130146327618713,
+      "positive_fraction": 1.0,
+      "negative_fraction": 0.0,
+      "min_end_date": "2023-07-28",
+      "max_end_date": "2024-08-27"
+    }
+  },
+  "remove_top_winners": {
+    "1": {
+      "multiple": 11.011400476840373,
+      "cagr_same_full_window": 0.2596321162073765,
+      "removed_period_returns": [
+        0.97133294
+      ]
+    },
+    "2": {
+      "multiple": 6.696382504936965,
+      "cagr_same_full_window": 0.20077178294039055,
+      "removed_period_returns": [
+        0.97133294,
+        0.64438045
+      ]
+    },
+    "3": {
+      "multiple": 4.4273486836953415,
+      "cagr_same_full_window": 0.1539061343508894,
+      "removed_period_returns": [
+        0.97133294,
+        0.64438045,
+        0.51250398
+      ]
+    },
+    "5": {
+      "multiple": 2.6366838905735923,
+      "cagr_same_full_window": 0.09777478444129506,
+      "removed_period_returns": [
+        0.97133294,
+        0.64438045,
+        0.51250398,
+        0.31456102,
+        0.27733529
+      ]
+    }
+  },
+  "random_switch_delay": {
+    "1": {
+      "runs": 2000,
+      "min_multiple": 19.529808141862496,
+      "p10_multiple": 20.61563871487251,
+      "median_multiple": 21.514439111725856,
+      "p90_multiple": 22.432899450212194,
+      "max_multiple": 23.894249543615622,
+      "median_cagr": 0.3434832523339164
+    },
+    "3": {
+      "runs": 2000,
+      "min_multiple": 19.213597295548606,
+      "p10_multiple": 20.723824744376145,
+      "median_multiple": 22.289028486507718,
+      "p90_multiple": 23.864729140936277,
+      "max_multiple": 25.638384782923612,
+      "median_cagr": 0.34806324611535255
+    },
+    "5": {
+      "runs": 2000,
+      "min_multiple": 19.29347463626844,
+      "p10_multiple": 21.274193191455517,
+      "median_multiple": 23.068516911843567,
+      "p90_multiple": 25.004054856894502,
+      "max_multiple": 27.34097385632645,
+      "median_cagr": 0.3525292248064633
+    }
+  },
+  "topn_status": "not independently testable from currently recovered source because exact historical rebalance ranks 2..20 are not present; later SEC snapshots are not a valid substitute",
+  "source_top20_claim": {
+    "cagr": 0.2283,
+    "sharpe": 0.95,
+    "max_drawdown": -0.293,
+    "status": "Leto claim only; not independently reproduced in this run"
+  }
+}
