@@ -18,57 +18,29 @@ jobs:
         run: |
           mkdir -p spmo-backtest/leto-source
           python - <<'PY'
-          import json, urllib.request, datetime as dt, csv, math
+          import json, urllib.request, datetime as dt
           from pathlib import Path
-
           def ts(d): return int(dt.datetime.strptime(d,'%Y-%m-%d').replace(tzinfo=dt.timezone.utc).timestamp())
           def adj(ticker, start, end):
-              url=f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?period1={ts(start)-86400*5}&period2={ts(end)+86400*5}&interval=1d&events=div%2Csplits&includeAdjustedClose=true'
+              url=f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?period1={ts(start)-432000}&period2={ts(end)+432000}&interval=1d&events=div%2Csplits&includeAdjustedClose=true'
               req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
               data=json.load(urllib.request.urlopen(req,timeout=30))['chart']['result'][0]
-              stamps=data['timestamp']; vals=data['indicators']['adjclose'][0]['adjclose']
-              mp={dt.datetime.fromtimestamp(t,dt.timezone.utc).strftime('%Y-%m-%d'):v for t,v in zip(stamps,vals) if v is not None}
+              mp={dt.datetime.fromtimestamp(t,dt.timezone.utc).strftime('%Y-%m-%d'):v for t,v in zip(data['timestamp'],data['indicators']['adjclose'][0]['adjclose']) if v is not None}
               return mp[start],mp[end],mp[end]/mp[start]-1
-
-          periods=[
-              ('2021-03-19','2021-09-17',['AMZN','MSFT']),
-              ('2024-09-20','2025-03-21',['AMZN','AAPL']),
-          ]
           results={}
-          for s,e,tickers in periods:
-              results[s]={}
-              for t in tickers:
-                  a,b,r=adj(t,s,e)
-                  results[s][t]={'start_adj':a,'end_adj':b,'return':r}
-
+          for s,e,tickers in [('2021-03-19','2021-09-17',['AMZN','MSFT']),('2024-09-20','2025-03-21',['AMZN','AAPL'])]:
+              results[s]={t:dict(zip(['start_adj','end_adj','return'],adj(t,s,e))) for t in tickers}
           base_multiple=17.756268183083446
-          base_years=10.406784533563318
-          f=(1+results['2021-03-19']['MSFT']['return'])/(1+results['2021-03-19']['AMZN']['return'])
-          f*= (1+results['2024-09-20']['AAPL']['return'])/(1+results['2024-09-20']['AMZN']['return'])
-          alt_multiple=base_multiple*f
-          alt_cagr=alt_multiple**(1/base_years)-1
-          out={'results':results,'base_multiple':base_multiple,'swap_factor':f,'alt_multiple':alt_multiple,'alt_cagr':alt_cagr,'leto_claim_multiple':21.7,'leto_claim_cagr':0.3456}
+          years=10.406784533563318
+          factor=(1+results['2021-03-19']['MSFT']['return'])/(1+results['2021-03-19']['AMZN']['return'])
+          factor*= (1+results['2024-09-20']['AAPL']['return'])/(1+results['2024-09-20']['AMZN']['return'])
+          alt=base_multiple*factor
+          cagr=alt**(1/years)-1
+          out={'results':results,'base_multiple':base_multiple,'swap_factor':factor,'alt_multiple':alt,'alt_cagr':cagr,'leto_claim_multiple':21.7,'leto_claim_cagr':0.3456}
           print(json.dumps(out,indent=2))
           Path('spmo-backtest/leto-source/sequence_hypothesis.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
-          Path('spmo-backtest/leto-source/sequence_hypothesis.md').write_text(f'''# Leto Top-1 sequence mismatch hypothesis
-
-Hypothesis from Leto's count statement:
-- 2021-03: replace AMZN with MSFT
-- 2024-09: replace AMZN with AAPL
-
-Yahoo Adjusted Close returns:
-- 2021-03 AMZN: {results['2021-03-19']['AMZN']['return']:.8%}
-- 2021-03 MSFT: {results['2021-03-19']['MSFT']['return']:.8%}
-- 2024-09 AMZN: {results['2024-09-20']['AMZN']['return']:.8%}
-- 2024-09 AAPL: {results['2024-09-20']['AAPL']['return']:.8%}
-
-Effect on current reproduced curve:
-- Base: {base_multiple:.6f}x
-- Swap factor: {f:.8f}
-- With the two hypothesized Leto tickers: {alt_multiple:.6f}x
-- CAGR over same {base_years:.6f} years: {alt_cagr:.8%}
-- Leto claim: 21.7x / 34.56%
-''',encoding='utf-8')
+          lines=['# Leto Top-1 sequence mismatch hypothesis','', 'Hypothesis from Leto count statement:', '- 2021-03: AMZN -> MSFT','- 2024-09: AMZN -> AAPL','',f"2021-03 AMZN return: {results['2021-03-19']['AMZN']['return']:.8%}",f"2021-03 MSFT return: {results['2021-03-19']['MSFT']['return']:.8%}",f"2024-09 AMZN return: {results['2024-09-20']['AMZN']['return']:.8%}",f"2024-09 AAPL return: {results['2024-09-20']['AAPL']['return']:.8%}",'',f'Base multiple: {base_multiple:.6f}x',f'Swap factor: {factor:.8f}',f'Alt multiple: {alt:.6f}x',f'Alt CAGR: {cagr:.8%}','Leto claim: 21.7x / 34.56%']
+          Path('spmo-backtest/leto-source/sequence_hypothesis.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
           PY
       - name: Commit result
         run: |
