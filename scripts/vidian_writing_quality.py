@@ -8,13 +8,28 @@ STRONG_TITLE_CUES=['viết','sáng tác','cốt truyện','văn phong','kỹ x�
 STRONG_RULE_CUES=['viết','sáng tác','cốt truyện','văn phong','độc giả','nhân vật','nhân vật chính','mở đầu','kết chương','cao trào','nhịp truyện','nhịp độ','arc','mục tiêu','động cơ','phản diện','mâu thuẫn','xung đột','tu luyện','cảnh giới','chiến lực','công pháp','tài nguyên','bảo vật','kỳ ngộ','cơ duyên','thế giới quan','bối cảnh','hệ thống sức mạnh','đối thoại','lời thoại','miêu tả','cảm xúc','logic','nhất quán','chủ đề','phục bút','foreshadow','payoff','cliffhanger','sảng','giữ chân','tỷ lệ đọc','đọc hết']
 BAD_TITLE_CUES=['bộ tiểu thuyết mới hoàn thành','bộ tiểu thuyết huyễn tưởng','sơ lược','review truyện','danh sách truyện']
 
-# Avoid ambiguous single-word markers that frequently appear in names or ordinary prose.
-STRICT_NEG=list(w.NEG)
+# Avoid ambiguous single-word/phrase markers that frequently appear in names or story facts.
+STRICT_NEG=[x for x in w.NEG if x!='không được']+['không được viết','không được để','không được cho','không được dùng','không được sử dụng','không được miêu tả','không được mô tả','không được tạo','không được xây dựng','không được thiết lập','không được lạm dụng']
 STRICT_WARN=[x for x in w.WARN if x!='kỵ']+['đại kỵ','tối kỵ','kiêng kỵ']
 STRICT_POS=[x for x in w.POS if x not in {'quan trọng','tốt nhất'}]
 STRICT_TECH=[x for x in w.TECH if x!='cách']+['cách viết','cách xây dựng','cách tạo','cách miêu tả','cách mô tả','cách thiết kế','cách xử lý','cách triển khai']
 STRICT_EXAMPLE=list(w.EXAMPLE)
 STRICT_DIAG=[x for x in w.DIAG if x!='khi']
+
+# Lower weights for broad terms and boost craft-specific terms. This resolves ties such as
+# `cơ duyên ... nhân vật chính`: reward/payoff should win over generic character mention.
+TERM_WEIGHT={
+    ('character_design','nhân vật'):.60,
+    ('serialization_reader','độc giả'):.70,('serialization_reader','đọc giả'):.70,
+    ('system_design','hệ thống'):.70,('system_design','thiết lập'):.55,('system_design','cảnh giới'):.55,
+    ('description_scene','hành động'):.65,('description_scene','chi tiết'):.65,
+    ('romance_relationship','quan hệ'):.60,
+    ('worldbuilding','bối cảnh'):.80,('worldbuilding','xã hội'):.65,('worldbuilding','lịch sử'):.65,
+    ('progression_power','năng lực'):.65,('progression_power','tu luyện'):1.55,('progression_power','cảnh giới'):1.35,
+    ('reward_payoff','cơ duyên'):1.90,('reward_payoff','kỳ ngộ'):1.90,('reward_payoff','tài nguyên'):1.30,('reward_payoff','bảo vật'):1.30,
+    ('hook_opening','mở đầu'):1.90,('pacing_tension','cao trào'):1.55,
+    ('motivation_conflict','động cơ'):1.55,('plot_structure_arc','arc'):1.25,
+}
 
 
 def marker_norm(text):
@@ -36,6 +51,23 @@ def _patch_topic_map():
     for x in ['tỷ lệ đọc','đọc hết','lưu lượng','giữ chân độc giả']:
         if x not in serial: serial.append(x)
     w.TOPICS['serialization_reader']=serial
+
+def quality_topic_scores(text):
+    n=w.vk.norm(text); out=[]
+    for topic,keys in w.TOPICS.items():
+        matches=[]; seen=set(); score=0.0; best=0.0
+        for raw in keys:
+            z=w.vk.norm(raw)
+            if not z or z in seen: continue
+            seen.add(z)
+            if f' {z} ' not in f' {n} ': continue
+            words=len(z.split())
+            base=1.0 if words==1 else 1.0+.55*(words-1)
+            weight=TERM_WEIGHT.get((topic,raw),base)
+            matches.append(raw); score+=weight; best=max(best,weight)
+        if matches: out.append((topic,round(score,4),matches,best))
+    out.sort(key=lambda x:(-x[1],-x[3],x[0]))
+    return [(t,s,m) for t,s,m,_ in out]
 
 def strict_kind(text):
     if marker_has(text,STRICT_NEG): return 'dont',.92
@@ -123,6 +155,7 @@ def refine_checklists(index,limit=25):
 
 def apply():
     _patch_topic_map()
+    w.topic_scores=quality_topic_scores
     w.kind=strict_kind
     w.extract=strict_extract
     return w
