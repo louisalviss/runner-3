@@ -1,5 +1,5 @@
 {
-  "status": "21_period_sequence_complete_claim_cagr_not_reproduced",
+  "status": "full_21_period_backtest_validated_claim_growth_not_reproduced",
   "start_date": "2016-03-18",
   "end_date": "2026-08-14",
   "years_365_2425": 10.406784533563318,
@@ -22,15 +22,26 @@
   "price_field": "Yahoo Finance Adjusted Close",
   "article_claim_comparison": {
     "claimed_total_multiple": 21.7,
+    "reproduced_total_multiple": 17.756250648350427,
+    "multiple_shortfall": 3.943749351649572,
+    "required_uplift_to_match_claim_pct": 22.210484801958753,
     "claimed_cagr": 0.3456,
+    "reproduced_cagr": 0.318413413157985,
+    "cagr_gap_percentage_points": -2.7186586842015026,
     "claimed_annualized_volatility": 0.337,
+    "reproduced_annualized_volatility": 0.3378837624941464,
     "claimed_max_drawdown": -0.389,
+    "reproduced_max_drawdown": -0.38943369479936496,
     "claimed_sharpe": 0.98,
-    "conclusion": "Risk metrics are closely reproduced, but the claimed 21.7x / 34.56% CAGR is not reproduced by the current independently reconstructed 21-period sequence."
+    "reproduced_sharpe_rf0": 0.9883621090880024,
+    "conclusion": "The independently reconstructed 21-period strategy closely reproduces the claimed volatility, max drawdown and Sharpe, but does not reproduce the claimed 21.7x / 34.56% CAGR. Under the validated close-to-close sequence the result is about 17.756x / 31.84% CAGR."
   },
   "notes": [
+    "All 21 rebalance periods now have validated ticker and return results.",
+    "The early 2016-2017 legacy periods were independently re-audited from exact SPMO SEC Schedule of Investments sections; 2017-09 required reconstruction across a multipage schedule and still confirmed MSFT as Top 1.",
     "2018-09 snapshot corrected to 2018-11-30, accession 0001193125-19-020397.",
     "2019-03 snapshot corrected to 2019-05-31, accession 0001752724-19-086759.",
-    "All 21 stored period returns were rechecked against Yahoo Finance Adjusted Close with maximum absolute error below 5.52e-7."
+    "All 21 stored period returns were rechecked against Yahoo Finance Adjusted Close with maximum absolute error below 5.52e-7.",
+    "No transaction costs or taxes are included."
   ]
 }
