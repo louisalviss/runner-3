@@ -1,0 +1,1 @@
+Build: `python scripts/vidian_search.py build --corpus <zip-or-dir> --db vidian_fts.sqlite`\nQuery: `python scripts/vidian_search.py query --db vidian_fts.sqlite --q \"<terms>\" --limit 8`\n
