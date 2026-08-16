@@ -1,0 +1,164 @@
+name: moxing-translate-vi
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/moxing_translate_vi.py'
+      - '.github/workflows/moxing-translate-vi.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: moxing-translate-vi-v1
+  cancel-in-progress: true
+
+env:
+  SOURCE_TAG: webnovel-writing-brain-v1-2026-08-17
+  SOURCE_ASSET: webnovel-writing-brain-v1-2026-08-17.zip
+  SOURCE_SHA256: ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f
+  TAG: moxing-vi-translation-v1-2026-08-17
+  ASSET: moxing-vi-translation-v1-2026-08-17.zip
+  SHARDS: 4
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare retained Moxing translation input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir source
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir source
+          echo "$SOURCE_SHA256  source/$SOURCE_ASSET" | sha256sum -c -
+          unzip -q source/$SOURCE_ASSET -d source/unpacked
+          python - <<'PY'
+          import sqlite3,json,pathlib,hashlib
+          db=pathlib.Path('source/unpacked/writing_brain/writing_brain.sqlite')
+          con=sqlite3.connect(db); con.row_factory=sqlite3.Row
+          rows=con.execute("select id,evidence_id,text from passages where source='moxing' order by id").fetchall()
+          assert len(rows)==9538,len(rows)
+          with open('moxing-translation-input.jsonl','w',encoding='utf-8') as f:
+              for r in rows:
+                  f.write(json.dumps({'passage_id':r['id'],'evidence_id':r['evidence_id'],'text_zh':r['text']},ensure_ascii=False)+'\n')
+          raw=pathlib.Path('moxing-translation-input.jsonl').read_bytes()
+          pathlib.Path('input-manifest.json').write_text(json.dumps({'schema':'moxing-vi-translation-input-v1','rows':len(rows),'source_tag':'webnovel-writing-brain-v1-2026-08-17','sha256':hashlib.sha256(raw).hexdigest()},indent=2),encoding='utf-8')
+          print(len(rows))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moxing-translation-input
+          path: |
+            moxing-translation-input.jsonl
+            input-manifest.json
+          retention-days: 30
+
+  translate:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: moxing-translation-input
+      - name: Install offline translation runtime
+        run: python -m pip install --disable-pip-version-check 'transformers<5' torch sentencepiece sacremoses
+      - name: Translate shard ${{ matrix.shard }}
+        run: |
+          python scripts/moxing_translate_vi.py translate \
+            --input moxing-translation-input.jsonl \
+            --out translation-${{ matrix.shard }}.jsonl \
+            --shard ${{ matrix.shard }} --shards "$SHARDS" --batch-size 16
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moxing-vi-shard-${{ matrix.shard }}
+          path: |
+            translation-${{ matrix.shard }}.jsonl
+            translation-${{ matrix.shard }}.manifest.json
+          retention-days: 30
+
+  merge:
+    needs: translate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: moxing-vi-shard-*
+          path: shards
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: moxing-translation-input
+          path: input
+      - name: Merge and quality-gate Vietnamese translations
+        run: |
+          set -euo pipefail
+          cat shards/translation-0.jsonl shards/translation-1.jsonl shards/translation-2.jsonl shards/translation-3.jsonl > translations.unsorted.jsonl
+          python - <<'PY'
+          import json,pathlib,hashlib,re
+          inp={}
+          for line in open('input/moxing-translation-input.jsonl',encoding='utf-8'):
+              x=json.loads(line); inp[x['passage_id']]=x
+          out=[]; ids=set(); evidence=set(); empty=bad_sha=0; zh_chars=chars=zh_heavy=0
+          ZH=re.compile(r'[\u3400-\u9fff]')
+          for line in open('translations.unsorted.jsonl',encoding='utf-8'):
+              x=json.loads(line); pid=x['passage_id']
+              assert pid not in ids,pid; ids.add(pid)
+              assert x['evidence_id'] not in evidence,x['evidence_id']; evidence.add(x['evidence_id'])
+              src=inp[pid]['text_zh']; expected=hashlib.sha256(src.encode()).hexdigest()
+              bad_sha += x['text_zh_sha256']!=expected
+              t=x['text_vi'].strip(); empty+=not bool(t); c=len(t); z=len(ZH.findall(t)); chars+=c; zh_chars+=z; zh_heavy += bool(c and z/c>.25)
+              out.append(x)
+          assert len(inp)==9538 and len(out)==9538,(len(inp),len(out))
+          assert ids==set(inp),len(set(inp)-ids)
+          assert empty==0,empty
+          assert bad_sha==0,bad_sha
+          ratio=zh_chars/max(chars,1)
+          assert ratio < .12,ratio
+          assert zh_heavy < 500,zh_heavy
+          out.sort(key=lambda x:x['passage_id'])
+          root=pathlib.Path('moxing_vi_translation');root.mkdir()
+          with open(root/'translations.jsonl','w',encoding='utf-8') as f:
+              for x in out:f.write(json.dumps(x,ensure_ascii=False)+'\n')
+          quality={'rows':len(out),'empty':empty,'sha_mismatch':bad_sha,'zh_char_ratio':round(ratio,6),'zh_heavy_rows':zh_heavy}
+          manifest={'schema':'moxing-vi-translation-v1','source_tag':'webnovel-writing-brain-v1-2026-08-17','source_sha256':'ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f','model_id':'Helsinki-NLP/opus-mt-zh-vi','model_revision':'e048b2d21aebc6da81d050a4bac4e5b5178bba58','model_license':'Apache-2.0','quality':quality,'policy':'Machine translation layer; Chinese source text remains canonical evidence. Vietnamese text is for retrieval and reading, not a verbatim authoritative translation.'}
+          (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(manifest,ensure_ascii=False,indent=2))
+          PY
+      - name: Package and publish durable translation release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          asset=pathlib.Path(os.environ['ASSET']); root=pathlib.Path('moxing_vi_translation')
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,p.as_posix())
+          print(asset.stat().st_size,hashlib.sha256(asset.read_bytes()).hexdigest())
+          PY
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Moxing Writing Vietnamese Translation v1 — 2026-08-17' --notes 'Machine-translated Vietnamese layer for the 9,538 retained Moxing passages in Webnovel Writing Brain v1. Chinese source remains canonical; Vietnamese is a retrieval/reading layer.'
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moxing-vi-translation-v1
+          path: |
+            moxing_vi_translation
+            moxing-vi-translation-v1-2026-08-17.zip
+          retention-days: 90
