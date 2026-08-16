@@ -49,6 +49,22 @@ jobs:
           unzip -q source/$MOXING_ASSET -d source/moxing
           test -f source/vidian/vidian_writing/vidian_writing.sqlite
           test -f source/moxing/moxing_writing/moxing_writing.sqlite
+      - name: Normalize Vidian schema compatibility
+        run: |
+          python - <<'PY'
+          import sqlite3
+          db='source/vidian/vidian_writing/vidian_writing.sqlite'
+          con=sqlite3.connect(db)
+          cols={r[1] for r in con.execute('pragma table_info(passages)')}
+          if 'rule_text' not in cols:
+              assert 'rule' in cols, cols
+              con.execute('alter table passages add column rule_text TEXT')
+              con.execute('update passages set rule_text=rule')
+          if 'section' not in cols:
+              con.execute("alter table passages add column section TEXT DEFAULT ''")
+          con.commit(); con.close()
+          print('Vidian schema compatibility PASS')
+          PY
       - name: Build fused Writing Brain
         run: |
           python scripts/webnovel_writing_brain.py build \
