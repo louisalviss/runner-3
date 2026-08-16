@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json, math
+from functools import lru_cache
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -22,18 +23,17 @@ adj.index=pd.to_datetime(adj.index).tz_localize(None)
 adj=adj.sort_index()
 calendar=adj['SPY'].dropna().index
 
+@lru_cache(maxsize=None)
 def px(t,d):
     d=pd.Timestamp(d)
     s=adj[t].dropna()
     if d in s.index: return float(s.loc[d])
-    # nearest previous trading day only
     z=s[s.index<=d]
     if z.empty: raise ValueError((t,d))
     return float(z.iloc[-1])
 
 def shift_trade_day(d,k):
     d=pd.Timestamp(d)
-    # canonical dates are trading days; shift by k positions on SPY calendar
     i=calendar.get_indexer([d])[0]
     if i<0:
         i=calendar.searchsorted(d)
@@ -56,7 +56,6 @@ def compound_for_shift(k):
         rows.append((en,ex,r.top1,ret))
     return mult,cagr(mult,rows[0][0],rows[-1][1])
 
-# Canonical daily wealth curve.
 wealth=[]
 w=1.0
 for idx,r in p.iterrows():
@@ -71,7 +70,6 @@ for idx,r in p.iterrows():
 curve=pd.Series(dict(wealth)).sort_index()
 curve.name='wealth'
 
-# Shift sensitivity.
 shift_rows=[]
 for k in range(-5,11):
     mult,cg=compound_for_shift(k)
@@ -79,7 +77,6 @@ for k in range(-5,11):
 shift_df=pd.DataFrame(shift_rows)
 shift_df.to_csv(OUT/'date_shift_sensitivity.csv',index=False)
 
-# Rolling CAGR with fixed trading-day windows.
 roll={}
 for yrs,n in [(1,252),(3,756),(5,1260)]:
     vals=(curve/curve.shift(n))**(252/n)-1
@@ -97,10 +94,8 @@ for yrs,n in [(1,252),(3,756),(5,1260)]:
       'max_end_date':str(vals.idxmax().date())
     }
 
-# Drawdown and time-under-water.
 peak=curve.cummax(); dd=curve/peak-1
 maxdd=float(dd.min()); trough=dd.idxmin(); peak_date=curve.loc[:trough].idxmax()
-# longest run below prior high in trading days
 under=dd<0
 longest=0; cur=0; end_long=None
 for d,b in under.items():
@@ -110,7 +105,6 @@ for d,b in under.items():
     else: cur=0
 start_long=curve.index[max(0,curve.index.get_loc(end_long)-longest+1)] if end_long is not None else None
 
-# Regime splits aligned to canonical boundaries.
 regimes=[
  ('pre_covid','2016-03-21','2020-03-23'),
  ('covid_to_2022_bear_end','2020-03-23','2022-09-19'),
@@ -126,7 +120,6 @@ for name,a,b in regimes:
 reg_df=pd.DataFrame(reg_rows)
 reg_df.to_csv(OUT/'regime_splits.csv',index=False)
 
-# Benchmark comparison on same full window and regimes.
 def bench_stats(t,a,b):
     a=pd.Timestamp(a); b=pd.Timestamp(b)
     s=adj[t].dropna(); a0=s.index[s.index>=a][0]; b0=s.index[s.index<=b][-1]
@@ -141,7 +134,6 @@ for t in ['SPY','QQQ','SPMO']:
 bench_df=pd.DataFrame(bench)
 bench_df.to_csv(OUT/'benchmark_comparison.csv',index=False)
 
-# Leave-one-out and leave-top-winners-out dependence.
 period_returns=p.close_to_close_return.astype(float).to_numpy()
 base_mult=float(np.prod(1+period_returns))
 loo=[]
@@ -157,12 +149,9 @@ for n in [1,2,3,5]:
     m=float(np.prod(1+period_returns[keep]))
     remove_top[str(n)]={'multiple':m,'cagr_same_full_window':cagr(m,START,END),'removed_period_returns':[float(x) for x in period_returns[win_idx[:n]]]}
 
-# Random timing delays: at each actual ticker switch, delay the switch 0..5 trading days,
-# holding the previous ticker until the delayed close. Initial entry is canonical Monday.
 rng=np.random.default_rng(20260817)
 bounds=[p.entry_date.iloc[0]]+p.exit_date.tolist()
 seq=p.top1.tolist()
-# Build exact price-based simulator for delayed switch dates.
 def sim_delays(max_delay):
     w=1.0
     cur_t=seq[0]
@@ -176,7 +165,6 @@ def sim_delays(max_delay):
             w*=px(cur_t,sw)/px(cur_t,cur_date)
             cur_t=next_t; cur_date=sw
         elif i<len(seq):
-            # no switch, continue; do not reset cost basis/date
             pass
         else:
             w*=px(cur_t,boundary)/px(cur_t,cur_date)
