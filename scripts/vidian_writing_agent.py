@@ -4,10 +4,33 @@ from pathlib import Path
 import vidian_writing as w
 import vidian_writing_quality as quality
 
+# Keep runtime topic detection and evidence validation identical to the build-time quality layer.
+w=quality.apply()
+
+
+def _checklist_items(index,topic,limit):
+    data=json.loads((Path(index)/'checklists.json').read_text(encoding='utf-8'))
+    return [dict(x) for x in data.get(topic,[])[:limit]]
 
 def search(index,q,limit=12,mode='hybrid',topic=None,kind=None):
-    raw=w.search(index,q,max(120,limit*12),mode,topic,kind)
+    raw=w.search(index,q,max(160,limit*16),mode,topic,kind)
     return quality.rank_actionable(raw,limit)
+
+
+def _topic_evidence(index,text,topic,limit,used):
+    pool=w.search(index,text,max(120,limit*24),'hybrid',topic)
+    pool+=w.search(index,' '.join(w.TOPICS[topic][:10]),max(100,limit*20),'hybrid',topic)
+    ranked=quality.rank_actionable(pool,limit*4)
+    # Durable fallback: refined checklist is itself QA-gated actionable evidence.
+    ranked+=_checklist_items(index,topic,limit*3)
+    keep=[]
+    for x in ranked:
+        pid=x.get('passage_id')
+        if pid in used: continue
+        if not quality.actionable(x): continue
+        used.add(pid); keep.append(x)
+        if len(keep)>=limit: break
+    return keep
 
 
 def direct(index,brief,limit=36):
@@ -20,17 +43,10 @@ def direct(index,brief,limit=36):
     per=max(4,math.ceil(limit/max(1,len(selected))))
     sections=[]; used=set()
     for topic in selected:
-        pool=w.search(index,brief,max(100,per*20),'hybrid',topic)
-        if len(pool)<per*3:
-            pool+=w.search(index,' '.join(w.TOPICS[topic][:8]),max(80,per*15),'hybrid',topic)
-        ranked=quality.rank_actionable(pool,per*3)
-        keep=[]
-        for x in ranked:
-            if x['passage_id'] in used: continue
-            used.add(x['passage_id']); keep.append(x)
-            if len(keep)>=per: break
+        keep=_topic_evidence(index,brief,topic,per,used)
+        if not keep: continue
         sections.append({'topic':topic,'must_do':[x for x in keep if x['kind'] in {'do','principle'}],'avoid':[x for x in keep if x['kind'] in {'dont','warning'}],'techniques':[x for x in keep if x['kind'] in {'technique','diagnostic'}],'all':keep})
-    return {'schema':'vidian-writing-directive-packet-v1.1','brief_sha256':hashlib.sha256(brief.encode()).hexdigest(),'brief_chars':len(brief),'detected_topics':[{'topic':t,'score':s,'matches':m} for t,s,m in scored[:12]],'directive_topics':selected,'sections':sections,'composition_protocol':['Treat retrieved rules as craft constraints, not prose to copy.','Prefer actionable evidence from craft-oriented articles; examples and generic descriptive passages are down-ranked or removed.','Convert selected rules into scene and arc checks before drafting.','After drafting, run review and repair only weaknesses actually present.','Evidence surfaces are reconstructed parser tokens, never verbatim quotations.']}
+    return {'schema':'vidian-writing-directive-packet-v1.2','brief_sha256':hashlib.sha256(brief.encode()).hexdigest(),'brief_chars':len(brief),'detected_topics':[{'topic':t,'score':s,'matches':m} for t,s,m in scored[:12]],'directive_topics':[x['topic'] for x in sections],'sections':sections,'composition_protocol':['Treat retrieved rules as craft constraints, not prose to copy.','Evidence must be topic-aligned in the sentence itself and pass actionable-quality filters.','Convert selected rules into scene and arc checks before drafting.','After drafting, run review and repair only weaknesses actually present.','Evidence surfaces are reconstructed parser tokens, never verbatim quotations.']}
 
 
 def review(index,text,limit=24):
@@ -39,22 +55,14 @@ def review(index,text,limit=24):
     per=max(3,math.ceil(limit/max(1,len(selected))))
     buckets=[]; used=set()
     for topic in selected:
-        pool=w.search(index,text,max(100,per*20),'hybrid',topic)
-        if len(pool)<per*3:
-            pool+=w.search(index,' '.join(w.TOPICS[topic][:8]),max(80,per*15),'hybrid',topic)
-        ranked=quality.rank_actionable(pool,per*3)
-        keep=[]
-        for x in ranked:
-            if x['passage_id'] in used: continue
-            used.add(x['passage_id']); keep.append(x)
-            if len(keep)>=per: break
+        keep=_topic_evidence(index,text,topic,per,used)
+        if not keep: continue
         buckets.append({'topic':topic,'hits':keep})
-    return {'schema':'vidian-writing-review-packet-v1.1','draft_sha256':hashlib.sha256(text.encode()).hexdigest(),'draft_chars':len(text),'detected_topics':[{'topic':t,'score':s,'matches':m} for t,s,m in scored[:10]],'review_dimensions':selected,'evidence_buckets':buckets,'instruction':'Use actionable retrieved craft rules as review criteria. Do not treat reconstructed evidence surfaces as verbatim source prose.'}
+    return {'schema':'vidian-writing-review-packet-v1.2','draft_sha256':hashlib.sha256(text.encode()).hexdigest(),'draft_chars':len(text),'detected_topics':[{'topic':t,'score':s,'matches':m} for t,s,m in scored[:10]],'review_dimensions':[x['topic'] for x in buckets],'evidence_buckets':buckets,'instruction':'Use actionable, topic-aligned craft rules as review criteria. Do not treat reconstructed evidence surfaces as verbatim source prose.'}
 
 
 def checklist(index,topic,limit=20):
-    data=json.loads((Path(index)/'checklists.json').read_text(encoding='utf-8'))
-    return {'schema':'vidian-writing-checklist-v1.1','topic':topic,'items':data.get(topic,[])[:limit]}
+    return {'schema':'vidian-writing-checklist-v1.2','topic':topic,'items':_checklist_items(index,topic,limit)}
 
 
 def dump(packet,json_out=None,md_out=None):
@@ -70,7 +78,7 @@ def main():
     r=sp.add_parser('review');r.add_argument('--index',required=True);g=r.add_mutually_exclusive_group(required=True);g.add_argument('--text');g.add_argument('--file');r.add_argument('--limit',type=int,default=24);r.add_argument('--json-out');r.add_argument('--md-out')
     c=sp.add_parser('checklist');c.add_argument('--index',required=True);c.add_argument('--topic',required=True,choices=sorted(w.TOPICS));c.add_argument('--limit',type=int,default=20);c.add_argument('--json-out');c.add_argument('--md-out')
     a=ap.parse_args()
-    if a.cmd=='query': dump({'schema':'vidian-writing-query-packet-v1.1','query':a.q,'mode':a.mode,'topic_filter':a.topic,'kind_filter':a.kind,'hits':search(a.index,a.q,a.limit,a.mode,a.topic,a.kind)},a.json_out,a.md_out)
+    if a.cmd=='query': dump({'schema':'vidian-writing-query-packet-v1.2','query':a.q,'mode':a.mode,'topic_filter':a.topic,'kind_filter':a.kind,'hits':search(a.index,a.q,a.limit,a.mode,a.topic,a.kind)},a.json_out,a.md_out)
     elif a.cmd=='direct':
         text=a.brief if a.brief is not None else Path(a.file).read_text(encoding='utf-8'); dump(direct(a.index,text,a.limit),a.json_out,a.md_out)
     elif a.cmd=='review':
