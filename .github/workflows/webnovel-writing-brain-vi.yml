@@ -1,0 +1,146 @@
+name: webnovel-writing-brain-vi
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['moxing-translate-vi']
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-vi-v1
+  cancel-in-progress: true
+
+env:
+  SOURCE_TAG: webnovel-writing-brain-v1-2026-08-17
+  SOURCE_ASSET: webnovel-writing-brain-v1-2026-08-17.zip
+  SOURCE_SHA256: ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f
+  TRANSLATION_TAG: moxing-vi-translation-v1-2026-08-17
+  TRANSLATION_ASSET: moxing-vi-translation-v1-2026-08-17.zip
+  TAG: webnovel-writing-brain-vi-v1-2026-08-17
+  ASSET: webnovel-writing-brain-vi-v1-2026-08-17.zip
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download durable fused brain and Vietnamese translation layer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source translation
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir source
+          echo "$SOURCE_SHA256  source/$SOURCE_ASSET" | sha256sum -c -
+          gh release download "$TRANSLATION_TAG" --pattern "$TRANSLATION_ASSET" --dir translation
+          TRANSLATION_SHA256=$(sha256sum "translation/$TRANSLATION_ASSET" | awk '{print $1}')
+          echo "$TRANSLATION_SHA256" > translation_asset_sha256.txt
+          unzip -q "source/$SOURCE_ASSET" -d source/unpacked
+          unzip -q "translation/$TRANSLATION_ASSET" -d translation/unpacked
+          test -f source/unpacked/writing_brain/writing_brain.sqlite
+          test -f translation/unpacked/moxing_vi_translation/translations.jsonl
+      - name: Prepare 1,022 unique Moxing titles
+        run: |
+          python - <<'PY'
+          import sqlite3,json,pathlib
+          db='source/unpacked/writing_brain/writing_brain.sqlite';con=sqlite3.connect(db)
+          rows=[r[0] for r in con.execute("select distinct title from passages where source='moxing' order by title")]
+          assert len(rows)==1022,len(rows)
+          with open('moxing-titles-zh.jsonl','w',encoding='utf-8') as f:
+              for t in rows:f.write(json.dumps({'title_zh':t},ensure_ascii=False)+'\n')
+          PY
+      - name: Install translation and Vietnamese retrieval runtime
+        run: python -m pip install --disable-pip-version-check 'transformers<5' torch sentencepiece sacremoses numpy scipy scikit-learn joblib
+      - name: Translate Moxing titles to Vietnamese
+        run: python scripts/moxing_translate_titles_vi.py --input moxing-titles-zh.jsonl --out moxing-titles-vi.jsonl --batch-size 24
+      - name: Build Vietnamese-first Writing Brain
+        run: |
+          python scripts/webnovel_writing_brain_vi.py build \
+            --source source/unpacked/writing_brain \
+            --translations translation/unpacked/moxing_vi_translation/translations.jsonl \
+            --titles moxing-titles-vi.jsonl \
+            --out writing_brain_vi --dims 128 --max-features 80000
+          cp translation/unpacked/moxing_vi_translation/manifest.json writing_brain_vi/moxing_translation_manifest.json
+          cp translation_asset_sha256.txt writing_brain_vi/translation_asset_sha256.txt
+      - name: QA Vietnamese coverage and provenance
+        run: |
+          python - <<'PY'
+          import json,sqlite3,re,pathlib
+          m=json.load(open('writing_brain_vi/manifest.json',encoding='utf-8'));c=m['counts']
+          assert m['language_mode']=='vi-first'
+          assert c['passages']==21210,c
+          assert c['vidian_native_vi']==11672,c
+          assert c['moxing_machine_translated_vi']==9538,c
+          assert c['moxing_translation_coverage']==1.0,c
+          assert c['moxing_title_translation_count']==1022,c
+          assert m['retrieval']['semantic']['dimensions']==128,m['retrieval']
+          tm=json.load(open('writing_brain_vi/moxing_translation_manifest.json',encoding='utf-8'))
+          assert tm['quality']['rows']==9538,tm
+          assert tm['quality']['empty']==0,tm
+          assert tm['quality']['sha_mismatch']==0,tm
+          con=sqlite3.connect('writing_brain_vi/writing_brain_vi.sqlite')
+          assert con.execute("select count(*) from passages where source='moxing' and length(trim(text_vi))>0 and length(trim(text_zh))>0").fetchone()[0]==9538
+          assert con.execute("select count(*) from passages where source='vidian' and text_vi=text and coalesce(text_zh,'')=''").fetchone()[0]==11672
+          assert con.execute("select count(distinct title_vi) from passages where source='moxing' and length(trim(title_vi))>0").fetchone()[0]>=950
+          con.close()
+          for f in ['vi_semantic.joblib','vi_vectors.npy','vi_ids.npy']:
+              assert pathlib.Path('writing_brain_vi',f).exists(),f
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+      - name: Vietnamese-first interface smoke
+        run: |
+          set -euo pipefail
+          python scripts/webnovel_writing_brain_vi.py query --index writing_brain_vi --q 'mở đầu tiên hiệp thu hút độc giả' --limit 20 --json-out writing_brain_vi/smoke_query.json >/dev/null
+          python scripts/webnovel_writing_brain_vi.py direct --index writing_brain_vi --brief 'Tiên hiệp, main thận trọng, progression rõ, tài nguyên và kỳ ngộ, arc 30 chương' --limit 40 --json-out writing_brain_vi/smoke_direct.json >/dev/null
+          python scripts/webnovel_writing_brain_vi.py review --index writing_brain_vi --text 'Nhân vật chính vào tông môn, tu luyện nhiều chương rồi đột phá và nhận bảo vật. Cuối chương xuất hiện một bí ẩn mới.' --limit 28 --json-out writing_brain_vi/smoke_review.json >/dev/null
+          python scripts/webnovel_writing_brain_vi.py checklist --index writing_brain_vi --topic character_design --limit 20 --json-out writing_brain_vi/smoke_checklist.json >/dev/null
+          python - <<'PY'
+          import json,re
+          q=json.load(open('writing_brain_vi/smoke_query.json',encoding='utf-8'));d=json.load(open('writing_brain_vi/smoke_direct.json',encoding='utf-8'));r=json.load(open('writing_brain_vi/smoke_review.json',encoding='utf-8'));c=json.load(open('writing_brain_vi/smoke_checklist.json',encoding='utf-8'))
+          assert q['language']=='vi' and q['hits']
+          assert all(x['text'] and x['title'] for x in q['hits'])
+          assert all('source_text_zh' in x['provenance'] for x in q['hits'])
+          assert len(d['sections'])>=6,d
+          both=sum(set(s['sources'])=={'vidian','moxing'} for s in d['sections'])
+          assert both>=5,[(s['topic'],s['sources']) for s in d['sections']]
+          assert r['evidence_buckets'] and all(b['hits'] for b in r['evidence_buckets'])
+          assert c['items'] and c['sources'].get('vidian',0)>=5 and c['sources'].get('moxing',0)>=5,c['sources']
+          print('Vietnamese-first interface smoke PASS')
+          PY
+      - name: Bundle runtime and package
+        run: |
+          mkdir -p writing_brain_vi/runtime
+          cp scripts/webnovel_writing_brain_vi.py writing_brain_vi/runtime/
+          cp scripts/moxing_translate_titles_vi.py writing_brain_vi/runtime/
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('writing_brain_vi');asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():z.write(p,p.as_posix())
+          m=json.load(open(root/'manifest.json',encoding='utf-8'));m['translation_asset_sha256']=pathlib.Path('translation_asset_sha256.txt').read_text().strip();m['package']={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()};(root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(m['package'],indent=2))
+          PY
+      - name: Publish durable Vietnamese-first release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain VI v1 — Vidian + Moxing — 2026-08-17' --notes 'Vietnamese-first fused authoring brain. All 9,538 retained Moxing passages and 1,022 Moxing titles have a Vietnamese machine-translation layer; original Chinese remains in provenance. Vidian stays native Vietnamese.'
+          fi
+          gh release edit "$TAG" --notes 'Vietnamese-first fused authoring brain: 21,210 passages total; 11,672 native-Vietnamese Vidian passages + 9,538 Moxing passages translated to Vietnamese; 1,022 Moxing titles translated; unified Vietnamese FTS5 + 128-dim TF-IDF/SVD semantic retrieval; balanced Vidian/Moxing Direct, Review and Checklist. Chinese originals remain canonical provenance. Machine translation may contain terminology errors.'
+          gh release upload "$TAG" "$ASSET" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webnovel-writing-brain-vi-v1
+          path: |
+            writing_brain_vi
+            webnovel-writing-brain-vi-v1-2026-08-17.zip
+          retention-days: 90
