@@ -1,0 +1,76 @@
+name: X fetch Leto SPMO source
+
+on:
+  push:
+    paths:
+      - '.github/workflows/x-fetch-leto-spmo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch X post through multiple public endpoints
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p x-source-output
+          ID='2088235631503945940'
+          USER='leto_bao'
+          URL="https://x.com/${USER}/status/${ID}"
+
+          fetch() {
+            name="$1"; url="$2"
+            echo "===== $name ====="
+            echo "$url"
+            curl -L --compressed --connect-timeout 15 --max-time 45 \
+              -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36' \
+              -D "x-source-output/${name}.headers.txt" \
+              -o "x-source-output/${name}.body.txt" \
+              -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' \
+              "$url" || true
+            echo '--- body preview ---'
+            head -c 12000 "x-source-output/${name}.body.txt" || true
+            echo; echo
+          }
+
+          fetch syndication "https://cdn.syndication.twimg.com/tweet-result?id=${ID}&lang=en"
+          fetch fxtwitter "https://api.fxtwitter.com/${USER}/status/${ID}"
+          fetch vxtwitter "https://api.vxtwitter.com/${USER}/status/${ID}"
+          fetch x_oembed "https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${URL}"
+          fetch jina_x "https://r.jina.ai/http://x.com/${USER}/status/${ID}"
+          fetch jina_x_https "https://r.jina.ai/https://x.com/${USER}/status/${ID}"
+
+      - name: Parse useful fields
+        shell: python
+        run: |
+          import json, pathlib, re
+          out = pathlib.Path('x-source-output')
+          result = {}
+          for name in ['syndication','fxtwitter','vxtwitter','x_oembed']:
+              p = out / f'{name}.body.txt'
+              if not p.exists(): continue
+              text = p.read_text(errors='replace')
+              try:
+                  data = json.loads(text)
+                  result[name] = data
+              except Exception:
+                  result[name] = {'raw_preview': text[:5000]}
+          for name in ['jina_x','jina_x_https']:
+              p = out / f'{name}.body.txt'
+              if p.exists(): result[name] = {'text': p.read_text(errors='replace')[:20000]}
+          (out/'parsed.json').write_text(json.dumps(result, ensure_ascii=False, indent=2))
+          print((out/'parsed.json').read_text()[:50000])
+
+      - name: Upload source dump
+        uses: actions/upload-artifact@v4
+        with:
+          name: leto-spmo-x-source
+          path: x-source-output/
+          if-no-files-found: error
