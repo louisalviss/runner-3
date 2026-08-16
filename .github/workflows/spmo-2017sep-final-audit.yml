@@ -1,0 +1,31 @@
+name: SPMO 2017-09 final exact audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spmo-2017sep-final-audit.yml'
+      - 'spmo-backtest/audit_2017sep_multipage.py'
+      - 'spmo-backtest/audit_legacy_exact_section.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas yfinance beautifulsoup4 lxml
+      - name: Run final 2017-09 audit
+        working-directory: spmo-backtest
+        run: python -u audit_2017sep_multipage.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spmo-2017sep-final-${{ github.run_id }}
+          path: spmo-backtest/output/legacy_exact_2017-09-15_final.csv
+          if-no-files-found: warn
+          retention-days: 14
