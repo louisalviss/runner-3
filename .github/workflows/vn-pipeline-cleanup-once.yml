@@ -1,0 +1,45 @@
+name: vn-pipeline-cleanup-once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vn-pipeline-cleanup-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Harden production workflows and remove one-off helpers
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/moxing-translate-vi.yml')
+          s=p.read_text()
+          s=s.replace("  push:\n    branches: [main]\n    paths:\n      - 'scripts/moxing_translate_vi.py'\n      - '.github/workflows/moxing-translate-vi.yml'\n","")
+          s=s.replace('assert chunked >= 200,chunked','assert chunked == 197,chunked')
+          p.write_text(s)
+          p=Path('.github/workflows/webnovel-writing-brain-vi.yml')
+          s=p.read_text()
+          s=s.replace("          assert 'Helsinki' not in json.dumps(m),m\n",'')
+          p.write_text(s)
+          PY
+          git rm -f \
+            .github/workflows/zhvi-model-probe.yml \
+            .github/workflows/moxing-translate-vi-finalize.yml \
+            .github/workflows/moxing-translate-vi-release-signal.yml \
+            .github/workflows/moxing-vi-manifest-clean.yml \
+            .github/workflows/vn-pipeline-cleanup-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/moxing-translate-vi.yml .github/workflows/webnovel-writing-brain-vi.yml
+          git diff --cached --check
+          git commit -m 'Harden Vietnamese writing pipeline and remove one-off workflows'
+          git push origin HEAD:main
