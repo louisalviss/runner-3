@@ -1,6 +1,7 @@
 # Trinity ATR SuperTrend audit backtest
 
-Window: 2026-07-18T20:00:00+00:00 -> 2026-08-17T20:00:00+00:00 (90 days, 3m)
+Window: 2026-07-18T20:00:00+00:00 -> 2026-08-17T20:00:00+00:00 (30 days, 3m)
+Source: OKX USDT perpetual swaps (SOL-USDT-SWAP, ETH-USDT-SWAP, XRP-USDT-SWAP).
 Defaults: ST1 3m, ST2 60m, ST3 240m, ATR 10, multiplier 1, triple alignment, SL=TP=1x 60m ATR.
 Cost model: 5 bps per side. Clean model enters on next 3m bar open and uses only previously confirmed HTF bars.
 
