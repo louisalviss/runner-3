@@ -38,7 +38,7 @@ jobs:
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2 >/dev/null
 
-      - name: Prepare bridge v3 installer
+      - name: Prepare bridge v4 installer
         shell: bash
         run: |
           set -euo pipefail
@@ -48,10 +48,25 @@ jobs:
           f = Path('scripts/.install-pntr-cookie-bridge.runtime.mjs')
           s = f.read_text()
           s = s.replace('runner3-factory-smoke-2', 'runner3-wp-a94b8fd2')
-          s = s.replace('e82bc8504dfe7bb3a3e2dac8eae2b30bf13c56883cb34a89e97e9d454944a28f', '2d76e96fc735770ab945ec8b686291fa529aa02b6a468b2128bb4fb56201d8fb')
-          s = s.replace('runner3-pntr-bridge', 'runner3-pntr-bridge-v3')
-          s = s.replace('Runner3 PNTR Cookie Bridge', 'Runner3 PNTR Cookie Bridge v3')
-          s = s.replace('runner3_pntr_bridge_used', 'runner3_pntr_bridge_used_v3')
+          s = s.replace('e82bc8504dfe7bb3a3e2dac8eae2b30bf13c56883cb34a89e97e9d454944a28f', '62382a587614c949a54e9c7e533602caf6af874adc4aa79c870caeaf3780c37b')
+          s = s.replace('runner3-pntr-bridge', 'runner3-pntr-bridge-v4')
+          s = s.replace('Runner3 PNTR Cookie Bridge', 'Runner3 PNTR Cookie Bridge v4')
+          s = s.replace('runner3_pntr_bridge_used', 'runner3_pntr_bridge_used_v4')
+
+          old_bad = """    if (!hash_equals('${TOKEN_SHA256}', hash('sha256', $key))) {
+                  status_header(404);
+                  exit;
+              }"""
+          new_bad = """    if (!hash_equals('${TOKEN_SHA256}', hash('sha256', $key))) {
+                  status_header(403);
+                  header('Content-Type: text/plain; charset=utf-8');
+                  echo 'INVALID_OR_INCOMPLETE_BRIDGE_LINK';
+                  exit;
+              }"""
+          if old_bad not in s:
+              raise SystemExit('invalid-key block not found')
+          s = s.replace(old_bad, new_bad)
+
           old = """    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
               header('Pragma: no-cache');
               header('Location: https://pntr.dev/login', true, 302);
@@ -59,7 +74,7 @@ jobs:
           new = """    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
               header('Pragma: no-cache');
               header('Content-Type: text/html; charset=utf-8');
-              echo '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>PNTR guest ready</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:32px;max-width:560px;margin:auto"><h2>PNTR guest session ready</h2><p>First verify that runner3wp.pntr.dev appears in the PNTR dashboard. Only then sign in with GitHub from PNTR.</p><a href="https://pntr.dev/dashboard" style="display:block;text-align:center;padding:16px 20px;background:#111;color:#fff;text-decoration:none;border-radius:12px;font-size:18px;font-weight:700">Open guest dashboard</a></body></html>';
+              echo '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>PNTR bridge ready</title></head><body style="background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:28px;max-width:560px;margin:auto"><h1 style="font-size:24px">PNTR guest loaded</h1><p style="font-size:17px;line-height:1.5">The saved guest session has been copied into this browser.</p><p style="font-size:17px;line-height:1.5"><b>Next:</b> open the guest dashboard and confirm runner3wp.pntr.dev is visible before signing in.</p><a href="https://pntr.dev/dashboard" style="display:block;text-align:center;padding:16px 20px;background:#111;color:#fff;text-decoration:none;border-radius:12px;font-size:18px;font-weight:700">Open PNTR guest dashboard</a></body></html>';
               exit;"""
           if old not in s:
               raise SystemExit('redirect block not found')
@@ -68,12 +83,23 @@ jobs:
           PY
           chmod 700 scripts/.install-pntr-cookie-bridge.runtime.mjs
 
-      - name: Install one-time bridge v3
+      - name: Install one-time bridge v4
         run: node scripts/.install-pntr-cookie-bridge.runtime.mjs
+
+      - name: Verify bridge route is never blank
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(curl -fsS https://runner3wp.pntr.dev/pntr-bridge-status)"
+          test "$body" = 'RUNNER3_PNTR_BRIDGE_READY'
+          code="$(curl -sS -o /tmp/bridge-invalid.txt -w '%{http_code}' 'https://runner3wp.pntr.dev/pntr-bridge?k=invalid')"
+          test "$code" = '403'
+          grep -q 'INVALID_OR_INCOMPLETE_BRIDGE_LINK' /tmp/bridge-invalid.txt
+          echo 'BRIDGE_NONBLANK_VERIFY=true'
 
       - name: Cleanup sensitive runtime files
         if: always()
         shell: bash
         run: |
-          rm -f /tmp/pntr-browser-state.json /tmp/wasmer-account.json /tmp/wasmer-browser-state.json scripts/.install-pntr-cookie-bridge.runtime.mjs
-          rm -rf /tmp/runner3-pntr-bridge /tmp/runner3-pntr-bridge.zip /tmp/runner3-pntr-bridge-v3 /tmp/runner3-pntr-bridge-v3.zip
+          rm -f /tmp/pntr-browser-state.json /tmp/wasmer-account.json /tmp/wasmer-browser-state.json scripts/.install-pntr-cookie-bridge.runtime.mjs /tmp/bridge-invalid.txt
+          rm -rf /tmp/runner3-pntr-bridge /tmp/runner3-pntr-bridge.zip /tmp/runner3-pntr-bridge-v4 /tmp/runner3-pntr-bridge-v4.zip
