@@ -1,0 +1,77 @@
+name: M88 7M zero-touch probe
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m88-7m-zero-touch-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe 7M public feed
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,re,requests
+          from urllib.parse import urljoin
+          from html import unescape
+
+          s=requests.Session()
+          s.headers.update({'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36','Accept-Language':'en-US,en;q=0.9'})
+          out={}
+
+          def get(u):
+              r=s.get(u,timeout=20,allow_redirects=True)
+              return r
+
+          # Known public detail page: verify Runner3 can read Mansion88 without auth.
+          u='https://live.7msport.com/odds/en/odds.shtml?id=5024390'
+          r=get(u)
+          txt=re.sub(r'<[^>]+>',' ',r.text)
+          txt=unescape(re.sub(r'\s+',' ',txt))
+          i=txt.lower().find('mansion88')
+          out['detail_test']={'status':r.status_code,'bytes':len(r.content),'mansion88':i>=0,'snippet':txt[max(0,i-180):i+420] if i>=0 else ''}
+
+          # Discover today's match IDs / data endpoints from public live pages and their JS assets.
+          roots=['https://live.7msport.com/','https://live.7msport.com/default_en2.aspx?line=no&view=livebetting','https://live.7msport.com/lbpk_live_en.aspx?line=no']
+          assets=[]; pages=[]; ids=set(); endpoint_hints=[]
+          for root in roots:
+              try:
+                  rr=get(root)
+                  pages.append({'url':root,'status':rr.status_code,'bytes':len(rr.content)})
+                  for m in re.findall(r'''(?:src|href)=["']([^"']+)["']''',rr.text,re.I):
+                      uu=urljoin(rr.url,m)
+                      if '.js' in uu.lower(): assets.append(uu)
+                  for m in re.findall(r'(?:id=|matchid["\']?\s*[:=]\s*["\']?)(\d{5,10})',rr.text,re.I): ids.add(m)
+                  for m in re.findall(r'''["']([^"']*(?:ajax|data|score|live|odds)[^"']*\.(?:aspx|ashx|json|js)(?:\?[^"']*)?)["']''',rr.text,re.I): endpoint_hints.append(urljoin(rr.url,m))
+              except Exception as e: pages.append({'url':root,'error':repr(e)})
+          assets=list(dict.fromkeys(assets))[:60]
+          scanned=[]
+          for a in assets:
+              try:
+                  rr=get(a)
+                  if len(rr.content)>1500000: continue
+                  body=rr.text
+                  hitids=re.findall(r'(?:id=|matchid["\']?\s*[:=]\s*["\']?)(\d{5,10})',body,re.I)
+                  ids.update(hitids)
+                  hints=re.findall(r'''["']([^"']*(?:ajax|data|score|live|odds)[^"']*\.(?:aspx|ashx|json)(?:\?[^"']*)?)["']''',body,re.I)
+                  for h in hints: endpoint_hints.append(urljoin(a,h))
+                  if hitids or hints:
+                      scanned.append({'url':a,'status':rr.status_code,'bytes':len(rr.content),'ids':hitids[:10],'hints':[urljoin(a,h) for h in hints[:15]]})
+              except Exception: pass
+
+          out['discovery']={'pages':pages,'asset_count':len(assets),'interesting_assets':scanned[:25],'ids':sorted(ids)[:100],'endpoint_hints':list(dict.fromkeys(endpoint_hints))[:100]}
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          open('/tmp/m88-7m.json','w').write(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m88-7m-${{ github.run_id }}
+          path: /tmp/m88-7m.json
+          retention-days: 3
