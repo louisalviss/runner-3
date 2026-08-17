@@ -39,24 +39,13 @@ jobs:
             -of json "$VIDEO" > "$OUT/ffprobe.json"
 
           DURATION="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$VIDEO")"
-          python - "$DURATION" "$OUT/times.txt" <<'PY'
-          import sys
-          d=float(sys.argv[1])
-          n=12
-          ts=[d*(i+0.5)/n for i in range(n)]
-          open(sys.argv[2],'w').write('\n'.join(f'{x:.3f}' for x in ts))
-          PY
-
-          i=1
-          while read -r t; do
-            ffmpeg -hide_banner -loglevel error -ss "$t" -i "$VIDEO" -frames:v 1 -q:v 3 "$OUT/frame_$(printf '%02d' "$i").jpg"
-            i=$((i+1))
-          done < "$OUT/times.txt"
+          ffmpeg -hide_banner -loglevel error -i "$VIDEO" \
+            -vf "fps=12/$DURATION" -frames:v 12 -q:v 3 "$OUT/frame_%02d.jpg"
 
           ffmpeg -hide_banner -loglevel error \
-            -i "$OUT/frame_%02d.jpg" \
+            -framerate 1 -i "$OUT/frame_%02d.jpg" \
             -filter_complex 'tile=4x3:padding=4:margin=4' \
-            -q:v 3 "$OUT/contact.jpg"
+            -frames:v 1 -q:v 3 "$OUT/contact.jpg"
 
           rm -f "$VIDEO"
 
