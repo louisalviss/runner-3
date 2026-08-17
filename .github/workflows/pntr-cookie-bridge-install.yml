@@ -38,7 +38,7 @@ jobs:
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2 >/dev/null
 
-      - name: Prepare bridge v4 installer
+      - name: Prepare isolated bridge v5 installer
         shell: bash
         run: |
           set -euo pipefail
@@ -48,10 +48,11 @@ jobs:
           f = Path('scripts/.install-pntr-cookie-bridge.runtime.mjs')
           s = f.read_text()
           s = s.replace('runner3-factory-smoke-2', 'runner3-wp-a94b8fd2')
-          s = s.replace('e82bc8504dfe7bb3a3e2dac8eae2b30bf13c56883cb34a89e97e9d454944a28f', '62382a587614c949a54e9c7e533602caf6af874adc4aa79c870caeaf3780c37b')
-          s = s.replace('runner3-pntr-bridge', 'runner3-pntr-bridge-v4')
-          s = s.replace('Runner3 PNTR Cookie Bridge', 'Runner3 PNTR Cookie Bridge v4')
-          s = s.replace('runner3_pntr_bridge_used', 'runner3_pntr_bridge_used_v4')
+          s = s.replace('e82bc8504dfe7bb3a3e2dac8eae2b30bf13c56883cb34a89e97e9d454944a28f', '3e5457288c7a20bd4170010019621e1ebf60d50763fab8a19499f7577c1aa02f')
+          s = s.replace('runner3-pntr-bridge', 'runner3-pntr-bridge-v5')
+          s = s.replace('Runner3 PNTR Cookie Bridge', 'Runner3 PNTR Cookie Bridge v5')
+          s = s.replace('runner3_pntr_bridge_used', 'runner3_pntr_bridge_used_v5')
+          s = s.replace("if ($path !== '/pntr-bridge') { return; }", "if ($path !== '/pntr-bridge-v5') { return; }")
 
           old_bad = """    if (!hash_equals('${TOKEN_SHA256}', hash('sha256', $key))) {
                   status_header(404);
@@ -83,23 +84,22 @@ jobs:
           PY
           chmod 700 scripts/.install-pntr-cookie-bridge.runtime.mjs
 
-      - name: Install one-time bridge v4
+      - name: Install isolated bridge v5
         run: node scripts/.install-pntr-cookie-bridge.runtime.mjs
 
-      - name: Verify bridge route is never blank
+      - name: Verify isolated route is nonblank
         shell: bash
         run: |
           set -euo pipefail
-          body="$(curl -fsS https://runner3wp.pntr.dev/pntr-bridge-status)"
-          test "$body" = 'RUNNER3_PNTR_BRIDGE_READY'
-          code="$(curl -sS -o /tmp/bridge-invalid.txt -w '%{http_code}' 'https://runner3wp.pntr.dev/pntr-bridge?k=invalid')"
+          code="$(curl -sS -o /tmp/bridge-invalid.txt -w '%{http_code}' 'https://runner3wp.pntr.dev/pntr-bridge-v5?k=invalid')"
+          echo "INVALID_ROUTE_HTTP=$code"
           test "$code" = '403'
           grep -q 'INVALID_OR_INCOMPLETE_BRIDGE_LINK' /tmp/bridge-invalid.txt
-          echo 'BRIDGE_NONBLANK_VERIFY=true'
+          echo 'BRIDGE_V5_NONBLANK_VERIFY=true'
 
       - name: Cleanup sensitive runtime files
         if: always()
         shell: bash
         run: |
           rm -f /tmp/pntr-browser-state.json /tmp/wasmer-account.json /tmp/wasmer-browser-state.json scripts/.install-pntr-cookie-bridge.runtime.mjs /tmp/bridge-invalid.txt
-          rm -rf /tmp/runner3-pntr-bridge /tmp/runner3-pntr-bridge.zip /tmp/runner3-pntr-bridge-v4 /tmp/runner3-pntr-bridge-v4.zip
+          rm -rf /tmp/runner3-pntr-bridge /tmp/runner3-pntr-bridge.zip /tmp/runner3-pntr-bridge-v5 /tmp/runner3-pntr-bridge-v5.zip
