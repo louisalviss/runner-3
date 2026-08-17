@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# suffix: (market name, family, selections, odds-key suffix)
 SIMPLE_MARKETS = {
     "a": ("ft_asian_handicap", "asian_handicap", ("home", "away"), "a"),
     "b": ("ft_over_under", "over_under", ("over", "under"), "b"),
@@ -21,21 +20,20 @@ SIMPLE_MARKETS = {
     "g": ("fh_1x2", "1x2", ("home", "draw", "away"), "g"),
     "h": ("fh_odd_even", "odd_even", ("odd", "even"), "h"),
     "i": ("double_chance", "double_chance", ("1X", "12", "X2"), "i"),
-    "j": ("first_last_goal", "first_last_goal", (
-        "first_goal_home", "first_goal_away", "last_goal_home", "last_goal_away", "no_goal"
-    ), "j"),
-    # The MSports response really uses an uppercase K for odds keys.
-    "k": ("ht_ft", "ht_ft", (
-        "home_home", "home_draw", "home_away",
-        "draw_home", "draw_draw", "draw_away",
-        "away_home", "away_draw", "away_away"
-    ), "K"),
+    "j": ("first_last_goal", "first_last_goal", ("first_goal_home", "first_goal_away", "last_goal_home", "last_goal_away", "no_goal"), "j"),
+    "k": ("ht_ft", "ht_ft", ("home_home", "home_draw", "home_away", "draw_home", "draw_draw", "draw_away", "away_home", "away_draw", "away_away"), "K"),
     "n": ("ft_total_goals", "total_goals", ("0-1", "2-3", "4-6", "7+"), "n"),
     "o": ("fh_total_goals", "total_goals", ("0-1", "2-3", "4+"), "o"),
 }
-
 SCOPE_FILES = ("live", "today", "early")
 EXTRA_GROUPS = (4, 5, 6, 7, 8)
+GROUP_MARKETS = {
+    4: {"ft_total_goals", "fh_total_goals"},
+    5: {"double_chance"},
+    6: {"ht_ft"},
+    7: {"first_last_goal"},
+    8: {"correct_score"},
+}
 SCORE_RE = re.compile(r"^\d+-\d+$")
 
 
@@ -47,304 +45,173 @@ def number(v: Any):
     s = text(v)
     if not s:
         return None
-    try:
-        return float(s)
-    except ValueError:
-        return s
+    try: return float(s)
+    except ValueError: return s
 
 
 def parse_price(raw: Any) -> dict[str, Any] | None:
     s = text(raw)
-    if not s:
-        return None
+    if not s: return None
     parts = s.split("|")
     primary = text(parts[0]) if parts else ""
-    # M88 uses a literal | for unavailable selections.
-    if not primary:
-        return None
+    if not primary: return None
     secondary = text(parts[1]) if len(parts) > 1 else ""
     choice_id = text(parts[2]) if len(parts) > 2 else ""
-    return {
-        "value": number(primary),
-        "secondary": number(secondary),
-        "choice_id": choice_id or None,
-        "raw": s,
-    }
+    return {"value": number(primary), "secondary": number(secondary), "choice_id": choice_id or None, "raw": s}
 
 
-def league_from_row(row: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
+def league_from_row(row, previous):
     raw = text(row.get("event_name"))
-    if not raw:
-        return previous
-    return {
-        "id": text(row.get("no_event")) or previous.get("id"),
-        "name": text(raw.split("|")[0]),
-        "raw": raw,
-    }
+    if not raw: return previous
+    return {"id": text(row.get("no_event")) or previous.get("id"), "name": text(raw.split("|")[0]), "raw": raw}
 
 
-def simple_market_line(row: dict[str, Any], suffix: str) -> dict[str, Any] | None:
+def simple_market_line(row, suffix):
     market, family, selections, odds_suffix = SIMPLE_MARKETS[suffix]
     game_type = text(row.get(f"game_type_{suffix}"))
-    if not game_type:
-        return None
+    if not game_type: return None
     prices = []
-    for idx, selection in enumerate(selections, start=1):
+    for idx, selection in enumerate(selections, 1):
         p = parse_price(row.get(f"odds_{idx}_{odds_suffix}"))
-        if p is not None:
-            prices.append({"selection": selection, **p})
-    if not prices:
-        return None
-    item: dict[str, Any] = {
-        "market": market,
-        "family": family,
-        "game_type": game_type,
-        "sub_partai": text(row.get(f"sub_partai_{suffix}")) or None,
-        "status_raw": text(row.get(f"status_{suffix}")) or None,
-        "cash_out_raw": text(row.get(f"cash_out_{suffix}")) or None,
-        "prices": prices,
-    }
+        if p is not None: prices.append({"selection": selection, **p})
+    if not prices: return None
+    item = {"market": market, "family": family, "game_type": game_type, "sub_partai": text(row.get(f"sub_partai_{suffix}")) or None, "status_raw": text(row.get(f"status_{suffix}")) or None, "cash_out_raw": text(row.get(f"cash_out_{suffix}")) or None, "prices": prices}
     if family in {"asian_handicap", "over_under"}:
-        item["line"] = number(row.get(f"hdc_ori_{suffix}"))
-        item["line_display_raw"] = text(row.get(f"hdc_display_{suffix}")) or None
+        item["line"] = number(row.get(f"hdc_ori_{suffix}")); item["line_display_raw"] = text(row.get(f"hdc_display_{suffix}")) or None
     return item
 
 
-def correct_score_line(row: dict[str, Any]) -> dict[str, Any] | None:
+def correct_score_line(row):
     raw = text(row.get("odds_1_l")) or text(row.get("game_type_l"))
-    if not raw or "_" not in raw:
-        return None
+    if not raw or "_" not in raw: return None
     prices = []
     for chunk in raw.split("_"):
         parts = chunk.split("|")
-        if not parts or not SCORE_RE.match(text(parts[0])):
-            continue
-        score = text(parts[0])
-        primary = text(parts[1]) if len(parts) > 1 else ""
-        if not primary:
-            continue
-        secondary = text(parts[2]) if len(parts) > 2 else ""
-        choice = text(parts[3]) if len(parts) > 3 else ""
-        prices.append({
-            "selection": score,
-            "value": number(primary),
-            "secondary": number(secondary),
-            "choice_id": choice or None,
-            "raw": "|".join(parts),
-        })
-    if not prices:
-        return None
-    # The packed prefix is normally e.g. 1001_29 before score entries.
-    prefix = raw.split("_")[0]
-    return {
-        "market": "correct_score",
-        "family": "correct_score",
-        "game_type": prefix,
-        "sub_partai": None,
-        "status_raw": None,
-        "cash_out_raw": None,
-        "prices": prices,
-    }
+        if not parts or not SCORE_RE.match(text(parts[0])): continue
+        score = text(parts[0]); primary = text(parts[1]) if len(parts) > 1 else ""
+        if not primary: continue
+        secondary = text(parts[2]) if len(parts) > 2 else ""; choice = text(parts[3]) if len(parts) > 3 else ""
+        prices.append({"selection": score, "value": number(primary), "secondary": number(secondary), "choice_id": choice or None, "raw": "|".join(parts)})
+    if not prices: return None
+    return {"market": "correct_score", "family": "correct_score", "game_type": raw.split("_")[0], "sub_partai": None, "status_raw": None, "cash_out_raw": None, "prices": prices}
 
 
-def line_key(line: dict[str, Any]) -> str:
-    return json.dumps({
-        "market": line.get("market"),
-        "game_type": line.get("game_type"),
-        "sub_partai": line.get("sub_partai"),
-        "line": line.get("line"),
-        "prices": [(p.get("selection"), p.get("value"), p.get("choice_id")) for p in line.get("prices", [])],
-    }, sort_keys=True, ensure_ascii=False)
+def line_key(line):
+    return json.dumps({"market": line.get("market"), "game_type": line.get("game_type"), "sub_partai": line.get("sub_partai"), "line": line.get("line"), "prices": [(p.get("selection"), p.get("value"), p.get("choice_id")) for p in line.get("prices", [])]}, sort_keys=True, ensure_ascii=False)
 
 
-def add_row_markets(match: dict[str, Any], row: dict[str, Any]) -> None:
+def add_row_markets(match, row):
     seen = match.setdefault("_market_keys", set())
     for suffix in SIMPLE_MARKETS:
         line = simple_market_line(row, suffix)
-        if line is None:
-            continue
-        key = line_key(line)
-        if key not in seen:
-            seen.add(key)
-            match["markets"].setdefault(line["market"], []).append(line)
+        if line is None: continue
+        k = line_key(line)
+        if k not in seen:
+            seen.add(k); match["markets"].setdefault(line["market"], []).append(line)
     cs = correct_score_line(row)
     if cs is not None:
-        key = line_key(cs)
-        if key not in seen:
-            seen.add(key)
-            match["markets"].setdefault("correct_score", []).append(cs)
+        k = line_key(cs)
+        if k not in seen:
+            seen.add(k); match["markets"].setdefault("correct_score", []).append(cs)
 
 
-def new_match(row: dict[str, Any], scope: str, sport_id: str | None, league: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "scope": scope,
-        "sport_id": sport_id,
-        "league": dict(league),
-        "match_id": text(row.get("no_partai")) or None,
-        "match_date": text(row.get("match_date")) or None,
-        "home": text(row.get("club_home")),
-        "away": text(row.get("club_away")),
-        "home_score": text(row.get("home_score")) or None,
-        "away_score": text(row.get("away_score")) or None,
-        "live_timer": text(row.get("live_timer")) or None,
-        "event_round": text(row.get("event_round")) or None,
-        "is_live": text(row.get("is_live")) or None,
-        "is_neutral": text(row.get("is_neutral")) or None,
-        "markets": {},
-        "_market_keys": set(),
-    }
+def new_match(row, scope, sport_id, league):
+    return {"scope": scope, "sport_id": sport_id, "league": dict(league), "match_id": text(row.get("no_partai")) or None, "match_date": text(row.get("match_date")) or None, "home": text(row.get("club_home")), "away": text(row.get("club_away")), "home_score": text(row.get("home_score")) or None, "away_score": text(row.get("away_score")) or None, "live_timer": text(row.get("live_timer")) or None, "event_round": text(row.get("event_round")) or None, "is_live": text(row.get("is_live")) or None, "is_neutral": text(row.get("is_neutral")) or None, "markets": {}, "_market_keys": set()}
 
 
-def parse_payload(payload: dict[str, Any], scope: str) -> list[dict[str, Any]]:
-    if payload.get("status") != 1:
-        return []
-    matches: list[dict[str, Any]] = []
-    league: dict[str, Any] = {"id": None, "name": "", "raw": ""}
-    current: dict[str, Any] | None = None
+def parse_payload(payload, scope):
+    if payload.get("status") != 1: return []
+    matches = []; league = {"id": None, "name": "", "raw": ""}; current = None
     for block in payload.get("data") or []:
-        if not isinstance(block, dict):
-            continue
+        if not isinstance(block, dict): continue
         sport_id = text(block.get("spid")) or None
         for row in block.get("data") or []:
-            if not isinstance(row, dict):
-                continue
-            league = league_from_row(row, league)
-            home, away = text(row.get("club_home")), text(row.get("club_away"))
+            if not isinstance(row, dict): continue
+            league = league_from_row(row, league); home = text(row.get("club_home")); away = text(row.get("club_away"))
             if home or away:
-                current = new_match(row, scope, sport_id, league)
-                matches.append(current)
-            elif current is None:
-                continue
-            elif league.get("name") and current.get("league", {}).get("name") != league.get("name"):
-                continue
+                current = new_match(row, scope, sport_id, league); matches.append(current)
+            elif current is None: continue
+            elif league.get("name") and current.get("league", {}).get("name") != league.get("name"): continue
             add_row_markets(current, row)
     return matches
 
 
-def match_key(m: dict[str, Any]) -> tuple:
-    if m.get("match_id"):
-        return ("id", str(m["match_id"]))
+def match_key(m):
+    if m.get("match_id"): return ("id", str(m["match_id"]))
     return ("names", m.get("scope"), m.get("home"), m.get("away"), (m.get("league") or {}).get("name"))
 
 
-def merge_match(dst: dict[str, Any], src: dict[str, Any]) -> None:
+def merge_match(dst, src):
     for field in ("match_date", "home_score", "away_score", "live_timer", "event_round", "is_live", "is_neutral"):
-        if src.get(field) not in (None, ""):
-            dst[field] = src[field]
-    if src.get("league", {}).get("name"):
-        dst["league"] = src["league"]
+        if src.get(field) not in (None, ""): dst[field] = src[field]
     seen = dst.setdefault("_market_keys", set())
     for name, lines in (src.get("markets") or {}).items():
         for line in lines:
-            key = line_key(line)
-            if key in seen:
-                continue
-            seen.add(key)
-            dst["markets"].setdefault(name, []).append(line)
+            k = line_key(line)
+            if k in seen: continue
+            seen.add(k); dst["markets"].setdefault(name, []).append(line)
 
 
-def load_json(path: Path) -> dict[str, Any] | None:
-    if not path.exists():
-        return None
+def load_json(path):
+    if not path.exists(): return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        return data if isinstance(data, dict) else None
-    except Exception:
-        return None
+        d = json.loads(path.read_text(encoding="utf-8", errors="replace")); return d if isinstance(d, dict) else None
+    except Exception: return None
 
 
-def load_scope(input_dir: Path, scope: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    files = [(1, input_dir / f"{scope}.json")] + [(g, input_dir / f"{scope}_g{g}.json") for g in EXTRA_GROUPS]
-    merged: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
+def load_scope(input_dir, scope):
+    base_path = input_dir / f"{scope}.json"
+    base_payload = load_json(base_path)
     sources = []
-    for group, path in files:
-        payload = load_json(path)
+    merged = OrderedDict()
+    if base_payload is not None:
+        base_matches = parse_payload(base_payload, scope)
+        sources.append({"scope": scope, "group": 1, "file": str(base_path), "present": True, "api_status": base_payload.get("status"), "matches": len(base_matches), "bytes": base_path.stat().st_size})
+        for m in base_matches: merged[match_key(m)] = m
+    else:
+        sources.append({"scope": scope, "group": 1, "file": str(base_path), "present": False})
+        base_matches = []
+
+    # Special display groups are supplemental only: never create events outside the
+    # canonical group-1 scope, and only keep the unique market family for that group.
+    for group in EXTRA_GROUPS:
+        path = input_dir / f"{scope}_g{group}.json"; payload = load_json(path)
         if payload is None:
-            sources.append({"scope": scope, "group": group, "file": str(path), "present": False})
-            continue
-        parsed = parse_payload(payload, scope)
-        sources.append({
-            "scope": scope, "group": group, "file": str(path), "present": True,
-            "api_status": payload.get("status"), "matches": len(parsed), "bytes": path.stat().st_size,
-        })
+            sources.append({"scope": scope, "group": group, "file": str(path), "present": False}); continue
+        parsed = parse_payload(payload, scope); allowed = GROUP_MARKETS[group]
+        sources.append({"scope": scope, "group": group, "file": str(path), "present": True, "api_status": payload.get("status"), "matches": len(parsed), "bytes": path.stat().st_size})
         for m in parsed:
             key = match_key(m)
-            if key not in merged:
-                merged[key] = m
-            else:
-                merge_match(merged[key], m)
+            if key not in merged: continue
+            m["markets"] = {n: ls for n, ls in (m.get("markets") or {}).items() if n in allowed}
+            if m["markets"]: merge_match(merged[key], m)
+
     out = list(merged.values())
-    for m in out:
-        m.pop("_market_keys", None)
+    for m in out: m.pop("_market_keys", None)
     return out, sources
 
 
-def write_csv(path: Path, matches: list[dict[str, Any]], odds_format: str) -> None:
-    fields = [
-        "scope", "league", "match_id", "match_date", "live_timer", "event_round", "home", "away",
-        "home_score", "away_score", "market", "family", "game_type", "sub_partai", "line",
-        "selection", "price", "secondary", "choice_id", "raw_price", "odds_format",
-    ]
+def write_csv(path, matches, odds_format):
+    fields = ["scope","league","match_id","match_date","live_timer","event_round","home","away","home_score","away_score","market","family","game_type","sub_partai","line","selection","price","secondary","choice_id","raw_price","odds_format"]
     with path.open("w", encoding="utf-8", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=fields)
-        w.writeheader()
+        w = csv.DictWriter(fh, fieldnames=fields); w.writeheader()
         for m in matches:
             for market, lines in (m.get("markets") or {}).items():
                 for line in lines:
                     for p in line.get("prices") or []:
-                        w.writerow({
-                            "scope": m.get("scope"), "league": (m.get("league") or {}).get("name"),
-                            "match_id": m.get("match_id"), "match_date": m.get("match_date"),
-                            "live_timer": m.get("live_timer"), "event_round": m.get("event_round"),
-                            "home": m.get("home"), "away": m.get("away"),
-                            "home_score": m.get("home_score"), "away_score": m.get("away_score"),
-                            "market": market, "family": line.get("family"), "game_type": line.get("game_type"),
-                            "sub_partai": line.get("sub_partai"), "line": line.get("line"),
-                            "selection": p.get("selection"), "price": p.get("value"),
-                            "secondary": p.get("secondary"), "choice_id": p.get("choice_id"),
-                            "raw_price": p.get("raw"), "odds_format": odds_format,
-                        })
+                        w.writerow({"scope":m.get("scope"),"league":(m.get("league") or {}).get("name"),"match_id":m.get("match_id"),"match_date":m.get("match_date"),"live_timer":m.get("live_timer"),"event_round":m.get("event_round"),"home":m.get("home"),"away":m.get("away"),"home_score":m.get("home_score"),"away_score":m.get("away_score"),"market":market,"family":line.get("family"),"game_type":line.get("game_type"),"sub_partai":line.get("sub_partai"),"line":line.get("line"),"selection":p.get("selection"),"price":p.get("value"),"secondary":p.get("secondary"),"choice_id":p.get("choice_id"),"raw_price":p.get("raw"),"odds_format":odds_format})
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--input-dir", default="evidence")
-    ap.add_argument("--output-json", default="evidence/m88_full_odds.json")
-    ap.add_argument("--output-csv", default="evidence/m88_full_odds.csv")
-    ap.add_argument("--odds-format", default="decimal")
-    args = ap.parse_args()
-    input_dir = Path(args.input_dir)
-    all_matches: list[dict[str, Any]] = []
-    sources: list[dict[str, Any]] = []
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument("--input-dir",default="evidence");ap.add_argument("--output-json",default="evidence/m88_full_odds.json");ap.add_argument("--output-csv",default="evidence/m88_full_odds.csv");ap.add_argument("--odds-format",default="decimal");args=ap.parse_args()
+    input_dir=Path(args.input_dir);all_matches=[];sources=[]
     for scope in SCOPE_FILES:
-        ms, ss = load_scope(input_dir, scope)
-        all_matches.extend(ms)
-        sources.extend(ss)
-    by_scope = {s: sum(1 for m in all_matches if m.get("scope") == s) for s in SCOPE_FILES}
-    market_matches: dict[str, int] = {}
-    selection_counts: dict[str, int] = {}
+        ms,ss=load_scope(input_dir,scope);all_matches.extend(ms);sources.extend(ss)
+    by_scope={s:sum(1 for m in all_matches if m.get("scope")==s) for s in SCOPE_FILES};market_matches={};selection_counts={}
     for m in all_matches:
-        for name, lines in (m.get("markets") or {}).items():
-            market_matches[name] = market_matches.get(name, 0) + 1
-            selection_counts[name] = selection_counts.get(name, 0) + sum(len(x.get("prices") or []) for x in lines)
-    output = {
-        "source": "M88 / MSports public guest API full soccer groups",
-        "odds_format": args.odds_format,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "counts": {
-            "matches": len(all_matches), "by_scope": by_scope,
-            "market_matches": market_matches, "selections": selection_counts,
-            "total_selections": sum(selection_counts.values()),
-        },
-        "sources": sources,
-        "matches": all_matches,
-    }
-    jp, cp = Path(args.output_json), Path(args.output_csv)
-    jp.parent.mkdir(parents=True, exist_ok=True); cp.parent.mkdir(parents=True, exist_ok=True)
-    jp.write_text(json.dumps(output, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    write_csv(cp, all_matches, args.odds_format)
-    print(json.dumps(output["counts"], ensure_ascii=False, indent=2))
+        for name,lines in (m.get("markets") or {}).items():
+            market_matches[name]=market_matches.get(name,0)+1;selection_counts[name]=selection_counts.get(name,0)+sum(len(x.get("prices") or []) for x in lines)
+    output={"source":"M88 / MSports public guest API full soccer groups","odds_format":args.odds_format,"generated_at":datetime.now(timezone.utc).isoformat(),"counts":{"matches":len(all_matches),"by_scope":by_scope,"market_matches":market_matches,"selections":selection_counts,"total_selections":sum(selection_counts.values())},"sources":sources,"matches":all_matches}
+    jp,cp=Path(args.output_json),Path(args.output_csv);jp.parent.mkdir(parents=True,exist_ok=True);cp.parent.mkdir(parents=True,exist_ok=True);jp.write_text(json.dumps(output,ensure_ascii=False,separators=(",",":")),encoding="utf-8");write_csv(cp,all_matches,args.odds_format);print(json.dumps(output["counts"],ensure_ascii=False,indent=2))
 
-
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()
