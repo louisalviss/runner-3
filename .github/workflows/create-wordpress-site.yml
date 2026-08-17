@@ -124,12 +124,6 @@ jobs:
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Bound pre-DNS HTTP probes
-        shell: bash
-        run: |
-          set -euo pipefail
-          sed -i 's/timeout: 30000/timeout: 5000/g' scripts/create-wordpress-site.mjs
-
       - name: Create and configure WordPress site
         run: node scripts/create-wordpress-site.mjs
 
