@@ -1,0 +1,99 @@
+name: WR cross-asset history probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wr-cross-asset-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - name: Probe TradingView history depth
+        run: |
+          cat > /tmp/probe.py <<'PY'
+          import json,random,re,string,time
+          from datetime import datetime,timezone
+          import websocket
+          TV='wss://data.tradingview.com/socket.io/websocket?from=chart%2F'
+          RX=re.compile(r'~m~(\d+)~m~')
+          def frame(s): return f'~m~{len(s)}~m~{s}'
+          def cmd(m,p): return frame(json.dumps({'m':m,'p':p},separators=(',',':')))
+          def sid(p): return p+''.join(random.choice(string.ascii_lowercase) for _ in range(12))
+          def payloads(raw):
+              pos=0
+              while pos<len(raw):
+                  m=RX.match(raw,pos)
+                  if not m: break
+                  n=int(m.group(1)); a=m.end(); b=a+n
+                  if b>len(raw): break
+                  yield raw[a:b]; pos=b
+          def probe(fullsym,res='3',initial=5000,more_rounds=3):
+              cs=sid('cs_'); ws=websocket.create_connection(TV,timeout=20,origin='https://www.tradingview.com',header=['User-Agent: Mozilla/5.0'])
+              bars={}; meta={}; errors=[]
+              try:
+                  ws.send(cmd('set_auth_token',['unauthorized_user_token']))
+                  ws.send(cmd('chart_create_session',[cs,'']))
+                  spec={'symbol':fullsym,'adjustment':'splits','session':'regular'}
+                  ws.send(cmd('resolve_symbol',[cs,'sym_0','='+json.dumps(spec,separators=(',',':'))]))
+                  ws.send(cmd('create_series',[cs,'ser_0','ser_0','sym_0',res,initial]))
+                  completed=0; deadline=time.monotonic()+35
+                  requested_more=False
+                  while time.monotonic()<deadline:
+                      ws.settimeout(max(.5,min(5,deadline-time.monotonic())))
+                      try: raw=ws.recv()
+                      except Exception: break
+                      if not isinstance(raw,str): continue
+                      for p in payloads(raw):
+                          if p.startswith('~h~'): ws.send(frame(p)); continue
+                          try: msg=json.loads(p)
+                          except: continue
+                          m=msg.get('m'); par=msg.get('p',[])
+                          if m=='symbol_resolved' and len(par)>=3 and isinstance(par[2],dict):
+                              x=par[2]
+                              for k in ('name','full_name','description','exchange','listed_exchange','timezone','session','session_holidays','minmov','pricescale','pointvalue','type'):
+                                  if k in x: meta[k]=x[k]
+                          elif m=='critical_error': errors.append(par)
+                          elif m=='timescale_update':
+                              u=par[1] if len(par)>1 and isinstance(par[1],dict) else {}
+                              s=u.get('ser_0')
+                              if isinstance(s,dict):
+                                  for x in s.get('s',[]):
+                                      v=x.get('v',[])
+                                      if len(v)>=6:
+                                          try: bars[int(float(v[0]))]=list(map(float,v[:6]))
+                                          except: pass
+                          elif m=='series_completed':
+                              completed+=1
+                              if completed<=more_rounds:
+                                  ws.send(cmd('request_more_data',[cs,'ser_0',5000]))
+                                  requested_more=True
+                              else:
+                                  deadline=min(deadline,time.monotonic()+2)
+                  ts=sorted(bars)
+                  return {'symbol':fullsym,'resolution':res,'bars':len(ts),'from':datetime.fromtimestamp(ts[0],timezone.utc).isoformat() if ts else None,'to':datetime.fromtimestamp(ts[-1],timezone.utc).isoformat() if ts else None,'meta':meta,'errors':errors,'completed_events':completed,'requested_more':requested_more}
+              finally:
+                  try: ws.close()
+                  except: pass
+          syms=['NASDAQ:AAPL','FX_IDC:EURUSD','OANDA:XAUUSD','OANDA:NAS100USD','OANDA:SPX500USD','OANDA:US30USD','CME_MINI:NQ1!','CME_MINI:ES1!','COMEX:GC1!']
+          out=[]
+          for s in syms:
+              try: out.append(probe(s))
+              except Exception as e: out.append({'symbol':s,'error':repr(e)})
+          open('wr_cross_asset_probe.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+          python /tmp/probe.py
+      - name: Persist probe
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wr_cross_asset_probe.json
+          git commit -m 'test: store cross-asset history probe [skip ci]' || exit 0
+          git push
