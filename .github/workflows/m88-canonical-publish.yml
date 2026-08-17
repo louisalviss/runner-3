@@ -2,6 +2,11 @@ name: M88 Canonical Publisher
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - 'M88 Live Publisher'
+      - 'M88 zero-touch odds collector'
+    types: [completed]
   push:
     branches: [main]
     paths:
