@@ -38,14 +38,16 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
-          old="  await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout=90000});"
+          pat=r"(?m)^\s*await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout:90000\}\);"
           new="  const __sym=process.env.TV_SYMBOL||'BNBUSDT';\n  await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});"
-          assert old in s; s=s.replace(old,new,1)
-          marker="  await trades.click({force:true}); await p.waitForTimeout(6000);\n"
-          assert marker in s
+          s,n=re.subn(pat,new,s,count=1)
+          if n!=1: raise SystemExit(f'url patch count={n}')
+          marker="  await trades.click({force:true}); await p.waitForTimeout(6000);"
+          if marker not in s: raise SystemExit('trade marker missing')
           sn=Path('scripts/tradingview-row-detail-probe-snippet.js.txt').read_text()
-          s=s.replace(marker,marker+'\n'+sn+'\n',1)
+          s=s.replace(marker,marker+'\n\n'+sn,1)
           Path('scripts/.tv-row-detail-temp.mjs').write_text(s)
           PY
       - name: Capture structured rows
