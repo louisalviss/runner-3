@@ -32,89 +32,95 @@ jobs:
           out = {'timestamp_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'sources': {}}
 
           def get(url, timeout=20):
-              r = S.get(url, timeout=timeout, allow_redirects=True)
-              return r
+              return S.get(url, timeout=timeout, allow_redirects=True)
 
-          # 1) Odds-API.io public catalog is useful as a health check only.
+          # API providers: public catalog works, actual odds require an account key.
           try:
               r = get('https://api.odds-api.io/v3/sports')
               out['sources']['odds_api_public_catalog'] = {
-                  'status': r.status_code,
+                  'status': r.status_code, 'bytes': len(r.content),
                   'usable_for_m88_odds_without_key': False,
-                  'bytes': len(r.content),
               }
           except Exception as e:
               out['sources']['odds_api_public_catalog'] = {'error': repr(e), 'usable_for_m88_odds_without_key': False}
 
-          # 2) 888scoreonline publicly lists Mansion88. Inspect the page and discover linked odds endpoints.
-          try:
-              base = 'https://www.888scoreonline.net/Comp.htm'
-              r = get(base)
-              soup = BeautifulSoup(r.text, 'html.parser')
-              text = ' '.join(soup.stripped_strings)
-              links = []
-              for a in soup.find_all('a', href=True):
-                  href = urljoin(base, a['href'])
-                  label = ' '.join(a.stripped_strings)
-                  if any(k in (href + ' ' + label).lower() for k in ['odd', 'comp', 'handicap', '1x2']):
-                      links.append(href)
-              out['sources']['888scoreonline'] = {
-                  'status': r.status_code,
-                  'bytes': len(r.content),
-                  'mansion88_visible': 'mansion88' in text.lower(),
-                  'candidate_links': list(dict.fromkeys(links))[:20],
-              }
-          except Exception as e:
-              out['sources']['888scoreonline'] = {'error': repr(e)}
-
-          # 3) FootballAnt: discover today's match-detail/odds URLs from public pages, then extract M88 snippets.
-          fa = {'pages': [], 'candidate_count': 0, 'm88_hits': []}
-          candidates = []
-          for start in ['https://www.footballant.com/', 'https://www.footballant.com/?type=2']:
+          # Public 888score pages expose Mansion88 and load odds dynamically. Discover all public feed assets.
+          ss = {'pages': [], 'assets': [], 'm88_assets': [], 'm88_page_visible': False}
+          roots = [
+              'https://www.888scoreonline.net/Comp.htm',
+              'https://www.888scoreonline.net/OU.htm',
+              'https://www.888scoreonline.net/OddsLive.htm',
+              'https://www.888scoreonline.net/6in1.htm',
+              'http://fb.888scoreonline.net/1x2/',
+              'http://fb.888scoreonline.net/history/handicap.aspx',
+              'http://fb.888scoreonline.net/history/lastchange.aspx?ot=1',
+              'http://fb.888scoreonline.net/history/lastchange.aspx?ot=2',
+          ]
+          asset_urls = []
+          for url in roots:
               try:
-                  r = get(start)
-                  fa['pages'].append({'url': start, 'status': r.status_code, 'bytes': len(r.content)})
-                  soup = BeautifulSoup(r.text, 'html.parser')
-                  for a in soup.find_all('a', href=True):
-                      href = urljoin(start, a['href'])
-                      low = href.lower()
-                      if ('/matches/' in low and ('/odds' in low or re.search(r'/matches/\d+/?$', low))) or 'sch_id=' in low:
-                          candidates.append(href)
-                  # Also scan raw HTML for SSR/JSON URLs not represented as anchors.
-                  for m in re.findall(r'https?://(?:www\.)?footballant\.com/matches/\d+/odds|/matches/\d+/odds', r.text):
-                      candidates.append(urljoin(start, m))
-              except Exception as e:
-                  fa['pages'].append({'url': start, 'error': repr(e)})
-
-          candidates = list(dict.fromkeys(candidates))
-          fa['candidate_count'] = len(candidates)
-          for url in candidates[:60]:
-              try:
-                  r = get(url, timeout=15)
-                  if r.status_code != 200:
-                      continue
+                  r = get(url)
                   soup = BeautifulSoup(r.text, 'html.parser')
                   text = ' '.join(soup.stripped_strings)
-                  low = text.lower()
-                  idxs = [m.start() for m in re.finditer(r'\bm88\b|mansion88', low)]
-                  if not idxs:
+                  if 'mansion88' in text.lower() or re.search(r'\bm88\b', text, re.I):
+                      ss['m88_page_visible'] = True
+                  page = {'url': url, 'final_url': r.url, 'status': r.status_code, 'bytes': len(r.content), 'm88': bool('mansion88' in text.lower() or re.search(r'\bm88\b', text, re.I))}
+                  scripts = []
+                  for tag in soup.find_all(['script','iframe','link']):
+                      v = tag.get('src') or tag.get('href')
+                      if v:
+                          u = urljoin(r.url, v)
+                          scripts.append(u)
+                          if any(k in u.lower() for k in ['888score', '888img', 'data.', 'fb.', '.js', 'odds']):
+                              asset_urls.append(u)
+                  # discover absolute/relative endpoints embedded in inline JS
+                  raw_candidates = re.findall(r'''(?i)(?:https?:)?//[^\s'\"<>]+|[A-Za-z0-9_./-]+\.(?:js|json|ashx|aspx|php)(?:\?[^\s'\"<>]*)?''', r.text)
+                  for v in raw_candidates:
+                      if v.startswith('//'):
+                          v = 'https:' + v
+                      u = urljoin(r.url, v)
+                      if any(k in u.lower() for k in ['888score', '888img', 'data.', 'fb.', '.js', 'odds', 'score']):
+                          asset_urls.append(u)
+                  page['assets_found'] = list(dict.fromkeys(scripts))[:30]
+                  ss['pages'].append(page)
+              except Exception as e:
+                  ss['pages'].append({'url': url, 'error': repr(e)})
+
+          asset_urls = list(dict.fromkeys(asset_urls))[:100]
+          for u in asset_urls:
+              try:
+                  r = get(u, timeout=12)
+                  if len(r.content) > 4_000_000:
                       continue
-                  snippets = []
-                  for i in idxs[:5]:
-                      snippets.append(text[max(0, i-220): i+420])
-                  fa['m88_hits'].append({'url': url, 'snippets': snippets})
-                  if len(fa['m88_hits']) >= 8:
-                      break
+                  t = r.text
+                  rec = {'url': u, 'final_url': r.url, 'status': r.status_code, 'bytes': len(r.content)}
+                  ss['assets'].append(rec)
+                  low = t.lower()
+                  if 'mansion88' in low or re.search(r'\bm88\b', low):
+                      idx = low.find('mansion88')
+                      if idx < 0:
+                          m = re.search(r'\bm88\b', low); idx = m.start() if m else 0
+                      ss['m88_assets'].append({'url': r.url, 'status': r.status_code, 'snippet': t[max(0,idx-350):idx+900].replace('\n',' ')})
               except Exception:
                   pass
+          out['sources']['888scoreonline'] = ss
+
+          # FootballAnt is useful only if directly available from Runner3; do not evade its access controls.
+          fa = {'pages': []}
+          for url in ['https://www.footballant.com/', 'https://www.footballant.com/?type=2']:
+              try:
+                  r = get(url)
+                  fa['pages'].append({'url': url, 'status': r.status_code, 'bytes': len(r.content)})
+              except Exception as e:
+                  fa['pages'].append({'url': url, 'error': repr(e)})
           out['sources']['footballant'] = fa
 
-          # Machine-readable decision. A real hit must contain M88 on a match odds detail page.
-          hits = out['sources'].get('footballant', {}).get('m88_hits', [])
+          usable = bool(ss['m88_assets'])
           out['decision'] = {
-              'zero_touch_no_key_path_found': bool(hits),
-              'primary': 'footballant-public' if hits else None,
-              'note': 'No account, API key, VPN or browser session used.'
+              'zero_touch_no_key_path_found': usable,
+              'primary': '888scoreonline-public-feed' if usable else None,
+              'm88_assets_found': len(ss['m88_assets']),
+              'note': 'No account, API key, VPN, cookies or protected-site bypass used.'
           }
           print(json.dumps(out, ensure_ascii=False, indent=2))
           with open('/tmp/m88-zero-touch-result.json', 'w') as f:
