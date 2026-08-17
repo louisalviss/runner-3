@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - name: Create disposable Mail.tm inbox
         shell: bash
@@ -21,9 +21,8 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, secrets, urllib.request
-          def req(url, data=None, token=None):
+          def req(url, data=None):
               headers={'Content-Type':'application/json'}
-              if token: headers['Authorization']='Bearer '+token
               r=urllib.request.Request(url, data=(json.dumps(data).encode() if data else None), headers=headers, method='POST' if data else 'GET')
               with urllib.request.urlopen(r, timeout=30) as x: return json.loads(x.read().decode())
           d=req('https://api.mail.tm/domains')
@@ -36,70 +35,35 @@ jobs:
           tok=req('https://api.mail.tm/token', {'address':address,'password':password})['token']
           open('/tmp/mailtm.json','w').write(json.dumps({'address':address,'password':password,'token':tok}))
           print('MAILTM_CREATED=true')
-          print('MAILTM_DOMAIN='+domain)
           PY
 
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Advance cpanelfree checkout
+      - name: Inspect registration requirements
         shell: bash
         run: |
           set -euo pipefail
-          cat > probe-zero-touch.mjs <<'JS'
+          cat > inspect-register.mjs <<'JS'
           import { chromium } from 'playwright-core';
           import fs from 'fs';
-          import crypto from 'crypto';
           const mail=JSON.parse(fs.readFileSync('/tmp/mailtm.json','utf8'));
-          const slug='runner3wp'+crypto.randomBytes(4).toString('hex');
           const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
-          const ctx=await browser.newContext();
-          const page=await ctx.newPage();
-          async function report(label){
-            await page.waitForTimeout(1500);
-            const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
-            const html=(await page.content()).toLowerCase();
-            const inputs=await page.locator('input,select,textarea').evaluateAll(els=>els.map((e,i)=>({i,tag:e.tagName,type:e.type||'',name:e.name||'',id:e.id||'',placeholder:e.placeholder||'',required:!!e.required,value:(e.type==='hidden'?'[hidden]':(e.value||'')).slice(0,100)}))).catch(()=>[]);
-            const controls=await page.locator('a,button').evaluateAll(els=>els.map((e,i)=>({i,tag:e.tagName,text:(e.innerText||'').replace(/\s+/g,' ').trim().slice(0,100),href:e.href||'',type:e.type||''})).filter(x=>x.text||x.href).slice(0,140)).catch(()=>[]);
-            const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-','security code'].filter(x=>html.includes(x)||body.toLowerCase().includes(x));
-            console.log(`--- ${label} ---`);
-            console.log('URL='+page.url());
-            console.log('CAPTCHA_MARKERS='+markers.join(','));
-            console.log('INPUTS='+JSON.stringify(inputs.slice(0,100)));
-            console.log('CONTROLS='+JSON.stringify(controls));
-            console.log('BODY_SAMPLE='+body.slice(0,2600));
-          }
+          const page=await browser.newPage();
           try {
-            await page.goto('https://my.cpanelfree.com/store/free-hosting/free-hosting',{waitUntil:'domcontentloaded',timeout:60000});
-            await page.locator('#subdomainsld').fill(slug);
-            const tld=page.locator('#subdomaintld');
-            const opts=await tld.locator('option').allTextContents();
-            console.log('FREE_TLDS='+JSON.stringify(opts));
-            await page.getByRole('button',{name:/Check/i}).click();
-            await report('DOMAIN_CHECK');
-            const cont=page.getByRole('button',{name:/Continue/i}).first();
-            if(await cont.count() && await cont.isEnabled().catch(()=>false)) {
-              await cont.click();
-              await report('AFTER_DOMAIN_CONTINUE');
-            }
-            const checkout=page.getByRole('button',{name:/Checkout|Continue/i}).last();
-            if(await checkout.count() && await checkout.isEnabled().catch(()=>false)) {
-              await checkout.click().catch(()=>{});
-              await report('CHECKOUT_FORM');
-            }
+            await page.goto('https://my.cpanelfree.com/register.php',{waitUntil:'domcontentloaded',timeout:60000});
+            await page.waitForTimeout(1800);
+            const fields=await page.locator('input,select,textarea').evaluateAll(els=>els.map((e,i)=>({
+              i,tag:e.tagName,type:e.type||'',name:e.name||'',id:e.id||'',placeholder:e.placeholder||'',required:!!e.required,
+              label:(e.labels&&e.labels.length?[...e.labels].map(x=>x.innerText.trim()).join(' | '):'')
+            })).filter(x=>x.type!=='hidden'));
+            const html=(await page.content()).toLowerCase();
+            const body=(await page.locator('body').innerText()).replace(/\s+/g,' ').trim();
+            const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-'].filter(x=>html.includes(x)||body.toLowerCase().includes(x));
+            console.log('CAPTCHA_MARKERS='+markers.join(','));
+            console.log('FIELDS='+JSON.stringify(fields));
             const email=page.locator('input[type=email]').first();
-            if(await email.count()) { await email.fill(mail.address); console.log('TEMP_EMAIL_READY=true'); }
-            console.log('PROPOSED_SUBDOMAIN='+slug);
-            await page.screenshot({path:'zero-touch-hosting.png',fullPage:true});
+            if(await email.count()){ await email.fill(mail.address); console.log('TEMP_EMAIL_CAN_FILL=true'); }
           } finally { await browser.close(); }
           JS
-          node probe-zero-touch.mjs
-
-      - name: Upload probe screenshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zero-touch-hosting-${{ github.run_id }}
-          path: zero-touch-hosting.png
-          if-no-files-found: ignore
-          retention-days: 1
+          node inspect-register.mjs
