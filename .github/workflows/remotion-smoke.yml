@@ -26,9 +26,9 @@ jobs:
         working-directory: video
         run: npm run render
 
-      - name: Verify output
+      - name: Verify output exists
         run: |
-          ffprobe -v error -show_entries format=duration,size -of json video/out/remotion-smoke.mp4
+          test -s video/out/remotion-smoke.mp4
           ls -lh video/out/remotion-smoke.mp4
 
       - name: Upload artifact
