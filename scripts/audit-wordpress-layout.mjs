@@ -25,8 +25,8 @@ try {
       const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
       const consoleErrors = [];
       page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
-      const response = await page.goto(target.url, { waitUntil: 'networkidle', timeout: 60000 });
-      await page.waitForTimeout(700);
+      const response = await page.goto(target.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(1800);
       const metrics = await page.evaluate(() => {
         const root = document.documentElement;
         const vw = root.clientWidth;
