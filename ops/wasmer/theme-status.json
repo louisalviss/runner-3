@@ -1,10 +1,10 @@
 {
-  "status": "login_failed",
-  "wasmerLogin": false,
-  "dashboard": false,
-  "wordpressAdmin": false,
+  "status": "error",
+  "wasmerLogin": true,
+  "dashboard": true,
+  "wordpressAdmin": true,
   "themeInstalled": false,
   "themeActive": false,
-  "detail": "url=https://wasmer.io/login body=Sign up Log in Username or email or Login with Google Login with GitHub Forgot username or password? Don't have an account Sign up Start for free, pay as you grow Deploy a service for free and enjoy our simple, predictable, and flexible pricing for all your projects Deploy in seconds Deploy your apps from our ready-to-go template, or connect your git repositories and simply push to deploy Fast and autoscalable Save costs and improve efficiency as your apps will automatically scales with traffic ",
-  "updatedAt": "2026-08-17T03:11:32.170Z"
+  "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('input[type=submit]').first()\n    - locator resolved to <input type=\"submit\" class=\"button\" value=\"Install Now\" id=\"install-theme-submit\" name=\"install-theme-submit\"/>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n      - waiting 100ms\n    58 × waiting for element to be visible, enabled and stable\n       - element is not visible\n     - retrying click action\n       - waiting 500ms\n",
+  "updatedAt": "2026-08-17T16:28:23.911Z"
 }
