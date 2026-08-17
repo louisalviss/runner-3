@@ -44,12 +44,10 @@ jobs:
             -o /tmp/cloudflared
           chmod 700 /tmp/cloudflared
 
-      - name: Start protected PNTR browser
+      - name: Start protected PNTR browser and tunnel
         shell: bash
         run: |
           set -euo pipefail
-
-          # Public repo contains only this one-way htpasswd hash, never the plaintext password.
           printf '%s\n' 'pntr:$apr1$KAhwnbs.$h2SLBhCRr2oQaa/e203t//' | sudo tee /tmp/pntr.htpasswd >/dev/null
           sudo chmod 600 /tmp/pntr.htpasswd
 
@@ -74,12 +72,12 @@ jobs:
           sudo nginx -t
           sudo systemctl restart nginx
 
-          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+          nohup Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
           sleep 1
-          openbox-session >/tmp/openbox.log 2>&1 &
-          x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 >/tmp/x11vnc.log 2>&1 &
-          websockify --web=/usr/share/novnc 6080 127.0.0.1:5900 >/tmp/novnc.log 2>&1 &
-          node scripts/pntr-interactive-browser.mjs >/tmp/browser.log 2>&1 &
+          nohup openbox-session >/tmp/openbox.log 2>&1 &
+          nohup x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 >/tmp/x11vnc.log 2>&1 &
+          nohup websockify --web=/usr/share/novnc 6080 127.0.0.1:5900 >/tmp/novnc.log 2>&1 &
+          nohup node scripts/pntr-interactive-browser.mjs >/tmp/browser.log 2>&1 &
 
           for i in $(seq 1 30); do
             grep -q 'PNTR_INTERACTIVE_BROWSER_READY' /tmp/browser.log && break
@@ -87,20 +85,31 @@ jobs:
           done
           grep -q 'PNTR_INTERACTIVE_BROWSER_READY' /tmp/browser.log || { echo 'Browser failed to start'; tail -30 /tmp/browser.log; exit 4; }
 
-          /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 >/tmp/cloudflared.log 2>&1 &
+          nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 >/tmp/cloudflared.log 2>&1 &
           for i in $(seq 1 30); do
             URL="$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)"
             [ -n "$URL" ] && break
             sleep 1
           done
           [ -n "${URL:-}" ] || { echo 'Cloudflare quick tunnel failed'; tail -30 /tmp/cloudflared.log; exit 5; }
-
-          echo "PNTR_REMOTE_URL=${URL}/vnc.html?autoconnect=true&resize=remote"
+          printf '%s\n' "${URL}/vnc.html?autoconnect=true&resize=remote" >/tmp/pntr-remote-url.txt
+          chmod 600 /tmp/pntr-remote-url.txt
+          echo 'PNTR_REMOTE_READY=true'
           echo 'PNTR_REMOTE_USER=pntr'
           echo 'PNTR_REMOTE_PASSWORD_IS_NOT_IN_REPO_OR_LOGS=true'
 
-          # Keep only this ephemeral browser alive. Automatically finish once the
-          # dashboard shows the target domain without guest-session messaging.
+      - name: Publish URL only
+        uses: actions/upload-artifact@v4
+        with:
+          name: pntr-remote-url
+          path: /tmp/pntr-remote-url.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Keep session until bind is confirmed
+        shell: bash
+        run: |
+          set -euo pipefail
           for i in $(seq 1 900); do
             if [ -f /tmp/pntr-bind-success ]; then
               echo 'PNTR_BIND_STATUS=confirmed'
@@ -119,4 +128,4 @@ jobs:
           pkill -f cloudflared || true
           pkill -f websockify || true
           pkill -f x11vnc || true
-          rm -f /tmp/pntr-browser-state.json /tmp/pntr.htpasswd /tmp/pntr-bind-success
+          rm -f /tmp/pntr-browser-state.json /tmp/pntr.htpasswd /tmp/pntr-bind-success /tmp/pntr-remote-url.txt
