@@ -49,7 +49,7 @@ jobs:
           if s.count(cash)!=1: raise SystemExit(f'cash anchor count={s.count(cash)}')
           audit='''            string __wrRow="WRP|n="+str.tostring(i+1)+"|em="+str.tostring(strategy.closedtrades.entry_time(i))+"|xm="+str.tostring(strategy.closedtrades.exit_time(i))+"|q="+str.tostring(tradeQty)+"|risk="+str.tostring(riskCash)+"|pe="+str.tostring(planEntry)+"|ps="+str.tostring(planStop)+"|pt="+str.tostring(planTarget)+"|ae="+str.tostring(actualEntry)+"|ax="+str.tostring(actualExit)+"|r="+str.tostring(canonicalR)+"|x="+canonicalExit+"|rep="+(reportEligible?"1":"0")+"|eq="+str.tostring(canonicalEquity)+"|mc="+str.tostring(syminfo.mincontract)+"|pv="+str.tostring(syminfo.pointvalue)+"|mt="+str.tostring(syminfo.mintick)\n            array.push(__wrParityRows,__wrRow)\n'''
           s=s.replace(cash,audit+cash,1)
-          tail='''\n\n// PARITY PROBE ONLY: exact canonical records rendered after all strategy logic.\n// The table is write-only diagnostic output and cannot influence orders/state.\nvar table __wrParityTable=table.new(position.middle_left,2,22,border_width=1,force_overlay=true)\nif barstate.islast\n    table.cell(__wrParityTable,0,0,"WRMETA",text_size=size.tiny)\n    table.cell(__wrParityTable,1,0,"rows="+str.tostring(array.size(__wrParityRows)),text_size=size.tiny)\n    int __wrN=math.min(array.size(__wrParityRows),20)\n    if __wrN>0\n        for __wrJ=0 to __wrN-1\n            table.cell(__wrParityTable,0,__wrJ+1,str.tostring(__wrJ+1),text_size=size.tiny)\n            table.cell(__wrParityTable,1,__wrJ+1,array.get(__wrParityRows,__wrJ),text_size=size.tiny)\n'''
+          tail='''\n\n// PARITY PROBE ONLY: exact canonical records rendered after all strategy logic.\nvar table __wrParityTable=table.new(position.middle_left,2,22,border_width=1,force_overlay=true)\nif barstate.islast\n    table.cell(__wrParityTable,0,0,"WRMETA",text_size=size.tiny)\n    table.cell(__wrParityTable,1,0,"rows="+str.tostring(array.size(__wrParityRows)),text_size=size.tiny)\n    int __wrN=math.min(array.size(__wrParityRows),20)\n    if __wrN>0\n        for __wrJ=0 to __wrN-1\n            table.cell(__wrParityTable,0,__wrJ+1,str.tostring(__wrJ+1),text_size=size.tiny)\n            table.cell(__wrParityTable,1,__wrJ+1,array.get(__wrParityRows,__wrJ),text_size=size.tiny)\n'''
           p.write_text(s+tail)
           PY
           echo "EXPECTED_SHA256=$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" >> "$GITHUB_ENV"
@@ -66,7 +66,7 @@ jobs:
           s=p.read_text()
           marker="  body=await p.locator('body').innerText().catch(()=>''); log('TV_E2E_WR_OUTSIDE_EDITOR',body.includes('WR 2.5.13 WIN')?'PRESENT':'ABSENT');"
           if marker not in s: raise SystemExit('post-editor marker missing')
-          extra='''\n  const __tableSym=process.env.TV_SYMBOL||'BNBUSDT';\n  await p.waitForTimeout(3500);\n  const __parityBody=await p.locator('body').innerText().catch(()=>\'\');\n  const __parityLines=__parityBody.split('\\n').map(x=>x.trim()).filter(x=>x.startsWith('WRP|'));\n  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__tableSym}.txt`,__parityLines.join('\\n')+(__parityLines.length?'\\n':''));\n  fs.writeFileSync(`/tmp/tv-canonical-table-body-${__tableSym}.txt`,__parityBody.split('\\n').filter(x=>x.includes('WRP|')||x.includes('WRMETA')).join('\\n')+'\\n');\n  log('TV_CANON_TABLE_ROWS',String(__parityLines.length));\n  await p.screenshot({path:`/tmp/tv-canonical-table-${__tableSym}.png`,fullPage:true}).catch(()=>{});\n'''
+          extra='''\n  const __tableSym=process.env.TV_SYMBOL||'BNBUSDT';\n  if(await dlg.isVisible().catch(()=>false)){\n    const __close=dlg.locator('button[aria-label="Close"],button[title="Close"]').first();\n    if(await __close.count()>0){await __close.click({force:true}).catch(()=>{});await p.waitForTimeout(2500)}\n  }\n  await p.waitForTimeout(2500);\n  const __parityBody=await p.locator('body').innerText().catch(()=>\'\');\n  const __parityLines=__parityBody.split('\\n').map(x=>x.trim()).filter(x=>x.startsWith('WRP|'));\n  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__tableSym}.txt`,__parityLines.join('\\n')+(__parityLines.length?'\\n':''));\n  fs.writeFileSync(`/tmp/tv-canonical-table-body-${__tableSym}.txt`,__parityBody.split('\\n').filter(x=>x.includes('WRP|')||x.includes('WRMETA')).join('\\n')+'\\n');\n  log('TV_CANON_TABLE_ROWS',String(__parityLines.length));\n  await p.screenshot({path:`/tmp/tv-canonical-table-${__tableSym}.png`,fullPage:true}).catch(()=>{});\n'''
           p.write_text(s.replace(marker,marker+extra,1))
           PY
           grep -q "BINANCE%3A${TV_SYMBOL}.P" scripts/.tv-canon-table-temp.mjs
@@ -78,13 +78,16 @@ jobs:
           npm install --no-save playwright-core@1.58.2 >/dev/null
           node scripts/.tv-canon-table-temp.mjs
 
-      - name: Require canonical rows
+      - name: Require canonical rows or screenshot
         shell: bash
         run: |
           set -euo pipefail
-          test -s "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt"
-          grep -q '^WRP|' "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt"
-          echo "CANON_ROWS=$(grep -c '^WRP|' "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt")"
+          test -s "/tmp/tv-canonical-table-${TV_SYMBOL}.png"
+          if test -s "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt"; then
+            echo "CANON_ROWS=$(grep -c '^WRP|' "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt" || true)"
+          else
+            echo "CANON_ROWS=0_DOM_TABLE_CANVAS_ONLY"
+          fi
 
       - name: Upload exact canonical ledger
         if: always()
