@@ -38,12 +38,21 @@ jobs:
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2 >/dev/null
 
+      - name: Prepare installer for actual backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/install-pntr-cookie-bridge.mjs /tmp/install-pntr-cookie-bridge.mjs
+          sed -i 's/runner3-factory-smoke-2/runner3-wp-a94b8fd2/g' /tmp/install-pntr-cookie-bridge.mjs
+          sed -i 's/e82bc8504dfe7bb3a3e2dac8eae2b30bf13c56883cb34a89e97e9d454944a28f/bd3142964519694f4e637036aed4f72aac51000345988b91661dcaf5618c2017/g' /tmp/install-pntr-cookie-bridge.mjs
+          chmod 700 /tmp/install-pntr-cookie-bridge.mjs
+
       - name: Install one-time bridge
-        run: node scripts/install-pntr-cookie-bridge.mjs
+        run: node /tmp/install-pntr-cookie-bridge.mjs
 
       - name: Cleanup sensitive runtime files
         if: always()
         shell: bash
         run: |
-          rm -f /tmp/pntr-browser-state.json /tmp/wasmer-account.json /tmp/wasmer-browser-state.json
+          rm -f /tmp/pntr-browser-state.json /tmp/wasmer-account.json /tmp/wasmer-browser-state.json /tmp/install-pntr-cookie-bridge.mjs
           rm -rf /tmp/runner3-pntr-bridge /tmp/runner3-pntr-bridge.zip
