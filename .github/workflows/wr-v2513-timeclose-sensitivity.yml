@@ -1,0 +1,34 @@
+name: WR v2.5.13 Pine time_close sensitivity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - formal-tests/wr_v2513_timeclose_sensitivity.py
+      - .github/workflows/wr-v2513-timeclose-sensitivity.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: Run raw-vs-Pine-time_close sensitivity
+        run: python formal-tests/wr_v2513_timeclose_sensitivity.py --symbol ${{ matrix.symbol }} --out ${{ matrix.symbol }}_timeclose.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2513-timeclose-${{ matrix.symbol }}
+          path: ${{ matrix.symbol }}_timeclose.json
+          retention-days: 30
