@@ -49,7 +49,7 @@ async function visibleBlock(page) {
   return null;
 }
 async function publicCheck(ctx, url, fingerprint = null) {
-  const r = await ctx.request.get(url, { timeout: 30000, failOnStatusCode: false }).catch(() => null);
+  const r = await ctx.request.get(url, { timeout: 5000, failOnStatusCode: false }).catch(() => null);
   if (!r) return { code: null, hasFingerprint: false };
   const body = await r.text().catch(() => '');
   return { code: r.status(), hasFingerprint: fingerprint ? body.toLowerCase().includes(String(fingerprint).toLowerCase()) : false };
@@ -76,10 +76,14 @@ async function freshLogin(page) {
 }
 async function appDashboardExists(page, app) {
   await page.goto(dashboard(app), { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(1200);
-  const body = await text(page);
-  if (/page not found|404|does not exist|could not be found/i.test(body) && !/wordpress admin/i.test(body)) return false;
-  return /wordpress admin|settings|deployments|domains|ready/i.test(body) && page.url().includes(`/apps/${owner}/`);
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(i === 0 ? 1000 : 700);
+    const body = await text(page);
+    const onExpectedRoute = page.url().includes(`/apps/${owner}/${app}`);
+    if (onExpectedRoute && /wordpress admin|settings|deployments|domains|ready|wordpress/i.test(body)) return true;
+    if (/page not found|404|does not exist|could not be found/i.test(body) && !/wordpress/i.test(body)) return false;
+  }
+  return false;
 }
 async function createApp(page) {
   setStage('create_app');
