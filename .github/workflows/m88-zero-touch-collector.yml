@@ -1,0 +1,164 @@
+name: M88 zero-touch odds collector
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/m88-zero-touch-collector.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m88-zero-touch-collector
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install parser dependencies
+        run: python3 -m pip install -q requests beautifulsoup4
+
+      - name: Collect public Mansion88 odds
+        shell: bash
+        run: |
+          cat > /tmp/collect_m88.py <<'PY'
+          import csv
+          import io
+          import json
+          import time
+          from datetime import datetime, timezone
+
+          import requests
+          from bs4 import BeautifulSoup
+
+          SOURCES = {
+              'asian_handicap': 'http://fb.888scoreonline.net/history/lastchange.aspx?ot=1',
+              '1x2': 'http://fb.888scoreonline.net/history/lastchange.aspx?ot=2',
+              'over_under': 'http://fb.888scoreonline.net/history/lastchange.aspx?ot=3',
+          }
+
+          session = requests.Session()
+          session.headers.update({
+              'User-Agent': 'runner3-m88-public-feed/1.0',
+              'Accept': 'text/html,application/xhtml+xml',
+          })
+
+          collected_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+          rows = []
+          health = {}
+
+          for market, url in SOURCES.items():
+              started = time.monotonic()
+              try:
+                  r = session.get(url, timeout=20, allow_redirects=True)
+                  r.raise_for_status()
+                  soup = BeautifulSoup(r.content, 'html.parser')
+                  market_rows = 0
+
+                  for tr in soup.find_all('tr'):
+                      cells = [' '.join(td.stripped_strings) for td in tr.find_all(['td', 'th'])]
+                      if len(cells) < 8 or cells[0].strip().lower() != 'mansion88':
+                          continue
+
+                      rec = {
+                          'source': '888scoreonline',
+                          'bookmaker': 'Mansion88',
+                          'market': market,
+                          'league': cells[1],
+                          'home': cells[2],
+                          'away': cells[6],
+                          'source_time': cells[7],
+                          'collected_at_utc': collected_at,
+                          'source_url': url,
+                      }
+
+                      if market == 'asian_handicap':
+                          rec.update({
+                              'home_odds': cells[3],
+                              'handicap': cells[4],
+                              'away_odds': cells[5],
+                          })
+                      elif market == '1x2':
+                          rec.update({
+                              'home_odds': cells[3],
+                              'draw_odds': cells[4],
+                              'away_odds': cells[5],
+                          })
+                      else:
+                          rec.update({
+                              'over_odds': cells[3],
+                              'total': cells[4],
+                              'under_odds': cells[5],
+                          })
+
+                      rows.append(rec)
+                      market_rows += 1
+
+                  health[market] = {
+                      'ok': True,
+                      'http_status': r.status_code,
+                      'bytes': len(r.content),
+                      'm88_rows': market_rows,
+                      'elapsed_ms': round((time.monotonic() - started) * 1000),
+                      'final_url': r.url,
+                  }
+              except Exception as e:
+                  health[market] = {
+                      'ok': False,
+                      'error': repr(e),
+                      'elapsed_ms': round((time.monotonic() - started) * 1000),
+                  }
+
+          result = {
+              'schema_version': 1,
+              'collected_at_utc': collected_at,
+              'zero_touch': True,
+              'requires_api_key': False,
+              'requires_login': False,
+              'requires_cookie': False,
+              'requires_vpn': False,
+              'bookmaker': 'Mansion88',
+              'record_count': len(rows),
+              'health': health,
+              'records': rows,
+          }
+
+          with open('/tmp/m88-latest.json', 'w', encoding='utf-8') as f:
+              json.dump(result, f, ensure_ascii=False, indent=2)
+
+          fields = [
+              'collected_at_utc','market','league','home','away','source_time',
+              'home_odds','draw_odds','away_odds','handicap','over_odds','total','under_odds',
+              'source','bookmaker','source_url'
+          ]
+          with open('/tmp/m88-latest.csv', 'w', encoding='utf-8', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
+              w.writeheader()
+              for row in rows:
+                  w.writerow(row)
+
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+
+          # A zero-row run means the public feed is empty/unhealthy right now; keep the
+          # artifact for diagnosis but make the run visibly fail after files are written.
+          if not rows:
+              raise SystemExit('No current Mansion88 rows found in any public feed')
+          PY
+          python3 /tmp/collect_m88.py | tee /tmp/m88-latest.log
+
+      - name: Upload latest M88 snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m88-latest-${{ github.run_id }}
+          path: |
+            /tmp/m88-latest.json
+            /tmp/m88-latest.csv
+            /tmp/m88-latest.log
+          retention-days: 7
+          if-no-files-found: warn
