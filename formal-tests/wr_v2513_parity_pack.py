@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, csv, importlib.util, io, json, zipfile
+import argparse, csv, hashlib, importlib.util, io, json, zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -8,6 +8,13 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 EXACT = ROOT / 'wave-rider-verify' / 'reference_verify_v2513_exact.py'
+
+
+def git_blob_sha(data: bytes) -> str:
+    return hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+
+
+EXACT_BLOB_SHA = git_blob_sha(EXACT.read_bytes())
 spec = importlib.util.spec_from_file_location('wrexact', EXACT)
 assert spec and spec.loader
 wr = importlib.util.module_from_spec(spec)
@@ -20,8 +27,8 @@ ENGINE_START = date(2024, 12, 1)
 FETCH_END = date(2026, 8, 17)
 TF = 5
 S3 = 'https://data.binance.vision/data/futures/um'
-UA = 'wr-v2513-parity-pack/1.0'
-DEFAULT_SYMBOLS = ['BNBUSDT','TRXUSDT','BATUSDT','ADAUSDT','NEARUSDT','ZECUSDT','SOLUSDT']
+UA = 'wr-v2513-parity-investigation/2.0'
+DEFAULT_SYMBOLS = ['BNBUSDT','TRXUSDT']
 
 
 def month_iter(a: date, b: date):
@@ -92,6 +99,8 @@ def ms(d: date):
 
 
 def run_symbol(symbol: str, outdir: Path):
+    if symbol not in DEFAULT_SYMBOLS:
+        raise RuntimeError('Parity investigation is frozen to BNBUSDT/TRXUSDT until source-of-truth parity is resolved')
     bars, tick, missing = fetch_symbol(symbol)
     start_ms = ms(REPORT_START)
     end_ms = ms(REPORT_END_EXCL)
@@ -99,26 +108,33 @@ def run_symbol(symbol: str, outdir: Path):
     trades, summary = wr.run_window_exact(TF, bars, tick, start_ms, end_ms, engine_start_ms=engine_ms)
 
     payload = {
+        'status': 'PYTHON_EXACT_REFERENCE_OUTPUT_NOT_YET_TRADINGVIEW_CONFIRMED',
         'strategy': 'Wave Rider v2.5.13 exact parity reference',
+        'exact_reference_path': str(EXACT.relative_to(ROOT)),
+        'exact_reference_blob_sha': EXACT_BLOB_SHA,
         'symbol': symbol,
         'timeframe': '5m',
         'report_start_utc': REPORT_START.isoformat() + 'T00:00:00Z',
         'report_end_exclusive_utc': REPORT_END_EXCL.isoformat() + 'T00:00:00Z',
         'engine_start_utc': ENGINE_START.isoformat() + 'T00:00:00Z',
         'data_fetch_through': FETCH_END.isoformat(),
+        'window_semantics': 'report only; signal close in [start,end); pre-window state runs; pre-end trades may exit after end',
         'tick': tick,
         'missing_units': missing,
         'summary': summary,
         'first_5': [
             {'signal_time': t.signal_time, 'entry_time': t.entry_time, 'exit_time': t.exit_time,
-             'side': t.side, 'canon_r': t.canon_r, 'exit_reason': t.exit_reason}
+             'side': t.side, 'entry': t.entry, 'exit_price': t.exit_price,
+             'canon_r': t.canon_r, 'exit_reason': t.exit_reason}
             for t in trades[:5]
         ],
         'last_5': [
             {'signal_time': t.signal_time, 'entry_time': t.entry_time, 'exit_time': t.exit_time,
-             'side': t.side, 'canon_r': t.canon_r, 'exit_reason': t.exit_reason}
+             'side': t.side, 'entry': t.entry, 'exit_price': t.exit_price,
+             'canon_r': t.canon_r, 'exit_reason': t.exit_reason}
             for t in trades[-5:]
         ],
+        'parity_rule': 'Aggregate totals are diagnostic only. PASS requires ordered trade-by-trade comparison against TradingView and zero divergence.'
     }
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / f'{symbol}.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
@@ -136,12 +152,15 @@ def run_symbol(symbol: str, outdir: Path):
 
 def merge(indir: Path, outfile: Path):
     rows = []
+    blobs = set()
     for p in sorted(indir.glob('*.json')):
         x = json.loads(p.read_text(encoding='utf-8'))
         s = x['summary']
+        blobs.add(x['exact_reference_blob_sha'])
         rows.append({
             'symbol': x['symbol'],
             'tf': x['timeframe'],
+            'exact_reference_blob_sha': x['exact_reference_blob_sha'],
             'trades': s['trades'],
             'total_r': s['total_r'],
             'avg_r': s['avg_r'],
@@ -154,18 +173,28 @@ def merge(indir: Path, outfile: Path):
             'ambiguous': s['diagnostics']['ambiguous'],
         })
 
+    if len(blobs) > 1:
+        raise RuntimeError(f'mixed exact-reference blobs in merge: {sorted(blobs)}')
+
     outfile.write_text(json.dumps({
+        'status': 'PYTHON_EXACT_REFERENCE_OUTPUT_NOT_YET_TRADINGVIEW_CONFIRMED',
         'period': [REPORT_START.isoformat(), REPORT_END_EXCL.isoformat()],
         'end_exclusive': True,
+        'exact_reference_blob_sha': next(iter(blobs), EXACT_BLOB_SHA),
         'rows': rows,
-        'manual_verification': {
+        'source_of_truth_verification': {
             'chart': 'BINANCE:<SYMBOL>.P',
             'timeframe': '5m',
             'pine': 'Wave Rider Strategy v2.5.13 WINDOW REPORT',
-            'compare': ['WIN TRADES', 'Total R'],
             'commission': 0,
             'slippage': 0,
             'bar_magnifier': False,
+            'required_compare': [
+                'exact trade count', 'ordered signal close', 'side', 'entry time', 'planned entry',
+                'exit time', 'exit price', 'exit reason', 'Canon R'
+            ],
+            'pass_definition': 'zero trade-by-trade divergence on BOTH BNBUSDT and TRXUSDT',
+            'comparator': 'wave-rider-verify/tv_trade_diff.py'
         }
     }, indent=2), encoding='utf-8')
 
@@ -183,7 +212,7 @@ def main():
     ap.add_argument('--symbol')
     ap.add_argument('--outdir', default='parity_out')
     ap.add_argument('--merge')
-    ap.add_argument('--merged-out', default='wr_v2513_parity_pack.json')
+    ap.add_argument('--merged-out', default='wr_v2513_exact_parity_investigation.json')
     args = ap.parse_args()
 
     if args.merge:
