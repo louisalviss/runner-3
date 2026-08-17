@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   auth:
@@ -23,34 +24,40 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cancel obsolete noVNC run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/32019471258/cancel || true
+
       - name: Install browser stack
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb nginx apache2-utils >/dev/null
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb nginx >/dev/null
           npm install --no-save playwright-core@1.58.2 ws@8 >/dev/null
           curl -fsSL --retry 3 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
           chmod 700 /tmp/cloudflared
 
-      - name: Start mobile remote browser
+      - name: Start one-tap mobile remote browser
         shell: bash
         run: |
           set -euo pipefail
-          PASS="$(openssl rand -base64 24 | tr -d '\n' | tr '/+' '_-')"
-          printf '%s' "$PASS" >/tmp/tv-mobile-pass
-          chmod 600 /tmp/tv-mobile-pass
-          htpasswd -nbB tv "$PASS" | sudo tee /tmp/tv-mobile.htpasswd >/dev/null
-          sudo chown root:www-data /tmp/tv-mobile.htpasswd
-          sudo chmod 640 /tmp/tv-mobile.htpasswd
+          TOKEN="$(openssl rand -hex 32)"
+          printf '%s' "$TOKEN" >/tmp/tv-mobile-token
+          chmod 600 /tmp/tv-mobile-token
 
-          sudo tee /etc/nginx/sites-available/tv-mobile >/dev/null <<'NGINX'
+          cat >/tmp/tv-mobile.nginx <<'NGINX'
           server {
             listen 127.0.0.1:8080;
             server_name _;
-            auth_basic "TradingView temporary auth";
-            auth_basic_user_file /tmp/tv-mobile.htpasswd;
             location / {
+              if ($arg_k != "__TOKEN__") { return 403; }
               proxy_pass http://127.0.0.1:7070;
               proxy_http_version 1.1;
               proxy_set_header Upgrade $http_upgrade;
@@ -61,6 +68,7 @@ jobs:
             }
           }
           NGINX
+          sed "s/__TOKEN__/$TOKEN/g" /tmp/tv-mobile.nginx | sudo tee /etc/nginx/sites-available/tv-mobile >/dev/null
           sudo rm -f /etc/nginx/sites-enabled/default
           sudo ln -sf /etc/nginx/sites-available/tv-mobile /etc/nginx/sites-enabled/tv-mobile
           sudo nginx -t
@@ -77,21 +85,20 @@ jobs:
 
           nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 >/tmp/tv-cloudflared.log 2>&1 &
           for i in $(seq 1 45); do
-            URL="$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/tv-cloudflared.log | head -n1 || true)"
-            [ -n "$URL" ] && break
+            BASE="$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/tv-cloudflared.log | head -n1 || true)"
+            [ -n "$BASE" ] && break
             sleep 1
           done
-          [ -n "${URL:-}" ] || { tail -80 /tmp/tv-cloudflared.log; exit 5; }
-          printf '%s' "$URL" >/tmp/tv-mobile-url
+          [ -n "${BASE:-}" ] || { tail -80 /tmp/tv-cloudflared.log; exit 5; }
+          printf '%s/?k=%s' "$BASE" "$TOKEN" >/tmp/tv-mobile-url
           chmod 600 /tmp/tv-mobile-url
           echo 'TV_MOBILE_REMOTE_READY=true'
 
-      - name: Publish encrypted one-time connection
+      - name: Publish encrypted one-time URL
         shell: bash
         run: |
           set -euo pipefail
           URL="$(cat /tmp/tv-mobile-url)"
-          PASS="$(cat /tmp/tv-mobile-pass)"
           cat >/tmp/tv-mobile-public.pem <<'PEM'
           -----BEGIN PUBLIC KEY-----
           MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAyWpbCt7lVxNM8eGyLNni
@@ -105,20 +112,25 @@ jobs:
           OIL9hdmpq7vXovwZftY/VdHgHA1EVokb2nGtu3Axb/v5AgMBAAE=
           -----END PUBLIC KEY-----
           PEM
-          printf 'URL=%s\nUSER=tv\nPASSWORD=%s\n' "$URL" "$PASS" >/tmp/tv-mobile-connection.txt
+          printf '%s\n' "$URL" >/tmp/tv-mobile-url.txt
           openssl pkeyutl -encrypt -pubin -inkey /tmp/tv-mobile-public.pem \
             -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
-            -in /tmp/tv-mobile-connection.txt | base64 -w0 >/tmp/tv-mobile-connection.enc.b64
+            -in /tmp/tv-mobile-url.txt | base64 -w0 >/tmp/tv-mobile-connection.enc.b64
           mkdir -p ops/tradingview
           cp /tmp/tv-mobile-connection.enc.b64 ops/tradingview/mobile-connection.enc.b64
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/tradingview/mobile-connection.enc.b64
-          git commit -m 'publish encrypted TradingView mobile connection' >/dev/null
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main >/dev/null
-          rm -f /tmp/tv-mobile-connection.txt /tmp/tv-mobile-public.pem /tmp/tv-mobile-connection.enc.b64
+          git commit -m 'publish encrypted TradingView mobile URL' >/dev/null
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main >/dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { echo 'Could not publish encrypted mobile URL'; exit 8; }
+          rm -f /tmp/tv-mobile-url.txt /tmp/tv-mobile-public.pem /tmp/tv-mobile-connection.enc.b64
           echo 'TV_MOBILE_CONNECTION_PUBLISHED=true'
 
       - name: Wait for TradingView authorization
@@ -141,14 +153,14 @@ jobs:
           echo "::add-mask::$AUTOMATION_KEY"
           python3 - <<'PY'
           import json
-          p='/tmp/tv-storage-state.json'
-          s=json.load(open(p))
+          s=json.load(open('/tmp/tv-storage-state.json'))
           assert s.get('cookies'), 'No TradingView cookies were captured'
           for c in s.get('cookies',[]):
-              d=c.get('domain','').lstrip('.')
+              d=c.get('domain','').lstrip('.').lower()
               assert d=='tradingview.com' or d.endswith('.tradingview.com'), f'Non-TradingView cookie detected: {d}'
           for o in s.get('origins',[]):
-              assert o.get('origin','').split('/')[2].endswith('tradingview.com'), 'Non-TradingView origin detected'
+              h=o.get('origin','').split('/')[2].lower()
+              assert h=='tradingview.com' or h.endswith('.tradingview.com'), f'Non-TradingView origin detected: {h}'
           print('TV_STATE_SCOPE_CHECK=PASS')
           PY
           mkdir -p ops/tradingview
@@ -159,9 +171,14 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A ops/tradingview
           git commit -m 'persist encrypted TradingView-only session' >/dev/null
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main >/dev/null
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main >/dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { echo 'Could not persist encrypted TradingView session'; exit 9; }
           echo 'TV_SESSION_PERSISTED=true'
 
       - name: Cleanup
@@ -170,4 +187,5 @@ jobs:
         run: |
           pkill -f tradingview-mobile-remote.mjs || true
           pkill -f cloudflared || true
-          rm -f /tmp/tv-mobile-pass /tmp/tv-mobile-url /tmp/tv-mobile.htpasswd /tmp/tv-storage-state.json /tmp/tv-auth-done
+          rm -f /tmp/tv-mobile-token /tmp/tv-mobile-url /tmp/tv-storage-state.json /tmp/tv-auth-done || true
+          sudo rm -f /tmp/tv-mobile.nginx || true
