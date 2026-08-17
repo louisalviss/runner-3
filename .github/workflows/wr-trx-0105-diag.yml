@@ -1,0 +1,29 @@
+name: WR TRX 0105 Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - formal-tests/wr_trx_20260728_0105_diag.py
+      - .github/workflows/wr-trx-0105-diag.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - run: python formal-tests/wr_trx_20260728_0105_diag.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-trx-0105-diagnostic
+          path: trx_0105_diag.json
+          retention-days: 7
