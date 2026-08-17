@@ -1,4 +1,4 @@
-name: Wave Rider TradingView Entry Golden
+name: Wave Rider TradingView Golden Parity
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'wave-rider-verify/reference_verify.py'
       - 'wave-rider-verify/reference_verify_parity.py'
       - 'wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'
+      - 'wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'
       - '.github/workflows/wave-rider-parity-golden.yml'
   workflow_dispatch:
 
@@ -27,24 +28,51 @@ jobs:
       WR_END: 2026-08-16
     steps:
       - uses: actions/checkout@v4
+
       - name: Run parity engine
         shell: bash
         run: |
           set -euo pipefail
           rm -rf wave-rider-verify/output
           python3 wave-rider-verify/reference_verify_parity.py >/tmp/parity-run.txt
-      - name: Assert exact TradingView entry sequence
+
+      - name: Assert TradingView entry and accounting golden
         shell: bash
         run: |
           python3 - <<'PY'
-          import csv,json,os,sys
+          import csv,json,math,os,sys
           sym=os.environ['WR_SYMBOL']
-          golden=json.load(open('wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'))['symbols'][sym]
+          entries=json.load(open('wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'))['symbols'][sym]
+          acct=json.load(open('wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'))['symbols'][sym]
           with open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='') as f:
-              actual=[r['entry_time'] for r in csv.DictReader(f)]
-          ok=actual==golden
-          print(json.dumps({'symbol':sym,'golden':len(golden),'actual':len(actual),'exact_sequence':ok,
-                            'missing':[x for x in golden if x not in actual],
-                            'extra':[x for x in actual if x not in golden]},indent=2))
-          if not ok: sys.exit(7)
+              rows=list(csv.DictReader(f))
+          summary=json.load(open(f'wave-rider-verify/output/{sym}_5m_summary.json'))
+
+          actual_entries=[r['entry_time'] for r in rows]
+          actual_qty=[float(r['qty']) for r in rows]
+          actual_risk=[float(r['risk_cash']) for r in rows]
+          actual_r=[float(r['canon_r']) for r in rows]
+          actual_exit=[r['exit_reason'] for r in rows]
+          final_eq=100000.0+sum(float(r['canon_r'])*float(r['risk_cash']) for r in rows)
+
+          checks={
+            'trade_count': len(rows)==len(entries)==len(acct['quantities']),
+            'entry_sequence': actual_entries==entries,
+            'quantity_exact': len(actual_qty)==len(acct['quantities']) and all(abs(a-b)<=1e-9 for a,b in zip(actual_qty,acct['quantities'])),
+            'risk_cash': len(actual_risk)==len(acct['risk_cash']) and all(abs(a-b)<=1e-6 for a,b in zip(actual_risk,acct['risk_cash'])),
+            'canon_r': len(actual_r)==len(acct['canon_r']) and all(abs(a-b)<=1e-12 for a,b in zip(actual_r,acct['canon_r'])),
+            'exit_reason': actual_exit==acct['exit_reason'],
+            'total_r': abs(float(summary['total_r'])-float(acct['total_r_exact']))<=1e-12,
+            'final_canonical_equity': abs(final_eq-float(acct['final_canonical_equity']))<=1e-6,
+          }
+          out={
+            'symbol':sym,
+            'checks':checks,
+            'actual_trades':len(rows),
+            'actual_total_r':summary['total_r'],
+            'actual_final_equity':final_eq,
+            'quantity_mismatches':[{'n':i+1,'actual':a,'golden':b} for i,(a,b) in enumerate(zip(actual_qty,acct['quantities'])) if abs(a-b)>1e-9],
+          }
+          print(json.dumps(out,indent=2))
+          if not all(checks.values()): sys.exit(7)
           PY
