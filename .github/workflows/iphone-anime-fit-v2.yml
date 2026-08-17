@@ -1,0 +1,91 @@
+name: iPhone Anime Fit V2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/iphone-anime-fit-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl
+
+      - name: Download source and phonk
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/RWBY_Chibi_-_Sissy_Fight_%26_The_Vacuum.webm' \
+            -o anime_source.webm
+          curl -L --fail --retry 3 \
+            'https://archive.org/download/jamendo-621715/01-2294083-Waveloom-TikTok%20Phonk.mp3' \
+            -o phonk.mp3
+
+      - name: Build iPhone fit edit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p clips
+          python <<'PY'
+          import subprocess
+          # High-motion moments identified in previous full-source scan.
+          starts=[5.35,10.35,82.35,83.75,94.95,105.35,108.75,113.15,115.15,123.55,163.95,175.75,236.95,262.95,322.55,323.75]
+          durs=[0.48,0.56,0.64,0.52]
+          for i,s in enumerate(starts):
+              d=durs[i%4]
+              # Preserve complete 16:9 composition. Foreground is 1024x576, centered on 1080x1920.
+              # A soft, dark blurred copy fills the portrait canvas so nothing feels oversized/cropped.
+              fc=(
+                "[0:v]split=2[bg][fg];"
+                "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+                "gblur=sigma=32,eq=brightness=-0.20:saturation=0.78[bg2];"
+                "[fg]scale=1024:576:force_original_aspect_ratio=decrease,"
+                "pad=1024:576:(ow-iw)/2:(oh-ih)/2:black,eq=contrast=1.04:saturation=1.08[fg2];"
+                "[bg2][fg2]overlay=(W-w)/2:(H-h)/2,"
+                "fps=30,format=yuv420p[v]"
+              )
+              out=f"clips/c{i:02d}.mp4"
+              subprocess.check_call([
+                  'ffmpeg','-hide_banner','-loglevel','error','-y',
+                  '-ss',f'{s:.3f}','-i','anime_source.webm','-t',str(d),
+                  '-filter_complex',fc,'-map','[v]','-map','0:a?',
+                  '-c:v','libx264','-preset','slow','-crf','18','-profile:v','high','-level','4.1',
+                  '-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',
+                  '-c:a','aac','-b:a','128k','-ar','48000','-ac','2',out
+              ])
+          with open('concat.txt','w') as f:
+              for i in range(len(starts)):
+                  f.write(f"file 'clips/c{i:02d}.mp4'\n")
+          PY
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -f concat -safe 0 -i concat.txt -c copy visual.mp4
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i visual.mp4 -ss 8 -i phonk.mp3 \
+            -filter_complex '[0:a]volume=0.30[sfx];[1:a]volume=0.92,bass=g=3:f=90[beat];[sfx][beat]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]' \
+            -map 0:v:0 -map '[a]' -shortest \
+            -c:v copy -c:a aac -b:a 192k -ar 48000 -ac 2 \
+            -movflags +faststart iphone_anime_fit_v2.mp4
+
+          ffprobe -v error \
+            -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,sample_rate,channels \
+            -show_entries format=duration,size,bit_rate \
+            -of default=nw=1 iphone_anime_fit_v2.mp4
+          ls -lh iphone_anime_fit_v2.mp4
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-anime-fit-v2
+          path: iphone_anime_fit_v2.mp4
+          retention-days: 3
