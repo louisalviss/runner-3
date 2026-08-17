@@ -1,19 +1,19 @@
 {
-  "status": "magic_admin_failed",
+  "status": "error",
   "dashboard": true,
-  "wordpressAdmin": false,
-  "themeInstalled": false,
+  "wordpressAdmin": true,
+  "themeInstalled": true,
   "themeActive": false,
   "frontHttp": null,
   "adminControl": {
     "tag": "a",
-    "href": "/api/magiclogin/wordpress/da_K6AIot5UDqkL",
+    "href": "https://wasmer.io/api/magiclogin/wordpress/da_K6AIot5UDqkL",
     "target": "_blank"
   },
   "pageUrls": [
-    "https://wasmer.io/apps/runner3wp0b90f6b4ab/runner3-wp-a94b8fd2",
-    "about:blank"
+    "https://wasmer.io/apps/runner3wp0b90f6b4ab/runner3-wp-a94b8fd2/settings/wordpress",
+    "https://runner3-wp-a94b8fd2.wasmer.app/wp-admin/?platform=wasmer"
   ],
-  "detail": "WordPress Admin handoff did not create an authenticated WordPress session",
-  "updatedAt": "2026-08-17T03:40:31.370Z"
+  "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('.theme').nth(1).locator('a,button').filter({ hasText: /Activate/i }).first()\n    - locator resolved to <a aria-label=\"Activate Runner3 Starter\" class=\"button button-compact activate\" href=\"https://runner3-wp-a94b8fd2.wasmer.app/wp-admin/themes.php?action=activate&stylesheet=runner3-starter&_wpnonce=01bc00280b\">Activate</a>\n  - attempting click action\n    - waiting for element to be visible, enabled and stable\n",
+  "updatedAt": "2026-08-17T03:42:37.036Z"
 }
