@@ -1,0 +1,53 @@
+name: Cloudflare R2 Error Diagnose
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-r2-error-diagnose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Print safe Cloudflare R2 error codes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          base='https://api.cloudflare.com/client/v4'
+          def get(path):
+              req=urllib.request.Request(base+path, headers={'Authorization':'Bearer '+token})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      raw=r.read().decode(); return r.status,json.loads(raw)
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try: data=json.loads(raw)
+                  except Exception: data={'raw':'unparseable'}
+                  return e.code,data
+          mcode,m=get('/memberships?per_page=50')
+          ids=[]
+          if mcode==200 and m.get('success'):
+              for item in m.get('result') or []:
+                  aid=((item or {}).get('account') or {}).get('id')
+                  if aid: ids.append(aid)
+          print('ACCOUNT_COUNT='+str(len(ids)))
+          for i,aid in enumerate(ids,1):
+              code,data=get(f'/accounts/{aid}/r2/buckets')
+              errs=[]
+              for e in data.get('errors') or []:
+                  errs.append({'code':e.get('code'),'message':e.get('message')})
+              print(f'ACCOUNT_{i}_R2_HTTP={code}')
+              print(f'ACCOUNT_{i}_R2_ERRORS='+json.dumps(errs,separators=(',',':')))
+          PY
