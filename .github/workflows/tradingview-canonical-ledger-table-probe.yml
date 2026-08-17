@@ -1,0 +1,107 @@
+name: TradingView Wave Rider Canonical Ledger Table Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-canonical-ledger-table-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ledger:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      TV_SYMBOL: ${{ matrix.symbol }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore canonical session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          test "$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" = "$BASE_SHA256"
+
+      - name: Inject report-only exact ledger table
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/wr2513.pine')
+          s=p.read_text()
+          proc='// Process each newly closed native trade exactly once. Canon and Native ledgers are separated.\n'
+          if s.count(proc)!=1: raise SystemExit(f'process anchor count={s.count(proc)}')
+          s=s.replace(proc,'// PARITY PROBE ONLY: report output buffer. Never read by execution logic.\nvar string[] __wrParityRows=array.new_string()\n'+proc,1)
+          cash='            float canonicalCash=canonicalR*riskCash\n'
+          if s.count(cash)!=1: raise SystemExit(f'cash anchor count={s.count(cash)}')
+          audit='''            string __wrRow="WRP|n="+str.tostring(i+1)+"|em="+str.tostring(strategy.closedtrades.entry_time(i))+"|xm="+str.tostring(strategy.closedtrades.exit_time(i))+"|q="+str.tostring(tradeQty)+"|risk="+str.tostring(riskCash)+"|pe="+str.tostring(planEntry)+"|ps="+str.tostring(planStop)+"|pt="+str.tostring(planTarget)+"|ae="+str.tostring(actualEntry)+"|ax="+str.tostring(actualExit)+"|r="+str.tostring(canonicalR)+"|x="+canonicalExit+"|rep="+(reportEligible?"1":"0")+"|eq="+str.tostring(canonicalEquity)+"|mc="+str.tostring(syminfo.mincontract)+"|pv="+str.tostring(syminfo.pointvalue)+"|mt="+str.tostring(syminfo.mintick)\n            array.push(__wrParityRows,__wrRow)\n'''
+          s=s.replace(cash,audit+cash,1)
+          tail='''\n\n// PARITY PROBE ONLY: exact canonical records rendered after all strategy logic.\n// The table is write-only diagnostic output and cannot influence orders/state.\nvar table __wrParityTable=table.new(position.middle_left,2,22,border_width=1,force_overlay=true)\nif barstate.islast\n    table.cell(__wrParityTable,0,0,"WRMETA",text_size=size.tiny)\n    table.cell(__wrParityTable,1,0,"rows="+str.tostring(array.size(__wrParityRows)),text_size=size.tiny)\n    int __wrN=math.min(array.size(__wrParityRows),20)\n    if __wrN>0\n        for __wrJ=0 to __wrN-1\n            table.cell(__wrParityTable,0,__wrJ+1,str.tostring(__wrJ+1),text_size=size.tiny)\n            table.cell(__wrParityTable,1,__wrJ+1,array.get(__wrParityRows,__wrJ),text_size=size.tiny)\n'''
+          p.write_text(s+tail)
+          PY
+          echo "EXPECTED_SHA256=$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Build browser table extractor
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
+          s,n=re.subn(
+              r"await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout=90000\}\);",
+              "const __sym=process.env.TV_SYMBOL||'BNBUSDT'; await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});",
+              s,count=1)
+          if n!=1: raise SystemExit(f'url patch count={n}')
+          marker="  log('TV_E2E_UPDATE_ON_CHART',upd?'PRESENT':'ABSENT');log('TV_E2E_USER_TRANSLATE_200',tr?'PASS':'FAIL');log('TV_E2E_COMPILE_ERROR',cerr?'PRESENT':'ABSENT');\n  if(!upd||!tr||cerr)throw new Error('Compile/add failed');"
+          if marker not in s: raise SystemExit('compile marker missing')
+          extra='''\n  await p.waitForTimeout(3500);\n  const __parityBody=await p.locator('body').innerText().catch(()=>\'\');\n  const __parityLines=__parityBody.split('\\n').map(x=>x.trim()).filter(x=>x.startsWith('WRP|'));\n  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__sym}.txt`,__parityLines.join('\\n')+(__parityLines.length?'\\n':''));\n  fs.writeFileSync(`/tmp/tv-canonical-table-body-${__sym}.txt`,__parityBody.split('\\n').filter(x=>x.includes('WRP|')||x.includes('WRMETA')).join('\\n')+'\\n');\n  log('TV_CANON_TABLE_ROWS',String(__parityLines.length));\n  await p.screenshot({path:`/tmp/tv-canonical-table-${__sym}.png`,fullPage:true}).catch(()=>{});\n'''
+          s=s.replace(marker,marker+extra,1)
+          Path('scripts/.tv-canon-table-temp.mjs').write_text(s)
+          PY
+
+      - name: Run canonical table probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/.tv-canon-table-temp.mjs
+
+      - name: Require canonical rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt"
+          grep -q '^WRP|' "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt"
+          echo "CANON_ROWS=$(grep -c '^WRP|' "/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt")"
+
+      - name: Upload exact canonical ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-canonical-table-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/tv-canonical-ledger-${{ matrix.symbol }}.txt
+            /tmp/tv-canonical-table-body-${{ matrix.symbol }}.txt
+            /tmp/tv-canonical-table-${{ matrix.symbol }}.png
+            /tmp/wr2513-e2e-report.txt
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine scripts/.tv-canon-table-temp.mjs
