@@ -1,0 +1,98 @@
+name: TradingView Wave Rider TRX Trades Scrape
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-wave-rider-trx-trades-scrape.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore session and canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          SHA="$(sha256sum /tmp/wr2513.pine | awk '{print $1}')"
+          echo "TV_TRX_SOURCE_SHA256=$SHA"
+          test "$SHA" = "$EXPECTED_SHA256"
+
+      - name: Build TRX safe scrape variant
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
+          s=s.replace('BINANCE%3ABNBUSDT.P','BINANCE%3ATRXUSDT.P')
+          s=s.replace("/BNBUSDT|BNB\\/USDT|BNBUSDT\\.P/i", "/TRXUSDT|TRX\\/USDT|TRXUSDT\\.P/i")
+          marker="  const csv=p.locator('[title=\"Download .csv\"]').first();"
+          if marker not in s:
+              raise SystemExit('patch marker missing')
+          insert=Path('scripts/tradingview-trades-scrape-snippet.js.txt').read_text()
+          s=s.replace(marker,insert+'\n'+marker,1)
+          Path('scripts/.e2e-trx-scrape-temp.mjs').write_text(s)
+          PY
+
+      - name: Compile and scrape TRX virtualized trade rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/.e2e-trx-scrape-temp.mjs
+
+      - name: Parse TRX trade snapshots
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,re,os
+          p='/tmp/wr2513-trades-scroll.json'
+          if not os.path.exists(p):
+              print('TV_TRX_TRADE_PARSE=NO_SNAPSHOT')
+              raise SystemExit(0)
+          d=json.load(open(p))
+          seen=[]
+          for snap in d.get('snaps',[]):
+              for line in [x.strip() for x in snap.get('text','').splitlines() if x.strip()]:
+                  if line not in seen: seen.append(line)
+          nums=sorted({int(m.group(1)) for line in seen for m in [re.match(r'^(\d+)\s*(?:long|short)$',line,re.I)] if m},reverse=True)
+          open('/tmp/trx-wr2513-trades-unique-lines.txt','w').write('\n'.join(seen)+'\n')
+          json.dump({'symbol':'BINANCE:TRXUSDT.P','timeframe':'5m','trade_numbers':nums,'unique_lines':seen,'maxScroll':d.get('maxScroll')},open('/tmp/trx-wr2513-trades-summary.json','w'),indent=2)
+          print('TV_TRX_TRADE_NUMBERS='+','.join(map(str,nums)))
+          print('TV_TRX_TRADE_COUNT='+str(len(nums)))
+          print('TV_TRX_SCRAPE_MAX_SCROLL='+str(d.get('maxScroll',-1)))
+          PY
+
+      - name: Upload TRX evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-wave-rider-trx-scrape-${{ github.run_id }}
+          path: |
+            /tmp/wr2513-e2e-report.txt
+            /tmp/wr2513-trades-scroll.json
+            /tmp/trx-wr2513-trades-unique-lines.txt
+            /tmp/trx-wr2513-trades-summary.json
+            /tmp/wr2513-trades-panel.png
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine scripts/.e2e-trx-scrape-temp.mjs
