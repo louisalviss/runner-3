@@ -1,0 +1,107 @@
+name: Runner3 X Post Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-post-runner3-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-x-post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TARGET_URL: https://x.com/coseryaya/status/2089241591173288209?s=12
+      TWEET_ID: '2089241591173288209'
+      TWITTER_AUTH_TOKEN: ${{ secrets.TWITTER_AUTH_TOKEN }}
+      TWITTER_CT0: ${{ secrets.TWITTER_CT0 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 -m pip install -q --upgrade pip
+          python3 -m pip install -q agent-reach || true
+          pipx install twitter-cli >/tmp/twitter-install.log 2>&1 || true
+          echo '=== binaries ==='
+          command -v agent-reach || true
+          command -v twitter || true
+          if [ -n "${TWITTER_AUTH_TOKEN:-}" ] && [ -n "${TWITTER_CT0:-}" ]; then echo 'X_AUTH=present'; else echo 'X_AUTH=absent'; fi
+          agent-reach doctor --json > evidence/doctor.json 2>&1 || true
+          cat evidence/doctor.json || true
+
+      - name: Agent Reach / twitter-cli
+        shell: bash
+        run: |
+          set +e
+          if command -v twitter >/dev/null 2>&1 && [ -n "${TWITTER_AUTH_TOKEN:-}" ] && [ -n "${TWITTER_CT0:-}" ]; then
+            echo '=== twitter-cli tweet ==='
+            twitter tweet "$TARGET_URL" > evidence/twitter_cli.txt 2>&1
+            cat evidence/twitter_cli.txt
+            echo '=== twitter-cli thread ==='
+            twitter thread "$TARGET_URL" > evidence/twitter_thread.txt 2>&1
+            cat evidence/twitter_thread.txt
+          else
+            echo 'twitter-cli authenticated route unavailable' | tee evidence/twitter_cli.txt
+          fi
+
+      - name: Jina public reader fallback
+        shell: bash
+        run: |
+          set +e
+          echo '=== Jina ==='
+          curl -L -sS --max-time 35 "https://r.jina.ai/http://x.com/coseryaya/status/${TWEET_ID}" -o evidence/jina.txt
+          sed -n '1,220p' evidence/jina.txt
+
+      - name: X public endpoints fallback
+        shell: bash
+        run: |
+          set +e
+          echo '=== oEmbed ==='
+          curl -L -sS --max-time 25 --get 'https://publish.twitter.com/oembed' --data-urlencode "url=https://x.com/coseryaya/status/${TWEET_ID}" -o evidence/oembed.json
+          cat evidence/oembed.json; echo
+          echo '=== syndication ==='
+          curl -L -sS --max-time 25 "https://cdn.syndication.twimg.com/tweet-result?id=${TWEET_ID}&lang=en" -o evidence/syndication.json
+          cat evidence/syndication.json; echo
+
+      - name: Browser public page
+        shell: bash
+        run: |
+          set +e
+          python3 -m pip install -q 'playwright>=1.46,<2'
+          python3 -m playwright install chromium >/tmp/pw-install.log 2>&1 || true
+          python3 - <<'PY'
+          import json, os, pathlib
+          from playwright.sync_api import sync_playwright
+          url=os.environ['TARGET_URL']
+          out={}
+          try:
+              with sync_playwright() as p:
+                  b=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+                  c=b.new_context(viewport={'width':1280,'height':900}, locale='en-US')
+                  page=c.new_page()
+                  r=page.goto(url,wait_until='domcontentloaded',timeout=30000)
+                  page.wait_for_timeout(5000)
+                  body=page.locator('body').inner_text(timeout=5000)
+                  out={'status': r.status if r else None, 'final_url':page.url, 'title':page.title(), 'body':body[:12000]}
+                  page.screenshot(path='evidence/x.png',full_page=True)
+                  c.close(); b.close()
+          except Exception as e:
+              out={'error':f'{type(e).__name__}: {e}'}
+          pathlib.Path('evidence/browser.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runner3-x-post-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
