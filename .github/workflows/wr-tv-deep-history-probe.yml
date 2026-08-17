@@ -1,0 +1,23 @@
+name: WR TV deep history probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wr-tv-deep-history-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - run: python formal-tests/wr_tv_deep_history_probe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-tv-deep-history-probe
+          path: wr_tv_deep_history_probe.json
+          retention-days: 30
