@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/probe.mjs <<'JS'
+          cat > probe-infinityfree.mjs <<'JS'
           import { chromium } from 'playwright-core';
 
           const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -96,18 +96,18 @@ jobs:
             const markers = ['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-'].filter(x => html.includes(x));
             console.log('CAPTCHA_MARKERS=' + markers.join(','));
 
-            await page.screenshot({ path: '/tmp/infinityfree-register.png', fullPage: true });
+            await page.screenshot({ path: 'infinityfree-register.png', fullPage: true });
           } finally {
             await browser.close();
           }
           JS
-          node /tmp/probe.mjs
+          node probe-infinityfree.mjs
 
       - name: Upload signup screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: infinityfree-register-probe-${{ github.run_id }}
-          path: /tmp/infinityfree-register.png
+          path: infinityfree-register.png
           if-no-files-found: ignore
           retention-days: 1
