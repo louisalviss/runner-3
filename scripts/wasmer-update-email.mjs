@@ -17,10 +17,42 @@ function save() {
   fs.writeFileSync('/tmp/wasmer-email-update.json', JSON.stringify(out, null, 2));
 }
 function redact(s='') {
-  return String(s).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig, 'EMAIL_REDACTED').slice(0, 1600);
+  return String(s).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig, 'EMAIL_REDACTED').slice(0, 1800);
 }
 async function text(locator) {
   return (await locator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+}
+async function findVisible(ctx, selector, timeoutMs=9000) {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    for (const p of ctx.pages()) {
+      for (const f of p.frames()) {
+        const loc = f.locator(selector).first();
+        if (await loc.count().catch(() => 0)) {
+          if (await loc.isVisible().catch(() => false)) return { loc, page: p, frame: f };
+        }
+      }
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
+}
+async function safeSnapshot(ctx) {
+  const items = [];
+  for (const p of ctx.pages()) {
+    items.push(`url=${p.url()}`);
+    for (const f of p.frames()) {
+      const controls = await f.locator('input,button,a').evaluateAll(xs => xs.map(x => ({
+        tag: x.tagName.toLowerCase(),
+        type: x.getAttribute('type'),
+        name: x.getAttribute('name'),
+        placeholder: x.getAttribute('placeholder'),
+        text: (x.innerText || x.textContent || '').replace(/\s+/g,' ').trim().slice(0,80),
+      })).filter(x => x.placeholder || x.name || /email|verify|update/i.test(x.text)).slice(0,30)).catch(() => []);
+      if (controls.length) items.push(JSON.stringify(controls));
+    }
+  }
+  return redact(items.join(' '));
 }
 
 const browser = await chromium.launch({
@@ -60,33 +92,32 @@ try {
   }
 
   await verify.click();
-  await page.waitForTimeout(900);
   out.verificationOpened = true;
   save();
 
-  const dialog = page.locator('[role=dialog]').last();
-  const root = (await dialog.count() && await dialog.isVisible().catch(() => false)) ? dialog : page;
-  const email = root.locator('input[type=email], input[name=email]').first();
-  if (!(await email.count()) || !(await email.isVisible().catch(() => false))) {
+  const emailHit = await findVisible(ctx, 'input[placeholder*="email" i], input[type=email], input[name=email]', 10000);
+  if (!emailHit) {
     out.status = 'email_input_missing';
-    out.detail = redact(await text(root));
+    out.detail = await safeSnapshot(ctx);
     save();
     process.exit(0);
   }
-  await email.fill(targetEmail);
+  await emailHit.loc.fill(targetEmail);
 
-  const update = root.locator('button').filter({ hasText: /Update email/i }).first();
-  if (!(await update.count()) || !(await update.isVisible().catch(() => false))) {
+  const updateHit = await findVisible(ctx, 'button:has-text("Update email"), input[type=submit][value*="Update" i]', 5000);
+  if (!updateHit) {
     out.status = 'update_button_missing';
-    out.detail = redact(await text(root));
+    out.detail = await safeSnapshot(ctx);
     save();
     process.exit(0);
   }
-  await update.click();
-  await page.waitForTimeout(2200);
+  await updateHit.loc.click();
+  await page.waitForTimeout(2500);
   out.emailUpdated = true;
 
-  const after = redact(await text(page.locator('body')));
+  const allText = [];
+  for (const p of ctx.pages()) allText.push(await text(p.locator('body')));
+  const after = redact(allText.join(' '));
   out.confirmationDetected = /verify|verification|email sent|check your email|confirmation|resend/i.test(after);
   out.status = out.confirmationDetected ? 'verification_email_requested' : 'email_updated_unconfirmed';
   out.detail = after;
