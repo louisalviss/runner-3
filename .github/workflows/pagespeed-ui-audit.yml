@@ -36,8 +36,21 @@ jobs:
         run: |
           set -euo pipefail
           test -f ops/pagespeed/ui-latest.json || exit 2
+          cp ops/pagespeed/ui-latest.json /tmp/pagespeed-ui-latest.json
+          test ! -f ops/pagespeed/ui-latest.png || cp ops/pagespeed/ui-latest.png /tmp/pagespeed-ui-latest.png
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin main
-          git reset --hard origin/main
-          # result was produced before reset, restore from temp if needed in future runs
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed
+            cp /tmp/pagespeed-ui-latest.json ops/pagespeed/ui-latest.json
+            test ! -f /tmp/pagespeed-ui-latest.png || cp /tmp/pagespeed-ui-latest.png ops/pagespeed/ui-latest.png
+            git add ops/pagespeed/ui-latest.json ops/pagespeed/ui-latest.png 2>/dev/null || git add ops/pagespeed/ui-latest.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist direct Google PageSpeed UI audit'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true
