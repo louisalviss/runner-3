@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +23,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq openvpn iproute2 iptables curl
+          python3 -m pip install -r requirements.txt
+          python3 -m playwright install --with-deps chromium
 
       - name: Select VPN Gate Asia relay
         shell: bash
@@ -136,6 +138,55 @@ jobs:
             head -c 240 "$body" 2>/dev/null | tr '\n\r' '  ' | tee -a evidence/m88_summary.txt || true
             echo | tee -a evidence/m88_summary.txt
           done
+
+      - name: Plain Chromium M88 probe over VN egress
+        shell: bash
+        run: |
+          set -u
+          mkdir -p evidence/m88_browser
+          sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner WORKSPACE="$GITHUB_WORKSPACE" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          workspace = Path(os.environ['WORKSPACE'])
+          out = workspace / 'evidence' / 'm88_browser'
+          out.mkdir(parents=True, exist_ok=True)
+          targets = [
+              'https://msports.m88.com/app/v2/',
+              'https://www.m88.com/sports',
+          ]
+          summary=[]
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              for idx, url in enumerate(targets, 1):
+                  page = browser.new_page()
+                  item={'requested_url': url}
+                  try:
+                      resp = page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                      page.wait_for_timeout(5000)
+                      item['status'] = resp.status if resp else None
+                      item['final_url'] = page.url
+                      item['title'] = page.title()
+                      html = page.content()
+                      try:
+                          text = page.locator('body').inner_text(timeout=5000)
+                      except Exception:
+                          text = ''
+                      item['html_bytes'] = len(html.encode('utf-8', errors='ignore'))
+                      item['text_prefix'] = text[:800]
+                      (out / f'{idx}_page.html').write_text(html, encoding='utf-8')
+                      (out / f'{idx}_text.txt').write_text(text, encoding='utf-8')
+                      page.screenshot(path=str(out / f'{idx}_screenshot.png'), full_page=False)
+                  except Exception as exc:
+                      item['error'] = f'{type(exc).__name__}: {exc}'
+                      item['final_url'] = page.url
+                  summary.append(item)
+                  page.close()
+              browser.close()
+          (out / 'summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding='utf-8')
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
 
       - name: Upload evidence
         if: always()
