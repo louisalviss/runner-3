@@ -62,10 +62,8 @@ async function installPlugin(wp) {
   const file = wp.locator('input[type=file]').first();
   await file.waitFor({ state: 'attached', timeout: 10000 });
   await file.setInputFiles(zipPath);
-  let install = wp.locator('input[type=submit]').filter({ has: wp.locator(':scope') }).first();
   const installByValue = wp.locator('input[type=submit][value*="Install" i]').first();
-  if (await installByValue.count()) install = installByValue;
-  else install = wp.getByRole('button', { name: /install now/i }).first();
+  const install = await installByValue.count() ? installByValue : wp.getByRole('button', { name: /install now/i }).first();
   await install.click();
   await wp.waitForLoadState('domcontentloaded').catch(() => {});
   await wp.waitForTimeout(1800);
@@ -81,19 +79,21 @@ async function installPlugin(wp) {
 
   await wp.goto(`${base}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await wp.waitForTimeout(700);
-  const row = wp.locator(`tr[data-slug="${pluginSlug}"]`).first();
+  let row = wp.locator(`tr[data-slug="${pluginSlug}"]`).first();
   if (!(await row.count())) throw new Error('plugin_row_missing_after_upload');
-  const cls = await row.getAttribute('class') || '';
+  let cls = await row.getAttribute('class') || '';
   if (!/\bactive\b/.test(cls)) {
     const activate = row.locator('a').filter({ hasText: /^activate$/i }).first();
     if (!(await activate.count())) throw new Error('plugin_activate_link_missing');
-    await activate.click();
-    await wp.waitForLoadState('domcontentloaded').catch(() => {});
-    await wp.waitForTimeout(700);
+    const href = await activate.getAttribute('href');
+    if (!href) throw new Error('plugin_activate_href_missing');
+    await wp.goto(new URL(href, `${base}/wp-admin/`).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await wp.waitForTimeout(900);
+    await wp.goto(`${base}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    row = wp.locator(`tr[data-slug="${pluginSlug}"]`).first();
+    cls = await row.getAttribute('class') || '';
   }
-  const row2 = wp.locator(`tr[data-slug="${pluginSlug}"]`).first();
-  const cls2 = await row2.getAttribute('class') || '';
-  if (!/\bactive\b/.test(cls2)) throw new Error('plugin_not_active');
+  if (!/\bactive\b/.test(cls)) throw new Error('plugin_not_active');
 }
 
 const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
