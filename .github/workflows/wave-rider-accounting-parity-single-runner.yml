@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/wave-rider-accounting-parity-single-runner.yml'
+      - 'scripts/build_wr_accounting_probe.py'
       - 'scripts/tradingview-accounting-parity.mjs'
+      - 'wave-rider-verify/accounting_parity_compare.py'
       - 'wave-rider-verify/reference_verify_parity.py'
   workflow_dispatch:
 
@@ -24,237 +26,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore authenticated TradingView state and canonical Pine
+      - name: Restore TradingView state and canonical Pine
         shell: bash
         run: |
           set -euo pipefail
           echo "::add-mask::$AUTOMATION_KEY"
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
-            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
-            -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
           test "$(sha256sum /tmp/wr2513-base.pine | awk '{print $1}')" = "$BASE_SHA256"
 
-      - name: Build report-only exact accounting probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-          p=Path('/tmp/wr2513-base.pine')
-          s=p.read_text()
+      - name: Build report-only accounting probe
+        run: python3 scripts/build_wr_accounting_probe.py
 
-          # Expand only the REPORT window to the exact native block being verified.
-          s=s.replace('startTime=input.time(1785171600000,"Start (VN)",group=groupWindow)',
-                      f'startTime=input.time({os.environ["REPORT_START_MS"]},"Start (VN)",group=groupWindow)',1)
-          s=s.replace('endTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)',
-                      f'endTime=input.time({os.environ["REPORT_END_MS"]},"End (VN, exclusive)",group=groupWindow)',1)
-
-          decl='var bool activeInReportWindow=false\n'
-          assert s.count(decl)==1
-          s=s.replace(decl,decl+'''\n// PARITY PROBE ONLY. These arrays record accounting outputs and never feed execution.\nvar string[] __parityRows=array.new_string()\nvar int __parityFirstTime=time\n''',1)
-
-          anchor='            float canonicalCash=canonicalR*riskCash\n'
-          assert s.count(anchor)==1
-          audit='''            // PARITY PROBE ONLY: exact per-trade values before canonical equity mutates.\n            string __pr="WRP#"+str.tostring(i+1)+"|sig="+str.tostring(usePendingPlan?pendingSignalBar:confirmedAtBar)+"|entryMs="+str.tostring(strategy.closedtrades.entry_time(i))+"|exitMs="+str.tostring(strategy.closedtrades.exit_time(i))+"|qty="+str.tostring(tradeQty)+"|risk="+str.tostring(riskCash)+"|planE="+str.tostring(planEntry)+"|planS="+str.tostring(planStop)+"|planT="+str.tostring(planTarget)+"|actualE="+str.tostring(actualEntry)+"|actualX="+str.tostring(actualExit)+"|canonR="+str.tostring(canonicalR)+"|exit="+canonicalExit+"|report="+(reportEligible?"1":"0")+"|eqBefore="+str.tostring(canonicalEquity)+"|nativePnl="+str.tostring(tradeProfitNative)+"|both="+(bothTouched?"1":"0")\n            array.push(__parityRows,__pr)\n'''
-          s=s.replace(anchor,audit+anchor,1)
-
-          s += '''\n\n// PARITY PROBE ONLY: expose exact values in DOM-readable table. No strategy state writes.\nvar table __parityTable=table.new(position.top_left,1,32,border_width=1,force_overlay=true)\nif barstate.islast\n    table.clear(__parityTable,0,0,0,31)\n    string __meta="WRMETA|firstMs="+str.tostring(__parityFirstTime)+"|lastMs="+str.tostring(time_close)+"|mintick="+str.tostring(syminfo.mintick)+"|mincontract="+str.tostring(syminfo.mincontract)+"|pointvalue="+str.tostring(syminfo.pointvalue)+"|rows="+str.tostring(array.size(__parityRows))+"|canonEq="+str.tostring(canonicalEquity)+"|canonTrades="+str.tostring(canonicalTrades)+"|windowTrades="+str.tostring(windowTrades)+"|windowR="+str.tostring(windowTotalR)\n    table.cell(__parityTable,0,0,__meta,text_color=color.white,bgcolor=color.black,text_size=size.tiny)\n    if array.size(__parityRows)>0\n        int __n=math.min(array.size(__parityRows),31)\n        for __k=0 to __n-1\n            table.cell(__parityTable,0,__k+1,array.get(__parityRows,__k),text_color=color.white,bgcolor=color.black,text_size=size.tiny)\n'''
-          Path('/tmp/wr2513-accounting-probe.pine').write_text(s)
-          print('ACCOUNTING_PROBE_SHA256='+__import__('hashlib').sha256(s.encode()).hexdigest())
-          PY
-
-      - name: Capture TradingView accounting ledgers for BNB and TRX in one browser runner
+      - name: Capture BNB and TRX Pine accounting in one browser session
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.58.2 >/dev/null
           node scripts/tradingview-accounting-parity.mjs
 
-      - name: Compare Pine accounting against external parity engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import csv, json, math, os, re, subprocess, sys
-          from datetime import datetime, timezone, timedelta
-          from pathlib import Path
+      - name: Diff full accounting ledger
+        run: python3 wave-rider-verify/accounting_parity_compare.py
 
-          REPORT_START=int(os.environ['REPORT_START_MS'])
-          REPORT_END=int(os.environ['REPORT_END_MS'])
-          SYMBOLS=['BNBUSDT','TRXUSDT']
-
-          def parse_line(line):
-              out={}
-              for part in line.strip().split('|')[1:]:
-                  if '=' in part:
-                      k,v=part.split('=',1); out[k]=v
-              return out
-
-          def parse_tv(sym):
-              lines=Path(f'/tmp/tv-accounting-{sym}.txt').read_text().splitlines()
-              meta=parse_line(next(x for x in lines if x.startswith('WRMETA|')))
-              rows=[]
-              for line in lines:
-                  if not line.startswith('WRP#'): continue
-                  n=int(line.split('|',1)[0][4:])
-                  d=parse_line(line); d['n']=n; rows.append(d)
-              rows.sort(key=lambda x:x['n'])
-              return meta,rows
-
-          # Use exact TradingView loaded-history first/last bar as the execution dataset.
-          # Report Start/End do NOT gate execution.
-          def run_external(sym,meta):
-              first=int(float(meta['firstMs'])); last=int(float(meta['lastMs']))
-              first_dt=datetime.fromtimestamp(first/1000,tz=timezone.utc)
-              last_dt=datetime.fromtimestamp(last/1000,tz=timezone.utc)
-              env=os.environ.copy()
-              env['WR_SYMBOL']=sym
-              env['WR_START']=first_dt.date().isoformat()
-              env['WR_END']=last_dt.date().isoformat()
-
-              # Import the parity module after env is set; then execute a dedicated accounting
-              # runner so report membership is signal-time-only while all loaded history trades.
-              code=r'''
-import importlib.util, json, math, os, sys
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-spec=importlib.util.spec_from_file_location('p','wave-rider-verify/reference_verify_parity.py')
-m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m); r=m.ref
-sym=os.environ['WR_SYMBOL']; first=int(os.environ['TV_FIRST_MS']); last=int(os.environ['TV_LAST_MS']); rs=int(os.environ['REPORT_START_MS']); re=int(os.environ['REPORT_END_MS'])
-minc=float(os.environ['TV_MINCONTRACT']); pv=float(os.environ['TV_POINTVALUE']); tick=float(os.environ['TV_MINTICK'])
-one,_,missing=r.fetch_1m(); one=[x for x in one if x.ot>=first and x.ot<last]
-bars=r.agg(one,5); ind,_,_=r.calc_ind(bars)
-class P:
- def __init__(self,d,e,s,t_raw,t_exec,risk,qty,sig_i,sig_t,sig_h,sig_l): self.d=d;self.e=e;self.s=s;self.t=t_raw;self.tx=t_exec;self.risk=risk;self.qty=qty;self.sig_i=sig_i;self.sig_t=sig_t;self.sig_h=sig_h;self.sig_l=sig_l
-
-def qi(v): return round(v/tick)
-def tcross(a,z,p): return min(qi(a),qi(z))<=qi(p)<=max(qi(a),qi(z))
-def bracket(plan,x,start_at=None):
- pts=r.path(x); active=start_at is None; cur=pts[0]
- if active:
-  if plan.d==1 and qi(x.o)<=qi(plan.s): return 'SL',x.o
-  if plan.d==1 and qi(x.o)>=qi(plan.tx): return 'TP',x.o
-  if plan.d==-1 and qi(x.o)>=qi(plan.s): return 'SL',x.o
-  if plan.d==-1 and qi(x.o)<=qi(plan.tx): return 'TP',x.o
- for z in pts[1:]:
-  pos=cur
-  while True:
-   if not active:
-    enter=(plan.d==1 and qi(pos)<qi(plan.e)<=qi(z)) or (plan.d==-1 and qi(pos)>qi(plan.e)>=qi(z))
-    if not enter: break
-    pos=plan.e; active=True; continue
-   cand=[]
-   if tcross(pos,z,plan.s) and qi(plan.s)!=qi(pos): cand.append((abs(qi(plan.s)-qi(pos)),'SL',plan.s))
-   if tcross(pos,z,plan.tx) and qi(plan.tx)!=qi(pos): cand.append((abs(qi(plan.tx)-qi(pos)),'TP',plan.tx))
-   if not cand: break
-   _,why,px=min(cand); return why,px
-  cur=z
- return None,None
-
-eq=r.INIT; pending=active=None; entry_t=None; rows=[]; alln=0
-for i,x in enumerate(bars):
- if x.ot<first or x.ct>last: continue
- closed=False
- def close(why,px):
-  global_dummy=None
-  return None
- if active is not None:
-  why,px=bracket(active,x,None)
-  if why:
-   both=x.h>=max(active.s,active.t) and x.l<=min(active.s,active.t)
-   cwhy='AMBIG→SL' if both else why
-   cr=-1.0 if both or why=='SL' else 2.3
-   eqb=eq; risk=active.risk; eq+=cr*risk; alln+=1
-   rows.append(dict(n=alln,signalMs=active.sig_t,entryMs=entry_t,exitMs=x.ct,qty=active.qty,risk=risk,planE=active.e,planS=active.s,planT=active.t,actualX=px,canonR=cr,exit=cwhy,report=rs<=active.sig_t<re,eqBefore=eqb,both=both))
-   active=None; entry_t=None; closed=True
- if active is None and pending is not None and i==pending.sig_i+1 and not closed:
-  fill=(pending.d==1 and qi(x.h)>=qi(pending.e)) or (pending.d==-1 and qi(x.l)<=qi(pending.e))
-  if fill:
-   active=pending; pending=None; entry_t=x.ot
-   why,px=bracket(active,x,active.e)
-   if why:
-    both=x.h>=max(active.s,active.t) and x.l<=min(active.s,active.t)
-    cwhy='AMBIG→SL' if both else why
-    cr=-1.0 if both or why=='SL' else 2.3
-    eqb=eq; risk=active.risk; eq+=cr*risk; alln+=1
-    rows.append(dict(n=alln,signalMs=active.sig_t,entryMs=entry_t,exitMs=x.ct,qty=active.qty,risk=risk,planE=active.e,planS=active.s,planT=active.t,actualX=px,canonR=cr,exit=cwhy,report=rs<=active.sig_t<re,eqBefore=eqb,both=both))
-    active=None; entry_t=None; closed=True
- allowed,sexit=r.session_flags(x.ct,5*60000)
- if active is not None and not closed:
-  z=ind[i]; le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']; se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
-  if sexit or le or se:
-   why='SESSION' if sexit else 'EMA'; px=x.c; cr=(px-active.e)*(1 if active.d==1 else -1)*active.qty*pv/active.risk
-   eqb=eq; risk=active.risk; eq+=cr*risk; alln+=1
-   rows.append(dict(n=alln,signalMs=active.sig_t,entryMs=entry_t,exitMs=x.ct,qty=active.qty,risk=risk,planE=active.e,planS=active.s,planT=active.t,actualX=px,canonR=cr,exit=why,report=rs<=active.sig_t<re,eqBefore=eqb,both=False))
-   active=None; entry_t=None; closed=True
- if pending is not None and i>=pending.sig_i+1 and active is None: pending=None
- if active is None and pending is None and not closed:
-  z=ind[i]; lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None; sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
-  nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
-  if nl or ns:
-   if nl:
-    d=1; e=x.h+tick; s=x.l-tick; tr=e+r.TP_R*(e-s); tx=math.ceil(tr/tick-1e-12)*tick
-   else:
-    d=-1; e=x.l-tick; s=x.h+tick; tr=e-r.TP_R*(s-e); tx=math.floor(tr/tick+1e-12)*tick
-   rb=max(eq,0)*r.RISK_PCT/100; rpu=abs(e-s)*pv; raw=rb/rpu if rpu>0 else 0; q=math.floor(raw/minc)*minc if minc>0 else math.floor(raw); risk=abs(e-s)*q*pv
-   if q>0 and risk>0: pending=P(d,e,s,tr,tx,risk,q,i,x.ct,x.h,x.l)
-print(json.dumps({'missing':missing,'rows':rows,'finalEq':eq,'first':first,'last':last}))
-'''
-              eenv=env.copy(); eenv['TV_FIRST_MS']=str(first); eenv['TV_LAST_MS']=str(last); eenv['REPORT_START_MS']=str(REPORT_START); eenv['REPORT_END_MS']=str(REPORT_END)
-              eenv['TV_MINCONTRACT']=meta['mincontract']; eenv['TV_POINTVALUE']=meta['pointvalue']; eenv['TV_MINTICK']=meta['mintick']
-              cp=subprocess.run([sys.executable,'-c',code],env=eenv,text=True,capture_output=True,check=True)
-              return json.loads(cp.stdout)
-
-          def fv(x):
-              try:return float(x)
-              except:return None
-          def iv(x):
-              try:return int(float(x))
-              except:return None
-          def close(a,b,tol=1e-8):
-              return a is not None and b is not None and abs(a-b)<=max(tol,tol*max(1,abs(a),abs(b)))
-
-          overall={}; hard_fail=False
-          for sym in SYMBOLS:
-              meta,tvrows=parse_tv(sym)
-              ext=run_external(sym,meta)
-              # Compare only report-eligible Pine trades to report-eligible external trades.
-              tvr=[x for x in tvrows if x.get('report')=='1']
-              exr=[x for x in ext['rows'] if x['report']]
-              diffs=[]
-              if len(tvr)!=len(exr): diffs.append({'field':'count','tv':len(tvr),'py':len(exr)})
-              for idx,(t,e) in enumerate(zip(tvr,exr),1):
-                  checks={
-                    'entryMs':(iv(t.get('entryMs')),e['entryMs'],0),
-                    'exitMs':(iv(t.get('exitMs')),e['exitMs'],0),
-                    'qty':(fv(t.get('qty')),e['qty'],1e-6),
-                    'risk':(fv(t.get('risk')),e['risk'],1e-5),
-                    'planE':(fv(t.get('planE')),e['planE'],1e-9),
-                    'planS':(fv(t.get('planS')),e['planS'],1e-9),
-                    'planT':(fv(t.get('planT')),e['planT'],1e-9),
-                    'canonR':(fv(t.get('canonR')),e['canonR'],1e-6),
-                    'eqBefore':(fv(t.get('eqBefore')),e['eqBefore'],1e-4),
-                  }
-                  for field,(a,b,tol) in checks.items():
-                      ok=(a==b) if tol==0 else close(a,b,tol)
-                      if not ok:
-                          diffs.append({'trade':idx,'field':field,'tv':a,'py':b}); break
-                  if diffs and diffs[-1].get('trade')==idx: break
-                  if t.get('exit')!=e['exit']:
-                      diffs.append({'trade':idx,'field':'exit','tv':t.get('exit'),'py':e['exit']}); break
-              tv_wr=sum(fv(x.get('canonR')) or 0 for x in tvr)
-              py_wr=sum(x['canonR'] for x in exr)
-              result={'tv_meta':meta,'tv_report_trades':len(tvr),'py_report_trades':len(exr),'tv_total_r':tv_wr,'py_total_r':py_wr,'first_divergence':diffs[0] if diffs else None,'exact':not diffs and close(tv_wr,py_wr,1e-6),'external_final_eq':ext['finalEq']}
-              overall[sym]=result
-              print(sym,json.dumps(result,indent=2))
-              if not result['exact']: hard_fail=True
-          Path('/tmp/accounting-parity-result.json').write_text(json.dumps(overall,indent=2)+'\n')
-          if hard_fail: sys.exit(9)
-          PY
-
-      - name: Upload accounting parity evidence
+      - name: Upload parity evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -270,6 +64,6 @@ print(json.dumps({'missing':missing,'rows':rows,'finalEq':eq,'first':first,'last
           if-no-files-found: warn
           retention-days: 3
 
-      - name: Cleanup plaintext strategy/session
+      - name: Cleanup plaintext
         if: always()
         run: rm -f /tmp/tv-state.json /tmp/wr2513-base.pine /tmp/wr2513-accounting-probe.pine
