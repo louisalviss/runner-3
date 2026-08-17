@@ -26,7 +26,7 @@ jobs:
           from urllib.parse import urlparse,parse_qsl,urlencode,urlunparse
           import json,shutil
           TARGET='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
-          ROOT='/Truyen/Kho Sách'
+          ROOT='/Truyen/Kho Sách/Sách Kindle & Kobo'
           with sync_playwright() as p:
               chrome=shutil.which('google-chrome') or shutil.which('chromium')
               b=p.chromium.launch(headless=True,executable_path=chrome)
