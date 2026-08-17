@@ -1,0 +1,107 @@
+name: WordPress Runtime Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_slug:
+        description: Site slug
+        required: true
+        default: runner3-factory-smoke-2
+        type: string
+      action:
+        description: Control action
+        required: true
+        default: inspect
+        type: string
+      payload_json:
+        description: JSON payload
+        required: false
+        default: '{}'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'ops/wp-control/requests/*.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-runtime-control
+  cancel-in-progress: false
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SITE_SLUG: ${{ inputs.site_slug }}
+          INPUT_ACTION: ${{ inputs.action }}
+          INPUT_PAYLOAD: ${{ inputs.payload_json }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            python - <<'PY'
+          import json, os
+          payload=json.loads(os.environ.get('INPUT_PAYLOAD') or '{}')
+          req={'site_slug':os.environ['INPUT_SITE_SLUG'],'action':os.environ['INPUT_ACTION'],'payload':payload}
+          open('/tmp/wp-control-request.json','w').write(json.dumps(req,ensure_ascii=False,indent=2))
+          PY
+            request=/tmp/wp-control-request.json
+          else
+            request="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^ops/wp-control/requests/.*\.json$' | tail -1 || true)"
+            test -n "$request" || { echo 'No WordPress control request found'; exit 2; }
+          fi
+          slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+          echo "WP_CONTROL_REQUEST=$request" >> "$GITHUB_ENV"
+          echo "WP_SITE_SLUG=$slug" >> "$GITHUB_ENV"
+
+      - name: Decrypt WordPress credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 3
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          encrypted="ops/wp-control/${WP_SITE_SLUG}.credential.aes"
+          test -f "$encrypted" || { echo "Credential not bootstrapped for ${WP_SITE_SLUG}"; exit 4; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY -in "$encrypted" -out /tmp/wp-control.json
+          chmod 600 /tmp/wp-control.json
+
+      - name: Execute WordPress action
+        run: node scripts/wordpress-control.mjs
+
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${WP_SITE_SLUG:-unknown}"
+          mkdir -p ops/wp-control/results
+          result="/tmp/wp-control-result-${slug}.json"
+          if [ ! -f "$result" ]; then
+            printf '{"status":"runner_error","siteSlug":"%s","detail":"control_result_missing"}\n' "$slug" > "$result"
+          fi
+          cp "$result" "ops/wp-control/results/${slug}.latest.json"
+          rm -f /tmp/wp-control.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "ops/wp-control/results/${slug}.latest.json"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist WordPress control result: ${slug}"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5
