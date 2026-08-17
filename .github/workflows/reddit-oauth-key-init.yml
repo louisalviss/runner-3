@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: reddit-oauth-key-init
+  cancel-in-progress: false
+
 jobs:
   init:
     runs-on: ubuntu-latest
@@ -22,39 +26,43 @@ jobs:
           fetch-depth: 1
 
       - name: Generate import keypair if missing
+        id: key
         shell: bash
         run: |
           set -euo pipefail
           test -n "${AUTOMATION_KEY:-}" || { echo 'Automation encryption key unavailable'; exit 2; }
           echo '::add-mask::'"$AUTOMATION_KEY"
           if [ -f reddit_oauth/import-public.pem ] && [ -f ops/reddit/import-private-key.aes ]; then
+            echo 'generated=false' >> "$GITHUB_OUTPUT"
             echo 'REDDIT_IMPORT_KEY_ALREADY_READY=true'
             exit 0
           fi
-          mkdir -p reddit_oauth ops/reddit
+          mkdir -p reddit_oauth ops/reddit /tmp/reddit-key-persist
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /tmp/reddit-import-private.pem >/dev/null 2>&1
-          openssl pkey -in /tmp/reddit-import-private.pem -pubout -out reddit_oauth/import-public.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/reddit-import-private.pem -pubout -out /tmp/reddit-key-persist/import-public.pem >/dev/null 2>&1
           openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
             -pass env:AUTOMATION_KEY \
             -in /tmp/reddit-import-private.pem \
-            -out ops/reddit/import-private-key.aes
+            -out /tmp/reddit-key-persist/import-private-key.aes
           rm -f /tmp/reddit-import-private.pem
-          openssl pkey -pubin -in reddit_oauth/import-public.pem -text -noout | grep -q 'Public-Key: (4096 bit)'
+          openssl pkey -pubin -in /tmp/reddit-key-persist/import-public.pem -text -noout | grep -q 'Public-Key: (4096 bit)'
+          echo 'generated=true' >> "$GITHUB_OUTPUT"
           echo 'REDDIT_IMPORT_KEY_GENERATED=true'
 
       - name: Persist public key and encrypted private key
+        if: steps.key.outputs.generated == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- reddit_oauth/import-public.pem ops/reddit/import-private-key.aes && \
-             git ls-files --error-unmatch reddit_oauth/import-public.pem >/dev/null 2>&1 && \
-             git ls-files --error-unmatch ops/reddit/import-private-key.aes >/dev/null 2>&1; then
-            echo 'NO_KEY_CHANGES=true'
-            exit 0
-          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git checkout -B reddit-key-persist origin/main
+          mkdir -p reddit_oauth ops/reddit
+          cp /tmp/reddit-key-persist/import-public.pem reddit_oauth/import-public.pem
+          cp /tmp/reddit-key-persist/import-private-key.aes ops/reddit/import-private-key.aes
           git add -f reddit_oauth/import-public.pem
           git add ops/reddit/import-private-key.aes
           git commit -m 'Persist secure Reddit OAuth import key'
           git push origin HEAD:main
+          echo 'REDDIT_IMPORT_KEY_PERSISTED=true'
