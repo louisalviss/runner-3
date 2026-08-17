@@ -11,8 +11,17 @@ function safeUrl(raw) {
     return `${u.origin}${u.pathname}${keys.length ? `?${keys.map(k => `${encodeURIComponent(k)}=<redacted>`).join('&')}` : ''}`;
   } catch { return '<invalid-url>'; }
 }
-function queryKeys(raw) {
-  try { return [...new URL(raw).searchParams.keys()]; } catch { return []; }
+function cookieSummary(cookies) {
+  return cookies
+    .filter(c => /pntr\.dev$/.test(c.domain || ''))
+    .map(c => ({name:c.name, domain:c.domain, path:c.path, httpOnly:c.httpOnly, secure:c.secure, sameSite:c.sameSite, expires:c.expires}))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+}
+function setCookieNames(headersArray=[]) {
+  return headersArray
+    .filter(h => h.name.toLowerCase() === 'set-cookie')
+    .map(h => String(h.value).split('=',1)[0])
+    .filter(Boolean);
 }
 
 const browser = await chromium.launch({
@@ -25,19 +34,41 @@ const page = await context.newPage();
 
 const events = [];
 page.on('request', req => {
-  const u = req.url();
-  if (/pntr\.dev|github\.com/i.test(u)) {
-    let bodyKeys = [];
-    try { const j = req.postDataJSON(); if (j && typeof j === 'object') bodyKeys = Object.keys(j); } catch {}
-    events.push({type:'request', method:req.method(), url:safeUrl(u), bodyKeys});
-  }
+  const raw = req.url();
+  if (!/pntr\.dev|github\.com/i.test(raw)) return;
+  let bodyKeys = [];
+  try { const j = req.postDataJSON(); if (j && typeof j === 'object') bodyKeys = Object.keys(j); } catch {}
+  const evt = {type:'request', method:req.method(), url:safeUrl(raw), bodyKeys};
+  try {
+    const u = new URL(raw);
+    if (u.hostname === 'github.com' && u.pathname === '/login/oauth/authorize') {
+      const redirect = u.searchParams.get('redirect_uri');
+      evt.oauth = {
+        redirectUri: redirect ? safeUrl(redirect) : null,
+        scope: u.searchParams.get('scope'),
+        responseType: u.searchParams.get('response_type'),
+        codeChallengeMethod: u.searchParams.get('code_challenge_method'),
+        hasCodeChallenge: !!u.searchParams.get('code_challenge'),
+        hasState: u.searchParams.has('state'),
+      };
+    }
+  } catch {}
+  events.push(evt);
 });
-page.on('response', res => {
-  const u = res.url();
-  if (/pntr\.dev|github\.com/i.test(u)) {
-    const location = res.headers()['location'];
-    events.push({type:'response', status:res.status(), url:safeUrl(u), location:location ? safeUrl(new URL(location, u).href) : null});
-  }
+page.on('response', async res => {
+  const raw = res.url();
+  if (!/pntr\.dev|github\.com/i.test(raw)) return;
+  const h = res.headers();
+  let headersArray = [];
+  try { headersArray = await res.headersArray(); } catch {}
+  const redirectHeader = h['location'] || h['x-action-redirect'] || h['x-nextjs-redirect'] || null;
+  events.push({
+    type:'response',
+    status:res.status(),
+    url:safeUrl(raw),
+    redirect: redirectHeader ? safeUrl(new URL(redirectHeader, raw).href) : null,
+    setCookieNames:setCookieNames(headersArray),
+  });
 });
 
 await page.goto('https://pntr.dev/dashboard', {waitUntil:'domcontentloaded', timeout:60000});
@@ -45,51 +76,26 @@ await page.waitForTimeout(2200);
 const dashBody = await page.locator('body').innerText();
 console.log(`DASHBOARD_HAS_DOMAIN=${dashBody.toLowerCase().includes('runner3wp.pntr.dev')}`);
 console.log(`DASHBOARD_IS_GUEST=${/guest|sign in to keep them/i.test(dashBody)}`);
+console.log('COOKIES_BEFORE_LOGIN='+JSON.stringify(cookieSummary(await context.cookies('https://pntr.dev'))));
 
 let target = page.getByRole('link', {name:/^sign in$/i}).first();
 if (await target.count() === 0) target = page.getByRole('button', {name:/sign in to keep them/i}).first();
-console.log(`DASH_LOGIN_CONTROL_FOUND=${await target.count() > 0}`);
 if (await target.count() > 0) {
-  const href = await target.getAttribute('href').catch(()=>null);
-  if (href) console.log('DASH_LOGIN_HREF='+safeUrl(new URL(href, page.url()).href));
   await target.click({timeout:5000}).catch(()=>{});
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1800);
 }
 console.log('LOGIN_PAGE_URL='+safeUrl(page.url()));
-
-const loginControls = await page.locator('a,button').evaluateAll(nodes => nodes.map(n => ({
-  tag:n.tagName,
-  text:(n.textContent||'').trim().replace(/\s+/g,' ').slice(0,140),
-  href:n.href||null,
-  type:n.getAttribute('type')||null,
-})).filter(x => /github|sign in|continue|login/i.test(x.text) || (x.href && /github|oauth|auth|callback|login/i.test(x.href))));
-for (const c of loginControls) console.log('LOGIN_CONTROL='+JSON.stringify({...c, href:c.href ? safeUrl(c.href) : null, queryKeys:c.href ? queryKeys(c.href) : []}));
+console.log('COOKIES_ON_LOGIN_PAGE='+JSON.stringify(cookieSummary(await context.cookies('https://pntr.dev'))));
 
 let gh = page.getByRole('button', {name:/^sign in with github$/i}).first();
 if (await gh.count() === 0) gh = page.getByRole('link', {name:/^sign in with github$/i}).first();
 console.log(`GITHUB_CONTROL_FOUND=${await gh.count() > 0}`);
 if (await gh.count() > 0) {
-  const meta = await gh.evaluate(el => {
-    const form = el.closest('form');
-    return {
-      tag: el.tagName,
-      type: el.getAttribute('type'),
-      href: el.href || null,
-      formAction: form?.getAttribute('action') || null,
-      formMethod: form?.getAttribute('method') || null,
-      formInputs: form ? [...form.querySelectorAll('input')].map(i => ({name:i.name||null,type:i.type||null,hasValue:!!i.value})) : []
-    };
-  });
-  console.log('GITHUB_CONTROL_META='+JSON.stringify({
-    ...meta,
-    href: meta.href ? safeUrl(new URL(meta.href, page.url()).href) : null,
-    formAction: meta.formAction ? safeUrl(new URL(meta.formAction, page.url()).href) : null,
-  }));
   await gh.click({timeout:5000}).catch(e => console.log('GITHUB_CLICK_ERROR='+String(e).slice(0,120)));
   await page.waitForTimeout(4500);
-  console.log('POST_GITHUB_CLICK_URL='+safeUrl(page.url()));
-  console.log('POST_GITHUB_CLICK_QUERY_KEYS='+JSON.stringify(queryKeys(page.url())));
 }
+console.log('POST_GITHUB_CLICK_URL='+safeUrl(page.url()));
+console.log('COOKIES_AFTER_GITHUB_CLICK='+JSON.stringify(cookieSummary(await context.cookies('https://pntr.dev'))));
 
 const unique = [];
 const seen = new Set();
@@ -97,5 +103,9 @@ for (const e of events) {
   const key = JSON.stringify(e);
   if (!seen.has(key)) { seen.add(key); unique.push(e); }
 }
-for (const e of unique.slice(-120)) console.log('NET='+JSON.stringify(e));
+for (const e of unique.slice(-140)) {
+  if (/pntr\.dev\/login|github\.com\/login\/oauth\/authorize/.test(e.url) || e.setCookieNames?.length || e.oauth) {
+    console.log('AUTH_NET='+JSON.stringify(e));
+  }
+}
 await browser.close();
