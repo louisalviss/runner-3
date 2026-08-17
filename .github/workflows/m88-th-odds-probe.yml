@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/m88-th-odds-probe.yml'
+      - 'm88_odds.py'
   workflow_dispatch:
 
 permissions:
@@ -36,7 +37,7 @@ jobs:
           rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
           rs=[r for r in rows if (r.get('CountryShort') or '').upper()=='TH' and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
           rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
-          rs=rs[:6]
+          rs=rs[:8]
           if not rs: raise SystemExit('No TH relay available')
           pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
           infos=[]
@@ -77,6 +78,7 @@ jobs:
             sleep 1
             sudo rm -f /tmp/openvpn.log
             sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
+            echo "TRY_RELAY_INDEX=$idx" | tee -a evidence/connect_attempts.txt
             sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
             ok=0
             for i in {1..12}; do
@@ -93,10 +95,11 @@ jobs:
                 break
               fi
             fi
+            echo "RELAY_INDEX_${idx}=FAILED" | tee -a evidence/connect_attempts.txt
           done
           test "$connected" = 1
 
-      - name: Fetch M88 guest soccer odds
+      - name: Fetch M88 public guest soccer odds in decimal format
         shell: bash
         run: |
           set -euo pipefail
@@ -104,7 +107,7 @@ jobs:
           import json,pathlib
           common={
             'sport_id':'10','lang_id':'en','view_type':'0','leagues':'999',
-            'odds_type':'2','odds_group':'3','view_date':'0','time_filter':'0',
+            'odds_type':'3','odds_group':'3','view_date':'0','time_filter':'0',
             'category':'0','branch_code':'','currency':'VND','is_full':'true',
             'prev_params':'','version':'','top_x':0,'is_stream':'false',
             'is_live_center':'false','currentMenu':'spesificSport','prevMenu':'',
@@ -118,7 +121,7 @@ jobs:
             pathlib.Path(f'/tmp/{name}.json').write_text(json.dumps(p,separators=(',',':')))
           PY
           for name in live today early; do
-            sudo ip netns exec vpnns curl -L -sS --max-time 30 \
+            sudo ip netns exec vpnns curl -L -sS --max-time 35 \
               -X POST 'https://msports.m88.com/api/v1/m88/data/main' \
               -H 'Accept: application/json, text/plain, */*' \
               -H 'Content-Type: application/json' \
@@ -128,66 +131,40 @@ jobs:
               -o "evidence/${name}.json" \
               -w 'http_code=%{http_code}\ncontent_type=%{content_type}\nsize=%{size_download}\nremote_ip=%{remote_ip}\n' \
               > "evidence/${name}.meta" \
-              2> "evidence/${name}.error" || true
+              2> "evidence/${name}.error"
           done
 
-      - name: Analyze odds response
+      - name: Validate API responses
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
-          import json,pathlib,re,collections
-          root=pathlib.Path('evidence')
-          report={}
-          def walk(x,path=''):
-              if isinstance(x,dict):
-                  yield path,x
-                  for k,v in x.items():
-                      yield from walk(v, path+'.'+str(k) if path else str(k))
-              elif isinstance(x,list):
-                  for i,v in enumerate(x):
-                      yield from walk(v, f'{path}[{i}]')
+          import json,pathlib
           for name in ['live','today','early']:
               meta={}
-              mp=root/f'{name}.meta'
-              if mp.exists():
-                  for line in mp.read_text(errors='replace').splitlines():
-                      if '=' in line:
-                          k,v=line.split('=',1); meta[k]=v
-              raw=(root/f'{name}.json').read_text(errors='replace') if (root/f'{name}.json').exists() else ''
-              item={'meta':meta,'json':False,'status':None,'top_keys':[],'data_type':None,'data_len':None,'candidate_objects':[],'key_frequency':[],'numeric_odds_sample':[]}
-              try:
-                  d=json.loads(raw); item['json']=True
-                  if isinstance(d,dict):
-                      item['status']=d.get('status'); item['top_keys']=sorted(d.keys())
-                      data=d.get('data'); item['data_type']=type(data).__name__
-                      if isinstance(data,list): item['data_len']=len(data)
-                  freq=collections.Counter()
-                  candidates=[]
-                  nums=[]
-                  for path,obj in walk(d):
-                      for k,v in obj.items(): freq[k]+=1
-                      keys={str(k).lower() for k in obj}
-                      score=sum(any(tok in k for k in keys) for tok in ['home','away','league','event','match','odds','hdp','handicap','over','under','price','clhome','claway'])
-                      if score>=3 and len(candidates)<20:
-                          safe={k:v for k,v in obj.items() if isinstance(v,(str,int,float,bool,type(None))) and len(str(v))<300}
-                          candidates.append({'path':path,'fields':safe})
-                      for k,v in obj.items():
-                          lk=str(k).lower()
-                          if any(tok in lk for tok in ['odd','price','hdp','handicap','over','under']) and isinstance(v,(str,int,float)):
-                              s=str(v)
-                              if re.fullmatch(r'-?\d+(?:\.\d+)?',s) and len(nums)<80:
-                                  nums.append({'path':path+'.'+str(k),'value':v})
-                  item['candidate_objects']=candidates
-                  item['key_frequency']=freq.most_common(120)
-                  item['numeric_odds_sample']=nums
-              except Exception as e:
-                  item['parse_error']=str(e); item['body_prefix']=raw[:1000]
-              report[name]=item
-          (root/'odds_summary.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
-          print(json.dumps({k:{'meta':v['meta'],'json':v['json'],'status':v['status'],'data_type':v['data_type'],'data_len':v['data_len'],'candidate_count':len(v['candidate_objects']),'odds_sample_count':len(v['numeric_odds_sample']),'first_candidates':v['candidate_objects'][:3],'first_odds':v['numeric_odds_sample'][:20]} for k,v in report.items()},indent=2,ensure_ascii=False))
+              for line in pathlib.Path(f'evidence/{name}.meta').read_text().splitlines():
+                  if '=' in line:
+                      k,v=line.split('=',1); meta[k]=v
+              if meta.get('http_code') != '200':
+                  raise SystemExit(f'{name}: HTTP {meta.get("http_code")}')
+              d=json.loads(pathlib.Path(f'evidence/{name}.json').read_text())
+              if d.get('status') != 1:
+                  raise SystemExit(f'{name}: API status {d.get("status")}')
+              rows=sum(len(x.get('data') or []) for x in (d.get('data') or []) if isinstance(x,dict))
+              print(f'{name.upper()}_RAW_ROWS={rows} BYTES={meta.get("size")}')
           PY
 
-      - name: Upload evidence
+      - name: Normalize matches and markets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 m88_odds.py \
+            --input-dir evidence \
+            --output-json evidence/m88_odds.json \
+            --output-csv evidence/m88_odds.csv \
+            --odds-format decimal
+
+      - name: Upload odds artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
