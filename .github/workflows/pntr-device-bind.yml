@@ -45,11 +45,17 @@ jobs:
           const j = await r.json();
           if (!r.ok || !j.device_code || !j.user_code || !j.verification_uri) throw new Error(`device code failed ${r.status}`);
           fs.writeFileSync('/tmp/pntr-device.json', JSON.stringify(j), {mode:0o600});
+          fs.writeFileSync('/tmp/pntr-device-user.txt', `OPEN_THIS=${j.verification_uri}\nENTER_CODE=${j.user_code}\nEXPIRES_IN_SECONDS=${j.expires_in || 900}\n`, {mode:0o600});
           console.log('PNTR_DEVICE_FLOW_READY=true');
-          console.log('OPEN_THIS='+j.verification_uri);
-          console.log('ENTER_CODE='+j.user_code);
-          console.log('EXPIRES_IN_SECONDS='+(j.expires_in || 900));
           NODE
+
+      - name: Publish phone authorization code
+        uses: actions/upload-artifact@v4
+        with:
+          name: pntr-device-code
+          path: /tmp/pntr-device-user.txt
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Wait for approval and verify ownership
         shell: bash
@@ -89,4 +95,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/pntr-state.json /tmp/pntr-device.json
+        run: rm -f /tmp/pntr-state.json /tmp/pntr-device.json /tmp/pntr-device-user.txt
