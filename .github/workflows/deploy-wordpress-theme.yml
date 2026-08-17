@@ -70,7 +70,7 @@ jobs:
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Deploy theme to live WordPress
-        run: node scripts/deploy-wordpress-theme.mjs
+        run: node scripts/deploy-wordpress-theme-v2.mjs
 
       - name: Persist safe deployment status
         if: always()
