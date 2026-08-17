@@ -1,0 +1,143 @@
+name: TradingView Wave Rider Load Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-wave-rider-load-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore session and canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          test -s ops/tradingview/session-state.json.aes
+          test -s ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          ACTUAL_SHA="$(sha256sum /tmp/wr2513.pine | awk '{print $1}')"
+          echo "TV_LOAD_SOURCE_SHA256=$ACTUAL_SHA"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA256"
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' /tmp/wr2513.pine
+          echo 'TV_LOAD_SOURCE_VALIDATE=PASS'
+
+      - name: Inject Pine and add strategy to BNB 5m
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs');
+          const {chromium}=require('playwright-core');
+          const source=fs.readFileSync('/tmp/wr2513.pine','utf8');
+          const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+          const out=[];
+          const log=(k,v)=>{const s=`${k}=${v}`;console.log(s);out.push(s)};
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            if(!executablePath) throw new Error('Chrome/Chromium missing');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}});
+            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            p.on('console',m=>{ if(m.type()==='error') console.log('BROWSER_CONSOLE_ERROR='+m.text().slice(0,500)); });
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(10000);
+            let body=await p.locator('body').innerText().catch(()=>'');
+            log('TV_LOAD_AUTH',/\bSign in\b/i.test(body)?'FAIL':'PASS');
+            log('TV_LOAD_BNB',/BNBUSDT|BNB\/USDT|BNBUSDT\.P/i.test(body)?'PASS':'FAIL');
+
+            const pine=p.locator('[data-name="pine-dialog-button"]').first();
+            await pine.click();
+            const dialog=p.locator('[data-name="pine-dialog"]').first();
+            await dialog.waitFor({state:'visible',timeout:15000});
+            await p.waitForTimeout(2500);
+            log('TV_PINE_DIALOG','OPEN');
+
+            const editors=dialog.locator('.monaco-editor');
+            log('TV_PINE_MONACO_COUNT',String(await editors.count()));
+            let textarea=null;
+            for(let i=0;i<await editors.count();i++){
+              const ed=editors.nth(i);
+              if(await ed.isVisible().catch(()=>false)){
+                const ta=ed.locator('textarea.inputarea, textarea').first();
+                if(await ta.count()){textarea=ta; break;}
+              }
+            }
+            if(!textarea) throw new Error('Visible Monaco textarea not found');
+            await textarea.click({force:true});
+            await p.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');
+            await p.waitForTimeout(200);
+            await p.keyboard.insertText(source);
+            await p.waitForTimeout(3500);
+
+            const viewText=await dialog.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
+            body=await p.locator('body').innerText().catch(()=>'');
+            const editorHas=body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT') || viewText.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
+            log('TV_EDITOR_CANONICAL_TITLE',editorHas?'PRESENT':'ABSENT');
+            await p.screenshot({path:'/tmp/wr2513-editor-loaded.png',fullPage:true}).catch(()=>{});
+            if(!editorHas) throw new Error('Canonical source did not appear in Pine editor');
+
+            const add=dialog.getByRole('button',{name:'Add to chart',exact:true}).first();
+            log('TV_ADD_TO_CHART_VISIBLE',await add.isVisible().catch(()=>false)?'YES':'NO');
+            await add.click();
+
+            let detected='NONE';
+            for(let i=0;i<24;i++){
+              await p.waitForTimeout(2500);
+              body=await p.locator('body').innerText().catch(()=>'');
+              const low=body.toLowerCase();
+              if(body.includes('WR 2.5.13 WIN') || body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')) {detected='STRATEGY_PRESENT'; break;}
+              if(/compilation error|script could not be translated|cannot compile|error on bar|study error|strategy error/i.test(body)) {detected='ERROR'; break;}
+            }
+            log('TV_ADD_RESULT',detected);
+            body=await p.locator('body').innerText().catch(()=>'');
+            log('TV_STRATEGY_TITLE_BODY',body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'PRESENT':'ABSENT');
+            log('TV_SHORTTITLE_BODY',body.includes('WR 2.5.13 WIN')?'PRESENT':'ABSENT');
+            log('TV_STRATEGY_TESTER_BODY',/Strategy Tester/i.test(body)?'PRESENT':'ABSENT');
+            log('TV_LIST_OF_TRADES_BODY',/List of Trades/i.test(body)?'PRESENT':'ABSENT');
+            const toastTexts=await p.locator('[data-name*="toast"], [role="alert"]').allInnerTexts().catch(()=>[]);
+            fs.writeFileSync('/tmp/wr2513-toasts.txt',toastTexts.join('\n'));
+            const relevant=body.split('\n').map(x=>x.trim()).filter(x=>/Wave Rider|WR 2\.5\.13|Strategy Tester|List of Trades|compil|error/i.test(x)).slice(0,200);
+            fs.writeFileSync('/tmp/wr2513-relevant-body.txt',relevant.join('\n')+'\n');
+            fs.writeFileSync('/tmp/wr2513-load-report.txt',out.join('\n')+'\n');
+            await p.screenshot({path:'/tmp/wr2513-after-add.png',fullPage:true}).catch(()=>{});
+            if(detected==='ERROR' || detected==='NONE') process.exitCode=7;
+            await b.close();
+          })().catch(e=>{console.error('TV_WR_LOAD_ERROR='+e.stack);fs.writeFileSync('/tmp/wr2513-load-report.txt',out.join('\n')+'\nTV_WR_LOAD_ERROR='+e.message+'\n');process.exit(8)});
+          NODE
+
+      - name: Upload load evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-wave-rider-load-${{ github.run_id }}
+          path: |
+            /tmp/wr2513-load-report.txt
+            /tmp/wr2513-relevant-body.txt
+            /tmp/wr2513-toasts.txt
+            /tmp/wr2513-editor-loaded.png
+            /tmp/wr2513-after-add.png
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine
