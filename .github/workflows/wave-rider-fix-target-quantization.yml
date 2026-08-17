@@ -1,0 +1,45 @@
+name: Wave Rider Fix Target Quantization
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-fix-target-quantization.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch exact-tick target quantization only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('wave-rider-verify/reference_verify_parity.py')
+          s=p.read_text()
+          old="""    tx=(math.ceil(plan.t/tick-1e-12)*tick) if plan.d==1 else (math.floor(plan.t/tick+1e-12)*tick)\n"""
+          new="""    raw_ti=plan.t/tick\n    nearest_ti=round(raw_ti)\n    if math.isclose(raw_ti,nearest_ti,rel_tol=0.0,abs_tol=1e-7):\n        target_i=nearest_ti\n    else:\n        target_i=math.ceil(raw_ti) if plan.d==1 else math.floor(raw_ti)\n    tx=target_i*tick\n"""
+          if s.count(old)!=1:
+              raise SystemExit(f'quantization anchor count={s.count(old)}')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git diff --check
+          git diff -- wave-rider-verify/reference_verify_parity.py
+      - name: Commit verified semantic fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add wave-rider-verify/reference_verify_parity.py
+          git commit -m 'fix exact-tick TP quantization parity'
+          git pull --rebase origin main
+          git push origin HEAD:main
