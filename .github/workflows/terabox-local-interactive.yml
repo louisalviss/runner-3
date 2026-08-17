@@ -28,10 +28,10 @@ jobs:
         run: |
           cat > /tmp/terabox_probe.py <<'PY'
           from playwright.sync_api import sync_playwright
-          import re, json
+          import re
 
           target='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
-          seen=set()
+          seen=[]
 
           with sync_playwright() as p:
               browser=p.chromium.launch(headless=True)
@@ -40,56 +40,64 @@ jobs:
 
               def on_response(r):
                   try:
-                      rt=r.request.resource_type
-                      if rt not in ('xhr','fetch'):
+                      if r.request.resource_type not in ('xhr','fetch'):
                           return
                       u=r.url
-                      if not re.search(r'(1024tera|terabox|data\.)',u,re.I) or u in seen:
+                      if '/share/list?' not in u:
                           return
-                      seen.add(u)
-                      print('XHR_URL='+u)
-                      print('XHR_STATUS='+str(r.status))
-                      if re.search(r'(list|share|api|file|dir)',u,re.I):
-                          ct=(r.headers or {}).get('content-type','')
-                          if re.search(r'(json|text)',ct,re.I):
-                              try:
-                                  t=r.text()
-                                  print('XHR_BODY='+re.sub(r'\s+',' ',t[:20000]))
-                              except Exception as e:
-                                  print('XHR_BODY_ERROR='+type(e).__name__)
+                      seen.append(u)
+                      print('SHARE_LIST_URL='+u)
+                      print('SHARE_LIST_STATUS='+str(r.status))
+                      try:
+                          t=r.text()
+                          print('SHARE_LIST_BODY='+re.sub(r'\s+',' ',t[:100000]))
+                      except Exception as e:
+                          print('SHARE_LIST_BODY_ERROR='+type(e).__name__)
                   except Exception as e:
-                      print('XHR_HANDLER_ERROR='+type(e).__name__)
+                      print('HANDLER_ERROR='+type(e).__name__)
 
               page.on('response', on_response)
               resp=page.goto(target,wait_until='domcontentloaded',timeout=90000)
               page.wait_for_timeout(10000)
               print('HTTP='+str(resp.status if resp else None))
               print('TITLE='+page.title())
-              print('URL0='+page.url)
 
               rows=page.locator('.file-item-listmode')
-              n=rows.count()
-              print('ROOT_ROW_COUNT='+str(n))
-              for i in range(min(n,30)):
+              print('ROOT_ROW_COUNT='+str(rows.count()))
+              for i in range(min(rows.count(),20)):
                   print(f'ROOT_ROW_{i}='+re.sub(r'\s+',' ',rows.nth(i).inner_text()).strip())
 
-              root=page.locator('.file-item-listmode .file-content').first
-              if root.count():
-                  root.click(timeout=15000)
-                  page.wait_for_timeout(10000)
-                  print('CLICK_ROOT=ok')
-                  print('URL1='+page.url)
-                  rows2=page.locator('.file-item-listmode')
-                  n2=rows2.count()
-                  print('INNER_ROW_COUNT='+str(n2))
-                  for i in range(min(n2,200)):
-                      print(f'INNER_ROW_{i}='+re.sub(r'\s+',' ',rows2.nth(i).inner_text()).strip())
-                  body=re.sub(r'\s+',' ',page.locator('body').inner_text()).strip()
-                  print('BODY_AFTER='+body[:20000])
-              else:
-                  print('CLICK_ROOT=no-row')
+              # Desktop share UI uses a double click to enter a directory.
+              candidates=[
+                  page.locator('.file-item-listmode .file-name').first,
+                  page.locator('.file-item-listmode [class*="name"]').first,
+                  page.get_by_text('Truyen', exact=True).last,
+                  page.locator('.file-item-listmode').first,
+              ]
+              opened=False
+              for idx,loc in enumerate(candidates):
+                  try:
+                      if loc.count():
+                          print(f'DBLCLICK_CANDIDATE_{idx}=1')
+                          loc.dblclick(timeout=12000)
+                          page.wait_for_timeout(7000)
+                          if len(seen)>=2 or page.locator('.file-item-listmode').count()!=1:
+                              opened=True
+                              print(f'DBLCLICK_USED={idx}')
+                              break
+                  except Exception as e:
+                      print(f'DBLCLICK_ERR_{idx}='+type(e).__name__)
 
-              page.wait_for_timeout(3000)
+              print('OPENED='+str(opened).lower())
+              print('URL1='+page.url)
+              rows2=page.locator('.file-item-listmode')
+              print('INNER_ROW_COUNT='+str(rows2.count()))
+              for i in range(min(rows2.count(),300)):
+                  print(f'INNER_ROW_{i}='+re.sub(r'\s+',' ',rows2.nth(i).inner_text()).strip())
+              body=re.sub(r'\s+',' ',page.locator('body').inner_text()).strip()
+              print('BODY_AFTER='+body[:30000])
+              print('SHARE_LIST_COUNT='+str(len(seen)))
+              page.wait_for_timeout(2000)
               browser.close()
           PY
           python /tmp/terabox_probe.py
