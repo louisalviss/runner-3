@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Create disposable Mail.tm inbox
         shell: bash
@@ -41,7 +41,7 @@ jobs:
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Probe candidate signup flows
+      - name: Probe durable free hosting signups
         shell: bash
         run: |
           set -euo pipefail
@@ -52,13 +52,25 @@ jobs:
           const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
           const ctx=await browser.newContext();
 
-          async function inspect(name, url, afterLoad=null) {
+          async function inspect(name, urls, clickRegex=null) {
             const page=await ctx.newPage();
             try {
-              const r=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
-              await page.waitForTimeout(2200);
-              if(afterLoad) await afterLoad(page);
-              await page.waitForTimeout(1200);
+              let response=null;
+              for (const url of urls) {
+                response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
+                await page.waitForTimeout(1800);
+                const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+                if(response && response.status()<500 && body.length>80) break;
+              }
+              if(clickRegex) {
+                const candidates=page.locator('a,button,input[type=submit]');
+                const count=await candidates.count();
+                for(let i=0;i<count;i++) {
+                  const el=candidates.nth(i);
+                  const text=((await el.innerText().catch(()=>'')) || (await el.getAttribute('value').catch(()=>'')) || '').trim();
+                  if(clickRegex.test(text)) { await el.click({timeout:8000}).catch(()=>{}); await page.waitForTimeout(2200); break; }
+                }
+              }
               const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
               const html=(await page.content().catch(()=>'' )).toLowerCase();
               const fields=await page.locator('input,select,textarea').evaluateAll(els=>els.map((e,i)=>({
@@ -68,32 +80,24 @@ jobs:
               const controls=await page.locator('a,button,input[type=submit]').evaluateAll(els=>els.map((e,i)=>({
                 i,tag:e.tagName,text:(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,100),href:e.href||'',type:e.type||''
               })).filter(x=>x.text||x.href).slice(0,120)).catch(()=>[]);
-              const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-','security verification'].filter(x=>html.includes(x)||body.toLowerCase().includes(x));
+              const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-','security verification','cloudflare challenge'].filter(x=>html.includes(x)||body.toLowerCase().includes(x));
               console.log(`=== ${name} ===`);
-              console.log('HTTP='+(r?r.status():'NA'));
+              console.log('HTTP='+(response?response.status():'NA'));
               console.log('URL='+page.url());
               console.log('CAPTCHA_MARKERS='+markers.join(','));
               console.log('FIELDS='+JSON.stringify(fields));
               console.log('CONTROLS='+JSON.stringify(controls));
-              console.log('BODY_SAMPLE='+body.slice(0,2200));
+              console.log('BODY_SAMPLE='+body.slice(0,2600));
               const email=page.locator('input[type=email],input[name*=mail i]').first();
               if(await email.count()) { await email.fill(mail.address).catch(()=>{}); console.log('TEMP_EMAIL_CAN_FILL=true'); }
             } finally { await page.close(); }
           }
 
           try {
-            await inspect('SERV00','https://www.serv00.com/register-account/');
-            await inspect('HOSTNODES','https://hostnodes.com/', async page => {
-              const btn=page.getByRole('button',{name:/get started free|start for free/i}).first();
-              if(await btn.count()) await btn.click({timeout:8000}).catch(()=>{});
-              else {
-                const link=page.getByRole('link',{name:/get started free|start for free/i}).first();
-                if(await link.count()) await link.click({timeout:8000}).catch(()=>{});
-              }
-              await page.waitForTimeout(1800);
-            });
-            await inspect('ALAVPS_PHP','https://alavps.com/free-php-hosting.html');
-            await inspect('ALAVPS_WP','https://alavps.com/free-wordpress-hosting.html');
+            await inspect('HELIOHOST',['https://heliohost.org/signup/']);
+            await inspect('X10HOSTING',['https://x10hosting.com/'],/create your free website|create free account|continue/i);
+            await inspect('GOOGIEHOST',['https://client.googiehost.com/register.php']);
+            await inspect('AEONFREE',['https://aeonfree.com/'],/get started for free|signup for free hosting|sign up/i);
           } finally { await browser.close(); }
           JS
           node probe-candidates.mjs
