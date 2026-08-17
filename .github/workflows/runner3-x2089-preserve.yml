@@ -1,0 +1,128 @@
+name: Runner3 X2089 Preserve Phonk
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ops/x2089-preserve-trigger.txt'
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Preserve video and choose best phonk window
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl jq
+          python -m pip install -q -U yt-dlp numpy
+          mkdir -p out
+
+          X='https://x.com/animextwts/status/2089076981358887392'
+          yt-dlp --no-playlist --retries 5 --fragment-retries 5 -f 'bv*+ba/b' --merge-output-format mp4 -o 'out/source_dl.%(ext)s' "$X"
+          SRC=$(find out -maxdepth 1 -type f -name 'source_dl.*' | head -1)
+          ffmpeg -hide_banner -loglevel error -y -i "$SRC" -map 0:v:0 -map 0:a? -c copy out/source.mp4
+          VD=$(ffprobe -v error -show_entries format=duration -of csv=p=0 out/source.mp4)
+
+          fetch_track () {
+            KEY="$1"; TERM="$2"; TNEEDLE="$3"; ANEEDLE="$4"
+            curl -L --fail --retry 3 --get 'https://itunes.apple.com/search' \
+              --data-urlencode "term=$TERM" --data 'entity=song' --data 'limit=100' --data 'country=US' -o "out/${KEY}.json"
+            URL=$(jq -r --arg t "$TNEEDLE" --arg a "$ANEEDLE" '[.results[] | select((.trackName//""|ascii_downcase|contains($t)) and (.artistName//""|ascii_downcase|contains($a))) | .previewUrl][0] // empty' "out/${KEY}.json")
+            NAME=$(jq -r --arg t "$TNEEDLE" --arg a "$ANEEDLE" '[.results[] | select((.trackName//""|ascii_downcase|contains($t)) and (.artistName//""|ascii_downcase|contains($a))) | .trackName][0] // empty' "out/${KEY}.json")
+            ART=$(jq -r --arg t "$TNEEDLE" --arg a "$ANEEDLE" '[.results[] | select((.trackName//""|ascii_downcase|contains($t)) and (.artistName//""|ascii_downcase|contains($a))) | .artistName][0] // empty' "out/${KEY}.json")
+            test -n "$URL"
+            curl -L --fail --retry 3 "$URL" -o "out/${KEY}.m4a"
+            printf '%s\t%s\n' "$NAME" "$ART" > "out/${KEY}_track.tsv"
+            ffmpeg -hide_banner -loglevel error -y -i "out/${KEY}.m4a" -ac 1 -ar 22050 -f f32le "out/${KEY}.f32"
+          }
+
+          fetch_track xonada 'MONTAGEM XONADA Tiktok version MXZI dj Samir DJ Javi26' 'montagem xonada' 'mxzi'
+          fetch_track passo 'Passo Bem Solto Phonk ATLXS DE' 'passo bem solto' 'atlxs de'
+
+          export VD
+          python - <<'PY'
+          import json, os, numpy as np
+          sr=22050; n=1024; hop=256; vd=float(os.environ['VD'])
+          # Major visual cuts/action impacts from the inspected source. Strong hits weighted higher.
+          events=np.array([0.47,1.43,2.37,3.10,4.23,5.00,5.72,6.68,7.10,8.33,9.30])
+          weights=np.array([0.65,0.75,1.15,0.85,0.80,1.20,1.25,1.10,1.20,0.80,1.30])
+          def analyse(key):
+              x=np.fromfile(f'out/{key}.f32',dtype='<f4')
+              win=np.hanning(n).astype(np.float32)
+              mags=[]; rms=[]
+              for i in range(0,len(x)-n,hop):
+                  w=x[i:i+n]
+                  mags.append(np.abs(np.fft.rfft(w*win)))
+                  rms.append(np.sqrt(np.mean(w*w)+1e-12))
+              mags=np.asarray(mags); rms=np.asarray(rms)
+              flux=np.r_[0,np.maximum(0,mags[1:]-mags[:-1]).sum(axis=1)]
+              # robust normalization to compare tracks
+              flux=np.maximum(flux-np.median(flux),0)
+              flux/=np.percentile(flux,95)+1e-9
+              rms=(rms-np.percentile(rms,10))/(np.percentile(rms,90)-np.percentile(rms,10)+1e-9)
+              rms=np.clip(rms,0,1)
+              times=np.arange(len(flux))*hop/sr
+              md=times[-1]
+              best=(-1,None,None)
+              for start in np.arange(0,max(0.01,md-vd-0.05),hop/sr):
+                  vals=[]
+                  for e,w in zip(events,weights):
+                      t=start+e; j=int(round(t*sr/hop)); lo=max(0,j-2); hi=min(len(flux),j+3)
+                      vals.append(w*(np.max(flux[lo:hi]) if hi>lo else 0))
+                  j0=max(0,int(start*sr/hop)); j1=min(len(rms),int((start+vd)*sr/hop))
+                  energy=float(np.mean(rms[j0:j1])) if j1>j0 else 0
+                  score=float(np.sum(vals)/np.sum(weights) + 0.18*energy)
+                  if score>best[0]: best=(score,float(start),energy)
+              return {'key':key,'score':best[0],'start':best[1],'energy':best[2]}
+          r=[analyse('xonada'),analyse('passo')]
+          r.sort(key=lambda z:z['score'], reverse=True)
+          data={'video_duration':vd,'events':events.tolist(),'weights':weights.tolist(),'results':r,'winner':r[0]['key']}
+          json.dump(data,open('out/alignment.json','w'),indent=2)
+          open('out/winner.env','w').write(f"WINNER={r[0]['key']}\nXONADA_START={next(x['start'] for x in r if x['key']=='xonada'):.6f}\nPASSO_START={next(x['start'] for x in r if x['key']=='passo'):.6f}\n")
+          print(json.dumps(data,indent=2))
+          PY
+          source out/winner.env
+
+          render () {
+            KEY="$1"; START="$2"
+            ffmpeg -hide_banner -loglevel error -y -i out/source.mp4 -ss "$START" -i "out/${KEY}.m4a" \
+              -filter_complex "[0:a]highpass=f=120,lowpass=f=7000,volume=0.17[sfx];[1:a]atrim=start=0:end=${VD},asetpts=PTS-STARTPTS,loudnorm=I=-8:TP=-1:LRA=5,volume=1.04[music];[sfx][music]amix=inputs=2:duration=shortest:normalize=0,alimiter=limit=0.95[a]" \
+              -map 0:v:0 -map '[a]' -t "$VD" -c:v copy -c:a aac -b:a 256k -ar 48000 -movflags +faststart "out/${KEY}_preserve.mp4"
+          }
+          render xonada "$XONADA_START"
+          render passo "$PASSO_START"
+          cp "out/${WINNER}_preserve.mp4" out/final.mp4
+
+          SRC_MD5=$(ffmpeg -hide_banner -loglevel error -i out/source.mp4 -map 0:v:0 -c:v copy -f md5 - | cut -d= -f2)
+          OUT_MD5=$(ffmpeg -hide_banner -loglevel error -i out/final.mp4 -map 0:v:0 -c:v copy -f md5 - | cut -d= -f2)
+          XTRACK=$(cat out/xonada_track.tsv)
+          PTRACK=$(cat out/passo_track.tsv)
+          {
+            echo "source_duration=$VD"
+            echo "video_policy=bitstream-copy; no crop; no zoom; no reorder; no dropped frames"
+            echo "source_video_md5=$SRC_MD5"
+            echo "final_video_md5=$OUT_MD5"
+            echo "video_stream_identical=$([ "$SRC_MD5" = "$OUT_MD5" ] && echo true || echo false)"
+            echo "xonada=$XTRACK start=$XONADA_START"
+            echo "passo=$PTRACK start=$PASSO_START"
+            echo "winner=$WINNER"
+            cat out/alignment.json
+          } > out/report.txt
+          ffprobe -v error -show_entries stream=index,codec_name,width,height,r_frame_rate -show_entries format=duration,size -of default=nw=1 out/final.mp4 >> out/report.txt
+          ffmpeg -hide_banner -i out/final.mp4 -vn -af volumedetect -f null - 2>&1 | grep -E 'mean_volume|max_volume' >> out/report.txt || true
+          cat out/report.txt
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-x2089-preserve-phonk
+          path: |
+            out/final.mp4
+            out/xonada_preserve.mp4
+            out/passo_preserve.mp4
+            out/report.txt
+            out/alignment.json
+          retention-days: 3
