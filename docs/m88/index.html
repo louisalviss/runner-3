@@ -33,7 +33,7 @@
 <div class="foot">Public guest odds snapshot · Virtual / PES / eSoccer hidden by default</div>
 </div>
 <script>
-const DATA='https://raw.githubusercontent.com/louisalviss/runner-3/m88-live-data/data.json';
+const DATA='https://raw.githack.com/louisalviss/runner-3/m88-live-data/data.json';
 const $=s=>document.querySelector(s); let all=[];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function fmtTime(iso){try{return new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',second:'2-digit',day:'2-digit',month:'2-digit'}).format(new Date(iso))+' VN'}catch{return iso}}
