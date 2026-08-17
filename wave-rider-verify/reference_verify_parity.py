@@ -14,6 +14,7 @@ Do not add unrelated fixes here without a one-semantic parity probe first.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 FROZEN = Path(__file__).with_name("reference_verify.py")
@@ -21,6 +22,9 @@ SPEC = importlib.util.spec_from_file_location("wave_rider_frozen_reference", FRO
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"cannot load frozen reference: {FROZEN}")
 ref = importlib.util.module_from_spec(SPEC)
+# Python 3.12 dataclasses resolves class annotations through sys.modules while
+# the module is executing, so register it before exec_module().
+sys.modules[SPEC.name] = ref
 SPEC.loader.exec_module(ref)
 
 
