@@ -19,10 +19,16 @@ function save(){
 }
 async function bodyText(page){return (await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();}
 function blockedReason(text,html=''){
-  const s=(text+' '+html).toLowerCase();
-  if(/recaptcha|hcaptcha|turnstile|verify you are human|security verification|captcha/.test(s)) return 'captcha';
-  if(/credit card|payment method|add card|billing information|card details/.test(s)) return 'payment';
+  const visible=(text||'').toLowerCase();
+  const all=(visible+' '+(html||'').toLowerCase());
+  if(/recaptcha|hcaptcha|turnstile|verify you are human|security verification|captcha/.test(all)) return 'captcha';
+  if(/credit card|payment method|add card|billing information|card details/.test(visible)) return 'payment';
   return null;
+}
+async function safePageState(page,label){
+  const text=await bodyText(page);
+  const buttons=await page.locator('button').evaluateAll(bs=>bs.map(b=>(b.innerText||b.textContent||'').replace(/\s+/g,' ').trim()).filter(Boolean).slice(0,20)).catch(()=>[]);
+  return `${label} url=${page.url()} buttons=${JSON.stringify(buttons)} body=${text.slice(0,700)}`;
 }
 async function pollVerificationLink(){
   const headers={Authorization:'Bearer '+mail.token};
@@ -50,6 +56,7 @@ async function loginIfNeeded(page){
   if(!/login/i.test(page.url())) return;
   const ident=page.locator('input[type=email],input[name*=email i],input[name*=user i],input[type=text]').first();
   const pass=page.locator('input[type=password]').first();
+  await ident.waitFor({state:'visible',timeout:10000}).catch(()=>{});
   if(await ident.count()) await ident.fill(mail.address);
   if(await pass.count()) await pass.fill(password);
   const btn=page.getByRole('button',{name:/log in|sign in|continue/i}).first();
@@ -84,21 +91,28 @@ async function main(){
   const page=await ctx.newPage();
   try{
     await page.goto('https://wasmer.io/signup',{waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForTimeout(1600);
+    await page.waitForTimeout(1200);
     let text=await bodyText(page); let html=(await page.content()).toLowerCase();
     let blocked=blockedReason(text,html);
     if(blocked){result.status='blocked_'+blocked;result.detail='signup_entry';save();return;}
 
     const personal=page.getByRole('button',{name:/personal/i}).first();
-    if(await personal.count()) await personal.click().catch(()=>{});
+    await personal.waitFor({state:'visible',timeout:10000}).catch(()=>{});
+    if(!(await personal.count())){result.status='blocked_signup_flow';result.detail=await safePageState(page,'personal_missing');save();return;}
+    await personal.click();
+    await page.waitForTimeout(500);
+
     const cont=page.getByRole('button',{name:/continue/i}).first();
-    if(await cont.count()) await cont.click().catch(()=>{});
-    await page.waitForTimeout(1000);
+    await cont.waitFor({state:'visible',timeout:10000}).catch(()=>{});
+    if(!(await cont.count())){result.status='blocked_signup_flow';result.detail=await safePageState(page,'continue_missing');save();return;}
+    await cont.click();
 
     const user=page.locator('input[name=username],input[placeholder*=Username i]').first();
+    const appeared=await user.waitFor({state:'visible',timeout:15000}).then(()=>true).catch(()=>false);
+    if(!appeared){result.status='blocked_signup_form';result.detail=await safePageState(page,'form_not_hydrated');save();return;}
     const email=page.locator('input[type=email],input[name=email]').first();
     const pass=page.locator('input[type=password],input[name=password]').first();
-    if(!(await user.count())||!(await email.count())||!(await pass.count())){result.status='blocked_signup_form';result.detail='required_fields_missing';save();return;}
+    if(!(await email.count())||!(await pass.count())){result.status='blocked_signup_form';result.detail=await safePageState(page,'email_or_password_missing');save();return;}
     await user.fill(username); await email.fill(mail.address); await pass.fill(password);
 
     const checkbox=page.getByRole('checkbox').first();
@@ -115,20 +129,20 @@ async function main(){
     }
 
     const signup=page.getByRole('button',{name:/sign up/i}).first();
-    if(!(await signup.count())){result.status='blocked_signup_form';result.detail='signup_button_missing';save();return;}
+    if(!(await signup.count())){result.status='blocked_signup_form';result.detail=await safePageState(page,'signup_button_missing');save();return;}
     await signup.click();
-    await page.waitForTimeout(2600);
+    await page.waitForTimeout(3000);
 
     text=await bodyText(page); html=(await page.content()).toLowerCase(); blocked=blockedReason(text,html);
     if(blocked){result.status='blocked_'+blocked;result.detail='after_signup_submit';save();return;}
-    if(/already exists|already taken|invalid email|disposable|not allowed/i.test(text)){result.status='blocked_signup_rejected';result.detail=text.slice(0,350);save();return;}
+    if(/already exists|already taken|invalid email|disposable|not allowed/i.test(text)){result.status='blocked_signup_rejected';result.detail=text.slice(0,500);save();return;}
 
     result.status='account_submitted';save();
     if(/validat|verify|confirm.*email|check.*email/i.test(text)||/terms/i.test(page.url())){
       const verification=await pollVerificationLink();
       if(!verification.url){result.status='blocked_email_verification';result.detail='mail_not_found subject='+verification.subject;save();return;}
       await page.goto(verification.url,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
-      await page.waitForTimeout(2200);
+      await page.waitForTimeout(2500);
     }
 
     text=await bodyText(page); html=(await page.content()).toLowerCase(); blocked=blockedReason(text,html);
@@ -138,9 +152,9 @@ async function main(){
     await loginIfNeeded(page);
 
     await page.goto('https://wasmer.io/apps/create?template=wordpress-starter',{waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(2200);
     await loginIfNeeded(page);
-    if(/login|signup/.test(page.url())){result.status='blocked_login';result.detail='could_not_authenticate_after_signup';save();return;}
+    if(/login|signup/.test(page.url())){result.status='blocked_login';result.detail=await safePageState(page,'could_not_authenticate_after_signup');save();return;}
 
     text=await bodyText(page); html=(await page.content()).toLowerCase(); blocked=blockedReason(text,html);
     if(blocked){result.status='blocked_'+blocked;result.detail='wordpress_create_entry';save();return;}
@@ -154,7 +168,7 @@ async function main(){
     await chooseDefaults(page);
 
     const deploy=page.getByRole('button',{name:/deploy now|deploy/i}).first();
-    if(!(await deploy.count())){result.status='blocked_deploy_form';result.detail='deploy_button_missing';save();return;}
+    if(!(await deploy.count())){result.status='blocked_deploy_form';result.detail=await safePageState(page,'deploy_button_missing');save();return;}
     await deploy.click();
 
     for(let i=0;i<40;i++){
@@ -167,10 +181,10 @@ async function main(){
       if(m){result.siteUrl=m[0];result.status='deployed';break;}
       if(/successfully deployed|site.*live|deployment.*complete/i.test(text)) result.status='deployed_pending_url';
     }
-    if(!/^deployed/.test(result.status)){result.status='deploy_unconfirmed';result.detail=('url='+page.url()+' '+text.slice(0,300));}
+    if(!/^deployed/.test(result.status)){result.status='deploy_unconfirmed';result.detail=await safePageState(page,'deploy_unconfirmed');}
     if(result.siteUrl){const r=await page.request.get(result.siteUrl,{timeout:30000}).catch(()=>null);result.httpStatus=r?.status()||null;}
     save();
-  }catch(e){result.status='automation_error';result.detail=String(e).slice(0,600);save();}
+  }catch(e){result.status='automation_error';result.detail=String(e).slice(0,700);save();}
   finally{await browser.close();}
 }
 
