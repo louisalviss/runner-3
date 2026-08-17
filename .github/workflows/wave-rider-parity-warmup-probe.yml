@@ -1,0 +1,104 @@
+name: Wave Rider Parity Warmup Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-parity-warmup-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  warmup:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+      FROZEN_REFERENCE_BLOB: 2ba5f66d33e2e483a4c669c95f3b97778c80fcd0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate frozen reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git hash-object wave-rider-verify/reference_verify.py)"
+          echo "FROZEN_REFERENCE=$ACTUAL"
+          test "$ACTUAL" = "$FROZEN_REFERENCE_BLOB"
+
+      - name: Build one-semantic warmup=0 variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('wave-rider-verify/reference_verify.py').read_text()
+          old='WARMUP_DAYS=3'
+          assert src.count(old)==1, src.count(old)
+          Path('/tmp/reference_warmup0.py').write_text(src.replace(old,'WARMUP_DAYS=0',1))
+          PY
+
+      - name: Run frozen baseline through Aug 16
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 wave-rider-verify/reference_verify.py >/tmp/baseline-run.txt
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" "/tmp/${WR_SYMBOL}-baseline.csv"
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json" "/tmp/${WR_SYMBOL}-baseline-summary.json"
+
+      - name: Run warmup=0 only variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 /tmp/reference_warmup0.py >/tmp/warmup0-run.txt
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" "/tmp/${WR_SYMBOL}-warmup0.csv"
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json" "/tmp/${WR_SYMBOL}-warmup0-summary.json"
+
+      - name: Compare signal sequence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          s=os.environ['WR_SYMBOL']
+          def read(p):
+              with open(p,newline='') as f:return list(csv.DictReader(f))
+          a=read(f'/tmp/{s}-baseline.csv'); b=read(f'/tmp/{s}-warmup0.csv')
+          out={
+            'symbol':s,
+            'baseline_count':len(a),
+            'warmup0_count':len(b),
+            'baseline_signals':[x['signal_time'] for x in a],
+            'warmup0_signals':[x['signal_time'] for x in b],
+            'added_by_warmup0':[x for x in b if x['signal_time'] not in {y['signal_time'] for y in a}],
+            'removed_by_warmup0':[x for x in a if x['signal_time'] not in {y['signal_time'] for y in b}],
+          }
+          Path(f'/tmp/{s}-warmup-diff.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-warmup-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/${{ matrix.symbol }}-baseline.csv
+            /tmp/${{ matrix.symbol }}-baseline-summary.json
+            /tmp/${{ matrix.symbol }}-warmup0.csv
+            /tmp/${{ matrix.symbol }}-warmup0-summary.json
+            /tmp/${{ matrix.symbol }}-warmup-diff.json
+            /tmp/baseline-run.txt
+            /tmp/warmup0-run.txt
+          if-no-files-found: warn
+          retention-days: 2
