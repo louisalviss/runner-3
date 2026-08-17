@@ -1,0 +1,78 @@
+name: WR TV Timezone Inference
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-tv-timezone-inference.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  infer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Match TV displayed entry prices to Binance 5m bars
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          sess=requests.Session(); sess.headers['User-Agent']='wr-tv-timezone-inference/1.0'
+          tv={
+            'BNBUSDT':[
+              ('2026-07-27T20:15:00',575.34),('2026-07-30T19:35:00',575.27),('2026-07-31T13:25:00',578.85),('2026-08-03T17:10:00',551.95),('2026-08-04T17:50:00',549.13),('2026-08-05T19:20:00',554.24),('2026-08-06T18:00:00',585.31),('2026-08-08T03:45:00',593.40),('2026-08-08T04:35:00',593.71),('2026-08-08T19:05:00',603.56),('2026-08-12T03:20:00',615.37),('2026-08-13T19:35:00',609.96),('2026-08-14T10:40:00',606.40),('2026-08-16T04:10:00',606.44)],
+            'TRXUSDT':[
+              ('2026-07-27T18:10:00',0.32825),('2026-07-28T08:20:00',0.32520),('2026-07-29T10:25:00',0.32622),('2026-07-29T16:00:00',0.32615),('2026-08-03T06:15:00',0.32569),('2026-08-05T08:15:00',0.32717),('2026-08-05T10:55:00',0.32843),('2026-08-06T17:40:00',0.32675),('2026-08-07T15:15:00',0.32829),('2026-08-10T13:00:00',0.33178),('2026-08-14T19:25:00',0.33285),('2026-08-16T10:05:00',0.33118),('2026-08-16T19:00:00',0.33175),('2026-08-16T22:00:00',0.33121)]}
+          out={}
+          for sym,rows in tv.items():
+              bars=[]; d=date(2026,7,26)
+              while d<=date(2026,8,17):
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/5m/{sym}-5m-{ds}.zip',timeout=40)
+                  if r.status_code==404: d+=timedelta(days=1); continue
+                  r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append((int(row[0]),float(row[1]),float(row[2]),float(row[3]),float(row[4])))
+                  d+=timedelta(days=1)
+              recs=[]
+              for ts,px in rows:
+                  naive=datetime.fromisoformat(ts).replace(tzinfo=timezone.utc); base=int(naive.timestamp()*1000)
+                  candidates=[]
+                  for ot,o,h,l,c in bars:
+                      delta=(ot-base)//60000
+                      if abs(delta)>12*60: continue
+                      # price containment in the entry bar is strongest; permit 1 tick-ish tolerance.
+                      tol=0.011 if sym=='BNBUSDT' else 0.000011
+                      if l-tol<=px<=h+tol:
+                          candidates.append({'delta_min':delta,'ot':datetime.fromtimestamp(ot/1000,tz=timezone.utc).isoformat().replace('+00:00','Z'),'o':o,'h':h,'l':l,'c':c,'dist_close':abs(c-px),'dist_open':abs(o-px)})
+                  candidates.sort(key=lambda x:(abs(x['delta_min']),x['dist_open'],x['dist_close']))
+                  best=candidates[:12]
+                  rec={'display_time':ts,'price':px,'candidates':best}; recs.append(rec)
+                  print('TZMATCH='+json.dumps({'symbol':sym,**rec},separators=(',',':')))
+              out[sym]=recs
+          # Score integer-hour offsets by how many displayed entries land inside Binance entry bars after subtracting offset.
+          scores={}
+          for off in range(-12,15):
+              total=0; per={}
+              for sym,recs in out.items():
+                  hit=0
+                  for r in recs:
+                      want=-off*60
+                      if any(c['delta_min']==want for c in r['candidates']): hit+=1
+                  per[sym]=hit; total+=hit
+              scores[off]={'total':total,'per':per}
+          print('OFFSET_SCORES='+json.dumps(scores,separators=(',',':')))
+          best=max(scores,key=lambda k:scores[k]['total']); print('BEST_OFFSET_HOURS='+str(best)+' '+json.dumps(scores[best]))
+          Path('/tmp/timezone_inference.json').write_text(json.dumps({'matches':out,'scores':scores,'best_offset':best},indent=2),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-tv-timezone-inference-${{ github.run_id }}
+          path: /tmp/timezone_inference.json
+          retention-days: 2
