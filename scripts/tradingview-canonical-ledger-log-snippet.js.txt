@@ -10,10 +10,10 @@
   }
   log('TV_PINE_MORE_CONTROL',await more.count()>0?'PRESENT':'ABSENT');
   if(await more.count()>0){await more.click({force:true}).catch(()=>{});await p.waitForTimeout(1200)}
-  const menuDump=await p.locator('[role="menuitem"], [role="menu"] *, [data-name*="menu" i] *').evaluateAll(es=>es.map(e=>(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ')).filter(Boolean).slice(0,200)).catch(()=>[]);
+  const menuDump=await p.locator('[role="menuitem"], [role="menu"] *, [data-name*="menu" i] *').evaluateAll(es=>es.map(e=>({text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' '),role:e.getAttribute('role')||'',aria:e.getAttribute('aria-label')||'',cls:String(e.className||'').slice(0,180)})).filter(x=>x.text).slice(0,250)).catch(()=>[]);
   fs.writeFileSync(`/tmp/tv-pine-more-menu-${__sym}.json`,JSON.stringify(menuDump,null,2));
-  let logItem=p.getByText(/^Pine logs(?:…|\.\.\.)?$/i).first();
-  if(await logItem.count()===0) logItem=p.getByRole('menuitem',{name:/^Pine logs(?:…|\.\.\.)?$/i}).first();
+  let logItem=p.getByRole('menuitem',{name:/^Pine logs(?:…|\.\.\.)?$/i}).first();
+  if(await logItem.count()===0) logItem=p.locator('[role="menu"] [role="menuitem"]:has-text("Pine logs")').first();
   log('TV_PINE_LOG_MENU_ITEM',await logItem.count()>0?'PRESENT':'ABSENT');
   if(await logItem.count()>0){await logItem.click({force:true});await p.waitForTimeout(4500)}
   const logBody=await p.locator('body').innerText().catch(()=>'');
