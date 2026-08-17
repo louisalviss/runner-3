@@ -26,7 +26,7 @@ jobs:
           cat > /tmp/terabox_qr.py <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image
-          import os,re,shutil,time,json
+          import os,re,shutil,time
           LOGIN='https://www.terabox.com/vietnamese/login/loginsetting'
           SHARE='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
           os.makedirs('/tmp/tbqr',exist_ok=True)
@@ -45,17 +45,17 @@ jobs:
                 for loc in pg.locator(sel).all():
                   try:
                     if not loc.is_visible(): continue
-                    bb=loc.bounding_box();
+                    bb=loc.bounding_box()
                     if not bb: continue
                     w,h=bb['width'],bb['height']; k=(round(bb['x']),round(bb['y']),round(w),round(h))
                     if k in seen: continue
                     seen.add(k)
                     if 120<=w<=600 and 120<=h<=600 and .70<=w/h<=1.40:
-                      cand.append((abs(w-h)+abs(max(w,h)-240)*.05,loc,bb,sel))
+                      cand.append((abs(w-h)+abs(max(w,h)-240)*.05,loc,sel))
                   except: pass
               except: pass
             if cand:
-              cand.sort(key=lambda x:x[0]); cand[0][1].screenshot(path='/tmp/tbqr/qr.png'); print('QR_SELECTOR='+cand[0][3],flush=True)
+              cand.sort(key=lambda x:x[0]); cand[0][1].screenshot(path='/tmp/tbqr/qr.png'); print('QR_SELECTOR='+cand[0][2],flush=True)
             else:
               im=Image.open('/tmp/tbqr/login.png');W,H=im.size
               im.crop((max(0,W//2-400),max(0,H//2-400),min(W,W//2+400),min(H,H//2+400))).save('/tmp/tbqr/qr.png')
@@ -71,7 +71,8 @@ jobs:
               except: pass
               pg.wait_for_timeout(1500)
             print('LOGIN_SUCCESS='+str(logged),flush=True)
-            if not logged: pg.screenshot(path='/tmp/tbqr/login-timeout.png',full_page=True); b.close(); raise SystemExit(2)
+            if not logged:
+              pg.screenshot(path='/tmp/tbqr/login-timeout.png',full_page=True); b.close(); raise SystemExit(2)
             pg.goto(SHARE,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(7000)
             opened=False
             for loc in pg.get_by_text('Truyen',exact=True).all():
@@ -90,7 +91,8 @@ jobs:
               try:
                 if loc.is_visible(): target=loc; break
               except: pass
-            if target is None: print('TARGET_NOT_FOUND',flush=True); b.close(); raise SystemExit(3)
+            if target is None:
+              print('TARGET_NOT_FOUND',flush=True); b.close(); raise SystemExit(3)
             target.click(); pg.wait_for_timeout(1200)
             save=False
             for pat in [r'Lưu vào TeraBox',r'Lưu vào',r'Save to TeraBox',r'Save to',r'保存到']:
@@ -115,10 +117,10 @@ jobs:
             with open('/tmp/tbqr/result.txt','w',encoding='utf-8') as f: f.write(txt[:30000])
             b.close()
           PY
-          python /tmp/terabox_qr.py &
+          (python /tmp/terabox_qr.py; echo $? > /tmp/tbqr/exitcode) > /tmp/tbqr/process.log 2>&1 &
           echo $! > /tmp/tbqr/pid
           for i in $(seq 1 120); do [ -f /tmp/tbqr/ready ] && break; sleep 1; done
-          [ -f /tmp/tbqr/ready ] || { echo 'QR_NOT_READY'; exit 4; }
+          [ -f /tmp/tbqr/ready ] || { cat /tmp/tbqr/process.log || true; echo 'QR_NOT_READY'; exit 4; }
       - name: Upload temporary QR
         uses: actions/upload-artifact@v4
         with:
@@ -131,8 +133,11 @@ jobs:
         shell: bash
         run: |
           touch /tmp/tbqr/artifact_uploaded
-          PID=$(cat /tmp/tbqr/pid)
-          wait "$PID"
+          for i in $(seq 1 600); do [ -f /tmp/tbqr/exitcode ] && break; sleep 1; done
+          cat /tmp/tbqr/process.log || true
+          [ -f /tmp/tbqr/exitcode ] || { echo 'BROWSER_TIMEOUT'; exit 5; }
+          CODE=$(cat /tmp/tbqr/exitcode)
+          [ "$CODE" = "0" ] || exit "$CODE"
       - name: Upload test result evidence
         if: always()
         uses: actions/upload-artifact@v4
