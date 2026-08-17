@@ -33,7 +33,6 @@ replacement = r'''def click_drawer_sports(frame):
             attempts.append({'strategy':name,'selected':ok,'state':st})
             return ok
 
-        # Mobile build: real touch first.
         try:
             loc.tap(force=True, timeout=5000)
             if check('locator.tap(force)'):
@@ -49,7 +48,6 @@ replacement = r'''def click_drawer_sports(frame):
         except Exception as e:
             attempts.append({'strategy':'text.tap(force)','error':type(e).__name__})
 
-        # DOM click bypasses hit-testing/overlays but still invokes React click handler.
         try:
             loc.evaluate('e=>e.click()')
             if check('element.click()'):
@@ -57,7 +55,6 @@ replacement = r'''def click_drawer_sports(frame):
         except Exception as e:
             attempts.append({'strategy':'element.click()','error':type(e).__name__})
 
-        # Explicit pointer sequence for handlers bound to pointer events.
         try:
             loc.dispatch_event('pointerdown', {'pointerType':'touch','isPrimary':True,'button':0,'buttons':1})
             loc.dispatch_event('pointerup', {'pointerType':'touch','isPrimary':True,'button':0,'buttons':0})
@@ -67,7 +64,6 @@ replacement = r'''def click_drawer_sports(frame):
         except Exception as e:
             attempts.append({'strategy':'pointerdown/up/click','error':type(e).__name__})
 
-        # Frame-relative center coordinate: avoids Playwright's page-level iframe box offset.
         try:
             cx = float(info['x']) + float(info['w'])/2
             cy = float(info['y']) + float(info['h'])/2
@@ -95,8 +91,7 @@ replacement = r'''def click_drawer_sports(frame):
         res['drawer_sports_error'] = type(e).__name__
         return False
 '''
-pat = r'def click_drawer_sports\(frame\):.*?\n\ndef click_more\(frame\):'
-new, n = re.subn(pat, replacement + '\n\ndef click_more(frame):', src, count=1, flags=re.S)
-if n != 1:
-    raise SystemExit(f'patch failed: {n}')
+start = src.index('def click_drawer_sports(frame):')
+end = src.index('\ndef click_more(frame):', start)
+new = src[:start] + replacement + src[end:]
 exec(compile(new, 'm88_saba_outright_v7_runtime.py', 'exec'), {'__name__':'__main__','__file__':'m88_saba_outright_v7_runtime.py'})
