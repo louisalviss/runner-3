@@ -1,55 +1,57 @@
 #!/usr/bin/env python3
-"""Wave Rider external parity engine.
+"""Wave Rider external parity engine under incremental TradingView repair.
 
-This wrapper intentionally preserves wave-rider-verify/reference_verify.py as the
-frozen historical evidence blob and overrides exactly one proven semantic:
-TradingView/Pine pivot tie handling.
+The historical reference file remains untouched. This loader verifies its frozen
+Git blob, applies only semantics proven by one-change probes, then executes the
+patched module in memory.
 
-Verified against native TradingView v2.5.13 5m ledgers on 2026-08-17:
-- BNBUSDT: 14/14 entry timestamps through 2026-08-16
-- TRXUSDT: 13/14 entry timestamps through 2026-08-16
+Verified repairs as of 2026-08-17:
+1. Pine pivot ties: equal extremes on the older/left side are allowed; an equal
+   extreme on the newer/right side disqualifies the candidate pivot.
+2. Pending stop-entry touch: compare market and order prices in integer tick
+   space so binary float representation cannot turn an exact touch into a miss.
 
-Do not add unrelated fixes here without a one-semantic parity probe first.
+Current 5m entry-timestamp regression through 2026-08-16:
+- BNBUSDT: 14/14 TradingView entries
+- TRXUSDT: 14/14 TradingView entries
+
+This is NOT a declaration of full trade-ledger parity. Price, size, exit fill,
+report-window, news and other lifecycle semantics remain subject to regression.
 """
 from __future__ import annotations
 
-import importlib.util
+import hashlib
 import sys
+import types
 from pathlib import Path
 
 FROZEN = Path(__file__).with_name("reference_verify.py")
-SPEC = importlib.util.spec_from_file_location("wave_rider_frozen_reference", FROZEN)
-if SPEC is None or SPEC.loader is None:
-    raise RuntimeError(f"cannot load frozen reference: {FROZEN}")
-ref = importlib.util.module_from_spec(SPEC)
-# Python 3.12 dataclasses resolves class annotations through sys.modules while
-# the module is executing, so register it before exec_module().
-sys.modules[SPEC.name] = ref
-SPEC.loader.exec_module(ref)
+EXPECTED_GIT_BLOB = "2ba5f66d33e2e483a4c669c95f3b97778c80fcd0"
+MODULE_NAME = "wave_rider_frozen_reference_parity"
 
+raw = FROZEN.read_bytes()
+git_blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+if git_blob != EXPECTED_GIT_BLOB:
+    raise RuntimeError(f"frozen reference drift: {git_blob} != {EXPECTED_GIT_BLOB}")
 
-def pine_pivots(v, left, right, high=True):
-    """Match Pine ta.pivothigh/ta.pivotlow(...)[1] tie semantics.
+src = raw.decode("utf-8")
 
-    Equal extremes on the older/left side are allowed. An equal extreme on the
-    newer/right side disqualifies the candidate pivot. Output is shifted one bar
-    because canonical Pine uses ta.pivothigh/low(...)[1].
-    """
-    base = [None] * len(v)
-    ties = 0
-    for conf in range(left + right, len(v)):
-        c = conf - right
-        w = v[c - left : c + right + 1]
-        ext = max(w) if high else min(w)
-        if v[c] == ext:
-            if all(x != ext for x in v[c + 1 : c + right + 1]):
-                base[conf] = v[c]
-            else:
-                ties += 1
-    return [None] + base[:-1], ties
+PIVOT_OLD = """        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+PIVOT_NEW = """        if v[c]==ext:\n            # TradingView/Pine parity: ties on the older/left side are allowed;\n            # an equal extreme on the newer/right side rejects this candidate.\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n"""
+FILL_OLD = """            fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)\n"""
+FILL_NEW = """            # TradingView/Pine parity: exact tick touches must fill.\n            # Compare integer tick indices, not binary floating-point decimals.\n            fill=(pending.d==1 and round(x.h/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.l/tick)<=round(pending.e/tick))\n"""
 
+if src.count(PIVOT_OLD) != 1:
+    raise RuntimeError(f"pivot patch anchor count={src.count(PIVOT_OLD)}")
+if src.count(FILL_OLD) != 1:
+    raise RuntimeError(f"fill patch anchor count={src.count(FILL_OLD)}")
+patched = src.replace(PIVOT_OLD, PIVOT_NEW, 1).replace(FILL_OLD, FILL_NEW, 1)
 
-ref.pivots = pine_pivots
+ref = types.ModuleType(MODULE_NAME)
+ref.__file__ = str(FROZEN)
+ref.__package__ = None
+sys.modules[MODULE_NAME] = ref
+exec(compile(patched, str(FROZEN), "exec"), ref.__dict__)
 
 if __name__ == "__main__":
     raise SystemExit(ref.main())
