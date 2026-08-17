@@ -1,0 +1,132 @@
+name: M88 zero-touch public feed probe
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m88-zero-touch-feed-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install parser deps
+        run: python3 -m pip install -q requests beautifulsoup4
+
+      - name: Probe public no-key M88 sources
+        shell: bash
+        run: |
+          cat > /tmp/probe.py <<'PY'
+          import json, re, time
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+          S = requests.Session()
+          S.headers.update({'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9'})
+          out = {'timestamp_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'sources': {}}
+
+          def get(url, timeout=20):
+              r = S.get(url, timeout=timeout, allow_redirects=True)
+              return r
+
+          # 1) Odds-API.io public catalog is useful as a health check only.
+          try:
+              r = get('https://api.odds-api.io/v3/sports')
+              out['sources']['odds_api_public_catalog'] = {
+                  'status': r.status_code,
+                  'usable_for_m88_odds_without_key': False,
+                  'bytes': len(r.content),
+              }
+          except Exception as e:
+              out['sources']['odds_api_public_catalog'] = {'error': repr(e), 'usable_for_m88_odds_without_key': False}
+
+          # 2) 888scoreonline publicly lists Mansion88. Inspect the page and discover linked odds endpoints.
+          try:
+              base = 'https://www.888scoreonline.net/Comp.htm'
+              r = get(base)
+              soup = BeautifulSoup(r.text, 'html.parser')
+              text = ' '.join(soup.stripped_strings)
+              links = []
+              for a in soup.find_all('a', href=True):
+                  href = urljoin(base, a['href'])
+                  label = ' '.join(a.stripped_strings)
+                  if any(k in (href + ' ' + label).lower() for k in ['odd', 'comp', 'handicap', '1x2']):
+                      links.append(href)
+              out['sources']['888scoreonline'] = {
+                  'status': r.status_code,
+                  'bytes': len(r.content),
+                  'mansion88_visible': 'mansion88' in text.lower(),
+                  'candidate_links': list(dict.fromkeys(links))[:20],
+              }
+          except Exception as e:
+              out['sources']['888scoreonline'] = {'error': repr(e)}
+
+          # 3) FootballAnt: discover today's match-detail/odds URLs from public pages, then extract M88 snippets.
+          fa = {'pages': [], 'candidate_count': 0, 'm88_hits': []}
+          candidates = []
+          for start in ['https://www.footballant.com/', 'https://www.footballant.com/?type=2']:
+              try:
+                  r = get(start)
+                  fa['pages'].append({'url': start, 'status': r.status_code, 'bytes': len(r.content)})
+                  soup = BeautifulSoup(r.text, 'html.parser')
+                  for a in soup.find_all('a', href=True):
+                      href = urljoin(start, a['href'])
+                      low = href.lower()
+                      if ('/matches/' in low and ('/odds' in low or re.search(r'/matches/\d+/?$', low))) or 'sch_id=' in low:
+                          candidates.append(href)
+                  # Also scan raw HTML for SSR/JSON URLs not represented as anchors.
+                  for m in re.findall(r'https?://(?:www\.)?footballant\.com/matches/\d+/odds|/matches/\d+/odds', r.text):
+                      candidates.append(urljoin(start, m))
+              except Exception as e:
+                  fa['pages'].append({'url': start, 'error': repr(e)})
+
+          candidates = list(dict.fromkeys(candidates))
+          fa['candidate_count'] = len(candidates)
+          for url in candidates[:60]:
+              try:
+                  r = get(url, timeout=15)
+                  if r.status_code != 200:
+                      continue
+                  soup = BeautifulSoup(r.text, 'html.parser')
+                  text = ' '.join(soup.stripped_strings)
+                  low = text.lower()
+                  idxs = [m.start() for m in re.finditer(r'\bm88\b|mansion88', low)]
+                  if not idxs:
+                      continue
+                  snippets = []
+                  for i in idxs[:5]:
+                      snippets.append(text[max(0, i-220): i+420])
+                  fa['m88_hits'].append({'url': url, 'snippets': snippets})
+                  if len(fa['m88_hits']) >= 8:
+                      break
+              except Exception:
+                  pass
+          out['sources']['footballant'] = fa
+
+          # Machine-readable decision. A real hit must contain M88 on a match odds detail page.
+          hits = out['sources'].get('footballant', {}).get('m88_hits', [])
+          out['decision'] = {
+              'zero_touch_no_key_path_found': bool(hits),
+              'primary': 'footballant-public' if hits else None,
+              'note': 'No account, API key, VPN or browser session used.'
+          }
+          print(json.dumps(out, ensure_ascii=False, indent=2))
+          with open('/tmp/m88-zero-touch-result.json', 'w') as f:
+              json.dump(out, f, ensure_ascii=False, indent=2)
+          PY
+          python3 /tmp/probe.py | tee /tmp/m88-zero-touch-result.log
+
+      - name: Upload probe result
+        uses: actions/upload-artifact@v4
+        with:
+          name: m88-zero-touch-${{ github.run_id }}
+          path: |
+            /tmp/m88-zero-touch-result.json
+            /tmp/m88-zero-touch-result.log
+          retention-days: 3
