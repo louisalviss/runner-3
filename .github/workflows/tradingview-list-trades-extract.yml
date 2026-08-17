@@ -1,0 +1,111 @@
+name: TradingView List Trades Extract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-list-trades-extract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Open list of trades and extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write'],acceptDownloads:true});
+            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(9000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(3000);
+            const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last();
+            await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),source); await p.keyboard.press('Control+V'); await p.waitForTimeout(2000);
+            await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(25000);
+            const got=p.getByRole('button',{name:'Got it',exact:true}); if(await got.isVisible().catch(()=>false)) await got.click().catch(()=>{});
+
+            const tradesSpan=p.locator('[title="Trades"]').first();
+            console.log('TV_TRADES_CONTROL='+(await tradesSpan.count()?'PRESENT':'ABSENT'));
+            if(await tradesSpan.count()) await tradesSpan.evaluate(e=>(e.closest('button')||e.parentElement||e).click());
+            await p.waitForTimeout(5000);
+            const body=await p.locator('body').innerText();
+            console.log('TV_LIST_OF_TRADES='+(body.includes('List of trades')?'PRESENT':'ABSENT'));
+            const range=(body.match(/[A-Z][a-z]{2} \d{1,2}, 2026\s+—\s+[A-Z][a-z]{2} \d{1,2}, 2026/)||[])[0]||'';
+            console.log('TV_REPORT_RANGE='+range);
+
+            const rows=await p.locator('[role="row"]').evaluateAll(rs=>rs.map((r,i)=>({i,text:(r.innerText||r.textContent||'').trim().replace(/\s+/g,' '),html:r.outerHTML.slice(0,10000)})).filter(x=>x.text));
+            console.log('TV_ROLE_ROWS='+rows.length);
+            fs.writeFileSync('/tmp/role-rows.json',JSON.stringify(rows,null,2));
+            const cells=await p.locator('[role="cell"],[role="gridcell"]').evaluateAll(cs=>cs.map((e,i)=>({i,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' '),title:e.getAttribute('title')||'',aria:e.getAttribute('aria-label')||'',cls:e.className||''})).filter(x=>x.text||x.title||x.aria));
+            console.log('TV_ROLE_CELLS='+cells.length);
+            fs.writeFileSync('/tmp/role-cells.json',JSON.stringify(cells,null,2));
+
+            const tradeText=body.split('\n').map(s=>s.trim()).filter(Boolean);
+            const start=tradeText.findIndex(x=>x==='List of trades');
+            fs.writeFileSync('/tmp/list-body.txt',(start>=0?tradeText.slice(start,start+500):tradeText.slice(0,500)).join('\n'));
+
+            const dl=p.locator('[title="Download .csv"]').first();
+            console.log('TV_DOWNLOAD_COUNT='+await dl.count());
+            if(await dl.count()){
+              console.log('TV_DOWNLOAD_OUTER='+JSON.stringify((await dl.evaluate(e=>(e.closest('button')||e).outerHTML)).slice(0,4000)));
+            }
+            let downloaded=false, fn='', err='';
+            if(await dl.count()){
+              const result=await Promise.race([
+                (async()=>{try{const pr=p.waitForEvent('download',{timeout:8000}); await dl.evaluate(e=>(e.closest('button')||e).click()); const d=await pr; fn=d.suggestedFilename(); await d.saveAs('/tmp/trades.csv'); return {ok:true};}catch(e){return {ok:false,err:String(e.message||e)}}})(),
+                new Promise(r=>setTimeout(()=>r({ok:false,err:'timeout-race'}),9000))
+              ]);
+              downloaded=result.ok; err=result.err||'';
+            }
+            console.log('TV_CSV_DOWNLOADED='+(downloaded?'YES':'NO'));
+            console.log('TV_CSV_SUGGESTED='+fn);
+            console.log('TV_CSV_ERROR='+JSON.stringify(err));
+            await p.waitForTimeout(1500);
+            const after=await p.locator('body').innerText();
+            const gates=after.split('\n').map(s=>s.trim()).filter(s=>/upgrade|full access|download|subscription|plan/i.test(s)).slice(0,100);
+            for(const x of gates) console.log('TV_AFTER_DOWNLOAD='+JSON.stringify(x));
+            fs.writeFileSync('/tmp/download-gates.txt',gates.join('\n'));
+            await p.screenshot({path:'/tmp/list-trades.png',fullPage:true});
+            await b.close();
+            if(!body.includes('List of trades')) process.exit(7);
+          })().catch(e=>{console.error('TV_LIST_EXTRACT_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-list-trades-extract-${{ github.run_id }}
+          path: |
+            /tmp/role-rows.json
+            /tmp/role-cells.json
+            /tmp/list-body.txt
+            /tmp/download-gates.txt
+            /tmp/list-trades.png
+            /tmp/trades.csv
+          retention-days: 1
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
