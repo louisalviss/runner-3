@@ -1,0 +1,91 @@
+name: Bootstrap WordPress Runtime Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_slug:
+        description: Site factory slug
+        required: false
+        default: runner3-factory-smoke-2
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-wordpress-control.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-control-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: ${{ inputs.site_slug }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve target
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${WP_SITE_SLUG:-runner3-factory-smoke-2}"
+          echo "WP_SITE_SLUG=$slug" >> "$GITHUB_ENV"
+          test -f "ops/site-factory/$slug.json"
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Automation encryption key unavailable'; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Bootstrap WordPress API credential
+        run: node scripts/bootstrap-wordpress-control.mjs
+
+      - name: Persist encrypted credential and safe status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${WP_SITE_SLUG:-runner3-factory-smoke-2}"
+          mkdir -p ops/wp-control
+          safe="/tmp/wp-control-${slug}.json"
+          if [ ! -f "$safe" ]; then
+            printf '{"status":"runner_error","siteSlug":"%s","detail":"bootstrap_status_missing"}\n' "$slug" > "$safe"
+          fi
+          cp "$safe" "ops/wp-control/${slug}.json"
+          if [ -f /tmp/wp-control-credential.json ]; then
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+              -pass env:AUTOMATION_KEY \
+              -in /tmp/wp-control-credential.json \
+              -out "ops/wp-control/${slug}.credential.aes"
+          fi
+          rm -f /tmp/wp-control-credential.json /tmp/wasmer-account.json
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "ops/wp-control/${slug}.json" "ops/wp-control/${slug}.credential.aes" 2>/dev/null || git add "ops/wp-control/${slug}.json"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist WordPress runtime control state: ${slug}"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5
