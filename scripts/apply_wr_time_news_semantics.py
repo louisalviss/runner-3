@@ -3,8 +3,8 @@ from pathlib import Path
 p=Path('wave-rider-verify/reference_verify.py')
 s=p.read_text()
 
-old="import os, io, csv, json, math, zipfile, requests\nfrom dataclasses import dataclass, asdict\nfrom datetime import datetime, timedelta, timezone\n"
-new="import os, io, csv, json, math, zipfile, requests\nfrom dataclasses import dataclass, asdict\nfrom datetime import datetime, timedelta, timezone\nfrom zoneinfo import ZoneInfo\n"
+old="from datetime import datetime, timedelta, timezone\nfrom pathlib import Path\nimport requests\n"
+new="from datetime import datetime, timedelta, timezone\nfrom zoneinfo import ZoneInfo\nfrom pathlib import Path\nimport requests\n"
 assert old in s; s=s.replace(old,new,1)
 
 anchor="SESSION_GUARD=True; NO_ENTRY_MIN=40; EXIT_MIN=15\n"
