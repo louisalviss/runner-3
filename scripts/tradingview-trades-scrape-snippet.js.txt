@@ -1,0 +1,33 @@
+  // Extract only Strategy Report subtree, never the Pine editor/source.
+  const scrape=await p.evaluate(async()=>{
+    const csvBtn=document.querySelector('button[title="Download .csv"]');
+    if(!csvBtn) return {error:'csv button missing'};
+    let panel=csvBtn.parentElement;
+    while(panel && panel!==document.body){
+      const t=(panel.innerText||'');
+      if(t.includes('List of trades') && t.includes('Trade number') && t.includes('Date and time')) break;
+      panel=panel.parentElement;
+    }
+    if(!panel || panel===document.body) return {error:'report panel ancestor missing'};
+    const panelInfo={tag:panel.tagName,cls:String(panel.className||'').slice(0,300),textLen:(panel.innerText||'').length};
+    const scrollables=[...panel.querySelectorAll('*')].filter(e=>{
+      const cs=getComputedStyle(e); return e.scrollHeight>e.clientHeight+10 && ['auto','scroll'].includes(cs.overflowY);
+    }).map((e,i)=>({e,i,sh:e.scrollHeight,ch:e.clientHeight,sw:e.scrollWidth,cw:e.clientWidth,cls:String(e.className||'').slice(0,240),text:(e.innerText||'').slice(0,240)}));
+    scrollables.sort((a,b)=>(b.sh-b.ch)-(a.sh-a.ch));
+    const sc=scrollables[0]?.e || panel;
+    const meta=scrollables.slice(0,12).map(({i,sh,ch,sw,cw,cls,text})=>({i,sh,ch,sw,cw,cls,text}));
+    const snaps=[];
+    const max=Math.max(0,sc.scrollHeight-sc.clientHeight);
+    const steps=20;
+    for(let i=0;i<=steps;i++){
+      sc.scrollTop=Math.round(max*i/steps);
+      sc.dispatchEvent(new Event('scroll',{bubbles:true}));
+      await new Promise(r=>setTimeout(r,180));
+      snaps.push({i,top:sc.scrollTop,text:panel.innerText||''});
+    }
+    return {panelInfo,scrollables:meta,maxScroll:max,snaps};
+  });
+  fs.writeFileSync('/tmp/wr2513-trades-scroll.json',JSON.stringify(scrape,null,2));
+  log('TV_E2E_SCRAPE_ERROR',scrape.error||'ABSENT');
+  log('TV_E2E_SCRAPE_MAX_SCROLL',String(scrape.maxScroll??-1));
+  log('TV_E2E_SCRAPE_SNAPSHOTS',String(scrape.snaps?.length||0));
