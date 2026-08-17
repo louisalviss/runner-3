@@ -99,29 +99,46 @@ jobs:
           done
           test "$connected" = 1
 
-      - name: Fetch current M88 live soccer odds
+      - name: Fetch full M88 public guest soccer book
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/live-request.json <<'JSON'
-          {"sport_id":"10","lang_id":"en","view_type":"0","leagues":"999","odds_type":"3","odds_group":"3","view_date":"0","time_filter":"0","category":"0","branch_code":"","currency":"VND","is_full":"true","prev_params":"","version":"","top_x":0,"is_stream":"false","is_live_center":"false","currentMenu":"spesificSport","prevMenu":"","method":"LoadOddsData","currentTimeSlot":"1","display_type":"11"}
-          JSON
-          sudo ip netns exec vpnns curl -L -sS --fail --max-time 35 \
-            -X POST 'https://msports.m88.com/api/v1/m88/data/main' \
-            -H 'Accept: application/json, text/plain, */*' \
-            -H 'Content-Type: application/json' \
-            -H 'Authorization: Bearer GUEST' \
-            --data-binary @/tmp/live-request.json \
-            -o evidence/live.json
           python3 - <<'PY'
           import json,pathlib
-          d=json.loads(pathlib.Path('evidence/live.json').read_text())
-          if d.get('status') != 1:
-              raise SystemExit('M88 guest API status was not 1')
-          print('M88_API_OK')
+          common={
+            'sport_id':'10','lang_id':'en','view_type':'0','leagues':'999',
+            'odds_type':'3','odds_group':'3','view_date':'0','time_filter':'0',
+            'category':'0','branch_code':'','currency':'VND','is_full':'true',
+            'prev_params':'','version':'','top_x':0,'is_stream':'false',
+            'is_live_center':'false','currentMenu':'spesificSport','prevMenu':'',
+            'method':'LoadOddsData'
+          }
+          for name,slot in [('live','1'),('today','2'),('early','3')]:
+            p=dict(common)
+            p['currentTimeSlot']=slot
+            p['display_type']='1'+slot
+            if slot=='3': p['view_date']='1'
+            pathlib.Path(f'/tmp/{name}-request.json').write_text(json.dumps(p,separators=(',',':')))
+          PY
+          for name in live today early; do
+            sudo ip netns exec vpnns curl -L -sS --fail --max-time 35 \
+              -X POST 'https://msports.m88.com/api/v1/m88/data/main' \
+              -H 'Accept: application/json, text/plain, */*' \
+              -H 'Content-Type: application/json' \
+              -H 'Authorization: Bearer GUEST' \
+              --data-binary @"/tmp/${name}-request.json" \
+              -o "evidence/${name}.json"
+          done
+          python3 - <<'PY'
+          import json,pathlib
+          for name in ['live','today','early']:
+              d=json.loads(pathlib.Path(f'evidence/{name}.json').read_text())
+              if d.get('status') != 1:
+                  raise SystemExit(f'{name}: M88 guest API status was not 1')
+          print('M88_FULL_API_OK')
           PY
 
-      - name: Normalize and render dashboard
+      - name: Normalize full direct book and render live dashboard
         shell: bash
         run: |
           set -euo pipefail
@@ -133,22 +150,21 @@ jobs:
           python3 - <<'PY'
           import json,pathlib
           src=json.loads(pathlib.Path('evidence/m88_odds.json').read_text())
-          matches=[m for m in src.get('matches',[]) if m.get('scope')=='live']
-          out={
-            'source':src.get('source'),
-            'odds_format':'decimal',
-            'generated_at':src.get('generated_at'),
-            'counts':{'live':len(matches)},
-            'matches':matches,
-          }
-          pathlib.Path('publish/data.json').write_text(json.dumps(out,separators=(',',':'),ensure_ascii=False),encoding='utf-8')
-          print('LIVE_MATCHES='+str(len(matches)))
+          matches=src.get('matches') or []
+          selections=sum(len(line.get('prices') or []) for m in matches for lines in (m.get('markets') or {}).values() for line in lines)
+          if len(matches) < 50 or selections < 500:
+              raise SystemExit(f'Unsafe direct snapshot: matches={len(matches)} selections={selections}')
+          src['selection_count']=selections
+          src['source_mode']='direct_m88_guest'
+          pathlib.Path('publish/data.json').write_text(json.dumps(src,separators=(',',':'),ensure_ascii=False),encoding='utf-8')
+          print('DIRECT_MATCHES='+str(len(matches)))
+          print('DIRECT_SELECTIONS='+str(selections))
           PY
           python3 render_m88_live.py \
             --input evidence/m88_odds.json \
             --output publish/index.html
 
-      - name: Publish latest snapshot branch
+      - name: Publish latest direct snapshot branch
         shell: bash
         run: |
           set -euo pipefail
@@ -160,8 +176,8 @@ jobs:
           git rm -rf . >/dev/null 2>&1 || true
           cp /tmp/m88-data.json data.json
           cp /tmp/m88-index.html index.html
-          printf '%s\n' 'M88 live feed generated by GitHub Actions.' > README.md
+          printf '%s\n' 'M88 full direct guest feed generated by GitHub Actions.' > README.md
           touch .nojekyll
           git add data.json index.html README.md .nojekyll
-          git commit -m "Update M88 live odds $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git commit -m "Update M88 direct odds $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push --force origin HEAD:m88-live-data
