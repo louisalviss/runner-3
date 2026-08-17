@@ -1,11 +1,6 @@
-name: Wave Rider Frozen Family Holdout
+name: Wave Rider Frozen Family Holdout [PARITY GATED]
 
 on:
-  push:
-    paths:
-      - 'wave-rider-full-universe/frozen_family_20260817.json'
-      - 'wave-rider-full-universe/family_holdout.py'
-      - '.github/workflows/wave-rider-family-holdout.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +12,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+      - name: Require TradingView parity PASS
+        run: python wave-rider-verify/assert_parity_gate.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
