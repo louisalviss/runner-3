@@ -1,0 +1,102 @@
+name: Wave Rider Parity Pivot Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-parity-pivot-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pivot:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+      FROZEN_REFERENCE_BLOB: 2ba5f66d33e2e483a4c669c95f3b97778c80fcd0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate frozen reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git hash-object wave-rider-verify/reference_verify.py)"
+          echo "FROZEN_REFERENCE=$ACTUAL"
+          test "$ACTUAL" = "$FROZEN_REFERENCE_BLOB"
+
+      - name: Build one-semantic pivot-ties-accepted variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('wave-rider-verify/reference_verify.py').read_text()
+          old="""        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+          new="""        if v[c]==ext:\n            base[conf]=v[c]\n            if sum(x==ext for x in w)!=1: ties+=1\n"""
+          assert src.count(old)==1, src.count(old)
+          Path('/tmp/reference_pivot_ties.py').write_text(src.replace(old,new,1))
+          PY
+
+      - name: Run frozen baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 wave-rider-verify/reference_verify.py >/tmp/baseline-run.txt
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" "/tmp/${WR_SYMBOL}-baseline.csv"
+
+      - name: Run pivot-ties-accepted only variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 /tmp/reference_pivot_ties.py >/tmp/pivot-run.txt
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" "/tmp/${WR_SYMBOL}-pivot.csv"
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json" "/tmp/${WR_SYMBOL}-pivot-summary.json"
+
+      - name: Compare signal sequence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          s=os.environ['WR_SYMBOL']
+          def read(p):
+              with open(p,newline='') as f:return list(csv.DictReader(f))
+          a=read(f'/tmp/{s}-baseline.csv'); b=read(f'/tmp/{s}-pivot.csv')
+          aset={x['signal_time'] for x in a}; bset={x['signal_time'] for x in b}
+          out={
+            'symbol':s,
+            'baseline_count':len(a),'pivot_count':len(b),
+            'added_by_pivot':[x for x in b if x['signal_time'] not in aset],
+            'removed_by_pivot':[x for x in a if x['signal_time'] not in bset],
+            'pivot_signals':[x['signal_time'] for x in b],
+          }
+          Path(f'/tmp/{s}-pivot-diff.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-pivot-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/${{ matrix.symbol }}-baseline.csv
+            /tmp/${{ matrix.symbol }}-pivot.csv
+            /tmp/${{ matrix.symbol }}-pivot-summary.json
+            /tmp/${{ matrix.symbol }}-pivot-diff.json
+            /tmp/baseline-run.txt
+            /tmp/pivot-run.txt
+          if-no-files-found: warn
+          retention-days: 2
