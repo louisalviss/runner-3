@@ -1,78 +1,21 @@
 {
   "status": "inspected",
   "dashboard": true,
-  "hasExpiryBanner": true,
-  "hasVerifyControl": true,
-  "relevant": [
-    {
-      "tag": "a",
-      "text": "Verify your account",
-      "href": "https://wasmer.io/verify",
-      "type": null,
-      "name": null,
-      "placeholder": ""
-    },
-    {
-      "tag": "a",
-      "text": "Settings",
-      "href": "https://wasmer.io/apps/runner3wp0b90f6b4ab/runner3-wp-a94b8fd2/settings",
-      "type": null,
-      "name": null,
-      "placeholder": ""
-    },
-    {
-      "tag": "a",
-      "text": "Configure domains",
-      "href": "https://wasmer.io/apps/runner3wp0b90f6b4ab/runner3-wp-a94b8fd2/settings/domains",
-      "type": null,
-      "name": null,
-      "placeholder": ""
-    },
-    {
-      "tag": "a",
-      "text": "WordPress settings",
-      "href": "https://wasmer.io/apps/runner3wp0b90f6b4ab/runner3-wp-a94b8fd2/settings/wordpress",
-      "type": null,
-      "name": null,
-      "placeholder": ""
-    },
-    {
-      "tag": "a",
-      "text": "Verify your account",
-      "href": "https://wasmer.io/verify",
-      "type": null,
-      "name": null,
-      "placeholder": ""
-    },
-    {
-      "tag": "a",
-      "text": "Settings",
-      "href": "https://wasmer.io/settings/profile",
-      "type": null,
-      "name": null,
-      "placeholder": ""
-    }
-  ],
+  "hasExpiryBanner": false,
+  "hasVerifyControl": false,
+  "relevant": [],
   "settingsProbes": [
     {
       "url": "https://wasmer.io/settings/profile",
       "http": 200,
       "notFound": false,
       "login": false,
-      "body": "/ runner3wp0b90f6b4ab Command Palette Search for a command to run... / Settings / Profile Docs Create app Command Palette Search for a command to run... runner3wp0b90f6b4ab (runner3wp0b90f6b4ab) u_RMMIrtlivybN Verify your account to lift app limits Verify your account Overview Apps Usage Packages Settings Profile Access tokens Billing Your profile details Add your name and some basic info about yourself. Full name Your bio Update details Profile picture Upload a nice picture of yourself. Drop your image here Email Set your email for notifications. It won't be shared on your profile. Email Verifying This email address cannot be used for your account. Change it to a permanent email address to continue. Resend verification email Update email Password Pick a strong, memorable password of at least 8 characters. Old password New password Repeat password Update password Social Add your socials. This enables others to reach out to you. Github URL Twitter URL Website URL Location Update socials Danger zone Change username Changing your username may have upstream implications for developers and CI/CD systems using your packages. Your username: runner3wp0b90f6b4ab Change username Delete account Accounts can't be automatically deleted yet, please contact support to request the deletion of your account. Contact support Making software universally accessible Report abuse Privacy Terms",
+      "body": "/ runner3wp0b90f6b4ab Command Palette Search for a command to run... / Settings / Profile Docs Create app Command Palette Search for a command to run... runner3wp0b90f6b4ab (runner3wp0b90f6b4ab) u_RMMIrtlivybN Overview Apps Usage Packages Settings Profile Access tokens Billing Your profile details Add your name and some basic info about yourself. Full name Your bio Update details Profile picture Upload a nice picture of yourself. Drop your image here Email Set your email for notifications. It won't be shared on your profile. Email Verified Update email Password Pick a strong, memorable password of at least 8 characters. Old password New password Repeat password Update password Social Add your socials. This enables others to reach out to you. Github URL Twitter URL Website URL Location Update socials Danger zone Change username Changing your username may have upstream implications for developers and CI/CD systems using your packages. Your username: runner3wp0b90f6b4ab Change username Delete account Accounts can't be automatically deleted yet, please contact support to request the deletion of your account. Contact support Making software universally accessible Report abuse Privacy Terms",
       "controls": [
         {
           "tag": "a",
           "text": "Settings",
           "href": "https://wasmer.io/settings/profile",
-          "type": null,
-          "name": null,
-          "placeholder": ""
-        },
-        {
-          "tag": "a",
-          "text": "Verify your account",
-          "href": "https://wasmer.io/verify",
           "type": null,
           "name": null,
           "placeholder": ""
@@ -119,14 +62,6 @@
         },
         {
           "tag": "button",
-          "text": "Resend verification email",
-          "href": "",
-          "type": "button",
-          "name": null,
-          "placeholder": ""
-        },
-        {
-          "tag": "button",
           "text": "Update email",
           "href": "",
           "type": "button",
@@ -153,11 +88,20 @@
     },
     {
       "url": "https://wasmer.io/account",
-      "http": null,
-      "notFound": false,
+      "http": 200,
+      "notFound": true,
       "login": false,
-      "body": "",
-      "controls": []
+      "body": "Error The page requested does not exist",
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Log in",
+          "href": "https://wasmer.io/login?redirect=%2Faccount",
+          "type": "button",
+          "name": null,
+          "placeholder": ""
+        }
+      ]
     },
     {
       "url": "https://wasmer.io/profile",
@@ -177,6 +121,6 @@
       ]
     }
   ],
-  "detail": "/ runner3wp0b90f6b4ab hobby Command Palette Search for a command to run... / Apps / runner3-wp-a94b8fd2 Command Palette Search for a command to run... Docs Create app Command Palette Search for a command to run... runner3-wp-a94b8fd2 da_K6AIot5UDqkL Deployed 40 minutes ago from wordpress/wordpress (7.0.4) WordPress Admin Usage Visit This app will expire in 20 minutes, verify your account to keep it online. Verify your account Overview Logs Storage Databases Settings Deployment Domains runner3-wp-a94b8fd2.wasmer.app Configure domains Status Ready AppActive.source 40f0f73: 8.3.31 7.0.4 Plugins 2 Themes 6 Users 1 Posts 1 WordPress settings Metrics and insight for the runner3-wp-a94b8fd2 app Last 24 hours Requests 132 Success 0 Errors Network 3.08 MB Ingress 2.64 MB Egress Compute Real CPU time: 4.4 s Workloads: 6 Provisioned Memory 0.05 GBh Requests Requests processed by the app Total 132 Success 100% (132) Errors 0% (0) Cache hit rate 0% (0) 03:00 05:00 07:00 09:00 11:00 13:00 15:00 17:00 19:00 21:00 23:00 01:00 03:00 0 30 60 90 120 132 Success 0 Errors 0 Cached 16/08/2026 04:00 132 Success 0 0 Errors 0 0 Cached 0 Making software universally accessible Report abuse Privacy Terms 0",
-  "updatedAt": "2026-08-17T03:30:08.226Z"
+  "detail": "",
+  "updatedAt": "2026-08-17T03:38:02.860Z"
 }
