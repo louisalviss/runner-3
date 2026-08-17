@@ -35,6 +35,6 @@ try{
  await verify.click();await p.waitForTimeout(1000);out.verificationOpened=true;
  const d=p.locator('[role=dialog]').last();const root=(await d.count()&&await d.isVisible().catch(()=>false))?d:p;
  out.verificationText=(await root.innerText().catch(()=>'' )).replace(/\s+/g,' ').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'EMAIL_REDACTED').slice(0,1500);
- out.verificationControls=await root.locator('input,button,a').evaluateAll(xs=>xs.map(x=>({tag:x.tagName.toLowerCase(),type:x.getAttribute('type'),name:x.getAttribute('name'),placeholder:x.getAttribute('placeholder'),text:(x.innerText||x.textContent||x.getAttribute('value')||'').replace(/\s+/g,' ').trim()})).filter(x=>x.text||x.placeholder||x.name).slice(0,40)).catch(()=>[]);
+ out.verificationControls=await root.locator('input,button,a').evaluateAll(xs=>xs.map(x=>{const type=x.getAttribute('type');const raw=(x.innerText||x.textContent||x.getAttribute('value')||'').replace(/\s+/g,' ').trim();return {tag:x.tagName.toLowerCase(),type,name:x.getAttribute('name'),placeholder:x.getAttribute('placeholder'),text:type==='email'?'EMAIL_REDACTED':raw.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'EMAIL_REDACTED')};}).filter(x=>x.text||x.placeholder||x.name).slice(0,40)).catch(()=>[]);
  out.status='verification_inspected';save();await ctx.close();
 }catch(e){out.status='error';out.detail=String(e).slice(0,900);save();}finally{await browser.close();}
