@@ -1,0 +1,109 @@
+name: WR Sizing Step Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-sizing-step-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Infer quantity step from TradingView SL PnL
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys,math
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          def piv(v,left,right,high=True):
+              base=[None]*len(v); ties=0
+              for conf in range(left+right,len(v)):
+                  c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+                  ok=(all(x>=y for y in L) and all(x>y for y in R)) if high else (all(x<=y for y in L) and all(x<y for y in R))
+                  if ok: base[conf]=x
+              return [None]+base[:-1],ties
+          wr.pivots=piv
+          sess=requests.Session(); sess.headers['User-Agent']='wr-sizing-step-matrix/1.0'
+          TV={
+            'BNBUSDT':{
+              '2026-07-27T05:55:00Z':2320.207,'2026-07-27T10:05:00Z':-1021.954,'2026-07-28T12:45:00Z':-1011.781,'2026-07-30T15:20:00Z':2303.070,'2026-08-03T04:10:00Z':-1024.601,'2026-08-05T02:40:00Z':-1014.547,'2026-08-05T10:00:00Z':2317.862,'2026-08-08T03:45:00Z':2384.438,'2026-08-08T04:35:00Z':-1051.412,'2026-08-08T19:05:00Z':854.467,'2026-08-12T03:20:00Z':2419.156,'2026-08-13T19:35:00Z':2472.964,'2026-08-14T10:40:00Z':2542.448,'2026-08-16T04:10:00Z':-1123.006},
+            'TRXUSDT':{
+              '2026-07-27T18:10:00Z':2350.541,'2026-07-28T08:20:00Z':2384.684,'2026-07-29T10:25:00Z':2470.398,'2026-07-29T16:00:00Z':-1069.207,'2026-08-03T06:15:00Z':-1058.759,'2026-08-05T08:15:00Z':2446.199,'2026-08-05T10:55:00Z':2483.646,'2026-08-06T17:40:00Z':-1096.986,'2026-08-07T15:15:00Z':-1086.081,'2026-08-10T13:00:00Z':-1075.511,'2026-08-14T19:25:00Z':-1064.457,'2026-08-16T10:05:00Z':2490.556,'2026-08-16T19:00:00Z':2492.717,'2026-08-16T22:00:00Z':2573.023}}
+          def fetch(sym):
+              bars=[]; prices=[]; d=date(2026,7,1)
+              while d<=date(2026,8,16):
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/5m/{sym}-5m-{ds}.zip',timeout=40); r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return [ded[k] for k in sorted(ded)],wr.infer_tick(prices)
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          def simulate(sym,bars,tick,step,pv=1.0):
+              wr.SYMBOL=sym; ind,_,_=wr.calc_ind(bars); eq=100000.0; pending=active=None; entry_t=None; out=[]; chart_ms=300000
+              def ut(px):return int(round(px/tick))
+              def fp(u):return round(u*tick,12)
+              def finish(i,reason,exit_px):
+                  nonlocal active,entry_t,eq
+                  et=wr.iso(entry_t); native=(exit_px-active.e)*(1 if active.d==1 else -1)*active.qty*pv
+                  if reason=='TP': canonR=2.3
+                  elif reason in ('SL','AMBIG->SL'): canonR=-1.0
+                  else: canonR=native/active.risk
+                  out.append({'entry_time':et,'side':'LONG' if active.d==1 else 'SHORT','entry':active.e,'stop':active.s,'target':active.t,'qty':active.qty,'risk':active.risk,'reason':reason,'exit':exit_px,'native_model':native,'tv_pnl':TV[sym].get(et),'eq_before_close':eq,'canonR':canonR})
+                  eq += canonR*active.risk; active=None; entry_t=None
+              for i,x in enumerate(bars):
+                  if x.ct>en:break
+                  closed=False
+                  if active is not None:
+                      # Tick-safe touches; current raw planned target kept for classification.
+                      hitS=(ut(x.l)<=ut(active.s) if active.d==1 else ut(x.h)>=ut(active.s)); hitT=(x.h>=active.t if active.d==1 else x.l<=active.t)
+                      if hitS or hitT:
+                          reason='AMBIG->SL' if hitS and hitT else ('SL' if hitS else 'TP'); px=active.s if reason!='TP' else active.t; finish(i,reason,px); closed=True
+                  if active is None and pending is not None and i==pending.sig_i+1 and not closed:
+                      fill=(ut(x.h)>=ut(pending.e) if pending.d==1 else ut(x.l)<=ut(pending.e))
+                      if fill:
+                          active=pending; pending=None; entry_t=x.ot
+                          hitS=(ut(x.l)<=ut(active.s) if active.d==1 else ut(x.h)>=ut(active.s)); hitT=(x.h>=active.t if active.d==1 else x.l<=active.t)
+                          if hitS or hitT:
+                              reason='AMBIG->SL' if hitS and hitT else ('SL' if hitS else 'TP'); px=active.s if reason!='TP' else active.t; finish(i,reason,px); closed=True
+                  allowed,sexit=wr.session_flags(x.ct,chart_ms)
+                  if active is not None and not closed:
+                      z=ind[i]; le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']; se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+                      if sexit or le or se: finish(i,'SESSION' if sexit else 'EMA',x.c); closed=True
+                  if pending is not None and i>=pending.sig_i+1 and active is None: pending=None
+                  if x.ct<st or x.ct>en:continue
+                  if active is None and pending is None and not closed:
+                      z=ind[i]; lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None; sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+                      nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+                      if nl or ns:
+                          if nl:d0=1; e=fp(ut(x.h)+1); s=fp(ut(x.l)-1); t=e+2.3*(e-s)
+                          else:d0=-1; e=fp(ut(x.l)-1); s=fp(ut(x.h)+1); t=e-2.3*(s-e)
+                          budget=max(eq,0)*0.01; rpu=abs(e-s)*pv; raw=budget/rpu; q=math.floor(raw/step+1e-12)*step; risk=abs(e-s)*pv*q
+                          if q>0 and risk>0: pending=wr.Plan(d0,e,s,t,risk,q,i,x.ct,x.h,x.l)
+              return out
+          results=[]
+          for sym in ('BNBUSDT','TRXUSDT'):
+              bars,tick=fetch(sym)
+              for step in [1.0,0.1,0.01,0.001,0.0001]:
+                  tr=simulate(sym,bars,tick,step); losses=[t for t in tr if t['reason'] in ('SL','AMBIG->SL') and t['tv_pnl'] is not None]
+                  errs=[abs(t['native_model']-t['tv_pnl']) for t in losses]
+                  row={'symbol':sym,'step':step,'n':len(tr),'loss_n':len(losses),'sl_mae':sum(errs)/len(errs) if errs else None,'sl_max':max(errs) if errs else None,'losses':[{k:t[k] for k in ('entry_time','qty','risk','native_model','tv_pnl')} for t in losses]}; results.append(row); print('SIZE_STEP='+json.dumps(row,separators=(',',':')))
+          Path('/tmp/sizing_step_matrix.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-sizing-step-matrix-${{ github.run_id }}
+          path: /tmp/sizing_step_matrix.json
+          retention-days: 2
