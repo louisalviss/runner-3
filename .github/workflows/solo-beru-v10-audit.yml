@@ -61,13 +61,21 @@ jobs:
             set -- $spec; ss=$1; dur=$2; off=$3
             ffmpeg -hide_banner -loglevel error -y -ss "$ss" -i source.mp4 -t "$dur" -vf "fps=1/10,scale=320:-2,drawtext=text='%{eif\:t+$off\:d}s':x=6:y=6:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.65,tile=5x4:padding=4:margin=4" -frames:v 1 "audit/solo-beru-v10/sheet_${ss}.jpg"
           done
-      - name: Commit audit sheets
+      - name: Upload audit sheets
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: solo-beru-v10-audit
+          path: audit/solo-beru-v10/sheet_*.jpg
+          retention-days: 3
+      - name: Commit audit sheets and manifest
         run: |
           set -e
+          printf 'run_id=%s\nartifact_id=%s\n' '${{ github.run_id }}' '${{ steps.upload.outputs.artifact-id }}' > audit/solo-beru-v10/manifest.txt
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git add audit/solo-beru-v10/sheet_*.jpg
-          git commit -m 'Add Solo Beru V10 audit sheets' || exit 0
+          git add audit/solo-beru-v10/sheet_*.jpg audit/solo-beru-v10/manifest.txt
+          git commit -m 'Add Solo Beru V10 audit artifact manifest' || exit 0
           for n in 1 2 3; do
             git pull --rebase origin main || true
             git push && exit 0
