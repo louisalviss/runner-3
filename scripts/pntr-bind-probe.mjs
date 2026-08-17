@@ -31,6 +31,7 @@ const result = {
   authControls: [],
   scriptPaths: [],
   observedAuthPaths: [],
+  apiResponses: [],
   detail: null,
   updatedAt: new Date().toISOString(),
 };
@@ -64,12 +65,45 @@ try {
     }
   });
 
+  page.on('response', async response => {
+    try {
+      const u = new URL(response.url());
+      if (!/(^|\.)pntr\.dev$/i.test(u.hostname)) return;
+      if (!/\/api\/|auth|login|session|subdomain/i.test(u.pathname)) return;
+      const type = (response.headers()['content-type'] || '').toLowerCase();
+      let containsTarget = false;
+      let bodyShape = null;
+      if (type.includes('json')) {
+        const txt = await response.text().catch(() => '');
+        containsTarget = txt.toLowerCase().includes(targetDomain.toLowerCase());
+        try {
+          const parsed = JSON.parse(txt);
+          bodyShape = Array.isArray(parsed)
+            ? `array:${parsed.length}`
+            : parsed && typeof parsed === 'object'
+              ? `object:${Object.keys(parsed).slice(0, 12).join(',')}`
+              : typeof parsed;
+        } catch {}
+      }
+      result.apiResponses.push({
+        origin: u.origin,
+        pathname: u.pathname,
+        status: response.status(),
+        contentType: type.split(';')[0],
+        containsTarget,
+        bodyShape,
+      });
+      result.apiResponses = result.apiResponses.slice(-50);
+    } catch {}
+  });
+
   await page.goto('https://pntr.dev/dashboard', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(1800);
+  await page.waitForTimeout(3500);
 
   result.pageUrl = safeUrl(page.url());
-  const body = cleanText(await page.locator('body').innerText().catch(() => ''));
-  result.guestDomainVisible = body.toLowerCase().includes(targetDomain.toLowerCase());
+  const fullBody = await page.locator('body').innerText().catch(() => '');
+  const body = cleanText(fullBody);
+  result.guestDomainVisible = fullBody.toLowerCase().includes(targetDomain.toLowerCase());
 
   const controls = await page.locator('a,button,[role=button]').evaluateAll(nodes =>
     nodes.map(n => ({
@@ -91,8 +125,6 @@ try {
   const scripts = await page.locator('script[src]').evaluateAll(nodes => nodes.map(n => n.getAttribute('src')).filter(Boolean));
   result.scriptPaths = [...new Set(scripts.map(safeUrl).filter(Boolean).map(x => `${x.origin || ''}${x.pathname || ''}`))].slice(0, 40);
 
-  // If the login control is a JS button rather than a normal href, click it but
-  // stop before leaving PNTR. We only record origin/path, never OAuth query values.
   const login = page.locator('a,button,[role=button]').filter({ hasText: /sign in|login|github|attach|connect/i }).first();
   if (await login.count().catch(() => 0)) {
     const href = await login.getAttribute('href').catch(() => null);
