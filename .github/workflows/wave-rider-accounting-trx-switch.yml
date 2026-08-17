@@ -1,0 +1,53 @@
+name: Wave Rider TRX Accounting Symbol Switch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-accounting-trx-switch.yml'
+      - 'scripts/tradingview-accounting-trx-switch.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trx-switch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+      REPORT_START_MS: '1785110400000'
+      REPORT_END_MS: '1786924800000'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore source and session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
+          test "$(sha256sum /tmp/wr2513-base.pine | awk '{print $1}')" = "$BASE_SHA256"
+      - name: Build report-only accounting probe
+        run: python3 scripts/build_wr_accounting_probe.py
+      - name: Attach on BNB then switch chart to TRX
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/tradingview-accounting-trx-switch.mjs
+      - name: Upload ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trx-accounting-switch-${{ github.run_id }}
+          path: |
+            /tmp/tv-accounting-TRXUSDT.txt
+            /tmp/tv-accounting-TRXUSDT.png
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513-base.pine /tmp/wr2513-accounting-probe.pine
