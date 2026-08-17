@@ -1,0 +1,26 @@
+import { chromium } from 'playwright-core';
+import fs from 'fs';
+const s=JSON.parse(fs.readFileSync('/tmp/wasmer-result.json','utf8'));const base=s.siteUrl.replace(/\/$/,'');
+const out={status:'starting',login:false,wpAdmin:false,themeInstalled:false,themeActive:false,verifyOpened:false,verifyText:null,verifyControls:[],detail:null,updatedAt:new Date().toISOString()};
+function save(){out.updatedAt=new Date().toISOString();fs.writeFileSync('/tmp/wasmer-finish-current.json',JSON.stringify(out,null,2));}
+async function text(p){return (await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();}
+async function login(p){
+ await p.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(800);
+ const u=p.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();if(!(await u.waitFor({state:'visible',timeout:10000}).then(()=>true).catch(()=>false)))return false;await u.fill(s.username||s.email);await u.press('Enter');
+ const pw=p.locator('input[type=password]').first();if(!(await pw.waitFor({state:'visible',timeout:12000}).then(()=>true).catch(()=>false)))return false;await pw.fill(s.password);const sub=p.locator('input[type=submit]').first();if(await sub.count()&&await sub.isVisible().catch(()=>false))await sub.click();else await pw.press('Enter');await p.waitForTimeout(6000);return !/\/login(?:[/?#]|$)/i.test(p.url());
+}
+const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});const ctx=await browser.newContext({ignoreHTTPSErrors:true});const p=await ctx.newPage();
+try{
+ if(!(await login(p))){out.status='login_failed';out.detail=(await text(p)).slice(0,500);save();process.exit(0);}out.login=true;
+ const dash=`https://wasmer.io/apps/${encodeURIComponent(s.username)}/${encodeURIComponent(s.appName)}`;await p.goto(dash,{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(1600);
+ const admin=p.getByText(/WordPress Admin/i).first();if(!(await admin.count())){out.status='admin_missing';out.detail=(await text(p)).slice(0,700);save();process.exit(0);}await admin.click();await p.waitForTimeout(3500);
+ let wp=ctx.pages().find(x=>x.url().startsWith(base)&&/wp-admin/i.test(x.url()));if(!wp&&p.url().startsWith(base)&&/wp-admin/i.test(p.url()))wp=p;if(!wp){out.status='magic_login_failed';out.detail=ctx.pages().map(x=>x.url().replace(/([?&]magiclogin=)[^&#]+/i,'$1REDACTED')).join(',');save();process.exit(0);}out.wpAdmin=true;
+ await wp.goto(base+'/wp-admin/theme-install.php?upload',{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(1000);
+ const upload=wp.locator('button,a').filter({hasText:/Upload Theme/i}).first();if(await upload.count()&&await upload.isVisible().catch(()=>false))await upload.click();await wp.waitForTimeout(700);
+ const fi=wp.locator('input[type=file]').first();if(!(await fi.count())){out.status='file_input_missing';out.detail=(await text(wp)).slice(0,700);save();process.exit(0);}await fi.setInputFiles('/tmp/runner3-starter.zip');
+ const install=wp.locator('#install-theme-submit,input[name=install-theme-submit]').first();if(!(await install.waitFor({state:'visible',timeout:5000}).then(()=>true).catch(()=>false))){out.status='install_button_hidden';out.detail=(await text(wp)).slice(0,700);save();process.exit(0);}await install.click();await wp.waitForTimeout(5000);out.themeInstalled=/successfully|installed|runner3/i.test(await text(wp));
+ await wp.goto(base+'/wp-admin/themes.php',{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(1100);const cards=wp.locator('.theme');for(let i=0;i<await cards.count();i++){const c=cards.nth(i);const t=await c.innerText().catch(()=> '');if(!/runner3 starter/i.test(t))continue;out.themeInstalled=true;if(/active:/i.test(t)||/customize/i.test(t)){out.themeActive=true;break;}const a=c.locator('a,button').filter({hasText:/Activate/i}).first();if(await a.count()){await a.click();await wp.waitForTimeout(1500);out.themeActive=true;break;}}
+ if(wp!==p)await wp.close().catch(()=>{});await p.goto(dash,{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(1300);
+ const verify=p.locator('button,a').filter({hasText:/Verify your account/i}).first();if(await verify.count()&&await verify.isVisible().catch(()=>false)){await verify.click();await p.waitForTimeout(900);out.verifyOpened=true;const d=p.locator('[role=dialog]').last();const root=(await d.count()&&await d.isVisible().catch(()=>false))?d:p;out.verifyText=(await root.innerText().catch(()=>'' )).replace(/\s+/g,' ').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'EMAIL_REDACTED').slice(0,1200);out.verifyControls=await root.locator('input,button,a').evaluateAll(xs=>xs.map(x=>({tag:x.tagName.toLowerCase(),type:x.getAttribute('type'),name:x.getAttribute('name'),placeholder:x.getAttribute('placeholder'),text:(x.innerText||x.textContent||x.getAttribute('value')||'').replace(/\s+/g,' ').trim()})).filter(x=>x.text||x.placeholder||x.name).slice(0,30)).catch(()=>[]);}
+ out.status=out.themeInstalled&&out.themeActive?'theme_ready':'theme_partial';save();
+}catch(e){out.status='error';out.detail=String(e).slice(0,900);save();}finally{await browser.close();}
