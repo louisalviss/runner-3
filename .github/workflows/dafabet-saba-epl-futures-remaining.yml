@@ -35,11 +35,13 @@ jobs:
           for c in pref:
             rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
             rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
-            for r in rs[:2]:
+            limit=10 if c=='JP' else 2
+            for r in rs[:limit]:
               cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
               cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
               p=pathlib.Path(f'/tmp/relays/{len(meta):02d}-{c}.ovpn'); p.write_text(cfg); meta.append(f'{p}\t{c}\t{r.get("IP","")}')
           pathlib.Path('/tmp/relays.tsv').write_text('\n'.join(meta)+'\n')
+          print('RELAYS='+str(len(meta)))
           PY
       - name: Create isolated VPN namespace
         run: |
