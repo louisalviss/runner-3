@@ -8,7 +8,7 @@ async function probe(order){
   const ctx = await browser.newContext();
   const fake='00000000-0000-4000-8000-000000000000';
   for(const item of order){
-    if(item==='host') await ctx.addCookies([{name:'anon_user_id',value:fake,url:'https://pntr.dev/',path:'/',secure:true,httpOnly:true,sameSite:'Lax'}]);
+    if(item==='host') await ctx.addCookies([{name:'anon_user_id',value:fake,url:'https://pntr.dev/',secure:true,httpOnly:true,sameSite:'Lax'}]);
     if(item==='domain') await ctx.addCookies([{name:'anon_user_id',value:real.value,domain:'.pntr.dev',path:'/',secure:true,httpOnly:true,sameSite:'Lax',expires:Math.floor(Date.now()/1000)+3600}]);
   }
   const r=await ctx.request.get('https://pntr.dev/api/subdomains',{failOnStatusCode:false,timeout:30000});
