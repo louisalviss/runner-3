@@ -1,0 +1,54 @@
+name: WR BNB Current Engine Parity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-bnb-current-engine-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Run current external engine BNB 5m Jul27-Aug17
+        env:
+          WR_SYMBOL: BNBUSDT
+          WR_START: '2026-07-27'
+          WR_END: '2026-08-17'
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import os,json,importlib.util,sys
+          from dataclasses import asdict
+          from datetime import datetime,timedelta,timezone
+          from pathlib import Path
+          p=Path('wave-rider-verify/reference_verify.py')
+          spec=importlib.util.spec_from_file_location('wrref',p); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          src,tick,missing=wr.fetch_1m(); bars=wr.agg(src,5)
+          start=datetime(2026,7,27,tzinfo=timezone.utc)
+          end=datetime(2026,8,18,tzinfo=timezone.utc)-timedelta(milliseconds=1)
+          st=int(start.timestamp()*1000); en=int(end.timestamp()*1000)
+          wr.SYMBOL='BNBUSDT'
+          trades,summary=wr.run(5,bars,tick,st,en)
+          payload={'engine_ref':'wr-day-holiday-temp','symbol':'BNBUSDT','tf':5,'start':start.isoformat(),'end':end.isoformat(),'tick':tick,'missing':missing,'bars_total':len(bars),'summary':summary,'trades':[asdict(t) for t in trades]}
+          Path('/tmp/bnb_external.json').write_text(json.dumps(payload,indent=2),encoding='utf-8')
+          print('EXT_BNB_TRADE_COUNT='+str(len(trades)))
+          print('EXT_BNB_TICK='+str(tick))
+          print('EXT_BNB_MISSING='+json.dumps(missing))
+          for n,t in enumerate(trades,1):
+              print('EXT_BNB_TRADE='+json.dumps({'n':n,**asdict(t)},separators=(',',':')))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-bnb-current-engine-parity-${{ github.run_id }}
+          path: /tmp/bnb_external.json
+          retention-days: 2
