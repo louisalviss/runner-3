@@ -5,48 +5,60 @@ on:
       - '.github/workflows/youtube-test-olifZrb263k.yml'
 
 jobs:
-  embed-test:
+  frontend-api-test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Install selenium
-        run: python -m pip install -q -U selenium
-      - name: Test official YouTube nocookie embed
+      - name: Probe public YouTube frontend APIs
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           mkdir -p evidence
           python - <<'PY'
-          import time, json, pathlib
-          from selenium import webdriver
-          from selenium.webdriver.chrome.options import Options
+          import urllib.request, urllib.error, json, pathlib, ssl, time
+          vid='olifZrb263k'
+          urls=[
+            ('piped-kavin',f'https://pipedapi.kavin.rocks/streams/{vid}'),
+            ('inv-nadeko',f'https://inv.nadeko.net/api/v1/videos/{vid}'),
+            ('inv-nerdvpn',f'https://invidious.nerdvpn.de/api/v1/videos/{vid}'),
+            ('inv-chocomoo',f'https://yt.chocolatemoo53.com/api/v1/videos/{vid}'),
+            ('inv-tiekoetter',f'https://invidious.tiekoetter.com/api/v1/videos/{vid}'),
+          ]
           out=pathlib.Path('evidence')
-          url='https://www.youtube-nocookie.com/embed/olifZrb263k?autoplay=1&mute=1'
-          opt=Options(); opt.page_load_strategy='eager'
-          for x in ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required','--window-size=1280,800']:
-              opt.add_argument(x)
-          d=webdriver.Chrome(options=opt)
-          d.set_page_load_timeout(15)
-          r={}
-          try:
-              try: d.get(url)
-              except Exception as e: r['load_error']=repr(e)
-              time.sleep(4)
-              d.save_screenshot(str(out/'embed_04.png'))
-              r['title']=d.title; r['url']=d.current_url
-              r['state_04']=d.execute_script("""const v=document.querySelector('video'); if(!v)return {video:false}; v.muted=true; v.play().catch(()=>{}); return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};""")
-              time.sleep(5)
-              d.save_screenshot(str(out/'embed_09.png'))
-              r['state_09']=d.execute_script("""const v=document.querySelector('video'); if(!v)return {video:false}; return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};""")
-          finally:
-              (out/'embed.json').write_text(json.dumps(r,ensure_ascii=False,indent=2),encoding='utf-8')
-              d.quit()
+          summary=[]
+          headers={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36','Accept':'application/json,text/plain,*/*'}
+          for name,url in urls:
+              rec={'name':name,'url':url}
+              try:
+                  req=urllib.request.Request(url,headers=headers)
+                  with urllib.request.urlopen(req,timeout=18) as r:
+                      data=r.read(3_000_000)
+                      rec['status']=getattr(r,'status',None); rec['content_type']=r.headers.get('content-type'); rec['bytes']=len(data)
+                      (out/f'{name}.body').write_bytes(data)
+                      try:
+                          j=json.loads(data)
+                          rec['json']=True
+                          rec['title']=j.get('title')
+                          if 'videoStreams' in j:
+                              rec['videoStreams']=len(j.get('videoStreams') or [])
+                              rec['audioStreams']=len(j.get('audioStreams') or [])
+                              rec['has_media_url']=any(bool(x.get('url')) for x in (j.get('videoStreams') or []))
+                          if 'formatStreams' in j or 'adaptiveFormats' in j:
+                              rec['formatStreams']=len(j.get('formatStreams') or [])
+                              rec['adaptiveFormats']=len(j.get('adaptiveFormats') or [])
+                              rec['has_media_url']=any(bool(x.get('url')) for x in ((j.get('formatStreams') or [])+(j.get('adaptiveFormats') or [])))
+                      except Exception as e: rec['json']=False; rec['parse_error']=repr(e); rec['preview']=data[:300].decode('utf-8','replace')
+              except Exception as e:
+                  rec['error']=repr(e)
+              summary.append(rec)
+          (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
           PY
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-olifZrb263k-embed-evidence
+          name: youtube-olifZrb263k-frontend-api-probe
           path: evidence/
           retention-days: 1
