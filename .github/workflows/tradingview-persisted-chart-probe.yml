@@ -1,0 +1,77 @@
+name: TradingView Persisted Chart Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-persisted-chart-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Reopen BNB and inspect persisted strategy report
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}}); const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(14000);
+            let body=await p.locator('body').innerText().catch(()=>'');
+            console.log('TV_REOPEN_AUTH='+(/\bSign in\b/i.test(body)?'FAIL':'PASS'));
+            console.log('TV_REOPEN_WR_TITLE='+(body.includes('WR 2.5.13 WIN')?'PRESENT':'ABSENT'));
+            console.log('TV_REOPEN_REPORT_CLOSE='+(await p.locator('[aria-label="Close strategy report"]').count()>0?'PRESENT':'ABSENT'));
+            const trades=p.locator('[title="Trades"]').first();
+            console.log('TV_REOPEN_TRADES_BUTTON='+(await trades.count()>0?'PRESENT':'ABSENT'));
+            if(await trades.count()>0){
+              await trades.click({force:true});
+              await p.waitForTimeout(5000);
+              body=await p.locator('body').innerText().catch(()=>'');
+              const lines=body.split('\n').map(x=>x.trim()).filter(Boolean).filter(x=>/trade|entry|exit|profit|pnl|long|short|date|time|download|export|upgrade/i.test(x)).slice(0,250);
+              fs.writeFileSync('/tmp/trades-body.txt',lines.join('\n')+'\n');
+              const controls=await p.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(els=>els.map(e=>({text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,180),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',disabled:e.disabled||e.getAttribute('aria-disabled')||''})).filter(x=>/trade|download|export|csv|report|upgrade|entry|exit/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,200));
+              fs.writeFileSync('/tmp/trades-controls.json',JSON.stringify(controls,null,2));
+              console.log('TV_TRADES_BODY_HAS_ENTRY='+( /Entry/i.test(body)?'YES':'NO'));
+              console.log('TV_TRADES_BODY_HAS_EXIT='+( /Exit/i.test(body)?'YES':'NO'));
+              console.log('TV_TRADES_BODY_HAS_UPGRADE='+( /Upgrade to get full access to Strategy report data/i.test(body)?'YES':'NO'));
+              console.log('TV_TRADES_CONTROLS='+JSON.stringify(controls.slice(0,80)));
+              await p.screenshot({path:'/tmp/trades-panel.png',fullPage:true}).catch(()=>{});
+            }
+            await b.close();
+          })().catch(e=>{console.error('TV_REOPEN_ERROR='+e.message);process.exit(7)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-persisted-chart-${{ github.run_id }}
+          path: |
+            /tmp/trades-body.txt
+            /tmp/trades-controls.json
+            /tmp/trades-panel.png
+          if-no-files-found: warn
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
