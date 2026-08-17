@@ -13,11 +13,15 @@ permissions:
   contents: read
 
 jobs:
-  bnb-ledger:
+  ledger:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      TV_SYMBOL: BNBUSDT
+      TV_SYMBOL: ${{ matrix.symbol }}
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
     steps:
@@ -56,6 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           cp scripts/tradingview-wave-rider-e2e.mjs scripts/.tv-temp-save-ledger.mjs
+          sed -i "s#BINANCE%3ABNBUSDT.P#BINANCE%3A${TV_SYMBOL}.P#" scripts/.tv-temp-save-ledger.mjs
           python3 - <<'PY'
           from pathlib import Path
           p=Path('scripts/.tv-temp-save-ledger.mjs')
@@ -66,10 +71,9 @@ jobs:
           save_probe=Path('scripts/tradingview-temp-save-ledger-probe.js.txt').read_text()
           log_probe=Path('scripts/tradingview-canonical-ledger-log-snippet.js.txt').read_text()
           s=s.replace(compile_anchor,compile_anchor+'\n'+save_probe+'\n'+log_probe+'\n',1)
-          # The log collector was originally keyed to WRPARITY. Collect all 3 compact record types.
-          s=s.replace("filter(x=>x.includes('WRPARITY|'))","filter(x=>/WRP[123]\\|/.test(x))")
           p.write_text(s)
           PY
+          grep -q "BINANCE%3A${TV_SYMBOL}.P" scripts/.tv-temp-save-ledger.mjs
 
       - name: Run compiled temporary saved Pine ledger probe
         shell: bash
@@ -78,28 +82,32 @@ jobs:
           npm install --no-save playwright-core@1.58.2 >/dev/null
           node scripts/.tv-temp-save-ledger.mjs
 
-      - name: Require exact Pine ledger records
+      - name: Require canonical Pine records
         shell: bash
         run: |
           set -euo pipefail
-          test -s /tmp/tv-canonical-ledger-BNBUSDT.txt
-          LINES="$(grep -Ec 'WRP[123]\|' /tmp/tv-canonical-ledger-BNBUSDT.txt || true)"
+          F="/tmp/tv-canonical-ledger-${TV_SYMBOL}.txt"
+          test -s "$F"
+          LINES="$(grep -Ec 'WRP[123]\|' "$F" || true)"
+          TRADES="$(grep -Eo 'WRP1\|n=[0-9]+' "$F" | sed 's/.*n=//' | sort -nu | wc -l)"
           echo "PINE_CANON_RECORDS=$LINES"
-          test "$LINES" -gt 0
+          echo "PINE_CANON_UNIQUE_TRADES=$TRADES"
+          test "$TRADES" -ge 14
 
       - name: Upload exact canonical ledger evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tv-temp-saved-ledger-BNBUSDT-${{ github.run_id }}
+          name: tv-temp-saved-ledger-${{ matrix.symbol }}-${{ github.run_id }}
           path: |
-            /tmp/tv-canonical-ledger-BNBUSDT.txt
-            /tmp/tv-pine-log-body-BNBUSDT.txt
-            /tmp/tv-pine-editor-controls-BNBUSDT.json
-            /tmp/tv-pine-more-menu-BNBUSDT.json
-            /tmp/tv-pine-logs-BNBUSDT.png
-            /tmp/tv-save-dialog-body-BNBUSDT.txt
-            /tmp/tv-temp-script-name-BNBUSDT.txt
+            /tmp/tv-canonical-ledger-${{ matrix.symbol }}.txt
+            /tmp/tv-pine-log-body-${{ matrix.symbol }}.txt
+            /tmp/tv-pine-log-scrollables-${{ matrix.symbol }}.json
+            /tmp/tv-pine-editor-controls-${{ matrix.symbol }}.json
+            /tmp/tv-pine-more-menu-${{ matrix.symbol }}.json
+            /tmp/tv-pine-logs-${{ matrix.symbol }}.png
+            /tmp/tv-save-dialog-body-${{ matrix.symbol }}.txt
+            /tmp/tv-temp-script-name-${{ matrix.symbol }}.txt
             /tmp/wr2513-e2e-report.txt
           if-no-files-found: warn
           retention-days: 2
