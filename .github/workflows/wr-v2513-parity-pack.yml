@@ -6,7 +6,9 @@ on:
     branches: [main]
     paths:
       - wave-rider-verify/reference_verify_v2513_exact.py
+      - wave-rider-verify/reference_v2513_tv_adapter.py
       - formal-tests/wr_v2513_parity_pack.py
+      - formal-tests/wr_v2513_tv_parity_pack.py
       - wave-rider-verify/tv_trade_diff.py
       - .github/workflows/wr-v2513-parity-pack.yml
 
@@ -28,12 +30,12 @@ jobs:
           python-version: '3.12'
       - run: pip install requests
       - name: Static check exact parity lineage
-        run: python -m py_compile wave-rider-verify/reference_verify.py wave-rider-verify/reference_verify_v2513_exact.py formal-tests/wr_v2513_parity_pack.py
-      - name: Export exact Python trade sequence
-        run: python formal-tests/wr_v2513_parity_pack.py --symbol ${{ matrix.symbol }} --outdir parity_out
+        run: python -m py_compile wave-rider-verify/reference_verify.py wave-rider-verify/reference_verify_v2513_exact.py wave-rider-verify/reference_v2513_tv_adapter.py formal-tests/wr_v2513_parity_pack.py formal-tests/wr_v2513_tv_parity_pack.py
+      - name: Export Pine-time_close-normalized exact Python trade sequence
+        run: python formal-tests/wr_v2513_tv_parity_pack.py --symbol ${{ matrix.symbol }} --outdir parity_out
       - uses: actions/upload-artifact@v4
         with:
-          name: wr2513-exact-${{ matrix.symbol }}
+          name: wr2513-tvexact-${{ matrix.symbol }}
           path: parity_out/*
           retention-days: 30
 
@@ -49,15 +51,15 @@ jobs:
       - run: pip install requests
       - uses: actions/download-artifact@v4
         with:
-          pattern: wr2513-exact-*
+          pattern: wr2513-tvexact-*
           path: parity_all
           merge-multiple: true
       - name: Merge exact-reference report
-        run: python formal-tests/wr_v2513_parity_pack.py --merge parity_all --merged-out wr_v2513_exact_parity_investigation.json
+        run: python formal-tests/wr_v2513_tv_parity_pack.py --merge parity_all --merged-out wr_v2513_tv_exact_parity_investigation.json
       - uses: actions/upload-artifact@v4
         with:
-          name: wr-v2513-exact-parity-investigation
+          name: wr-v2513-tv-exact-parity-investigation
           path: |
-            wr_v2513_exact_parity_investigation.json
-            wr_v2513_exact_parity_investigation.csv
+            wr_v2513_tv_exact_parity_investigation.json
+            wr_v2513_tv_exact_parity_investigation.csv
           retention-days: 30
