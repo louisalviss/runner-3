@@ -1,0 +1,63 @@
+name: Cloudflare Capability Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-capability-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Probe non-destructive Cloudflare capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          base='https://api.cloudflare.com/client/v4'
+          def get(path):
+              req=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+token})
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try: data=json.loads(e.read().decode())
+                  except Exception: data={}
+                  return e.code,data
+          code,data=get('/zones?per_page=50')
+          print('ZONE_LIST_HTTP='+str(code))
+          print('ZONE_LIST_SUCCESS='+str(bool(data.get('success'))).lower())
+          zones=data.get('result') or [] if data.get('success') else []
+          print('ZONE_COUNT='+str(len(zones)))
+          ready=unconfigured=unreadable=0
+          for z in zones:
+              zid=z.get('id')
+              c,d=get(f'/zones/{zid}/email/routing')
+              if c==200 and d.get('success'):
+                  status=(d.get('result') or {}).get('status','unknown')
+                  enabled=(d.get('result') or {}).get('enabled',False)
+                  if status=='ready' and enabled: ready+=1
+                  else: unconfigured+=1
+              else:
+                  unreadable+=1
+          print('EMAIL_ROUTING_READY_ZONES='+str(ready))
+          print('EMAIL_ROUTING_OTHER_ZONES='+str(unconfigured))
+          print('EMAIL_ROUTING_UNREADABLE_ZONES='+str(unreadable))
+          # Account-level workers/scripts list: read-only capability probe.
+          c,d=get(f'/accounts/{account}/workers/scripts')
+          print('WORKERS_LIST_HTTP='+str(c))
+          print('WORKERS_LIST_SUCCESS='+str(bool(d.get('success'))).lower())
+          PY
