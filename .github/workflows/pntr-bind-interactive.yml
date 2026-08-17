@@ -1,0 +1,122 @@
+name: PNTR Bind GitHub Interactive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-bind-interactive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  interactive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DISPLAY: ':99'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore encrypted PNTR guest session
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Encryption secret unavailable'; exit 2; }
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/pntr/browser-state.aes \
+            -out /tmp/pntr-browser-state.json
+          chmod 600 /tmp/pntr-browser-state.json
+
+      - name: Install ephemeral remote desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb x11vnc openbox novnc websockify nginx >/dev/null
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          curl -fsSL --retry 3 \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /tmp/cloudflared
+          chmod 700 /tmp/cloudflared
+
+      - name: Start protected PNTR browser
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Public repo contains only this one-way htpasswd hash, never the plaintext password.
+          printf '%s\n' 'pntr:$apr1$KAhwnbs.$h2SLBhCRr2oQaa/e203t//' | sudo tee /tmp/pntr.htpasswd >/dev/null
+          sudo chmod 600 /tmp/pntr.htpasswd
+
+          sudo tee /etc/nginx/sites-available/pntr-remote >/dev/null <<'NGINX'
+          server {
+            listen 127.0.0.1:8080;
+            server_name _;
+            auth_basic "PNTR one-time session";
+            auth_basic_user_file /tmp/pntr.htpasswd;
+            location / {
+              proxy_pass http://127.0.0.1:6080;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host $host;
+              proxy_read_timeout 3600s;
+            }
+          }
+          NGINX
+          sudo rm -f /etc/nginx/sites-enabled/default
+          sudo ln -sf /etc/nginx/sites-available/pntr-remote /etc/nginx/sites-enabled/pntr-remote
+          sudo nginx -t
+          sudo systemctl restart nginx
+
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+          sleep 1
+          openbox-session >/tmp/openbox.log 2>&1 &
+          x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 >/tmp/x11vnc.log 2>&1 &
+          websockify --web=/usr/share/novnc 6080 127.0.0.1:5900 >/tmp/novnc.log 2>&1 &
+          node scripts/pntr-interactive-browser.mjs >/tmp/browser.log 2>&1 &
+
+          for i in $(seq 1 30); do
+            grep -q 'PNTR_INTERACTIVE_BROWSER_READY' /tmp/browser.log && break
+            sleep 1
+          done
+          grep -q 'PNTR_INTERACTIVE_BROWSER_READY' /tmp/browser.log || { echo 'Browser failed to start'; tail -30 /tmp/browser.log; exit 4; }
+
+          /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 >/tmp/cloudflared.log 2>&1 &
+          for i in $(seq 1 30); do
+            URL="$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)"
+            [ -n "$URL" ] && break
+            sleep 1
+          done
+          [ -n "${URL:-}" ] || { echo 'Cloudflare quick tunnel failed'; tail -30 /tmp/cloudflared.log; exit 5; }
+
+          echo "PNTR_REMOTE_URL=${URL}/vnc.html?autoconnect=true&resize=remote"
+          echo 'PNTR_REMOTE_USER=pntr'
+          echo 'PNTR_REMOTE_PASSWORD_IS_NOT_IN_REPO_OR_LOGS=true'
+
+          # Keep only this ephemeral browser alive. Automatically finish once the
+          # dashboard shows the target domain without guest-session messaging.
+          for i in $(seq 1 900); do
+            if [ -f /tmp/pntr-bind-success ]; then
+              echo 'PNTR_BIND_STATUS=confirmed'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'PNTR_BIND_STATUS=not_confirmed'
+          exit 6
+
+      - name: Cleanup sensitive runtime files
+        if: always()
+        shell: bash
+        run: |
+          pkill -f pntr-interactive-browser.mjs || true
+          pkill -f cloudflared || true
+          pkill -f websockify || true
+          pkill -f x11vnc || true
+          rm -f /tmp/pntr-browser-state.json /tmp/pntr.htpasswd /tmp/pntr-bind-success
