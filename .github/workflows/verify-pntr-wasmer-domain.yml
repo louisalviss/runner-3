@@ -1,0 +1,63 @@
+name: Verify PNTR Wasmer Domain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-pntr-wasmer-domain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check public DNS and HTTPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/pntr
+          DOMAIN='runner3wp.pntr.dev'
+          EXPECTED='lnh8iwtjmk3x.id.wasmer.app'
+          cname="$(dig +short CNAME "$DOMAIN" | sed 's/\.$//' | head -1 || true)"
+          a="$(dig +short A "$DOMAIN" | paste -sd, - || true)"
+          aaaa="$(dig +short AAAA "$DOMAIN" | paste -sd, - || true)"
+          http_code="$(curl -L --max-time 25 -sS -o /tmp/body -w '%{http_code}' "https://$DOMAIN/" || true)"
+          final_url="$(curl -L --max-time 25 -sS -o /dev/null -w '%{url_effective}' "https://$DOMAIN/" || true)"
+          contains_runner3=false
+          if grep -qi 'Runner3' /tmp/body 2>/dev/null; then contains_runner3=true; fi
+          dns_matches=false
+          if [ "$cname" = "$EXPECTED" ]; then dns_matches=true; fi
+          python - <<PY
+          import json
+          out={
+            'domain':'$DOMAIN',
+            'expectedCname':'$EXPECTED',
+            'cname':'$cname',
+            'a':'$a',
+            'aaaa':'$aaaa',
+            'dnsMatchesExpected':$dns_matches,
+            'httpCode':'$http_code',
+            'finalUrl':'$final_url',
+            'frontContainsRunner3':$contains_runner3,
+          }
+          out['live']=str(out['httpCode']).startswith('2') and out['frontContainsRunner3']
+          out['status']='live' if out['live'] else ('dns_ready_waiting_wasmer' if out['dnsMatchesExpected'] else 'dns_not_direct_cname')
+          open('ops/pntr/live-verify.json','w').write(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Persist verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/pntr/live-verify.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Persist PNTR live domain verification'
+            git push origin HEAD:main
+          fi
