@@ -1,0 +1,113 @@
+name: Cloudflare InfinityFree Interactive Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-infinityfree-interactive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          curl -fsS 'https://api.cloudflare.com/client/v4/user/tokens/verify' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -o /tmp/token.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/token.json'))
+          ok=bool(d.get('success') and (d.get('result') or {}).get('status') == 'active')
+          print('TOKEN_ACTIVE=' + str(ok).lower())
+          if not ok: raise SystemExit(2)
+          PY
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Inspect InfinityFree interactive signup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/probe.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const endpoint = `wss://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/devtools/browser?keep_alive=600000`;
+
+          const browser = await chromium.connectOverCDP(endpoint, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          try {
+            const context = browser.contexts()[0];
+            const page = context.pages()[0] || await context.newPage();
+            await page.goto('https://dash.infinityfree.com/register', { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await page.waitForTimeout(3000);
+
+            console.log('FINAL_URL=' + page.url());
+            console.log('TITLE=' + (await page.title()));
+
+            const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
+            console.log('BODY_SAMPLE=' + text.slice(0, 1800));
+
+            const inputs = await page.locator('input').evaluateAll(els => els.map((e, i) => ({
+              i,
+              type: e.type,
+              name: e.name,
+              id: e.id,
+              placeholder: e.placeholder,
+              autocomplete: e.autocomplete,
+              required: e.required
+            })));
+            console.log('INPUTS=' + JSON.stringify(inputs));
+
+            const buttons = await page.locator('button, a').evaluateAll(els => els.map((e, i) => ({
+              i,
+              tag: e.tagName,
+              text: (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0,120),
+              href: e.href || '',
+              type: e.type || ''
+            })).filter(x => x.text || x.href).slice(0,80));
+            console.log('BUTTONS_LINKS=' + JSON.stringify(buttons));
+
+            const forms = await page.locator('form').evaluateAll(els => els.map((e, i) => ({
+              i,
+              action: e.action,
+              method: e.method
+            })));
+            console.log('FORMS=' + JSON.stringify(forms));
+
+            const html = (await page.content()).toLowerCase();
+            const markers = ['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-'].filter(x => html.includes(x));
+            console.log('CAPTCHA_MARKERS=' + markers.join(','));
+
+            await page.screenshot({ path: '/tmp/infinityfree-register.png', fullPage: true });
+          } finally {
+            await browser.close();
+          }
+          JS
+          node /tmp/probe.mjs
+
+      - name: Upload signup screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infinityfree-register-probe-${{ github.run_id }}
+          path: /tmp/infinityfree-register.png
+          if-no-files-found: ignore
+          retention-days: 1
