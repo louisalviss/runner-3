@@ -73,10 +73,21 @@ switch (action) {
   default: throw new Error(`unsupported action: ${action}`);
 }
 
+const sensitiveKey = /(?:password|passphrase|secret|token|authorization|cookie|nonce|api[_-]?key|email)/i;
+function scrub(value) {
+  if (Array.isArray(value)) return value.map(scrub);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = sensitiveKey.test(k) ? '[redacted]' : scrub(v);
+    return out;
+  }
+  return value;
+}
+
 const safe = {
   status: 'ok', siteSlug: slug, action,
   summary: Array.isArray(result) ? { type: 'array', count: result.length } : { type: typeof result, id: result?.id ?? null, slug: result?.slug ?? null, status: result?.status ?? null },
-  result,
+  result: scrub(result),
   updatedAt: new Date().toISOString()
 };
 const out = `/tmp/wp-control-result-${slug}.json`;
