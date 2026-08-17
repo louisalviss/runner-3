@@ -1,0 +1,93 @@
+name: TradingView Strategy Tester Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-strategy-tester-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Probe Strategy Tester UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(9000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first();
+            await pine.click(); await p.waitForTimeout(3000);
+            const dlg=p.locator('[data-name="pine-dialog"]');
+            const ta=dlg.locator('.monaco-editor textarea').last();
+            await ta.focus(); await p.keyboard.press('Control+A');
+            await p.evaluate(async s=>{await navigator.clipboard.writeText(s)},source); await p.keyboard.press('Control+V');
+            await p.waitForTimeout(2000);
+            await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click();
+            await p.waitForTimeout(25000);
+            await pine.click().catch(()=>{}); await p.waitForTimeout(2000);
+
+            const candidates=await p.locator('button,[role="button"],[role="tab"],[aria-label],[title],[data-name]').evaluateAll(els=>els.map((e,i)=>({i,tag:e.tagName,role:e.getAttribute('role')||'',text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,220),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||''})).filter(x=>/strategy|tester|overview|performance|list of trades|trades|download|export|report/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,200));
+            for(const x of candidates) console.log('TV_TESTER_CAND='+JSON.stringify(x));
+            fs.writeFileSync('/tmp/tester-candidates.json',JSON.stringify(candidates,null,2));
+
+            let clicked=false;
+            const selectors=[
+              p.getByText('Strategy Tester',{exact:true}).first(),
+              p.getByRole('button',{name:/Strategy Tester/i}).first(),
+              p.locator('[data-name*="strategy"]').filter({hasText:/Strategy Tester/i}).first()
+            ];
+            for(const s of selectors){ if(await s.isVisible().catch(()=>false)){ await s.click().catch(()=>{}); clicked=true; break; } }
+            console.log('TV_TESTER_CLICKED='+(clicked?'YES':'NO'));
+            await p.waitForTimeout(7000);
+            const body=await p.locator('body').innerText();
+            const lines=body.split('\n').map(s=>s.trim()).filter(s=>/overview|performance summary|list of trades|properties|download|export|trade #|entry|exit/i.test(s)).slice(0,200);
+            for(const x of lines) console.log('TV_TESTER_LINE='+JSON.stringify(x));
+            const afterControls=await p.locator('button,[role="button"],[role="tab"],[aria-label],[title],[data-name]').evaluateAll(els=>els.map((e,i)=>({i,tag:e.tagName,role:e.getAttribute('role')||'',text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,220),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||''})).filter(x=>/overview|performance|list of trades|trades|download|export|report/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,200));
+            for(const x of afterControls) console.log('TV_TESTER_AFTER='+JSON.stringify(x));
+            fs.writeFileSync('/tmp/tester-after.json',JSON.stringify(afterControls,null,2));
+            fs.writeFileSync('/tmp/tester-lines.txt',lines.join('\n'));
+            await p.screenshot({path:'/tmp/tester.png',fullPage:true});
+            await b.close();
+            if(!clicked || !/List of trades/i.test(body)) process.exit(7);
+          })().catch(e=>{console.error('TV_TESTER_PROBE_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-strategy-tester-probe-${{ github.run_id }}
+          path: |
+            /tmp/tester-candidates.json
+            /tmp/tester-after.json
+            /tmp/tester-lines.txt
+            /tmp/tester.png
+          retention-days: 1
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
