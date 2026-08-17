@@ -1,0 +1,80 @@
+name: WR First Divergence State
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-first-divergence-state.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Log exact signal-condition state at divergence bars
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          sess=requests.Session(); sess.headers['User-Agent']='wr-first-divergence-state/1.0'
+          def fetch(symbol,start=date(2026,7,1),end=date(2026,8,16)):
+              bars=[]; prices=[]; d=start
+              while d<=end:
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{symbol}/5m/{symbol}-5m-{ds}.zip',timeout=40)
+                  if r.status_code==404: d+=timedelta(days=1); continue
+                  r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return [ded[k] for k in sorted(ded)],wr.infer_tick(prices)
+          targets={
+            'BNBUSDT':[
+              ('FALSE_EXT_FIRST','2026-07-27T05:50:00Z'),
+              ('TV_EXPECTED_FIRST','2026-07-27T20:10:00Z'),
+              ('TV_EXPECTED_2','2026-07-30T19:30:00Z'),
+              ('TV_EXPECTED_3','2026-07-31T13:20:00Z'),
+              ('TV_EXPECTED_4','2026-08-03T17:05:00Z'),
+              ('TV_EXPECTED_5','2026-08-04T17:45:00Z'),
+              ('TV_EXPECTED_6','2026-08-05T19:15:00Z'),
+              ('TV_EXPECTED_7','2026-08-06T17:55:00Z'),
+              ('FIRST_MATCH','2026-08-08T03:40:00Z')],
+            'TRXUSDT':[
+              ('TV_EXPECTED_FIRST_MISSING','2026-07-27T18:05:00Z'),
+              ('FIRST_MATCH','2026-07-28T08:15:00Z'),
+              ('TV_EXPECTED_SECOND_MISSING','2026-08-14T19:20:00Z')]
+          }
+          allout={}
+          for sym,tgs in targets.items():
+              bars,tick=fetch(sym); wr.SYMBOL=sym; ind,pht,plt=wr.calc_ind(bars); byot={x.ot:i for i,x in enumerate(bars)}; out=[]
+              for label,ts in tgs:
+                  ms=int(datetime.fromisoformat(ts.replace('Z','+00:00')).timestamp()*1000); i=byot.get(ms)
+                  if i is None: out.append({'label':label,'ts':ts,'missing_bar':True}); continue
+                  x=bars[i]; z=ind[i]; allowed,sexit=wr.session_flags(x.ct,5*60000)
+                  lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None
+                  sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+                  nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']
+                  ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+                  rec={'label':label,'ts':ts,'i':i,'ot':wr.iso(x.ot),'ct':wr.iso(x.ct),'o':x.o,'h':x.h,'l':x.l,'c':x.c,'tick':tick,
+                       'ema':z['ema'],'ema_up':z['ema_up'],'ha':z['ha'],'hb':z['hb'],'ag':z['ag'],'ar':z['ar'],'chop':z.get('chop'),'chop_ok':z['chop_ok'],'sra':z.get('sra'),'sra_ok':z['sra_ok'],'res':z['res'],'sup':z['sup'],'allowed':allowed,'sexit':sexit,'lr':lr,'sr':sr,'nl':nl,'ns':ns,
+                       'long_candle':x.c>x.o,'short_candle':x.c<x.o,'long_break':z['res'] is not None and x.c>z['res'],'long_retest':z['res'] is not None and x.l<=z['res'],'short_break':z['sup'] is not None and x.c<z['sup'],'short_retest':z['sup'] is not None and x.h>=z['sup']}
+                  out.append(rec); print('STATE='+json.dumps({'symbol':sym,**rec},separators=(',',':')))
+              allout[sym]=out
+          Path('/tmp/first_divergence_state.json').write_text(json.dumps(allout,indent=2),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-first-divergence-state-${{ github.run_id }}
+          path: /tmp/first_divergence_state.json
+          retention-days: 2
