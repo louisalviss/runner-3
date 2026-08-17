@@ -18,8 +18,7 @@ def fetch_one(fullsym,tf,timeout=14):
         spec0={'symbol':fullsym,'adjustment':'splits','session':'regular'}
         ws.send(m.cmd('resolve_symbol',[cs,'sym_0','='+json.dumps(spec0,separators=(',',':'))]))
         ws.send(m.cmd('create_series',[cs,sk,sk,'sym_0',str(tf),5000]))
-        deadline=time.monotonic()+timeout
-        done=False
+        deadline=time.monotonic()+timeout; done=False
         while time.monotonic()<deadline and not done:
             ws.settimeout(max(.5,min(4,deadline-time.monotonic())))
             try: raw=ws.recv()
@@ -35,11 +34,9 @@ def fetch_one(fullsym,tf,timeout=14):
                     x=par[2]
                     for k in ('name','full_name','description','exchange','listed_exchange','timezone','session','minmov','pricescale','pointvalue','type'):
                         if k in x: meta[k]=x[k]
-                elif method=='critical_error':
-                    errs.append(par)
+                elif method=='critical_error': errs.append(par)
                 elif method=='timescale_update':
-                    u=par[1] if len(par)>1 and isinstance(par[1],dict) else {}
-                    s=u.get(sk)
+                    u=par[1] if len(par)>1 and isinstance(par[1],dict) else {}; s=u.get(sk)
                     if isinstance(s,dict):
                         for row in s.get('s',[]):
                             v=row.get('v',[])
@@ -50,26 +47,37 @@ def fetch_one(fullsym,tf,timeout=14):
                     completions+=1
                     if tf==3 and not requested_more:
                         ws.send(m.cmd('request_more_data',[cs,sk,3000])); requested_more=True
-                    else:
-                        done=True
+                    else: done=True
         bars=[m.Bar(ts,tf,*vals[ts][1:5]) for ts in sorted(vals)]
         return tf,bars,meta,errs,completions
     finally:
         try: ws.close()
         except Exception: pass
 
+def derive_10m(b5):
+    buckets={}
+    for b in b5:
+        k=(b.ot//600000)*600000
+        buckets.setdefault(k,[]).append(b)
+    out=[]
+    for k in sorted(buckets):
+        z=sorted(buckets[k],key=lambda x:x.ot)
+        if len(z)!=2 or z[1].ot-z[0].ot!=300000: continue
+        out.append(m.Bar(k/1000,10,z[0].o,max(x.h for x in z),min(x.l for x in z),z[-1].c))
+    return out
+
 def fetch_symbol_fixed(fullsym,bars=5000,timeout=18):
     out={tf:[] for tf in m.TFS}; meta={}; errs=[]; completed=[]
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futs=[ex.submit(fetch_one,fullsym,tf) for tf in m.TFS]
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futs=[ex.submit(fetch_one,fullsym,tf) for tf in (3,5)]
         for f in as_completed(futs):
             try:
                 tf,b,md,er,n=f.result(); out[tf]=b
                 if md and not meta: meta=md
                 if er: errs.extend(er)
                 if n: completed.append(str(tf))
-            except Exception as e:
-                errs.append(repr(e))
+            except Exception as e: errs.append(repr(e))
+    out[10]=derive_10m(out[5]); completed.append('10-derived') if out[10] else None
     return out,meta,errs,completed
 
 m.fetch_symbol=fetch_symbol_fixed
