@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: trinity-atr-backtest
+  cancel-in-progress: true
+
 jobs:
   backtest:
     runs-on: ubuntu-latest
@@ -19,12 +23,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Run audit backtest
         run: python3 trinity_backtest.py
 
-      - name: Commit results
+      - name: Commit results robustly
         shell: bash
         run: |
           set -euo pipefail
@@ -36,4 +40,5 @@ jobs:
             exit 0
           fi
           git commit -m 'Run Trinity ATR non-repaint backtest'
-          git push
+          git pull --rebase origin main
+          git push origin HEAD:main
