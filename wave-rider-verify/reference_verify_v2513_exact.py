@@ -17,6 +17,33 @@ Bar = base.Bar
 Plan = base.Plan
 Trade = base.Trade
 
+# Pine ta.pivothigh/ta.pivotlow plateau semantics for parity work.
+# Equal values are permitted on the LEFT side of the candidate, while the RIGHT
+# side must be strictly lower/higher. This selects the right-most member of an
+# equal-price plateau. The returned series is then shifted by [1], matching
+# `ta.pivothigh(...)[1]` / `ta.pivotlow(...)[1]` in v2.5.13.
+def _pine_pivots(v, left, right, high=True):
+    raw = [None] * len(v)
+    ties = 0
+    for conf in range(left + right, len(v)):
+        c = conf - right
+        center = v[c]
+        L = v[c-left:c]
+        R = v[c+1:c+right+1]
+        if high:
+            ok = all(x <= center for x in L) and all(x < center for x in R)
+            plateau = any(x == center for x in L)
+        else:
+            ok = all(x >= center for x in L) and all(x > center for x in R)
+            plateau = any(x == center for x in L)
+        if ok:
+            raw[conf] = center
+            if plateau:
+                ties += 1
+    return [None] + raw[:-1], ties
+
+base.pivots = _pine_pivots
+
 # Canonical v2.5.13 embedded high-impact news timestamps.
 # Pine source uses America/New_York local timestamps.
 NEWS_UTC_MS = tuple(
