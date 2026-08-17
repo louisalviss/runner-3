@@ -23,20 +23,21 @@ try{
   }else{
     out.registered=true;
     const card=p.locator('[role=button]').filter({hasText:new RegExp(fqdn.replaceAll('.','\\.'),'i')}).first();
-    if(await visible(card)){await card.click();await p.waitForTimeout(700);}
+    if(await visible(card)){await card.click();await p.waitForTimeout(650);}
     t=await body(p);
     if(t.toLowerCase().includes(cname.toLowerCase())&&/cname/i.test(t)){
       out.cnameConfigured=true;out.status='ready';
     }else{
-      // PNTR renders DNS record creation inline when the domain card is expanded.
-      // Record Type is a row of buttons: A, AAAA, CNAME, MX, TXT.
+      // Open PNTR's inline record form.
+      const openAdd=p.locator('button').filter({hasText:/^Add Record$/i}).first();
+      if(await visible(openAdd)){await openAdd.click();await p.waitForTimeout(450);}
+
+      // Then choose CNAME from the explicit type buttons.
       const cnameBtn=p.locator('button').filter({hasText:/^CNAME$/i}).first();
       if(!await visible(cnameBtn)){
-        out.status='cname_button_missing';out.detail=`body=${clean(t)} controls=${await controls(p)}`;
+        out.status='cname_button_missing';out.detail=`body=${clean(await body(p))} controls=${await controls(p)}`;
       }else{
         await cnameBtn.click();await p.waitForTimeout(350);
-        // The record value is the visible text input inside the expanded domain card.
-        // Priority is number input and is irrelevant for CNAME.
         const textInputs=p.locator('input[type=text]');
         let valueInput=null;
         for(let i=0;i<await textInputs.count();i++){
@@ -46,11 +47,14 @@ try{
           out.status='dns_value_control_missing';out.detail=`body=${clean(await body(p))} controls=${await controls(p)}`;
         }else{
           await valueInput.fill(cname);
-          const addRecord=p.locator('button[type=submit],button').filter({hasText:/^Add Record$/i}).first();
-          if(!await visible(addRecord)){
+          // After the form is open, the submit control is also labelled Add Record.
+          const submits=p.locator('button[type=submit]').filter({hasText:/^Add Record$/i});
+          let submit=null;
+          for(let i=0;i<await submits.count();i++){const x=submits.nth(i);if(await visible(x)){submit=x;break;}}
+          if(!submit){
             out.status='dns_save_control_missing';out.detail=`body=${clean(await body(p))} controls=${await controls(p)}`;
           }else{
-            await addRecord.click();await p.waitForTimeout(1400);
+            await submit.click();await p.waitForTimeout(1500);
             t=await body(p);
             out.cnameConfigured=t.toLowerCase().includes(cname.toLowerCase())&&/cname/i.test(t);
             out.status=out.cnameConfigured?'ready':'dns_unconfirmed';
