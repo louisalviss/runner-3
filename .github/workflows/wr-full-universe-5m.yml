@@ -1,0 +1,72 @@
+name: Wave Rider Full Universe 5m Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - formal-tests/full_universe_5m.py
+      - .github/workflows/wr-full-universe-5m.yml
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  audit:
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependency
+        run: pip install requests
+      - name: Static check
+        run: python -m py_compile formal-tests/full_universe_5m.py wave-rider-verify/reference_verify.py
+      - name: Run chunk
+        run: python formal-tests/full_universe_5m.py --chunk ${{ matrix.chunk }} --chunks 16 --out chunk_${{ matrix.chunk }}.json
+      - name: Upload chunk metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr5m-chunk-${{ matrix.chunk }}
+          path: chunk_${{ matrix.chunk }}.json
+          retention-days: 3
+          compression-level: 6
+
+  merge:
+    needs: audit
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependency
+        run: pip install requests
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr5m-chunk-*
+          path: chunks
+          merge-multiple: true
+      - name: Merge breadth report
+        run: python formal-tests/full_universe_5m.py --merge chunks --merged-out full_universe_5m.json
+      - name: Upload final report
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-full-universe-5m-report
+          path: |
+            full_universe_5m.json
+            full_universe_5m.csv
+          retention-days: 7
+          compression-level: 6
