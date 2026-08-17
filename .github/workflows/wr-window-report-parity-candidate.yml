@@ -1,0 +1,113 @@
+name: WR Window Report Parity Candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-window-report-parity-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Validate exact canonical report metrics
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys,math
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          def piv(v,left,right,high=True):
+              base=[None]*len(v); ties=0
+              for conf in range(left+right,len(v)):
+                  c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+                  ok=(all(x>=y for y in L) and all(x>y for y in R)) if high else (all(x<=y for y in L) and all(x<y for y in R))
+                  if ok: base[conf]=x
+              return [None]+base[:-1],ties
+          wr.pivots=piv
+          META={'BNBUSDT':(0.01,0.01,1.0),'TRXUSDT':(0.00001,1.0,1.0)}
+          EXPECT={'BNBUSDT':{'trades':11,'total_r':10.620895522387901,'wr':63.63636363636363,'avg_r':0.9655359565807182,'pf':3.7146301586293573,'max_dd':1.9899903501697032,'max_l':2},'TRXUSDT':{'trades':11,'total_r':5.5,'wr':45.45454545454545,'avg_r':0.5,'pf':1.849346834980279,'max_dd':3.9403987512528684,'max_l':4}}
+          sess=requests.Session(); sess.headers['User-Agent']='wr-window-report-parity/1.0'
+          def fetch(sym):
+              bars=[]; d=date(2026,7,27)
+              while d<=date(2026,8,16):
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/5m/{sym}-5m-{ds}.zip',timeout=40); r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5])))
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return [ded[k] for k in sorted(ded)]
+          report_start=1785171600000; report_end=1786813200000
+          def sim(sym,bars):
+              tick,step,pv=META[sym]; wr.SYMBOL=sym; ind,_,_=wr.calc_ind(bars); eq=100000.; pending=active=None; entry_t=None
+              wt=ww=wl=we=0; total_r=gp=gl=0.; weq=wpeak=None; maxdd=0.; curL=maxL=0
+              def ut(p):return int(round(p/tick))
+              def fp(u):return round(u*tick,12)
+              def tp_exec(a):return fp(math.ceil(a.t/tick-1e-10) if a.d==1 else math.floor(a.t/tick+1e-10))
+              def finish(i,reason,px):
+                  nonlocal active,entry_t,eq,wt,ww,wl,we,total_r,gp,gl,weq,wpeak,maxdd,curL,maxL
+                  native=(px-active.e)*(1 if active.d==1 else -1)*active.qty*pv
+                  r=2.3 if reason=='TP' else (-1.0 if reason in ('SL','AMBIG->SL') else native/active.risk)
+                  cash=r*active.risk; eq_before=eq; eq+=cash
+                  eligible=report_start<=active.sig_t<report_end
+                  if eligible:
+                      if wt==0: weq=eq_before; wpeak=eq_before
+                      wt+=1; total_r+=r; weq+=cash
+                      if cash>0: ww+=1;gp+=cash;curL=0
+                      elif cash<0: wl+=1;gl+=-cash;curL+=1;maxL=max(maxL,curL)
+                      else: we+=1;curL=0
+                      wpeak=max(wpeak,weq); maxdd=max(maxdd,100*(wpeak-weq)/wpeak if wpeak>0 else 0)
+                  active=None;entry_t=None
+              for i,x in enumerate(bars):
+                  closed=False
+                  if active is not None:
+                      hs=(ut(x.l)<=ut(active.s) if active.d==1 else ut(x.h)>=ut(active.s));tx=tp_exec(active);ht=(ut(x.h)>=ut(tx) if active.d==1 else ut(x.l)<=ut(tx))
+                      if hs or ht: reason='AMBIG->SL' if hs and ht else ('SL' if hs else 'TP');finish(i,reason,active.s if reason!='TP' else tx);closed=True
+                  if active is None and pending is not None and i==pending.sig_i+1 and not closed:
+                      fill=(ut(x.h)>=ut(pending.e) if pending.d==1 else ut(x.l)<=ut(pending.e))
+                      if fill:
+                          active=pending;pending=None;entry_t=x.ot;hs=(ut(x.l)<=ut(active.s) if active.d==1 else ut(x.h)>=ut(active.s));tx=tp_exec(active);ht=(ut(x.h)>=ut(tx) if active.d==1 else ut(x.l)<=ut(tx))
+                          if hs or ht: reason='AMBIG->SL' if hs and ht else ('SL' if hs else 'TP');finish(i,reason,active.s if reason!='TP' else tx);closed=True
+                  allowed,sexit=wr.session_flags(x.ct,300000)
+                  if active is not None and not closed:
+                      z=ind[i];le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up'];se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+                      if sexit or le or se:finish(i,'SESSION' if sexit else 'EMA',x.c);closed=True
+                  if pending is not None and i>=pending.sig_i+1 and active is None:pending=None
+                  # Execute from full chart range, but no new report-relevant setups are needed after report end.
+                  if x.ct>=report_end:continue
+                  if active is None and pending is None and not closed:
+                      z=ind[i];lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None;sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+                      nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res'];ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+                      if nl or ns:
+                          if nl:d0=1;e=fp(ut(x.h)+1);s=fp(ut(x.l)-1);t=e+2.3*(e-s)
+                          else:d0=-1;e=fp(ut(x.l)-1);s=fp(ut(x.h)+1);t=e-2.3*(s-e)
+                          raw=max(eq,0)*.01/(abs(e-s)*pv);q=math.floor(raw/step+1e-10)*step;risk=abs(e-s)*pv*q
+                          if q>0 and risk>0:pending=wr.Plan(d0,e,s,t,risk,q,i,x.ct,x.h,x.l)
+              return {'trades':wt,'total_r':total_r,'wr':100*ww/wt if wt else None,'avg_r':total_r/wt if wt else None,'pf':gp/gl if gl else None,'max_dd':maxdd,'max_l':maxL,'gp':gp,'gl':gl}
+          allout={};ok=True
+          for sym in EXPECT:
+              got=sim(sym,fetch(sym)); exp=EXPECT[sym]; errs={}
+              for k,v in exp.items():
+                  gv=got[k]
+                  if isinstance(v,int): same=(gv==v)
+                  else: same=abs(gv-v)<1e-9
+                  if not same:errs[k]={'got':gv,'exp':v}
+              passed=not errs;ok &= passed;allout[sym]={'pass':passed,'got':got,'expected':exp,'errors':errs};print('WINDOW_'+sym+'='+json.dumps(allout[sym],separators=(',',':')))
+          print('WINDOW_REPORT_PARITY='+('PASS' if ok else 'FAIL'));Path('/tmp/window_report_parity.json').write_text(json.dumps(allout,indent=2));raise SystemExit(0 if ok else 7)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-window-report-parity-${{ github.run_id }}
+          path: /tmp/window_report_parity.json
+          retention-days: 2
