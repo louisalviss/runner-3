@@ -1,4 +1,4 @@
-  const deepEvidence = await page.evaluate(() => {
+  const deepEvidence = await p.evaluate(() => {
     const els = [...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')];
     const hits = els.map((e, i) => ({
       i,
@@ -18,10 +18,10 @@
   log('TV_DEEP_CONTROL_HITS', String(deepEvidence.hits.length));
 
   const deepCandidates = [
-    page.getByRole('button',{name:/Deep Backtesting/i}).first(),
-    page.locator('[title*="Deep Backtesting" i]').first(),
-    page.locator('[aria-label*="Deep Backtesting" i]').first(),
-    page.getByText(/Deep Backtesting/i,{exact:false}).first()
+    p.getByRole('button',{name:/Deep Backtesting/i}).first(),
+    p.locator('[title*="Deep Backtesting" i]').first(),
+    p.locator('[aria-label*="Deep Backtesting" i]').first(),
+    p.getByText(/Deep Backtesting/i,{exact:false}).first()
   ];
   let deepControl=null;
   for(const c of deepCandidates){
@@ -30,8 +30,8 @@
   log('TV_DEEP_CONTROL_VISIBLE',deepControl?'YES':'NO');
   if(deepControl){
     await deepControl.click({force:true}).catch(()=>{});
-    await page.waitForTimeout(3500);
-    const after=await page.evaluate(()=>({
+    await p.waitForTimeout(3500);
+    const after=await p.evaluate(()=>({
       body:(document.body.innerText||'').slice(0,70000),
       controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')].map(e=>({
         tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,220),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||''
