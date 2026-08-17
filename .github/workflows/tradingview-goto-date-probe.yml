@@ -1,0 +1,52 @@
+name: TradingView Go To Date Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-goto-date-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        run: |
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Probe Go to date dialog
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}}); const p=await c.newPage(); p.setDefaultTimeout(12000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(7000);
+            await p.keyboard.press('Alt+G'); await p.waitForTimeout(1800);
+            const body=await p.locator('body').innerText(); const lines=body.split('\n').map(x=>x.trim()).filter(x=>/go to|date|range|calendar|2026|time/i.test(x)).slice(0,120); for(const x of lines) console.log('GOTO_LINE='+JSON.stringify(x));
+            const inputs=await p.locator('input').evaluateAll(es=>es.map((e,i)=>({i,type:e.type,value:e.value,placeholder:e.placeholder||'',aria:e.getAttribute('aria-label')||'',name:e.name||'',outer:e.outerHTML.slice(0,1500)}))); for(const x of inputs) console.log('GOTO_INPUT='+JSON.stringify(x)); fs.writeFileSync('/tmp/goto-inputs.json',JSON.stringify(inputs,null,2));
+            const controls=await p.locator('button,[role="button"],[role="dialog"],[aria-label],[title]').evaluateAll(es=>es.map((e,i)=>({i,tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,200),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||''})).filter(x=>/go to|date|calendar|jump|submit|apply/i.test(JSON.stringify(x))).slice(0,100)); for(const x of controls) console.log('GOTO_CTRL='+JSON.stringify(x)); fs.writeFileSync('/tmp/goto-controls.json',JSON.stringify(controls,null,2));
+            await p.screenshot({path:'/tmp/goto.png',fullPage:true}); await b.close();
+          })().catch(e=>{console.error('GOTO_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-goto-date-probe-${{ github.run_id }}
+          path: |
+            /tmp/goto-inputs.json
+            /tmp/goto-controls.json
+            /tmp/goto.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
