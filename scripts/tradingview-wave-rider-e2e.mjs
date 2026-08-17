@@ -123,27 +123,42 @@ try {
   fs.writeFileSync('/tmp/wr2513-trades-controls.json',JSON.stringify(controls,null,2));
   log('TV_E2E_TRADES_CONTROLS',controls.length);
 
-  const directDownloads=[
-    page.locator('[title*="Download" i]').first(),
-    page.locator('[aria-label*="Download" i]').first(),
-    page.getByRole('button',{name:/Download|Export|CSV/i}).first(),
-  ];
-  let downloadControl=null;
-  for(const c of directDownloads){
-    if(await c.count()>0 && await c.isVisible().catch(()=>false)){downloadControl=c;break;}
+  const csvControl=page.locator('[title="Download .csv"]').first();
+  const csvVisible=await csvControl.count()>0 && await csvControl.isVisible().catch(()=>false);
+  log('TV_E2E_DOWNLOAD_CONTROL',csvVisible?'PRESENT':'ABSENT');
+  if(csvVisible){
+    const info=await csvControl.evaluate(e=>{
+      const a=e.closest('a');
+      const b=e.closest('button');
+      return {tag:e.tagName,href:a?.getAttribute('href')||'',role:e.getAttribute('role')||'',parentTag:e.parentElement?.tagName||'',buttonTag:b?.tagName||''};
+    }).catch(()=>({}));
+    fs.writeFileSync('/tmp/wr2513-download-control.json',JSON.stringify(info,null,2));
   }
-  log('TV_E2E_DOWNLOAD_CONTROL',downloadControl?'PRESENT':'ABSENT');
 
   let downloaded=false;
-  if(downloadControl){
-    try{
-      const dlPromise=page.waitForEvent('download',{timeout:12000});
-      await downloadControl.click({force:true});
-      const dl=await dlPromise;
-      await dl.saveAs('/tmp/wr2513-trades-export.csv');
+  if(csvVisible){
+    fs.mkdirSync('/tmp/tv-downloads',{recursive:true});
+    const cdp=await context.newCDPSession(page);
+    let willBegin=null;
+    let completed=null;
+    cdp.on('Browser.downloadWillBegin',e=>{willBegin={guid:e.guid,suggestedFilename:e.suggestedFilename,url:String(e.url).slice(0,500)};});
+    cdp.on('Browser.downloadProgress',e=>{if(e.state==='completed') completed={guid:e.guid,receivedBytes:e.receivedBytes,totalBytes:e.totalBytes};});
+    await cdp.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:'/tmp/tv-downloads',eventsEnabled:true});
+    await csvControl.click({force:true});
+    for(let i=0;i<30;i++){
+      await page.waitForTimeout(500);
+      const files=fs.readdirSync('/tmp/tv-downloads');
+      if((completed||files.some(x=>!x.endsWith('.crdownload'))) && files.length) break;
+    }
+    const files=fs.readdirSync('/tmp/tv-downloads');
+    log('TV_E2E_CDP_DOWNLOAD_WILL_BEGIN',willBegin?'YES':'NO');
+    log('TV_E2E_CDP_DOWNLOAD_COMPLETED',completed?'YES':'NO');
+    log('TV_E2E_DOWNLOAD_FILES',files.length);
+    fs.writeFileSync('/tmp/wr2513-download-events.json',JSON.stringify({willBegin,completed,files},null,2));
+    const completedFile=files.find(x=>!x.endsWith('.crdownload'));
+    if(completedFile){
+      fs.copyFileSync('/tmp/tv-downloads/'+completedFile,'/tmp/wr2513-trades-export.csv');
       downloaded=true;
-    }catch(e){
-      log('TV_E2E_DOWNLOAD_ERROR',e.message.slice(0,180));
     }
   }
   log('TV_E2E_CSV_DOWNLOADED',downloaded?'YES':'NO');
