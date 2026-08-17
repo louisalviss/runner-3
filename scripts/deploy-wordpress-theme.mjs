@@ -80,10 +80,19 @@ async function deployZip(wp){
 
   let body=await txt(wp);
   if(/already installed|destination folder already exists|newer than the currently installed|same as the currently installed/i.test(body)){
-    let replace=await firstVisible(wp.locator('a,button,input[type=submit]').filter({hasText:/Replace current with uploaded|Replace current|Overwrite|Update Theme/i}));
-    if(!replace) replace=await firstVisible(wp.locator('a[href*="overwrite"],a[href*="update-theme"],input[name="overwrite"]'));
-    if(!replace) throw new Error('theme_exists_but_visible_replace_control_missing');
-    await replace.click();
+    const overwriteLinks = wp.locator('a.update-from-upload-overwrite,a[href*="overwrite"],a[href*="update-theme"]');
+    let href = null;
+    for(let i=0;i<await overwriteLinks.count();i++){
+      href = await overwriteLinks.nth(i).getAttribute('href').catch(()=>null);
+      if(href) break;
+    }
+    if(href){
+      await wp.goto(new URL(href, `${base}/wp-admin/`).href,{waitUntil:'domcontentloaded',timeout:60000});
+    } else {
+      const replace=await firstVisible(wp.locator('button,input[type=submit]').filter({hasText:/Replace installed with uploaded|Replace current with uploaded|Replace current|Overwrite|Update Theme/i}));
+      if(!replace) throw new Error('theme_exists_but_replace_target_missing');
+      await replace.click();
+    }
     safe.replacedExisting=true; save();
     await wp.waitForTimeout(4500);
     body=await txt(wp);
