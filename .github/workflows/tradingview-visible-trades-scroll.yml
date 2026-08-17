@@ -1,0 +1,71 @@
+name: TradingView Visible Trades Scroll
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-visible-trades-scroll.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Scroll virtual trade list
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']}); const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(9000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(3000); const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),source); await p.keyboard.press('Control+V'); await p.waitForTimeout(2000); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(25000);
+            const trades=p.locator('[title="Trades"]').first(); await trades.evaluate(e=>(e.closest('button')||e).click()); await p.waitForTimeout(4000);
+            const sc=await p.evaluateHandle(()=>{
+              const all=[...document.querySelectorAll('*')];
+              const leaf=all.find(e=>{const t=(e.textContent||'').replace(/\s+/g,'').trim(); return (t==='15long'||t==='15') && e.children.length<8;});
+              let e=leaf; const chain=[];
+              while(e){chain.push({tag:e.tagName,cls:e.className||'',sh:e.scrollHeight,ch:e.clientHeight,sw:e.scrollWidth,cw:e.clientWidth,text:(e.innerText||'').slice(0,80)}); if(e.scrollHeight>e.clientHeight+80) return e; e=e.parentElement;}
+              return null;
+            });
+            const scEl=sc.asElement();
+            console.log('TV_SCROLL_CONTAINER='+(scEl?'FOUND':'NOT_FOUND'));
+            const snaps=[];
+            async function snap(label){const body=await p.locator('body').innerText(); const lines=body.split('\n').map(s=>s.trim()).filter(Boolean); const i=lines.findIndex(x=>x==='List of trades'); const seg=i>=0?lines.slice(i,i+260):[]; snaps.push({label,seg}); console.log('TV_SNAP_'+label+'='+JSON.stringify(seg.slice(0,40)));}
+            await snap('TOP');
+            if(scEl){
+              const dims=await scEl.evaluate(e=>({sh:e.scrollHeight,ch:e.clientHeight,top:e.scrollTop,cls:e.className||''})); console.log('TV_SCROLL_DIMS='+JSON.stringify(dims));
+              for(const frac of [0.35,0.7,1]){await scEl.evaluate((e,f)=>{e.scrollTop=(e.scrollHeight-e.clientHeight)*f},frac); await p.waitForTimeout(1800); await snap(String(frac).replace('.','_'));}
+            } else {
+              for(let k=0;k<5;k++){await p.mouse.move(500,900); await p.mouse.wheel(0,900); await p.waitForTimeout(1200); await snap('W'+k);}
+            }
+            fs.writeFileSync('/tmp/trade-snaps.json',JSON.stringify(snaps,null,2)); await p.screenshot({path:'/tmp/trades-bottom.png',fullPage:true}); await b.close();
+          })().catch(e=>{console.error('TV_SCROLL_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-visible-trades-scroll-${{ github.run_id }}
+          path: |
+            /tmp/trade-snaps.json
+            /tmp/trades-bottom.png
+          retention-days: 1
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
