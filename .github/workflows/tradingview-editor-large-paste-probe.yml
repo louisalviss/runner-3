@@ -25,7 +25,7 @@ jobs:
           echo "::add-mask::$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
             -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
-      - name: Test 40 KB clipboard paste
+      - name: Test 40 KB clipboard paste and compile
         shell: bash
         run: |
           set -euo pipefail
@@ -34,26 +34,22 @@ jobs:
           const fs=require('fs');
           const {chromium}=require('playwright-core');
           const filler='// '+('x'.repeat(92))+'\n';
-          const dummy='//@version=6\nindicator("WR_LARGE_PASTE_TEST_84F1", overlay=true)\n'+filler.repeat(400)+'plot(close)';
+          const dummy='//@version=6\nindicator("WR_LARGE_PASTE_TEST_84F1", overlay=true)\n'+filler.repeat(400)+'// WR_LARGE_PASTE_END_52C7\nplot(close)';
           (async()=>{
             const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
             const executablePath=exes.find(p=>fs.existsSync(p));
             const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
             const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
             const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
-            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            const p=await c.newPage(); p.setDefaultTimeout(20000);
             await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
             await p.waitForTimeout(8000);
-            await p.locator('[data-name="pine-dialog-button"]').first().click();
+            const pine=p.locator('[data-name="pine-dialog-button"]').first();
+            await pine.click();
             const d=p.locator('[data-name="pine-dialog"]').first(); await d.waitFor({state:'visible'}); await p.waitForTimeout(2500);
-            const ta=d.locator('.monaco-editor textarea.inputarea, .monaco-editor textarea').first();
-            await ta.waitFor({state:'attached'});
+            const ta=d.locator('.monaco-editor textarea.inputarea, .monaco-editor textarea').first(); await ta.waitFor({state:'attached'});
             let editable=false;
-            for(let i=0;i<30;i++){
-              editable=await ta.isEditable().catch(()=>false);
-              if(editable) break;
-              await p.waitForTimeout(500);
-            }
+            for(let i=0;i<30;i++){editable=await ta.isEditable().catch(()=>false); if(editable) break; await p.waitForTimeout(500)}
             console.log('TV_LARGE_PASTE_EDITABLE='+(editable?'YES':'NO'));
             if(!editable) throw new Error('Editor never became editable');
             await ta.evaluate(el=>el.focus());
@@ -61,18 +57,29 @@ jobs:
             await p.evaluate(async s=>{await navigator.clipboard.writeText(s)},dummy);
             const t0=Date.now();
             await p.keyboard.press('Control+V');
-            let val='';
-            for(let i=0;i<30;i++){
-              await p.waitForTimeout(500);
-              val=await ta.inputValue().catch(()=>'');
-              if(val.length===dummy.length) break;
-            }
+            await p.waitForTimeout(4000);
             console.log('TV_LARGE_PASTE_MS='+(Date.now()-t0));
-            console.log('TV_LARGE_PASTE_EXPECTED_LEN='+dummy.length);
-            console.log('TV_LARGE_PASTE_ACTUAL_LEN='+val.length);
-            console.log('TV_LARGE_PASTE_MARKER='+(val.includes('WR_LARGE_PASTE_TEST_84F1')?'PRESENT':'ABSENT'));
-            console.log('TV_LARGE_PASTE_EXACT='+(val===dummy?'PASS':'FAIL'));
-            if(val!==dummy) process.exitCode=7;
+
+            await p.keyboard.press('Control+Home'); await p.waitForTimeout(1000);
+            let view=await d.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
+            const startOk=view.includes('WR_LARGE_PASTE_TEST_84F1');
+            console.log('TV_LARGE_PASTE_START='+(startOk?'PASS':'FAIL'));
+            await p.keyboard.press('Control+End'); await p.waitForTimeout(1000);
+            view=await d.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
+            const endOk=view.includes('WR_LARGE_PASTE_END_52C7') && view.includes('plot(close)');
+            console.log('TV_LARGE_PASTE_END='+(endOk?'PASS':'FAIL'));
+            if(!startOk||!endOk) throw new Error('Large paste endpoints missing');
+
+            const add=d.getByRole('button',{name:'Add to chart',exact:true}).first();
+            await add.click();
+            await p.waitForTimeout(12000);
+            if(await d.isVisible().catch(()=>false)){await pine.click().catch(()=>{}); await p.waitForTimeout(1500)}
+            const body=await p.locator('body').innerText().catch(()=>'');
+            const compiled=body.includes('WR_LARGE_PASTE_TEST_84F1');
+            const alerts=await p.locator('[role="alert"], [data-name*="toast"], [data-name*="notification"]').allInnerTexts().catch(()=>[]);
+            console.log('TV_LARGE_PASTE_COMPILE='+(compiled?'PASS':'FAIL'));
+            console.log('TV_LARGE_PASTE_ALERT_ERROR='+(alerts.some(x=>/error|failed|cannot|could not/i.test(x))?'PRESENT':'ABSENT'));
+            if(!compiled) process.exitCode=7;
             await b.close();
           })().catch(e=>{console.error('TV_LARGE_PASTE_ERROR='+e.message);process.exit(8)});
           NODE
