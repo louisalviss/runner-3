@@ -1,0 +1,24 @@
+name: Upload X video evidence artifact
+
+on:
+  push:
+    paths:
+      - '.github/workflows/x-video-upload-artifact-2088879679726059629.yml'
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload extracted X video evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-video-2088879679726059629-evidence
+          path: |
+            artifacts/x-2088879679726059629/contact.jpg
+            artifacts/x-2088879679726059629/frame_*.jpg
+            artifacts/x-2088879679726059629/ffprobe.json
+            artifacts/x-2088879679726059629/video.description
+            artifacts/x-2088879679726059629/video.info.json
+          if-no-files-found: error
+          retention-days: 1
