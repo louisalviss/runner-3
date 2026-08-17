@@ -22,12 +22,12 @@ open_fn=r'''def open_drawer(frame):
           ('tap',lambda:e.tap(force=True,timeout=5000)),
           ('dom-click',lambda:e.evaluate('e=>e.click()')),
           ('pointer',lambda:(e.dispatch_event('pointerdown',{'pointerType':'touch','isPrimary':True}),e.dispatch_event('pointerup',{'pointerType':'touch','isPrimary':True}),e.dispatch_event('click'))),
-          ('react',lambda:e.evaluate(r'''e=>{for(let n=e;n;n=n.parentElement){let k=Object.keys(n).find(x=>x.startsWith('__reactProps$'));if(!k)continue;let p=n[k]||{};for(let z of ['onClick','onTouchEnd','onPointerUp'])if(typeof p[z]=='function'){p[z]({currentTarget:n,target:e,preventDefault(){},stopPropagation(){},nativeEvent:{}});return z}}return null}''')),
+          ('react',lambda:e.evaluate("e=>{for(let n=e;n;n=n.parentElement){let k=Object.keys(n).find(x=>x.startsWith('__reactProps$'));if(!k)continue;let p=n[k]||{};for(let z of ['onClick','onTouchEnd','onPointerUp'])if(typeof p[z]=='function'){p[z]({currentTarget:n,target:e,preventDefault(){},stopPropagation(){},nativeEvent:{}});return z}}return null}")),
           ('body-tap',lambda:frame.locator('body').tap(position={'x':box['x']+box['w']/2,'y':box['y']+box['h']/2},force=True,timeout=5000)),
         ]
         for name,fn in actions:
             try:
-                r=fn();
+                r=fn()
                 if name=='react':res['drawer_react_handler']=r
                 if check(name):break
             except Exception as ex:attempts.append({'strategy':name,'error':type(ex).__name__})
@@ -53,12 +53,12 @@ sports_fn=r'''def click_drawer_sports(frame):
           ('text-tap',lambda:e.locator('.live-switch__text').first.tap(force=True,timeout=5000)),
           ('dom-click',lambda:e.evaluate('e=>e.click()')),
           ('pointer',lambda:(e.dispatch_event('pointerdown',{'pointerType':'touch','isPrimary':True}),e.dispatch_event('pointerup',{'pointerType':'touch','isPrimary':True}),e.dispatch_event('click'))),
-          ('react',lambda:e.evaluate(r'''e=>{for(let n=e;n;n=n.parentElement){let k=Object.keys(n).find(x=>x.startsWith('__reactProps$'));if(!k)continue;let p=n[k]||{};for(let z of ['onClick','onTouchEnd','onPointerUp'])if(typeof p[z]=='function'){p[z]({currentTarget:n,target:e,preventDefault(){},stopPropagation(){},nativeEvent:{}});return z}}return null}''')),
+          ('react',lambda:e.evaluate("e=>{for(let n=e;n;n=n.parentElement){let k=Object.keys(n).find(x=>x.startsWith('__reactProps$'));if(!k)continue;let p=n[k]||{};for(let z of ['onClick','onTouchEnd','onPointerUp'])if(typeof p[z]=='function'){p[z]({currentTarget:n,target:e,preventDefault(){},stopPropagation(){},nativeEvent:{}});return z}}return null}")),
           ('body-tap',lambda:frame.locator('body').tap(position={'x':box['x']+box['w']/2,'y':box['y']+box['h']/2},force=True,timeout=5000)),
         ]
         for name,fn in actions:
             try:
-                r=fn();
+                r=fn()
                 if name=='react':res['drawer_sports_react_handler']=r
                 if check(name):res['drawer_sports_clicked']=True;break
             except Exception as ex:attempts.append({'strategy':name,'error':type(ex).__name__})
