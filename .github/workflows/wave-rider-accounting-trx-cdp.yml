@@ -31,7 +31,11 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
           test "$(sha256sum /tmp/wr2513-base.pine | awk '{print $1}')" = "$BASE_SHA256"
       - name: Build fresh report-only accounting probe
-        run: python3 scripts/build_wr_accounting_probe.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/build_wr_accounting_probe.py
+          printf '\nplotchar(false, title="PARITY_NONCE_%s")\n' "$GITHUB_RUN_ID" >> /tmp/wr2513-accounting-probe.pine
       - name: Capture exact TRX accounting via CDP
         shell: bash
         run: |
