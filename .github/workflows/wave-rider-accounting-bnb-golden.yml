@@ -1,0 +1,43 @@
+name: Wave Rider BNB Accounting Golden
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-accounting-bnb-golden.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-bnb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      REPORT_START_MS: '1785110400000'
+      REPORT_END_MS: '1786924800000'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use persisted exact TradingView accounting golden
+        run: cp wave-rider-verify/golden/tv_accounting_BNBUSDT_2026-07-27_2026-08-16.txt /tmp/tv-accounting-BNBUSDT.txt
+      - name: Compare BNB full accounting
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json, sys
+          spec=importlib.util.spec_from_file_location('cmp','wave-rider-verify/accounting_parity_compare.py')
+          m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
+          r=m.compare_symbol('BNBUSDT')
+          print(json.dumps(r,indent=2,ensure_ascii=False))
+          open('/tmp/bnb-accounting-result.json','w').write(json.dumps(r,indent=2,ensure_ascii=False)+'\n')
+          raise SystemExit(0 if r['exact'] else 9)
+          PY
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bnb-accounting-golden-${{ github.run_id }}
+          path: /tmp/bnb-accounting-result.json
+          if-no-files-found: warn
+          retention-days: 3
