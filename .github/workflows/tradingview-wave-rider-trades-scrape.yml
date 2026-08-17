@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/tradingview-wave-rider-trades-scrape.yml'
+      - 'scripts/tradingview-trades-scrape-snippet.js.txt'
   workflow_dispatch:
 
 permissions:
@@ -38,46 +39,11 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('scripts/tradingview-wave-rider-e2e.mjs')
-          s=p.read_text()
+          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
           marker="  const csv=p.locator('[title=\"Download .csv\"]').first();"
           if marker not in s:
               raise SystemExit('patch marker missing')
-          insert=r'''
-  // Extract only Strategy Report subtree, never the Pine editor/source.
-  const scrape=await p.evaluate(async()=>{
-    const csvBtn=document.querySelector('button[title="Download .csv"]');
-    if(!csvBtn) return {error:'csv button missing'};
-    let panel=csvBtn.parentElement;
-    while(panel && panel!==document.body){
-      const t=(panel.innerText||'');
-      if(t.includes('List of trades') && t.includes('Trade number') && t.includes('Date and time')) break;
-      panel=panel.parentElement;
-    }
-    if(!panel || panel===document.body) return {error:'report panel ancestor missing'};
-    const panelInfo={tag:panel.tagName,cls:String(panel.className||'').slice(0,300),textLen:(panel.innerText||'').length};
-    const scrollables=[...panel.querySelectorAll('*')].filter(e=>{
-      const cs=getComputedStyle(e); return e.scrollHeight>e.clientHeight+10 && ['auto','scroll'].includes(cs.overflowY);
-    }).map((e,i)=>({e,i,sh:e.scrollHeight,ch:e.clientHeight,sw:e.scrollWidth,cw:e.clientWidth,cls:String(e.className||'').slice(0,240),text:(e.innerText||'').slice(0,240)}));
-    scrollables.sort((a,b)=>(b.sh-b.ch)-(a.sh-a.ch));
-    const sc=scrollables[0]?.e || panel;
-    const meta=scrollables.slice(0,12).map(({i,sh,ch,sw,cw,cls,text})=>({i,sh,ch,sw,cw,cls,text}));
-    const snaps=[];
-    const max=Math.max(0,sc.scrollHeight-sc.clientHeight);
-    const steps=20;
-    for(let i=0;i<=steps;i++){
-      sc.scrollTop=Math.round(max*i/steps);
-      sc.dispatchEvent(new Event('scroll',{bubbles:true}));
-      await new Promise(r=>setTimeout(r,180));
-      snaps.push({i,top:sc.scrollTop,text:panel.innerText||''});
-    }
-    return {panelInfo,scrollables:meta,maxScroll:max,snaps};
-  });
-  fs.writeFileSync('/tmp/wr2513-trades-scroll.json',JSON.stringify(scrape,null,2));
-  log('TV_E2E_SCRAPE_ERROR',scrape.error||'ABSENT');
-  log('TV_E2E_SCRAPE_MAX_SCROLL',String(scrape.maxScroll??-1));
-  log('TV_E2E_SCRAPE_SNAPSHOTS',String(scrape.snaps?.length||0));
-'''
+          insert=Path('scripts/tradingview-trades-scrape-snippet.js.txt').read_text()
           s=s.replace(marker,insert+'\n'+marker,1)
           Path('/tmp/e2e-scrape.mjs').write_text(s)
           PY
@@ -94,17 +60,15 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import json,re,csv,os
+          import json,re,os
           p='/tmp/wr2513-trades-scroll.json'
           if not os.path.exists(p):
               print('TV_TRADE_PARSE=NO_SNAPSHOT')
               raise SystemExit(0)
           d=json.load(open(p))
-          texts=[x.get('text','') for x in d.get('snaps',[])]
-          # Keep compact report-only evidence; lines are UI values, never Pine source.
           seen=[]
-          for t in texts:
-              for line in [x.strip() for x in t.splitlines() if x.strip()]:
+          for snap in d.get('snaps',[]):
+              for line in [x.strip() for x in snap.get('text','').splitlines() if x.strip()]:
                   if line not in seen: seen.append(line)
           open('/tmp/wr2513-trades-unique-lines.txt','w').write('\n'.join(seen)+'\n')
           nums=sorted({int(m.group(1)) for line in seen for m in [re.match(r'^(\d+)\s*(?:long|short)$',line,re.I)] if m},reverse=True)
@@ -113,7 +77,6 @@ jobs:
           print('TV_TRADE_HAS_1='+('YES' if 1 in nums else 'NO'))
           print('TV_TRADE_HAS_15='+('YES' if 15 in nums else 'NO'))
           print('TV_TRADE_SCROLL_MAX='+str(d.get('maxScroll',-1)))
-          print('TV_TRADE_SCROLLABLES='+str(len(d.get('scrollables',[]))))
           json.dump({'trade_numbers':nums,'unique_lines':seen,'panel':d.get('panelInfo'),'scrollables':d.get('scrollables'),'maxScroll':d.get('maxScroll')},open('/tmp/wr2513-trades-scrape-summary.json','w'),indent=2)
           PY
 
