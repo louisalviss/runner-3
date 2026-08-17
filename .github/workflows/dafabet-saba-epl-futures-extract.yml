@@ -1,0 +1,228 @@
+name: SABA EPL Futures Extract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dafabet-saba-epl-futures-extract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl python3-venv
+          python3 -m venv /tmp/pwvenv
+          /tmp/pwvenv/bin/pip install -q playwright
+          mkdir -p evidence /tmp/dafa-relays
+
+      - name: Build JP-first VPN relay pool
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64,csv,io,pathlib
+          pref=['JP','KR','TW','SG','TH','MY','PH','ID']
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          picked=[]
+          for c in pref:
+              rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+              rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
+              picked.extend((c,r) for r in rs[:2])
+          if not picked: raise SystemExit('No relay')
+          meta=[]
+          for i,(c,r) in enumerate(picked):
+              cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+              cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+              p=pathlib.Path(f'/tmp/dafa-relays/{i:02d}-{c}.ovpn'); p.write_text(cfg)
+              meta.append(f'{p}\t{c}\t{r.get("IP","")}')
+          pathlib.Path('/tmp/dafa-relays.tsv').write_text('\n'.join(meta)+'\n')
+          print('RELAYS='+str(len(meta)))
+          PY
+
+      - name: Create isolated namespace and connect public OW-compatible relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn
+          sudo ip link set vn netns vpnns
+          sudo ip addr add 10.238.0.1/24 dev vh
+          sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.238.0.2/24 dev vn
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.238.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.238.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+
+          selected=0
+          while IFS=$'\t' read -r cfg country relay; do
+            echo "TRY $country $relay"
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+            sleep 1
+            sudo rm -f /tmp/openvpn.log
+            sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
+            ok=0
+            for i in {1..12}; do
+              sleep 1
+              grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null && { ok=1; break; }
+              grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Connection refused|fatal error' /tmp/openvpn.log 2>/dev/null && break || true
+            done
+            [ "$ok" = 1 ] || continue
+            trace=$(sudo ip netns exec vpnns curl -fsS --max-time 12 'https://www.cloudflare.com/cdn-cgi/trace' 2>/dev/null | grep -E '^(ip|loc|warp)=' || true)
+            echo "$trace"
+            if sudo ip netns exec vpnns env HOME=/home/runner USER=runner /tmp/pwvenv/bin/python - <<'PY' >/tmp/region.json
+          import json,re
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox']); c=b.new_context(locale='en-US'); pg=c.new_page()
+              try:
+                  r=pg.goto('https://www.dafabet.com/en/sports',wait_until='domcontentloaded',timeout=40000); pg.wait_for_timeout(6000); t=pg.locator('body').inner_text(timeout=8000)
+                  d={'http':r.status if r else None,'restricted':bool(re.search(r'COUNTRY RESTRICTION|restricted country',t,re.I)),'challenge':bool(re.search(r'captcha|verify you are human|access denied|just a moment',t,re.I))}
+              except Exception as e: d={'error':type(e).__name__}
+              b.close()
+          print(json.dumps(d)); raise SystemExit(0 if d.get('http')==200 and not d.get('restricted') and not d.get('challenge') else 3)
+          PY
+            then
+              echo "$trace" > evidence/egress.txt
+              echo "$country" > evidence/selected-country.txt
+              selected=1; break
+            fi
+          done < /tmp/dafa-relays.tsv
+          test "$selected" = 1
+
+      - name: Extract four EPL season markets
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip netns exec vpnns env HOME=/home/runner USER=runner /tmp/pwvenv/bin/python - <<'PY'
+          import json,re,pathlib,time
+          from playwright.sync_api import sync_playwright
+          OUT=pathlib.Path('evidence')
+          targets={
+            'winner':r'^\s*\*?ENGLISH PREMIER LEAGUE 2026/2027 - WINNER\s*$',
+            'top4':r'^\s*\*?ENGLISH PREMIER LEAGUE 2026/2027 - TOP 4 FINISH\s*$',
+            'relegation':r'^\s*\*?ENGLISH PREMIER LEAGUE 2026/2027 - TO BE RELEGATED\s*$',
+            'goalscorer':r'^\s*\*?ENGLISH PREMIER LEAGUE 2026/2027 - TOP GOALSCORER\s*$',
+          }
+          result={'markets':{}}; network=[]; responses=[]; phase='boot'
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox'])
+              c=b.new_context(locale='en-US',viewport={'width':1500,'height':1200})
+              def rq(r):
+                  if r.resource_type in ('document','xhr','fetch'):
+                      network.append({'phase':phase,'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:5000]})
+              def rs(r):
+                  if r.request.resource_type not in ('document','xhr','fetch'): return
+                  network.append({'phase':phase,'kind':'response','status':r.status,'type':r.request.resource_type,'url':r.url})
+                  try:
+                      ct=(r.headers.get('content-type') or '').lower()
+                      if ('json' in ct or 'text' in ct or 'html' in ct) and 'lc694akr.com' in r.url:
+                          t=r.text()
+                          if len(t)<3500000:
+                              responses.append({'phase':phase,'url':r.url,'status':r.status,'content_type':ct,'body':t[:300000]})
+                  except: pass
+              c.on('request',rq); c.on('response',rs)
+              pg=c.new_page(); phase='open'
+              pg.goto('https://www.dafabet.com/en/sports',wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(7500)
+              sf=next((f for f in pg.frames if f.name=='sportsFrame'),None)
+              if not sf: raise RuntimeError('sportsFrame missing')
+              ol=sf.get_by_text(re.compile(r'^\s*Outright\s*$',re.I))
+              clicked=False
+              for i in range(min(ol.count(),30)):
+                  try:
+                      if ol.nth(i).is_visible(): ol.nth(i).click(timeout=6000); clicked=True; break
+                  except: pass
+              if not clicked: raise RuntimeError('Outright control missing')
+              pg.wait_for_timeout(6500)
+              sf=next((f for f in pg.frames if f.name=='sportsFrame'),None)
+              if not sf or '/OR' not in sf.url: raise RuntimeError('Outright page not opened')
+              or_url=sf.url
+              result['outright_url_shape']=re.sub(r'\(S\([^)]*\)\)','(S(<SESSION>))',or_url)
+
+              for name,pat in targets.items():
+                  phase=name
+                  sf=next((f for f in pg.frames if f.name=='sportsFrame'),None)
+                  if not sf: raise RuntimeError('sportsFrame lost')
+                  if '/OR' not in sf.url or name!='winner':
+                      sf.goto(or_url,wait_until='domcontentloaded',timeout=35000); pg.wait_for_timeout(2500)
+                  loc=sf.get_by_text(re.compile(pat,re.I))
+                  chosen=None
+                  for i in range(min(loc.count(),80)):
+                      try:
+                          if loc.nth(i).is_visible(): chosen=loc.nth(i); break
+                      except: pass
+                  rec={'found':bool(chosen),'before_url':sf.url}
+                  if not chosen:
+                      result['markets'][name]=rec; continue
+                  try:
+                      rec['control']={'tag':chosen.evaluate('x=>x.tagName'),'text':(chosen.inner_text() or '')[:300],'html':chosen.evaluate('x=>x.outerHTML')[:5000]}
+                  except: pass
+                  try:
+                      chosen.click(timeout=6000); pg.wait_for_timeout(5500)
+                      rec['clicked']=True; rec['after_url']=sf.url
+                  except Exception as e:
+                      rec['clicked']=False; rec['error']=type(e).__name__+': '+str(e)[:300]
+                  try:
+                      text=sf.locator('body').inner_text(timeout=8000)
+                  except: text=''
+                  rec['body']=text[:50000]
+                  # Capture text/HTML around visible numeric price candidates to aid structural parsing.
+                  try:
+                      candidates=[]
+                      els=sf.locator('a,button,span,div,td,li')
+                      for i in range(min(els.count(),3500)):
+                          e=els.nth(i)
+                          try:
+                              if not e.is_visible(): continue
+                              tx=(e.inner_text() or '').strip()
+                              if re.fullmatch(r'[-+]?\d+(?:\.\d{1,3})?',tx):
+                                  parent=e.evaluate("x=>(x.closest('tr')||x.parentElement||x).innerText")
+                                  if parent and len(parent)<1000: candidates.append(parent.strip())
+                          except: pass
+                      # preserve order, unique
+                      seen=[]
+                      for x in candidates:
+                          if x not in seen: seen.append(x)
+                      rec['numeric_rows']=seen[:300]
+                  except Exception as e: rec['numeric_scan_error']=type(e).__name__
+                  result['markets'][name]=rec
+                  sf.screenshot(path=str(OUT/f'{name}.png'))
+
+              b.close()
+
+          OUT.joinpath('epl-futures.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          OUT.joinpath('epl-network.json').write_text(json.dumps(network,ensure_ascii=False,indent=2))
+          # Save only responses associated with public browsing; no cookies/headers are stored.
+          OUT.joinpath('epl-responses.json').write_text(json.dumps(responses,ensure_ascii=False,indent=2))
+          print('SUMMARY')
+          for k,v in result['markets'].items():
+              print('\n###',k,'found=',v.get('found'),'clicked=',v.get('clicked'),'url=',v.get('after_url'))
+              print(v.get('body','')[:25000])
+              print('NUMERIC_ROWS',json.dumps(v.get('numeric_rows',[])[:120],ensure_ascii=False))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: saba-epl-futures-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
