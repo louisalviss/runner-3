@@ -1,4 +1,4 @@
-name: Wave Rider v2.5.13 Parity Pack
+name: Wave Rider v2.5.13 Exact Parity Investigation
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
     paths:
       - wave-rider-verify/reference_verify_v2513_exact.py
       - formal-tests/wr_v2513_parity_pack.py
+      - wave-rider-verify/tv_trade_diff.py
       - .github/workflows/wr-v2513-parity-pack.yml
 
 permissions:
@@ -17,24 +18,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        symbol: [BNBUSDT, TRXUSDT, BATUSDT, ADAUSDT, NEARUSDT, ZECUSDT, SOLUSDT]
+        symbol: [BNBUSDT, TRXUSDT]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install requests
-      - name: Static check
+      - name: Static check exact parity lineage
         run: python -m py_compile wave-rider-verify/reference_verify.py wave-rider-verify/reference_verify_v2513_exact.py formal-tests/wr_v2513_parity_pack.py
-      - name: Run exact parity sample
+      - name: Export exact Python trade sequence
         run: python formal-tests/wr_v2513_parity_pack.py --symbol ${{ matrix.symbol }} --outdir parity_out
       - uses: actions/upload-artifact@v4
         with:
-          name: wr2513-parity-${{ matrix.symbol }}
+          name: wr2513-exact-${{ matrix.symbol }}
           path: parity_out/*
-          retention-days: 7
+          retention-days: 30
 
   merge:
     needs: verify
@@ -48,15 +49,15 @@ jobs:
       - run: pip install requests
       - uses: actions/download-artifact@v4
         with:
-          pattern: wr2513-parity-*
+          pattern: wr2513-exact-*
           path: parity_all
           merge-multiple: true
-      - name: Merge parity report
-        run: python formal-tests/wr_v2513_parity_pack.py --merge parity_all --merged-out wr_v2513_parity_pack.json
+      - name: Merge exact-reference report
+        run: python formal-tests/wr_v2513_parity_pack.py --merge parity_all --merged-out wr_v2513_exact_parity_investigation.json
       - uses: actions/upload-artifact@v4
         with:
-          name: wr-v2513-parity-pack
+          name: wr-v2513-exact-parity-investigation
           path: |
-            wr_v2513_parity_pack.json
-            wr_v2513_parity_pack.csv
-          retention-days: 7
+            wr_v2513_exact_parity_investigation.json
+            wr_v2513_exact_parity_investigation.csv
+          retention-days: 30
