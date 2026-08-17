@@ -1,0 +1,35 @@
+name: Wave Rider Forward Count
+
+on:
+  schedule:
+    # 21:20 Asia/Ho_Chi_Minh (UTC+7)
+    - cron: '20 14 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'formal-tests/wave_rider_forward_count.py'
+      - '.github/workflows/wave-rider-forward-count.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave-rider-forward-count
+  cancel-in-progress: false
+
+jobs:
+  count-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime dependency
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Count frozen forward trades only
+        run: python formal-tests/wave_rider_forward_count.py
