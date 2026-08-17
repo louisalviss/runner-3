@@ -1,4 +1,4 @@
-name: M88 SABA Outright V6
+name: M88 SABA Outright V7
 on:
   workflow_dispatch:
   push:
@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/m88-saba-outright-v6.yml'
       - 'scripts/m88_saba_outright_v6.py'
+      - 'scripts/m88_saba_outright_v7.py'
 permissions:
   contents: read
 jobs:
@@ -92,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner WORKSPACE="$GITHUB_WORKSPACE" python3 scripts/m88_saba_outright_v6.py
+          sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner WORKSPACE="$GITHUB_WORKSPACE" python3 scripts/m88_saba_outright_v7.py
       - name: Verify navigation
         shell: bash
         run: |
@@ -101,7 +102,8 @@ jobs:
           d=json.load(open('evidence/result.json'))
           print('PROVIDER',d.get('provider'))
           print('DRAWER',d.get('drawer_x_before'),'->',d.get('drawer_x_after'),d.get('drawer_open_point'))
-          print('SPORTS',d.get('drawer_sports_clicked'),'MORE',d.get('more_clicked'))
+          print('SPORTS',d.get('drawer_sports_clicked'),d.get('drawer_sports_strategy'),d.get('drawer_switch_after'))
+          print('MORE',d.get('more_clicked'))
           print('OUTRIGHT',d.get('outright_clicked'),d.get('outright_label'))
           print('NOTES',d.get('notes'))
           for k,v in d.get('markets',{}).items():
@@ -109,11 +111,12 @@ jobs:
               print(v.get('window','')[:30000])
           if not d.get('provider'): raise SystemExit('SABA provider missing')
           if not (d.get('drawer_x_after') is not None and d.get('drawer_x_after') > -80): raise SystemExit('SABA drawer did not open')
+          if not d.get('drawer_sports_clicked'): raise SystemExit('Sports mode did not activate')
           if not d.get('outright_clicked'): raise SystemExit('Outright did not open')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: m88-saba-outright-v6-${{ github.run_id }}
+          name: m88-saba-outright-v7-${{ github.run_id }}
           path: evidence/
           retention-days: 3
