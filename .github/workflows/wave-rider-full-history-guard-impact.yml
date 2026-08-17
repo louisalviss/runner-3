@@ -1,0 +1,93 @@
+name: Wave Rider Full-History Guard Impact
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wave-rider-full-history-guard-impact.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scan:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2025-01-01
+      WR_END: 2026-08-16
+      WR_DATA_START: 2025-01-01
+      WR_DATA_END: 2026-08-16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download monthly Binance Vision history once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import io,os,requests,zipfile,csv,json,pickle
+          sym=os.environ['WR_SYMBOL']; sess=requests.Session(); sess.headers['User-Agent']='runner-3-wr-full-impact/1.0'
+          months=[]; y,m=2025,1
+          while (y,m)<=(2026,7):
+              months.append((y,m)); m+=1
+              if m==13:y+=1;m=1
+          rows=[]; missing=[]
+          def add_zip(url,label):
+              r=sess.get(url,timeout=90)
+              if r.status_code==404: missing.append(label); return
+              r.raise_for_status()
+              with zipfile.ZipFile(io.BytesIO(r.content)) as z:text=z.read(z.namelist()[0]).decode()
+              for x in csv.reader(io.StringIO(text)):
+                  if not x or not x[0].isdigit():continue
+                  ot=int(x[0]);ct=int(x[6])
+                  if ot>10**14:ot//=1000
+                  if ct>10**14:ct//=1000
+                  rows.append((ot,ct,*map(float,x[1:5])))
+          for y,m in months:
+              ym=f'{y:04d}-{m:02d}'; add_zip(f'https://data.binance.vision/data/futures/um/monthly/klines/{sym}/1m/{sym}-1m-{ym}.zip',ym)
+          for d in range(1,17):
+              ds=f'2026-08-{d:02d}'; add_zip(f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/1m/{sym}-1m-{ds}.zip',ds)
+          ded={x[0]:x for x in rows}; out=[ded[k] for k in sorted(ded)]
+          pickle.dump(out,open('/tmp/rows.pkl','wb'),protocol=5)
+          meta={'symbol':sym,'rows':len(out),'missing':missing,'first':out[0][0] if out else None,'last':out[-1][0] if out else None}
+          open('/tmp/meta.json','w').write(json.dumps(meta,indent=2)+'\n'); print(json.dumps(meta,indent=2))
+          if missing:raise SystemExit('missing '+','.join(missing))
+          PY
+      - name: Compare guard impact on identical 5m bars
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util,sys,os,pickle,json
+          from datetime import datetime,timezone
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py');m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m);r=m.ref
+          one=[r.Bar(*x) for x in pickle.load(open('/tmp/rows.pkl','rb'))];bars=r.agg(one,5);tick=.01 if os.environ['WR_SYMBOL']=='BNBUSDT' else .00001
+          st=int(datetime(2025,1,1,tzinfo=timezone.utc).timestamp()*1000);en=int(datetime(2026,8,17,tzinfo=timezone.utc).timestamp()*1000)-1
+          def run(news,session):
+              on=m.NEWS_FILTER;osg=r.SESSION_GUARD;m.NEWS_FILTER=news;r.SESSION_GUARD=session
+              try:tr,sm=r.run(5,bars,tick,st,en)
+              finally:m.NEWS_FILTER=on;r.SESSION_GUARD=osg
+              return {'summary':sm,'trades':[vars(x) for x in tr]}
+          base=run(True,True); nn=run(False,True); ns=run(True,False)
+          def k(x):return (x['signal_time'],x['entry_time'],x['side'])
+          def diff(a,b):
+              A={k(x):x for x in a['trades']};B={k(x):x for x in b['trades']};chg=[]
+              for q in sorted(set(A)&set(B)):
+                  d={f:(A[q][f],B[q][f]) for f in ('exit_time','exit_price','exit_reason','canon_r','qty','risk_cash') if A[q][f]!=B[q][f]}
+                  if d:chg.append({'key':q,'fields':d,'on':A[q],'off':B[q]})
+              return {'only_on':[A[q] for q in sorted(set(A)-set(B))],'only_off':[B[q] for q in sorted(set(B)-set(A))],'changed':chg}
+          out={'symbol':os.environ['WR_SYMBOL'],'bars_5m':len(bars),'all_on':base['summary'],'news_impact':diff(base,nn),'session_impact':diff(base,ns)}
+          path=f'/tmp/{os.environ["WR_SYMBOL"]}-impact.json';open(path,'w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps({'symbol':out['symbol'],'bars':out['bars_5m'],'trades':base['summary']['trades'],'exits':base['summary']['exit_counts'],'news_counts':[len(out['news_impact'][x]) for x in ('only_on','only_off','changed')],'session_counts':[len(out['session_impact'][x]) for x in ('only_on','only_off','changed')],'news_examples':(out['news_impact']['only_on']+out['news_impact']['only_off']+out['news_impact']['changed'])[:3],'session_examples':(out['session_impact']['only_on']+out['session_impact']['only_off']+out['session_impact']['changed'])[:3]},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-full-guard-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/${{ matrix.symbol }}-impact.json
+            /tmp/meta.json
+          if-no-files-found: warn
+          retention-days: 3
