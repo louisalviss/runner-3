@@ -1,0 +1,49 @@
+name: WordPress R2 Live Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/wp-r2-verify/requests/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-r2-live-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright runtime
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Verify R2 media on live iPhone viewport
+        env:
+          WP_SITE_URL: https://runner3-factory-smoke-2.wasmer.app/
+          R2_VERIFY_OUT: /tmp/wp-r2-live-verify.json
+        run: node scripts/verify-wordpress-r2-live.mjs
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wp-r2-live-verify.json || printf '{"status":"runner_error"}\n' >/tmp/wp-r2-live-verify.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wp-r2-verify/results
+            cp /tmp/wp-r2-live-verify.json ops/wp-r2-verify/results/latest.json
+            git add ops/wp-r2-verify/results/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist WordPress R2 live verification'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 5
