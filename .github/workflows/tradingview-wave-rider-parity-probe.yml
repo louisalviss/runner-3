@@ -1,0 +1,122 @@
+name: TradingView Wave Rider Parity Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-wave-rider-parity-probe.yml'
+      - 'scripts/tradingview-ledger-probe-snippet.js.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TV_SYMBOL: ${{ matrix.symbol }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+      FROZEN_REFERENCE_BLOB: 2ba5f66d33e2e483a4c669c95f3b97778c80fcd0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate frozen Python reference and restore TradingView state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          ACTUAL="$(git hash-object wave-rider-verify/reference_verify.py)"
+          echo "PY_REFERENCE_BLOB=$ACTUAL"
+          test "$ACTUAL" = "$FROZEN_REFERENCE_BLOB"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          SHA="$(sha256sum /tmp/wr2513.pine | awk '{print $1}')"
+          echo "TV_SOURCE_SHA256=$SHA"
+          test "$SHA" = "$EXPECTED_SHA256"
+
+      - name: Build read-only TradingView ledger probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
+          old="  await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});"
+          new="  const __sym=process.env.TV_SYMBOL||'BNBUSDT';\n  await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});"
+          if old not in s: raise SystemExit('symbol URL patch marker missing')
+          s=s.replace(old,new,1)
+          oldlog="  log('TV_E2E_BNB',/BNBUSDT|BNB\\/USDT|BNBUSDT\\.P/i.test(body)?'PASS':'FAIL');"
+          newlog="  log('TV_E2E_SYMBOL',body.includes(__sym)?'PASS':'CHECK');"
+          if oldlog in s: s=s.replace(oldlog,newlog,1)
+          marker="  await trades.click({force:true}); await p.waitForTimeout(6000);\n"
+          if marker not in s: raise SystemExit('ledger insertion marker missing')
+          snippet=Path('scripts/tradingview-ledger-probe-snippet.js.txt').read_text()
+          s=s.replace(marker,marker+'\n'+snippet+'\n',1)
+          Path('scripts/.tv-parity-probe-temp.mjs').write_text(s)
+          PY
+
+      - name: Scrape TradingView native trade ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/.tv-parity-probe-temp.mjs
+
+      - name: Run exact frozen Python reference on same calendar block
+        shell: bash
+        run: |
+          set -euo pipefail
+          WR_SYMBOL="$TV_SYMBOL" WR_START=2026-07-27 WR_END=2026-08-17 python3 wave-rider-verify/reference_verify.py > "/tmp/python-${TV_SYMBOL}-run.txt"
+          cp "wave-rider-verify/output/${TV_SYMBOL}_5m_trades.csv" "/tmp/python-${TV_SYMBOL}-5m-trades.csv"
+          cp "wave-rider-verify/output/${TV_SYMBOL}_5m_summary.json" "/tmp/python-${TV_SYMBOL}-5m-summary.json"
+          echo "PY_5M_TRADES=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["trades"])' "/tmp/python-${TV_SYMBOL}-5m-summary.json")"
+
+      - name: Record static semantic mismatches without modifying frozen engine
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=Path('wave-rider-verify/reference_verify.py').read_text()
+          checks={
+            'window_gates_signal_creation': "if x.ct<start_ms or x.ct>end_ms: continue" in s,
+            'report_membership_uses_exit_time': "if start_ms<=bars[i].ct<=end_ms:" in s,
+            'qty_rounds_to_integer_contract': "q=math.floor(raw)" in s,
+            'ema_session_exit_same_bar_close': "close_trade(i,'EMA',x.c)" in s and "close_trade(i,'SESSION',x.c)" in s,
+            'embedded_news_calendar_present': 'newsTimes' in s or '2025,11,20' in s or '2025-11-20' in s,
+            'warmup_days': 3 if 'WARMUP_DAYS=3' in s else None,
+            'pivot_ties_suppressed': 'sum(x==ext for x in w)==1' in s,
+          }
+          Path(f"/tmp/python-{os.environ['TV_SYMBOL']}-semantic-audit.json").write_text(json.dumps(checks,indent=2)+'\n')
+          print(json.dumps(checks,indent=2))
+          PY
+
+      - name: Upload parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-parity-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/tv-ledger-${{ matrix.symbol }}.json
+            /tmp/tv-ledger-${{ matrix.symbol }}-texts.txt
+            /tmp/wr2513-e2e-report.txt
+            /tmp/wr2513-trades-panel.png
+            /tmp/python-${{ matrix.symbol }}-5m-trades.csv
+            /tmp/python-${{ matrix.symbol }}-5m-summary.json
+            /tmp/python-${{ matrix.symbol }}-run.txt
+            /tmp/python-${{ matrix.symbol }}-semantic-audit.json
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine scripts/.tv-parity-probe-temp.mjs
