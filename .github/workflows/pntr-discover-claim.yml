@@ -5,9 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/pntr-discover-claim.yml'
-      - 'scripts/pntr-discover-claim.mjs'
-      - 'scripts/pntr-static-scan.mjs'
-      - 'scripts/pntr-parent-cookie-test.mjs'
+      - 'scripts/pntr-cookie-precedence-test.mjs'
   workflow_dispatch:
 
 permissions:
@@ -16,41 +14,23 @@ permissions:
 jobs:
   discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 6
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Restore encrypted PNTR guest session
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${AUTOMATION_KEY:-}" || { echo 'Encryption secret unavailable'; exit 2; }
+          test -n "${AUTOMATION_KEY:-}" || exit 2
           echo "::add-mask::$AUTOMATION_KEY"
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -pass env:AUTOMATION_KEY \
-            -in ops/pntr/browser-state.aes \
-            -out /tmp/pntr-browser-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/pntr/browser-state.aes -out /tmp/pntr-browser-state.json
           chmod 600 /tmp/pntr-browser-state.json
-
       - name: Install Playwright core
-        shell: bash
         run: npm install --no-save playwright-core@1.58.2 >/dev/null
-
-      - name: Test parent-domain cookie bridge
-        shell: bash
-        run: node scripts/pntr-parent-cookie-test.mjs
-
-      - name: Discover PNTR claim flow safely
-        shell: bash
-        run: node scripts/pntr-discover-claim.mjs
-
-      - name: Scan PNTR static auth client
-        shell: bash
-        run: node scripts/pntr-static-scan.mjs
-
+      - name: Test duplicate anon-cookie precedence
+        run: node scripts/pntr-cookie-precedence-test.mjs
       - name: Cleanup
         if: always()
-        shell: bash
         run: rm -f /tmp/pntr-browser-state.json
