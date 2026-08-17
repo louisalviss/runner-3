@@ -1,0 +1,45 @@
+name: TradingView Source Transport Bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-source-transport-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate encrypted source transport key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          mkdir -p ops/tradingview
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /tmp/tv-source-private.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/tv-source-private.pem -pubout -out ops/tradingview/source-transport-public.pem >/dev/null 2>&1
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in /tmp/tv-source-private.pem -out ops/tradingview/source-transport-private.pem.aes
+          rm -f /tmp/tv-source-private.pem
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/tradingview/source-transport-public.pem ops/tradingview/source-transport-private.pem.aes
+          git commit -m 'bootstrap encrypted TradingView source transport'
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+            sleep 2
+          done
+          exit 9
