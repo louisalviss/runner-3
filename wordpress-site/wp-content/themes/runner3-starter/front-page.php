@@ -32,7 +32,7 @@ $categories = get_categories(['number' => 4, 'orderby' => 'count', 'order' => 'D
     <div class="story-grid">
       <?php foreach ($stories as $i => $post): $cat = get_the_category($post->ID)[0] ?? null; ?>
         <article class="story-card">
-          <a class="story-image" href="<?php echo esc_url(get_permalink($post)); ?>"><img src="<?php echo esc_url(runner3_story_image($post->ID, $i + 1)); ?>" alt="" loading="lazy"></a>
+          <a class="story-image" href="<?php echo esc_url(get_permalink($post)); ?>"><img src="<?php echo esc_url(runner3_story_image($post->ID)); ?>" alt="" loading="lazy"></a>
           <div class="story-meta"><span><?php echo esc_html($cat ? $cat->name : 'Journal'); ?></span><span><?php echo esc_html(runner3_read_time($post->ID)); ?> min</span></div>
           <h3><a href="<?php echo esc_url(get_permalink($post)); ?>"><?php echo esc_html(get_the_title($post)); ?></a></h3>
           <p><?php echo esc_html(wp_trim_words(get_the_excerpt($post), 20)); ?></p>
