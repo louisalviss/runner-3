@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/signup-wasmer.mjs <<'JS'
+          cat > signup-wasmer.mjs <<'JS'
           import { chromium } from 'playwright-core';
           import fs from 'fs';
 
@@ -174,7 +174,7 @@ jobs:
 
           await main();
           JS
-          node /tmp/signup-wasmer.mjs
+          node signup-wasmer.mjs
 
       - name: Encrypt recovery credentials
         if: always()
