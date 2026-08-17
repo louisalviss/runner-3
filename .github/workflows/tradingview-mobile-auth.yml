@@ -8,6 +8,10 @@ on:
       - 'scripts/tradingview-mobile-remote.mjs'
   workflow_dispatch:
 
+concurrency:
+  group: tradingview-mobile-auth
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
@@ -24,15 +28,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cancel obsolete noVNC run
+      - name: Cancel obsolete auth runs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           curl -fsS -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/32019471258/cancel || true
+          curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/tradingview-mobile-auth.yml/runs?per_page=20" \
+            | jq -r --argjson me "$GITHUB_RUN_ID" '.workflow_runs[] | select(.id < $me and (.status=="queued" or .status=="in_progress")) | .id' \
+            | while read -r rid; do
+                [ -z "$rid" ] && continue
+                curl -fsS -X POST \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${rid}/cancel" || true
+              done
 
       - name: Install browser stack
         shell: bash
