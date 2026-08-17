@@ -12,47 +12,145 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Install tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg curl
+          sudo apt-get install -y -qq ffmpeg curl openvpn iproute2 iptables
           python -m pip install -q -U yt-dlp numpy
 
-      - name: Download official Jujutsu Kaisen footage
+      - name: Prepare isolated VPN Gate routes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fsSL --connect-timeout 15 --max-time 40 \
+            'https://www.vpngate.net/api/iphone/' -o vpngate.csv
+          mkdir -p vpn_profiles
+          python <<'PY'
+          import csv, base64, os
+          rows=[]
+          with open('vpngate.csv', encoding='utf-8-sig', errors='replace', newline='') as f:
+              for r in csv.reader(f):
+                  if not r or r[0].startswith('*') or r[0].startswith('#'):
+                      continue
+                  if len(r) < 15: continue
+                  try:
+                      score=int(r[2] or 0)
+                  except Exception:
+                      score=0
+                  cc=r[6].strip().upper()
+                  if cc not in {'VN','SG','JP','KR','TW'}: continue
+                  try:
+                      cfg=base64.b64decode(r[14]).decode('utf-8','replace')
+                  except Exception:
+                      continue
+                  rows.append((cc,score,r[1],cfg))
+          priority={'VN':0,'SG':1,'JP':2,'KR':3,'TW':4}
+          selected=[]
+          for cc in ['VN','SG','JP','KR','TW']:
+              candidates=sorted([x for x in rows if x[0]==cc], key=lambda x:x[1], reverse=True)
+              selected.extend(candidates[:2])
+          if not selected:
+              raise SystemExit('No VPN Gate profiles found')
+          with open('vpn_profiles/meta.tsv','w') as meta:
+              for i,(cc,score,ip,cfg) in enumerate(selected):
+                  p=f'vpn_profiles/p{i:02d}_{cc}.ovpn'
+                  # Keep only standard OpenVPN profile; add conservative runtime options.
+                  with open(p,'w') as out:
+                      out.write(cfg.rstrip()+'\n')
+                      out.write('auth-nocache\n')
+                      out.write('connect-retry-max 1\n')
+                      out.write('connect-timeout 8\n')
+                  meta.write(f'{p}\t{cc}\t{score}\t{ip}\n')
+          print(open('vpn_profiles/meta.tsv').read())
+          PY
+
+          sudo ip netns add vpnns
+          sudo ip link add veth-host type veth peer name veth-vpn
+          sudo ip link set veth-vpn netns vpnns
+          sudo ip addr add 10.203.0.1/24 dev veth-host
+          sudo ip link set veth-host up
+          sudo ip netns exec vpnns ip addr add 10.203.0.2/24 dev veth-vpn
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set veth-vpn up
+          sudo ip netns exec vpnns ip route add default via 10.203.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1
+          WAN_IF=$(ip route show default | awk '/default/ {print $5; exit}')
+          sudo iptables -t nat -A POSTROUTING -s 10.203.0.0/24 -o "$WAN_IF" -j MASQUERADE
+          sudo iptables -A FORWARD -i veth-host -o "$WAN_IF" -j ACCEPT
+          sudo iptables -A FORWARD -i "$WAN_IF" -o veth-host -m state --state RELATED,ESTABLISHED -j ACCEPT
+          sudo ip netns exec vpnns curl -4 -fsS --max-time 12 https://api.ipify.org
+          echo
+
+      - name: Download official Jujutsu Kaisen footage through isolated route
         shell: bash
         run: |
           set -euo pipefail
-          download_source() {
-            url="$1"
-            label="$2"
-            rm -f ytsrc.* anime_source.mp4
-            echo "Trying $label: $url"
-            if timeout 150s yt-dlp \
-              --no-playlist --retries 2 --fragment-retries 2 --socket-timeout 20 \
-              --js-runtimes node --remote-components ejs:github \
-              -f 'bv*[height<=1080]+ba/b[height<=1080]' \
-              --merge-output-format mp4 -o 'ytsrc.%(ext)s' "$url"; then
-                f=$(find . -maxdepth 1 -type f -name 'ytsrc*.mp4' | head -n1)
-                if [ -n "${f:-}" ]; then
-                  mv "$f" anime_source.mp4
-                  echo "SOURCE_KIND=$label" >> "$GITHUB_ENV"
-                  return 0
-                fi
+          YTDLP=$(command -v yt-dlp)
+          SOURCES=(
+            'https://www.youtube.com/watch?v=DKNM-3LpfZE|JJK_SENDAI_2026_OFFICIAL'
+            'https://www.youtube.com/watch?v=VEjVqXiiUNY|JJK_EXECUTION_2025_OFFICIAL'
+            'https://www.youtube.com/watch?v=O6qVieflwqs|JJK_S2_PV2_2023_OFFICIAL'
+          )
+          rm -f /tmp/vpnns.pid /tmp/vpnns.log
+          success=0
+          while IFS=$'\t' read -r profile cc score ip; do
+            [ -n "$profile" ] || continue
+            echo "=== Trying VPN $cc score=$score ip=$ip ==="
+            if [ -f /tmp/vpnns.pid ]; then
+              sudo kill "$(cat /tmp/vpnns.pid)" 2>/dev/null || true
+              sleep 2
+              rm -f /tmp/vpnns.pid
             fi
-            return 1
-          }
+            sudo ip netns exec vpnns openvpn --config "$GITHUB_WORKSPACE/$profile" \
+              --daemon --writepid /tmp/vpnns.pid --log /tmp/vpnns.log || true
+            connected=0
+            for n in $(seq 1 20); do
+              if sudo ip netns exec vpnns ip link show tun0 >/dev/null 2>&1; then
+                connected=1; break
+              fi
+              sleep 1
+            done
+            if [ "$connected" != 1 ]; then
+              echo "VPN failed: $profile"
+              tail -n 25 /tmp/vpnns.log || true
+              continue
+            fi
+            EGRESS=$(sudo ip netns exec vpnns curl -4 -fsS --max-time 12 https://api.ipify.org || true)
+            echo "VPN_EGRESS=$EGRESS country=$cc"
+            [ -n "$EGRESS" ] || continue
 
-          if download_source 'https://www.youtube.com/watch?v=VEjVqXiiUNY' 'JJK_EXECUTION_2025_OFFICIAL'; then
-            :
-          elif download_source 'https://www.youtube.com/watch?v=O6qVieflwqs' 'JJK_S2_PV2_2023_OFFICIAL'; then
-            :
-          else
-            echo 'Both official Jujutsu Kaisen sources failed; refusing to silently substitute unrelated footage.' >&2
+            for entry in "${SOURCES[@]}"; do
+              url=${entry%%|*}; label=${entry#*|}
+              rm -f ytsrc.* anime_source.mp4
+              echo "Trying $label via $cc"
+              if timeout 120s sudo ip netns exec vpnns env \
+                PATH="$PATH" HOME="$HOME" \
+                "$YTDLP" --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 18 \
+                --js-runtimes node --remote-components ejs:github \
+                -f 'bv*[height<=1080]+ba/b[height<=1080]' \
+                --merge-output-format mp4 --remux-video mp4 \
+                -o "$GITHUB_WORKSPACE/ytsrc.%(ext)s" "$url"; then
+                  f=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name 'ytsrc*.mp4' | head -n1)
+                  if [ -n "${f:-}" ] && [ -s "$f" ]; then
+                    mv "$f" anime_source.mp4
+                    echo "SOURCE_KIND=$label" >> "$GITHUB_ENV"
+                    echo "SOURCE_VPN_COUNTRY=$cc" >> "$GITHUB_ENV"
+                    echo "SOURCE_EGRESS=$EGRESS" >> "$GITHUB_ENV"
+                    success=1
+                    break 2
+                  fi
+              fi
+            done
+          done < vpn_profiles/meta.tsv
+
+          if [ "$success" != 1 ]; then
+            echo 'All isolated VPN routes failed to retrieve the official public trailers.' >&2
+            tail -n 40 /tmp/vpnns.log || true
             exit 21
           fi
-
+          if [ -f /tmp/vpnns.pid ]; then sudo kill "$(cat /tmp/vpnns.pid)" 2>/dev/null || true; fi
           ffprobe -v error \
             -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate \
             -of default=nw=1 anime_source.mp4
@@ -181,6 +279,8 @@ jobs:
           fi
 
           echo "SOURCE_KIND=${SOURCE_KIND:-unknown}"
+          echo "SOURCE_VPN_COUNTRY=${SOURCE_VPN_COUNTRY:-unknown}"
+          echo "SOURCE_EGRESS=${SOURCE_EGRESS:-unknown}"
           ffprobe -v error \
             -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,sample_rate,channels \
             -show_entries format=duration,size,bit_rate \
