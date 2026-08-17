@@ -1,0 +1,76 @@
+name: Grok 4.5 zero-touch explainer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/grok45-zero-touch.yml'
+      - 'video/grok45_render.py'
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install render stack
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-inter
+          python -m pip install --quiet pillow edge-tts
+
+      - name: Render UI and data motion
+        run: |
+          mkdir -p work out
+          python video/grok45_render.py
+
+      - name: Generate Vietnamese narration
+        shell: bash
+        run: |
+          SCRIPT='Grok 4.5 không chỉ bán câu chuyện thông minh hơn. xAI đang đánh vào code, tốc độ và giá. Họ công bố tốc độ 80 token mỗi giây, giá 2 đô cho một triệu token đầu vào và 6 đô cho đầu ra. Model này đã vào Grok Build, Cursor và GitHub Copilot. Cuộc đua AI giờ là năng lực, tốc độ và chi phí.'
+          edge-tts --voice vi-VN-NamMinhNeural --rate=+25% --text "$SCRIPT" --write-media work/narration.mp3 --write-subtitles work/narration.srt
+          ffprobe -v error -show_entries format=duration -of default=nw=1 work/narration.mp3
+
+      - name: Encode picture
+        run: |
+          ffmpeg -y -framerate 24 -i work/grok45_frames/%05d.jpg \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p work/picture.mp4
+
+      - name: Sound, subtitles and final encode
+        run: |
+          ffmpeg -y \
+            -f lavfi -i 'anoisesrc=color=pink:amplitude=0.006:duration=18' \
+            -f lavfi -i 'sine=frequency=52:sample_rate=48000:duration=18' \
+            -filter_complex "[0:a]lowpass=f=1450,highpass=f=80[a0];[1:a]volume=0.010[a1];[a0][a1]amix=inputs=2:weights='1 0.7':normalize=0,afade=t=in:st=0:d=0.5,afade=t=out:st=17:d=1[bed]" \
+            -map '[bed]' -c:a aac -b:a 128k work/bed.m4a
+
+          ffmpeg -y -i work/picture.mp4 -i work/narration.mp3 -i work/bed.m4a \
+            -filter_complex "[1:a]adelay=120|120,volume=1.0[vox];[2:a]volume=0.72[bed];[vox][bed]amix=inputs=2:duration=longest:dropout_transition=1[a]" \
+            -map 0:v -map '[a]' \
+            -vf "subtitles=work/narration.srt:force_style='FontName=Inter,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H70000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=34,Alignment=2'" \
+            -t 18 -r 24 -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p \
+            -c:a aac -b:a 160k -movflags +faststart out/grok45-zero-touch-explainer.mp4
+
+      - name: Write provenance
+        run: |
+          cat > out/CREDITS.md <<'EOF'
+          # Grok 4.5 zero-touch explainer — provenance
+
+          Facts and labels in this demo are based on official xAI pages checked on 2026-08-17:
+          - Introducing Grok 4.5 — Jul 16, 2026
+          - Grok 4.5 in GitHub Copilot — Jul 28, 2026
+
+          Visuals are original UI/data motion graphics rendered by this workflow; no third-party footage is embedded.
+          Narration: Microsoft Edge TTS, vi-VN-NamMinhNeural.
+          EOF
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json out/grok45-zero-touch-explainer.mp4
+          ls -lh out
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grok45-zero-touch-explainer
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
