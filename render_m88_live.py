@@ -52,7 +52,7 @@ def card(match):
     markets = match.get("markets") or {}
     timer = match.get("live_timer") or "LIVE"
     blocks = "".join([
-        market_block("FT Asian Handicap", markets.get("ft_asian_handicap") or []), 2),
+        market_block("FT Asian Handicap", markets.get("ft_asian_handicap") or [], 2),
         market_block("FT Over / Under", markets.get("ft_over_under") or [], 2),
         market_block("FT 1X2", markets.get("ft_1x2") or [], 1),
         market_block("1H Asian Handicap", markets.get("fh_asian_handicap") or [], 2),
