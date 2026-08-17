@@ -1,0 +1,15 @@
+import { chromium } from 'playwright-core';
+const browser = await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+const ctx = await browser.newContext();
+const p = await ctx.newPage();
+await p.goto('https://runner3wp.pntr.dev/', {waitUntil:'domcontentloaded',timeout:60000});
+console.log('SOURCE_HOST='+new URL(p.url()).hostname);
+await p.evaluate(() => { document.cookie = 'pntr_bridge_test=ok; Domain=pntr.dev; Path=/; Secure; SameSite=Lax'; });
+const all = await ctx.cookies('https://pntr.dev/');
+const c = all.find(x => x.name === 'pntr_bridge_test');
+console.log('PARENT_COOKIE_ACCEPTED='+!!c);
+if (c) console.log('PARENT_COOKIE_DOMAIN='+c.domain+' HTTPONLY='+c.httpOnly+' SECURE='+c.secure+' SAMESITE='+c.sameSite);
+await p.goto('https://pntr.dev/', {waitUntil:'domcontentloaded',timeout:60000});
+const now = await ctx.cookies('https://pntr.dev/');
+console.log('PARENT_COOKIE_VISIBLE_ON_PNTR='+now.some(x=>x.name==='pntr_bridge_test'&&x.value==='ok'));
+await browser.close();
