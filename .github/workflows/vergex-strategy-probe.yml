@@ -18,108 +18,85 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install browser
         run: |
-          python3 -m pip install -q 'playwright>=1.46,<2'
+          python3 -m pip install -q 'playwright>=1.46,<2' requests
           python3 -m playwright install chromium >/tmp/pw-install.log 2>&1 || true
           mkdir -p evidence
-      - name: Probe VergeX
+
+      - name: Capture original X media
         shell: bash
         run: |
           python3 - <<'PY'
-          import json, re, pathlib, urllib.parse
+          import json, pathlib, requests, urllib.parse
           from playwright.sync_api import sync_playwright
-
-          START='https://vergex.trade/register?ref=6'
-          CANDIDATES=['https://vergex.trade/','https://vergex.trade/explore','https://vergex.trade/strategies','https://vergex.trade/strategy-market','https://vergex.trade/market']
-          out={'pages':[],'responses':[],'assets':[]}
-          seen_resp=set()
-
-          def clean(s,n=20000):
-              return (s or '')[:n]
-
+          URL='https://x.com/coseryaya/status/2089241591173288209?s=12'
+          out={'url':URL,'articles':[],'media':[]}
+          media=[]
           with sync_playwright() as p:
               b=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
-              c=b.new_context(viewport={'width':1440,'height':1100},locale='en-US')
+              c=b.new_context(viewport={'width':1440,'height':1200},locale='en-US')
               page=c.new_page()
-
-              def on_response(resp):
-                  u=resp.url
-                  low=u.lower()
-                  if any(k in low for k in ['api','graphql','strateg','agent','explore','market','portfolio','trade','performance']):
-                      key=(u,resp.status)
-                      if key in seen_resp: return
-                      seen_resp.add(key)
-                      rec={'url':u,'status':resp.status,'content_type':resp.headers.get('content-type','')}
-                      try:
-                          if 'json' in rec['content_type']:
-                              rec['body']=clean(resp.text(),50000)
-                      except Exception as e:
-                          rec['error']=str(e)
-                      out['responses'].append(rec)
-
-              page.on('response',on_response)
-
-              urls=[START]+CANDIDATES
-              for i,url in enumerate(urls):
-                  rec={'requested':url}
+              r=page.goto(URL,wait_until='domcontentloaded',timeout=30000)
+              page.wait_for_timeout(6000)
+              out['status']=r.status if r else None
+              out['title']=page.title()
+              out['body']=page.locator('body').inner_text()[:20000]
+              arts=page.locator('article')
+              for i in range(min(arts.count(),12)):
+                  a=arts.nth(i)
+                  try: text=a.inner_text()[:8000]
+                  except: text=''
                   try:
-                      r=page.goto(url,wait_until='domcontentloaded',timeout=30000)
-                      page.wait_for_timeout(3500)
-                      rec.update(status=r.status if r else None,final_url=page.url,title=page.title())
-                      try: rec['body']=clean(page.locator('body').inner_text(timeout=5000))
-                      except: rec['body']=''
-                      rec['links']=page.eval_on_selector_all('a','els=>els.slice(0,300).map(a=>({text:(a.innerText||" ").trim(),href:a.href}))')
-                      rec['buttons']=page.eval_on_selector_all('button','els=>els.slice(0,200).map(a=>(a.innerText||" ").trim())')
-                      rec['inputs']=page.eval_on_selector_all('input','els=>els.slice(0,100).map(a=>({placeholder:a.placeholder,type:a.type,value:a.value}))')
-                      try:
-                          page.screenshot(path=f'evidence/page-{i}.png',full_page=True)
-                      except: pass
-                      # Try obvious navigation text
-                      for label in ['Strategy Market','策略市场','Explore','Strategies','Market']:
-                          try:
-                              loc=page.get_by_text(label,exact=False).first
-                              if loc.count() and loc.is_visible():
-                                  loc.click(timeout=3000)
-                                  page.wait_for_timeout(2500)
-                                  rec.setdefault('clicked',[]).append({'label':label,'url':page.url,'body':clean(page.locator('body').inner_text(),12000)})
-                                  break
-                          except: pass
-                  except Exception as e:
-                      rec['error']=f'{type(e).__name__}: {e}'
-                  out['pages'].append(rec)
-
-              # Search current DOM for author/name fragments and inspect cards
-              try:
-                  body=page.locator('body').inner_text()
-                  out['final_search_hits']=[x for x in body.splitlines() if any(k.lower() in x.lower() for k in ['coseryaya','加密杂役女仆','量化','盈利','strategy','agent'])][:300]
-              except: pass
-
-              # collect JS assets from page
-              try:
-                  out['assets']=page.eval_on_selector_all('script[src]','els=>els.map(s=>s.src)')[:100]
-              except: pass
-              try:
-                  out['storage_keys']={'local':page.evaluate('Object.keys(localStorage)'), 'session':page.evaluate('Object.keys(sessionStorage)')}
-              except: pass
-
+                      imgs=a.locator('img').evaluate_all("els=>els.map(x=>({src:x.src,alt:x.alt,srcset:x.srcset}))")
+                  except: imgs=[]
+                  rec={'index':i,'text':text,'images':imgs}
+                  out['articles'].append(rec)
+                  for im in imgs:
+                      s=im.get('src') or ''
+                      if 'pbs.twimg.com/media/' in s and s not in media:
+                          media.append(s)
+              # Carousel may lazily swap the second/third image.
+              for _ in range(4):
+                  try:
+                      nxt=page.locator('button[aria-label="Next"]').first
+                      if not nxt.count() or not nxt.is_visible(): break
+                      nxt.click(timeout=2000)
+                      page.wait_for_timeout(1200)
+                      for s in page.locator('article').first.locator('img').evaluate_all("els=>els.map(x=>x.src)"):
+                          if 'pbs.twimg.com/media/' in s and s not in media: media.append(s)
+                  except: break
+              page.screenshot(path='evidence/x-post-full.png',full_page=True)
               c.close(); b.close()
 
-          pathlib.Path('evidence/vergex.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
-          print('=== SUMMARY ===')
-          for p in out['pages']:
-              print('PAGE',p.get('requested'),'->',p.get('status'),p.get('final_url'),p.get('title'))
-              print((p.get('body') or '')[:2500].replace('\n',' | '))
-          print('=== API/JSON RESPONSES ===')
-          for r in out['responses'][:120]:
-              print('RESP',r.get('status'),r.get('url'),r.get('content_type'))
-              if r.get('body'): print(r['body'][:6000])
-          print('=== SEARCH HITS ===')
-          print(json.dumps(out.get('final_search_hits',[]),ensure_ascii=False))
-          print('=== ASSETS ===')
-          print('\n'.join(out.get('assets',[])))
+          headers={'User-Agent':'Mozilla/5.0'}
+          for i,s in enumerate(media):
+              u=urllib.parse.urlsplit(s)
+              q=urllib.parse.parse_qs(u.query)
+              fmt=(q.get('format') or ['jpg'])[0]
+              base=urllib.parse.urlunsplit((u.scheme,u.netloc,u.path,'',''))
+              orig=f'{base}?format={fmt}&name=orig'
+              rec={'index':i,'src':s,'orig':orig}
+              try:
+                  rr=requests.get(orig,headers=headers,timeout=25)
+                  rec['status']=rr.status_code; rec['bytes']=len(rr.content); rec['content_type']=rr.headers.get('content-type','')
+                  if rr.ok and rr.content:
+                      ext='png' if 'png' in rec['content_type'] else 'jpg'
+                      path=f'evidence/media-{i}.{ext}'
+                      pathlib.Path(path).write_bytes(rr.content)
+                      rec['path']=path
+              except Exception as e: rec['error']=str(e)
+              out['media'].append(rec)
+          pathlib.Path('evidence/x-media.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print('STATUS',out.get('status'),out.get('title'))
+          print('MEDIA_COUNT',len(out['media']))
+          for x in out['media']: print('MEDIA',json.dumps(x,ensure_ascii=False))
+          print('=== ARTICLES ===')
+          for a in out['articles']:
+              print('ARTICLE',a['index'],a['text'][:3500].replace('\n',' | '))
           PY
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: vergex-strategy-probe-${{ github.run_id }}
+          name: vergex-strategy-media-${{ github.run_id }}
           path: evidence/
           retention-days: 3
