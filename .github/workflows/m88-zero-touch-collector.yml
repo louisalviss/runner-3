@@ -9,7 +9,7 @@ on:
       - '.github/workflows/m88-zero-touch-collector.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: m88-zero-touch-collector
@@ -246,7 +246,7 @@ jobs:
               'records': snapshot,
           }
 
-          # ---------- recent movements (useful signal/fallback) ----------
+          # ---------- recent movements ----------
           movements = []
           movement_health = {}
           for market, url in MOVEMENT_SOURCES.items():
@@ -335,6 +335,25 @@ jobs:
               json.dump(summary, f, ensure_ascii=False, indent=2)
           PY
           python3 /tmp/collect_m88.py | tee /tmp/m88-latest.log
+
+      - name: Publish stable latest files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if ! gh release view m88-live >/dev/null 2>&1; then
+            gh release create m88-live \
+              --target "$GITHUB_SHA" \
+              --title "M88 Live Odds" \
+              --notes "Automatically refreshed public Mansion88 odds snapshot from Runner3."
+          fi
+          gh release upload m88-live \
+            /tmp/m88-fullbook.json \
+            /tmp/m88-fullbook.csv \
+            /tmp/m88-movements.json \
+            /tmp/m88-movements.csv \
+            /tmp/m88-summary.json \
+            --clobber
 
       - name: Upload Mansion88 datasets
         if: always()
