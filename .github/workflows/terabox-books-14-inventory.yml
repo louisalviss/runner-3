@@ -1,0 +1,108 @@
+name: TeraBox Books 14 Inventory
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/terabox-books-14-inventory.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    strategy:
+      fail-fast: false
+      max-parallel: 14
+      matrix:
+        root:
+          - '/Truyen/Kho Sách/10.000 Sách Kindle'
+          - '/Truyen/Kho Sách/10.000 Sách Kobo'
+          - '/Truyen/Kho Sách/BST Các Tác Giả Osho, Thích Nhất Hạnh , NN Ánh'
+          - '/Truyen/Kho Sách/English'
+          - '/Truyen/Kho Sách/Harry Potter English'
+          - '/Truyen/Kho Sách/Kẹp Hạt Dẻ (68) cuốn'
+          - '/Truyen/Kho Sách/Kho Sách Cappucino'
+          - '/Truyen/Kho Sách/Kho Sách Tổng Hợp Chia Sẵn Từng Thể Loại'
+          - '/Truyen/Kho Sách/Kho Sách VNthuquan'
+          - '/Truyen/Kho Sách/Kho SáchVui.com'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo'
+          - '/Truyen/Kho Sách/Sách MT'
+          - '/Truyen/Kho Sách/Sách PDF Scan'
+          - '/Truyen/Kho Sách/Tổng Hợp VCTVE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'playwright>=1.58,<2'
+      - name: Inventory branch
+        env:
+          ROOT_PATH: ${{ matrix.root }}
+        shell: bash
+        run: |
+          cat > /tmp/inv.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          from urllib.parse import urlparse,parse_qsl,urlencode,urlunparse
+          from collections import deque,defaultdict
+          import json,os,re,shutil,time
+          TARGET='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
+          ROOT=os.environ['ROOT_PATH']; BATCH=4; RETRIES=3
+          def human(n):
+              x=float(n)
+              for u in ['B','KiB','MiB','GiB','TiB']:
+                  if x<1024 or u=='TiB': return f'{x:.2f} {u}'
+                  x/=1024
+          with sync_playwright() as p:
+              chrome=shutil.which('google-chrome') or shutil.which('chromium')
+              b=p.chromium.launch(headless=True,executable_path=chrome)
+              c=b.new_context(user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+              pg=c.new_page(); api={'u':None}
+              def cap(r):
+                  if api['u'] is None and '/share/list?' in r.url and r.status==200: api['u']=r.url
+              pg.on('response',cap)
+              rr=pg.goto(TARGET,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(7000)
+              print('ROOT='+ROOT); print('HTTP='+str(rr.status if rr else None))
+              if not api['u']: raise SystemExit('NO_API')
+              pr=urlparse(api['u']); base=dict(parse_qsl(pr.query,keep_blank_values=True)); base.pop('root',None); base.update({'num':'100','by':'name','order':'asc'})
+              def mk(d,pn):
+                  q=dict(base); q['dir']=d; q['page']=str(pn)
+                  return urlunparse((pr.scheme,pr.netloc,pr.path,pr.params,urlencode(q),pr.fragment))
+              tasks=deque([(ROOT,1,0)]); scheduled={(ROOT,1)}; dirs=set(); files=set(); total=0; failures=0; req=0; exts=defaultdict(int)
+              while tasks:
+                  chunk=[]
+                  while tasks and len(chunk)<BATCH: chunk.append(tasks.popleft())
+                  urls=[mk(d,pn) for d,pn,_ in chunk]
+                  raws=pg.evaluate("""async us=>Promise.all(us.map(async u=>{const c=new AbortController();const t=setTimeout(()=>c.abort(),10000);try{return await (await fetch(u,{credentials:'include',signal:c.signal})).text()}catch(e){return JSON.stringify({errno:-998})}finally{clearTimeout(t)}}))""",urls)
+                  req+=len(chunk)
+                  for (d,pn,retry),raw in zip(chunk,raws):
+                      try: data=json.loads(raw)
+                      except: data={'errno':-997}
+                      if data.get('errno')!=0:
+                          if retry<RETRIES:
+                              tasks.append((d,pn,retry+1)); time.sleep(0.12*(retry+1))
+                          else:
+                              failures+=1; print('FAIL='+d+'#'+str(pn)+'='+str(data.get('errno')))
+                          continue
+                      if pn==1: dirs.add(d)
+                      items=data.get('list') or []
+                      for x in items:
+                          path=str(x.get('path') or ''); isdir=str(x.get('isdir','0'))=='1' or x.get('isdir')==1
+                          if isdir:
+                              key=(path,1)
+                              if path and key not in scheduled: scheduled.add(key); tasks.append((path,1,0))
+                          else:
+                              fid=str(x.get('fs_id') or path)
+                              if fid in files: continue
+                              files.add(fid); total+=int(x.get('size') or 0)
+                              name=str(x.get('server_filename') or ''); m=re.search(r'(\.[A-Za-z0-9]{1,10})$',name); exts[m.group(1).lower() if m else '(noext)']+=1
+                      if len(items)>=100:
+                          key=(d,pn+1)
+                          if key not in scheduled and pn<1000: scheduled.add(key); tasks.append((d,pn+1,0))
+                  if req%500<BATCH: print(f'PROGRESS req={req} pending={len(tasks)} dirs={len(dirs)} files={len(files)} size={human(total)} failures={failures}')
+                  time.sleep(0.05)
+              print('RESULT='+json.dumps({'root':ROOT,'requests':req,'dirs':len(dirs),'files':len(files),'bytes':total,'size':human(total),'failures':failures,'extensions':sorted(exts.items(),key=lambda z:z[1],reverse=True)[:10]},ensure_ascii=False))
+              b.close()
+          PY
+          python /tmp/inv.py
