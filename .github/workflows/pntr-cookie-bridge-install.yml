@@ -1,0 +1,49 @@
+name: PNTR Cookie Bridge Install
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-cookie-bridge-install.yml'
+      - 'scripts/install-pntr-cookie-bridge.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore encrypted runtime states
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/pntr/browser-state.aes -out /tmp/pntr-browser-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          if [ -f ops/wasmer/browser-state.aes ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+          fi
+          chmod 600 /tmp/pntr-browser-state.json /tmp/wasmer-account.json
+          [ ! -f /tmp/wasmer-browser-state.json ] || chmod 600 /tmp/wasmer-browser-state.json
+          echo 'RUNTIME_STATES_READY=true'
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2 >/dev/null
+
+      - name: Install one-time bridge
+        run: node scripts/install-pntr-cookie-bridge.mjs
+
+      - name: Cleanup sensitive runtime files
+        if: always()
+        shell: bash
+        run: |
+          rm -f /tmp/pntr-browser-state.json /tmp/wasmer-account.json /tmp/wasmer-browser-state.json
+          rm -rf /tmp/runner3-pntr-bridge /tmp/runner3-pntr-bridge.zip
