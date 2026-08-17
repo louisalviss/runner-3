@@ -1,10 +1,21 @@
 {
-  "schema": 1,
+  "schema": 2,
   "status": "BLOCKED",
   "updated_utc": "2026-08-17",
   "source_of_truth": "TradingView Pine Wave Rider Strategy v2.5.13 WINDOW REPORT",
   "exact_reference_path": "wave-rider-verify/reference_verify_v2513_exact.py",
   "exact_reference_blob_sha": "72c3d36bc41e9efefb085bf010c7f5ba0abc8e30",
+  "tv_parity_adapter_path": "wave-rider-verify/reference_v2513_tv_adapter.py",
+  "tv_parity_adapter_blob_sha": "57b67ff2795d4aab97494f01a6398ffe3118699b",
+  "confirmed_input_semantic_fix": {
+    "issue": "Binance archive kline close timestamp is interval_end-1ms while Pine v2.5.13 uses exact time_close in WINDOW REPORT, news and session boundary logic.",
+    "fix": "For time-based parity bars, normalize close timestamp to open_time + timeframe before calling the exact engine.",
+    "sensitivity_evidence": {
+      "BNBUSDT": {"raw_trades": 401, "pine_close_trades": 401, "raw_total_r": 137.7855617670513, "pine_close_total_r": 138.40485619454267},
+      "TRXUSDT": {"raw_trades": 465, "pine_close_trades": 461, "raw_total_r": 136.4266046339336, "pine_close_total_r": 136.12595528328404}
+    },
+    "why_material": "The 1ms timestamp difference can delay a session/news cutoff by a full chart candle because Pine tests tc + chartMs against exact cutoffs."
+  },
   "invalidated_parity_claim": {
     "old_reference_path": "wave-rider-verify/reference_verify.py",
     "old_reference_blob_sha": "2ba5f66d33e2e483a4c669c95f3b97778c80fcd0",
@@ -17,7 +28,7 @@
     "any new OOS/family promotion using the old reference lineage"
   ],
   "reusable": [
-    "raw Binance data",
+    "raw Binance OHLC data after source timestamp normalization for Pine parity",
     "data loaders and audit infrastructure",
     "friction model",
     "reporting framework"
@@ -27,7 +38,7 @@
     "timeframe": "5m",
     "report_start_utc": "2025-01-01T00:00:00Z",
     "report_end_exclusive_utc": "2026-08-15T00:00:00Z",
-    "window_semantics": "Start/End report only; inclusion by signal-candle close in [start,end); engine state outside window continues; pre-end signals may fill/exit after end.",
+    "window_semantics": "Start/End report only; inclusion by Pine signal-candle time_close in [start,end); engine state outside window continues; pre-end signals may fill/exit after end.",
     "requirements": [
       "Exact TradingView trade count match for each symbol",
       "Exact ordered trade sequence match",
@@ -42,6 +53,10 @@
   "old_python_targets_not_tv_confirmed": {
     "BNBUSDT_5m": {"trades": 400, "total_r": 145.39},
     "TRXUSDT_5m": {"trades": 448, "total_r": 136.33}
+  },
+  "current_tv_adapter_python_targets_not_tv_confirmed": {
+    "BNBUSDT_5m": {"trades": 401, "total_r": 138.40485619454267},
+    "TRXUSDT_5m": {"trades": 461, "total_r": 136.12595528328404}
   },
   "promotion_rule": "Do not set status=PASS from aggregate totals alone. PASS requires trade-by-trade TradingView parity on both frozen symbols/windows."
 }
