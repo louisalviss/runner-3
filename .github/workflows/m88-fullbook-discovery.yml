@@ -14,66 +14,104 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Install decoder deps
-        run: python3 -m pip install -q requests beautifulsoup4
-      - name: Decode public fullbook protocol
+      - name: Verify M88 fullbook joins
         shell: bash
         run: |
           python3 - <<'PY'
-          import json,re,requests,hashlib,collections
-          from bs4 import BeautifulSoup
-          from urllib.parse import urljoin
-          s=requests.Session(); s.headers.update({'User-Agent':'runner3-m88-public-feed/1.3'})
-          out={'payloads':{},'parser_hints':[]}
+          import json, requests, collections
+          from datetime import datetime, timezone
 
-          for cid in ['', '3','8','17','31']:
-              u='https://www.888scoreonline.net/OddsData.aspx'
-              r=s.get(u,params={'companyid':cid} if cid else None,timeout=25)
-              b=r.text
-              delim={c:b.count(c) for c in ['^','$','@','#','~','`','!','*','|','\n','\r']}
-              recs=b.split(';')
-              second=[]; lens=[]
-              for rec in recs:
+          u='https://www.888scoreonline.net/OddsData.aspx?companyid=17'
+          r=requests.get(u,headers={'User-Agent':'runner3-m88-public-feed/1.4'},timeout=25)
+          r.raise_for_status()
+          domains=r.text.split('$')
+          if len(domains) < 5:
+              raise SystemExit(f'bad domain count: {len(domains)}')
+
+          def records(idx):
+              return [x for x in domains[idx].split(';') if x.strip()]
+
+          leagues={}
+          for rec in records(0):
+              p=rec.split(',')
+              if len(p)>=6:
+                  leagues[p[0]]={'league_id':p[0],'league':p[5] or p[3] or p[4]}
+
+          matches={}
+          for rec in records(1):
+              p=rec.split(',')
+              if len(p)>=20:
+                  matches[p[0]]={
+                    'match_id':p[0],'league_id':p[1],'start_ms':p[2],
+                    'home':p[7],'away':p[12],
+                    'state':p[14],'home_score':p[15],'away_score':p[16],
+                    'neutral':p[18],'level':p[19]
+                  }
+
+          # Some odds records may encode market/channel prefixes in front of the real match id.
+          # Resolve only when the match id is an exact suffix and the suffix is unique.
+          match_ids=sorted(matches.keys(), key=len, reverse=True)
+          def resolve_mid(raw):
+              if raw in matches:
+                  return raw,'exact'
+              hits=[m for m in match_ids if raw.endswith(m)]
+              if len(hits)==1:
+                  return hits[0],f'suffix:{raw[:-len(hits[0])]}'
+              return None,'unresolved'
+
+          specs={
+            'asian_handicap':(2,10),
+            '1x2':(3,8),
+            'over_under':(4,8),
+          }
+          out={
+            'source':u,'status':r.status_code,'bytes':len(r.content),
+            'domain_count':len(domains),
+            'domain_record_counts':[len(records(i)) for i in range(len(domains))],
+            'league_count':len(leagues),'match_count':len(matches),'markets':{},
+          }
+
+          for market,(idx,min_fields) in specs.items():
+              total=0; exact=0; suffix=0; unresolved=[]; examples=[]; prefixes=collections.Counter()
+              seen_pairs=set()
+              for rec in records(idx):
                   p=rec.split(',')
-                  lens.append(len(p))
-                  if len(p)>=8 and p[0].strip().isdigit() and p[1].strip().lstrip('-').isdigit(): second.append(p[1].strip())
-              out['payloads'][cid or 'empty']={
-                'status':r.status_code,'bytes':len(r.content),'sha256':hashlib.sha256(r.content).hexdigest(),
-                'semicolon_records':len(recs),'field_count_top':collections.Counter(lens).most_common(15),
-                'second_field_top':collections.Counter(second).most_common(30),'delims':delim,
-                'prefix':b[:1200],'middle':b[len(b)//2:len(b)//2+1200],'suffix':b[-1600:]
+                  if len(p)<min_fields or p[1] != '17':
+                      continue
+                  total += 1
+                  mid,mode=resolve_mid(p[0])
+                  if mode=='exact': exact+=1
+                  elif mode.startswith('suffix:'):
+                      suffix+=1; prefixes[mode.split(':',1)[1]]+=1
+                  else:
+                      unresolved.append({'raw_id':p[0],'fields':p[:12]})
+                      continue
+                  m=matches[mid]; league=leagues.get(m['league_id'],{}).get('league','')
+                  row={'raw_match_id':p[0],'match_id':mid,'join_mode':mode,'league':league,'home':m['home'],'away':m['away']}
+                  if market=='asian_handicap':
+                      row.update({'open_handicap':p[2],'open_home':p[3],'open_away':p[4],'handicap':p[5],'home_odds':p[6],'away_odds':p[7],'extra':p[8:]})
+                  elif market=='1x2':
+                      row.update({'open_home':p[2],'open_draw':p[3],'open_away':p[4],'home_odds':p[5],'draw_odds':p[6],'away_odds':p[7],'extra':p[8:]})
+                  else:
+                      row.update({'open_total':p[2],'open_over':p[3],'open_under':p[4],'total':p[5],'over_odds':p[6],'under_odds':p[7],'extra':p[8:]})
+                  key=(mid,market)
+                  if key not in seen_pairs and len(examples)<12:
+                      examples.append(row); seen_pairs.add(key)
+              out['markets'][market]={
+                'm88_records':total,'exact_join':exact,'suffix_join':suffix,
+                'joined':exact+suffix,'join_ratio':round((exact+suffix)/total,6) if total else 0,
+                'prefixes':prefixes.most_common(20),'unresolved_count':len(unresolved),
+                'unresolved_examples':unresolved[:15],'joined_examples':examples
               }
 
-          page=s.get('https://www.888scoreonline.net/Comp.htm',timeout=20)
-          soup=BeautifulSoup(page.text,'html.parser')
-          assets=[]
-          for tag in soup.find_all('script'):
-              src=tag.get('src')
-              if src: assets.append(urljoin(page.url,src))
-              else:
-                  t=tag.get_text('\n')
-                  if any(k.lower() in t.lower() for k in ['OddsData','companyid','split(','responseText']):
-                      out['parser_hints'].append({'url':'INLINE','snippet':t[:12000]})
-          for u in assets:
-              try:
-                  r=s.get(u,timeout=15); t=r.text; low=t.lower(); hits=[]
-                  for key in ['oddsdata.aspx','companyid','responsetext','split(','xmlhttp']:
-                      pos=0
-                      while True:
-                          i=low.find(key,pos)
-                          if i<0: break
-                          hits.append(t[max(0,i-1000):i+2500])
-                          pos=i+len(key)
-                          if len(hits)>=10: break
-                  if hits: out['parser_hints'].append({'url':u,'bytes':len(r.content),'hits':hits[:10]})
-              except Exception:
-                  pass
-
           print(json.dumps(out,ensure_ascii=False,indent=2))
-          open('/tmp/m88-protocol.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          open('/tmp/m88-join-verification.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          if any(v['join_ratio'] < 0.95 for v in out['markets'].values()):
+              raise SystemExit('join ratio below 95%')
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: m88-protocol-${{ github.run_id }}
-          path: /tmp/m88-protocol.json
+          name: m88-join-verification-${{ github.run_id }}
+          path: /tmp/m88-join-verification.json
           retention-days: 2
