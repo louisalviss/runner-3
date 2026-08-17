@@ -44,10 +44,8 @@ jobs:
                 except: pass
               print('LOGIN_BUTTON_CLICKED='+str(clicked),flush=True)
               pg.wait_for_timeout(4000)
-            # TeraBox's QR-login icon has no accessible text. With fixed 1440x1100 viewport,
-            # it is the 4th social-login icon in this modal (after Google/Facebook/Apple).
             try:
-              pg.mouse.click(798,620)
+              pg.mouse.click(816,634)
               print('QR_ICON_CLICKED=True',flush=True)
               pg.wait_for_timeout(4000)
             except Exception as e:
