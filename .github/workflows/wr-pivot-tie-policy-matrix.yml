@@ -1,0 +1,70 @@
+name: WR Pivot Tie Policy Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-pivot-tie-policy-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Score asymmetric pivot tie policies
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          sess=requests.Session(); sess.headers['User-Agent']='wr-pivot-tie-policy/1.0'
+          def fetch(symbol):
+              bars=[]; prices=[]; d=date(2026,7,27)
+              while d<=date(2026,8,16):
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{symbol}/5m/{symbol}-5m-{ds}.zip',timeout=40); r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return [ded[k] for k in sorted(ded)],wr.infer_tick(prices)
+          exp={
+            'BNBUSDT':[('SHORT','2026-07-27T20:15:00Z',575.34),('SHORT','2026-07-30T19:35:00Z',575.27),('SHORT','2026-07-31T13:25:00Z',578.85),('SHORT','2026-08-03T17:10:00Z',551.95),('LONG','2026-08-04T17:50:00Z',549.13),('SHORT','2026-08-05T19:20:00Z',554.24),('SHORT','2026-08-06T18:00:00Z',585.31),('LONG','2026-08-08T03:45:00Z',593.40),('LONG','2026-08-08T04:35:00Z',593.71),('SHORT','2026-08-08T19:05:00Z',603.56),('SHORT','2026-08-12T03:20:00Z',615.37),('LONG','2026-08-13T19:35:00Z',609.96),('SHORT','2026-08-14T10:40:00Z',606.40),('SHORT','2026-08-16T04:10:00Z',606.44)],
+            'TRXUSDT':[('SHORT','2026-07-27T18:10:00Z',0.32825),('LONG','2026-07-28T08:20:00Z',0.32520),('LONG','2026-07-29T10:25:00Z',0.32622),('SHORT','2026-07-29T16:00:00Z',0.32615),('SHORT','2026-08-03T06:15:00Z',0.32569),('LONG','2026-08-05T08:15:00Z',0.32717),('LONG','2026-08-05T10:55:00Z',0.32843),('SHORT','2026-08-06T17:40:00Z',0.32675),('LONG','2026-08-07T15:15:00Z',0.32829),('LONG','2026-08-10T13:00:00Z',0.33178),('LONG','2026-08-14T19:25:00Z',0.33285),('LONG','2026-08-16T10:05:00Z',0.33118),('SHORT','2026-08-16T19:00:00Z',0.33175),('SHORT','2026-08-16T22:00:00Z',0.33121)]}
+          data={s:fetch(s) for s in exp}; st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          def piv(policy):
+              def f(v,left,right,high=True):
+                  base=[None]*len(v); ties=0
+                  for conf in range(left+right,len(v)):
+                      c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+                      if high:
+                          ok={'unique': all(x>y for y in L+R),'leftmost':all(x>y for y in L) and all(x>=y for y in R),'rightmost':all(x>=y for y in L) and all(x>y for y in R),'allow':all(x>=y for y in L+R)}[policy]
+                      else:
+                          ok={'unique': all(x<y for y in L+R),'leftmost':all(x<y for y in L) and all(x<=y for y in R),'rightmost':all(x<=y for y in L) and all(x<y for y in R),'allow':all(x<=y for y in L+R)}[policy]
+                      if ok: base[conf]=x
+                  return [None]+base[:-1],ties
+              return f
+          def score(tr,E):
+              A=[(t.side,t.entry_time,round(float(t.entry),8)) for t in tr]; E=[(a,b,round(c,8)) for a,b,c in E]; sa,se=set(A),set(E)
+              return {'n':len(A),'match':sum(x in se for x in A),'false':[x for x in A if x not in se],'miss':[x for x in E if x not in sa]}
+          out=[]
+          for policy in ('unique','leftmost','rightmost','allow'):
+              wr.pivots=piv(policy); row={'policy':policy,'symbols':{}}
+              for sym,(bars,tick) in data.items(): wr.SYMBOL=sym; tr,_=wr.run(5,bars,tick,st,en); row['symbols'][sym]=score(tr,exp[sym])
+              row['match_total']=sum(x['match'] for x in row['symbols'].values()); row['errors']=sum(len(x['false'])+len(x['miss']) for x in row['symbols'].values()); out.append(row); print('POLICY='+json.dumps(row,separators=(',',':')))
+          out.sort(key=lambda x:(-x['match_total'],x['errors'])); print('BEST_POLICY='+json.dumps(out[0],separators=(',',':'))); Path('/tmp/tie_policy.json').write_text(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-pivot-tie-policy-${{ github.run_id }}
+          path: /tmp/tie_policy.json
+          retention-days: 2
