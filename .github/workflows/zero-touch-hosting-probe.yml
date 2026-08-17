@@ -41,48 +41,62 @@ jobs:
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Inspect Wasmer Hobby signup
+      - name: Inspect Render and TiDB signup
         shell: bash
         run: |
           set -euo pipefail
-          cat > probe-wasmer.mjs <<'JS'
+          cat > probe-paas.mjs <<'JS'
           import { chromium } from 'playwright-core';
           import fs from 'fs';
           const mail=JSON.parse(fs.readFileSync('/tmp/mailtm.json','utf8'));
           const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
-          const page=await browser.newPage();
-          async function report(label){
-            await page.waitForTimeout(1800);
-            const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
-            const html=(await page.content().catch(()=>'' )).toLowerCase();
-            const fields=await page.locator('input,select,textarea').evaluateAll(els=>els.map((e,i)=>({
-              i,tag:e.tagName,type:e.type||'',name:e.name||'',id:e.id||'',placeholder:e.placeholder||'',required:!!e.required,
-              label:(e.labels&&e.labels.length?[...e.labels].map(x=>x.innerText.trim()).join(' | '):'')
-            })).filter(x=>x.type!=='hidden')).catch(()=>[]);
-            const controls=await page.locator('a,button,input[type=submit]').evaluateAll(els=>els.map((e,i)=>({
-              i,tag:e.tagName,text:(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,120),href:e.href||'',type:e.type||''
-            })).filter(x=>x.text||x.href).slice(0,120)).catch(()=>[]);
-            const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-','security verification'].filter(x=>html.includes(x)||body.toLowerCase().includes(x));
-            console.log('--- '+label+' ---');
-            console.log('URL='+page.url());
-            console.log('CAPTCHA_MARKERS='+markers.join(','));
-            console.log('FIELDS='+JSON.stringify(fields));
-            console.log('CONTROLS='+JSON.stringify(controls));
-            console.log('BODY_SAMPLE='+body.slice(0,2600));
+          const ctx=await browser.newContext();
+
+          async function inspect(name, urls) {
+            const page=await ctx.newPage();
+            try {
+              let response=null;
+              for (const url of urls) {
+                response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
+                await page.waitForTimeout(2500);
+                const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+                if(response && response.status()<500 && body.length>80) break;
+              }
+              const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+              const html=(await page.content().catch(()=>'' )).toLowerCase();
+              const fields=await page.locator('input,select,textarea').evaluateAll(els=>els.map((e,i)=>({
+                i,tag:e.tagName,type:e.type||'',name:e.name||'',id:e.id||'',placeholder:e.placeholder||'',required:!!e.required,
+                label:(e.labels&&e.labels.length?[...e.labels].map(x=>x.innerText.trim()).join(' | '):'')
+              })).filter(x=>x.type!=='hidden')).catch(()=>[]);
+              const controls=await page.locator('a,button,input[type=submit]').evaluateAll(els=>els.map((e,i)=>({
+                i,tag:e.tagName,text:(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,120),href:e.href||'',type:e.type||''
+              })).filter(x=>x.text||x.href).slice(0,140)).catch(()=>[]);
+              const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-','security verification'].filter(x=>html.includes(x)||body.toLowerCase().includes(x));
+              console.log(`=== ${name} ===`);
+              console.log('HTTP='+(response?response.status():'NA'));
+              console.log('URL='+page.url());
+              console.log('CAPTCHA_MARKERS='+markers.join(','));
+              console.log('FIELDS='+JSON.stringify(fields));
+              console.log('CONTROLS='+JSON.stringify(controls));
+              console.log('BODY_SAMPLE='+body.slice(0,2800));
+              const email=page.locator('input[type=email],input[name*=mail i],input[autocomplete=email]').first();
+              if(await email.count()) {
+                await email.fill(mail.address).catch(()=>{});
+                console.log('TEMP_EMAIL_CAN_FILL=true');
+              }
+            } finally { await page.close(); }
           }
+
           try {
-            await page.goto('https://wasmer.io/signup',{waitUntil:'domcontentloaded',timeout:60000});
-            await report('SIGNUP_ENTRY');
-            const hobby=page.getByText(/personal projects|hobby/i).first();
-            if(await hobby.count()) await hobby.click({timeout:8000}).catch(()=>{});
-            const cont=page.getByRole('button',{name:/continue/i}).first();
-            if(await cont.count()) await cont.click({timeout:8000}).catch(()=>{});
-            await report('AFTER_HOBBY');
-            const email=page.locator('input[type=email],input[name*=mail i],input[autocomplete=email]').first();
-            if(await email.count()) {
-              await email.fill(mail.address);
-              console.log('TEMP_EMAIL_CAN_FILL=true');
-            }
+            await inspect('RENDER',[
+              'https://dashboard.render.com/register',
+              'https://dashboard.render.com/signup'
+            ]);
+            await inspect('TIDB_CLOUD',[
+              'https://tidbcloud.com/free-trial',
+              'https://tidbcloud.com/signup',
+              'https://tidbcloud.com/'
+            ]);
           } finally { await browser.close(); }
           JS
-          node probe-wasmer.mjs
+          node probe-paas.mjs
