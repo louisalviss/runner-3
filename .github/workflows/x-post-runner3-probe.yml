@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/x-post-runner3-probe.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/x-probe-request.txt'
   workflow_dispatch:
 
 permissions:
