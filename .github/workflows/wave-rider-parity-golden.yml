@@ -8,6 +8,7 @@ on:
       - 'wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'
       - 'wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'
       - 'wave-rider-verify/golden/tv_5m_native_execution_2026-07-27_2026-08-16.json'
+      - 'wave-rider-verify/golden/tv_5m_session_runtime_2026-08.json'
       - '.github/workflows/wave-rider-parity-golden.yml'
   workflow_dispatch:
 permissions:
@@ -70,6 +71,63 @@ jobs:
           }
           print(json.dumps({'symbol':sym,'phase':'full','checks':checks,'native_diffs':native_diffs},indent=2))
           if not all(checks.values()):sys.exit(7)
+          PY
+      - name: Assert direct TradingView SESSION runtime and canonical guard boundaries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,sys
+          from datetime import datetime,timezone
+          golden=json.load(open('wave-rider-verify/golden/tv_5m_session_runtime_2026-08.json'))
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py')
+          m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m);r=m.ref
+          ms=lambda d,hm:int(datetime.fromisoformat(f'{d}T{hm}:00+00:00').timestamp()*1000)
+          chart_ms=golden['timeframe_minutes']*60000
+          failures=[]
+          for d in golden['observed_dates']:
+              cases=[
+                  ('23:10',True,False),
+                  (golden['no_entry_rise_time_close_utc'],False,False),
+                  ('23:35',False,False),
+                  (golden['forced_exit_rise_time_close_utc'],False,True),
+                  ('23:45',False,True),
+              ]
+              for hm,want_allowed,want_exit in cases:
+                  got_allowed,got_exit=r.session_flags(ms(d,hm),chart_ms)
+                  if (got_allowed,got_exit)!=(want_allowed,want_exit):
+                      failures.append({'date':d,'time':hm,'got':[got_allowed,got_exit],'want':[want_allowed,want_exit]})
+          checks={
+              'no_entry_cutoff':golden['no_entry_cutoff_utc']=='23:20',
+              'forced_exit_cutoff':golden['forced_exit_cutoff_utc']=='23:45',
+              'runtime_boundaries':not failures,
+          }
+          print(json.dumps({'phase':'session_runtime','checks':checks,'failures':failures},indent=2))
+          if not all(checks.values()):sys.exit(9)
+          PY
+      - name: Assert canonical NEWS boundaries and conservative both-touch rule
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,sys
+          from datetime import datetime,timezone
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py')
+          m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
+          ms=lambda hm:int(datetime.fromisoformat(f'2025-11-20T{hm}:00+00:00').timestamp()*1000)
+          five=5*60000
+          checks={
+            'news_1310_setup_blocked':not m._news_safe_for_setup(ms('13:10'),five),
+            'news_1315_locked':m._news_locked_at(ms('13:15')),
+            'news_1340_locked':m._news_locked_at(ms('13:40')),
+            'news_1345_unlocked':not m._news_locked_at(ms('13:45')),
+            'news_exit_rise_1310':m._news_exit_at_bar_close(ms('13:10'),five),
+            'news_event_not_exit_1330':not m._news_exit_at_bar_close(ms('13:30'),five),
+            'both_touch_is_minus_1R':True,
+          }
+          # Both-touch behavior is hard-coded in close_trade: both => AMBIG->SL => -1R.
+          src=open('wave-rider-verify/reference_verify_parity.py').read()
+          checks['both_touch_is_minus_1R']=("reason='AMBIG->SL'" in src and "elif reason in ('SL','AMBIG->SL')" in src and 'cr=-1.0' in src)
+          print(json.dumps({'phase':'news_ambiguity','checks':checks},indent=2))
+          if not all(checks.values()):sys.exit(10)
           PY
       - name: Run narrower report over same production dataset
         shell: bash
