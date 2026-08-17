@@ -1,0 +1,51 @@
+name: TradingView Runtime Ledger Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-runtime-ledger-probe.yml'
+      - 'scripts/tradingview-runtime-ledger-probe.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView state and canonical Pine
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
+          test "$(sha256sum /tmp/wr2513-base.pine | awk '{print $1}')" = "$BASE_SHA256"
+      - name: Capture Strategy Tester rows and chart metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/tradingview-runtime-ledger-probe.mjs
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-runtime-ledger-${{ github.run_id }}
+          path: |
+            /tmp/tv-runtime-BNBUSDT.json
+            /tmp/tv-runtime-TRXUSDT.json
+            /tmp/tv-runtime-BNBUSDT.png
+            /tmp/tv-runtime-TRXUSDT.png
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513-base.pine
