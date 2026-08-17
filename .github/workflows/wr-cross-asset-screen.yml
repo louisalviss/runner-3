@@ -7,8 +7,14 @@ permissions:
   contents: read
 jobs:
   screen:
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [stock_us, forex, metal, index]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      WR_GROUP: ${{ matrix.group }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,9 +22,9 @@ jobs:
           python-version: '3.12'
       - run: pip install websocket-client==1.8.0
       - name: Run frozen cross-asset screen
-        run: python formal-tests/wr_cross_asset_screen.py --out wr_cross_asset_screen.json
+        run: python formal-tests/wr_cross_asset_group.py
       - uses: actions/upload-artifact@v4
         with:
-          name: wr-cross-asset-screen
-          path: wr_cross_asset_screen.json
+          name: wr-cross-asset-${{ matrix.group }}
+          path: wr_cross_asset_${{ matrix.group }}.json
           retention-days: 30
