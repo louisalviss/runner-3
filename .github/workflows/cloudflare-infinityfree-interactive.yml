@@ -39,63 +39,30 @@ jobs:
       - name: Install Playwright core
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Inspect InfinityFree email signup
+      - name: Check InfinityFree Turnstile state
         shell: bash
         run: |
           set -euo pipefail
           cat > probe-infinityfree.mjs <<'JS'
           import { chromium } from 'playwright-core';
-
-          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-          const token = process.env.CLOUDFLARE_API_TOKEN;
-          const endpoint = `wss://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/devtools/browser?keep_alive=600000`;
-
-          const browser = await chromium.connectOverCDP(endpoint, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-
-          async function inspect(page, label) {
-            await page.waitForTimeout(2500);
-            console.log(`--- ${label} ---`);
-            console.log('FINAL_URL=' + page.url());
-            console.log('TITLE=' + (await page.title()));
-            const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
-            console.log('BODY_SAMPLE=' + text.slice(0, 1800));
-            const inputs = await page.locator('input').evaluateAll(els => els.map((e, i) => ({
-              i, type: e.type, name: e.name, id: e.id, placeholder: e.placeholder,
-              autocomplete: e.autocomplete, required: e.required
-            })));
-            console.log('INPUTS=' + JSON.stringify(inputs));
-            const controls = await page.locator('button, a').evaluateAll(els => els.map((e, i) => ({
-              i, tag: e.tagName,
-              text: (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0,120),
-              href: e.href || '', type: e.type || ''
-            })).filter(x => x.text || x.href).slice(0,100));
-            console.log('BUTTONS_LINKS=' + JSON.stringify(controls));
-            const forms = await page.locator('form').evaluateAll(els => els.map((e, i) => ({i, action:e.action, method:e.method})));
-            console.log('FORMS=' + JSON.stringify(forms));
-            const html=(await page.content()).toLowerCase();
-            const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-'].filter(x=>html.includes(x));
-            console.log('CAPTCHA_MARKERS=' + markers.join(','));
-          }
-
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const endpoint=`wss://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/devtools/browser?keep_alive=600000`;
+          const browser=await chromium.connectOverCDP(endpoint,{headers:{Authorization:`Bearer ${token}`}});
           try {
-            const context = browser.contexts()[0];
-            const page = context.pages()[0] || await context.newPage();
-            await page.goto('https://dash.infinityfree.com/register/email', { waitUntil:'domcontentloaded', timeout:45000 });
-            await inspect(page, 'EMAIL_SIGNUP');
-            await page.screenshot({ path:'infinityfree-email-register.png', fullPage:true });
+            const context=browser.contexts()[0];
+            const page=context.pages()[0] || await context.newPage();
+            await page.goto('https://dash.infinityfree.com/register/email',{waitUntil:'domcontentloaded',timeout:45000});
+            for (const ms of [2500,5000,10000]) {
+              await page.waitForTimeout(ms===2500?2500:ms-(ms===5000?2500:5000));
+              const value=await page.locator('input[name="cf-turnstile-response"]').inputValue().catch(()=> '');
+              console.log(`TURNSTILE_TOKEN_LENGTH_${ms}MS=${value.length}`);
+              console.log(`TURNSTILE_SOLVED_${ms}MS=${value.length>20}`);
+            }
+            const body=(await page.locator('body').innerText()).replace(/\s+/g,' ').trim();
+            console.log('BODY_SAMPLE=' + body.slice(0,1000));
           } finally {
             await browser.close();
           }
           JS
           node probe-infinityfree.mjs
-
-      - name: Upload signup screenshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: infinityfree-email-register-probe-${{ github.run_id }}
-          path: infinityfree-email-register.png
-          if-no-files-found: ignore
-          retention-days: 1
