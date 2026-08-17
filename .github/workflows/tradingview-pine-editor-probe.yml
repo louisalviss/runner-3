@@ -1,0 +1,71 @@
+name: TradingView Pine Editor Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-pine-editor-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Inspect Pine editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p)); const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}}); const p=await c.newPage(); p.setDefaultTimeout(10000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(9000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first();
+            console.log('TV_PINE_BUTTON_VISIBLE='+(await pine.isVisible().catch(()=>false)?'YES':'NO'));
+            await pine.click(); await p.waitForTimeout(5000);
+            const body=await p.locator('body').innerText().catch(()=>'');
+            console.log('TV_PINE_EDITOR_TEXT='+(body.includes('Pine Editor')?'PRESENT':'ABSENT'));
+            console.log('TV_EXACT_2513_EDITOR='+(body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'PRESENT':'ABSENT'));
+            console.log('TV_ANY_2513_EDITOR='+(body.includes('2.5.13')?'PRESENT':'ABSENT'));
+            const monaco=p.locator('.monaco-editor');
+            console.log('TV_MONACO_COUNT='+await monaco.count());
+            const view=p.locator('.monaco-editor .view-lines').first();
+            const viewText=await view.innerText().catch(()=>'');
+            console.log('TV_VIEW_LINES_CHARS='+viewText.length);
+            console.log('TV_VIEW_EXACT_2513='+(viewText.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'PRESENT':'ABSENT'));
+            const tas=await p.locator('textarea').count(); const ces=await p.locator('[contenteditable="true"]').count();
+            console.log('TV_TEXTAREA_COUNT='+tas); console.log('TV_CONTENTEDITABLE_COUNT='+ces);
+            const controls=await p.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(els=>els.map((e,i)=>({i,tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,160),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||''})).filter(x=>/add to chart|save|pine|editor|script|open|create|publish|more/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,120));
+            fs.writeFileSync('/tmp/pine-controls.json',JSON.stringify(controls,null,2));
+            fs.writeFileSync('/tmp/pine-view.txt',viewText.slice(0,20000));
+            for(const r of controls.slice(0,60)) console.log('TV_PINE_EL='+JSON.stringify(r));
+            await p.screenshot({path:'/tmp/pine-editor.png',fullPage:true}); await b.close();
+          })().catch(e=>{console.error('TV_PINE_PROBE_ERROR='+e.stack);process.exit(5)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-pine-editor-${{ github.run_id }}
+          path: |
+            /tmp/pine-controls.json
+            /tmp/pine-view.txt
+            /tmp/pine-editor.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
