@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths: ['.github/workflows/m88-saba-serie-a-current.yml']
 permissions:
-  contents: read
+  contents: write
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -111,7 +111,7 @@ jobs:
             candidates=[]
             for mid,title in leagueN.items():
               u=str(title).upper()
-              if 'SERIE A 2026/2027' in u and ('ITAL' in u or 'SERIE A' in u):
+              if 'SERIE A 2026/2027' in u and 'BRAZIL' not in u:
                 candidates.append((int(mid),str(title)))
             result['titles']=[{'match_id':m,'title':t} for m,t in candidates]
             wanted={}
@@ -156,6 +156,20 @@ jobs:
           (OUT/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
           print(json.dumps(result,ensure_ascii=False,indent=2))
           PY
+      - name: Publish latest snapshot branch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp evidence/result.json /tmp/result.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git switch --orphan m88-serie-a-data
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/result.json result.json
+          git add result.json
+          git commit -m "Update M88 Serie A odds snapshot"
+          git push --force origin HEAD:m88-serie-a-data
       - uses: actions/upload-artifact@v4
         if: always()
         with:
