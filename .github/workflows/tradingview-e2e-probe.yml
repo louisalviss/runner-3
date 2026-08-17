@@ -1,0 +1,120 @@
+name: TradingView E2E Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-e2e-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ops/tradingview/session-state.json.aes
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes \
+            -out /tmp/tv-storage-state.json
+
+      - name: Probe BNB 5m and saved Wave Rider strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright-core');
+
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            if(!executablePath) throw new Error('Chrome/Chromium missing');
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-storage-state.json','utf8'));
+            const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1600,height:1000}});
+            const page=await context.newPage();
+            const report=[];
+            const log=(k,v)=>{ const s=`${k}=${v}`; console.log(s); report.push(s); };
+
+            await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await page.waitForTimeout(12000);
+            const body1=await page.locator('body').innerText().catch(()=> '');
+            const url1=page.url();
+            log('TV_HOST',new URL(url1).hostname);
+            log('TV_SIGNIN',/\bSign in\b/i.test(body1)?'PRESENT':'ABSENT');
+            log('TV_BNB_TEXT',/BNBUSDT|BNB\/USDT|BNBUSDT\.P/i.test(body1)?'PRESENT':'ABSENT');
+            log('TV_STRATEGY_TESTER_TEXT',/Strategy Tester/i.test(body1)?'PRESENT':'ABSENT');
+            log('TV_PINE_EDITOR_TEXT',/Pine Editor/i.test(body1)?'PRESENT':'ABSENT');
+            log('TV_WAVE_RIDER_ON_CHART',/Wave Rider/i.test(body1)?'PRESENT':'ABSENT');
+            await page.screenshot({path:'/tmp/tv-bnb-before.png',fullPage:true}).catch(()=>{});
+
+            const candidates = [
+              page.getByRole('button',{name:/Indicators/i}).first(),
+              page.locator('button').filter({hasText:/Indicators/i}).first(),
+              page.getByText(/Indicators, Metrics & Strategies/i,{exact:false}).first()
+            ];
+            let opened=false;
+            for(const c of candidates){
+              try{ if(await c.count() && await c.isVisible({timeout:1000})){ await c.click(); opened=true; break; } }catch{}
+            }
+            log('TV_INDICATORS_OPENED',opened?'YES':'NO');
+            if(opened){
+              await page.waitForTimeout(2500);
+              const inputs=page.locator('input');
+              let typed=false;
+              for(let i=0;i<await inputs.count();i++){
+                const inp=inputs.nth(i);
+                try{
+                  const ph=(await inp.getAttribute('placeholder'))||'';
+                  const aria=(await inp.getAttribute('aria-label'))||'';
+                  if(/search/i.test(ph+' '+aria) && await inp.isVisible()){
+                    await inp.fill('Wave Rider'); typed=true; break;
+                  }
+                }catch{}
+              }
+              log('TV_INDICATOR_SEARCH_TYPED',typed?'YES':'NO');
+              if(typed) await page.waitForTimeout(3500);
+              const body2=await page.locator('body').innerText().catch(()=> '');
+              const exact='Wave Rider Strategy v2.5.13 WINDOW REPORT';
+              log('TV_WAVE_RIDER_SEARCH_RESULT',/Wave Rider/i.test(body2)?'PRESENT':'ABSENT');
+              log('TV_EXACT_2513_SEARCH_RESULT',body2.includes(exact)?'PRESENT':'ABSENT');
+              const lines=body2.split('\n').filter(x=>/Wave Rider|2\.5\.13|My scripts|Favorites/i.test(x)).slice(0,80);
+              fs.writeFileSync('/tmp/tv-wave-rider-search.txt',lines.join('\n'));
+              await page.screenshot({path:'/tmp/tv-bnb-search.png',fullPage:true}).catch(()=>{});
+            }
+
+            fs.writeFileSync('/tmp/tv-e2e-report.txt',report.join('\n')+'\n');
+            await browser.close();
+          })().catch(e=>{console.error('TV_E2E_ERROR='+e.stack);process.exit(6)});
+          NODE
+
+      - name: Upload probe evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-e2e-probe-${{ github.run_id }}
+          path: |
+            /tmp/tv-e2e-report.txt
+            /tmp/tv-wave-rider-search.txt
+            /tmp/tv-bnb-before.png
+            /tmp/tv-bnb-search.png
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/tv-storage-state.json
