@@ -1,0 +1,35 @@
+name: Wave Rider Frozen Family Holdout
+
+on:
+  push:
+    paths:
+      - 'wave-rider-full-universe/frozen_family_20260817.json'
+      - 'wave-rider-full-universe/family_holdout.py'
+      - '.github/workflows/wave-rider-family-holdout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  holdout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependency
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Run frozen-family untouched holdout
+        run: python wave-rider-full-universe/family_holdout.py
+      - name: Upload holdout snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-frozen-family-holdout
+          path: family_holdout_out/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
