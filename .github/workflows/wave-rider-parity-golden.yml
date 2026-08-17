@@ -46,7 +46,16 @@ jobs:
           rows=list(csv.DictReader(open('/tmp/full-trades.csv',newline=''))); s=json.load(open('/tmp/full-summary.json'))
           qty=[float(r['qty']) for r in rows]; risk=[float(r['risk_cash']) for r in rows]; rr=[float(r['canon_r']) for r in rows]
           final_eq=100000+sum(float(r['canon_r'])*float(r['risk_cash']) for r in rows)
-          native_ok=len(rows)==len(native) and all(r['side']==g['side'] and r['entry_time']==g['entry_time'] and r['exit_time']==g['exit_time'] and abs(float(r['entry'])-float(g['entry']))<=1e-12 and abs(float(r['exit_price'])-float(g['exit_price']))<=1e-12 for r,g in zip(rows,native))
+          native_diffs=[]
+          for i,(r,g) in enumerate(zip(rows,native),1):
+              bad={}
+              for k in ('side','entry_time','exit_time'):
+                  if r[k]!=g[k]: bad[k]={'actual':r[k],'golden':g[k]}
+              for k in ('entry','exit_price'):
+                  a=float(r[k]); b=float(g[k])
+                  if abs(a-b)>1e-12: bad[k]={'actual':a,'golden':b,'delta':a-b}
+              if bad:native_diffs.append({'n':i,'diff':bad})
+          native_ok=len(rows)==len(native) and not native_diffs
           checks={
             'count':len(rows)==len(entries)==len(acct['quantities'])==len(native),
             'native_execution':native_ok,
@@ -59,7 +68,7 @@ jobs:
             'equity':abs(final_eq-float(acct['final_canonical_equity']))<=1e-6,
             'meta':s.get('contract_meta_verified') is True,
           }
-          print(json.dumps({'symbol':sym,'phase':'full','checks':checks},indent=2))
+          print(json.dumps({'symbol':sym,'phase':'full','checks':checks,'native_diffs':native_diffs},indent=2))
           if not all(checks.values()):sys.exit(7)
           PY
       - name: Run narrower report over same production dataset
