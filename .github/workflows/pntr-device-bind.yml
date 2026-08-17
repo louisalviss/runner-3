@@ -1,0 +1,92 @@
+name: PNTR GitHub Device Bind
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-device-bind.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore guest session
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/pntr/browser-state.aes \
+            -out /tmp/pntr-state.json
+          chmod 600 /tmp/pntr-state.json
+
+      - name: Start PNTR device flow from guest session
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const st = JSON.parse(fs.readFileSync('/tmp/pntr-state.json','utf8'));
+          const c = (st.cookies || []).find(x => x.name === 'anon_user_id' && /pntr\.dev$/.test(x.domain || ''));
+          if (!c?.value) throw new Error('anon_user_id missing');
+          const common = { 'Accept':'application/json', 'Content-Type':'application/json', 'Cookie':`anon_user_id=${c.value}` };
+          const r = await fetch('https://api.pntr.dev/device/code', { method:'POST', headers:common });
+          const j = await r.json();
+          if (!r.ok || !j.device_code || !j.user_code || !j.verification_uri) throw new Error(`device code failed ${r.status}`);
+          fs.writeFileSync('/tmp/pntr-device.json', JSON.stringify(j), {mode:0o600});
+          console.log('PNTR_DEVICE_FLOW_READY=true');
+          console.log('OPEN_THIS='+j.verification_uri);
+          console.log('ENTER_CODE='+j.user_code);
+          console.log('EXPIRES_IN_SECONDS='+(j.expires_in || 900));
+          NODE
+
+      - name: Wait for approval and verify ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const st = JSON.parse(fs.readFileSync('/tmp/pntr-state.json','utf8'));
+          const c = (st.cookies || []).find(x => x.name === 'anon_user_id' && /pntr\.dev$/.test(x.domain || ''));
+          const d = JSON.parse(fs.readFileSync('/tmp/pntr-device.json','utf8'));
+          const interval = Math.max(5, Number(d.interval || 5));
+          const deadline = Date.now() + Math.min(900, Number(d.expires_in || 900)) * 1000;
+          let token = null;
+          while (Date.now() < deadline) {
+            const r = await fetch('https://api.pntr.dev/device/token', {
+              method:'POST',
+              headers:{'Accept':'application/json','Content-Type':'application/json','Cookie':`anon_user_id=${c.value}`},
+              body:JSON.stringify({device_code:d.device_code, grant_type:'urn:ietf:params:oauth:grant-type:device_code'})
+            });
+            const j = await r.json().catch(()=>({}));
+            if (j.access_token) { token = j.access_token; break; }
+            if (j.error && !['authorization_pending','slow_down'].includes(j.error)) throw new Error('device auth failed: '+j.error);
+            await new Promise(res=>setTimeout(res, (j.error === 'slow_down' ? interval+5 : interval)*1000));
+          }
+          if (!token) throw new Error('device authorization timed out');
+          console.log('PNTR_DEVICE_AUTH_OK=true');
+          const ar = await fetch('https://api.pntr.dev/api/subdomains', {headers:{'Accept':'application/json','Authorization':`Bearer ${token}`}});
+          const at = await ar.text();
+          const owned = ar.ok && at.toLowerCase().includes('runner3wp.pntr.dev');
+          console.log('ACCOUNT_SUBDOMAINS_HTTP='+ar.status);
+          console.log('RUNNER3WP_ATTACHED_TO_ACCOUNT='+(owned?'true':'false'));
+          const gr = await fetch('https://pntr.dev/api/subdomains', {headers:{'Accept':'application/json','Cookie':`anon_user_id=${c.value}`}});
+          const gt = await gr.text();
+          console.log('GUEST_STILL_SEES_RUNNER3WP='+(gt.toLowerCase().includes('runner3wp.pntr.dev')?'true':'false'));
+          if (!owned) process.exitCode = 7;
+          NODE
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/pntr-state.json /tmp/pntr-device.json
