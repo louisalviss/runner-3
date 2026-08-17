@@ -78,6 +78,47 @@ jobs:
           set -euo pipefail
           docker build --tag runner3-wordpress:test wordpress-site
 
+      - name: Smoke-test WordPress with PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm -f runner3-wp runner3-pg >/dev/null 2>&1 || true
+            docker network rm runner3-test >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker network create runner3-test >/dev/null
+          docker run -d --name runner3-pg --network runner3-test \
+            -e POSTGRES_DB=runner3wp \
+            -e POSTGRES_USER=runner3wp \
+            -e POSTGRES_PASSWORD=runner3pass \
+            postgres:14 >/dev/null
+          for i in $(seq 1 45); do
+            if docker exec runner3-pg pg_isready -U runner3wp -d runner3wp >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec runner3-pg pg_isready -U runner3wp -d runner3wp >/dev/null
+          docker run -d --name runner3-wp --network runner3-test \
+            -p 18080:10000 \
+            -e PORT=10000 \
+            -e DATABASE_URL='postgresql://runner3wp:runner3pass@runner3-pg:5432/runner3wp' \
+            runner3-wordpress:test >/dev/null
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsSL http://127.0.0.1:18080/wp-admin/install.php -o /tmp/wp-install.html; then
+              if grep -Eqi 'WordPress|Information needed|Select a Default language' /tmp/wp-install.html; then
+                ok=1
+                break
+              fi
+            fi
+            sleep 1
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo 'WordPress/Postgres smoke test failed'
+            docker logs runner3-wp || true
+            exit 1
+          fi
+
       - name: Package build artifact
         uses: actions/upload-artifact@v4
         with:
