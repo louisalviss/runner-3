@@ -1,0 +1,29 @@
+  // Capture structured Strategy Report rows, including cell/descendant metadata.
+  const __detailSymbol=process.env.TV_SYMBOL||'BNBUSDT';
+  const __detailRows={};
+  const __scroller=p.locator('.ka-table-wrapper').first();
+  if(await __scroller.count()>0){
+    const dims=await __scroller.evaluate(e=>({max:Math.max(0,e.scrollHeight-e.clientHeight),client:e.clientHeight,scroll:e.scrollHeight}));
+    const poses=[]; for(let f=0;f<=1.0001;f+=0.06)poses.push(Math.round(dims.max*Math.min(f,1))); poses.push(dims.max);
+    for(const pos of [...new Set(poses)]){
+      await __scroller.evaluate((e,y)=>{e.scrollTop=y;e.dispatchEvent(new Event('scroll',{bubbles:true}))},pos);
+      await p.waitForTimeout(180);
+      const rr=await p.locator('tr.ka-row').evaluateAll(rows=>rows.map(tr=>{
+        const text=(tr.innerText||tr.textContent||'').trim().replace(/\s+/g,' ');
+        const cells=[...tr.querySelectorAll(':scope > td')].map(td=>({
+          text:(td.innerText||td.textContent||'').trim().replace(/\s+/g,' '),
+          attrs:Object.fromEntries([...td.attributes].map(a=>[a.name,a.value])),
+          descendants:[...td.querySelectorAll('*')].map(e=>({
+            tag:e.tagName,
+            text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,250),
+            attrs:Object.fromEntries([...e.attributes].map(a=>[a.name,a.value]))
+          })).filter(x=>x.text||Object.keys(x.attrs).some(k=>/title|aria|data/i.test(k))).slice(0,80),
+          html:td.innerHTML.slice(0,6000)
+        }));
+        return {text,cells,html:tr.outerHTML.slice(0,24000)};
+      }));
+      for(const r of rr){const m=r.text.match(/^(\d+)(long|short)\b/i);if(m)__detailRows[m[1]]=r;}
+    }
+  }
+  fs.writeFileSync(`/tmp/tv-row-detail-${__detailSymbol}.json`,JSON.stringify({symbol:__detailSymbol,rows:__detailRows},null,2));
+  log('TV_ROW_DETAIL_COUNT',String(Object.keys(__detailRows).length));
