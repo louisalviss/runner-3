@@ -37,15 +37,17 @@ jobs:
           grep -Fq 'use_bar_magnifier=false' /tmp/wr2513.pine
           echo 'TV_LOAD_SOURCE_VALIDATE=PASS'
 
-      - name: Paste, compile and add canonical strategy to BNB 5m
+      - name: Paste, verify and compile canonical strategy on BNB 5m
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.58.2 >/dev/null
           node <<'NODE'
           const fs=require('fs');
+          const crypto=require('crypto');
           const {chromium}=require('playwright-core');
           const source=fs.readFileSync('/tmp/wr2513.pine','utf8');
+          const expectedHash=process.env.EXPECTED_SHA256;
           const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
           const out=[];
           const log=(k,v)=>{const s=`${k}=${v}`; console.log(s); out.push(s)};
@@ -86,15 +88,18 @@ jobs:
             await p.waitForTimeout(5000);
             log('TV_EDITOR_PASTE_MS',String(Date.now()-t0));
 
-            await p.keyboard.press('Control+Home'); await p.waitForTimeout(1000);
-            let view=await dialog.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
-            const startOk=view.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
-            log('TV_EDITOR_START_MARKER',startOk?'PASS':'FAIL');
-            await p.keyboard.press('Control+End'); await p.waitForTimeout(1000);
-            view=await dialog.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
-            const endOk=view.includes('table.clear(audit,0,0,1,7)');
-            log('TV_EDITOR_END_MARKER',endOk?'PASS':'FAIL');
-            if(!startOk||!endOk) throw new Error('Canonical Pine paste endpoints missing');
+            // Exact editor-content verification without printing source.
+            await p.evaluate(async()=>{await navigator.clipboard.writeText('TV_CLIPBOARD_SENTINEL')});
+            await ta.evaluate(el=>el.focus());
+            await p.keyboard.press('Control+A');
+            await p.keyboard.press('Control+C');
+            await p.waitForTimeout(1200);
+            const roundtrip=await p.evaluate(async()=>await navigator.clipboard.readText());
+            const roundHash=crypto.createHash('sha256').update(roundtrip,'utf8').digest('hex');
+            log('TV_EDITOR_ROUNDTRIP_LEN',String(roundtrip.length));
+            log('TV_EDITOR_ROUNDTRIP_SHA256',roundHash);
+            log('TV_EDITOR_EXACT_HASH',roundHash===expectedHash?'PASS':'FAIL');
+            if(roundHash!==expectedHash) throw new Error('Canonical Pine editor hash mismatch');
 
             net.length=0;
             const add=dialog.getByRole('button',{name:'Add to chart',exact:true}).first();
@@ -103,9 +108,10 @@ jobs:
 
             let updateOnChart=false;
             let translateUser=false;
-            for(let i=0;i<70;i++){
+            for(let i=0;i<90;i++){
               await p.waitForTimeout(1000);
-              updateOnChart=await dialog.locator('[title="Update on chart"]').first().isVisible().catch(()=>false) || await dialog.locator('[title="Update on chart"]').first().count()>0;
+              const upd=dialog.locator('[title="Update on chart"]').first();
+              updateOnChart=(await upd.count()>0);
               translateUser=net.some(x=>x.status===200 && /pine-facade\/translate\/USER%3B/i.test(x.url));
               if(updateOnChart&&translateUser) break;
             }
