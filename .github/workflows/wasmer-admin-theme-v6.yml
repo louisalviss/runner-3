@@ -1,0 +1,127 @@
+name: Wasmer Admin Theme Handoff v6
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-admin-theme-v6.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate ephemeral X25519 receiver key
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm X25519 -out /tmp/receiver-private.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/receiver-private.pem -pubout -out receiver-public.pem >/dev/null 2>&1
+          chmod 600 /tmp/receiver-private.pem
+      - name: Upload public handoff key
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasmer-x25519-key-${{ github.run_id }}
+          path: receiver-public.pem
+          retention-days: 1
+      - name: Receive and decrypt credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASE="https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/wasmer-session/${GITHUB_RUN_ID}"
+          found=0
+          for i in $(seq 1 180); do
+            ok=1
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw+json" "${BASE}.sender.pem?ref=main" -o /tmp/sender-public.pem 2>/dev/null || ok=0
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw+json" "${BASE}.enc.b64?ref=main" -o /tmp/session.enc.b64 2>/dev/null || ok=0
+            if [ "$ok" = 1 ]; then found=1; break; fi
+            sleep 2
+          done
+          test "$found" = 1
+          openssl pkeyutl -derive -inkey /tmp/receiver-private.pem -peerkey /tmp/sender-public.pem -out /tmp/shared.bin
+          base64 -d /tmp/session.enc.b64 > /tmp/session.enc
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -in /tmp/session.enc -out /tmp/session.json -pass file:/tmp/shared.bin
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/session.json'))
+          for k in ['wasmer_user','wasmer_password','app_name']:
+              assert x.get(k), k
+          for v in x.values(): print('::add-mask::'+v)
+          print('HANDOFF_DECRYPTED=true')
+          PY
+      - name: Install Playwright
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Activate theme and inspect Claim App
+        run: |
+          cat > admin-v6.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          import fs from 'fs';
+          const id=JSON.parse(fs.readFileSync('/tmp/session.json','utf8'));
+          const site='https://'+id.app_name+'.wasmer.app';
+          const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const ctx=await browser.newContext();
+          const page=await ctx.newPage();
+          const mask=s=>(s||'').replaceAll(id.wasmer_user,'[MASKED_USER]').replaceAll(id.wasmer_password,'[MASKED_PASSWORD]');
+          async function text(p=page){return (await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim()}
+          async function controls(p){return await p.locator('input,select,textarea,button,a,form').evaluateAll(els=>els.map(e=>({tag:e.tagName,type:e.type||'',name:e.name||'',placeholder:e.placeholder||'',required:!!e.required,text:(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,120),href:e.href||''})).filter(x=>x.text||x.placeholder||x.name).slice(0,100)).catch(()=>[])}
+          async function report(label,p){console.log(label+'_URL='+p.url().replace(/([?&](?:token|magiclogin|secret|challenge|code)=)[^&]+/ig,'$1[MASKED]'));console.log(label+'_BODY='+mask((await text(p)).slice(0,2200)));console.log(label+'_CONTROLS='+mask(JSON.stringify(await controls(p))))}
+          async function login(p){
+            await p.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(500);
+            const u=p.locator('input[name="username"]').first();await u.fill(id.wasmer_user);await p.locator('form').first().evaluate(f=>f.requestSubmit());await p.waitForTimeout(1200);
+            const pw=p.locator('input[type="password"]').first();if(!await pw.count())throw Error('password field missing');await pw.fill(id.wasmer_password);await p.locator('form').first().evaluate(f=>f.requestSubmit());await p.waitForTimeout(1600);
+          }
+          try{
+            await login(page);
+            await page.goto(`https://wasmer.io/apps/${id.wasmer_user}/${id.app_name}`,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForTimeout(900);
+            if(!/WordPress Admin/i.test(await text(page)))throw Error('Wasmer dashboard unavailable');
+            console.log('WASMER_LOGIN=true');
+            const admin=page.getByRole('link',{name:/wordpress admin/i}).first();const href=await admin.getAttribute('href');if(!href)throw Error('magic href missing');
+            const wp=await ctx.newPage();await wp.goto(new URL(href,page.url()).href,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(900);
+            if(!/wp-admin/i.test(wp.url()))throw Error('magic login failed');console.log('WP_MAGIC_LOGIN=true');
+
+            await wp.goto(site+'/wp-admin/themes.php',{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(700);
+            let activeText=await text(wp);
+            if(!/Runner3 Starter/i.test(activeText))throw Error('Runner3 Starter theme not installed');
+            let activate=wp.locator('a.activatelink[href*="runner3-starter"],a[href*="stylesheet=runner3-starter"][href*="action=activate"]').first();
+            if(await activate.count()){
+              const activateHref=await activate.getAttribute('href');
+              await wp.goto(new URL(activateHref,wp.url()).href,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(1400);
+              console.log('RUNNER3_THEME_ACTIVATE_REQUEST=true');
+            }
+            await wp.goto(site,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(800);
+            const live=await text(wp);
+            console.log('RUNNER3_THEME_MARKER='+/Built as a practical starter|Ready to edit|Runner3 Site/i.test(live));
+            console.log('LIVE_SITE_URL='+site);
+            console.log('LIVE_SITE_SAMPLE='+live.slice(0,1200));
+
+            await wp.goto(site+'/wp-admin/',{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(700);
+            let claim=wp.getByRole('link',{name:/claim app/i}).first();
+            if(!await claim.count()) claim=wp.getByText(/claim app/i).first();
+            if(!await claim.count()) {console.log('CLAIM_LINK_PRESENT=false');return;}
+            console.log('CLAIM_LINK_PRESENT=true');
+            const claimHref=await claim.getAttribute('href');
+            if(!claimHref){console.log('CLAIM_HREF_PRESENT=false');return;}
+            const cu=new URL(claimHref,wp.url());
+            console.log('CLAIM_TARGET='+cu.origin+cu.pathname);
+            const cp=await ctx.newPage();await cp.goto(cu.href,{waitUntil:'domcontentloaded',timeout:60000});await cp.waitForTimeout(1200);
+            if(/\/login/i.test(cp.url())){await login(cp);await cp.waitForTimeout(1200);}
+            await report('CLAIM_PAGE',cp);
+            const ct=(await text(cp)).toLowerCase();
+            const sensitive=/credit card|payment method|card number|phone number|identity|government|passport|kyc|billing/i.test(ct);
+            console.log('CLAIM_REQUIRES_SENSITIVE_VERIFICATION='+sensitive);
+            if(!sensitive){
+              let btn=cp.getByRole('button',{name:/claim app|claim|verify account|verify|continue/i}).first();
+              if(await btn.count() && (await cp.locator('input:visible,select:visible,textarea:visible').count())===0){
+                await btn.click();await cp.waitForTimeout(1800);await report('CLAIM_AFTER_ACTION',cp);
+                console.log('CLAIM_AUTO_ACTION=true');
+              }
+            }
+          }finally{await browser.close()}
+          JS
+          node admin-v6.mjs
+      - name: Destroy ephemeral secrets
+        if: always()
+        run: |
+          shred -u /tmp/receiver-private.pem /tmp/shared.bin /tmp/session.json /tmp/session.enc /tmp/session.enc.b64 /tmp/sender-public.pem 2>/dev/null || true
+          rm -f receiver-public.pem admin-v6.mjs
