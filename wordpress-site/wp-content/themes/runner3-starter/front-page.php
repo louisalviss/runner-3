@@ -20,9 +20,9 @@ $categories = get_categories(['number' => 4, 'orderby' => 'count', 'order' => 'D
     </h1>
 
     <?php if ($featured): ?>
-      <a class="signal-orbit" href="<?php echo esc_url(get_permalink($featured)); ?>" aria-label="Read <?php echo esc_attr(get_the_title($featured)); ?>">
+      <a class="signal-orbit" href="<?php echo esc_url(get_permalink($featured)); ?>" aria-label="00 FEATURE — Read <?php echo esc_attr(get_the_title($featured)); ?>">
         <span class="signal-orbit__ring" aria-hidden="true"></span>
-        <span class="signal-orbit__image"><img src="<?php echo esc_url(runner3_story_image($featured->ID)); ?>" alt="" loading="eager"></span>
+        <span class="signal-orbit__image"><?php echo runner3_story_image_html($featured->ID, ['loading' => 'eager', 'fetchpriority' => 'high']); ?></span>
         <span class="signal-orbit__badge"><b>00</b><em>FEATURE</em></span>
       </a>
       <div class="signal-stage__feature">
@@ -48,7 +48,7 @@ $categories = get_categories(['number' => 4, 'orderby' => 'count', 'order' => 'D
       <p><?php echo esc_html(wp_trim_words(get_the_excerpt($featured), 38)); ?></p>
       <a class="scene-link" href="<?php echo esc_url(get_permalink($featured)); ?>">Enter the story ↗</a>
     </div>
-    <a class="scene-image" href="<?php echo esc_url(get_permalink($featured)); ?>"><img src="<?php echo esc_url(runner3_story_image($featured->ID)); ?>" alt="" loading="lazy"></a>
+    <a class="scene-image" href="<?php echo esc_url(get_permalink($featured)); ?>" aria-label="Read <?php echo esc_attr(get_the_title($featured)); ?>"><?php echo runner3_story_image_html($featured->ID, ['loading' => 'lazy']); ?></a>
     <div class="scene-caption kicker">Observed / <?php echo esc_html(get_the_date('M Y', $featured)); ?></div>
   </div>
 </section>
@@ -64,7 +64,7 @@ $categories = get_categories(['number' => 4, 'orderby' => 'count', 'order' => 'D
     <?php foreach ($stories as $i => $post): $cat = get_the_category($post->ID)[0] ?? null; $n = $i + 1; ?>
       <article class="reel-story <?php echo $i % 2 ? 'reel-story--reverse' : ''; ?>" data-reveal>
         <div class="reel-number">0<?php echo esc_html($n); ?></div>
-        <a class="reel-image" href="<?php echo esc_url(get_permalink($post)); ?>"><img src="<?php echo esc_url(runner3_story_image($post->ID)); ?>" alt="" loading="lazy"></a>
+        <a class="reel-image" href="<?php echo esc_url(get_permalink($post)); ?>" aria-label="Read <?php echo esc_attr(get_the_title($post)); ?>"><?php echo runner3_story_image_html($post->ID, ['loading' => 'lazy']); ?></a>
         <div class="reel-copy">
           <div class="reel-meta kicker"><span><?php echo esc_html($cat ? $cat->name : 'Journal'); ?></span><span><?php echo esc_html(runner3_read_time($post->ID)); ?> min</span></div>
           <h3><a href="<?php echo esc_url(get_permalink($post)); ?>"><?php echo esc_html(get_the_title($post)); ?></a></h3>
