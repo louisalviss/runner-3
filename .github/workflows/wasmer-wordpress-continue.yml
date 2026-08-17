@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/wasmer-wordpress-continue.yml'
+      - 'scripts/wasmer-continue-v2.mjs'
   workflow_dispatch:
 
 permissions:
@@ -45,7 +46,7 @@ jobs:
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Continue existing account deployment
-        run: node scripts/wasmer-continue.mjs
+        run: node scripts/wasmer-continue-v2.mjs
 
       - name: Persist encrypted deployment state
         if: always()
