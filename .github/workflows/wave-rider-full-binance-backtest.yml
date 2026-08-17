@@ -1,0 +1,115 @@
+name: Wave Rider Full Binance Backtest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-full-binance-backtest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2025-01-01
+      WR_END: 2026-08-14
+      WR_DATA_START: 2025-01-01
+      WR_DATA_END: 2026-08-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run parity engine 5m on Binance USD-M public candles
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 - <<'PY'
+          import importlib.util,sys
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py')
+          m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
+          m.ref.TFS=(5,)
+          raise SystemExit(m.ref.main())
+          PY
+          mkdir -p /tmp/wr-full-${WR_SYMBOL}
+          cp wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv /tmp/wr-full-${WR_SYMBOL}/trades.csv
+          cp wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json /tmp/wr-full-${WR_SYMBOL}/summary.json
+          cp wave-rider-verify/output/master.json /tmp/wr-full-${WR_SYMBOL}/master.json
+          sha256sum /tmp/wr-full-${WR_SYMBOL}/trades.csv > /tmp/wr-full-${WR_SYMBOL}/trades.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-full-${{ matrix.symbol }}
+          path: /tmp/wr-full-${{ matrix.symbol }}/
+          retention-days: 3
+
+  combine:
+    needs: backtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-full-*
+          path: /tmp/full-artifacts
+      - name: Build full-history result
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p wave-rider-verify/fresh-results
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root={
+            'candle_source':'Binance USD-M public daily 1m klines from data.binance.vision, locally aggregated to 5m',
+            'engine':'wave-rider-verify/reference_verify_parity.py',
+            'window':'2025-01-01..2026-08-14 UTC',
+            'symbols':{}
+          }
+          for sym in ('BNBUSDT','TRXUSDT'):
+            d=Path('/tmp/full-artifacts')/f'wr-full-{sym}'
+            s=json.loads((d/'summary.json').read_text())
+            m=json.loads((d/'master.json').read_text())
+            trade_bytes=(d/'trades.csv').read_bytes()
+            root['symbols'][sym]={
+              'trades':s['trades'],
+              'wins':s['wins'],
+              'losses':s['losses'],
+              'even':s['even'],
+              'win_rate_pct':s['win_rate'],
+              'profit_factor':s['profit_factor'],
+              'avg_r':s['avg_r'],
+              'total_r':s['total_r'],
+              'max_dd_pct':s['max_dd_pct'],
+              'max_losing_streak':s['max_losing_streak'],
+              'exit_counts':s['exit_counts'],
+              'production_final_equity':s.get('production_final_equity'),
+              'window_final_equity':s.get('window_final_equity'),
+              'contract_meta_verified':s.get('contract_meta_verified'),
+              'mincontract':s.get('mincontract'),
+              'pointvalue':s.get('pointvalue'),
+              'missing_source_days':m.get('missing',[]),
+              'trade_csv_sha256':hashlib.sha256(trade_bytes).hexdigest(),
+              'diagnostics':s.get('diagnostics',{})
+            }
+          out=Path('wave-rider-verify/fresh-results/binance_full_2025-01-01_2026-08-14.json')
+          out.write_text(json.dumps(root,indent=2)+'\n')
+          print(out.read_text())
+          PY
+      - name: Commit full-history result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'wave-rider-backtest-bot'
+          git config user.email 'wave-rider-backtest-bot@users.noreply.github.com'
+          git add wave-rider-verify/fresh-results/binance_full_2025-01-01_2026-08-14.json
+          git commit -m 'record full Binance BNB TRX parity backtest' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
