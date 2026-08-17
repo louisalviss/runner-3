@@ -1,5 +1,4 @@
 name: Wave Rider TradingView Golden Parity
-
 on:
   push:
     branches: [main]
@@ -10,10 +9,8 @@ on:
       - 'wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'
       - '.github/workflows/wave-rider-parity-golden.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   golden:
     strategy:
@@ -21,58 +18,66 @@ jobs:
       matrix:
         symbol: [BNBUSDT, TRXUSDT]
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     env:
       WR_SYMBOL: ${{ matrix.symbol }}
       WR_START: 2026-07-27
       WR_END: 2026-08-16
     steps:
       - uses: actions/checkout@v4
-
-      - name: Run parity engine
+      - name: Run full golden execution dataset
         shell: bash
         run: |
           set -euo pipefail
           rm -rf wave-rider-verify/output
           python3 wave-rider-verify/reference_verify_parity.py >/tmp/parity-run.txt
-
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" /tmp/full-trades.csv
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json" /tmp/full-summary.json
       - name: Assert TradingView entry and accounting golden
         shell: bash
         run: |
           python3 - <<'PY'
-          import csv,json,math,os,sys
+          import csv,json,os,sys
           sym=os.environ['WR_SYMBOL']
           entries=json.load(open('wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'))['symbols'][sym]
           acct=json.load(open('wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'))['symbols'][sym]
-          with open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='') as f:
-              rows=list(csv.DictReader(f))
-          summary=json.load(open(f'wave-rider-verify/output/{sym}_5m_summary.json'))
-
-          actual_entries=[r['entry_time'] for r in rows]
-          actual_qty=[float(r['qty']) for r in rows]
-          actual_risk=[float(r['risk_cash']) for r in rows]
-          actual_r=[float(r['canon_r']) for r in rows]
-          actual_exit=[r['exit_reason'] for r in rows]
-          final_eq=100000.0+sum(float(r['canon_r'])*float(r['risk_cash']) for r in rows)
-
+          rows=list(csv.DictReader(open('/tmp/full-trades.csv',newline='')))
+          s=json.load(open('/tmp/full-summary.json'))
+          qty=[float(r['qty']) for r in rows]; risk=[float(r['risk_cash']) for r in rows]; rr=[float(r['canon_r']) for r in rows]
+          final_eq=100000+sum(float(r['canon_r'])*float(r['risk_cash']) for r in rows)
           checks={
-            'trade_count': len(rows)==len(entries)==len(acct['quantities']),
-            'entry_sequence': actual_entries==entries,
-            'quantity_exact': len(actual_qty)==len(acct['quantities']) and all(abs(a-b)<=1e-9 for a,b in zip(actual_qty,acct['quantities'])),
-            'risk_cash': len(actual_risk)==len(acct['risk_cash']) and all(abs(a-b)<=1e-6 for a,b in zip(actual_risk,acct['risk_cash'])),
-            'canon_r': len(actual_r)==len(acct['canon_r']) and all(abs(a-b)<=1e-12 for a,b in zip(actual_r,acct['canon_r'])),
-            'exit_reason': actual_exit==acct['exit_reason'],
-            'total_r': abs(float(summary['total_r'])-float(acct['total_r_exact']))<=1e-12,
-            'final_canonical_equity': abs(final_eq-float(acct['final_canonical_equity']))<=1e-6,
+            'count':len(rows)==len(entries)==len(acct['quantities']),
+            'entries':[r['entry_time'] for r in rows]==entries,
+            'qty':all(abs(a-b)<=1e-9 for a,b in zip(qty,acct['quantities'])),
+            'risk':all(abs(a-b)<=1e-6 for a,b in zip(risk,acct['risk_cash'])),
+            'r':all(abs(a-b)<=1e-12 for a,b in zip(rr,acct['canon_r'])),
+            'exit':[r['exit_reason'] for r in rows]==acct['exit_reason'],
+            'total_r':abs(float(s['total_r'])-float(acct['total_r_exact']))<=1e-12,
+            'equity':abs(final_eq-float(acct['final_canonical_equity']))<=1e-6,
+            'meta':s.get('contract_meta_verified') is True,
           }
-          out={
-            'symbol':sym,
-            'checks':checks,
-            'actual_trades':len(rows),
-            'actual_total_r':summary['total_r'],
-            'actual_final_equity':final_eq,
-            'quantity_mismatches':[{'n':i+1,'actual':a,'golden':b} for i,(a,b) in enumerate(zip(actual_qty,acct['quantities'])) if abs(a-b)>1e-9],
-          }
-          print(json.dumps(out,indent=2))
-          if not all(checks.values()): sys.exit(7)
+          print(json.dumps({'symbol':sym,'phase':'full','checks':checks},indent=2))
+          if not all(checks.values()):sys.exit(7)
+          PY
+      - name: Run narrower report over same production dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          WR_START=2026-08-05 WR_END=2026-08-10 WR_DATA_START=2026-07-27 WR_DATA_END=2026-08-16 python3 wave-rider-verify/reference_verify_parity.py >/tmp/window-run.txt
+      - name: Assert report-only semantics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os,sys
+          from datetime import datetime,timezone
+          sym=os.environ['WR_SYMBOL']; full=list(csv.DictReader(open('/tmp/full-trades.csv',newline=''))); win=list(csv.DictReader(open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='')))
+          sf=json.load(open('/tmp/full-summary.json')); sw=json.load(open(f'wave-rider-verify/output/{sym}_5m_summary.json'))
+          lo=datetime(2026,8,5,tzinfo=timezone.utc); hi=datetime(2026,8,11,tzinfo=timezone.utc); dt=lambda s:datetime.fromisoformat(s.replace('Z','+00:00'))
+          exp=[r for r in full if lo<=dt(r['signal_time'])<hi]
+          fields=['side','signal_time','entry_time','exit_time','entry','stop','target','exit_price','exit_reason','canon_r','risk_cash','qty','ambiguous']
+          exact=len(win)==len(exp) and all(all(a[k]==b[k] for k in fields) for a,b in zip(win,exp)); er=sum(float(r['canon_r']) for r in exp)
+          checks={'slice':exact,'total_r':abs(float(sw['total_r'])-er)<=1e-12,'production_equity':abs(float(sw['production_final_equity'])-float(sf['production_final_equity']))<=1e-6,'data':sw.get('data_start')=='2026-07-27' and sw.get('data_end')=='2026-08-16'}
+          print(json.dumps({'symbol':sym,'phase':'report_only','expected':len(exp),'actual':len(win),'checks':checks},indent=2))
+          if not all(checks.values()):sys.exit(8)
           PY
