@@ -22,13 +22,19 @@ on:
       - autocontent-real-mvp
     paths:
       - '.github/workflows/autocontent-engine.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/autocontent-engine.yml'
+      - 'scripts/autocontent_engine.py'
 
 permissions:
   contents: write
   models: read
 
 concurrency:
-  group: runner3-autocontent-${{ github.ref_name }}
+  group: runner3-autocontent-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -42,12 +48,13 @@ jobs:
       AUTOCONTENT_MODEL: openai/gpt-4.1
       AUTOCONTENT_FOCUS: ${{ github.event_name == 'workflow_dispatch' && inputs.focus || 'EV technology, charging, battery economics and real-world ownership' }}
       AUTOCONTENT_STATUS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_status || 'draft' }}
+      TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-          ref: ${{ github.ref_name }}
+          ref: ${{ env.TARGET_BRANCH }}
 
       - name: Install runtime dependencies
         run: python -m pip install --disable-pip-version-check requests beautifulsoup4
@@ -158,9 +165,9 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "Persist AutoContent run report"
           for attempt in 1 2 3; do
-            if git push origin "HEAD:${GITHUB_REF_NAME}"; then exit 0; fi
+            if git push origin "HEAD:${TARGET_BRANCH}"; then exit 0; fi
             sleep 3
-            git pull --rebase origin "$GITHUB_REF_NAME"
+            git pull --rebase origin "$TARGET_BRANCH"
           done
           exit 5
 
