@@ -10,20 +10,23 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install yt-dlp
-        run: python -m pip install -q -U yt-dlp pillow
+      - name: Install yt-dlp and Deno
+        run: |
+          python -m pip install -q -U yt-dlp pillow
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
       - name: Download and extract evidence
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
           URL='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
-          yt-dlp --no-playlist --write-info-json --merge-output-format mp4 -o 'evidence/video.%(ext)s' "$URL"
+          yt-dlp --js-runtimes deno --remote-components ejs:github --no-playlist --write-info-json --merge-output-format mp4 -o 'evidence/video.%(ext)s' "$URL"
           VIDEO=$(find evidence -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1)
           ffprobe -v quiet -print_format json -show_format -show_streams "$VIDEO" > evidence/ffprobe.json
           python - <<'PY'
           import json, subprocess, pathlib
-          from PIL import Image, ImageOps, ImageDraw
+          from PIL import Image, ImageDraw
           p=pathlib.Path('evidence')
           meta=json.load(open(p/'ffprobe.json'))
           dur=float(meta['format']['duration'])
