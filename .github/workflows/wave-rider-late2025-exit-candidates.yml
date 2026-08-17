@@ -1,0 +1,71 @@
+name: Wave Rider Late-2025 Exit Candidates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-late2025-exit-candidates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2025-11-10
+      WR_END: 2025-12-22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run 5m parity engine across embedded NEWS sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 - <<'PY'
+          import importlib.util,sys
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py')
+          m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
+          m.ref.TFS=(5,)
+          raise SystemExit(m.ref.main())
+          PY
+      - name: Print NEWS SESSION candidates and event-near trades
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from datetime import datetime,timezone,timedelta
+          sym=os.environ['WR_SYMBOL']
+          rows=list(csv.DictReader(open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='')))
+          events=[
+            datetime(2025,11,20,13,30,tzinfo=timezone.utc),
+            datetime(2025,12,10,19,0,tzinfo=timezone.utc),
+            datetime(2025,12,16,13,30,tzinfo=timezone.utc),
+            datetime(2025,12,18,13,30,tzinfo=timezone.utc),
+          ]
+          dt=lambda s:datetime.fromisoformat(s.replace('Z','+00:00'))
+          special=[r for r in rows if r['exit_reason'] in ('NEWS','SESSION')]
+          near=[]
+          for r in rows:
+            st=dt(r['signal_time']); en=dt(r['exit_time'])
+            if any(abs((st-e).total_seconds())<=3*3600 or abs((en-e).total_seconds())<=3*3600 for e in events):near.append(r)
+          out={'symbol':sym,'total_trades':len(rows),'exit_counts':{},'special':special,'near_news':near}
+          for r in rows:out['exit_counts'][r['exit_reason']]=out['exit_counts'].get(r['exit_reason'],0)+1
+          print(json.dumps(out,indent=2))
+          open(f'/tmp/{sym}-late2025-candidates.json','w').write(json.dumps(out,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-late2025-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            wave-rider-verify/output/${{ matrix.symbol }}_5m_trades.csv
+            wave-rider-verify/output/${{ matrix.symbol }}_5m_summary.json
+            /tmp/${{ matrix.symbol }}-late2025-candidates.json
+          retention-days: 3
