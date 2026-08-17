@@ -1,0 +1,113 @@
+name: Apply Wave Rider NEWS Parity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-apply-news-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch canonical NEWS semantics and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('wave-rider-verify/reference_verify_parity.py')
+          s=p.read_text()
+
+          anchor='''VERIFIED_CONTRACT_META = {\n    "BNBUSDT": (0.01, 1.0),\n    "TRXUSDT": (1.0, 1.0),\n}\n'''
+          insert='''VERIFIED_CONTRACT_META = {\n    "BNBUSDT": (0.01, 1.0),\n    "TRXUSDT": (1.0, 1.0),\n}\n\n# Canonical v2.5.13 embedded high-impact news sample. Pine timestamps use\n# America/New_York; all four sample events are in EST (UTC-5).\nNEWS_FILTER = True\nNEWS_EXIT_BEFORE_MIN = 15\nNEWS_RESUME_AFTER_MIN = 15\nNEWS_TIMES_UTC_MS = tuple(\n    int(x.timestamp()*1000) for x in (\n        datetime(2025,11,20,13,30,tzinfo=timezone.utc),\n        datetime(2025,12,10,19,0,tzinfo=timezone.utc),\n        datetime(2025,12,16,13,30,tzinfo=timezone.utc),\n        datetime(2025,12,18,13,30,tzinfo=timezone.utc),\n    )\n)\n\ndef _news_locked_at(t: int) -> bool:\n    if not NEWS_FILTER:\n        return False\n    pre=NEWS_EXIT_BEFORE_MIN*60000\n    post=NEWS_RESUME_AFTER_MIN*60000\n    return any(t>=e-pre and t<e+post for e in NEWS_TIMES_UTC_MS)\n\ndef _news_exit_at_bar_close(tc: int, chart_ms: int) -> bool:\n    if not NEWS_FILTER:\n        return False\n    pre=NEWS_EXIT_BEFORE_MIN*60000\n    for e in NEWS_TIMES_UTC_MS:\n        cutoff=e-pre\n        if (tc<cutoff and tc+chart_ms>=cutoff) or (tc>=cutoff and tc<e):\n            return True\n    return False\n\ndef _news_safe_for_setup(tc: int, chart_ms: int) -> bool:\n    # Pine: not f_newsLockedAt(time_close) and not f_newsLockedAt(time_close+chartMs)\n    return not _news_locked_at(tc) and not _news_locked_at(tc+chart_ms)\n'''
+          if 'NEWS_TIMES_UTC_MS' not in s:
+              assert s.count(anchor)==1, s.count(anchor)
+              s=s.replace(anchor,insert,1)
+
+          old="""    diag=dict(signals=0,pending_expired=0,pending_filled=0,ambiguous=0,tp=0,sl=0,ema=0,session=0,\n              pivot_high_ties=pht,pivot_low_ties=plt)\n"""
+          new="""    diag=dict(signals=0,pending_expired=0,pending_filled=0,ambiguous=0,tp=0,sl=0,ema=0,news=0,session=0,\n              pivot_high_ties=pht,pivot_low_ties=plt)\n"""
+          if old in s:s=s.replace(old,new,1)
+
+          old="""        tc=x.ct+1\n        allowed,sexit=ref.session_flags(tc,chart_ms)\n        if active is not None and not closed:\n            z=ind[i]\n            le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']\n            se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])\n            if sexit:\n                diag['session']+=1; closed=close_trade(i,'SESSION',x.c)\n            elif le or se:\n                diag['ema']+=1; closed=close_trade(i,'EMA',x.c)\n"""
+          new="""        tc=x.ct+1\n        allowed,sexit=ref.session_flags(tc,chart_ms)\n        news_exit=_news_exit_at_bar_close(tc,chart_ms)\n        if active is not None and not closed:\n            z=ind[i]\n            le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']\n            se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])\n            # Canonical priority: SESSION > NEWS > EMA. Intrabar TP/SL already ran first.\n            if sexit:\n                diag['session']+=1; closed=close_trade(i,'SESSION',x.c)\n            elif news_exit:\n                diag['news']+=1; closed=close_trade(i,'NEWS',x.c)\n            elif le or se:\n                diag['ema']+=1; closed=close_trade(i,'EMA',x.c)\n"""
+          assert s.count(old)==1, s.count(old)
+          s=s.replace(old,new,1)
+
+          old="""            nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']\n            ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']\n"""
+          new="""            news_safe=_news_safe_for_setup(tc,chart_ms)\n            nl=allowed and news_safe and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']\n            ns=allowed and news_safe and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']\n"""
+          assert s.count(old)==1, s.count(old)
+          s=s.replace(old,new,1)
+
+          old="""    exits={k:sum(t.exit_reason==k for t in trades) for k in ('TP','SL','AMBIG->SL','EMA','SESSION')}\n"""
+          new="""    exits={k:sum(t.exit_reason==k for t in trades) for k in ('TP','SL','AMBIG->SL','EMA','NEWS','SESSION')}\n"""
+          assert s.count(old)==1, s.count(old)
+          s=s.replace(old,new,1)
+
+          s=s.replace('Embedded-news behavior and unknown-symbol contract metadata remain outside the',
+                      'Unknown-symbol contract metadata and historical NEWS/SESSION trade examples remain outside the')
+          p.write_text(s)
+          PY
+
+          python3 -m py_compile wave-rider-verify/reference_verify_parity.py
+
+          # Unit-lock the exact canonical 5m NEWS boundary behavior.
+          python3 - <<'PY'
+          import importlib.util,sys
+          from datetime import datetime,timezone
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py')
+          m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
+          ms=lambda y,mo,d,h,mi:int(datetime(y,mo,d,h,mi,tzinfo=timezone.utc).timestamp()*1000)
+          e=ms(2025,11,20,13,30); five=5*60000
+          # Lockout is [13:15,13:45), but setup also tests next bar, so 13:10 is unsafe.
+          assert not m._news_locked_at(ms(2025,11,20,13,10))
+          assert m._news_locked_at(ms(2025,11,20,13,15))
+          assert m._news_locked_at(ms(2025,11,20,13,40))
+          assert not m._news_locked_at(ms(2025,11,20,13,45))
+          assert not m._news_safe_for_setup(ms(2025,11,20,13,10),five)
+          assert m._news_safe_for_setup(ms(2025,11,20,13,45),five)
+          # Pine f_newsExitAtBarClose becomes true at 13:10 because next 5m bar reaches 13:15 cutoff.
+          assert m._news_exit_at_bar_close(ms(2025,11,20,13,10),five)
+          assert m._news_exit_at_bar_close(ms(2025,11,20,13,25),five)
+          assert not m._news_exit_at_bar_close(e,five)
+          print('NEWS_BOUNDARY_PARITY=PASS')
+          PY
+
+          # Ensure late-2025 additions cannot perturb the established 2026 golden block.
+          for sym in BNBUSDT TRXUSDT; do
+            rm -rf wave-rider-verify/output
+            WR_SYMBOL="$sym" WR_START=2026-07-27 WR_END=2026-08-16 python3 wave-rider-verify/reference_verify_parity.py >/tmp/${sym}.txt
+            python3 - "$sym" <<'PY'
+          import csv,json,sys
+          sym=sys.argv[1]
+          acct=json.load(open('wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'))['symbols'][sym]
+          rows=list(csv.DictReader(open(f'wave-rider-verify/output/{sym}_5m_trades.csv')))
+          assert len(rows)==14
+          assert [float(x['qty']) for x in rows]==acct['quantities']
+          assert all(abs(float(a['canon_r'])-b)<1e-12 for a,b in zip(rows,acct['canon_r']))
+          print(sym+'_2026_GOLDEN=PASS')
+          PY
+          done
+
+      - name: Commit NEWS parity patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- wave-rider-verify/reference_verify_parity.py; then
+            echo NEWS_PATCH_ALREADY_PRESENT
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add wave-rider-verify/reference_verify_parity.py
+          git commit -m 'add canonical embedded NEWS parity semantics'
+          git pull --rebase origin main
+          git push origin HEAD:main
