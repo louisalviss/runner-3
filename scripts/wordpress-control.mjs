@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { seedDemo } from './wordpress-seed-demo.mjs';
 
 const requestPath = process.env.WP_CONTROL_REQUEST;
 if (!requestPath || !fs.existsSync(requestPath)) throw new Error('WP_CONTROL_REQUEST missing');
@@ -34,6 +35,7 @@ switch (action) {
     result = { me: me.data, settings: settings.data, plugins: plugins.data };
     break;
   }
+  case 'seed_demo': result = await seedDemo(api); break;
   case 'create_post': result = (await api('/wp-json/wp/v2/posts', { method: 'POST', body: payload })).data; break;
   case 'update_post': {
     if (!payload.id) throw new Error('payload.id required');
