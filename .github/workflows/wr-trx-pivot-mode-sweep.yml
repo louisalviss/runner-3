@@ -1,0 +1,26 @@
+name: WR TRX Pivot Mode Sweep
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - formal-tests/wr_trx_pivot_mode_sweep.py
+      - .github/workflows/wr-trx-pivot-mode-sweep.yml
+permissions:
+  contents: read
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - run: python formal-tests/wr_trx_pivot_mode_sweep.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-trx-pivot-mode-sweep
+          path: trx_pivot_mode_sweep.json
+          retention-days: 7
