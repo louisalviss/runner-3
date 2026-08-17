@@ -1,0 +1,54 @@
+name: TradingView Symbol Metadata Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-symbol-metadata-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Probe BNB and TRX Pine metadata
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const out={};
+            for(const sym of ['BNBUSDT.P','TRXUSDT.P']){
+              const p=await c.newPage(); p.setDefaultTimeout(15000);
+              await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3A'+encodeURIComponent(sym)+'&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(8000);
+              const src=`//@version=6\nindicator("WR Meta Probe")\nregularTicker=ticker.new(syminfo.prefix,syminfo.ticker,session.regular)\nregularDayClose=request.security(regularTicker,"1D",time_close,barmerge.gaps_off,barmerge.lookahead_on)\nif barstate.islast\n    runtime.error("WRMETA|mincontract="+str.tostring(syminfo.mincontract)+"|pointvalue="+str.tostring(syminfo.pointvalue)+"|mintick="+str.tostring(syminfo.mintick)+"|ismarket="+str.tostring(session.ismarket)+"|rdc="+str.tostring(regularDayClose))`;
+              const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(2500); const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),src); await p.keyboard.press('Control+V'); await p.waitForTimeout(1500); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(9000);
+              const body=await p.locator('body').innerText(); const lines=body.split('\n').map(x=>x.trim()).filter(x=>/WRMETA|Runtime error|mincontract|pointvalue|mintick/i.test(x)); console.log('META_'+sym+'='+JSON.stringify(lines)); out[sym]=lines; await p.close();
+            }
+            fs.writeFileSync('/tmp/symbol-metadata.json',JSON.stringify(out,null,2)); await b.close();
+          })().catch(e=>{console.error('TV_META_PROBE_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-symbol-metadata-${{ github.run_id }}
+          path: /tmp/symbol-metadata.json
+          retention-days: 2
+      - if: always()
+        run: rm -f /tmp/tv-state.json
