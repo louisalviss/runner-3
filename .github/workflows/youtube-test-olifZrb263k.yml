@@ -5,69 +5,39 @@ on:
       - '.github/workflows/youtube-test-olifZrb263k.yml'
 
 jobs:
-  warp-download-test:
+  client-matrix:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Install Cloudflare WARP and tools
+      - name: Install yt-dlp and Deno
         shell: bash
         run: |
           set -e
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq cloudflare-warp ffmpeg
-          python -m pip install -q -U yt-dlp pillow
+          python -m pip install -q -U yt-dlp
           curl -fsSL https://deno.land/install.sh | sh
           echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
-      - name: Connect WARP, download video, extract frames
+      - name: Probe no-cookie YouTube clients
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           mkdir -p evidence
-          warp-cli --accept-tos registration new
-          warp-cli --accept-tos mode warp+doh
-          warp-cli --accept-tos connect
-          for i in {1..12}; do
-            sleep 1
-            curl -s --max-time 5 https://www.cloudflare.com/cdn-cgi/trace | grep -q '^warp=on' && break
-          done
-          curl -s --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' > evidence/warp.txt
           URL='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
-          yt-dlp --js-runtimes deno --remote-components ejs:github --no-playlist --write-info-json -f 'b[height<=480]/best[height<=480]/best' -o 'evidence/video.%(ext)s' "$URL"
-          VIDEO=$(find evidence -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1)
-          test -n "$VIDEO"
-          ffprobe -v quiet -print_format json -show_format -show_streams "$VIDEO" > evidence/ffprobe.json
-          python - <<'PY'
-          import json, subprocess, pathlib
-          from PIL import Image, ImageDraw
-          p=pathlib.Path('evidence')
-          meta=json.load(open(p/'ffprobe.json'))
-          dur=float(meta['format']['duration'])
-          vids=[x for x in p.iterdir() if x.name.startswith('video.') and x.suffix in {'.mp4','.webm','.mkv'}]
-          v=str(vids[0])
-          ratios=[.05,.18,.31,.44,.57,.70,.83,.96]
-          frames=[]
-          for i,r in enumerate(ratios,1):
-              out=p/f'frame_{i:02d}.jpg'
-              subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',str(dur*r),'-i',v,'-frames:v','1','-q:v','2',str(out)],check=True)
-              frames.append(out)
-          imgs=[Image.open(x).convert('RGB') for x in frames]
-          thumb_w=320; thumbs=[]
-          for i,img in enumerate(imgs,1):
-              h=round(img.height*thumb_w/img.width); im=img.resize((thumb_w,h))
-              canvas=Image.new('RGB',(thumb_w,h+28),'white'); canvas.paste(im,(0,28))
-              ImageDraw.Draw(canvas).text((8,7),f'frame {i}',fill='black'); thumbs.append(canvas)
-          cell_h=max(x.height for x in thumbs)
-          sheet=Image.new('RGB',(thumb_w*4,cell_h*2),'white')
-          for idx,im in enumerate(thumbs): sheet.paste(im,((idx%4)*thumb_w,(idx//4)*cell_h))
-          sheet.save(p/'contact.jpg',quality=88)
-          print('duration',dur,'video',v,'frames',len(frames))
-          PY
+          : > evidence/results.txt
+          for CLIENT in web_embedded web_safari tv android_vr; do
+            echo "===== $CLIENT =====" | tee -a evidence/results.txt
+            timeout 30 yt-dlp \
+              --js-runtimes deno --remote-components ejs:github \
+              --no-playlist --skip-download \
+              --extractor-args "youtube:player_client=$CLIENT;player_skip=webpage,configs" \
+              --print 'OK id=%(id)s title=%(title)s duration=%(duration)s' \
+              "$URL" 2>&1 | tee -a evidence/results.txt
+            echo "exit=${PIPESTATUS[0]}" | tee -a evidence/results.txt
+          done
       - name: Upload evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-olifZrb263k-warp-video-evidence
+          name: youtube-client-matrix
           path: evidence/
           retention-days: 1
