@@ -22,6 +22,7 @@ jobs:
       - name: Generate QR and hold authenticated browser session
         shell: bash
         run: |
+          mkdir -p /tmp/tbqr
           cat > /tmp/terabox_qr.py <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image
@@ -59,23 +60,19 @@ jobs:
               im=Image.open('/tmp/tbqr/login.png');W,H=im.size
               im.crop((max(0,W//2-400),max(0,H//2-400),min(W,W//2+400),min(H,H//2+400))).save('/tmp/tbqr/qr.png')
               print('QR_FALLBACK=1',flush=True)
-            # signal artifact step that QR is ready, then keep state via CDP server impossible across steps;
-            # therefore this process waits for a marker file created by upload step wrapper below.
             open('/tmp/tbqr/ready','w').write('1')
-            # Export browser websocket endpoint is unavailable; run login/save in same process after QR is uploaded by shell background orchestration.
             while not os.path.exists('/tmp/tbqr/artifact_uploaded'):
               time.sleep(.2)
             deadline=time.time()+8*60; logged=False
             while time.time()<deadline:
               try:
-                url=pg.url.lower(); body=(pg.locator('body').inner_text(timeout=2000) or '').lower(); names={x['name'].lower() for x in c.cookies()}
+                url=pg.url.lower(); names={x['name'].lower() for x in c.cookies()}
                 if ('login' not in url and 'loginsetting' not in url) or any(n in names for n in ['ndus','bduss','stoken']): logged=True; break
               except: pass
               pg.wait_for_timeout(1500)
             print('LOGIN_SUCCESS='+str(logged),flush=True)
             if not logged: pg.screenshot(path='/tmp/tbqr/login-timeout.png',full_page=True); b.close(); raise SystemExit(2)
             pg.goto(SHARE,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(7000)
-            # double click Truyen
             opened=False
             for loc in pg.get_by_text('Truyen',exact=True).all():
               try:
@@ -94,7 +91,6 @@ jobs:
                 if loc.is_visible(): target=loc; break
               except: pass
             if target is None: print('TARGET_NOT_FOUND',flush=True); b.close(); raise SystemExit(3)
-            # single click should select item in TeraBox list
             target.click(); pg.wait_for_timeout(1200)
             save=False
             for pat in [r'Lưu vào TeraBox',r'Lưu vào',r'Save to TeraBox',r'Save to',r'保存到']:
@@ -106,7 +102,8 @@ jobs:
             print('SAVE_CLICKED='+str(save),flush=True); pg.wait_for_timeout(2500); pg.screenshot(path='/tmp/tbqr/save-dialog.png',full_page=True)
             conf=False
             for pat in [r'^Lưu$',r'^Save$',r'Xác nhận',r'Confirm',r'^OK$',r'保存']:
-              for loc in pg.get_by_text(re.compile(pat,re.I)).all()[::-1]:
+              locs=pg.get_by_text(re.compile(pat,re.I)).all()
+              for loc in reversed(locs):
                 try:
                   if loc.is_visible(): loc.click(timeout=2500); conf=True; break
                 except: pass
