@@ -1,0 +1,58 @@
+name: TradingView Accounting Visual Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-accounting-visual-probe.yml'
+      - 'scripts/build_wr_accounting_visual_probe.py'
+      - 'scripts/tradingview-accounting-visual.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+      REPORT_START_MS: '1785110400000'
+      REPORT_END_MS: '1786924800000'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView state and canonical Pine
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
+          test "$(sha256sum /tmp/wr2513-base.pine | awk '{print $1}')" = "$BASE_SHA256"
+      - name: Build compact runtime table
+        run: python3 scripts/build_wr_accounting_visual_probe.py
+      - name: Capture BNB and TRX tables in one browser session
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/tradingview-accounting-visual.mjs
+      - name: Upload accounting screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-accounting-visual-${{ github.run_id }}
+          path: |
+            /tmp/tv-accounting-visual-BNBUSDT.png
+            /tmp/tv-accounting-visual-TRXUSDT.png
+            /tmp/tv-accounting-visual-BNBUSDT-run.txt
+            /tmp/tv-accounting-visual-TRXUSDT-run.txt
+            /tmp/tv-accounting-visual-BNBUSDT-body.txt
+            /tmp/tv-accounting-visual-TRXUSDT-body.txt
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513-base.pine /tmp/wr2513-accounting-visual.pine
