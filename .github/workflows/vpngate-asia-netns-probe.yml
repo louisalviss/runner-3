@@ -115,6 +115,28 @@ jobs:
             echo "$code $u" | tee -a evidence/connectivity.txt
           done
 
+      - name: Public M88 reachability over VN egress
+        shell: bash
+        run: |
+          set -u
+          i=0
+          for u in 'https://msports.m88.com/app/v2/' 'https://www.m88.com/sports'; do
+            i=$((i+1))
+            headers="evidence/m88_${i}_headers.txt"
+            body="evidence/m88_${i}_body.html"
+            meta="evidence/m88_${i}_meta.txt"
+            sudo ip netns exec vpnns curl \
+              -L -sS --max-time 30 \
+              -D "$headers" -o "$body" \
+              -w 'http_code=%{http_code}\nurl_effective=%{url_effective}\nremote_ip=%{remote_ip}\ncontent_type=%{content_type}\nsize_download=%{size_download}\n' \
+              "$u" > "$meta" || true
+            echo "=== $u ===" | tee -a evidence/m88_summary.txt
+            cat "$meta" | tee -a evidence/m88_summary.txt
+            printf 'body_prefix=' | tee -a evidence/m88_summary.txt
+            head -c 240 "$body" 2>/dev/null | tr '\n\r' '  ' | tee -a evidence/m88_summary.txt || true
+            echo | tee -a evidence/m88_summary.txt
+          done
+
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
