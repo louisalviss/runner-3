@@ -1,0 +1,103 @@
+name: WR Entry Parity Fixed Candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-entry-parity-fixed-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Validate BNB and TRX entry ledgers
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys,math
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          def piv(v,left,right,high=True):
+              base=[None]*len(v); ties=0
+              for conf in range(left+right,len(v)):
+                  c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+                  ok=(all(x>=y for y in L) and all(x>y for y in R)) if high else (all(x<=y for y in L) and all(x<y for y in R))
+                  if ok: base[conf]=x
+              return [None]+base[:-1],ties
+          wr.pivots=piv
+          sess=requests.Session(); sess.headers['User-Agent']='wr-entry-parity-candidate/1.0'
+          def fetch(sym):
+              bars=[]; prices=[]; d=date(2026,7,1)
+              while d<=date(2026,8,16):
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/5m/{sym}-5m-{ds}.zip',timeout=40); r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return [ded[k] for k in sorted(ded)],wr.infer_tick(prices)
+          expected={
+            'BNBUSDT':[('LONG','2026-07-27T05:55:00Z',575.24),('SHORT','2026-07-27T10:05:00Z',572.52),('LONG','2026-07-28T12:45:00Z',568.34),('LONG','2026-07-30T15:20:00Z',590.18),('SHORT','2026-08-03T04:10:00Z',583.86),('LONG','2026-08-05T02:40:00Z',603.98),('SHORT','2026-08-05T10:00:00Z',598.57),('LONG','2026-08-08T03:45:00Z',593.40),('LONG','2026-08-08T04:35:00Z',593.71),('SHORT','2026-08-08T19:05:00Z',603.56),('SHORT','2026-08-12T03:20:00Z',615.37),('LONG','2026-08-13T19:35:00Z',609.96),('SHORT','2026-08-14T10:40:00Z',606.40),('SHORT','2026-08-16T04:10:00Z',606.44)],
+            'TRXUSDT':[('SHORT','2026-07-27T18:10:00Z',0.32825),('LONG','2026-07-28T08:20:00Z',0.32520),('LONG','2026-07-29T10:25:00Z',0.32622),('SHORT','2026-07-29T16:00:00Z',0.32615),('SHORT','2026-08-03T06:15:00Z',0.32569),('LONG','2026-08-05T08:15:00Z',0.32717),('LONG','2026-08-05T10:55:00Z',0.32843),('SHORT','2026-08-06T17:40:00Z',0.32675),('LONG','2026-08-07T15:15:00Z',0.32829),('LONG','2026-08-10T13:00:00Z',0.33178),('LONG','2026-08-14T19:25:00Z',0.33285),('LONG','2026-08-16T10:05:00Z',0.33118),('SHORT','2026-08-16T19:00:00Z',0.33175),('SHORT','2026-08-16T22:00:00Z',0.33121)]}
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          def run_fixed(sym,bars,tick):
+              wr.SYMBOL=sym; ind,_,_=wr.calc_ind(bars); chart_ms=5*60000; eq=wr.INIT; pending=active=None; entry_t=None; trades=[]
+              def ut(px): return int(round(px/tick))
+              def fp(u): return round(u*tick,12)
+              def close(i,reason,px):
+                  nonlocal active,entry_t,eq
+                  cr=wr.TP_R if reason=='TP' else (-1.0 if reason in ('SL','AMBIG->SL') else ((px-active.e)*(1 if active.d==1 else -1)*active.qty/active.risk))
+                  eq+=cr*active.risk; trades.append({'side':'LONG' if active.d==1 else 'SHORT','entry_time':wr.iso(entry_t),'entry':active.e,'exit_bar':wr.iso(bars[i].ot),'reason':reason,'exit':px}); active=None; entry_t=None
+              for i,x in enumerate(bars):
+                  if x.ct>en: break
+                  closed=False
+                  if active is not None:
+                      r,px=wr.next_bracket(active,x,None)
+                      if r: close(i,r,px); closed=True
+                  if active is None and pending is not None and i==pending.sig_i+1 and not closed:
+                      fill=(pending.d==1 and ut(x.h)>=ut(pending.e)) or (pending.d==-1 and ut(x.l)<=ut(pending.e))
+                      if fill:
+                          active=pending; pending=None; entry_t=x.ot
+                          r,px=wr.next_bracket(active,x,active.e)
+                          if r: close(i,r,px); closed=True
+                  allowed,sexit=wr.session_flags(x.ct,chart_ms)
+                  if active is not None and not closed:
+                      z=ind[i]; le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']; se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+                      if sexit or le or se: close(i,'SESSION' if sexit else 'EMA',x.c); closed=True
+                  if pending is not None and i>=pending.sig_i+1 and active is None: pending=None
+                  if x.ct<st or x.ct>en: continue
+                  if active is None and pending is None and not closed:
+                      z=ind[i]; lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None; sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+                      nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+                      if nl or ns:
+                          if nl:
+                              d0=1; eu=ut(x.h)+1; su=ut(x.l)-1; e=fp(eu); s=fp(su); t=e+wr.TP_R*(e-s)
+                          else:
+                              d0=-1; eu=ut(x.l)-1; su=ut(x.h)+1; e=fp(eu); s=fp(su); t=e-wr.TP_R*(s-e)
+                          raw=(eq*wr.RISK_PCT/100)/abs(e-s); q=math.floor(raw); risk=abs(e-s)*q
+                          if q>0 and risk>0: pending=wr.Plan(d0,e,s,t,risk,q,i,x.ct,x.h,x.l)
+              return trades
+          output={}; ok_all=True
+          for sym in ('BNBUSDT','TRXUSDT'):
+              bars,tick=fetch(sym); got=run_fixed(sym,bars,tick); A=[(t['side'],t['entry_time'],round(float(t['entry']),8)) for t in got]; E=[(a,b,round(c,8)) for a,b,c in expected[sym]]; sa,se=set(A),set(E)
+              rec={'tick':tick,'actual_n':len(A),'expected_n':len(E),'match_n':sum(x in se for x in A),'false':[x for x in A if x not in se],'miss':[x for x in E if x not in sa],'trades':got}; output[sym]=rec; print('FIXED_ENTRY='+json.dumps({'symbol':sym,**{k:v for k,v in rec.items() if k!='trades'}},separators=(',',':')))
+              ok_all &= (len(A)==len(E) and set(A)==set(E))
+          Path('/tmp/fixed_entry_parity.json').write_text(json.dumps(output,indent=2),encoding='utf-8')
+          print('FIXED_ENTRY_PARITY=' + ('PASS' if ok_all else 'FAIL'))
+          if not ok_all: raise SystemExit(7)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-entry-parity-fixed-${{ github.run_id }}
+          path: /tmp/fixed_entry_parity.json
+          retention-days: 2
