@@ -1,15 +1,7 @@
-name: Wave Rider Forward Count
+name: Wave Rider Forward Count [PARITY GATED]
 
 on:
-  schedule:
-    # 21:20 Asia/Ho_Chi_Minh (UTC+7)
-    - cron: '20 14 * * *'
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'formal-tests/wave_rider_forward_count.py'
-      - '.github/workflows/wave-rider-forward-count.yml'
 
 permissions:
   contents: read
@@ -26,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+      - name: Require TradingView parity PASS
+        run: python wave-rider-verify/assert_parity_gate.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
