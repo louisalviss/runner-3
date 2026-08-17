@@ -1,11 +1,12 @@
 {
-  "name": "m88-betburger-api-chunk-probe",
+  "name": "m88-v3-public-probe",
   "source_visibility": "public",
   "artifact_policy": "raw",
-  "mode": "http",
+  "mode": "auto",
   "timeout_seconds": 90,
+  "wait_after_load_ms": 10000,
   "urls": [
-    "https://www.betburger.com/vite/assets/api_request-NP9sIcMe.js",
-    "https://www.betburger.com/vite/assets/api_request-NP9sIcMe.js.map"
+    "https://msports.m88.com/app/v3/public/sports.html",
+    "https://msports.m88.com/app/v3/"
   ]
 }
