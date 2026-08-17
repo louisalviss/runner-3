@@ -1,0 +1,46 @@
+name: ClouDNS Signup Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudns-signup-probe.yml'
+      - 'scripts/cloudns-signup-probe.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted email
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/email-relay-private.aes -out /tmp/email-relay-private.pem
+          base64 -d ops/wasmer/email-relay-ciphertext.b64 >/tmp/email.bin
+          openssl pkeyutl -decrypt -inkey /tmp/email-relay-private.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -in /tmp/email.bin -out /tmp/target-email.txt
+          TARGET_EMAIL="$(cat /tmp/target-email.txt)"; echo "::add-mask::$TARGET_EMAIL"
+          rm -f /tmp/email-relay-private.pem /tmp/email.bin
+      - run: npm install --no-save playwright-core@1.58.2
+      - name: Probe signup
+        run: node scripts/cloudns-signup-probe.mjs
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/cloudns-probe.json || echo '{"status":"runner_error"}' >/tmp/cloudns-probe.json
+          cat /tmp/cloudns-probe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/cloudns && cp /tmp/cloudns-probe.json ops/cloudns/signup-probe.json
+          git add ops/cloudns/signup-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist ClouDNS signup probe'; git push origin HEAD:main; fi
