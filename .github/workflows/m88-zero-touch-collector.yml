@@ -23,12 +23,11 @@ jobs:
       - name: Install parser dependencies
         run: python3 -m pip install -q requests beautifulsoup4
 
-      - name: Collect public Mansion88 odds
+      - name: Collect Mansion88 full book and movements
         shell: bash
         run: |
           cat > /tmp/collect_m88.py <<'PY'
           import csv
-          import io
           import json
           import time
           from datetime import datetime, timezone
@@ -36,7 +35,10 @@ jobs:
           import requests
           from bs4 import BeautifulSoup
 
-          SOURCES = {
+          BOOKMAKER_ID = '17'
+          BOOKMAKER = 'Mansion88'
+          FULLBOOK_URL = 'https://www.888scoreonline.net/OddsData.aspx?companyid=17'
+          MOVEMENT_SOURCES = {
               'asian_handicap': 'http://fb.888scoreonline.net/history/lastchange.aspx?ot=1',
               '1x2': 'http://fb.888scoreonline.net/history/lastchange.aspx?ot=2',
               'over_under': 'http://fb.888scoreonline.net/history/lastchange.aspx?ot=3',
@@ -44,30 +46,223 @@ jobs:
 
           session = requests.Session()
           session.headers.update({
-              'User-Agent': 'runner3-m88-public-feed/1.0',
-              'Accept': 'text/html,application/xhtml+xml',
+              'User-Agent': 'runner3-m88-public-feed/2.0',
+              'Accept': '*/*',
           })
-
           collected_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-          rows = []
-          health = {}
 
-          for market, url in SOURCES.items():
-              started = time.monotonic()
+          def split_records(domain):
+              return [x for x in domain.split(';') if x.strip()]
+
+          def line_display(value):
               try:
-                  r = session.get(url, timeout=20, allow_redirects=True)
-                  r.raise_for_status()
-                  soup = BeautifulSoup(r.content, 'html.parser')
-                  market_rows = 0
+                  x = float(value)
+                  q = round(x * 4)
+                  if abs(x * 4 - q) > 1e-8:
+                      return value
+                  if q == 0:
+                      return '0'
+                  sign = 1 if q > 0 else -1
+                  n = abs(q)
+                  if n % 2 == 0:
+                      v = sign * n / 4
+                      return str(int(v)) if float(v).is_integer() else str(v).rstrip('0').rstrip('.')
+                  lo = (n - 1) / 4
+                  hi = (n + 1) / 4
+                  if sign > 0:
+                      a, b = lo, hi
+                  else:
+                      a, b = -lo, -hi
+                  def fmt(v):
+                      return str(int(v)) if float(v).is_integer() else str(v).rstrip('0').rstrip('.')
+                  return f'{fmt(a)}/{fmt(b)}'
+              except Exception:
+                  return value
 
+          # ---------- full current book ----------
+          started = time.monotonic()
+          r = session.get(FULLBOOK_URL, timeout=25, allow_redirects=True)
+          r.raise_for_status()
+          domains = r.text.split('$')
+          if len(domains) < 5:
+              raise SystemExit(f'Fullbook protocol changed: expected >=5 domains, got {len(domains)}')
+
+          leagues = {}
+          for rec in split_records(domains[0]):
+              p = rec.split(',')
+              if len(p) >= 6:
+                  leagues[p[0]] = p[5] or p[3] or p[4]
+
+          matches = {}
+          for rec in split_records(domains[1]):
+              p = rec.split(',')
+              if len(p) >= 20:
+                  matches[p[0]] = {
+                      'match_id': p[0],
+                      'league_id': p[1],
+                      'source_start_ms': p[2],
+                      'home': p[7],
+                      'away': p[12],
+                      'state': p[14],
+                      'home_score': p[15],
+                      'away_score': p[16],
+                      'neutral': p[18],
+                      'level': p[19],
+                  }
+
+          match_lengths = sorted({len(x) for x in matches}, reverse=True)
+          def resolve_match_id(raw):
+              if raw in matches:
+                  return raw, 'exact'
+              for n in match_lengths:
+                  if len(raw) > n:
+                      candidate = raw[-n:]
+                      if candidate in matches:
+                          return candidate, 'suffix'
+              return None, 'unresolved'
+
+          specs = {
+              'asian_handicap': (2, 10),
+              '1x2': (3, 8),
+              'over_under': (4, 8),
+          }
+          market_health = {}
+          snapshot_by_key = {}
+
+          for market, (domain_idx, min_fields) in specs.items():
+              m88_raw = 0
+              joined = 0
+              unresolved = []
+              duplicate_replacements = 0
+              for rec in split_records(domains[domain_idx]):
+                  p = rec.split(',')
+                  if len(p) < min_fields or p[1] != BOOKMAKER_ID:
+                      continue
+                  m88_raw += 1
+                  mid, join_mode = resolve_match_id(p[0])
+                  if not mid:
+                      unresolved.append(p[:12])
+                      continue
+                  joined += 1
+                  m = matches[mid]
+                  row = {
+                      'source': '888scoreonline',
+                      'bookmaker': BOOKMAKER,
+                      'bookmaker_id': BOOKMAKER_ID,
+                      'market': market,
+                      'match_id': mid,
+                      'raw_match_id': p[0],
+                      'join_mode': join_mode,
+                      'league': leagues.get(m['league_id'], ''),
+                      'league_id': m['league_id'],
+                      'home': m['home'],
+                      'away': m['away'],
+                      'source_start_ms': m['source_start_ms'],
+                      'state': m['state'],
+                      'home_score': m['home_score'],
+                      'away_score': m['away_score'],
+                      'neutral': m['neutral'],
+                      'collected_at_utc': collected_at,
+                      'source_url': FULLBOOK_URL,
+                  }
+                  if market == 'asian_handicap':
+                      row.update({
+                          'open_handicap_raw': p[2],
+                          'open_handicap': line_display(p[2]),
+                          'open_home_odds': p[3],
+                          'open_away_odds': p[4],
+                          'handicap_raw': p[5],
+                          'handicap': line_display(p[5]),
+                          'home_odds': p[6],
+                          'away_odds': p[7],
+                          'closed': p[8] if len(p) > 8 else '',
+                          'zoudi': p[9] if len(p) > 9 else '',
+                          'source_updated_at': p[10] if len(p) > 10 and p[10].startswith('20') else '',
+                      })
+                  elif market == '1x2':
+                      row.update({
+                          'open_home_odds': p[2],
+                          'open_draw_odds': p[3],
+                          'open_away_odds': p[4],
+                          'home_odds': p[5],
+                          'draw_odds': p[6],
+                          'away_odds': p[7],
+                          'source_updated_at': p[8] if len(p) > 8 and p[8].startswith('20') else '',
+                      })
+                  else:
+                      row.update({
+                          'open_total_raw': p[2],
+                          'open_total': line_display(p[2]),
+                          'open_over_odds': p[3],
+                          'open_under_odds': p[4],
+                          'total_raw': p[5],
+                          'total': line_display(p[5]),
+                          'over_odds': p[6],
+                          'under_odds': p[7],
+                          'source_updated_at': p[8] if len(p) > 8 and p[8].startswith('20') else '',
+                      })
+
+                  key = (market, mid)
+                  prev = snapshot_by_key.get(key)
+                  if prev is None or row.get('source_updated_at', '') >= prev.get('source_updated_at', ''):
+                      if prev is not None:
+                          duplicate_replacements += 1
+                      snapshot_by_key[key] = row
+
+              ratio = joined / m88_raw if m88_raw else 0
+              market_health[market] = {
+                  'm88_raw_records': m88_raw,
+                  'joined_records': joined,
+                  'join_ratio': round(ratio, 6),
+                  'unresolved_count': len(unresolved),
+                  'unresolved_examples': unresolved[:5],
+                  'duplicate_replacements': duplicate_replacements,
+              }
+              if m88_raw == 0 or ratio < 0.99:
+                  raise SystemExit(f'Unsafe fullbook parse for {market}: m88={m88_raw} join_ratio={ratio:.3f}')
+
+          snapshot = sorted(snapshot_by_key.values(), key=lambda x: (x['league'], x['home'], x['market']))
+
+          fullbook = {
+              'schema_version': 2,
+              'collected_at_utc': collected_at,
+              'zero_touch': True,
+              'requires_api_key': False,
+              'requires_login': False,
+              'requires_cookie': False,
+              'requires_vpn': False,
+              'requires_browser': False,
+              'source': '888scoreonline-public-fullbook',
+              'bookmaker': BOOKMAKER,
+              'bookmaker_id': BOOKMAKER_ID,
+              'http_status': r.status_code,
+              'source_bytes': len(r.content),
+              'domain_count': len(domains),
+              'league_count': len(leagues),
+              'source_match_count': len(matches),
+              'snapshot_record_count': len(snapshot),
+              'market_health': market_health,
+              'elapsed_ms': round((time.monotonic() - started) * 1000),
+              'records': snapshot,
+          }
+
+          # ---------- recent movements (useful signal/fallback) ----------
+          movements = []
+          movement_health = {}
+          for market, url in MOVEMENT_SOURCES.items():
+              t0 = time.monotonic()
+              try:
+                  rr = session.get(url, timeout=20, allow_redirects=True)
+                  rr.raise_for_status()
+                  soup = BeautifulSoup(rr.content, 'html.parser')
+                  count = 0
                   for tr in soup.find_all('tr'):
                       cells = [' '.join(td.stripped_strings) for td in tr.find_all(['td', 'th'])]
                       if len(cells) < 8 or cells[0].strip().lower() != 'mansion88':
                           continue
-
-                      rec = {
-                          'source': '888scoreonline',
-                          'bookmaker': 'Mansion88',
+                      row = {
+                          'source': '888scoreonline-recent-changes',
+                          'bookmaker': BOOKMAKER,
                           'market': market,
                           'league': cells[1],
                           'home': cells[2],
@@ -76,89 +271,82 @@ jobs:
                           'collected_at_utc': collected_at,
                           'source_url': url,
                       }
-
                       if market == 'asian_handicap':
-                          rec.update({
-                              'home_odds': cells[3],
-                              'handicap': cells[4],
-                              'away_odds': cells[5],
-                          })
+                          row.update({'home_odds': cells[3], 'handicap': cells[4], 'away_odds': cells[5]})
                       elif market == '1x2':
-                          rec.update({
-                              'home_odds': cells[3],
-                              'draw_odds': cells[4],
-                              'away_odds': cells[5],
-                          })
+                          row.update({'home_odds': cells[3], 'draw_odds': cells[4], 'away_odds': cells[5]})
                       else:
-                          rec.update({
-                              'over_odds': cells[3],
-                              'total': cells[4],
-                              'under_odds': cells[5],
-                          })
-
-                      rows.append(rec)
-                      market_rows += 1
-
-                  health[market] = {
-                      'ok': True,
-                      'http_status': r.status_code,
-                      'bytes': len(r.content),
-                      'm88_rows': market_rows,
-                      'elapsed_ms': round((time.monotonic() - started) * 1000),
-                      'final_url': r.url,
+                          row.update({'over_odds': cells[3], 'total': cells[4], 'under_odds': cells[5]})
+                      movements.append(row)
+                      count += 1
+                  movement_health[market] = {
+                      'ok': True, 'http_status': rr.status_code, 'm88_rows': count,
+                      'bytes': len(rr.content), 'elapsed_ms': round((time.monotonic() - t0) * 1000),
                   }
               except Exception as e:
-                  health[market] = {
-                      'ok': False,
-                      'error': repr(e),
-                      'elapsed_ms': round((time.monotonic() - started) * 1000),
-                  }
+                  movement_health[market] = {'ok': False, 'error': repr(e)}
 
-          result = {
-              'schema_version': 1,
+          movement_result = {
+              'schema_version': 2,
               'collected_at_utc': collected_at,
-              'zero_touch': True,
-              'requires_api_key': False,
-              'requires_login': False,
-              'requires_cookie': False,
-              'requires_vpn': False,
-              'bookmaker': 'Mansion88',
-              'record_count': len(rows),
-              'health': health,
-              'records': rows,
+              'bookmaker': BOOKMAKER,
+              'record_count': len(movements),
+              'health': movement_health,
+              'records': movements,
           }
 
-          with open('/tmp/m88-latest.json', 'w', encoding='utf-8') as f:
-              json.dump(result, f, ensure_ascii=False, indent=2)
+          with open('/tmp/m88-fullbook.json', 'w', encoding='utf-8') as f:
+              json.dump(fullbook, f, ensure_ascii=False, indent=2)
+          with open('/tmp/m88-movements.json', 'w', encoding='utf-8') as f:
+              json.dump(movement_result, f, ensure_ascii=False, indent=2)
 
           fields = [
+              'collected_at_utc','market','league','league_id','match_id','home','away','source_start_ms',
+              'state','home_score','away_score','open_handicap','handicap','open_total','total',
+              'open_home_odds','open_draw_odds','open_away_odds','open_over_odds','open_under_odds',
+              'home_odds','draw_odds','away_odds','over_odds','under_odds','source_updated_at',
+              'closed','zoudi','source','bookmaker','bookmaker_id','source_url'
+          ]
+          with open('/tmp/m88-fullbook.csv', 'w', encoding='utf-8', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
+              w.writeheader()
+              w.writerows(snapshot)
+
+          movement_fields = [
               'collected_at_utc','market','league','home','away','source_time',
               'home_odds','draw_odds','away_odds','handicap','over_odds','total','under_odds',
               'source','bookmaker','source_url'
           ]
-          with open('/tmp/m88-latest.csv', 'w', encoding='utf-8', newline='') as f:
-              w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
+          with open('/tmp/m88-movements.csv', 'w', encoding='utf-8', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=movement_fields, extrasaction='ignore')
               w.writeheader()
-              for row in rows:
-                  w.writerow(row)
+              w.writerows(movements)
 
-          print(json.dumps(result, ensure_ascii=False, indent=2))
-
-          # A zero-row run means the public feed is empty/unhealthy right now; keep the
-          # artifact for diagnosis but make the run visibly fail after files are written.
-          if not rows:
-              raise SystemExit('No current Mansion88 rows found in any public feed')
+          summary = {
+              'collected_at_utc': collected_at,
+              'fullbook_records': len(snapshot),
+              'fullbook_market_health': market_health,
+              'movement_records': len(movements),
+              'movement_health': movement_health,
+              'zero_touch': True,
+          }
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          with open('/tmp/m88-summary.json', 'w', encoding='utf-8') as f:
+              json.dump(summary, f, ensure_ascii=False, indent=2)
           PY
           python3 /tmp/collect_m88.py | tee /tmp/m88-latest.log
 
-      - name: Upload latest M88 snapshot
+      - name: Upload Mansion88 datasets
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: m88-latest-${{ github.run_id }}
           path: |
-            /tmp/m88-latest.json
-            /tmp/m88-latest.csv
+            /tmp/m88-fullbook.json
+            /tmp/m88-fullbook.csv
+            /tmp/m88-movements.json
+            /tmp/m88-movements.csv
+            /tmp/m88-summary.json
             /tmp/m88-latest.log
           retention-days: 7
           if-no-files-found: warn
