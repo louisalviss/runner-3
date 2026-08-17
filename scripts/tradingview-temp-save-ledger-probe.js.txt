@@ -1,4 +1,4 @@
-  // Save the audit derivative privately so Pine Logs are available. Never publish.
+  // Save the audit derivative as a personal script so Pine Logs are available. Never publish.
   const __tmpName=`WR_PARITY_TMP_${process.env.TV_SYMBOL||'BNBUSDT'}_${process.env.GITHUB_RUN_ID||Date.now()}`;
   const __save=dlg.getByRole('button',{name:'Save',exact:true}).first();
   log('TV_TMP_SAVE_BUTTON',await __save.count()>0?'PRESENT':'ABSENT');
@@ -29,3 +29,14 @@
   const __savedText=await dlg.innerText().catch(()=>"");
   log('TV_TMP_SAVED_NAME',__savedText.includes(__tmpName)?'PASS':'CHECK');
   fs.writeFileSync(`/tmp/tv-temp-script-name-${process.env.TV_SYMBOL||'BNBUSDT'}.txt`,__tmpName+'\n');
+
+  // The first compile happened while the source was still Untitled. Re-run the now-saved
+  // personal script so TradingView associates the chart instance and its logs with this script.
+  let __update=dlg.locator('[title="Update on chart"]').first();
+  if(await __update.count()===0) __update=dlg.getByRole('button',{name:/Update on chart/i}).first();
+  log('TV_TMP_UPDATE_AFTER_SAVE',await __update.count()>0?'PRESENT':'ABSENT');
+  if(await __update.count()>0){
+    await __update.click({force:true});
+    await p.waitForTimeout(5000);
+    log('TV_TMP_UPDATE_AFTER_SAVE_DONE','YES');
+  }
