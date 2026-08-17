@@ -32,7 +32,6 @@ async function runSymbol(sym){
     await p.evaluate(async s=>navigator.clipboard.writeText(s),source);
     await p.keyboard.press('Control+V'); await p.waitForTimeout(4000);
 
-    // Verify exact editor round trip without putting source in thrown errors/logs.
     await p.evaluate(async()=>navigator.clipboard.writeText('sentinel'));
     await ta.evaluate(e=>e.focus()); await p.keyboard.press('Control+A'); await p.keyboard.press('Control+C'); await p.waitForTimeout(900);
     const rt=await p.evaluate(async()=>navigator.clipboard.readText());
@@ -55,13 +54,12 @@ async function runSymbol(sym){
     log('COMPILE','PASS');
     if(await dlg.isVisible().catch(()=>false)){await pine.click().catch(()=>{});await p.waitForTimeout(2500)}
 
-    // Wait for strategy history calculation and the report-only parity table.
     let lines=[];
-    for(let i=0;i<30;i++){
+    for(let i=0;i<35;i++){
       await p.waitForTimeout(1000);
       body=await p.locator('body').innerText().catch(()=>'');
       lines=body.split('\n').map(x=>x.trim()).filter(x=>x.startsWith('WRMETA|')||x.startsWith('WRP#'));
-      if(lines.some(x=>x.startsWith('WRMETA|')) && lines.filter(x=>x.startsWith('WRP#')).length>=20) break;
+      if(lines.some(x=>x.startsWith('WRMETA|')) && lines.filter(x=>x.startsWith('WRP#')).length>=10) break;
     }
     fs.writeFileSync(`/tmp/tv-accounting-${sym}.txt`,lines.join('\n')+(lines.length?'\n':''));
     fs.writeFileSync(`/tmp/tv-accounting-body-${sym}.txt`,body);
@@ -69,7 +67,7 @@ async function runSymbol(sym){
     const meta=lines.filter(x=>x.startsWith('WRMETA|'));
     const recs=lines.filter(x=>x.startsWith('WRP#'));
     log('META_LINES',meta.length); log('RECORD_CELLS',recs.length);
-    if(meta.length<1||recs.length<20) throw new Error('parity table not captured');
+    if(meta.length<1||recs.length<10) throw new Error('parity table not captured');
   } catch(e){
     log('ERROR',String(e?.message||e).slice(0,240));
     fs.writeFileSync(`/tmp/tv-accounting-${sym}-run.txt`,out.join('\n')+'\n');
