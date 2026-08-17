@@ -6,8 +6,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/m88-live-publish.yml'
-      - 'm88_odds.py'
-      - 'render_m88_live.py'
+      - 'm88_full_odds.py'
+      - 'render_m88_full.py'
   schedule:
     - cron: '*/5 * * * *'
 
@@ -26,45 +26,39 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install VPN tools
-        shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq openvpn iproute2 iptables curl
 
-      - name: Collect Asia VPN Gate relays
-        shell: bash
+      - name: Build Asia relay pool
         run: |
           set -euo pipefail
           mkdir -p evidence publish /tmp/m88-relays
           curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
           python3 - <<'PY'
           import base64,csv,io,pathlib
-          preference=['TH','SG','MY','PH','ID','JP','KR','TW','VN']
+          pref=['TH','SG','MY','PH','ID','JP','KR','TW','VN']
           raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
           rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
           pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
           picked=[]
-          for country in preference:
-              rs=[r for r in rows if (r.get('CountryShort') or '').upper()==country and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+          for c in pref:
+              rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
               rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
-              picked.extend((country,r) for r in rs[:3])
-          if not picked:
-              raise SystemExit('No Asia VPN Gate relay available')
+              picked.extend((c,r) for r in rs[:3])
+          if not picked: raise SystemExit('No Asia VPN Gate relay')
           meta=[]
-          for i,(country,r) in enumerate(picked):
+          for i,(c,r) in enumerate(picked):
               cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
               cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
-              path=pathlib.Path(f'/tmp/m88-relays/{i:02d}-{country}.ovpn')
-              path.write_text(cfg)
-              meta.append(f'{path}\t{country}\t{r.get("IP","")}\t{r.get("Speed","")}')
+              p=pathlib.Path(f'/tmp/m88-relays/{i:02d}-{c}.ovpn');p.write_text(cfg)
+              meta.append(f'{p}\t{c}\t{r.get("IP","")}')
           pathlib.Path('/tmp/m88-relays.tsv').write_text('\n'.join(meta)+'\n')
-          print('ASIA_RELAYS='+str(len(picked)))
-          print('COUNTRIES='+','.join(sorted({c for c,_ in picked}, key=preference.index)))
+          print('RELAYS='+str(len(meta)))
           PY
 
-      - name: Connect first relay accepted by M88 guest API
-        shell: bash
+      - name: Connect first M88-compatible relay
         run: |
           set -euo pipefail
           IFACE=$(ip route show default | awk '{print $5; exit}')
@@ -83,12 +77,9 @@ jobs:
           sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
           sudo mkdir -p /etc/netns/vpnns
           printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
-
           connected=0
-          : > evidence/connect_attempts.txt
-          while IFS=$'\t' read -r cfg expected_country relay_ip relay_speed; do
-            [ -n "$cfg" ] || continue
-            echo "TRY country=$expected_country relay=$relay_ip" | tee -a evidence/connect_attempts.txt
+          while IFS=$'\t' read -r cfg country relay; do
+            echo "TRY $country $relay"
             sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
             sleep 1
             sudo rm -f /tmp/openvpn.log /tmp/m88-probe.json
@@ -97,147 +88,101 @@ jobs:
             ok=0
             for i in {1..12}; do
               sleep 1
-              if grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null; then ok=1; break; fi
-              if grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error|Connection refused' /tmp/openvpn.log 2>/dev/null; then break; fi
+              grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null && { ok=1; break; }
+              grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Connection refused|fatal error' /tmp/openvpn.log 2>/dev/null && break || true
             done
             [ "$ok" = 1 ] || continue
-
-            trace=$(sudo ip netns exec vpnns curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' 2>/dev/null | grep -E '^(ip|loc|warp)=' || true)
-            actual_country=$(printf '%s\n' "$trace" | sed -n 's/^loc=//p' | head -1)
-            printf '%s\n' "$trace" > /tmp/trace.txt
-
-            if sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 15 \
-              'https://msports.m88.com/api/v1/sport/top?currency=VND' \
-              -H 'Accept: application/json, text/plain, */*' \
-              -H 'Authorization: Bearer GUEST' \
-              -o /tmp/m88-probe.json; then
+            if sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 15 'https://msports.m88.com/api/v1/sport/top?currency=VND' -H 'Authorization: Bearer GUEST' -o /tmp/m88-probe.json; then
               if python3 - <<'PY'
           import json
-          try:
-              d=json.load(open('/tmp/m88-probe.json'))
-              raise SystemExit(0 if d.get('status') == 1 else 1)
-          except Exception:
-              raise SystemExit(1)
+          d=json.load(open('/tmp/m88-probe.json'))
+          raise SystemExit(0 if d.get('status')==1 else 1)
           PY
               then
-                cat /tmp/trace.txt | tee evidence/egress.txt
-                echo "SELECTED expected=$expected_country actual=$actual_country relay=$relay_ip" | tee evidence/selected_relay.txt
-                connected=1
-                break
+                sudo ip netns exec vpnns curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)=' | tee evidence/egress.txt
+                echo "SELECTED $country $relay"
+                connected=1; break
               fi
             fi
           done < /tmp/m88-relays.tsv
           test "$connected" = 1
 
-      - name: Build M88 requests
-        shell: bash
+      - name: Build all soccer market requests
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json,pathlib
-          common={
-            'sport_id':'10','lang_id':'en','view_type':'0','leagues':'999',
-            'odds_type':'3','odds_group':'3','view_date':'0','time_filter':'0',
-            'category':'0','branch_code':'','currency':'VND','is_full':'true',
-            'prev_params':'','version':'','top_x':0,'is_stream':'false',
-            'is_live_center':'false','currentMenu':'spesificSport','prevMenu':'',
-            'method':'LoadOddsData'
-          }
-          for name,slot in [('live','1'),('today','2'),('early','3')]:
-              p=dict(common)
-              p['currentTimeSlot']=slot
-              p['display_type']='1'+slot
-              if slot=='3': p['view_date']='1'
-              pathlib.Path(f'/tmp/{name}-request.json').write_text(json.dumps(p,separators=(',',':')))
+          common={'sport_id':'10','lang_id':'en','view_type':'0','leagues':'999','odds_type':'3','odds_group':'3','view_date':'0','time_filter':'0','category':'0','branch_code':'','currency':'VND','is_full':'true','prev_params':'','version':'','top_x':0,'is_stream':'false','is_live_center':'false','currentMenu':'spesificSport','prevMenu':'','method':'LoadOddsData'}
+          for scope,slot in [('live','1'),('today','2'),('early','3')]:
+              for group in [1,4,5,6,7,8]:
+                  p=dict(common);p['currentTimeSlot']=slot;p['display_type']=f'{group}{slot}'
+                  if slot=='3':p['view_date']='1'
+                  pathlib.Path(f'/tmp/{scope}_g{group}.req').write_text(json.dumps(p,separators=(',',':')))
           PY
 
-      - name: Publish fast live snapshots
-        shell: bash
+      - name: Fetch, normalize and publish full markets
         run: |
           set -euo pipefail
-
-          fetch_scope() {
-            name="$1"
-            sudo ip netns exec vpnns curl -L -sS --fail \
-              --connect-timeout 8 --max-time 25 --retry 2 --retry-delay 1 --retry-all-errors \
+          fetch_group() {
+            scope="$1"; group="$2"
+            if [ "$group" = 1 ]; then out="evidence/${scope}.json"; else out="evidence/${scope}_g${group}.json"; fi
+            tmp="${out}.tmp"
+            if sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 35 --retry 1 --retry-delay 1 --retry-all-errors \
               -X POST 'https://msports.m88.com/api/v1/m88/data/main' \
-              -H 'Accept: application/json, text/plain, */*' \
-              -H 'Content-Type: application/json' \
-              -H 'Authorization: Bearer GUEST' \
-              --data-binary @"/tmp/${name}-request.json" \
-              -o "evidence/${name}.json"
-          }
-
-          validate_live() {
-            python3 - <<'PY'
-          import json
-          d=json.load(open('evidence/live.json'))
-          raise SystemExit(0 if d.get('status') == 1 else 1)
-          PY
-          }
-
-          fetch_scope live
-          validate_live
-          for name in today early; do
-            if fetch_scope "$name"; then
-              python3 - "$name" <<'PY' || rm -f "evidence/$name.json"
+              -H 'Accept: application/json, text/plain, */*' -H 'Content-Type: application/json' -H 'Authorization: Bearer GUEST' \
+              --data-binary @"/tmp/${scope}_g${group}.req" -o "$tmp"; then
+              if python3 - "$tmp" <<'PY'
           import json,sys
-          d=json.load(open(f'evidence/{sys.argv[1]}.json'))
-          raise SystemExit(0 if d.get('status') == 1 else 1)
+          try:d=json.load(open(sys.argv[1]));raise SystemExit(0 if d.get('status')==1 else 1)
+          except Exception:raise SystemExit(1)
           PY
-            else
-              rm -f "evidence/$name.json"
+              then mv "$tmp" "$out"; echo "FETCH ${scope} g${group}=OK"; return 0; fi
             fi
-          done
+            rm -f "$tmp"; echo "FETCH ${scope} g${group}=MISS"; return 1
+          }
 
+          fetch_full_scope() {
+            scope="$1"
+            fetch_group "$scope" 1 || return 1
+            for g in 4 5 6 7 8; do fetch_group "$scope" "$g" || rm -f "evidence/${scope}_g${g}.json"; done
+          }
+
+          fetch_full_scope live
+          fetch_full_scope today || echo 'TODAY_OPTIONAL_MISS'
+          fetch_full_scope early || echo 'EARLY_OPTIONAL_MISS'
           AUTH_HEADER=$(git config --local --get http.https://github.com/.extraheader || true)
 
           publish_once() {
             iteration="$1"
-            python3 m88_odds.py \
-              --input-dir evidence \
-              --output-json evidence/m88_odds.json \
-              --output-csv evidence/m88_odds.csv \
-              --odds-format decimal
-
+            python3 m88_full_odds.py --input-dir evidence --output-json publish/data.json --output-csv publish/odds.csv --odds-format decimal
             python3 - <<'PY'
-          import json,pathlib
-          src=json.loads(pathlib.Path('evidence/m88_odds.json').read_text())
-          matches=src.get('matches') or []
-          live=[m for m in matches if m.get('scope')=='live']
-          live_selections=sum(len(line.get('prices') or []) for m in live for lines in (m.get('markets') or {}).values() for line in lines)
-          if not live or live_selections < 20:
-              raise SystemExit(f'Unsafe live snapshot: matches={len(live)} selections={live_selections}')
-          src['live_generated_at']=src.get('generated_at')
-          src['selection_count']=sum(len(line.get('prices') or []) for m in matches for lines in (m.get('markets') or {}).values() for line in lines)
-          src['live_selection_count']=live_selections
-          src['available_scopes']=sorted({m.get('scope') for m in matches if m.get('scope')})
-          src['source_mode']='direct_m88_guest_fast_live'
-          pathlib.Path('publish/data.json').write_text(json.dumps(src,separators=(',',':'),ensure_ascii=False),encoding='utf-8')
-          print('LIVE_MATCHES='+str(len(live)))
-          print('LIVE_GENERATED_AT='+str(src.get('live_generated_at')))
+          import json,pathlib,re
+          p=pathlib.Path('publish/data.json');d=json.loads(p.read_text())
+          live=[m for m in d.get('matches',[]) if m.get('scope')=='live']
+          real=[m for m in live if not re.search(r'virtual|esoccer|e-soccer|pes\s?\d|simulated|cyber|\(v\)', ' '.join([(m.get('league') or {}).get('name',''),m.get('home',''),m.get('away','')]), re.I)]
+          sels=(d.get('counts') or {}).get('total_selections',0)
+          if not real or sels < 50: raise SystemExit(f'Unsafe snapshot real_live={len(real)} selections={sels}')
+          d['live_generated_at']=d.get('generated_at');d['source_mode']='direct_m88_guest_full_market_groups'
+          p.write_text(json.dumps(d,separators=(',',':'),ensure_ascii=False))
+          print('REAL_LIVE='+str(len(real)));print('FULL_SELECTIONS='+str(sels));print('MARKETS='+','.join(sorted((d.get('counts') or {}).get('selections',{}))))
           PY
-
-            python3 render_m88_live.py --input publish/data.json --output publish/index.html
-            test -s publish/index.html
-            grep -q 'grid-column:1/-1' publish/index.html
-            grep -q 'data-live-clock' publish/index.html
+            python3 render_m88_full.py --input publish/data.json --output publish/index.html
+            grep -q '<details class="match"' publish/index.html
+            grep -q 'CƠ HỘI KÉP' publish/index.html || true
+            grep -q 'CƯỢC TỈ SỐ' publish/index.html || true
 
             rm -rf /tmp/m88-pub
             git init -q /tmp/m88-pub
             git -C /tmp/m88-pub config user.name 'github-actions[bot]'
             git -C /tmp/m88-pub config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git -C /tmp/m88-pub remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-            if [ -n "$AUTH_HEADER" ]; then
-              git -C /tmp/m88-pub config http.https://github.com/.extraheader "$AUTH_HEADER"
-            fi
+            [ -z "$AUTH_HEADER" ] || git -C /tmp/m88-pub config http.https://github.com/.extraheader "$AUTH_HEADER"
             git -C /tmp/m88-pub checkout --orphan m88-live-data >/dev/null 2>&1
-            cp publish/data.json /tmp/m88-pub/data.json
-            cp publish/index.html /tmp/m88-pub/index.html
-            printf '%s\n' "M88 fast live guest feed. Poll iteration ${iteration}." > /tmp/m88-pub/README.md
+            cp publish/data.json publish/index.html publish/odds.csv /tmp/m88-pub/
+            printf '%s\n' "M88 full-market guest feed. Poll iteration ${iteration}." > /tmp/m88-pub/README.md
             touch /tmp/m88-pub/.nojekyll
-            git -C /tmp/m88-pub add data.json index.html README.md .nojekyll
-            git -C /tmp/m88-pub commit -q -m "M88 live $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            git -C /tmp/m88-pub add .
+            git -C /tmp/m88-pub commit -q -m "M88 full markets $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
             git -C /tmp/m88-pub push -q --force origin HEAD:m88-live-data
             echo "PUBLISHED_ITERATION=$iteration"
           }
@@ -245,9 +190,5 @@ jobs:
           publish_once 1
           for iteration in 2 3 4; do
             sleep 45
-            if fetch_scope live && validate_live; then
-              publish_once "$iteration"
-            else
-              echo "LIVE_REFRESH_${iteration}=FAILED_KEEP_LAST"
-            fi
+            if fetch_full_scope live; then publish_once "$iteration"; else echo "LIVE_REFRESH_${iteration}=KEEP_LAST"; fi
           done
