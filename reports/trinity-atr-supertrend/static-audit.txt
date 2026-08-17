@@ -1,0 +1,11 @@
+# Static audit hits
+
+## request.security / lookahead / strategy / entries
+84:f_supertrend(_high, _low, _close, _len, _mult) =>
+85:    atr = ta.atr(_len)
+98:[st1, dir1] = request.security(syminfo.tickerid, res1, f_supertrend(high, low, close, atrLen1, mult1), lookahead=barmerge.lookahead_on)
+102:[st2, dir2] = request.security(syminfo.tickerid, res2, f_supertrend(high, low, close, atrLen2, mult2), lookahead=barmerge.lookahead_on)
+106:[st3, dir3] = request.security(syminfo.tickerid, res3, f_supertrend(high, low, close, atrLen3, mult3), lookahead=barmerge.lookahead_on)
+109:atrHTF = request.security(syminfo.tickerid, res2, ta.atr(atrLen2), lookahead=barmerge.lookahead_on)
+167:atrForRisk = useHTFATR ? atrHTF : ta.atr(atrLen1)
+168:atrTrail = ta.atr(trailATRLength)
