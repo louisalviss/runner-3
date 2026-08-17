@@ -11,8 +11,14 @@ add_action('after_setup_theme', 'runner3_editorial_setup');
 
 function runner3_editorial_assets() {
     $style_path = get_stylesheet_directory() . '/style.css';
-    $version = file_exists($style_path) ? (string) filemtime($style_path) : '2.0.1';
+    $version = file_exists($style_path) ? (string) filemtime($style_path) : '2.1.0';
     wp_enqueue_style('runner3-editorial', get_stylesheet_uri(), [], $version);
+
+    if (is_front_page()) {
+        $motion_path = get_stylesheet_directory() . '/motion.js';
+        $motion_version = file_exists($motion_path) ? (string) filemtime($motion_path) : $version;
+        wp_enqueue_script('runner3-motion', get_stylesheet_directory_uri() . '/motion.js', [], $motion_version, true);
+    }
 }
 add_action('wp_enqueue_scripts', 'runner3_editorial_assets');
 
