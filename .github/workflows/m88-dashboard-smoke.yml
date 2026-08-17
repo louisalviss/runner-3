@@ -1,0 +1,62 @@
+name: M88 Dashboard Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/m88/index.html'
+      - '.github/workflows/m88-dashboard-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check rendered dashboard URL and live data
+        shell: bash
+        run: |
+          set -euo pipefail
+          PAGE='https://raw.githack.com/louisalviss/runner-3/main/docs/m88/index.html'
+          DATA='https://raw.githubusercontent.com/louisalviss/runner-3/m88-live-data/data.json'
+          ok=0
+          for i in {1..6}; do
+            if curl -fsSL --max-time 20 "$PAGE?smoke=$(date +%s)" -o /tmp/page.html && grep -q 'M88 Live Odds' /tmp/page.html; then
+              ok=1; break
+            fi
+            sleep 5
+          done
+          test "$ok" = 1
+          curl -fsSL --max-time 20 "$DATA?smoke=$(date +%s)" -o /tmp/data.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/data.json'))
+          assert d.get('odds_format') == 'decimal'
+          assert isinstance(d.get('matches'), list)
+          print('PAGE_OK=true')
+          print('DATA_OK=true')
+          print('GENERATED_AT='+str(d.get('generated_at')))
+          print('LIVE_MATCHES='+str(len(d.get('matches',[]))))
+          PY
+
+      - name: Render dashboard in installed Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || true)
+          if [ -z "$CHROME" ]; then
+            echo 'Chrome unavailable; HTTP smoke already passed.'
+            exit 0
+          fi
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=7000 \
+            --dump-dom 'https://raw.githack.com/louisalviss/runner-3/main/docs/m88/index.html' > /tmp/dom.html 2>/tmp/chrome.err
+          grep -q 'M88 Live Odds' /tmp/dom.html
+          grep -Eq 'real live matches|No matching real live games' /tmp/dom.html
+          if grep -q 'Latest snapshot is not published yet' /tmp/dom.html; then
+            echo 'Dashboard rendered but data fetch failed' >&2
+            exit 1
+          fi
+          echo 'CHROME_RENDER_OK=true'
