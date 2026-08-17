@@ -6,9 +6,9 @@
   log('TV_RANGE_HAS_CURRENT_DATES',/Jul 27, 2026/.test(rangeEvidence.body)&&/Aug 17, 2026/.test(rangeEvidence.body)?'YES':'NO');
 
   const reportDateButton=p.locator('button').filter({hasText:/Jul 27, 2026.*Aug 17, 2026/}).first();
-  const visible=await reportDateButton.count()>0 && await reportDateButton.isVisible().catch(()=>false);
-  log('TV_REPORT_RANGE_BUTTON_VISIBLE',visible?'YES':'NO');
-  if(visible){
+  const rangeVisible=await reportDateButton.count()>0 && await reportDateButton.isVisible().catch(()=>false);
+  log('TV_REPORT_RANGE_BUTTON_VISIBLE',rangeVisible?'YES':'NO');
+  if(rangeVisible){
     await reportDateButton.click({force:true});
     await p.waitForTimeout(1200);
     const custom=p.getByText('Custom date range',{exact:true}).last();
