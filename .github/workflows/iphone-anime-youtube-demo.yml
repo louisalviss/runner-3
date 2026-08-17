@@ -1,0 +1,165 @@
+name: iPhone Anime YouTube Demo
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/iphone-anime-youtube-demo.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl
+          python -m pip install -q numpy
+
+      - name: Download anime source and phonk
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/RWBY_Chibi_-_Sissy_Fight_%26_The_Vacuum.webm' \
+            -o anime_source.webm
+          curl -L --fail --retry 3 \
+            'https://archive.org/download/jamendo-621715/01-2294083-Waveloom-TikTok%20Phonk.mp3' \
+            -o phonk.mp3
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,r_frame_rate -of default=nw=1 anime_source.webm
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 phonk.mp3
+
+      - name: Auto-select high-motion anime moments
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python <<'PY'
+          import json, subprocess, numpy as np
+
+          src='anime_source.webm'
+          meta=json.loads(subprocess.check_output([
+              'ffprobe','-v','error','-select_streams','v:0',
+              '-show_entries','stream=width,height','-show_entries','format=duration',
+              '-of','json',src
+          ]))
+          sw=int(meta['streams'][0]['width']); sh=int(meta['streams'][0]['height'])
+          dur=float(meta['format']['duration'])
+
+          lw, lh, fps = 240, 134, 5
+          p=subprocess.Popen([
+              'ffmpeg','-hide_banner','-loglevel','error','-i',src,
+              '-vf',f'scale={lw}:{lh},fps={fps}',
+              '-pix_fmt','gray','-f','rawvideo','-'
+          ], stdout=subprocess.PIPE)
+
+          frame_bytes=lw*lh
+          prev=None; samples=[]; i=0
+          while True:
+              b=p.stdout.read(frame_bytes)
+              if len(b)<frame_bytes: break
+              cur=np.frombuffer(b,dtype=np.uint8).reshape(lh,lw)
+              if prev is not None:
+                  diff=np.abs(cur.astype(np.int16)-prev.astype(np.int16)).astype(np.float32)
+                  score=float(diff.mean())
+                  cols=diff.sum(axis=0)
+                  if cols.sum()>0:
+                      cx=float((cols*np.arange(lw)).sum()/cols.sum())
+                  else:
+                      cx=lw/2
+                  t=i/fps
+                  if 4.0 < t < dur-4.0:
+                      samples.append((score,t,cx))
+              prev=cur; i+=1
+          p.wait()
+
+          # Pick strongest motion moments while avoiding near-duplicates.
+          picked=[]
+          for score,t,cx in sorted(samples, reverse=True):
+              if all(abs(t-pt)>1.15 for _,pt,_ in picked):
+                  picked.append((score,t,cx))
+              if len(picked)>=16: break
+          picked=sorted(picked, key=lambda x:x[1])
+
+          # Reorder for a punchier edit: alternate earlier/later selected moments.
+          order=[]; a=0; b=len(picked)-1
+          while a<=b:
+              order.append(picked[a]); a+=1
+              if a<=b: order.append(picked[b]); b-=1
+          picked=order[:16]
+
+          out=[]
+          crop_w=int(round(sh*9/16))
+          crop_w -= crop_w%2
+          for idx,(score,t,cx_low) in enumerate(picked):
+              cx=cx_low/lw*sw
+              # Every 4th hit zooms in slightly.
+              zoom=0.90 if idx%4==0 else (0.95 if idx%4==2 else 1.0)
+              ch=int(sh*zoom); ch-=ch%2
+              cw=int(round(ch*9/16)); cw-=cw%2
+              x=int(round(cx-cw/2)); x=max(0,min(sw-cw,x)); x-=x%2
+              y=int(round((sh-ch)/2)); y=max(0,y); y-=y%2
+              out.append({'i':idx,'t':max(0.0,t-0.25),'score':score,'x':x,'y':y,'cw':cw,'ch':ch})
+          with open('moments.json','w') as f: json.dump(out,f,indent=2)
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Build iPhone portrait edit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p clips
+          python <<'PY'
+          import json, subprocess
+          moments=json.load(open('moments.json'))
+          durations=[0.42,0.50,0.62,0.50]
+          total=0
+          for m in moments:
+              i=m['i']; d=durations[i%4]; total+=d
+              vf=(
+                  f"crop={m['cw']}:{m['ch']}:{m['x']}:{m['y']},"
+                  "scale=1080:1920:flags=lanczos,"
+                  "eq=contrast=1.06:saturation=1.10:brightness=0.005,"
+                  "unsharp=5:5:0.45:5:5:0.0,fps=30,format=yuv420p"
+              )
+              af=f"volume=0.38,afade=t=in:st=0:d=0.015,afade=t=out:st={max(0,d-0.03):.3f}:d=0.03"
+              out=f"clips/c{i:02d}.mp4"
+              subprocess.check_call([
+                  'ffmpeg','-hide_banner','-loglevel','error','-y',
+                  '-ss',f"{m['t']:.3f}",'-i','anime_source.webm','-t',str(d),
+                  '-vf',vf,'-af',af,
+                  '-c:v','libx264','-preset','slow','-crf','18','-profile:v','high','-level','4.1',
+                  '-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',
+                  '-c:a','aac','-b:a','128k','-ar','48000','-ac','2',out
+              ])
+          with open('concat.txt','w') as f:
+              for i in range(len(moments)):
+                  f.write(f"file 'clips/c{i:02d}.mp4'\n")
+          print('visual duration target',total)
+          PY
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -f concat -safe 0 -i concat.txt -c copy visual_sfx.mp4
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i visual_sfx.mp4 -ss 8 -i phonk.mp3 \
+            -filter_complex '[0:a]volume=0.42[sfx];[1:a]volume=0.92,bass=g=3:f=90[beat];[sfx][beat]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]' \
+            -map 0:v:0 -map '[a]' -shortest \
+            -c:v copy -c:a aac -b:a 192k -ar 48000 -ac 2 \
+            -movflags +faststart iphone_anime_edit.mp4
+
+          ffprobe -v error \
+            -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,sample_rate,channels \
+            -show_entries format=duration,size,bit_rate \
+            -of default=nw=1 iphone_anime_edit.mp4
+          ls -lh iphone_anime_edit.mp4
+
+      - name: Upload iPhone-ready MP4
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-anime-youtube-demo
+          path: iphone_anime_edit.mp4
+          retention-days: 3
