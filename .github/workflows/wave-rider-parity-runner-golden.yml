@@ -1,0 +1,68 @@
+name: Wave Rider Production Parity Golden
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/reference_verify.py'
+      - 'wave-rider-verify/reference_verify_parity.py'
+      - 'wave-rider-verify/wave_rider_parity_runner.py'
+      - 'wave-rider-verify/golden/tv_5m_window_report_2026-07-27T17_2026-08-15T17.json'
+      - '.github/workflows/wave-rider-parity-runner-golden.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_TF: '5'
+      WR_DATA_START: '2026-07-27'
+      WR_DATA_END: '2026-08-17'
+      WR_REPORT_START: '2026-07-27T17:00:00Z'
+      WR_REPORT_END: '2026-08-15T17:00:00Z'
+      WR_OUT: 'wave-rider-verify/output-parity'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run production parity runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 wave-rider-verify/wave_rider_parity_runner.py
+      - name: Assert TradingView dashboard golden
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,sys
+          sym=os.environ['WR_SYMBOL']
+          got=json.load(open(f'wave-rider-verify/output-parity/{sym}_5m_summary.json'))['summary']
+          exp=json.load(open('wave-rider-verify/golden/tv_5m_window_report_2026-07-27T17_2026-08-15T17.json'))['symbols'][sym]
+          checks={
+            'trades':got['trades']==exp['trades'],
+            'total_r':round(got['total_r'],2)==round(exp['total_r'],2),
+            'win_rate':round(got['win_rate'],1)==round(exp['win_rate_pct'],1),
+            'avg_r':round(got['avg_r'],2)==round(exp['avg_r'],2),
+            'profit_factor':round(got['profit_factor'],2)==round(exp['profit_factor'],2),
+            'max_dd':round(got['max_dd_pct'],2)==round(exp['max_closed_dd_pct'],2),
+            'max_losing_streak':got['max_losing_streak']==exp['max_losing_streak'],
+          }
+          print(json.dumps({'symbol':sym,'got':got,'checks':checks},indent=2))
+          if not all(checks.values()):sys.exit(9)
+          PY
+      - name: Upload parity output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-production-parity-${{ matrix.symbol }}-${{ github.run_id }}
+          path: wave-rider-verify/output-parity/
+          if-no-files-found: warn
+          retention-days: 7
