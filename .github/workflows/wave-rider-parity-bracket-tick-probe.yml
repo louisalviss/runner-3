@@ -1,0 +1,88 @@
+name: Wave Rider Broker Bracket Tick Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-parity-bracket-tick-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bracket:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cumulative proven-entry plus bracket-tick candidate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('wave-rider-verify/reference_verify.py').read_text()
+          pold="""        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+          pnew="""        if v[c]==ext:\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n"""
+          fold="""            fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)\n"""
+          fnew="""            fill=(pending.d==1 and round(x.h/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.l/tick)<=round(pending.e/tick))\n"""
+          planold="""                if nl: d=1; e=x.h+tick; s=x.l-tick; t=e+TP_R*(e-s)\n                else: d=-1; e=x.l-tick; s=x.h+tick; t=e-TP_R*(s-e)\n"""
+          plannew="""                if nl:\n                    d=1; ei=round(x.h/tick)+1; si=round(x.l/tick)-1; ti=math.ceil(ei+TP_R*(ei-si)-1e-12); e=ei*tick; s=si*tick; t=ti*tick\n                else:\n                    d=-1; ei=round(x.l/tick)-1; si=round(x.h/tick)+1; ti=math.floor(ei-TP_R*(si-ei)+1e-12); e=ei*tick; s=si*tick; t=ti*tick\n"""
+          assert src.count(pold)==src.count(fold)==src.count(planold)==1
+          src=src.replace(pold,pnew,1).replace(fold,fnew,1).replace(planold,plannew,1)
+          a=src.index('def next_bracket('); b=src.index('\ndef run(',a)
+          nb='''def next_bracket(plan,x,start_at=None,tick=None):\n    if tick is None or tick<=0: raise ValueError("tick required")\n    qi=lambda v: round(v/tick)\n    def tcross(a,z,p): return min(qi(a),qi(z))<=qi(p)<=max(qi(a),qi(z))\n    pts=path(x); active=start_at is None; cur=pts[0]\n    if active:\n        if plan.d==1 and qi(x.o)<=qi(plan.s): return 'SL',x.o\n        if plan.d==1 and qi(x.o)>=qi(plan.t): return 'TP',x.o\n        if plan.d==-1 and qi(x.o)>=qi(plan.s): return 'SL',x.o\n        if plan.d==-1 and qi(x.o)<=qi(plan.t): return 'TP',x.o\n    for z in pts[1:]:\n        pos=cur\n        while True:\n            if not active:\n                enter=(plan.d==1 and qi(pos)<qi(plan.e)<=qi(z)) or (plan.d==-1 and qi(pos)>qi(plan.e)>=qi(z))\n                if not enter: break\n                pos=plan.e; active=True; continue\n            cand=[]\n            if tcross(pos,z,plan.s) and qi(plan.s)!=qi(pos): cand.append((abs(qi(plan.s)-qi(pos)),'SL',plan.s))\n            if tcross(pos,z,plan.t) and qi(plan.t)!=qi(pos): cand.append((abs(qi(plan.t)-qi(pos)),'TP',plan.t))\n            if not cand: break\n            _,r,p=min(cand); return r,p\n        cur=z\n    return None,None\n'''
+          src=src[:a]+nb+src[b:]
+          src=src.replace('next_bracket(active,x,None)','next_bracket(active,x,None,tick)').replace('next_bracket(active,x,active.e)','next_bracket(active,x,active.e,tick)')
+          Path('/tmp/reference_bracket_tick.py').write_text(src)
+          PY
+      - name: Run candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 /tmp/reference_bracket_tick.py >/tmp/run.txt
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" "/tmp/${WR_SYMBOL}-trades.csv"
+      - name: Score native TradingView entry and exit fields
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os,datetime,sys
+          sym=os.environ['WR_SYMBOL']
+          expected={
+          'BNBUSDT':[
+          ('2026-07-27T05:55:00Z','2026-07-27T05:55:00Z',575.24,575.96),('2026-07-27T10:05:00Z','2026-07-27T10:20:00Z',572.52,573.06),('2026-07-28T12:45:00Z','2026-07-28T13:25:00Z',568.34,567.72),('2026-07-30T15:20:00Z','2026-07-30T16:00:00Z',590.18,591.79),('2026-08-03T04:10:00Z','2026-08-03T04:20:00Z',583.86,584.55),('2026-08-05T02:40:00Z','2026-08-05T03:00:00Z',603.98,603.17),('2026-08-05T10:00:00Z','2026-08-05T10:00:00Z',598.57,597.67),('2026-08-08T03:45:00Z','2026-08-08T03:55:00Z',593.40,593.98),('2026-08-08T04:35:00Z','2026-08-08T05:50:00Z',593.71,593.33),('2026-08-08T19:05:00Z','2026-08-08T21:30:00Z',603.56,603.01),('2026-08-12T03:20:00Z','2026-08-12T04:05:00Z',615.37,613.41),('2026-08-13T19:35:00Z','2026-08-13T20:15:00Z',609.96,611.02),('2026-08-14T10:40:00Z','2026-08-14T11:05:00Z',606.40,605.52),('2026-08-16T04:10:00Z','2026-08-16T05:30:00Z',606.44,606.73)],
+          'TRXUSDT':[
+          ('2026-07-27T18:10:00Z','2026-07-27T18:15:00Z',.32825,.32785),('2026-07-28T08:20:00Z','2026-07-28T08:35:00Z',.32520,.32555),('2026-07-29T10:25:00Z','2026-07-29T10:35:00Z',.32622,.32648),('2026-07-29T16:00:00Z','2026-07-29T16:05:00Z',.32615,.32624),('2026-08-03T06:15:00Z','2026-08-03T06:55:00Z',.32569,.32581),('2026-08-05T08:15:00Z','2026-08-05T08:45:00Z',.32717,.32759),('2026-08-05T10:55:00Z','2026-08-05T11:00:00Z',.32843,.32887),('2026-08-06T17:40:00Z','2026-08-06T18:35:00Z',.32675,.32694),('2026-08-07T15:15:00Z','2026-08-07T15:20:00Z',.32829,.32812),('2026-08-10T13:00:00Z','2026-08-10T13:30:00Z',.33178,.33159),('2026-08-14T19:25:00Z','2026-08-14T20:25:00Z',.33285,.33273),('2026-08-16T10:05:00Z','2026-08-16T11:30:00Z',.33118,.33144),('2026-08-16T19:00:00Z','2026-08-16T20:05:00Z',.33175,.33138),('2026-08-16T22:00:00Z','2026-08-16T22:00:00Z',.33121,.33107)]}[sym]
+          prec=2 if sym=='BNBUSDT' else 5
+          with open(f'/tmp/{sym}-trades.csv',newline='') as f: rows=list(csv.DictReader(f))
+          def bar_open(exit_close):
+              d=datetime.datetime.fromisoformat(exit_close.replace('Z','+00:00'))
+              d=d-datetime.timedelta(minutes=5)+datetime.timedelta(milliseconds=1)
+              return d.strftime('%Y-%m-%dT%H:%M:00Z')
+          got=[(r['entry_time'],bar_open(r['exit_time']),round(float(r['entry']),prec),round(float(r['exit_price']),prec)) for r in rows]
+          diffs=[{'n':i+1,'tv':e,'py':g} for i,(e,g) in enumerate(zip(expected,got)) if e!=g]
+          if len(got)!=len(expected): diffs.append({'count_tv':len(expected),'count_py':len(got)})
+          out={'symbol':sym,'count':len(got),'exact_native_fields':not diffs,'diffs':diffs}
+          print(json.dumps(out,indent=2)); open(f'/tmp/{sym}-score.json','w').write(json.dumps(out,indent=2)+'\n')
+          if diffs: sys.exit(7)
+          PY
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-bracket-tick-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/${{ matrix.symbol }}-trades.csv
+            /tmp/${{ matrix.symbol }}-score.json
+            /tmp/run.txt
+          if-no-files-found: warn
+          retention-days: 2
