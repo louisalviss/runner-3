@@ -1,0 +1,64 @@
+name: Cloudflare AwardSpace Signup Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-awardspace-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Inspect AwardSpace signup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > probe-awardspace.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const endpoint=`wss://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/devtools/browser?keep_alive=600000`;
+          const browser=await chromium.connectOverCDP(endpoint,{headers:{Authorization:`Bearer ${token}`}});
+          try {
+            const context=browser.contexts()[0];
+            const page=context.pages()[0] || await context.newPage();
+            await page.goto('https://www.awardspace.com/free-web-hosting-registration/',{waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForTimeout(5000);
+            console.log('FINAL_URL=' + page.url());
+            console.log('TITLE=' + await page.title());
+            const text=(await page.locator('body').innerText()).replace(/\s+/g,' ').trim();
+            console.log('BODY_SAMPLE=' + text.slice(0,1600));
+            const inputs=await page.locator('input').evaluateAll(els=>els.map((e,i)=>({i,type:e.type,name:e.name,id:e.id,placeholder:e.placeholder,required:e.required})).filter(x=>x.type!=='hidden'));
+            console.log('INPUTS=' + JSON.stringify(inputs));
+            const forms=await page.locator('form').evaluateAll(els=>els.map((e,i)=>({i,action:e.action,method:e.method})));
+            console.log('FORMS=' + JSON.stringify(forms));
+            const html=(await page.content()).toLowerCase();
+            const markers=['recaptcha','hcaptcha','turnstile','captcha','verify you are human','cf-chl-'].filter(x=>html.includes(x));
+            console.log('CAPTCHA_MARKERS=' + markers.join(','));
+            const iframes=await page.locator('iframe').evaluateAll(els=>els.map(e=>e.src));
+            console.log('IFRAMES=' + JSON.stringify(iframes.slice(0,30)));
+          } finally {
+            await browser.close();
+          }
+          JS
+          node probe-awardspace.mjs
