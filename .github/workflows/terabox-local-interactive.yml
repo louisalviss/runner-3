@@ -1,0 +1,95 @@
+name: TeraBox Local Interactive Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/terabox-local-interactive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: |
+          python -m pip install 'playwright>=1.58,<2'
+          python -m playwright install --with-deps chromium
+      - name: Inspect TeraBox interactively
+        shell: bash
+        run: |
+          cat > /tmp/terabox_probe.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          import re, json
+
+          target='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
+          seen=set()
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              context=browser.new_context(user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+              page=context.new_page()
+
+              def on_response(r):
+                  try:
+                      rt=r.request.resource_type
+                      if rt not in ('xhr','fetch'):
+                          return
+                      u=r.url
+                      if not re.search(r'(1024tera|terabox|data\.)',u,re.I) or u in seen:
+                          return
+                      seen.add(u)
+                      print('XHR_URL='+u)
+                      print('XHR_STATUS='+str(r.status))
+                      if re.search(r'(list|share|api|file|dir)',u,re.I):
+                          ct=(r.headers or {}).get('content-type','')
+                          if re.search(r'(json|text)',ct,re.I):
+                              try:
+                                  t=r.text()
+                                  print('XHR_BODY='+re.sub(r'\s+',' ',t[:20000]))
+                              except Exception as e:
+                                  print('XHR_BODY_ERROR='+type(e).__name__)
+                  except Exception as e:
+                      print('XHR_HANDLER_ERROR='+type(e).__name__)
+
+              page.on('response', on_response)
+              resp=page.goto(target,wait_until='domcontentloaded',timeout=90000)
+              page.wait_for_timeout(10000)
+              print('HTTP='+str(resp.status if resp else None))
+              print('TITLE='+page.title())
+              print('URL0='+page.url)
+
+              rows=page.locator('.file-item-listmode')
+              n=rows.count()
+              print('ROOT_ROW_COUNT='+str(n))
+              for i in range(min(n,30)):
+                  print(f'ROOT_ROW_{i}='+re.sub(r'\s+',' ',rows.nth(i).inner_text()).strip())
+
+              root=page.locator('.file-item-listmode .file-content').first
+              if root.count():
+                  root.click(timeout=15000)
+                  page.wait_for_timeout(10000)
+                  print('CLICK_ROOT=ok')
+                  print('URL1='+page.url)
+                  rows2=page.locator('.file-item-listmode')
+                  n2=rows2.count()
+                  print('INNER_ROW_COUNT='+str(n2))
+                  for i in range(min(n2,200)):
+                      print(f'INNER_ROW_{i}='+re.sub(r'\s+',' ',rows2.nth(i).inner_text()).strip())
+                  body=re.sub(r'\s+',' ',page.locator('body').inner_text()).strip()
+                  print('BODY_AFTER='+body[:20000])
+              else:
+                  print('CLICK_ROOT=no-row')
+
+              page.wait_for_timeout(3000)
+              browser.close()
+          PY
+          python /tmp/terabox_probe.py
