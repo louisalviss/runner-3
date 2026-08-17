@@ -34,7 +34,7 @@ jobs:
           rm -f /tmp/tv-source-private.pem
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/tradingview/source-transport-public.pem ops/tradingview/source-transport-private.pem.aes
+          git add -f ops/tradingview/source-transport-public.pem ops/tradingview/source-transport-private.pem.aes
           git commit -m 'bootstrap encrypted TradingView source transport'
           for i in 1 2 3 4 5; do
             if git push origin HEAD:main; then exit 0; fi
