@@ -25,8 +25,8 @@ jobs:
           from pathlib import Path
           p=Path('wave-rider-verify/reference_verify_parity.py')
           s=p.read_text()
-          old="""    tx=(math.ceil(plan.t/tick-1e-12)*tick) if plan.d==1 else (math.floor(plan.t/tick+1e-12)*tick)\n"""
-          new="""    raw_ti=plan.t/tick\n    nearest_ti=round(raw_ti)\n    if math.isclose(raw_ti,nearest_ti,rel_tol=0.0,abs_tol=1e-7):\n        target_i=nearest_ti\n    else:\n        target_i=math.ceil(raw_ti) if plan.d==1 else math.floor(raw_ti)\n    tx=target_i*tick\n"""
+          old=r"""    tx=(math.ceil(plan.t/tick-1e-12)*tick) if plan.d==1 else (math.floor(plan.t/tick+1e-12)*tick)\n"""
+          new=r"""    raw_ti=plan.t/tick\n    nearest_ti=round(raw_ti)\n    if math.isclose(raw_ti,nearest_ti,rel_tol=0.0,abs_tol=1e-7):\n        target_i=nearest_ti\n    else:\n        target_i=math.ceil(raw_ti) if plan.d==1 else math.floor(raw_ti)\n    tx=target_i*tick\n"""
           if s.count(old)!=1:
               raise SystemExit(f'quantization anchor count={s.count(old)}')
           p.write_text(s.replace(old,new,1))
