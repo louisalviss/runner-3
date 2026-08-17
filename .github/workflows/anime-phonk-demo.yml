@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          # Waveloom - TikTok Phonk, Jamendo archive. Used only for this private demo.
+          # Waveloom - TikTok Phonk, Jamendo archive. Private technical demo only.
           curl -L --fail --retry 3 \
             'https://archive.org/download/jamendo-621715/01-2294083-Waveloom-TikTok%20Phonk.mp3' \
             -o phonk.mp3
@@ -57,25 +57,21 @@ jobs:
           mkdir -p clips
           DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 anime_source.mp4)
           python - "$DUR" <<'PY'
-          import sys, subprocess, random, os
+          import sys, subprocess, random
           dur=float(sys.argv[1])
           random.seed(17)
-          # 20 rapid cuts, ~150 BPM visual cadence. Avoid intro/outro where possible.
           starts=[]
           lo=4.0 if dur>20 else 0.5
           hi=max(lo+1.0, dur-3.0)
           for i in range(20):
-              # spread picks across the source instead of reusing one section
               base=lo + (hi-lo) * ((i*7 % 20)/20.0)
               starts.append(min(hi, base + random.uniform(-0.35,0.35)))
           for i,s in enumerate(starts):
-              # alternating 0.32 / 0.40 / 0.48 sec cuts = intentionally punchy TikTok edit
               cd=[0.32,0.40,0.48,0.40][i%4]
-              # center vertical reframing, micro shake, contrast/saturation, intermittent flash
               vf=(
-                "scale=1200:2134:force_original_aspect_ratio=increase," 
-                "crop=1080:1920:x='(iw-ow)/2+10*sin(45*t)':y='(ih-oh)/2+7*sin(57*t)'," 
-                "eq=contrast=1.18:saturation=1.20:brightness='if(lt(t,0.045),0.24,0)'," 
+                "scale=1200:2134:force_original_aspect_ratio=increase,"
+                "crop=1080:1920:x='(iw-ow)/2+10*sin(45*t)':y='(ih-oh)/2+7*sin(57*t)',"
+                "eq=contrast=1.18:saturation=1.20:brightness='if(lt(t,0.045),0.24,0)':eval=frame,"
                 "unsharp=5:5:0.65:5:5:0.0,fps=30,format=yuv420p"
               )
               out=f"clips/c{i:02d}.mp4"
@@ -88,14 +84,13 @@ jobs:
           PY
 
           ffmpeg -hide_banner -loglevel error -y -f concat -safe 0 -i concat.txt -c copy visual.mp4
-
-          # Use a real excerpt of the phonk track; punch bass slightly for phone speakers.
           ffmpeg -hide_banner -loglevel error -y \
             -i visual.mp4 -ss 8 -i phonk.mp3 \
             -filter:a 'volume=1.08,bass=g=4:f=85,alimiter=limit=0.95' \
             -map 0:v:0 -map 1:a:0 -shortest \
             -c:v copy -c:a aac -b:a 192k -movflags +faststart anime_phonk_demo.mp4
 
+          echo "SOURCE_KIND=${SOURCE_KIND:-unknown}"
           ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration,size -of default=nw=1 anime_phonk_demo.mp4
           ls -lh anime_phonk_demo.mp4
 
@@ -105,3 +100,5 @@ jobs:
           name: anime-phonk-demo
           path: anime_phonk_demo.mp4
           retention-days: 3
+
+# trigger-2: existing workflow push test
