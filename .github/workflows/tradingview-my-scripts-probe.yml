@@ -1,0 +1,67 @@
+name: TradingView My Scripts Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-my-scripts-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Probe My scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const ctx=await browser.newContext({storageState:state,viewport:{width:1600,height:1000}});
+            const p=await ctx.newPage(); p.setDefaultTimeout(8000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(9000);
+            const ind=p.getByRole('button',{name:/Indicators/i}).first(); await ind.click(); await p.waitForTimeout(1500);
+            const my=p.getByText('My scripts',{exact:true}).first();
+            console.log('TV_MY_SCRIPTS_VISIBLE='+(await my.isVisible().catch(()=>false)?'YES':'NO'));
+            await my.click(); await p.waitForTimeout(3000);
+            const body=await p.locator('body').innerText();
+            const lines=body.split('\n').map(x=>x.trim()).filter(Boolean);
+            const likely=lines.filter(x=>/Wave Rider|2\.5\.13|script/i.test(x)).slice(0,120);
+            fs.writeFileSync('/tmp/my-scripts.txt',likely.join('\n')+'\n');
+            console.log('TV_EXACT_2513_MY_SCRIPTS='+(body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'PRESENT':'ABSENT'));
+            console.log('TV_ANY_2513_MY_SCRIPTS='+(body.includes('2.5.13')?'PRESENT':'ABSENT'));
+            console.log('TV_ANY_WAVE_RIDER_MY_SCRIPTS='+(body.includes('Wave Rider')?'PRESENT':'ABSENT'));
+            await p.screenshot({path:'/tmp/my-scripts.png'}).catch(()=>{});
+            await browser.close();
+          })().catch(e=>{console.error('TV_MY_SCRIPTS_ERROR='+e.stack);process.exit(5)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-my-scripts-${{ github.run_id }}
+          path: |
+            /tmp/my-scripts.txt
+            /tmp/my-scripts.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
