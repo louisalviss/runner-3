@@ -1,10 +1,6 @@
-name: Wave Rider Full-Universe Audit
+name: Wave Rider Full-Universe Audit [PARITY GATED]
 
 on:
-  push:
-    paths:
-      - 'wave-rider-full-universe/full_universe_audit.py'
-      - '.github/workflows/wave-rider-full-universe-audit.yml'
   workflow_dispatch:
 
 permissions:
@@ -29,6 +25,8 @@ jobs:
       PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
+      - name: Require TradingView parity PASS
+        run: python wave-rider-verify/assert_parity_gate.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
