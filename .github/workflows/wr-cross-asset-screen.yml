@@ -1,0 +1,24 @@
+name: WR cross-asset screen
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wr-cross-asset-screen.yml']
+permissions:
+  contents: read
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - name: Run frozen cross-asset screen
+        run: python formal-tests/wr_cross_asset_screen.py --out wr_cross_asset_screen.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-cross-asset-screen
+          path: wr_cross_asset_screen.json
+          retention-days: 30
