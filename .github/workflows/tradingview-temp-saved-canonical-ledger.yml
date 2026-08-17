@@ -32,7 +32,7 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
           test "$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" = "$BASE_SHA256"
 
-      - name: Inject report-only exact canonical logs
+      - name: Inject short report-only canonical log records
         shell: bash
         run: |
           set -euo pipefail
@@ -44,12 +44,14 @@ jobs:
           if s.count(anchor)!=1:
               raise SystemExit(f'canonical cash anchor count={s.count(anchor)}')
           audit='            // PARITY PROBE ONLY: report/debug logging. Never read by execution.\n'
-          audit+='            log.info("WRPARITY|n="+str.tostring(i+1)+"|entry_ms="+str.tostring(strategy.closedtrades.entry_time(i))+"|exit_ms="+str.tostring(strategy.closedtrades.exit_time(i))+"|qty="+str.tostring(tradeQty)+"|risk="+str.tostring(riskCash)+"|planE="+str.tostring(planEntry)+"|planS="+str.tostring(planStop)+"|planT="+str.tostring(planTarget)+"|actualE="+str.tostring(actualEntry)+"|actualX="+str.tostring(actualExit)+"|canonR="+str.tostring(canonicalR)+"|exit="+canonicalExit+"|report="+(reportEligible?"1":"0")+"|eqBefore="+str.tostring(canonicalEquity)+"|mincontract="+str.tostring(syminfo.mincontract)+"|pointvalue="+str.tostring(syminfo.pointvalue)+"|mintick="+str.tostring(syminfo.mintick)+"|nativePnl="+str.tostring(tradeProfitNative))\n'
+          audit+='            log.info("WRP1|n="+str.tostring(i+1)+"|em="+str.tostring(strategy.closedtrades.entry_time(i))+"|xm="+str.tostring(strategy.closedtrades.exit_time(i))+"|q="+str.tostring(tradeQty)+"|risk="+str.tostring(riskCash)+"|eq="+str.tostring(canonicalEquity))\n'
+          audit+='            log.info("WRP2|n="+str.tostring(i+1)+"|pe="+str.tostring(planEntry)+"|ps="+str.tostring(planStop)+"|pt="+str.tostring(planTarget)+"|ae="+str.tostring(actualEntry)+"|ax="+str.tostring(actualExit))\n'
+          audit+='            log.info("WRP3|n="+str.tostring(i+1)+"|r="+str.tostring(canonicalR)+"|x="+canonicalExit+"|rep="+(reportEligible?"1":"0")+"|mc="+str.tostring(syminfo.mincontract)+"|pv="+str.tostring(syminfo.pointvalue)+"|mt="+str.tostring(syminfo.mintick))\n'
           p.write_text(s.replace(anchor,audit+anchor,1))
           PY
           echo "EXPECTED_SHA256=$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" >> "$GITHUB_ENV"
 
-      - name: Build temporary-save browser probe
+      - name: Build compile-save-log browser probe
         shell: bash
         run: |
           set -euo pipefail
@@ -58,33 +60,31 @@ jobs:
           from pathlib import Path
           p=Path('scripts/.tv-temp-save-ledger.mjs')
           s=p.read_text()
-          save_anchor="  if(hash!==want)throw new Error('Editor hash mismatch');\n"
-          if save_anchor not in s:
-              raise SystemExit('save insertion anchor missing')
-          save_probe=Path('scripts/tradingview-temp-save-ledger-probe.js.txt').read_text()
-          s=s.replace(save_anchor,save_anchor+'\n'+save_probe+'\n',1)
           compile_anchor="  log('TV_E2E_UPDATE_ON_CHART',upd?'PRESENT':'ABSENT');log('TV_E2E_USER_TRANSLATE_200',tr?'PASS':'FAIL');log('TV_E2E_COMPILE_ERROR',cerr?'PRESENT':'ABSENT');\n  if(!upd||!tr||cerr)throw new Error('Compile/add failed');"
           if compile_anchor not in s:
               raise SystemExit('compile insertion anchor missing')
+          save_probe=Path('scripts/tradingview-temp-save-ledger-probe.js.txt').read_text()
           log_probe=Path('scripts/tradingview-canonical-ledger-log-snippet.js.txt').read_text()
-          s=s.replace(compile_anchor,compile_anchor+'\n'+log_probe+'\n',1)
+          s=s.replace(compile_anchor,compile_anchor+'\n'+save_probe+'\n'+log_probe+'\n',1)
+          # The log collector was originally keyed to WRPARITY. Collect all 3 compact record types.
+          s=s.replace("filter(x=>x.includes('WRPARITY|'))","filter(x=>/WRP[123]\\|/.test(x))")
           p.write_text(s)
           PY
 
-      - name: Run temporary saved Pine ledger probe
+      - name: Run compiled temporary saved Pine ledger probe
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.58.2 >/dev/null
           node scripts/.tv-temp-save-ledger.mjs
 
-      - name: Require exact Pine ledger lines
+      - name: Require exact Pine ledger records
         shell: bash
         run: |
           set -euo pipefail
           test -s /tmp/tv-canonical-ledger-BNBUSDT.txt
-          LINES="$(grep -c 'WRPARITY|' /tmp/tv-canonical-ledger-BNBUSDT.txt || true)"
-          echo "PINE_CANON_LINES=$LINES"
+          LINES="$(grep -Ec 'WRP[123]\|' /tmp/tv-canonical-ledger-BNBUSDT.txt || true)"
+          echo "PINE_CANON_RECORDS=$LINES"
           test "$LINES" -gt 0
 
       - name: Upload exact canonical ledger evidence
