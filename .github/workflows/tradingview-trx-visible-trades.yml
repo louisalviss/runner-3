@@ -1,0 +1,68 @@
+name: TradingView TRX Visible Trades
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-trx-visible-trades.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Capture TRX canonical trade list
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']}); const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ATRXUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(10000);
+            console.log('TV_TRX_URL='+p.url());
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(3000); const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),source); await p.keyboard.press('Control+V'); await p.waitForTimeout(2000); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(25000);
+            const got=p.getByRole('button',{name:'Got it',exact:true}); if(await got.isVisible().catch(()=>false)) await got.click().catch(()=>{});
+            const trades=p.locator('[title="Trades"]').first(); console.log('TV_TRX_TRADES_CTRL='+(await trades.count()?'YES':'NO')); if(await trades.count()) await trades.evaluate(e=>(e.closest('button')||e).click()); await p.waitForTimeout(4000);
+            const body0=await p.locator('body').innerText(); console.log('TV_TRX_LIST='+(body0.includes('List of trades')?'YES':'NO'));
+            const lines0=body0.split('\n').map(s=>s.trim()).filter(Boolean); const idx0=lines0.findIndex(x=>x==='List of trades'); const seg0=idx0>=0?lines0.slice(idx0,idx0+120):[]; console.log('TV_TRX_HEAD='+JSON.stringify(seg0.slice(0,80)));
+            const sc=await p.evaluateHandle(()=>{
+              const all=[...document.querySelectorAll('*')];
+              let best=null;
+              for(const e of all){ if(e.scrollHeight>e.clientHeight+80 && e.clientHeight>100){ const t=(e.innerText||''); if(/long|short/i.test(t) && /Entry|Exit/i.test(t)){ if(!best || e.clientHeight<best.clientHeight) best=e; } } }
+              return best;
+            });
+            const scEl=sc.asElement(); console.log('TV_TRX_SCROLL='+(scEl?'FOUND':'NOT_FOUND'));
+            const snaps=[];
+            async function snap(label){const body=await p.locator('body').innerText(); const ls=body.split('\n').map(s=>s.trim()).filter(Boolean); const i=ls.findIndex(x=>x==='List of trades'); const seg=i>=0?ls.slice(i,i+800):[]; snaps.push({label,seg}); console.log('TV_TRX_SNAP_'+label+'='+JSON.stringify(seg.slice(0,80)));}
+            await snap('TOP');
+            if(scEl){ const dims=await scEl.evaluate(e=>({sh:e.scrollHeight,ch:e.clientHeight,top:e.scrollTop})); console.log('TV_TRX_SCROLL_DIMS='+JSON.stringify(dims)); for(const frac of [0.2,0.4,0.6,0.8,1]){await scEl.evaluate((e,f)=>{e.scrollTop=(e.scrollHeight-e.clientHeight)*f},frac); await p.waitForTimeout(1600); await snap(String(frac).replace('.','_'));} }
+            fs.writeFileSync('/tmp/trx-snaps.json',JSON.stringify(snaps,null,2)); await p.screenshot({path:'/tmp/trx-trades.png',fullPage:true}); await b.close(); if(!body0.includes('List of trades')) process.exit(7);
+          })().catch(e=>{console.error('TV_TRX_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-trx-visible-trades-${{ github.run_id }}
+          path: |
+            /tmp/trx-snaps.json
+            /tmp/trx-trades.png
+          retention-days: 2
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
