@@ -41,16 +41,16 @@ jobs:
           cat >> /tmp/wr2513.pine <<'PINE'
 
           // PARITY PROBE ONLY: overwrite four rows of the existing REPORT-ONLY
-          // sizeCost table after all strategy logic has finished. No order/signal state changes.
+          // audit table after all strategy logic has finished. No order/signal state changes.
           if barstate.islast
-              table.cell(sizeCost, 0, 0, "MINTICK", text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 1, 0, str.tostring(syminfo.mintick, format.mintick), text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 0, 1, "MINCONTRACT", text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 1, 1, str.tostring(syminfo.mincontract), text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 0, 2, "POINTVALUE", text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 1, 2, str.tostring(syminfo.pointvalue), text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 0, 3, "TICKVALUE", text_color=color.white, bgcolor=color.black)
-              table.cell(sizeCost, 1, 3, str.tostring(syminfo.mintick * syminfo.pointvalue), text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 0, 0, "MINTICK", text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 1, 0, str.tostring(syminfo.mintick, format.mintick), text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 0, 1, "MINCONTRACT", text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 1, 1, str.tostring(syminfo.mincontract), text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 0, 2, "POINTVALUE", text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 1, 2, str.tostring(syminfo.pointvalue), text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 0, 3, "TICKVALUE", text_color=color.white, bgcolor=color.black)
+              table.cell(audit, 1, 3, str.tostring(syminfo.mintick * syminfo.pointvalue), text_color=color.white, bgcolor=color.black)
           PINE
           echo "EXPECTED_SHA256=$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" >> "$GITHUB_ENV"
 
@@ -63,7 +63,7 @@ jobs:
           import re
           s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
           s,n=re.subn(
-              r"await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout:90000\}\);",
+              r"await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout=90000\}\);",
               "const __sym=process.env.TV_SYMBOL||'BNBUSDT'; await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});",
               s,count=1)
           if n!=1: raise SystemExit(f'url patch count={n}')
