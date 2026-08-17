@@ -1,0 +1,45 @@
+name: Wasmer Add Free Domain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-add-free-domain.yml'
+      - 'scripts/wasmer-add-free-domain.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  add-domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore Wasmer state/session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+      - run: npm install --no-save playwright-core@1.58.2
+      - name: Add domain and capture DNS instructions
+        run: node scripts/wasmer-add-free-domain.mjs
+      - name: Persist safe domain state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-domain.json || echo '{"status":"runner_error"}' >/tmp/wasmer-domain.json
+          cat /tmp/wasmer-domain.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/wasmer
+          cp /tmp/wasmer-domain.json ops/wasmer/free-domain.json
+          git add ops/wasmer/free-domain.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist free domain attachment state'; git push origin HEAD:main; fi
