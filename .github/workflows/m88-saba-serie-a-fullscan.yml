@@ -103,7 +103,6 @@ jobs:
             out.evaluate("e=>e.scrollIntoView({block:'nearest',inline:'center'})"); page.wait_for_timeout(700); out.evaluate('e=>e.parentElement.click()')
             page.wait_for_timeout(10000); f=pframe(page) or f
             result['route']=f.url
-            # Force virtualized/lazy list to hydrate across the whole board.
             for _ in range(18):
               try:f.evaluate("window.scrollBy(0, Math.max(500, window.innerHeight*0.8))")
               except:pass
@@ -118,7 +117,9 @@ jobs:
               d=(obj or {}).get('Data') or {}
               for k,v in (d.get('LeagueN') or {}).items(): leagueN[str(k)]=v
               for k,v in (d.get('TeamN') or {}).items(): teamN[str(k)]=v
-            all_titles=[(int(k),str(v)) for k,v in leagueN.items()]
+            result['leagueN_key_count']=len(leagueN)
+            result['non_numeric_leagueN_keys']=[k for k in leagueN if not str(k).isdigit()][:100]
+            all_titles=[(int(k),str(v)) for k,v in leagueN.items() if str(k).isdigit()]
             result['all_title_count']=len(all_titles)
             result['serie_a_titles']=[{'match_id':m,'title':t} for m,t in all_titles if 'SERIE A' in t.upper() and 'BRAZIL' not in t.upper()]
             result['scorer_titles_global']=[{'match_id':m,'title':t} for m,t in all_titles if any(x in t.upper() for x in ['GOALSCORER','TOP SCORER','SCORER'])]
@@ -130,7 +131,6 @@ jobs:
               return scorer and italy and season
             cands=[(m,t) for m,t in all_titles if is_italy_serie_a_scorer(t)]
             result['serie_a_scorer_candidates']=[{'match_id':m,'title':t} for m,t in cands]
-            # Also inspect rendered DOM text to catch a title that did not appear in merged LeagueN.
             try:
               body=f.locator('body').inner_text(timeout=5000)
               result['dom_scorer_lines']=[x.strip() for x in body.splitlines() if 'SCOR' in x.upper() and ('SERIE A' in x.upper() or 'ITALY' in x.upper())][:100]
