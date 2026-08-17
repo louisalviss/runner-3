@@ -88,7 +88,6 @@ jobs:
             await p.waitForTimeout(5000);
             log('TV_EDITOR_PASTE_MS',String(Date.now()-t0));
 
-            // Exact editor-content verification without printing source.
             await p.evaluate(async()=>{await navigator.clipboard.writeText('TV_CLIPBOARD_SENTINEL')});
             await ta.evaluate(el=>el.focus());
             await p.keyboard.press('Control+A');
@@ -157,3 +156,5 @@ jobs:
       - name: Cleanup plaintext
         if: always()
         run: rm -f /tmp/tv-state.json /tmp/wr2513.pine
+
+# trigger after source normalization
