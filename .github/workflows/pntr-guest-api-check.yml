@@ -1,0 +1,74 @@
+name: PNTR Guest API Ownership Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-guest-api-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted guest state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/pntr/browser-state.aes \
+            -out /tmp/pntr-state.json
+          chmod 600 /tmp/pntr-state.json
+      - name: Query PNTR API without printing cookie
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const st = JSON.parse(fs.readFileSync('/tmp/pntr-state.json','utf8'));
+          const c = (st.cookies || []).find(x => x.name === 'anon_user_id' && /pntr\.dev$/.test(x.domain || ''));
+          if (!c?.value) { console.log('ANON_COOKIE_PRESENT=false'); process.exit(3); }
+          console.log('ANON_COOKIE_PRESENT=true');
+          const headers = { 'Cookie': `anon_user_id=${c.value}`, 'Accept': 'application/json' };
+          async function get(path) {
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 10000);
+            try {
+              const r = await fetch('https://api.pntr.dev' + path, { headers, signal: ctl.signal });
+              const txt = await r.text();
+              let j = null; try { j = JSON.parse(txt); } catch {}
+              return { status:r.status, text:txt, json:j };
+            } finally { clearTimeout(timer); }
+          }
+          const d = await get('/api/domains');
+          console.log('DOMAINS_HTTP='+d.status);
+          console.log('DOMAINS_SHAPE='+(Array.isArray(d.json) ? `array:${d.json.length}` : typeof d.json));
+          const s = await get('/api/subdomains');
+          console.log('SUBDOMAINS_HTTP='+s.status);
+          console.log('SUBDOMAINS_SHAPE='+(Array.isArray(s.json) ? `array:${s.json.length}` : typeof s.json));
+          console.log('TARGET_OWNED='+(s.text.toLowerCase().includes('runner3wp.pntr.dev') ? 'true' : 'false'));
+          if (Array.isArray(d.json) && d.json.length) {
+            const active = d.json.find(x => x && x.is_active) || d.json[0];
+            if (active?.id) {
+              const q = await get(`/api/check/${encodeURIComponent(active.id)}/runner3wp`);
+              console.log('CHECK_HTTP='+q.status);
+              if (q.json && typeof q.json === 'object') {
+                console.log('CHECK_AVAILABLE='+(q.json.available === true ? 'true' : q.json.available === false ? 'false' : 'unknown'));
+                if (typeof q.json.reason === 'string') console.log('CHECK_REASON='+q.json.reason.replace(/[^a-zA-Z0-9 _.-]/g,'').slice(0,120));
+              }
+            }
+          }
+          NODE
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/pntr-state.json
