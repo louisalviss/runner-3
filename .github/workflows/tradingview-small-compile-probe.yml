@@ -1,0 +1,78 @@
+name: TradingView Small Compile Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-small-compile-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Compile small Pine and inspect signals
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          const src='//@version=6\nindicator("WR_SMALL_COMPILE_7C31", shorttitle="WRSC7C31", overlay=true)\nplot(close)';
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}}); const p=await c.newPage(); p.setDefaultTimeout(20000);
+            const net=[];
+            p.on('response',r=>{const u=r.url(); if(/pine|study|script|compile|translate|chart-storage|charts-storage/i.test(u)) net.push({status:r.status(),url:u.slice(0,500)});});
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(8000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click();
+            const d=p.locator('[data-name="pine-dialog"]').first(); await d.waitFor({state:'visible'}); await p.waitForTimeout(2500);
+            const ta=d.locator('.monaco-editor textarea.inputarea, .monaco-editor textarea').first();
+            await ta.fill(src); await p.waitForTimeout(1500);
+            console.log('TV_SMALL_SOURCE_ACCEPTED='+((await ta.inputValue())===src?'PASS':'FAIL'));
+            const add=d.getByRole('button',{name:'Add to chart',exact:true}).first();
+            console.log('TV_SMALL_ADD_VISIBLE='+(await add.isVisible().catch(()=>false)?'YES':'NO'));
+            await add.click();
+            for(let i=0;i<20;i++) await p.waitForTimeout(1000);
+            const dText=await d.innerText().catch(()=>'');
+            const buttons=await d.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(els=>els.map(e=>({text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,180),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',disabled:e.disabled||e.getAttribute('aria-disabled')||''})).filter(x=>/chart|save|compile|update|script|error/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,120));
+            fs.writeFileSync('/tmp/small-buttons.json',JSON.stringify(buttons,null,2));
+            fs.writeFileSync('/tmp/small-network.json',JSON.stringify(net,null,2));
+            fs.writeFileSync('/tmp/small-dialog.txt',dText);
+            console.log('TV_SMALL_DIALOG_TITLE='+(dText.includes('WR_SMALL_COMPILE_7C31')?'PRESENT':'ABSENT'));
+            console.log('TV_SMALL_DIALOG_ERROR='+( /error|cannot|failed|problem/i.test(dText)?'PRESENT':'ABSENT'));
+            console.log('TV_SMALL_NETWORK_MATCHES='+net.length);
+            for(const x of net.slice(-30)) console.log('TV_SMALL_NET='+JSON.stringify(x));
+            console.log('TV_SMALL_BUTTONS='+JSON.stringify(buttons.slice(0,30)));
+            await p.screenshot({path:'/tmp/small-after-add.png',fullPage:true});
+            await b.close();
+          })().catch(e=>{console.error('TV_SMALL_COMPILE_ERROR='+e.message);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-small-compile-${{ github.run_id }}
+          path: |
+            /tmp/small-network.json
+            /tmp/small-buttons.json
+            /tmp/small-dialog.txt
+            /tmp/small-after-add.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
