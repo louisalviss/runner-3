@@ -1,0 +1,39 @@
+START=2026-08-17T22:43:23Z
+--- download assets ---
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100 7429k  100 7429k    0     0  17.7M      0 --:--:-- --:--:-- --:--:-- 17.7M
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:02 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:03 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:04 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:04 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:05 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:06 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:07 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0  0   170    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0
+curl: (22) The requested URL returned error: 500
+Warning: Problem : HTTP error. Will retry in 1 seconds. 3 retries left.
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:02 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:03 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:04 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:05 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:06 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:07 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:09 --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:10 --:--:--     0100 2844k  100 2844k    0     0   260k      0  0:00:10  0:00:10 --:--:-- 1653k
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100 42849  100 42849    0     0   368k      0 --:--:-- --:--:-- --:--:--  370k
+duration=52.208333
+size=7608204
++ edge-tts --voice vi-VN-HoaiMyNeural --rate=+14% --text Bản trước tệ vì nó chỉ là slide ghép bằng FFmpeg. --write-media work/voice/v1.mp3
++ edge-tts --voice vi-VN-HoaiMyNeural --rate=+14% --text Runner ba cho phép dùng footage thật, neural voice, nhạc nền và dựng video dọc có chuyển động. --write-media work/voice/v2.mp3
++ edge-tts --voice vi-VN-HoaiMyNeural --rate=+14% --text Đây vẫn chưa phải backend Narrator AI vì chưa có API key của dịch vụ đó. --write-media work/voice/v3.mp3
++ edge-tts --voice vi-VN-HoaiMyNeural --rate=+14% --text Nhưng runner có Internet và môi trường Linux đầy đủ, nên execution mạnh hơn rõ rệt. --write-media work/voice/v4.mp3
++ edge-tts --voice vi-VN-HoaiMyNeural --rate=+14% --text Nếu footage và voice đầu vào tốt, chất lượng có thể tăng mạnh. Runner giải quyết phần máy móc, không thay thế chất lượng nguồn. --write-media work/voice/v5.mp3
++ ffmpeg -hide_banner -loglevel error -y -ss 5.00 -i work/source.mp4 -t 3.580 -an -vf scale=-2:1920,crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0,eq=contrast=1.10:saturation=1.08:brightness=-0.015,unsharp=5:5:0.45:5:5:0.0,vignette=PI/5,fps=30,format=yuv420p -c:v libx264 -preset veryfast -crf 21 work/scenes/s1.mp4
++ ffmpeg -hide_banner -loglevel error -y -ss 9.40 -i work/source.mp4 -t 5.740 -an -vf scale=-2:1920,crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0,eq=contrast=1.10:saturation=1.08:brightness=-0.015,unsharp=5:5:0.45:5:5:0.0,vignette=PI/5,fps=30,format=yuv420p -c:v libx264 -preset veryfast -crf 21 work/scenes/s2.mp4
++ ffmpeg -hide_banner -loglevel error -y -ss 18.79 -i work/source.mp4 -t 4.900 -an -vf scale=-2:1920,crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0,eq=contrast=1.10:saturation=1.08:brightness=-0.015,unsharp=5:5:0.45:5:5:0.0,vignette=PI/5,fps=30,format=yuv420p -c:v libx264 -preset veryfast -crf 21 work/scenes/s3.mp4
++ ffmpeg -hide_banner -loglevel error -y -ss 28.19 -i work/source.mp4 -t 5.548 -an -vf scale=-2:1920,crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0,eq=contrast=1.10:saturation=1.08:brightness=-0.015,unsharp=5:5:0.45:5:5:0.0,vignette=PI/5,fps=30,format=yuv420p -c:v libx264 -preset veryfast -crf 21 work/scenes/s4.mp4
++ ffmpeg -hide_banner -loglevel error -y -ss 37.59 -i work/source.mp4 -t 7.732 -an -vf scale=-2:1920,crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0,eq=contrast=1.10:saturation=1.08:brightness=-0.015,unsharp=5:5:0.45:5:5:0.0,vignette=PI/5,fps=30,format=yuv420p -c:v libx264 -preset veryfast -crf 21 work/scenes/s5.mp4
++ ffmpeg -hide_banner -loglevel error -y -i work/scenes/s3.mp4 -loop 1 -i work/repo-card.png -t 4.900 -filter_complex [1:v]scale=900:-2,format=rgba,colorchannelmixer=aa=0.95[card];[0:v][card]overlay=(W-w)/2:(H-h)/2-80 -an -c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p work/scenes/s3x.mp4
+STATUS=0
+END=2026-08-17T22:44:48Z
+codec_name=h264
+width=1080
+height=1920
+r_frame_rate=30/1
+codec_name=aac
+r_frame_rate=0/0
+duration=27.466667
+size=7586551
