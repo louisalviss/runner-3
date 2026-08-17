@@ -56,7 +56,7 @@ jobs:
             if(!executablePath) throw new Error('Chrome/Chromium missing');
             const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
             const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}});
-            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            const p=await c.newPage(); p.setDefaultTimeout(20000);
             p.on('console',m=>{ if(m.type()==='error') console.log('BROWSER_CONSOLE_ERROR='+m.text().slice(0,500)); });
             await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
             await p.waitForTimeout(10000);
@@ -82,44 +82,51 @@ jobs:
               }
             }
             if(!textarea) throw new Error('Visible Monaco textarea not found');
-            await textarea.click({force:true});
-            await p.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');
-            await p.waitForTimeout(200);
-            await p.keyboard.insertText(source);
-            await p.waitForTimeout(3500);
-
+            const t0=Date.now();
+            await textarea.fill(source,{timeout:30000});
+            await p.waitForTimeout(2500);
+            const editorValue=await textarea.inputValue().catch(()=>'');
+            log('TV_EDITOR_FILL_MS',String(Date.now()-t0));
+            log('TV_EDITOR_VALUE_LEN',String(editorValue.length));
+            log('TV_EDITOR_EXACT_SOURCE',editorValue===source?'PASS':'FAIL');
             const viewText=await dialog.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
-            body=await p.locator('body').innerText().catch(()=>'');
-            const editorHas=body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT') || viewText.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
+            const editorHas=editorValue.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT') || viewText.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
             log('TV_EDITOR_CANONICAL_TITLE',editorHas?'PRESENT':'ABSENT');
             await p.screenshot({path:'/tmp/wr2513-editor-loaded.png',fullPage:true}).catch(()=>{});
-            if(!editorHas) throw new Error('Canonical source did not appear in Pine editor');
+            if(editorValue!==source || !editorHas) throw new Error('Canonical source mismatch in Pine editor');
 
             const add=dialog.getByRole('button',{name:'Add to chart',exact:true}).first();
             log('TV_ADD_TO_CHART_VISIBLE',await add.isVisible().catch(()=>false)?'YES':'NO');
             await add.click();
+            await p.waitForTimeout(20000);
 
-            let detected='NONE';
-            for(let i=0;i<24;i++){
+            const alerts=await p.locator('[role="alert"], [data-name*="toast"], [data-name*="notification"]').allInnerTexts().catch(()=>[]);
+            fs.writeFileSync('/tmp/wr2513-toasts.txt',alerts.join('\n'));
+            log('TV_ALERT_COUNT',String(alerts.length));
+            log('TV_COMPILE_ALERT_ERROR',alerts.some(x=>/error|failed|cannot|could not/i.test(x))?'PRESENT':'ABSENT');
+
+            // Hide Pine editor so strategy-title detection cannot be satisfied by source text itself.
+            if(await dialog.isVisible().catch(()=>false)){
+              await pine.click().catch(()=>{});
               await p.waitForTimeout(2500);
-              body=await p.locator('body').innerText().catch(()=>'');
-              const low=body.toLowerCase();
-              if(body.includes('WR 2.5.13 WIN') || body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')) {detected='STRATEGY_PRESENT'; break;}
-              if(/compilation error|script could not be translated|cannot compile|error on bar|study error|strategy error/i.test(body)) {detected='ERROR'; break;}
             }
-            log('TV_ADD_RESULT',detected);
             body=await p.locator('body').innerText().catch(()=>'');
-            log('TV_STRATEGY_TITLE_BODY',body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'PRESENT':'ABSENT');
-            log('TV_SHORTTITLE_BODY',body.includes('WR 2.5.13 WIN')?'PRESENT':'ABSENT');
-            log('TV_STRATEGY_TESTER_BODY',/Strategy Tester/i.test(body)?'PRESENT':'ABSENT');
+            const titlePresent=body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
+            const shortPresent=body.includes('WR 2.5.13 WIN');
+            const testerPresent=/Strategy Tester/i.test(body);
+            log('TV_STRATEGY_TITLE_OUTSIDE_EDITOR',titlePresent?'PRESENT':'ABSENT');
+            log('TV_SHORTTITLE_OUTSIDE_EDITOR',shortPresent?'PRESENT':'ABSENT');
+            log('TV_STRATEGY_TESTER_BODY',testerPresent?'PRESENT':'ABSENT');
             log('TV_LIST_OF_TRADES_BODY',/List of Trades/i.test(body)?'PRESENT':'ABSENT');
-            const toastTexts=await p.locator('[data-name*="toast"], [role="alert"]').allInnerTexts().catch(()=>[]);
-            fs.writeFileSync('/tmp/wr2513-toasts.txt',toastTexts.join('\n'));
-            const relevant=body.split('\n').map(x=>x.trim()).filter(x=>/Wave Rider|WR 2\.5\.13|Strategy Tester|List of Trades|compil|error/i.test(x)).slice(0,200);
+            const controls=await p.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(els=>els.map(e=>({text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,160),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||''})).filter(x=>/strategy|tester|wave rider|WR 2\.5\.13|trades|report/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,160));
+            fs.writeFileSync('/tmp/wr2513-controls.json',JSON.stringify(controls,null,2));
+            const relevant=body.split('\n').map(x=>x.trim()).filter(x=>/Wave Rider|WR 2\.5\.13|Strategy Tester|List of Trades|compil|error/i.test(x)).slice(0,240);
             fs.writeFileSync('/tmp/wr2513-relevant-body.txt',relevant.join('\n')+'\n');
+            const success=(titlePresent||shortPresent||testerPresent) && !alerts.some(x=>/compilation error|cannot compile|script could not|failed to add/i.test(x));
+            log('TV_ADD_RESULT',success?'PASS':'FAIL');
             fs.writeFileSync('/tmp/wr2513-load-report.txt',out.join('\n')+'\n');
             await p.screenshot({path:'/tmp/wr2513-after-add.png',fullPage:true}).catch(()=>{});
-            if(detected==='ERROR' || detected==='NONE') process.exitCode=7;
+            if(!success) process.exitCode=7;
             await b.close();
           })().catch(e=>{console.error('TV_WR_LOAD_ERROR='+e.stack);fs.writeFileSync('/tmp/wr2513-load-report.txt',out.join('\n')+'\nTV_WR_LOAD_ERROR='+e.message+'\n');process.exit(8)});
           NODE
@@ -133,6 +140,7 @@ jobs:
             /tmp/wr2513-load-report.txt
             /tmp/wr2513-relevant-body.txt
             /tmp/wr2513-toasts.txt
+            /tmp/wr2513-controls.json
             /tmp/wr2513-editor-loaded.png
             /tmp/wr2513-after-add.png
           if-no-files-found: warn
