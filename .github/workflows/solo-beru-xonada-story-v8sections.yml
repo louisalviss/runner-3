@@ -45,27 +45,21 @@ jobs:
             [ -f /tmp/v.pid ]&&sudo kill "$(cat /tmp/v.pid)" 2>/dev/null||true;sudo rm -f /tmp/v.pid /tmp/v.log;sleep 1
             sudo ip netns exec vpnns openvpn --config "$GITHUB_WORKSPACE/$p" --daemon --writepid /tmp/v.pid --log /tmp/v.log||true
             tun=0;for n in $(seq 1 12);do sudo ip netns exec vpnns ip link show tun0 >/dev/null 2>&1&&{ tun=1;break;};sleep 1;done;[ "$tun" = 1 ]||continue
-            eg=$(sudo ip netns exec vpnns curl -4 -fsS --max-time 8 https://api.ipify.org||true);[ -n "$eg" ]||continue;echo "EGRESS=$eg $cc";echo "$eg" > egress.txt;got=1;break
+            eg=$(sudo ip netns exec vpnns curl -4 -fsS --max-time 8 https://api.ipify.org||true);[ -n "$eg" ]||continue;echo "EGRESS=$eg $cc";got=1;break
           done<vpns.tsv
           [ "$got" = 1 ]||exit 22
-      - name: Download only four story sections
+      - name: Download only story sections
         shell: bash
         run: |
           set -euo pipefail
           Y=$(command -v yt-dlp);URL='https://www.youtube.com/watch?v=IrHTT2IEKpE';mkdir -p raw clips
           i=0
-          while read -r st en;do
-            echo "SECTION $i $st-$en"
-            timeout 120s sudo ip netns exec vpnns env PATH="$PATH" HOME="$HOME" "$Y" --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 20 --js-runtimes node --remote-components ejs:github -f 'bv*[height<=720][ext=mp4]/bv*[height<=720]' --download-sections "*$st-$en" --force-keyframes-at-cuts --merge-output-format mp4 -o "$GITHUB_WORKSPACE/raw/$i.%(ext)s" "$URL"
-            f=$(find raw -maxdepth 1 -name "$i.*" -type f|head -1);[ -n "$f" ];[ "$f" = "raw/$i.mp4" ]||mv "$f" "raw/$i.mp4"
-            i=$((i+1))
-          done <<'EOF'
-112 119
-258 267
-338 345
-497 504
-EOF
-      - name: Render story and XONADA
+          for pair in '112 119' '258 267' '338 345' '497 504';do
+            set -- $pair;st=$1;en=$2;echo "SECTION $i $st-$en"
+            timeout 120s sudo ip netns exec vpnns env PATH="$PATH" HOME="$HOME" "$Y" --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 20 --js-runtimes node --remote-components ejs:github -f 'bv*[height<=720][ext=mp4]/bv*[height<=720]' --download-sections "*$st-$en" --force-keyframes-at-cuts -o "$GITHUB_WORKSPACE/raw/$i.%(ext)s" "$URL"
+            f=$(find raw -maxdepth 1 -name "$i.*" -type f|head -1);[ -n "$f" ];[ "$f" = "raw/$i.mp4" ]||mv "$f" "raw/$i.mp4";i=$((i+1))
+          done
+      - name: Render and add XONADA
         shell: bash
         run: |
           set -euo pipefail
