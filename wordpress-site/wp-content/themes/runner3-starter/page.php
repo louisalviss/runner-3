@@ -1,10 +1,11 @@
 <?php get_header(); ?>
-<div class="wrap content">
-  <?php while (have_posts()) : the_post(); ?>
-    <article <?php post_class(); ?>>
-      <h1><?php the_title(); ?></h1>
-      <?php the_content(); ?>
-    </article>
-  <?php endwhile; ?>
-</div>
+<?php while (have_posts()) : the_post(); ?>
+  <article class="article-shell">
+    <header class="article-head">
+      <div class="kicker">Page / OFFSET</div>
+      <h1 class="page-title"><?php the_title(); ?></h1>
+    </header>
+    <div class="article-body"><?php the_content(); ?></div>
+  </article>
+<?php endwhile; ?>
 <?php get_footer(); ?>
