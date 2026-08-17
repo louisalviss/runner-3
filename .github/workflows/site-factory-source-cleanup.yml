@@ -14,13 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply source-level fixes
+      - name: Apply source-level engine fixes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
           p=Path('scripts/create-wordpress-site.mjs')
           s=p.read_text()
           s=s.replace("timeout: 30000, failOnStatusCode: false", "timeout: 5000, failOnStatusCode: false")
@@ -45,31 +44,10 @@ jobs:
           if old not in s:
               raise SystemExit('appDashboardExists source block not found')
           p.write_text(s.replace(old,new))
-
-          w=Path('.github/workflows/create-wordpress-site.yml')
-          lines=w.read_text().splitlines(keepends=True)
-          out=[]
-          i=0
-          removed=False
-          while i < len(lines):
-              if lines[i].strip() == '- name: Bound pre-DNS HTTP probes':
-                  removed=True
-                  i += 1
-                  while i < len(lines):
-                      if lines[i].startswith('      - name:'):
-                          break
-                      i += 1
-                  continue
-              out.append(lines[i])
-              i += 1
-          if not removed:
-              raise SystemExit('runtime hotfix step not found')
-          w.write_text(''.join(out))
           PY
-
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add scripts/create-wordpress-site.mjs .github/workflows/create-wordpress-site.yml
+          git add scripts/create-wordpress-site.mjs
           git commit -m 'Harden WordPress Site Factory idempotency'
           git push origin HEAD:main
