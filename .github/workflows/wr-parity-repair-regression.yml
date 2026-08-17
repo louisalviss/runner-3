@@ -1,0 +1,31 @@
+name: WR Parity Repair Regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-parity-repair-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-parity-repair
+      - name: Run TradingView golden regression
+        run: |
+          python -m pip install -q requests
+          python wave-rider-verify/tv_golden_regression.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-parity-repair-regression-${{ github.run_id }}
+          path: /tmp/wr_tv_golden_result.json
+          retention-days: 3
+          if-no-files-found: warn
