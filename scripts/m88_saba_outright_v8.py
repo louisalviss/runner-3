@@ -66,6 +66,35 @@ sports_fn=r'''def click_drawer_sports(frame):
     res['drawer_sports_attempts']=attempts;res['drawer_switch_after']=st();res['drawer_sports_clicked']=ok();return res['drawer_sports_clicked']
 '''
 
-for name,repl,next_name in [('open_drawer',open_fn,'drawer_switch_state'),('click_drawer_sports',sports_fn,'click_more')]:
+more_fn=r'''def click_more(frame):
+    def snapshot():
+        try:
+            return {'drawer':frame.locator('.side-nav').inner_text(timeout=4000)[:1000000],'body':frame.locator('body').inner_text(timeout=4000)[:1500000]}
+        except Exception:return {'drawer':'','body':''}
+    before=snapshot();res['more_before_text']=before['drawer'];attempts=[]
+    try:
+        e=frame.locator('.side-nav .side-menu__more').first
+        res['more_box_before']=e.bounding_box()
+        def check(name):
+            frame.page.wait_for_timeout(1200);s=snapshot();has=bool(re.search(r'\bOutright\b',s['body'],re.I));changed=s['drawer']!=before['drawer'];attempts.append({'strategy':name,'has_out_right':has,'changed':changed,'drawer':s['drawer'][:120000]})
+            if has:res['more_strategy']=name
+            return has
+        actions=[
+          ('normal-click',lambda:e.click(force=True,timeout=5000)),
+          ('dom-click',lambda:e.evaluate('e=>e.click()')),
+          ('pointer',lambda:(e.dispatch_event('pointerdown',{'pointerType':'touch','isPrimary':True}),e.dispatch_event('pointerup',{'pointerType':'touch','isPrimary':True}),e.dispatch_event('click'))),
+          ('react',lambda:e.evaluate("e=>{for(let n=e;n;n=n.parentElement){let k=Object.keys(n).find(x=>x.startsWith('__reactProps$'));if(!k)continue;let p=n[k]||{};for(let z of ['onClick','onTouchEnd','onPointerUp'])if(typeof p[z]=='function'){p[z]({currentTarget:n,target:e,preventDefault(){},stopPropagation(){},nativeEvent:{}});return z}}return null}")),
+        ]
+        for name,fn in actions:
+            try:
+                r=fn()
+                if name=='react':res['more_react_handler']=r
+                if check(name):res['more_clicked']=True;break
+            except Exception as ex:attempts.append({'strategy':name,'error':type(ex).__name__})
+    except Exception as ex:attempts.append({'strategy':'locate-more','error':type(ex).__name__})
+    res['more_attempts']=attempts;after=snapshot();res['more_after_text']=after['drawer'];res['more_clicked']=bool(re.search(r'\bOutright\b',after['body'],re.I));return res['more_clicked']
+'''
+
+for name,repl,next_name in [('open_drawer',open_fn,'drawer_switch_state'),('click_drawer_sports',sports_fn,'click_more'),('click_more',more_fn,'collect_menu_items')]:
     a=src.index(f'def {name}(frame):');b=src.index(f'\ndef {next_name}(frame):',a);src=src[:a]+repl+src[b:]
 exec(compile(src,'m88_v8_runtime.py','exec'),{'__name__':'__main__','__file__':'m88_v8_runtime.py'})
