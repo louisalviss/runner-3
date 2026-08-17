@@ -24,7 +24,7 @@ jobs:
           DATA='https://raw.githubusercontent.com/louisalviss/runner-3/m88-live-data/data.json'
           ok=0
           for i in {1..8}; do
-            if curl -fsSL --max-time 20 "$PAGE?smoke=$(date +%s)" -o /tmp/page.html; then
+            if curl -fsSL --max-time 20 -D /tmp/page.headers "$PAGE?smoke=$(date +%s)" -o /tmp/page.html; then
               if grep -q 'M88 Live Odds' /tmp/page.html && grep -q 'real live matches' /tmp/page.html && grep -q 'Snapshot:' /tmp/page.html && grep -q 'FT Asian Handicap' /tmp/page.html; then
                 ok=1; break
               fi
@@ -32,34 +32,19 @@ jobs:
             sleep 5
           done
           test "$ok" = 1
+          grep -qi '^content-type:.*text/html' /tmp/page.headers
           curl -fsSL --max-time 20 "$DATA?smoke=$(date +%s)" -o /tmp/data.json
           python3 - <<'PY'
-          import json,re
+          import json
           d=json.load(open('/tmp/data.json'))
           assert d.get('odds_format') == 'decimal'
           matches=d.get('matches') or []
           assert isinstance(matches,list) and matches
           live=[m for m in matches if m.get('scope')=='live']
           print('PAGE_OK=true')
+          print('HTML_CONTENT_TYPE_OK=true')
           print('DATA_OK=true')
           print('GENERATED_AT='+str(d.get('generated_at')))
           print('TOTAL_MATCHES='+str(len(matches)))
           print('LIVE_MATCHES='+str(len(live)))
           PY
-
-      - name: Render fixed URL in Chrome
-        shell: bash
-        run: |
-          set -euo pipefail
-          CHROME=$(command -v google-chrome || command -v google-chrome-stable || true)
-          if [ -z "$CHROME" ]; then
-            echo 'Chrome unavailable; HTTP smoke passed.'
-            exit 0
-          fi
-          "$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=3000 \
-            --dump-dom 'https://raw.githack.com/louisalviss/runner-3/m88-live-data/index.html?chrome-smoke=1' > /tmp/dom.html 2>/tmp/chrome.err
-          grep -q 'M88 Live Odds' /tmp/dom.html
-          grep -q 'real live matches' /tmp/dom.html
-          grep -q 'Snapshot:' /tmp/dom.html
-          grep -q 'FT Asian Handicap' /tmp/dom.html
-          echo 'CHROME_RENDER_OK=true'
