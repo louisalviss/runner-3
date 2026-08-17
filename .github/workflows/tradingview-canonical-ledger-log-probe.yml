@@ -1,0 +1,117 @@
+name: TradingView Wave Rider Canonical Ledger Log Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-canonical-ledger-log-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ledger:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TV_SYMBOL: ${{ matrix.symbol }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore canonical session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          test "$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" = "$BASE_SHA256"
+
+      - name: Inject report-only canonical trade logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/wr2513.pine')
+          s=p.read_text()
+          anchor='            float canonicalCash=canonicalR*riskCash\n'
+          if s.count(anchor)!=1: raise SystemExit(f'canonical cash anchor count={s.count(anchor)}')
+          audit='''            // PARITY PROBE ONLY: logging is report/debug output and does not feed execution.\n            log.info("WRPARITY|n="+str.tostring(i+1)+"|entry_ms="+str.tostring(strategy.closedtrades.entry_time(i))+"|exit_ms="+str.tostring(strategy.closedtrades.exit_time(i))+"|qty="+str.tostring(tradeQty)+"|risk="+str.tostring(riskCash)+"|planE="+str.tostring(planEntry, format.mintick)+"|planS="+str.tostring(planStop, format.mintick)+"|planT="+str.tostring(planTarget, format.mintick)+"|actualE="+str.tostring(actualEntry, format.mintick)+"|actualX="+str.tostring(actualExit, format.mintick)+"|canonR="+str.tostring(canonicalR)+"|exit="+canonicalExit+"|report="+(reportEligible?"1":"0")+"|eqBefore="+str.tostring(canonicalEquity)+"|mincontract="+str.tostring(syminfo.mincontract)+"|pointvalue="+str.tostring(syminfo.pointvalue)+"|mintick="+str.tostring(syminfo.mintick, format.mintick)+"|nativePnl="+str.tostring(tradeProfitNative))\n'''
+          p.write_text(s.replace(anchor,audit+anchor,1))
+          PY
+          echo "EXPECTED_SHA256=$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Build Pine-log browser probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
+          s,n=re.subn(
+              r"await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout:90000\}\);",
+              "const __sym=process.env.TV_SYMBOL||'BNBUSDT'; await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});",
+              s,count=1)
+          if n!=1: raise SystemExit(f'url patch count={n}')
+          marker="  log('TV_E2E_UPDATE_ON_CHART',upd?'PRESENT':'ABSENT');log('TV_E2E_USER_TRANSLATE_200',tr?'PASS':'FAIL');log('TV_E2E_COMPILE_ERROR',cerr?'PRESENT':'ABSENT');\n  if(!upd||!tr||cerr)throw new Error('Compile/add failed');"
+          if marker not in s: raise SystemExit('compile marker missing')
+          probe=r'''
+
+  // Open Pine Logs from the editor More menu and capture exact WRPARITY lines.
+  await p.waitForTimeout(2500);
+  const editorControls=await dlg.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(es=>es.map((e,i)=>({i,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,140),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',cls:String(e.className||'').slice(0,180)})));
+  fs.writeFileSync(`/tmp/tv-pine-editor-controls-${__sym}.json`,JSON.stringify(editorControls,null,2));
+  let more=dlg.locator('button[aria-label*="More" i],button[title*="More" i],[role="button"][aria-label*="More" i],[data-name*="more" i],[data-name*="menu" i]').first();
+  if(await more.count()===0){
+    const btns=dlg.locator('button'); const n=await btns.count();
+    if(n>0) more=btns.nth(n-1);
+  }
+  log('TV_PINE_MORE_CONTROL',await more.count()>0?'PRESENT':'ABSENT');
+  if(await more.count()>0){await more.click({force:true}).catch(()=>{});await p.waitForTimeout(1200)}
+  let logItem=p.getByText(/Pine logs/i).first();
+  log('TV_PINE_LOG_MENU_ITEM',await logItem.count()>0?'PRESENT':'ABSENT');
+  if(await logItem.count()>0){await logItem.click({force:true});await p.waitForTimeout(4000)}
+  const logBody=await p.locator('body').innerText().catch(()=>'');
+  fs.writeFileSync(`/tmp/tv-pine-log-body-${__sym}.txt`,logBody+'\n');
+  const parityLines=logBody.split('\n').map(x=>x.trim()).filter(x=>x.includes('WRPARITY|'));
+  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__sym}.txt`,parityLines.join('\n')+(parityLines.length?'\n':''));
+  log('TV_PINE_PARITY_LOG_LINES',String(parityLines.length));
+  await p.screenshot({path:`/tmp/tv-pine-logs-${__sym}.png`,fullPage:true}).catch(()=>{});
+'''
+          s=s.replace(marker,marker+probe,1)
+          Path('scripts/.tv-canon-ledger-log-temp.mjs').write_text(s)
+          PY
+
+      - name: Run canonical Pine log probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/.tv-canon-ledger-log-temp.mjs
+
+      - name: Upload exact canonical ledger evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-canonical-ledger-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/tv-canonical-ledger-${{ matrix.symbol }}.txt
+            /tmp/tv-pine-log-body-${{ matrix.symbol }}.txt
+            /tmp/tv-pine-editor-controls-${{ matrix.symbol }}.json
+            /tmp/tv-pine-logs-${{ matrix.symbol }}.png
+            /tmp/wr2513-e2e-report.txt
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine scripts/.tv-canon-ledger-log-temp.mjs
