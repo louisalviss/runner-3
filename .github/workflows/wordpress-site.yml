@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'wordpress-site/**'
+      - 'render.yaml'
       - '.github/workflows/wordpress-site.yml'
   workflow_dispatch:
     inputs:
@@ -65,8 +66,17 @@ jobs:
           test -f dist/wp-load.php
           test -f dist/wp-content/themes/runner3-starter/style.css
           test -f dist/wp-content/mu-plugins/runner3-bootstrap.php
+          test -f dist/wp-content/mu-plugins/tidb-compatibility.php
           php -l dist/wp-content/themes/runner3-starter/functions.php
           php -l dist/wp-content/mu-plugins/runner3-bootstrap.php
+          php -l dist/wp-content/mu-plugins/tidb-compatibility.php
+          sh -n wordpress-site/render-entrypoint.sh
+
+      - name: Build Render Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag runner3-wordpress:test wordpress-site
 
       - name: Package build artifact
         uses: actions/upload-artifact@v4
