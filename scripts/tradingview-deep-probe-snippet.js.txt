@@ -1,43 +1,29 @@
-  const deepEvidence = await p.evaluate(() => {
-    const els = [...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')];
-    const hits = els.map((e, i) => ({
-      i,
-      tag: e.tagName,
-      text: (e.innerText || e.textContent || '').trim().replace(/\s+/g,' ').slice(0,220),
-      aria: e.getAttribute('aria-label') || '',
-      title: e.getAttribute('title') || '',
-      dataName: e.getAttribute('data-name') || '',
-      type: e.getAttribute('type') || '',
-      value: e.value || '',
-      disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true'
-    })).filter(x => /deep|backtest|date range|update report|reset to chart|strategy report|properties|start date|end date/i.test([x.text,x.aria,x.title,x.dataName].join(' ')));
-    return {bodyText:(document.body.innerText||'').slice(0,70000),hits};
+  const rangeEvidence = await p.evaluate(() => {
+    const all=[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')];
+    const items=all.map((e,i)=>({i,tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,240),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',disabled:!!e.disabled||e.getAttribute('aria-disabled')==='true'}));
+    return {body:(document.body.innerText||'').slice(0,80000), candidates:items.filter(x=>/Jul 27, 2026|Aug 17, 2026|date range|deep|backtest|update report|reset to chart|upgrade/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,250)};
   });
-  fs.writeFileSync('/tmp/tv-deep-probe.json', JSON.stringify(deepEvidence,null,2));
-  log('TV_DEEP_BODY_MENTIONS_DEEP', /Deep Backtesting/i.test(deepEvidence.bodyText) ? 'YES' : 'NO');
-  log('TV_DEEP_CONTROL_HITS', String(deepEvidence.hits.length));
+  fs.writeFileSync('/tmp/tv-deep-probe.json',JSON.stringify(rangeEvidence,null,2));
+  log('TV_RANGE_HAS_CURRENT_DATES',/Jul 27, 2026/.test(rangeEvidence.body)&&/Aug 17, 2026/.test(rangeEvidence.body)?'YES':'NO');
 
-  const deepCandidates = [
-    p.getByRole('button',{name:/Deep Backtesting/i}).first(),
-    p.locator('[title*="Deep Backtesting" i]').first(),
-    p.locator('[aria-label*="Deep Backtesting" i]').first(),
-    p.getByText(/Deep Backtesting/i,{exact:false}).first()
-  ];
-  let deepControl=null;
-  for(const c of deepCandidates){
-    if(await c.count()>0 && await c.isVisible().catch(()=>false)){deepControl=c;break;}
+  const dateButtons=p.locator('button').filter({hasText:/Jul 27, 2026|Aug 17, 2026/});
+  let rangeBtn=null;
+  for(let i=0;i<await dateButtons.count();i++){
+    const c=dateButtons.nth(i);
+    const txt=(await c.innerText().catch(()=>''));
+    if(/Jul 27, 2026/.test(txt)&&/Aug 17, 2026/.test(txt)&&await c.isVisible().catch(()=>false)){rangeBtn=c;break;}
   }
-  log('TV_DEEP_CONTROL_VISIBLE',deepControl?'YES':'NO');
-  if(deepControl){
-    await deepControl.click({force:true}).catch(()=>{});
-    await p.waitForTimeout(3500);
-    const after=await p.evaluate(()=>({
-      body:(document.body.innerText||'').slice(0,70000),
-      controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')].map(e=>({
-        tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,220),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||''
-      })).filter(x=>/deep|backtest|date|start|end|update report|reset to chart/i.test([x.text,x.aria,x.title,x.dataName,x.placeholder].join(' '))).slice(0,250)
+  log('TV_REPORT_RANGE_BUTTON_VISIBLE',rangeBtn?'YES':'NO');
+  if(rangeBtn){
+    await rangeBtn.click({force:true});
+    await p.waitForTimeout(2200);
+    const menu=await p.evaluate(()=>({
+      body:(document.body.innerText||'').slice(0,90000),
+      controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')].map(e=>({tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,240),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||'',disabled:!!e.disabled||e.getAttribute('aria-disabled')==='true'})).filter(x=>/date|range|custom|deep|backtest|start|end|apply|update|entire|history|upgrade|reset/i.test([x.text,x.aria,x.title,x.dataName,x.placeholder].join(' '))).slice(0,300)
     }));
-    fs.writeFileSync('/tmp/tv-deep-after-click.json',JSON.stringify(after,null,2));
-    log('TV_DEEP_AFTER_CLICK_HAS_UPDATE_REPORT',/Update report/i.test(after.body)?'YES':'NO');
-    log('TV_DEEP_AFTER_CLICK_HAS_RESET',/Reset to chart session/i.test(after.body)?'YES':'NO');
+    fs.writeFileSync('/tmp/tv-deep-after-click.json',JSON.stringify(menu,null,2));
+    log('TV_RANGE_MENU_HAS_CUSTOM',/Custom/i.test(menu.body)?'YES':'NO');
+    log('TV_RANGE_MENU_HAS_DEEP',/Deep Backtesting/i.test(menu.body)?'YES':'NO');
+    log('TV_RANGE_MENU_HAS_UPGRADE',/Upgrade/i.test(menu.body)?'YES':'NO');
+    log('TV_RANGE_MENU_CONTROL_COUNT',String(menu.controls.length));
   }
