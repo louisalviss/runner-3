@@ -1,0 +1,86 @@
+name: WordPress Local Demo Media
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/wp-demo-media/requests/*.json'
+  workflow_dispatch:
+    inputs:
+      site_slug:
+        description: Site factory slug
+        required: false
+        default: runner3-factory-smoke-2
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-demo-media
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve target
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SITE_SLUG: ${{ inputs.site_slug }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            slug="${INPUT_SITE_SLUG:-runner3-factory-smoke-2}"
+          else
+            request="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^ops/wp-demo-media/requests/.*\.json$' | tail -1 || true)"
+            test -n "$request" || { echo 'Demo media request missing'; exit 2; }
+            slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+          fi
+          echo "WP_SITE_SLUG=$slug" >> "$GITHUB_ENV"
+          test -f "ops/wp-control/${slug}.credential.aes"
+
+      - name: Decrypt WordPress API credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Automation encryption key unavailable'; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in "ops/wp-control/${WP_SITE_SLUG}.credential.aes" -out /tmp/wp-control-credential.json
+          chmod 600 /tmp/wp-control-credential.json
+
+      - name: Upload local demo images and assign featured media
+        run: node scripts/seed-wordpress-demo-media.mjs
+
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${WP_SITE_SLUG}"
+          result="/tmp/wp-demo-media-${slug}.json"
+          test -f "$result" || printf '{"status":"runner_error","siteSlug":"%s","detail":"demo_media_status_missing"}\n' "$slug" > "$result"
+          rm -f /tmp/wp-control-credential.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wp-demo-media/results
+            cp "$result" "ops/wp-demo-media/results/${slug}.latest.json"
+            git add "ops/wp-demo-media/results/${slug}.latest.json"
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Persist WordPress local demo media status: ${slug}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 3
+          done
+          test "$pushed" = true || exit 5
