@@ -5,6 +5,7 @@ import hashlib, os
 src=Path('/tmp/wr2513-base.pine').read_text()
 rs=os.environ.get('REPORT_START_MS','1785110400000')
 re=os.environ.get('REPORT_END_MS','1786924800000')
+nonce=os.environ.get('GITHUB_RUN_ID','local')
 
 old='startTime=input.time(1785171600000,"Start (VN)",group=groupWindow)'
 new=f'startTime=input.time({rs},"Start (VN)",group=groupWindow)'
@@ -25,6 +26,9 @@ audit='''            // PARITY PROBE ONLY: exact report-row values before canoni
 src=src.replace(anchor,audit+anchor,1)
 
 src += '''\n\n// PARITY PROBE ONLY: table fallback + exact text logs. No execution/state inputs.\nvar table __parityTable=table.new(position.top_left,1,32,border_width=1,force_overlay=true)\nif barstate.islast\n    table.clear(__parityTable,0,0,0,31)\n    string __fmtMeta="#.############"\n    string __meta="WRMETA|firstMs="+str.tostring(__parityFirstTime)+"|lastMs="+str.tostring(time_close)+"|mintick="+str.tostring(syminfo.mintick,__fmtMeta)+"|mincontract="+str.tostring(syminfo.mincontract,__fmtMeta)+"|pointvalue="+str.tostring(syminfo.pointvalue,__fmtMeta)+"|rows="+str.tostring(array.size(__parityRows))+"|canonEq="+str.tostring(canonicalEquity,__fmtMeta)+"|canonTrades="+str.tostring(canonicalTrades)+"|windowTrades="+str.tostring(windowTrades)+"|windowR="+str.tostring(windowTotalR,__fmtMeta)\n    log.info(__meta)\n    table.cell(__parityTable,0,0,__meta,text_color=color.white,bgcolor=color.black,text_size=size.tiny)\n    if array.size(__parityRows)>0\n        int __n=math.min(array.size(__parityRows),31)\n        for __k=0 to __n-1\n            table.cell(__parityTable,0,__k+1,array.get(__parityRows,__k),text_color=color.white,bgcolor=color.black,text_size=size.tiny)\n'''
+
+# Harmless per-run nonce defeats TradingView study-result caching. Comment only.
+src += f'\n// PARITY_RUN_NONCE {nonce}\n'
 
 Path('/tmp/wr2513-accounting-probe.pine').write_text(src)
 print('ACCOUNTING_PROBE_SHA256='+hashlib.sha256(src.encode()).hexdigest())
