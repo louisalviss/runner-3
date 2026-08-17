@@ -8,82 +8,102 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   backtest:
-    strategy:
-      fail-fast: false
-      matrix:
-        symbol: [BNBUSDT, TRXUSDT]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
-      WR_SYMBOL: ${{ matrix.symbol }}
       WR_START: 2026-07-27
       WR_END: 2026-08-16
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run parity engine on fresh Binance USD-M public candles
+      - name: Run BNB and TRX on fresh Binance USD-M public candles
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf wave-rider-verify/output
-          python3 wave-rider-verify/reference_verify_parity.py | tee /tmp/${WR_SYMBOL}-fresh-run.txt
+          mkdir -p wave-rider-verify/fresh-results
+          rm -f /tmp/fresh-results.json
+          echo '{"source_commit":"${{ github.sha }}","candle_source":"Binance USD-M public daily 1m klines from data.binance.vision, locally aggregated to 5m","window":"2026-07-27..2026-08-16 UTC","symbols":{}}' > /tmp/fresh-results.json
 
-      - name: Compare fresh 5m result with TradingView golden
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import csv,json,os
-          sym=os.environ['WR_SYMBOL']
+          for SYM in BNBUSDT TRXUSDT; do
+            export WR_SYMBOL="$SYM"
+            rm -rf wave-rider-verify/output
+            python3 wave-rider-verify/reference_verify_parity.py > "/tmp/${SYM}-fresh-run.txt"
+            cp "wave-rider-verify/output/${SYM}_5m_trades.csv" "wave-rider-verify/fresh-results/${SYM}_5m_trades_binance.csv"
+            cp "wave-rider-verify/output/${SYM}_5m_summary.json" "wave-rider-verify/fresh-results/${SYM}_5m_summary_binance.json"
+
+            python3 - "$SYM" <<'PY'
+          import csv, hashlib, json, sys
+          from pathlib import Path
+          sym=sys.argv[1]
+          p=Path('/tmp/fresh-results.json')
+          root=json.loads(p.read_text())
           rows=list(csv.DictReader(open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='')))
           s=json.load(open(f'wave-rider-verify/output/{sym}_5m_summary.json'))
+          master=json.load(open('wave-rider-verify/output/master.json'))
           g=json.load(open('wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'))['symbols'][sym]
           n=json.load(open('wave-rider-verify/golden/tv_5m_native_execution_2026-07-27_2026-08-16.json'))['symbols'][sym]
           diffs=[]
-          for i,(r,tv) in enumerate(zip(rows,n),1):
-              bad={}
+          for i in range(max(len(rows),len(n))):
+              if i>=len(rows) or i>=len(n):
+                  diffs.append({'trade':i+1,'missing_side':'binance' if i>=len(rows) else 'tradingview'})
+                  continue
+              r,tv=rows[i],n[i]; bad={}
               for k in ('side','entry_time','exit_time'):
                   if r[k]!=tv[k]: bad[k]={'binance':r[k],'tradingview':tv[k]}
               for k in ('entry','exit_price'):
                   a=float(r[k]); b=float(tv[k])
                   if abs(a-b)>1e-12: bad[k]={'binance':a,'tradingview':b,'delta':a-b}
-              if bad: diffs.append({'trade':i,'fields':bad})
-          out={
-            'symbol':sym,
-            'candle_source':'Binance USD-M public daily 1m klines -> locally aggregated 5m',
-            'window':'2026-07-27..2026-08-16 UTC',
-            'trades':len(rows),
-            'tv_trades':len(n),
-            'total_r':float(s['total_r']),
-            'tv_total_r_exact':float(g['total_r_exact']),
-            'total_r_delta':float(s['total_r'])-float(g['total_r_exact']),
-            'win_rate':s['win_rate'],
-            'profit_factor':s['profit_factor'],
-            'max_dd_pct':s['max_dd_pct'],
-            'max_losing_streak':s['max_losing_streak'],
-            'exit_counts':s['exit_counts'],
-            'native_execution_diffs':diffs,
-            'exact_native_execution':len(rows)==len(n) and not diffs,
-            'exact_total_r':abs(float(s['total_r'])-float(g['total_r_exact']))<=1e-12,
-            'missing_source_days':json.load(open('wave-rider-verify/output/master.json')).get('missing',[])
+              if bad: diffs.append({'trade':i+1,'fields':bad})
+          csv_path=Path(f'wave-rider-verify/fresh-results/{sym}_5m_trades_binance.csv')
+          root['symbols'][sym]={
+              'trades':len(rows),
+              'tv_trades':len(n),
+              'wins':s['wins'],
+              'losses':s['losses'],
+              'win_rate_pct':s['win_rate'],
+              'profit_factor':s['profit_factor'],
+              'avg_r':s['avg_r'],
+              'total_r':s['total_r'],
+              'tv_total_r_exact':g['total_r_exact'],
+              'total_r_delta':s['total_r']-g['total_r_exact'],
+              'max_dd_pct':s['max_dd_pct'],
+              'max_losing_streak':s['max_losing_streak'],
+              'exit_counts':s['exit_counts'],
+              'production_final_equity':s.get('production_final_equity'),
+              'tv_final_canonical_equity':g['final_canonical_equity'],
+              'equity_delta':(s.get('production_final_equity')-g['final_canonical_equity']) if s.get('production_final_equity') is not None else None,
+              'contract_meta_verified':s.get('contract_meta_verified'),
+              'mincontract':s.get('mincontract'),
+              'pointvalue':s.get('pointvalue'),
+              'missing_source_days':master.get('missing',[]),
+              'exact_native_execution':len(rows)==len(n) and not diffs,
+              'native_execution_diffs':diffs,
+              'exact_total_r':abs(s['total_r']-g['total_r_exact'])<=1e-12,
+              'exact_final_equity':abs(s.get('production_final_equity',0)-g['final_canonical_equity'])<=1e-6,
+              'trade_csv_sha256':hashlib.sha256(csv_path.read_bytes()).hexdigest(),
           }
-          open(f'/tmp/{sym}-fresh-compare.json','w').write(json.dumps(out,indent=2)+'\n')
-          print(json.dumps(out,indent=2))
+          p.write_text(json.dumps(root,indent=2)+'\n')
           PY
+          done
 
-      - name: Upload fresh backtest evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wr-fresh-binance-${{ matrix.symbol }}-${{ github.run_id }}
-          path: |
-            wave-rider-verify/output/${{ matrix.symbol }}_5m_trades.csv
-            wave-rider-verify/output/${{ matrix.symbol }}_5m_summary.json
-            wave-rider-verify/output/master.json
-            /tmp/${{ matrix.symbol }}-fresh-run.txt
-            /tmp/${{ matrix.symbol }}-fresh-compare.json
-          if-no-files-found: warn
-          retention-days: 3
+          cp /tmp/fresh-results.json wave-rider-verify/fresh-results/binance_vs_tradingview_2026-07-27_2026-08-16.json
+          cat wave-rider-verify/fresh-results/binance_vs_tradingview_2026-07-27_2026-08-16.json
+
+      - name: Commit fresh backtest evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'wave-rider-backtest-bot'
+          git config user.email 'wave-rider-backtest-bot@users.noreply.github.com'
+          git add wave-rider-verify/fresh-results/
+          if git diff --cached --quiet; then
+            echo 'No result changes to commit.'
+            exit 0
+          fi
+          git commit -m 'record fresh Binance BNB TRX backtest results'
+          git pull --rebase origin main
+          git push origin HEAD:main
