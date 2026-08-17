@@ -34,20 +34,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl -fsS -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/32019471258/cancel || true
-          curl -fsS \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
+          curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/tradingview-mobile-auth.yml/runs?per_page=20" \
             | jq -r --argjson me "$GITHUB_RUN_ID" '.workflow_runs[] | select(.id < $me and (.status=="queued" or .status=="in_progress")) | .id' \
             | while read -r rid; do
                 [ -z "$rid" ] && continue
-                curl -fsS -X POST \
-                  -H "Authorization: Bearer $GH_TOKEN" \
-                  -H "Accept: application/vnd.github+json" \
+                curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
                   "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${rid}/cancel" || true
               done
 
@@ -68,7 +62,6 @@ jobs:
           TOKEN="$(openssl rand -hex 32)"
           printf '%s' "$TOKEN" >/tmp/tv-mobile-token
           chmod 600 /tmp/tv-mobile-token
-
           cat >/tmp/tv-mobile.nginx <<'NGINX'
           server {
             listen 127.0.0.1:8080;
@@ -90,16 +83,11 @@ jobs:
           sudo ln -sf /etc/nginx/sites-available/tv-mobile /etc/nginx/sites-enabled/tv-mobile
           sudo nginx -t
           sudo systemctl restart nginx
-
           nohup Xvfb :99 -screen 0 430x850x24 -nolisten tcp >/tmp/tv-xvfb.log 2>&1 &
           sleep 1
           nohup node scripts/tradingview-mobile-remote.mjs >/tmp/tv-mobile-browser.log 2>&1 &
-          for i in $(seq 1 45); do
-            grep -q 'TV_MOBILE_HTTP_READY' /tmp/tv-mobile-browser.log && break
-            sleep 1
-          done
+          for i in $(seq 1 45); do grep -q 'TV_MOBILE_HTTP_READY' /tmp/tv-mobile-browser.log && break; sleep 1; done
           grep -q 'TV_MOBILE_HTTP_READY' /tmp/tv-mobile-browser.log || { tail -80 /tmp/tv-mobile-browser.log; exit 4; }
-
           nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 >/tmp/tv-cloudflared.log 2>&1 &
           for i in $(seq 1 45); do
             BASE="$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/tv-cloudflared.log | head -n1 || true)"
@@ -111,11 +99,10 @@ jobs:
           chmod 600 /tmp/tv-mobile-url
           echo 'TV_MOBILE_REMOTE_READY=true'
 
-      - name: Publish encrypted one-time URL
+      - name: Encrypt one-time URL
         shell: bash
         run: |
           set -euo pipefail
-          URL="$(cat /tmp/tv-mobile-url)"
           cat >/tmp/tv-mobile-public.pem <<'PEM'
           -----BEGIN PUBLIC KEY-----
           MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAyWpbCt7lVxNM8eGyLNni
@@ -129,35 +116,25 @@ jobs:
           OIL9hdmpq7vXovwZftY/VdHgHA1EVokb2nGtu3Axb/v5AgMBAAE=
           -----END PUBLIC KEY-----
           PEM
-          printf '%s\n' "$URL" >/tmp/tv-mobile-url.txt
           openssl pkeyutl -encrypt -pubin -inkey /tmp/tv-mobile-public.pem \
             -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
-            -in /tmp/tv-mobile-url.txt | base64 -w0 >/tmp/tv-mobile-connection.enc.b64
-          mkdir -p ops/tradingview
-          cp /tmp/tv-mobile-connection.enc.b64 ops/tradingview/mobile-connection.enc.b64
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/tradingview/mobile-connection.enc.b64
-          git commit -m 'publish encrypted TradingView mobile URL' >/dev/null
-          ok=0
-          for attempt in 1 2 3 4 5; do
-            git fetch origin main
-            git rebase origin/main
-            if git push origin HEAD:main >/dev/null 2>&1; then ok=1; break; fi
-            sleep 2
-          done
-          [ "$ok" = 1 ] || { echo 'Could not publish encrypted mobile URL'; exit 8; }
-          rm -f /tmp/tv-mobile-url.txt /tmp/tv-mobile-public.pem /tmp/tv-mobile-connection.enc.b64
-          echo 'TV_MOBILE_CONNECTION_PUBLISHED=true'
+            -in /tmp/tv-mobile-url -out /tmp/tv-mobile-url.enc
+          chmod 600 /tmp/tv-mobile-url.enc
+          echo 'TV_MOBILE_URL_ENCRYPTED=true'
+
+      - name: Publish encrypted URL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-mobile-connection-${{ github.run_id }}
+          path: /tmp/tv-mobile-url.enc
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Wait for TradingView authorization
         shell: bash
         run: |
           set -euo pipefail
-          for i in $(seq 1 750); do
-            [ -f /tmp/tv-auth-done ] && break
-            sleep 2
-          done
+          for i in $(seq 1 750); do [ -f /tmp/tv-auth-done ] && break; sleep 2; done
           [ -f /tmp/tv-auth-done ] || { echo 'TV_AUTH_TIMEOUT'; exit 6; }
           test -s /tmp/tv-storage-state.json || { echo 'TV_STORAGE_STATE_MISSING'; exit 7; }
           echo 'TV_AUTH_RECEIVED=true'
@@ -180,18 +157,25 @@ jobs:
               assert h=='tradingview.com' or h.endswith('.tradingview.com'), f'Non-TradingView origin detected: {h}'
           print('TV_STATE_SCOPE_CHECK=PASS')
           PY
-          mkdir -p ops/tradingview
           openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
-            -in /tmp/tv-storage-state.json -out ops/tradingview/session-state.json.aes
-          rm -f ops/tradingview/mobile-connection.enc.b64 ops/tradingview/connection.enc.b64 || true
+            -in /tmp/tv-storage-state.json -out /tmp/tv-session-state.json.aes
+          echo 'TV_SESSION_ENCRYPTED=true'
+
+      - name: Persist encrypted TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A ops/tradingview
-          git commit -m 'persist encrypted TradingView-only session' >/dev/null
           ok=0
           for attempt in 1 2 3 4 5; do
             git fetch origin main
-            git rebase origin/main
+            git reset --hard origin/main
+            mkdir -p ops/tradingview
+            cp /tmp/tv-session-state.json.aes ops/tradingview/session-state.json.aes
+            rm -f ops/tradingview/mobile-connection.enc.b64 ops/tradingview/connection.enc.b64 || true
+            git add -A ops/tradingview
+            git commit -m 'persist encrypted TradingView-only session' >/dev/null || true
             if git push origin HEAD:main >/dev/null 2>&1; then ok=1; break; fi
             sleep 2
           done
@@ -204,5 +188,6 @@ jobs:
         run: |
           pkill -f tradingview-mobile-remote.mjs || true
           pkill -f cloudflared || true
-          rm -f /tmp/tv-mobile-token /tmp/tv-mobile-url /tmp/tv-storage-state.json /tmp/tv-auth-done || true
+          rm -f /tmp/tv-mobile-token /tmp/tv-mobile-url /tmp/tv-mobile-url.enc /tmp/tv-mobile-public.pem \
+            /tmp/tv-storage-state.json /tmp/tv-session-state.json.aes /tmp/tv-auth-done || true
           sudo rm -f /tmp/tv-mobile.nginx || true
