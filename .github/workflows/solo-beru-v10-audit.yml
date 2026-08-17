@@ -63,8 +63,14 @@ jobs:
           done
       - name: Commit audit sheets
         run: |
+          set -e
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add audit/solo-beru-v10/sheet_*.jpg
           git commit -m 'Add Solo Beru V10 audit sheets' || exit 0
-          git push
+          for n in 1 2 3; do
+            git pull --rebase origin main || true
+            git push && exit 0
+            sleep 3
+          done
+          exit 1
