@@ -1,0 +1,56 @@
+name: Finish Site Factory Smoke 2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/site-factory-finish-smoke-2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare verified account for smoke app
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          python - <<'PY'
+          import json
+          p='/tmp/wasmer-result.json'
+          s=json.load(open(p))
+          s['appName']='runner3-factory-smoke-2'
+          s['siteUrl']='https://runner3-factory-smoke-2.wasmer.app/'
+          open(p,'w').write(json.dumps(s))
+          PY
+      - name: Build theme
+        shell: bash
+        run: |
+          cd wordpress-site/wp-content/themes
+          zip -qr /tmp/runner3-starter.zip runner3-starter
+      - run: npm install --no-save playwright-core@1.58.2
+      - name: Install and activate theme
+        run: node scripts/wasmer-finish-current.mjs
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-finish-current.json || echo '{"status":"missing"}' > /tmp/wasmer-finish-current.json
+          cat /tmp/wasmer-finish-current.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p ops/site-factory
+          cp /tmp/wasmer-finish-current.json ops/site-factory/smoke-site-2-theme.json
+          git add ops/site-factory/smoke-site-2-theme.json
+          git diff --cached --quiet || (git commit -m 'Persist smoke site 2 theme result' && git push origin HEAD:main)
