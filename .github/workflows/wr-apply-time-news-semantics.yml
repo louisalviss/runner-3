@@ -1,0 +1,36 @@
+name: WR Apply Time News Semantics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-apply-time-news-semantics.yml'
+      - 'scripts/apply_wr_time_news_semantics.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-parity-repair
+          fetch-depth: 0
+      - name: Fetch patcher from main
+        run: git show origin/main:scripts/apply_wr_time_news_semantics.py > /tmp/apply_wr_time_news_semantics.py
+      - name: Apply Pine time and news semantics
+        run: |
+          python /tmp/apply_wr_time_news_semantics.py
+          python -m py_compile wave-rider-verify/reference_verify.py
+          git diff --check
+      - name: Commit repair branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wave-rider-verify/reference_verify.py
+          git commit -m 'match Pine time_close and embedded news semantics'
+          git push origin HEAD:wr-parity-repair
