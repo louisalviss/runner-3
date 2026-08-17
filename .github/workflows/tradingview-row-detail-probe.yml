@@ -1,71 +1,65 @@
-name: TradingView Strategy Row Detail Probe
+name: TradingView Historical SESSION Verify
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/tradingview-row-detail-probe.yml'
-      - 'scripts/tradingview-row-detail-probe-snippet.js.txt'
+      - 'scripts/tradingview-session-target-verify.mjs'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  detail:
-    strategy:
-      fail-fast: false
-      matrix:
-        symbol: [BNBUSDT, TRXUSDT]
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      TV_SYMBOL: ${{ matrix.symbol }}
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
     steps:
       - uses: actions/checkout@v4
-      - name: Restore TradingView session and canonical Pine
+      - name: Restore session and patch report window only
         shell: bash
         run: |
           set -euo pipefail
           echo "::add-mask::$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
-          test "$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" = "$EXPECTED_SHA256"
-      - name: Build structured-row probe
-        shell: bash
-        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/base.pine
+          test "$(sha256sum /tmp/base.pine | awk '{print $1}')" = "$BASE_SHA256"
           python3 - <<'PY'
           from pathlib import Path
-          import re
-          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
-          pat=r"(?m)^\s*await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout:90000\}\);"
-          new="  const __sym=process.env.TV_SYMBOL||'BNBUSDT';\n  await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});"
-          s,n=re.subn(pat,new,s,count=1)
-          if n!=1: raise SystemExit(f'url patch count={n}')
-          marker="  await trades.click({force:true}); await p.waitForTimeout(6000);"
-          if marker not in s: raise SystemExit('trade marker missing')
-          sn=Path('scripts/tradingview-row-detail-probe-snippet.js.txt').read_text()
-          s=s.replace(marker,marker+'\n\n'+sn,1)
-          Path('scripts/.tv-row-detail-temp.mjs').write_text(s)
+          s=Path('/tmp/base.pine').read_text()
+          a='startTime=input.time(1785171600000,"Start (VN)",group=groupWindow)'; b='endTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)'
+          assert s.count(a)==1 and s.count(b)==1
+          s=s.replace(a,'startTime=input.time(1737072000000,"Start (VN)",group=groupWindow)',1)
+          s=s.replace(b,'endTime=input.time(1737158400000,"End (VN, exclusive)",group=groupWindow)',1)
+          s+='\n// SESSION_TARGET_VERIFY 2025-01-17\n'
+          Path('/tmp/wr2513-session-target.pine').write_text(s)
           PY
-      - name: Capture structured rows
+      - name: Navigate to Jan 17 2025 and capture native Strategy Tester rows
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.58.2 >/dev/null
-          node scripts/.tv-row-detail-temp.mjs
-      - name: Upload row details
+          node scripts/tradingview-session-target-verify.mjs
+      - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tv-row-detail-${{ matrix.symbol }}-${{ github.run_id }}
+          name: tv-session-target-${{ github.run_id }}
           path: |
-            /tmp/tv-row-detail-${{ matrix.symbol }}.json
-            /tmp/wr2513-e2e-report.txt
+            /tmp/session-target-run.txt
+            /tmp/session-target-rows.json
+            /tmp/session-target-hits.json
+            /tmp/session-target-trades.png
+            /tmp/after-goto.png
+            /tmp/after-goto-body.txt
+            /tmp/goto-inputs.json
+            /tmp/goto-buttons.json
           if-no-files-found: warn
-          retention-days: 2
+          retention-days: 3
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine scripts/.tv-row-detail-temp.mjs
+        run: rm -f /tmp/tv-state.json /tmp/base.pine /tmp/wr2513-session-target.pine
