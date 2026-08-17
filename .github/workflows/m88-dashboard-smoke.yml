@@ -51,12 +51,18 @@ jobs:
             echo 'Chrome unavailable; HTTP smoke already passed.'
             exit 0
           fi
-          "$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=7000 \
-            --dump-dom 'https://raw.githack.com/louisalviss/runner-3/main/docs/m88/index.html' > /tmp/dom.html 2>/tmp/chrome.err
+          set +e
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=9000 \
+            --dump-dom 'https://raw.githack.com/louisalviss/runner-3/main/docs/m88/index.html?chrome-smoke=1' > /tmp/dom.html 2>/tmp/chrome.err
+          chrome_rc=$?
+          set -e
+          echo "CHROME_EXIT=$chrome_rc"
           grep -q 'M88 Live Odds' /tmp/dom.html
-          grep -Eq 'real live matches|No matching real live games' /tmp/dom.html
           if grep -q 'Latest snapshot is not published yet' /tmp/dom.html; then
             echo 'Dashboard rendered but data fetch failed' >&2
+            tail -n 30 /tmp/chrome.err >&2 || true
             exit 1
           fi
+          grep -q '<span id="state">Live</span>' /tmp/dom.html
+          grep -q 'Snapshot:' /tmp/dom.html
           echo 'CHROME_RENDER_OK=true'
