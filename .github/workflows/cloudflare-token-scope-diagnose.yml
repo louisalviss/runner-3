@@ -1,0 +1,84 @@
+name: Cloudflare Token Scope Diagnose
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-token-scope-diagnose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Diagnose token scope without exposing identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'TOKEN_PRESENT=false'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'ACCOUNT_ID_PRESENT=false'; exit 2; }
+          echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
+          echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          target=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          base='https://api.cloudflare.com/client/v4'
+          def get(path):
+              req=urllib.request.Request(base+path, headers={'Authorization':'Bearer '+token})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      raw=r.read().decode()
+                      try: data=json.loads(raw)
+                      except Exception: data={}
+                      return r.status,data
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try: data=json.loads(raw)
+                  except Exception: data={}
+                  return e.code,data
+          vcode,v=get('/user/tokens/verify')
+          print('TOKEN_VERIFY_HTTP='+str(vcode))
+          print('TOKEN_VERIFY_SUCCESS='+str(bool(v.get('success'))).lower())
+          status=(v.get('result') or {}).get('status') if isinstance(v.get('result'),dict) else None
+          print('TOKEN_STATUS='+str(status or 'unknown'))
+
+          mcode,m=get('/memberships?per_page=50')
+          print('MEMBERSHIPS_HTTP='+str(mcode))
+          print('MEMBERSHIPS_SUCCESS='+str(bool(m.get('success'))).lower())
+          memberships=m.get('result') if m.get('success') and isinstance(m.get('result'),list) else []
+          ids=[]
+          for item in memberships:
+              acc=(item or {}).get('account') or {}
+              if acc.get('id'): ids.append(acc['id'])
+          print('MEMBERSHIP_ACCOUNT_COUNT='+str(len(ids)))
+          print('SECRET_ACCOUNT_MATCHES_MEMBERSHIP='+str(target in ids).lower())
+
+          r2_accessible=0
+          target_r2_http=None
+          workers_accessible=0
+          target_workers_http=None
+          for aid in ids:
+              c,d=get(f'/accounts/{aid}/r2/buckets')
+              if c==200 and d.get('success'): r2_accessible+=1
+              if aid==target: target_r2_http=c
+              c2,d2=get(f'/accounts/{aid}/workers/scripts')
+              if c2==200 and d2.get('success'): workers_accessible+=1
+              if aid==target: target_workers_http=c2
+          if target not in ids:
+              c,d=get(f'/accounts/{target}/r2/buckets')
+              target_r2_http=c
+              c2,d2=get(f'/accounts/{target}/workers/scripts')
+              target_workers_http=c2
+          print('R2_ACCESSIBLE_ACCOUNT_COUNT='+str(r2_accessible))
+          print('TARGET_R2_HTTP='+str(target_r2_http or 'none'))
+          print('WORKERS_ACCESSIBLE_ACCOUNT_COUNT='+str(workers_accessible))
+          print('TARGET_WORKERS_HTTP='+str(target_workers_http or 'none'))
+          PY
