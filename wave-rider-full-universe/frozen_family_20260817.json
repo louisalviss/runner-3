@@ -1,0 +1,47 @@
+{
+  "name": "Wave Rider v2.5.13 Frozen 10m Family",
+  "status": "FROZEN_RESEARCH_FAMILY_FOR_UNTOUCHED_HOLDOUT",
+  "locked_at": "2026-08-17T10:15:00+07:00",
+  "audit_period": {"start": "2025-01-01", "end": "2026-08-14"},
+  "holdout_start_utc": "2026-08-15T00:00:00Z",
+  "audit_run_id": 31986528899,
+  "audit_run_head_sha": "48b49b19ac116845700d7558ed8fd8295f4e42e5",
+  "audit_script_blob_sha": "02da40eb709be841cff5b1530798beba2912d14b",
+  "reference_engine_blob_sha": "2ba5f66d33e2e483a4c669c95f3b97778c80fcd0",
+  "friction_model": {
+    "definition": "total round-trip modeled friction, deducted once per trade",
+    "primary_bps": 6,
+    "stress_bps": [4, 6, 8],
+    "formula": "net_R = gross_R - (bps/100)/stop_pct, where stop_pct is in percentage points"
+  },
+  "selection_rule": {
+    "timeframe_minutes": 10,
+    "n_trades_min": 150,
+    "net_6bps_avg_r_min": 0.10,
+    "net_8bps_avg_r_strictly_greater_than": 0.05,
+    "split60_avg_r_strictly_greater_than": 0,
+    "split20_valid_avg_r_strictly_greater_than": 0,
+    "split20_final_avg_r_strictly_greater_than": 0,
+    "full_50_trade_blocks_all_positive": true,
+    "positive_month_ratio_min": 0.65,
+    "req_x_p90_max": 4.0
+  },
+  "methodology_note": "These thresholds were selected post-hoc on the <=2026-08-14 audit and are not validated alpha. They are frozen before inspecting >=2026-08-15 data for this family. No retuning on holdout data is allowed.",
+  "selected_count": 14,
+  "symbols": [
+    "DRIFTUSDT",
+    "METISUSDT",
+    "DODOXUSDT",
+    "ALTUSDT",
+    "ATHUSDT",
+    "NEIROUSDT",
+    "BICOUSDT",
+    "AEROUSDT",
+    "STGUSDT",
+    "MANAUSDT",
+    "AKTUSDT",
+    "RENDERUSDT",
+    "WALUSDT",
+    "PENGUUSDT"
+  ]
+}
