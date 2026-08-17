@@ -1,0 +1,63 @@
+name: WR History State Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-history-state-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Score longer indicator-history windows
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py'))
+          wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          sess=requests.Session(); sess.headers['User-Agent']='wr-history-state-matrix/1.0'
+          expected=[
+            ('SHORT','2026-07-27T20:15:00Z',575.34),('SHORT','2026-07-30T19:35:00Z',575.27),('SHORT','2026-07-31T13:25:00Z',578.85),('SHORT','2026-08-03T17:10:00Z',551.95),('LONG','2026-08-04T17:50:00Z',549.13),('SHORT','2026-08-05T19:20:00Z',554.24),('SHORT','2026-08-06T18:00:00Z',585.31),('LONG','2026-08-08T03:45:00Z',593.40),('LONG','2026-08-08T04:35:00Z',593.71),('SHORT','2026-08-08T19:05:00Z',603.56),('SHORT','2026-08-12T03:20:00Z',615.37),('LONG','2026-08-13T19:35:00Z',609.96),('SHORT','2026-08-14T10:40:00Z',606.40),('SHORT','2026-08-16T04:10:00Z',606.44)]
+          earliest=date(2026,3,29); latest=date(2026,8,16); bars=[]; prices=[]; d=earliest
+          while d<=latest:
+              ds=d.isoformat(); url=f'https://data.binance.vision/data/futures/um/daily/klines/BNBUSDT/5m/BNBUSDT-5m-{ds}.zip'
+              r=sess.get(url,timeout=40)
+              if r.status_code==404: d+=timedelta(days=1); continue
+              r.raise_for_status()
+              with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+              for row in csv.reader(io.StringIO(text)):
+                  if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+              d+=timedelta(days=1)
+          ded={x.ot:x for x in bars}; allbars=[ded[k] for k in sorted(ded)]; tick=wr.infer_tick(prices); wr.SYMBOL='BNBUSDT'
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          exp={(a,b,round(c,8)) for a,b,c in expected}
+          rows=[]
+          for days in [0,3,7,14,21,30,45,60,90,120]:
+              cut=st-days*86400000
+              bs=[x for x in allbars if x.ot>=cut]
+              tr,_=wr.run(5,bs,tick,st,en)
+              A=[(t.side,t.entry_time,round(float(t.entry),8)) for t in tr]; aset=set(A)
+              row={'history_days':days,'actual_n':len(A),'match_n':sum(x in exp for x in A),'false':[x for x in A if x not in exp],'miss':[x for x in exp if x not in aset]}
+              rows.append(row); print('HISTORY='+json.dumps(row,separators=(',',':')))
+          rows.sort(key=lambda r:(-r['match_n'],len(r['false'])+len(r['miss'])))
+          print('BEST_HISTORY='+json.dumps(rows[0],separators=(',',':')))
+          Path('/tmp/history_state_matrix.json').write_text(json.dumps(rows,indent=2),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-history-state-matrix-${{ github.run_id }}
+          path: /tmp/history_state_matrix.json
+          retention-days: 2
