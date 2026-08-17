@@ -1,0 +1,50 @@
+name: Wasmer Session Apply Theme
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-session-apply-theme.yml'
+      - 'scripts/wasmer-session-apply-theme.mjs'
+      - 'wordpress-site/wp-content/themes/runner3-starter/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted Wasmer account and browser session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          test -f ops/wasmer/browser-state.aes || { echo 'Encrypted browser session missing'; exit 3; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+      - name: Package Runner3 theme
+        shell: bash
+        run: cd wordpress-site/wp-content/themes && zip -qr /tmp/runner3-starter.zip runner3-starter
+      - run: npm install --no-save playwright-core@1.58.2
+      - name: Apply theme through stored session
+        run: node scripts/wasmer-session-apply-theme.mjs
+      - name: Persist safe theme result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-session-theme.json || echo '{"status":"runner_error"}' > /tmp/wasmer-session-theme.json
+          cat /tmp/wasmer-session-theme.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/wasmer
+          cp /tmp/wasmer-session-theme.json ops/wasmer/session-theme.json
+          git add ops/wasmer/session-theme.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Runner3 theme deployment status'; git push origin HEAD:main; fi
