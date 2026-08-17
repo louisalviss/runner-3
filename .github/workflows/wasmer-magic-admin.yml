@@ -1,0 +1,76 @@
+name: Wasmer Magic Admin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-magic-admin.yml'
+      - 'scripts/wasmer-magic-admin.mjs'
+      - 'wordpress-site/wp-content/themes/runner3-starter/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wasmer-magic-admin
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/wasmer-result.json'))
+          missing=[x for x in ('username','password','appName','siteUrl') if not s.get(x)]
+          assert not missing, missing
+          print('WASMER_ACCOUNT_STATE_READY=true')
+          PY
+      - name: Build Runner3 theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wordpress-site/wp-content/themes
+          zip -qr /tmp/runner3-starter.zip runner3-starter
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Open WordPress through Wasmer and activate theme
+        run: node scripts/wasmer-magic-admin.mjs
+      - name: Persist safe result and encrypted state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-magic-status.json || echo '{"status":"runner_error","detail":"magic_status_missing"}' > /tmp/wasmer-magic-status.json
+          echo 'SAFE_MAGIC_STATUS:'
+          cat /tmp/wasmer-magic-status.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wasmer
+            cp /tmp/wasmer-magic-status.json ops/wasmer/magic-admin.json
+            if test -f /tmp/wasmer-result.json; then
+              openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/wasmer-result.json -out ops/wasmer/state.automation.aes
+            fi
+            git add ops/wasmer/magic-admin.json ops/wasmer/state.automation.aes
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist Wasmer magic admin state'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true || exit 5
