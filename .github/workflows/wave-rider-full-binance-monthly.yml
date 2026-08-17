@@ -1,0 +1,95 @@
+name: Wave Rider Full Binance Monthly Backtest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-full-binance-monthly.yml'
+      - 'wave-rider-verify/run_monthly_source_5m.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2025-01-01
+      WR_END: 2026-08-14
+      WR_DATA_START: 2025-01-01
+      WR_DATA_END: 2026-08-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run parity engine on Binance monthly/daily public 1m archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 wave-rider-verify/run_monthly_source_5m.py
+          mkdir -p /tmp/wr-monthly-${WR_SYMBOL}
+          cp wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv /tmp/wr-monthly-${WR_SYMBOL}/trades.csv
+          cp wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json /tmp/wr-monthly-${WR_SYMBOL}/summary.json
+          cp wave-rider-verify/output/master.json /tmp/wr-monthly-${WR_SYMBOL}/master.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-monthly-${{ matrix.symbol }}
+          path: /tmp/wr-monthly-${{ matrix.symbol }}/
+          retention-days: 3
+
+  combine:
+    needs: backtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-monthly-*
+          path: /tmp/monthly-artifacts
+      - name: Build result JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p wave-rider-verify/fresh-results
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root={
+            'candle_source':'Binance USD-M public monthly 1m archives plus daily edge-month archives; locally aggregated to 5m',
+            'strategy_engine':'reference_verify_parity.py',
+            'window':'2025-01-01..2026-08-14 UTC',
+            'symbols':{}
+          }
+          for sym in ('BNBUSDT','TRXUSDT'):
+            d=Path('/tmp/monthly-artifacts')/f'wr-monthly-{sym}'
+            s=json.loads((d/'summary.json').read_text()); m=json.loads((d/'master.json').read_text())
+            tb=(d/'trades.csv').read_bytes()
+            root['symbols'][sym]={
+              'trades':s['trades'],'wins':s['wins'],'losses':s['losses'],'even':s['even'],
+              'win_rate_pct':s['win_rate'],'profit_factor':s['profit_factor'],'avg_r':s['avg_r'],
+              'total_r':s['total_r'],'max_dd_pct':s['max_dd_pct'],'max_losing_streak':s['max_losing_streak'],
+              'exit_counts':s['exit_counts'],'production_final_equity':s.get('production_final_equity'),
+              'window_final_equity':s.get('window_final_equity'),'contract_meta_verified':s.get('contract_meta_verified'),
+              'mincontract':s.get('mincontract'),'pointvalue':s.get('pointvalue'),'missing_source_days':m.get('missing',[]),
+              'trade_csv_sha256':hashlib.sha256(tb).hexdigest(),'diagnostics':s.get('diagnostics',{})
+            }
+          out=Path('wave-rider-verify/fresh-results/binance_monthly_full_2025-01-01_2026-08-14.json')
+          out.write_text(json.dumps(root,indent=2)+'\n'); print(out.read_text())
+          PY
+      - name: Commit result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'wave-rider-backtest-bot'
+          git config user.email 'wave-rider-backtest-bot@users.noreply.github.com'
+          git add wave-rider-verify/fresh-results/binance_monthly_full_2025-01-01_2026-08-14.json
+          git commit -m 'record full Binance monthly BNB TRX parity backtest' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
