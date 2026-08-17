@@ -4,12 +4,13 @@ on:
   push:
     paths: ['.github/workflows/solo-beru-v10-audit.yml']
 permissions:
-  contents: read
+  contents: write
 jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
       - name: Install
         run: |
           sudo apt-get update -qq
@@ -52,17 +53,18 @@ jobs:
             fi
           done < vpns.tsv
           [ "$got" = 1 ] || exit 22
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of default=nw=1 source.mp4
       - name: Make timestamped timeline sheets
         run: |
           set -euo pipefail
+          mkdir -p audit/solo-beru-v10
           for spec in '0 200 0' '200 200 200' '400 183 400'; do
             set -- $spec; ss=$1; dur=$2; off=$3
-            ffmpeg -hide_banner -loglevel error -y -ss "$ss" -i source.mp4 -t "$dur" -vf "fps=1/10,scale=320:-2,drawtext=text='%{eif\:t+$off\:d}s':x=6:y=6:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.65,tile=5x4:padding=4:margin=4" -frames:v 1 "sheet_${ss}.jpg"
+            ffmpeg -hide_banner -loglevel error -y -ss "$ss" -i source.mp4 -t "$dur" -vf "fps=1/10,scale=320:-2,drawtext=text='%{eif\:t+$off\:d}s':x=6:y=6:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.65,tile=5x4:padding=4:margin=4" -frames:v 1 "audit/solo-beru-v10/sheet_${ss}.jpg"
           done
-      - name: Upload audit
-        uses: actions/upload-artifact@v4
-        with:
-          name: solo-beru-v10-audit
-          path: sheet_*.jpg
-          retention-days: 3
+      - name: Commit audit sheets
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add audit/solo-beru-v10/sheet_*.jpg
+          git commit -m 'Add Solo Beru V10 audit sheets' || exit 0
+          git push
