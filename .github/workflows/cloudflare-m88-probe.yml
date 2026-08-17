@@ -19,20 +19,14 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
-      - name: Check secret presence
+      - name: Check Cloudflare secrets
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "CLOUDFLARE_API_TOKEN=MISSING"
-            exit 2
-          fi
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "CLOUDFLARE_ACCOUNT_ID=MISSING"
-            exit 2
-          fi
-          echo "CLOUDFLARE_API_TOKEN=PRESENT"
-          echo "CLOUDFLARE_ACCOUNT_ID=PRESENT"
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'CLOUDFLARE_API_TOKEN=MISSING'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'CLOUDFLARE_ACCOUNT_ID=MISSING'; exit 2; }
+          echo 'CLOUDFLARE_API_TOKEN=PRESENT'
+          echo 'CLOUDFLARE_ACCOUNT_ID=PRESENT'
 
       - name: Verify Cloudflare token
         shell: bash
@@ -46,59 +40,59 @@ jobs:
           d=json.load(open('/tmp/token.json'))
           status=(d.get('result') or {}).get('status')
           print('TOKEN_STATUS=' + str(status))
-          print('TOKEN_VERIFY_SUCCESS=' + str(bool(d.get('success'))).lower())
           if not d.get('success') or status != 'active':
               raise SystemExit(3)
           PY
 
-      - name: Probe M88 through Cloudflare Browser Run
+      - name: Probe Jina reader through Cloudflare Browser Run
         shell: bash
         run: |
           set -euo pipefail
-          BODY='{"url":"https://msports.m88.com/app/v2/","gotoOptions":{"waitUntil":"networkidle2","timeout":30000}}'
-          CODE=$(curl -sS -X POST \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/content" \
-            -H 'Content-Type: application/json' \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --data "$BODY" \
-            -o /tmp/m88.out \
-            -w '%{http_code}')
-          echo "BROWSER_RUN_HTTP=$CODE"
           python - <<'PY'
-          import json,re
+          import json, os, re, subprocess
           from html import unescape
-          raw=open('/tmp/m88.out','rb').read()
-          print('RESPONSE_BYTES=' + str(len(raw)))
-          text=raw.decode('utf-8','replace')
-          html=text
-          try:
-              d=json.loads(text)
-              print('CF_API_SUCCESS=' + str(bool(d.get('success'))).lower())
-              if not d.get('success'):
-                  errs=d.get('errors') or []
-                  print('CF_ERROR_CODES=' + ','.join(str(x.get('code')) for x in errs if isinstance(x,dict)))
-                  print('CF_ERROR_MESSAGES=' + ' | '.join(str(x.get('message',''))[:180] for x in errs if isinstance(x,dict)))
-              r=d.get('result')
-              if isinstance(r,str): html=r
-              elif isinstance(r,dict): html=str(r.get('content') or r.get('html') or r)
-          except Exception:
-              pass
-          low=html.lower()
-          print('ACCESS_DENIED=' + str('access is denied' in low or 'access denied' in low).lower())
-          print('CLOUDFLARE_CHALLENGE=' + str('cf-chl-' in low or 'checking your browser' in low or 'verify you are human' in low).lower())
-          m=re.search(r'<title[^>]*>(.*?)</title>',html,re.I|re.S)
-          if m:
-              title=re.sub(r'\s+',' ',unescape(re.sub(r'<[^>]+>',' ',m.group(1)))).strip()
-              print('PAGE_TITLE=' + title[:200])
-          visible=re.sub(r'<script\b[^>]*>.*?</script>',' ',html,flags=re.I|re.S)
-          visible=re.sub(r'<style\b[^>]*>.*?</style>',' ',visible,flags=re.I|re.S)
-          visible=re.sub(r'<[^>]+>',' ',visible)
-          visible=unescape(re.sub(r'\s+',' ',visible)).strip()
-          print('VISIBLE_CHARS=' + str(len(visible)))
-          markers=['odds','sports','live','premier league','football','soccer','basketball','handicap','over/under']
-          found=[x for x in markers if x in visible.lower()]
-          print('CONTENT_MARKERS=' + ','.join(found))
-          nums=re.findall(r'(?<!\d)(?:[1-9]\d?\.\d{2})(?!\d)',visible)
-          print('DECIMAL_ODDS_LIKE_COUNT=' + str(len(nums)))
-          print('DECIMAL_ODDS_SAMPLE=' + ','.join(nums[:20]))
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          endpoint=f'https://api.cloudflare.com/client/v4/accounts/{account}/browser-rendering/content'
+          targets=[
+              ('jina_https','https://r.jina.ai/https://www.footballant.com/matches/2814994/odds'),
+              ('jina_http','https://r.jina.ai/http://www.footballant.com/matches/2814994/odds'),
+              ('jina_https_2','https://r.jina.ai/https://www.footballant.com/matches/2910222/odds'),
+          ]
+
+          for label,url in targets:
+              body=json.dumps({'url':url,'gotoOptions':{'waitUntil':'networkidle2','timeout':30000}})
+              out=f'/tmp/{label}.out'
+              p=subprocess.run([
+                  'curl','-sS','-X','POST',endpoint,
+                  '-H','Content-Type: application/json',
+                  '-H',f'Authorization: Bearer {token}',
+                  '--data',body,'-o',out,'-w','%{http_code}'
+              ],capture_output=True,text=True,check=True)
+              raw=open(out,'rb').read()
+              text=raw.decode('utf-8','replace')
+              html=text
+              api_success=False
+              try:
+                  d=json.loads(text)
+                  api_success=bool(d.get('success'))
+                  r=d.get('result')
+                  if isinstance(r,str): html=r
+                  elif isinstance(r,dict): html=str(r.get('content') or r.get('html') or r)
+              except Exception:
+                  pass
+              visible=re.sub(r'<script\b[^>]*>.*?</script>',' ',html,flags=re.I|re.S)
+              visible=re.sub(r'<style\b[^>]*>.*?</style>',' ',visible,flags=re.I|re.S)
+              visible=re.sub(r'<[^>]+>',' ',visible)
+              visible=unescape(re.sub(r'\s+',' ',visible)).strip()
+              low=visible.lower()
+              print(f'[{label}] HTTP={p.stdout.strip()} API_SUCCESS={str(api_success).lower()} CHARS={len(visible)}')
+              print(f'[{label}] ACCESS_DENIED={str("access denied" in low or "access is denied" in low).lower()} CHALLENGE={str("just a moment" in low or "verify you are human" in low).lower()} M88={str("m88" in low).lower()}')
+              nums=re.findall(r'(?<!\d)(?:[1-9]\d?\.\d{2})(?!\d)',visible)
+              print(f'[{label}] ODDS_LIKE_COUNT={len(nums)} SAMPLE={",".join(nums[:16])}')
+              idx=low.find('m88')
+              if idx >= 0:
+                  ctx=visible[max(0,idx-180):idx+520]
+                  print(f'[{label}] M88_CONTEXT=' + ctx.replace('\n',' ')[:700])
           PY
