@@ -1,0 +1,127 @@
+name: Wave Rider TRX Aug14 Parity Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-parity-trx-aug14-diagnostic.yml'
+      - 'wave-rider-verify/reference_verify_parity.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WR_SYMBOL: TRXUSDT
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dump candidate signal state with verified pivot semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util,json,math
+          from pathlib import Path
+          from datetime import datetime,timezone,timedelta
+
+          p=Path('wave-rider-verify/reference_verify_parity.py')
+          spec=importlib.util.spec_from_file_location('parity',p)
+          m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          r=m.ref
+
+          one,tick,missing=r.fetch_1m()
+          bars=r.agg(one,5)
+          ind,pht,plt=r.calc_ind(bars)
+          st=int(datetime.fromisoformat(r.START).replace(tzinfo=timezone.utc).timestamp()*1000)
+          en=int((datetime.fromisoformat(r.END).replace(tzinfo=timezone.utc)+timedelta(days=1)).timestamp()*1000)-1
+          target_entry=int(datetime.fromisoformat('2026-08-14T19:25:00+00:00').timestamp()*1000)
+          target_i=next(i for i,x in enumerate(bars) if x.ot==target_entry-5*60000)
+
+          # Mirror frozen run() exactly, but only add read-only trace output.
+          chart_ms=5*60000; eq=r.INIT; peak=r.INIT
+          pending=active=None; entry_t=None; trades=[]; trace=[]
+          def plan_dict(v):
+            if v is None:return None
+            return {k:getattr(v,k) for k in ('d','e','s','t','risk','qty','sig_i','sig_t','sig_h','sig_l')}
+          def close_trade(i,reason,px):
+            nonlocal_dummy=None
+            return None
+
+          # Python nested function needs mutable holder for state.
+          state={'eq':eq,'peak':peak,'pending':pending,'active':active,'entry_t':entry_t}
+          def do_close(i,reason,px):
+            a=state['active']
+            both=a is not None and bars[i].h>=max(a.s,a.t) and bars[i].l<=min(a.s,a.t) and reason in ('TP','SL')
+            if both: reason='AMBIG->SL'
+            cr=r.TP_R if reason=='TP' else (-1.0 if reason in ('SL','AMBIG->SL') else ((px-a.e)*(1 if a.d==1 else -1)*a.qty/a.risk))
+            state['eq']+=cr*a.risk; state['peak']=max(state['peak'],state['eq'])
+            trades.append({'entry_time':r.iso(state['entry_t']),'signal_time':r.iso(a.sig_t),'exit_time':r.iso(bars[i].ct),'side':'LONG' if a.d==1 else 'SHORT','reason':reason,'entry':a.e,'exit':px,'r':cr})
+            state['active']=None; state['entry_t']=None
+            return True
+
+          for i,x in enumerate(bars):
+            if x.ct>en: break
+            closed=False
+            if state['active'] is not None:
+              rr,px=r.next_bracket(state['active'],x,None)
+              if rr: closed=do_close(i,rr,px)
+            if state['active'] is None and state['pending'] is not None and i==state['pending'].sig_i+1 and not closed:
+              q=state['pending']; fill=(q.d==1 and x.h>=q.e) or (q.d==-1 and x.l<=q.e)
+              if fill:
+                state['active']=q; state['pending']=None; state['entry_t']=x.ot
+                rr,px=r.next_bracket(state['active'],x,state['active'].e)
+                if rr: closed=do_close(i,rr,px)
+            allowed,sexit=r.session_flags(x.ct,chart_ms)
+            if state['active'] is not None and not closed:
+              z=ind[i]; a=state['active']
+              le=a.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']
+              se=a.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+              if sexit: closed=do_close(i,'SESSION',x.c)
+              elif le or se: closed=do_close(i,'EMA',x.c)
+            if state['pending'] is not None and i>=state['pending'].sig_i+1 and state['active'] is None:
+              state['pending']=None
+            if x.ct<st or x.ct>en: continue
+            z=ind[i]
+            lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None
+            sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+            nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']
+            ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+            if abs(i-target_i)<=3:
+              trace.append({
+                'i':i,'ot':r.iso(x.ot),'ct':r.iso(x.ct),'ohlc':[x.o,x.h,x.l,x.c],'tick':tick,
+                'state_before_signal':{'active':plan_dict(state['active']),'pending':plan_dict(state['pending']),'closed_this_bar':closed,'eq':state['eq']},
+                'allowed':allowed,'session_exit':sexit,
+                'ind':z,'derived':{'bull':x.c>x.o,'bear':x.c<x.o,'lr':lr,'sr':sr,'nl':nl,'ns':ns,
+                  'close_gt_res':z['res'] is not None and x.c>z['res'],'low_le_res':z['res'] is not None and x.l<=z['res'],
+                  'close_lt_sup':z['sup'] is not None and x.c<z['sup'],'high_ge_sup':z['sup'] is not None and x.h>=z['sup']},
+                'recent_res_values':[ind[j]['res'] for j in range(max(0,i-5),i+1)],
+                'recent_sup_values':[ind[j]['sup'] for j in range(max(0,i-5),i+1)]
+              })
+            if state['active'] is None and state['pending'] is None and not closed and (nl or ns):
+              if nl: d=1; e=x.h+tick; s=x.l-tick; t=e+r.TP_R*(e-s)
+              else: d=-1; e=x.l-tick; s=x.h+tick; t=e-r.TP_R*(s-e)
+              raw=(state['eq']*r.RISK_PCT/100)/abs(e-s); qty=math.floor(raw); risk=abs(e-s)*qty
+              if qty>0 and risk>0:
+                state['pending']=r.Plan(d,e,s,t,risk,qty,i,x.ct,x.h,x.l)
+
+          out={'target_index':target_i,'tick':tick,'missing_1m':missing,'trace':trace,'trades':trades,
+               'entries':[x['entry_time'] for x in trades], 'has_target_entry':any(x['entry_time']=='2026-08-14T19:25:00Z' for x in trades)}
+          Path('/tmp/trx-aug14-parity-diagnostic.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-trx-aug14-diagnostic-${{ github.run_id }}
+          path: /tmp/trx-aug14-parity-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 2
