@@ -1,0 +1,50 @@
+name: Wave Rider TradingView Entry Golden
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/reference_verify.py'
+      - 'wave-rider-verify/reference_verify_parity.py'
+      - 'wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'
+      - '.github/workflows/wave-rider-parity-golden.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run parity engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 wave-rider-verify/reference_verify_parity.py >/tmp/parity-run.txt
+      - name: Assert exact TradingView entry sequence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os,sys
+          sym=os.environ['WR_SYMBOL']
+          golden=json.load(open('wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'))['symbols'][sym]
+          with open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='') as f:
+              actual=[r['entry_time'] for r in csv.DictReader(f)]
+          ok=actual==golden
+          print(json.dumps({'symbol':sym,'golden':len(golden),'actual':len(actual),'exact_sequence':ok,
+                            'missing':[x for x in golden if x not in actual],
+                            'extra':[x for x in actual if x not in golden]},indent=2))
+          if not ok: sys.exit(7)
+          PY
