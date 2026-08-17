@@ -1,0 +1,73 @@
+name: TradingView Source Ingest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/tradingview/source-url.rsa.b64'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: d4ef004e75524dfface6d86c7259b0dddc8f2a6e708b11233856a973d4669372
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decrypt one-time source URL and ingest canonical Pine
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          test -s ops/tradingview/source-url.rsa.b64
+          test -s ops/tradingview/source-transport-private.pem.aes
+          base64 -d ops/tradingview/source-url.rsa.b64 > /tmp/source-url.rsa
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/source-transport-private.pem.aes -out /tmp/source-private.pem
+          openssl pkeyutl -decrypt -inkey /tmp/source-private.pem -in /tmp/source-url.rsa \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -pkeyopt rsa_mgf1_md:sha256 \
+            -out /tmp/source-url.txt
+          SRC_URL="$(cat /tmp/source-url.txt)"
+          echo "::add-mask::$SRC_URL"
+          curl --fail --silent --show-error --location --max-time 120 "$SRC_URL" -o /tmp/wr-source.md
+          ACTUAL_SHA256="$(sha256sum /tmp/wr-source.md | awk '{print $1}')"
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text=Path('/tmp/wr-source.md').read_text(encoding='utf-8')
+          m=re.search(r'```pine\s*\n(.*?)\n```\s*$', text, re.S)
+          if not m:
+              raise SystemExit('PINE_FENCE_NOT_FOUND')
+          pine=m.group(1).rstrip()+"\n"
+          required='strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"'
+          if required not in pine:
+              raise SystemExit('WR_2513_TITLE_NOT_FOUND')
+          Path('/tmp/wave-rider-v2.5.13-window-report.pine').write_text(pine,encoding='utf-8')
+          print('TV_SOURCE_PINE_LINES='+str(pine.count('\n')))
+          print('TV_SOURCE_EXACT_TITLE=YES')
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in /tmp/wave-rider-v2.5.13-window-report.pine \
+            -out ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes
+          rm -f /tmp/source-url.rsa /tmp/source-private.pem /tmp/source-url.txt /tmp/wr-source.md /tmp/wave-rider-v2.5.13-window-report.pine
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes
+          git rm -f ops/tradingview/source-url.rsa.b64
+          git commit -m 'store encrypted canonical Wave Rider v2.5.13 source'
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+            sleep 2
+          done
+          exit 9
