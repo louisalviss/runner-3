@@ -1,11 +1,12 @@
 {
-  "name": "footballant-m88-probe",
+  "name": "m88-search-index-probe",
   "source_visibility": "public",
   "artifact_policy": "text",
-  "mode": "auto",
+  "mode": "http",
   "timeout_seconds": 60,
-  "wait_after_load_ms": 5000,
   "urls": [
-    "https://www.footballant.com/matches/2799656/odds"
+    "https://www.google.com/search?q=site%3Afootballant.com%2Fmatches%2F+M88+%22Asian+Handicap%22",
+    "https://www.bing.com/search?q=site%3Afootballant.com%2Fmatches%2F+M88+%22Asian+Handicap%22",
+    "https://html.duckduckgo.com/html/?q=site%3Afootballant.com%2Fmatches%2F+M88+%22Asian+Handicap%22"
   ]
 }
