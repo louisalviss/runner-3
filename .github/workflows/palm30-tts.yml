@@ -1,0 +1,34 @@
+name: Palm 30s TTS
+on:
+  push:
+    paths:
+      - '.github/workflows/palm30-tts.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Vietnamese neural voice
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q edge-tts
+          mkdir -p evidence/palm30
+          cat > evidence/palm30/script.txt <<'TXT'
+Dubai từng thiếu một thứ tưởng như không thể mua: bờ biển. Năm 2001, họ quyết định tự tạo ra nó. Chín mươi bốn triệu mét khối cát biển được bơm lên, tạo thành Palm Jumeirah, một hòn đảo hình cây cọ nhìn rõ từ trên cao. Nhưng thành công này có giá: dòng chảy bị thay đổi, bờ biển phải liên tục gia cố, và đại dương vẫn đang cố lấy lại phần đất con người đã giành được.
+TXT
+          edge-tts --voice vi-VN-NamMinhNeural --rate=+6% --text "$(cat evidence/palm30/script.txt)" --write-media evidence/palm30/narration.mp3 --write-subtitles evidence/palm30/narration.srt
+          ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 evidence/palm30/narration.mp3 | tee evidence/palm30/duration.txt
+      - name: Commit generated voice
+        shell: bash
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add evidence/palm30
+          git commit -m 'Add Palm 30s narration' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
