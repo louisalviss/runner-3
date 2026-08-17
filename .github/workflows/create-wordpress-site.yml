@@ -1,0 +1,163 @@
+name: Create WordPress Site
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: Human-readable site name
+        required: true
+        type: string
+      site_slug:
+        description: Stable lowercase site slug
+        required: true
+        type: string
+      app_name:
+        description: Wasmer app name (lowercase letters/numbers/hyphens)
+        required: true
+        type: string
+      site_purpose:
+        description: Short site description/tagline
+        required: false
+        default: Built automatically by Runner3 Site Factory
+        type: string
+      domain_mode:
+        description: Domain mode
+        required: true
+        default: wasmer
+        type: choice
+        options:
+          - wasmer
+      fingerprint:
+        description: Public text that must appear on the finished site
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'site-factory/requests/*.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-site-factory
+  cancel-in-progress: false
+
+jobs:
+  create-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve site request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SITE_NAME: ${{ inputs.site_name }}
+          INPUT_SITE_SLUG: ${{ inputs.site_slug }}
+          INPUT_APP_NAME: ${{ inputs.app_name }}
+          INPUT_SITE_PURPOSE: ${{ inputs.site_purpose }}
+          INPUT_DOMAIN_MODE: ${{ inputs.domain_mode }}
+          INPUT_FINGERPRINT: ${{ inputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            python - <<'PY'
+          import json, os
+          req = {
+              'site_name': os.environ['INPUT_SITE_NAME'],
+              'site_slug': os.environ['INPUT_SITE_SLUG'],
+              'app_name': os.environ['INPUT_APP_NAME'],
+              'site_purpose': os.environ.get('INPUT_SITE_PURPOSE') or 'Built automatically by Runner3 Site Factory',
+              'domain_mode': os.environ.get('INPUT_DOMAIN_MODE') or 'wasmer',
+              'fingerprint': os.environ['INPUT_FINGERPRINT'],
+          }
+          open('/tmp/site-factory-request.json','w').write(json.dumps(req, ensure_ascii=False, indent=2))
+          PY
+            request='/tmp/site-factory-request.json'
+          else
+            request="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^site-factory/requests/.*\.json$' | tail -1 || true)"
+            test -n "$request" || { echo 'No site request JSON found in triggering commit'; exit 2; }
+            test -f "$request"
+          fi
+          slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+          echo "request=$request" >> "$GITHUB_OUTPUT"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "SITE_FACTORY_REQUEST=$request" >> "$GITHUB_ENV"
+          echo "SITE_FACTORY_SLUG=$slug" >> "$GITHUB_ENV"
+          echo "FACTORY_REQUEST_READY=true"
+
+      - name: Decrypt verified Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Automation encryption key unavailable'; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          test -f ops/wasmer/state.automation.aes || { echo 'Encrypted Wasmer account state missing'; exit 4; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/wasmer-account.json'))
+          assert s.get('username'), 'username missing'
+          assert s.get('password'), 'password missing'
+          print('WASMER_ACCOUNT_STATE_READY=true')
+          PY
+
+      - name: Build starter theme package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d wordpress-site/wp-content/themes/runner3-starter
+          cd wordpress-site/wp-content/themes
+          zip -qr /tmp/runner3-starter.zip runner3-starter
+          test -s /tmp/runner3-starter.zip
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Create and configure WordPress site
+        run: node scripts/create-wordpress-site.mjs
+
+      - name: Persist safe factory state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${SITE_FACTORY_SLUG:-unknown}"
+          status="/tmp/site-factory-${slug}.json"
+          if [ ! -f "$status" ]; then
+            printf '{"status":"runner_error","siteSlug":"%s","detail":"factory_status_missing"}\n' "$slug" > "$status"
+          fi
+          echo 'SAFE_SITE_FACTORY_STATUS:'
+          cat "$status"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/site-factory ops/wasmer
+            cp "$status" "ops/site-factory/${slug}.json"
+            if [ -f /tmp/wasmer-browser-state.factory.json ]; then
+              openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+                -pass env:AUTOMATION_KEY \
+                -in /tmp/wasmer-browser-state.factory.json \
+                -out ops/wasmer/browser-state.aes
+            fi
+            git add "ops/site-factory/${slug}.json" ops/wasmer/browser-state.aes 2>/dev/null || git add "ops/site-factory/${slug}.json"
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Persist WordPress Site Factory state: ${slug}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 3
+          done
+          test "$pushed" = true || exit 5
