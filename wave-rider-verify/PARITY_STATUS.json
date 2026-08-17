@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "status": "BLOCKED",
+  "updated_utc": "2026-08-17",
+  "source_of_truth": "TradingView Pine Wave Rider Strategy v2.5.13 WINDOW REPORT",
+  "exact_reference_path": "wave-rider-verify/reference_verify_v2513_exact.py",
+  "exact_reference_blob_sha": "72c3d36bc41e9efefb085bf010c7f5ba0abc8e30",
+  "invalidated_parity_claim": {
+    "old_reference_path": "wave-rider-verify/reference_verify.py",
+    "old_reference_blob_sha": "2ba5f66d33e2e483a4c669c95f3b97778c80fcd0",
+    "reason": "Full-universe audit pinned the old Python reference and checked hard-coded EXPECTED Python outputs. That is a regression/self-consistency check, not independent TradingView parity evidence."
+  },
+  "suspended_until_pass": [
+    "wave-rider-full-universe full-universe conclusions and friction ratios",
+    "14-symbol frozen 10m family and its holdout",
+    "BNB/TRX forward-count lineage and existing forward observations",
+    "any new OOS/family promotion using the old reference lineage"
+  ],
+  "reusable": [
+    "raw Binance data",
+    "data loaders and audit infrastructure",
+    "friction model",
+    "reporting framework"
+  ],
+  "required_parity_gate": {
+    "symbols": ["BNBUSDT", "TRXUSDT"],
+    "timeframe": "5m",
+    "report_start_utc": "2025-01-01T00:00:00Z",
+    "report_end_exclusive_utc": "2026-08-15T00:00:00Z",
+    "window_semantics": "Start/End report only; inclusion by signal-candle close in [start,end); engine state outside window continues; pre-end signals may fill/exit after end.",
+    "requirements": [
+      "Exact TradingView trade count match for each symbol",
+      "Exact ordered trade sequence match",
+      "Signal candle close match",
+      "Side match",
+      "Entry time and planned entry match",
+      "Exit time, exit reason and exit price match",
+      "Canon R match within only explicitly documented numeric serialization tolerance",
+      "No unresolved first divergence"
+    ]
+  },
+  "old_python_targets_not_tv_confirmed": {
+    "BNBUSDT_5m": {"trades": 400, "total_r": 145.39},
+    "TRXUSDT_5m": {"trades": 448, "total_r": 136.33}
+  },
+  "promotion_rule": "Do not set status=PASS from aggregate totals alone. PASS requires trade-by-trade TradingView parity on both frozen symbols/windows."
+}
