@@ -10,7 +10,9 @@ function runner3_editorial_setup() {
 add_action('after_setup_theme', 'runner3_editorial_setup');
 
 function runner3_editorial_assets() {
-    wp_enqueue_style('runner3-editorial', get_stylesheet_uri(), [], '2.0.0');
+    $style_path = get_stylesheet_directory() . '/style.css';
+    $version = file_exists($style_path) ? (string) filemtime($style_path) : '2.0.1';
+    wp_enqueue_style('runner3-editorial', get_stylesheet_uri(), [], $version);
 }
 add_action('wp_enqueue_scripts', 'runner3_editorial_assets');
 
