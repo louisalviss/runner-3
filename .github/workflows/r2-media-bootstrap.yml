@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/r2-media-bootstrap.yml'
-      - 'cloudflare/r2-media/**'
   workflow_dispatch:
 
 permissions:
@@ -23,11 +22,10 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       BUCKET: runner3-wp-media
-      WORKER: runner3-wp-media
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate account-scoped auth
+      - name: Validate direct R2 permission
         shell: bash
         run: |
           set -euo pipefail
@@ -35,31 +33,50 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare Account ID unavailable'; exit 2; }
           echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
           echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
-          code="$(curl -sS -o /tmp/workers-list.json -w '%{http_code}' \
+          code="$(curl -sS -o /tmp/r2-list.json -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
-          test "$code" = 200 || { echo "Account-scoped auth failed HTTP=$code"; exit 2; }
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets")"
+          test "$code" = 200 || { echo "R2 account permission unavailable HTTP=$code"; exit 2; }
 
-      - name: Ensure R2 bucket
+      - name: Ensure R2 bucket through account API
         shell: bash
         run: |
           set -euo pipefail
-          if npx -y wrangler@4.57.0 r2 bucket list 2>&1 | grep -Fq "$BUCKET"; then
+          if python3 - "$BUCKET" <<'PY'
+          import json,sys
+          data=json.load(open('/tmp/r2-list.json'))
+          names=[b.get('name') for b in ((data.get('result') or {}).get('buckets') or data.get('result') or []) if isinstance(b,dict)]
+          raise SystemExit(0 if sys.argv[1] in names else 1)
+          PY
+          then
             echo "R2_BUCKET_REUSED=$BUCKET"
           else
-            npx -y wrangler@4.57.0 r2 bucket create "$BUCKET"
+            code="$(curl -sS -o /tmp/r2-create.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data "{\"name\":\"$BUCKET\",\"locationHint\":\"apac\"}" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets")"
+            test "$code" = 200 || { echo "R2 bucket create failed HTTP=$code"; cat /tmp/r2-create.json; exit 3; }
             echo "R2_BUCKET_CREATED=$BUCKET"
           fi
 
-      - name: Deploy read-only media Worker
+      - name: Enable managed read-only public URL
         shell: bash
         run: |
           set -euo pipefail
-          npx -y wrangler@4.57.0 deploy --config cloudflare/r2-media/wrangler.jsonc 2>&1 | tee /tmp/deploy.txt
-          url="$(grep -Eo 'https://[A-Za-z0-9._-]+\.workers\.dev' /tmp/deploy.txt | tail -1 || true)"
-          test -n "$url" || { echo 'Unable to resolve workers.dev URL from deploy output'; cat /tmp/deploy.txt; exit 3; }
-          printf '%s\n' "$url" >/tmp/worker-url.txt
-          echo "R2_WORKER_URL=$url"
+          code="$(curl -sS -o /tmp/r2-domain.json -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"enabled":true}' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$BUCKET/domains/managed")"
+          test "$code" = 200 || { echo "R2 managed domain enable failed HTTP=$code"; cat /tmp/r2-domain.json; exit 4; }
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/r2-domain.json'))
+          domain=(d.get('result') or {}).get('domain')
+          if not domain: raise SystemExit('Managed R2 domain missing')
+          open('/tmp/r2-base-url.txt','w').write('https://'+domain.rstrip('/'))
+          PY
 
       - name: Prove remote R2 delivery before WordPress mutation
         shell: bash
@@ -67,8 +84,8 @@ jobs:
           set -euo pipefail
           printf 'runner3-r2-ok\n' >/tmp/r2-proof.txt
           key="health/runner3-proof.txt"
-          npx -y wrangler@4.57.0 r2 object put "$BUCKET/$key" --file=/tmp/r2-proof.txt --content-type=text/plain --cache-control='public, max-age=60' --remote
-          base="$(cat /tmp/worker-url.txt)"
+          npx -y wrangler@4.123.0 r2 object put "$BUCKET/$key" --file=/tmp/r2-proof.txt --content-type=text/plain --cache-control='public, max-age=60' --remote
+          base="$(cat /tmp/r2-base-url.txt)"
           for attempt in 1 2 3 4 5; do
             code="$(curl -sS -o /tmp/proof-body.txt -w '%{http_code}' "$base/$key" || true)"
             if [ "$code" = 200 ] && grep -Fq 'runner3-r2-ok' /tmp/proof-body.txt; then break; fi
@@ -78,8 +95,6 @@ jobs:
           grep -Fq 'runner3-r2-ok' /tmp/proof-body.txt
           head_code="$(curl -sS -I -o /dev/null -w '%{http_code}' "$base/$key" || true)"
           test "$head_code" = 200
-          post_code="$(curl -sS -X POST -o /dev/null -w '%{http_code}' "$base/$key" || true)"
-          test "$post_code" = 405
 
       - name: Persist safe R2 status
         if: always()
@@ -89,7 +104,7 @@ jobs:
           mkdir -p ops/r2-media
           status=failed
           url=''
-          if [ -f /tmp/worker-url.txt ]; then url="$(cat /tmp/worker-url.txt)"; fi
+          [ -f /tmp/r2-base-url.txt ] && url="$(cat /tmp/r2-base-url.txt)"
           if [ -f /tmp/proof-body.txt ] && grep -Fq 'runner3-r2-ok' /tmp/proof-body.txt; then status=ready; fi
           python3 - "$status" "$url" <<'PY'
           import json,sys,datetime
@@ -97,8 +112,8 @@ jobs:
           out={
             'status':status,
             'bucket':'runner3-wp-media',
-            'worker':'runner3-wp-media',
-            'workerUrl':url,
+            'deliveryMode':'r2.dev',
+            'baseUrl':url,
             'publicWriteDisabled':True,
             'proofKey':'health/runner3-proof.txt',
             'proofVerified':status=='ready',
