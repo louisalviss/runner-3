@@ -11,20 +11,42 @@ add_action('after_setup_theme', 'runner3_editorial_setup');
 
 function runner3_editorial_assets() {
     $style_path = get_stylesheet_directory() . '/style.css';
-    $version = file_exists($style_path) ? (string) filemtime($style_path) : '2.1.0';
-    wp_enqueue_style('runner3-editorial', get_stylesheet_uri(), [], $version);
+    $version = file_exists($style_path) ? (string) filemtime($style_path) : '2.2.0';
 
-    if (is_front_page()) {
-        $home_path = get_stylesheet_directory() . '/home.css';
-        $home_version = file_exists($home_path) ? (string) filemtime($home_path) : $version;
-        wp_enqueue_style('runner3-home', get_stylesheet_directory_uri() . '/home.css', ['runner3-editorial'], $home_version);
-
-        $motion_path = get_stylesheet_directory() . '/motion.js';
-        $motion_version = file_exists($motion_path) ? (string) filemtime($motion_path) : $version;
-        wp_enqueue_script('runner3-motion', get_stylesheet_directory_uri() . '/motion.js', [], $motion_version, true);
+    // The homepage is deliberately a single visual composition. Inlining its small
+    // stylesheet bundle removes two render-blocking round trips on cold mobile loads.
+    if (!is_front_page()) {
+        wp_enqueue_style('runner3-editorial', get_stylesheet_uri(), [], $version);
+        return;
     }
+
+    $motion_path = get_stylesheet_directory() . '/motion.js';
+    $motion_version = file_exists($motion_path) ? (string) filemtime($motion_path) : $version;
+    wp_enqueue_script('runner3-motion', get_stylesheet_directory_uri() . '/motion.js', [], $motion_version, true);
+    wp_script_add_data('runner3-motion', 'strategy', 'defer');
 }
 add_action('wp_enqueue_scripts', 'runner3_editorial_assets');
+
+function runner3_front_critical_css() {
+    if (!is_front_page()) return;
+    $files = [
+        get_stylesheet_directory() . '/style.css',
+        get_stylesheet_directory() . '/home.css',
+    ];
+    $css = '';
+    foreach ($files as $file) {
+        if (is_readable($file)) $css .= "\n" . file_get_contents($file);
+    }
+    if ($css !== '') echo "<style id=\"runner3-critical-css\">" . $css . "</style>\n";
+}
+add_action('wp_head', 'runner3_front_critical_css', 5);
+
+function runner3_front_meta_description() {
+    if (!is_front_page()) return;
+    $description = get_bloginfo('description') ?: 'Technology, culture and the systems underneath.';
+    echo '<meta name="description" content="' . esc_attr(wp_strip_all_tags($description)) . '">' . "\n";
+}
+add_action('wp_head', 'runner3_front_meta_description', 4);
 
 function runner3_demo_images() {
     return [
@@ -47,6 +69,38 @@ function runner3_story_image($post_id = 0, $offset = 0) {
     $images = runner3_demo_images();
     return $images[(absint($post_id) + absint($offset)) % count($images)];
 }
+
+function runner3_story_image_html($post_id = 0, $attributes = []) {
+    $post_id = $post_id ?: get_the_ID();
+    $attachment_id = $post_id ? get_post_thumbnail_id($post_id) : 0;
+    $defaults = [
+        'alt' => $post_id ? get_the_title($post_id) : '',
+        'decoding' => 'async',
+    ];
+    $attributes = array_merge($defaults, $attributes);
+
+    if ($attachment_id) {
+        return wp_get_attachment_image($attachment_id, 'full', false, $attributes);
+    }
+
+    $src = runner3_story_image($post_id);
+    $attr_html = '';
+    foreach ($attributes as $key => $value) {
+        if ($value === false || $value === null || $value === '') continue;
+        $attr_html .= ' ' . esc_attr($key) . '="' . esc_attr($value) . '"';
+    }
+    return '<img src="' . esc_url($src) . '"' . $attr_html . '>';
+}
+
+function runner3_preload_front_lcp() {
+    if (!is_front_page()) return;
+    $latest = get_posts(['numberposts' => 1, 'post_status' => 'publish', 'fields' => 'ids']);
+    if (!$latest) return;
+    $src = runner3_story_image((int) $latest[0]);
+    if (!$src) return;
+    echo '<link rel="preload" as="image" href="' . esc_url($src) . '" fetchpriority="high">' . "\n";
+}
+add_action('wp_head', 'runner3_preload_front_lcp', 3);
 
 function runner3_primary_fallback() {
     echo '<ul>';
