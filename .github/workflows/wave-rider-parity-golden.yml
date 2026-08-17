@@ -7,6 +7,7 @@ on:
       - 'wave-rider-verify/reference_verify_parity.py'
       - 'wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'
       - 'wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'
+      - 'wave-rider-verify/golden/tv_5m_native_execution_2026-07-27_2026-08-16.json'
       - '.github/workflows/wave-rider-parity-golden.yml'
   workflow_dispatch:
 permissions:
@@ -33,7 +34,7 @@ jobs:
           python3 wave-rider-verify/reference_verify_parity.py >/tmp/parity-run.txt
           cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" /tmp/full-trades.csv
           cp "wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json" /tmp/full-summary.json
-      - name: Assert TradingView entry and accounting golden
+      - name: Assert TradingView native execution and accounting golden
         shell: bash
         run: |
           python3 - <<'PY'
@@ -41,12 +42,14 @@ jobs:
           sym=os.environ['WR_SYMBOL']
           entries=json.load(open('wave-rider-verify/golden/tv_5m_entries_2026-07-27_2026-08-16.json'))['symbols'][sym]
           acct=json.load(open('wave-rider-verify/golden/tv_5m_accounting_2026-07-27_2026-08-16.json'))['symbols'][sym]
-          rows=list(csv.DictReader(open('/tmp/full-trades.csv',newline='')))
-          s=json.load(open('/tmp/full-summary.json'))
+          native=json.load(open('wave-rider-verify/golden/tv_5m_native_execution_2026-07-27_2026-08-16.json'))['symbols'][sym]
+          rows=list(csv.DictReader(open('/tmp/full-trades.csv',newline=''))); s=json.load(open('/tmp/full-summary.json'))
           qty=[float(r['qty']) for r in rows]; risk=[float(r['risk_cash']) for r in rows]; rr=[float(r['canon_r']) for r in rows]
           final_eq=100000+sum(float(r['canon_r'])*float(r['risk_cash']) for r in rows)
+          native_ok=len(rows)==len(native) and all(r['side']==g['side'] and r['entry_time']==g['entry_time'] and r['exit_time']==g['exit_time'] and abs(float(r['entry'])-float(g['entry']))<=1e-12 and abs(float(r['exit_price'])-float(g['exit_price']))<=1e-12 for r,g in zip(rows,native))
           checks={
-            'count':len(rows)==len(entries)==len(acct['quantities']),
+            'count':len(rows)==len(entries)==len(acct['quantities'])==len(native),
+            'native_execution':native_ok,
             'entries':[r['entry_time'] for r in rows]==entries,
             'qty':all(abs(a-b)<=1e-9 for a,b in zip(qty,acct['quantities'])),
             'risk':all(abs(a-b)<=1e-6 for a,b in zip(risk,acct['risk_cash'])),
