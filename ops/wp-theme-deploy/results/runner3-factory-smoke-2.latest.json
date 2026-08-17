@@ -8,6 +8,6 @@
   "themeActive": false,
   "homepageVerified": false,
   "articleVerified": false,
-  "detail": "locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('#install-theme-submit,input[type=submit]').filter({ hasText: /Install Now/i }).first()\n    - locator resolved to <input type=\"submit\" class=\"button\" value=\"Install Now\" id=\"install-theme-submit\" name=\"install-theme-submit\"/>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n      - waiting 100ms\n    58 × waiting for element to be visible, enabled and stable\n       - element is not visible\n     - retrying click action\n       - waiting 500ms\n",
-  "updatedAt": "2026-08-17T16:37:37.738Z"
+  "detail": "locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('a[href*=\"overwrite\"],a[href*=\"update-theme\"],input[name=\"overwrite\"]').first()\n    - locator resolved to <a target=\"_parent\" class=\"button button-primary update-from-upload-overwrite\" href=\"update.php?action=upload-theme&package=18&overwrite=update-theme&_wpnonce=767b876ed9\">Replace installed with uploaded</a>\n  - attempting click action\n    - waiting for element to be visible, enabled and stable\n",
+  "updatedAt": "2026-08-17T16:40:15.311Z"
 }
