@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Install decoder deps
+        run: python3 -m pip install -q requests beautifulsoup4
       - name: Decode public fullbook protocol
         shell: bash
         run: |
@@ -28,9 +30,7 @@ jobs:
               u='https://www.888scoreonline.net/OddsData.aspx'
               r=s.get(u,params={'companyid':cid} if cid else None,timeout=25)
               b=r.text
-              # Count likely delimiter chars not common in normal CSV text.
               delim={c:b.count(c) for c in ['^','$','@','#','~','`','!','*','|','\n','\r']}
-              # collect unique second fields from semicolon records in tail half
               recs=b.split(';')
               second=[]; lens=[]
               for rec in recs:
@@ -44,7 +44,6 @@ jobs:
                 'prefix':b[:1200],'middle':b[len(b)//2:len(b)//2+1200],'suffix':b[-1600:]
               }
 
-          # Find client-side parser / how companyid is produced.
           page=s.get('https://www.888scoreonline.net/Comp.htm',timeout=20)
           soup=BeautifulSoup(page.text,'html.parser')
           assets=[]
@@ -57,10 +56,7 @@ jobs:
                       out['parser_hints'].append({'url':'INLINE','snippet':t[:12000]})
           for u in assets:
               try:
-                  r=s.get(u,timeout=15)
-                  t=r.text
-                  low=t.lower()
-                  hits=[]
+                  r=s.get(u,timeout=15); t=r.text; low=t.lower(); hits=[]
                   for key in ['oddsdata.aspx','companyid','responsetext','split(','xmlhttp']:
                       pos=0
                       while True:
@@ -70,7 +66,8 @@ jobs:
                           pos=i+len(key)
                           if len(hits)>=10: break
                   if hits: out['parser_hints'].append({'url':u,'bytes':len(r.content),'hits':hits[:10]})
-              except Exception as e: pass
+              except Exception:
+                  pass
 
           print(json.dumps(out,ensure_ascii=False,indent=2))
           open('/tmp/m88-protocol.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
