@@ -1,0 +1,182 @@
+name: Addy Privacy Alias -> OddsPapi Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/addy-oddspapi-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -q playwright requests
+          mkdir -p evidence
+      - name: Create verified addy.io alias and test OddsPapi
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,secrets,string,time,pathlib,requests
+          from playwright.sync_api import sync_playwright
+
+          OUT=pathlib.Path('evidence')
+          st={}
+          def rand(n=12): return ''.join(secrets.choice(string.ascii_lowercase+string.digits) for _ in range(n))
+          def safe_text(pg,lim=12000):
+              try: return pg.locator('body').inner_text(timeout=8000)[:lim]
+              except Exception: return ''
+          def urls_from_blob(blob):
+              if isinstance(blob,list): blob='\n'.join(map(str,blob))
+              return [u.replace('&amp;','&') for u in re.findall(r'https?://[^\s\"\'<>]+',str(blob))]
+
+          # 1) Create one Mail.gw recipient mailbox.
+          doms=requests.get('https://api.mail.gw/domains',timeout=20).json().get('hydra:member',[])
+          dom=next((d['domain'] for d in doms if d.get('isActive',True)),None)
+          if not dom: raise RuntimeError('No Mail.gw domain')
+          real_email=f'priv{rand(14)}@{dom}'
+          mail_pw=secrets.token_urlsafe(24)+'M1!'
+          r=requests.post('https://api.mail.gw/accounts',json={'address':real_email,'password':mail_pw},timeout=20); r.raise_for_status()
+          tr=requests.post('https://api.mail.gw/token',json={'address':real_email,'password':mail_pw},timeout=20); tr.raise_for_status()
+          mh={'Authorization':'Bearer '+tr.json()['token']}
+          st['mailgw_domain']=dom
+
+          username='u'+rand(14)
+          addy_pw=secrets.token_urlsafe(24)+'A1!'
+          oddspapi_pw=secrets.token_urlsafe(24)+'O1!'
+
+          def poll_mail(predicate, seconds=100):
+              seen=set(); end=time.time()+seconds
+              while time.time()<end:
+                  mr=requests.get('https://api.mail.gw/messages',headers=mh,timeout=20)
+                  if mr.status_code==200:
+                      for m in mr.json().get('hydra:member',[]):
+                          mid=m.get('id')
+                          if not mid or mid in seen: continue
+                          seen.add(mid)
+                          full=requests.get(f'https://api.mail.gw/messages/{mid}',headers=mh,timeout=20).json()
+                          blob='\n'.join(str(full.get(k,'')) for k in ['from','subject','text','html'])
+                          got=predicate(blob,full)
+                          if got: return got
+                  time.sleep(2)
+              return None
+
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True)
+              c=b.new_context(locale='en-US',viewport={'width':1400,'height':1000})
+              pg=c.new_page()
+
+              # 2) Register addy.io normally.
+              rr=pg.goto('https://app.addy.io/register',wait_until='domcontentloaded',timeout=45000)
+              st['addy_register_http']=rr.status if rr else None
+              pg.wait_for_timeout(1200)
+              inputs=pg.locator('input')
+              # Fill by labels/names where possible.
+              try: pg.get_by_label(re.compile('Username',re.I)).fill(username)
+              except Exception:
+                  for i in range(inputs.count()):
+                      el=inputs.nth(i); nm=(el.get_attribute('name') or '')
+                      if 'username' in nm.lower(): el.fill(username); break
+              email_inputs=pg.locator('input[type="email"]')
+              if email_inputs.count()>=2:
+                  email_inputs.nth(0).fill(real_email); email_inputs.nth(1).fill(real_email)
+              else:
+                  try: pg.get_by_label(re.compile('Real Email',re.I)).fill(real_email)
+                  except Exception: pass
+              pws=pg.locator('input[type="password"]')
+              if pws.count(): pws.nth(0).fill(addy_pw)
+              # Accept terms checkbox, leave marketing unchecked.
+              boxes=pg.locator('input[type="checkbox"]')
+              for i in range(boxes.count()):
+                  el=boxes.nth(i)
+                  try:
+                      txt=el.evaluate("e=>(e.parentElement?.innerText||'')+' '+(e.closest('label')?.innerText||'')")
+                      if re.search(r'accept.*terms|terms.*privacy',txt,re.I) and not el.is_checked(): el.check()
+                  except Exception: pass
+              btn=pg.get_by_role('button',name=re.compile(r'^\s*Register\s*$',re.I)).first
+              btn.click(timeout=8000); pg.wait_for_timeout(5000)
+              st['addy_after_register_url']=pg.url
+              t=safe_text(pg)
+              st['addy_register_ok']=not bool(re.search(r'error|invalid|already taken|failed',t,re.I))
+
+              def find_addy_verify(blob,full):
+                  if 'addy.io' not in blob.lower() and 'anonaddy' not in blob.lower(): return None
+                  for u in urls_from_blob(blob):
+                      if re.search(r'app\.addy\.io/.+(verify|verification)',u,re.I) or ('app.addy.io' in u.lower() and 'email' in u.lower()): return u
+                  return None
+              addy_verify=poll_mail(find_addy_verify,100)
+              st['addy_verification_link_found']=bool(addy_verify)
+              if addy_verify:
+                  vr=pg.goto(addy_verify,wait_until='domcontentloaded',timeout=45000)
+                  st['addy_verification_http']=vr.status if vr else None
+                  pg.wait_for_timeout(4000)
+                  st['addy_verified_url']=pg.url
+
+              # Login if needed.
+              if 'login' in pg.url or re.search(r'\bLogin\b',safe_text(pg),re.I):
+                  pg.goto('https://app.addy.io/login',wait_until='domcontentloaded',timeout=45000)
+                  pg.wait_for_timeout(800)
+                  text_inputs=pg.locator('input[type="text"],input[name*="username" i]')
+                  if text_inputs.count(): text_inputs.first.fill(username)
+                  pwi=pg.locator('input[type="password"]')
+                  if pwi.count(): pwi.first.fill(addy_pw)
+                  sb=pg.get_by_role('button',name=re.compile(r'Login|Sign In',re.I)).first
+                  if sb.count(): sb.click(timeout=8000); pg.wait_for_timeout(4000)
+              st['addy_dashboard_url']=pg.url
+
+              # Standard catch-all alias. Official addy.io docs show username.anonaddy.com / .me standard aliases.
+              alias=f'oddspapi@{username}.anonaddy.com'
+              st['alias_domain']='anonaddy.com'
+
+              # 3) Try OddsPapi once with the verified persistent alias.
+              orr=pg.goto('https://oddspapi.io/en/sign-up',wait_until='domcontentloaded',timeout=45000)
+              st['oddspapi_signup_http']=orr.status if orr else None
+              pg.wait_for_timeout(1200)
+              ei=pg.locator('input[type="email"]')
+              opw=pg.locator('input[type="password"]')
+              if ei.count() and opw.count()>=2:
+                  ei.first.fill(alias); opw.nth(0).fill(oddspapi_pw); opw.nth(1).fill(oddspapi_pw)
+                  sb=pg.get_by_role('button',name=re.compile(r'^\s*Sign Up\s*$',re.I)).first
+                  if not sb.count(): sb=pg.locator('button[type="submit"]').first
+                  sb.click(timeout=8000); pg.wait_for_timeout(7000)
+                  after=safe_text(pg)
+                  st['oddspapi_after_url']=pg.url
+                  if 'Database error saving new user' in after: st['oddspapi_result']='database_error'
+                  elif re.search(r'disposable|temporary email|invalid email|not allowed|blocked email',after,re.I): st['oddspapi_result']='alias_rejected'
+                  elif re.search(r'captcha|verify you are human|just a moment|access denied',after,re.I): st['oddspapi_result']='challenge'
+                  else: st['oddspapi_result']='submitted'
+              else:
+                  st['oddspapi_result']='signup_form_missing'
+
+              # 4) Look for a forwarded OddsPapi verification email via addy.io.
+              def find_odds_verify(blob,full):
+                  if 'oddspapi' not in blob.lower(): return None
+                  for u in urls_from_blob(blob):
+                      if 'oddspapi.io' in u.lower() and re.search(r'verif|confirm|activ|token',u,re.I): return u
+                  return 'MESSAGE_SEEN'
+              ov=poll_mail(find_odds_verify,80) if st.get('oddspapi_result')=='submitted' else None
+              st['oddspapi_verification_email_seen']=bool(ov)
+              st['oddspapi_verification_link_found']=bool(ov and ov!='MESSAGE_SEEN')
+              if ov and ov!='MESSAGE_SEEN':
+                  pg.goto(ov,wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(4000)
+                  st['oddspapi_verified_url']=pg.url
+              b.close()
+
+          # Never persist credentials, mailbox token, full email or passwords.
+          OUT.joinpath('status.json').write_text(json.dumps(st,ensure_ascii=False,indent=2))
+          print(json.dumps(st,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: addy-oddspapi-${{ github.run_id }}
+          path: evidence/status.json
+          retention-days: 1
