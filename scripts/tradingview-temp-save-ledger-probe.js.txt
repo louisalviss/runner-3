@@ -1,0 +1,31 @@
+  // Save the audit derivative privately so Pine Logs are available. Never publish.
+  const __tmpName=`WR_PARITY_TMP_${process.env.TV_SYMBOL||'BNBUSDT'}_${process.env.GITHUB_RUN_ID||Date.now()}`;
+  const __save=dlg.getByRole('button',{name:'Save',exact:true}).first();
+  log('TV_TMP_SAVE_BUTTON',await __save.count()>0?'PRESENT':'ABSENT');
+  if(await __save.count()===0) throw new Error('Save button missing');
+  await __save.click({force:true}); await p.waitForTimeout(1200);
+  const __saveDialogs=p.locator('[role="dialog"]:visible');
+  const __saveDialogCount=await __saveDialogs.count();
+  log('TV_TMP_SAVE_DIALOGS',String(__saveDialogCount));
+  fs.writeFileSync(`/tmp/tv-save-dialog-body-${process.env.TV_SYMBOL||'BNBUSDT'}.txt`,(await p.locator('body').innerText().catch(()=>''))+'\n');
+  let __sd=__saveDialogCount?__saveDialogs.nth(__saveDialogCount-1):p.locator('body');
+  const __inputs=__sd.locator('input:visible,textarea:visible');
+  const __inputCount=await __inputs.count();
+  log('TV_TMP_SAVE_INPUTS',String(__inputCount));
+  if(__inputCount===0) throw new Error('Save-name input missing');
+  let __nameInput=__sd.locator('input[placeholder*="name" i]:visible,input[aria-label*="name" i]:visible,input[type="text"]:visible').first();
+  if(await __nameInput.count()===0) __nameInput=__inputs.first();
+  await __nameInput.fill(__tmpName);
+  let __confirm=__sd.getByRole('button',{name:'Save',exact:true}).last();
+  if(await __confirm.count()===0) __confirm=__sd.getByRole('button',{name:/Save|Create/i}).last();
+  log('TV_TMP_SAVE_CONFIRM',await __confirm.count()>0?'PRESENT':'ABSENT');
+  if(await __confirm.count()===0) throw new Error('Save confirm missing');
+  await __confirm.click({force:true});
+  for(let i=0;i<30;i++){
+    await p.waitForTimeout(500);
+    const txt=(await dlg.innerText().catch(()=>''));
+    if(txt.includes(__tmpName)) break;
+  }
+  const __savedText=await dlg.innerText().catch(()=>"");
+  log('TV_TMP_SAVED_NAME',__savedText.includes(__tmpName)?'PASS':'CHECK');
+  fs.writeFileSync(`/tmp/tv-temp-script-name-${process.env.TV_SYMBOL||'BNBUSDT'}.txt`,__tmpName+'\n');
