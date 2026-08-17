@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/pntr-discover-claim.yml'
       - 'scripts/pntr-discover-claim.mjs'
+      - 'scripts/pntr-static-scan.mjs'
   workflow_dispatch:
 
 permissions:
@@ -39,6 +40,10 @@ jobs:
       - name: Discover PNTR claim flow safely
         shell: bash
         run: node scripts/pntr-discover-claim.mjs
+
+      - name: Scan PNTR static auth client
+        shell: bash
+        run: node scripts/pntr-static-scan.mjs
 
       - name: Cleanup
         if: always()
