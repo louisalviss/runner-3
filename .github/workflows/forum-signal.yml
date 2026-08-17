@@ -12,6 +12,7 @@ on:
       - 'forum_signal_score.py'
       - 'forum_signal_route.py'
       - 'forum_signal_health.py'
+      - 'public_feed_fallback.py'
       - '.github/workflows/forum-signal.yml'
   schedule:
     # Every 3 hours, aligned to :30 Asia/Ho_Chi_Minh. Includes 20:30 VN,
@@ -99,6 +100,10 @@ jobs:
       - name: Crawl
         id: crawl
         run: python forum_signal_delta.py '${{ steps.job.outputs.job_file }}' --output crawl_output --state-file .forum-state/state.json
+
+      - name: Add public RSS fallback for blocked VOZ sections
+        if: steps.crawl.outcome == 'success'
+        run: python public_feed_fallback.py --job '${{ steps.job.outputs.job_file }}' --manifest crawl_output/manifest.json --output crawl_output/forum_signal.jsonl --summary crawl_output/public_feed_fallback.json
 
       - name: Recover Otofun post timestamps
         if: steps.crawl.outcome == 'success'
