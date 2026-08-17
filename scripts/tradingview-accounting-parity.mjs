@@ -14,10 +14,8 @@ const ctx=await browser.newContext({storageState:state,viewport:{width:1920,heig
 function markersFromString(s){
   const out=[];
   if(typeof s!=='string')return out;
-  for(const marker of ['WRMETA|','WRP#']){
-    const i=s.indexOf(marker);
-    if(i>=0)out.push(s.slice(i).trim());
-  }
+  const re=/(WRMETA\|[^"\r\n]+|WRP#\d+\|[^"\r\n]+)/g;
+  for(const m of s.matchAll(re))out.push(m[1].replace(/\\u2192/g,'→').trim());
   return out;
 }
 
@@ -42,9 +40,7 @@ function markersFromWsPayload(payload){
       const obj=JSON.parse(chunk);
       walkStrings(obj,found);
     }catch{
-      // Fallback for a non-JSON wrapper. Values in our parity strings contain no quotes.
-      const re=/(WRMETA\|[^"\r\n]+|WRP#\d+\|[^"\r\n]+)/g;
-      for(const m of chunk.matchAll(re))found.push(m[1].replace(/\\u2192/g,'→').replace(/\\"/g,'"'));
+      for(const x of markersFromString(chunk))found.push(x);
     }
   }
   return found;
@@ -53,15 +49,13 @@ function markersFromWsPayload(payload){
 async function extractParityLinesFromDom(p){
   return await p.evaluate(()=>{
     const vals=[];
+    const re=/(WRMETA\|[^"\r\n]+|WRP#\d+\|[^"\r\n]+)/g;
     for(const e of document.querySelectorAll('*')){
       const t=(e.innerText||e.textContent||'').trim();
       if(!t||(!t.includes('WRMETA|')&&!t.includes('WRP#')))continue;
       const childHas=[...e.children].some(c=>{const x=(c.innerText||c.textContent||'');return x.includes('WRMETA|')||x.includes('WRP#')});
       if(childHas)continue;
-      for(const marker of ['WRMETA|','WRP#']){
-        const i=t.indexOf(marker);
-        if(i>=0)vals.push(t.slice(i).split('\n')[0].trim());
-      }
+      for(const m of t.matchAll(re))vals.push(m[1].trim());
     }
     return [...new Set(vals)];
   });
@@ -125,7 +119,6 @@ async function runSymbol(sym){
     if(!ok||/compilation error|cannot compile|error on bar|failed to add/i.test(dt))throw new Error('compile/add failed');
     log('COMPILE','PASS');
 
-    // Wait for server-side strategy calculation. Table/log values arrive on the chart WebSocket.
     for(let n=0;n<35;n++){
       await p.waitForTimeout(700);
       const u=[...new Set(wsMarkers)];
@@ -135,8 +128,6 @@ async function runSymbol(sym){
 
     let lines=[...new Set(wsMarkers)];
     if(!lines.some(x=>x.startsWith('WRMETA|'))||lines.filter(x=>x.startsWith('WRP#')).length<10){
-      // Fallback: close editor and inspect any DOM-rendered text. This cannot create false
-      // positives from source code once the editor is closed.
       await closeEditor(p,dlg);
       const dom=await extractParityLinesFromDom(p);
       lines=[...new Set([...lines,...dom])];
