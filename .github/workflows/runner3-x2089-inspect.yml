@@ -1,11 +1,11 @@
 name: Runner3 X2089 Inspect
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     paths:
-      - '.github/workflows/runner3-x2089-inspect.yml'
+      - 'ops/x2089-inspect-trigger.txt'
 permissions:
-  contents: write
+  contents: read
 jobs:
   inspect:
     runs-on: ubuntu-latest
@@ -45,30 +45,8 @@ jobs:
           printf 'duration=%s\ntrack=%s\nartist=%s\n' "$DUR" "$TRACK" "$ARTIST" > out/summary.txt
 
       - name: Upload inspection artifact
-        id: artifact
         uses: actions/upload-artifact@v4
         with:
           name: runner3-x2089-inspect
           path: out/
           retention-days: 3
-
-      - name: Publish artifact metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
-          RUN_ID: ${{ github.run_id }}
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p meta
-          jq -n --arg artifact_id "$ARTIFACT_ID" --arg run_id "$RUN_ID" --arg status success \
-            '{artifact_id:($artifact_id|tonumber),run_id:($run_id|tonumber),status:$status}' > meta/latest.json
-          B64=$(base64 -w0 meta/latest.json)
-          API='https://api.github.com/repos/${{ github.repository }}/contents/outputs/x2089-inspect-latest.json'
-          SHA=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$API" | jq -r '.sha // empty' || true)
-          if [ -n "$SHA" ]; then
-            BODY=$(jq -n --arg m 'Update X2089 inspect artifact metadata' --arg c "$B64" --arg s "$SHA" '{message:$m,content:$c,sha:$s}')
-          else
-            BODY=$(jq -n --arg m 'Add X2089 inspect artifact metadata' --arg c "$B64" '{message:$m,content:$c}')
-          fi
-          curl -fsSL -X PUT -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$API" -d "$BODY" >/dev/null
