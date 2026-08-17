@@ -1,0 +1,133 @@
+name: WR Visible Ledger Parity Candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-visible-ledger-parity-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Validate exact visible TV ledger fields
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys,math
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          def piv(v,left,right,high=True):
+              base=[None]*len(v); ties=0
+              for conf in range(left+right,len(v)):
+                  c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+                  ok=(all(x>=y for y in L) and all(x>y for y in R)) if high else (all(x<=y for y in L) and all(x<y for y in R))
+                  if ok: base[conf]=x
+              return [None]+base[:-1],ties
+          wr.pivots=piv
+          META={'BNBUSDT':{'tick':0.01,'step':0.01,'pv':1.0},'TRXUSDT':{'tick':0.00001,'step':1.0,'pv':1.0}}
+          TV={
+          'BNBUSDT':[
+          ('LONG','2026-07-27T05:55:00Z',575.24,'2026-07-27T05:55:00Z',575.96),
+          ('SHORT','2026-07-27T10:05:00Z',572.52,'2026-07-27T10:20:00Z',573.06),
+          ('LONG','2026-07-28T12:45:00Z',568.34,'2026-07-28T13:25:00Z',567.72),
+          ('LONG','2026-07-30T15:20:00Z',590.18,'2026-07-30T16:00:00Z',591.79),
+          ('SHORT','2026-08-03T04:10:00Z',583.86,'2026-08-03T04:20:00Z',584.55),
+          ('LONG','2026-08-05T02:40:00Z',603.98,'2026-08-05T03:00:00Z',603.17),
+          ('SHORT','2026-08-05T10:00:00Z',598.57,'2026-08-05T10:00:00Z',597.67),
+          ('LONG','2026-08-08T03:45:00Z',593.40,'2026-08-08T03:55:00Z',593.98),
+          ('LONG','2026-08-08T04:35:00Z',593.71,'2026-08-08T05:50:00Z',593.33),
+          ('SHORT','2026-08-08T19:05:00Z',603.56,'2026-08-08T21:30:00Z',603.01),
+          ('SHORT','2026-08-12T03:20:00Z',615.37,'2026-08-12T04:05:00Z',613.41),
+          ('LONG','2026-08-13T19:35:00Z',609.96,'2026-08-13T20:15:00Z',611.02),
+          ('SHORT','2026-08-14T10:40:00Z',606.40,'2026-08-14T11:05:00Z',605.52),
+          ('SHORT','2026-08-16T04:10:00Z',606.44,'2026-08-16T05:30:00Z',606.73)],
+          'TRXUSDT':[
+          ('SHORT','2026-07-27T18:10:00Z',0.32825,'2026-07-27T18:15:00Z',0.32785),
+          ('LONG','2026-07-28T08:20:00Z',0.32520,'2026-07-28T08:35:00Z',0.32555),
+          ('LONG','2026-07-29T10:25:00Z',0.32622,'2026-07-29T10:35:00Z',0.32648),
+          ('SHORT','2026-07-29T16:00:00Z',0.32615,'2026-07-29T16:05:00Z',0.32624),
+          ('SHORT','2026-08-03T06:15:00Z',0.32569,'2026-08-03T06:55:00Z',0.32581),
+          ('LONG','2026-08-05T08:15:00Z',0.32717,'2026-08-05T08:45:00Z',0.32759),
+          ('LONG','2026-08-05T10:55:00Z',0.32843,'2026-08-05T11:00:00Z',0.32887),
+          ('SHORT','2026-08-06T17:40:00Z',0.32675,'2026-08-06T18:35:00Z',0.32694),
+          ('LONG','2026-08-07T15:15:00Z',0.32829,'2026-08-07T15:20:00Z',0.32812),
+          ('LONG','2026-08-10T13:00:00Z',0.33178,'2026-08-10T13:30:00Z',0.33159),
+          ('LONG','2026-08-14T19:25:00Z',0.33285,'2026-08-14T20:25:00Z',0.33273),
+          ('LONG','2026-08-16T10:05:00Z',0.33118,'2026-08-16T11:30:00Z',0.33144),
+          ('SHORT','2026-08-16T19:00:00Z',0.33175,'2026-08-16T20:05:00Z',0.33138),
+          ('SHORT','2026-08-16T22:00:00Z',0.33121,'2026-08-16T22:00:00Z',0.33107)]}
+          sess=requests.Session(); sess.headers['User-Agent']='wr-visible-ledger-parity/1.0'
+          def fetch(sym):
+              bars=[]; d=date(2026,7,1)
+              while d<=date(2026,8,16):
+                  ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/5m/{sym}-5m-{ds}.zip',timeout=40); r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5])))
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return [ded[k] for k in sorted(ded)]
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          def sim(sym,bars):
+              m=META[sym]; tick,step,pv=m['tick'],m['step'],m['pv']; wr.SYMBOL=sym; ind,_,_=wr.calc_ind(bars); eq=100000.; pending=active=None; entry_t=None; out=[]
+              def ut(p): return int(round(p/tick))
+              def fp(u): return round(u*tick,12)
+              def tp_exec(a): return fp(math.ceil(a.t/tick-1e-10) if a.d==1 else math.floor(a.t/tick+1e-10))
+              def finish(i,reason,px):
+                  nonlocal active,entry_t,eq
+                  native=(px-active.e)*(1 if active.d==1 else -1)*active.qty*pv
+                  cr=2.3 if reason=='TP' else (-1.0 if reason in ('SL','AMBIG->SL') else native/active.risk)
+                  out.append({'side':'LONG' if active.d==1 else 'SHORT','entry_time':wr.iso(entry_t),'entry':active.e,'exit_time':wr.iso(bars[i].ot),'exit':px,'reason':reason,'stop':active.s,'target_raw':active.t,'qty':active.qty,'risk':active.risk,'canon_r':cr})
+                  eq+=cr*active.risk; active=None; entry_t=None
+              for i,x in enumerate(bars):
+                  if x.ct>en:break
+                  closed=False
+                  if active is not None:
+                      hs=(ut(x.l)<=ut(active.s) if active.d==1 else ut(x.h)>=ut(active.s)); tx=tp_exec(active); ht=(ut(x.h)>=ut(tx) if active.d==1 else ut(x.l)<=ut(tx))
+                      if hs or ht:
+                          reason='AMBIG->SL' if hs and ht else ('SL' if hs else 'TP'); finish(i,reason,active.s if reason!='TP' else tx); closed=True
+                  if active is None and pending is not None and i==pending.sig_i+1 and not closed:
+                      fill=(ut(x.h)>=ut(pending.e) if pending.d==1 else ut(x.l)<=ut(pending.e))
+                      if fill:
+                          active=pending; pending=None; entry_t=x.ot
+                          hs=(ut(x.l)<=ut(active.s) if active.d==1 else ut(x.h)>=ut(active.s)); tx=tp_exec(active); ht=(ut(x.h)>=ut(tx) if active.d==1 else ut(x.l)<=ut(tx))
+                          if hs or ht:
+                              reason='AMBIG->SL' if hs and ht else ('SL' if hs else 'TP'); finish(i,reason,active.s if reason!='TP' else tx); closed=True
+                  allowed,sexit=wr.session_flags(x.ct,300000)
+                  if active is not None and not closed:
+                      z=ind[i]; le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']; se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+                      if sexit or le or se: finish(i,'SESSION' if sexit else 'EMA',x.c); closed=True
+                  if pending is not None and i>=pending.sig_i+1 and active is None: pending=None
+                  if x.ct<st or x.ct>en:continue
+                  if active is None and pending is None and not closed:
+                      z=ind[i]; lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None; sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+                      nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+                      if nl or ns:
+                          if nl:d0=1;e=fp(ut(x.h)+1);s=fp(ut(x.l)-1);t=e+2.3*(e-s)
+                          else:d0=-1;e=fp(ut(x.l)-1);s=fp(ut(x.h)+1);t=e-2.3*(s-e)
+                          budget=max(eq,0)*.01; raw=budget/(abs(e-s)*pv); q=math.floor(raw/step+1e-10)*step; risk=abs(e-s)*pv*q
+                          if q>0 and risk>0:pending=wr.Plan(d0,e,s,t,risk,q,i,x.ct,x.h,x.l)
+              return out
+          allout={}; allpass=True
+          for sym in TV:
+              got=sim(sym,fetch(sym)); exp=TV[sym]; compact=[(x['side'],x['entry_time'],round(x['entry'],8),x['exit_time'],round(x['exit'],8)) for x in got]; E=[(a,b,round(c,8),d,round(e,8)) for a,b,c,d,e in exp]
+              false=[x for x in compact if x not in E]; miss=[x for x in E if x not in compact]; ok=(len(compact)==len(E) and not false and not miss); allpass &= ok
+              print('LEDGER_'+sym+'='+json.dumps({'pass':ok,'actual_n':len(compact),'expected_n':len(E),'false':false,'miss':miss},separators=(',',':'))); allout[sym]={'pass':ok,'trades':got,'false':false,'miss':miss}
+          Path('/tmp/visible_ledger_parity.json').write_text(json.dumps(allout,indent=2),encoding='utf-8'); print('VISIBLE_LEDGER_PARITY='+('PASS' if allpass else 'FAIL')); raise SystemExit(0 if allpass else 7)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-visible-ledger-parity-${{ github.run_id }}
+          path: /tmp/visible_ledger_parity.json
+          retention-days: 2
