@@ -1,0 +1,80 @@
+name: TradingView Editor Large Paste Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-editor-large-paste-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Test 40 KB clipboard paste
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs');
+          const {chromium}=require('playwright-core');
+          const filler='// '+('x'.repeat(92))+'\n';
+          const dummy='//@version=6\nindicator("WR_LARGE_PASTE_TEST_84F1", overlay=true)\n'+filler.repeat(400)+'plot(close)';
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(8000);
+            await p.locator('[data-name="pine-dialog-button"]').first().click();
+            const d=p.locator('[data-name="pine-dialog"]').first(); await d.waitFor({state:'visible'}); await p.waitForTimeout(2500);
+            const ta=d.locator('.monaco-editor textarea.inputarea, .monaco-editor textarea').first();
+            await ta.waitFor({state:'attached'});
+            let editable=false;
+            for(let i=0;i<30;i++){
+              editable=await ta.isEditable().catch(()=>false);
+              if(editable) break;
+              await p.waitForTimeout(500);
+            }
+            console.log('TV_LARGE_PASTE_EDITABLE='+(editable?'YES':'NO'));
+            if(!editable) throw new Error('Editor never became editable');
+            await ta.evaluate(el=>el.focus());
+            await p.keyboard.press('Control+A');
+            await p.evaluate(async s=>{await navigator.clipboard.writeText(s)},dummy);
+            const t0=Date.now();
+            await p.keyboard.press('Control+V');
+            let val='';
+            for(let i=0;i<30;i++){
+              await p.waitForTimeout(500);
+              val=await ta.inputValue().catch(()=>'');
+              if(val.length===dummy.length) break;
+            }
+            console.log('TV_LARGE_PASTE_MS='+(Date.now()-t0));
+            console.log('TV_LARGE_PASTE_EXPECTED_LEN='+dummy.length);
+            console.log('TV_LARGE_PASTE_ACTUAL_LEN='+val.length);
+            console.log('TV_LARGE_PASTE_MARKER='+(val.includes('WR_LARGE_PASTE_TEST_84F1')?'PRESENT':'ABSENT'));
+            console.log('TV_LARGE_PASTE_EXACT='+(val===dummy?'PASS':'FAIL'));
+            if(val!==dummy) process.exitCode=7;
+            await b.close();
+          })().catch(e=>{console.error('TV_LARGE_PASTE_ERROR='+e.message);process.exit(8)});
+          NODE
+      - if: always()
+        run: rm -f /tmp/tv-state.json
