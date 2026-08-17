@@ -1,0 +1,35 @@
+{
+  "source": {
+    "strategy": "Wave Rider Strategy v2.5.13 WINDOW REPORT",
+    "timeframe": "5m",
+    "report_start": "2026-07-27T00:00:00Z",
+    "report_end_exclusive": "2026-08-17T00:00:00Z",
+    "quantity_evidence": "TradingView native Strategy Tester React rowData.quantity",
+    "risk_equity_evidence": "Canonical Pine f_riskQty / plannedRisk / canonicalEquity formulas applied to exact native quantities and parity-matched plan prices",
+    "total_r_evidence": "TradingView canonical dashboard plus canonical exit formulas"
+  },
+  "symbols": {
+    "BNBUSDT": {
+      "mincontract": 0.01,
+      "pointvalue": 1.0,
+      "dashboard_total_r": 10.92,
+      "total_r_exact": 10.92089552238821,
+      "final_canonical_equity": 111298.94852,
+      "quantities": [3225.8, 1894.44, 1633.49, 1432.34, 1486.52, 1253.63, 2577.67, 4113.65, 2768.59, 1554.54, 1235.4, 2335.32, 2891.98, 3876.66],
+      "risk_cash": [999.998, 1022.9976, 1012.7638, 1002.638, 1025.6988, 1015.4403, 1005.2913, 1028.4125, 1052.0642, 1041.5418, 1050.09, 1074.2472, 1098.9524, 1124.2314],
+      "canon_r": [2.3, -1.0, -1.0, 2.3, -1.0, -1.0, 2.3, 2.3, -1.0, 0.8208955223882116, 2.3, 2.3, 2.3, -1.0],
+      "exit_reason": ["TP", "SL", "SL", "TP", "SL", "SL", "TP", "TP", "SL", "EMA", "TP", "TP", "TP", "SL"]
+    },
+    "TRXUSDT": {
+      "mincontract": 1.0,
+      "pointvalue": 1.0,
+      "dashboard_total_r": 12.4,
+      "total_r_exact": 12.4,
+      "final_canonical_equity": 112931.795268,
+      "quantities": [5882352, 6819999, 9513899, 11895546, 8832443, 5829412, 5649621, 5779562, 6394915, 5664549, 8879180, 9589515, 6744425, 18398793],
+      "risk_cash": [999.99984, 1022.99985, 1046.52889, 1070.59914, 1059.89316, 1049.29416, 1073.42799, 1098.11678, 1087.13555, 1076.26431, 1065.5016, 1054.84665, 1079.108, 1103.92758],
+      "canon_r": [2.3, 2.3, 2.3, -1.0, -1.0, 2.3, 2.3, -1.0, -1.0, -1.0, -1.0, 2.3, 2.3, 2.3],
+      "exit_reason": ["TP", "TP", "TP", "SL", "SL", "TP", "TP", "SL", "SL", "SL", "SL", "TP", "TP", "TP"]
+    }
+  }
+}
