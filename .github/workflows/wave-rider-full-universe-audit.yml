@@ -1,0 +1,47 @@
+name: Wave Rider Full-Universe Audit
+
+on:
+  push:
+    paths:
+      - 'wave-rider-full-universe/full_universe_audit.py'
+      - '.github/workflows/wave-rider-full-universe-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: ${{ matrix.interval }} chunk ${{ matrix.chunk }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        interval: ['3m', '5m']
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    env:
+      BASE_INTERVAL: ${{ matrix.interval }}
+      CHUNK_ID: ${{ matrix.chunk }}
+      CHUNK_COUNT: 16
+      OUT_DIR: audit_out
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependency
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Run frozen full-universe audit
+        run: python wave-rider-full-universe/full_universe_audit.py
+      - name: Upload compact results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-full-audit-${{ matrix.interval }}-${{ matrix.chunk }}
+          path: audit_out/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
