@@ -1,0 +1,104 @@
+name: Cloudflare M88 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-m88-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Check secret presence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "CLOUDFLARE_API_TOKEN=MISSING"
+            exit 2
+          fi
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "CLOUDFLARE_ACCOUNT_ID=MISSING"
+            exit 2
+          fi
+          echo "CLOUDFLARE_API_TOKEN=PRESENT"
+          echo "CLOUDFLARE_ACCOUNT_ID=PRESENT"
+
+      - name: Verify Cloudflare token
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS 'https://api.cloudflare.com/client/v4/user/tokens/verify' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -o /tmp/token.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/token.json'))
+          status=(d.get('result') or {}).get('status')
+          print('TOKEN_STATUS=' + str(status))
+          print('TOKEN_VERIFY_SUCCESS=' + str(bool(d.get('success'))).lower())
+          if not d.get('success') or status != 'active':
+              raise SystemExit(3)
+          PY
+
+      - name: Probe M88 through Cloudflare Browser Run
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY='{"url":"https://msports.m88.com/app/v2/","gotoOptions":{"waitUntil":"networkidle2","timeout":30000}}'
+          CODE=$(curl -sS -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/content" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --data "$BODY" \
+            -o /tmp/m88.out \
+            -w '%{http_code}')
+          echo "BROWSER_RUN_HTTP=$CODE"
+          python - <<'PY'
+          import json,re
+          from html import unescape
+          raw=open('/tmp/m88.out','rb').read()
+          print('RESPONSE_BYTES=' + str(len(raw)))
+          text=raw.decode('utf-8','replace')
+          html=text
+          try:
+              d=json.loads(text)
+              print('CF_API_SUCCESS=' + str(bool(d.get('success'))).lower())
+              if not d.get('success'):
+                  errs=d.get('errors') or []
+                  print('CF_ERROR_CODES=' + ','.join(str(x.get('code')) for x in errs if isinstance(x,dict)))
+                  print('CF_ERROR_MESSAGES=' + ' | '.join(str(x.get('message',''))[:180] for x in errs if isinstance(x,dict)))
+              r=d.get('result')
+              if isinstance(r,str): html=r
+              elif isinstance(r,dict): html=str(r.get('content') or r.get('html') or r)
+          except Exception:
+              pass
+          low=html.lower()
+          print('ACCESS_DENIED=' + str('access is denied' in low or 'access denied' in low).lower())
+          print('CLOUDFLARE_CHALLENGE=' + str('cf-chl-' in low or 'checking your browser' in low or 'verify you are human' in low).lower())
+          m=re.search(r'<title[^>]*>(.*?)</title>',html,re.I|re.S)
+          if m:
+              title=re.sub(r'\s+',' ',unescape(re.sub(r'<[^>]+>',' ',m.group(1)))).strip()
+              print('PAGE_TITLE=' + title[:200])
+          visible=re.sub(r'<script\b[^>]*>.*?</script>',' ',html,flags=re.I|re.S)
+          visible=re.sub(r'<style\b[^>]*>.*?</style>',' ',visible,flags=re.I|re.S)
+          visible=re.sub(r'<[^>]+>',' ',visible)
+          visible=unescape(re.sub(r'\s+',' ',visible)).strip()
+          print('VISIBLE_CHARS=' + str(len(visible)))
+          markers=['odds','sports','live','premier league','football','soccer','basketball','handicap','over/under']
+          found=[x for x in markers if x in visible.lower()]
+          print('CONTENT_MARKERS=' + ','.join(found))
+          nums=re.findall(r'(?<!\d)(?:[1-9]\d?\.\d{2})(?!\d)',visible)
+          print('DECIMAL_ODDS_LIKE_COUNT=' + str(len(nums)))
+          print('DECIMAL_ODDS_SAMPLE=' + ','.join(nums[:20]))
+          PY
