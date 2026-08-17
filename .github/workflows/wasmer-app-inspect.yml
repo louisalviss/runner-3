@@ -1,0 +1,59 @@
+name: Inspect Existing Wasmer App
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-app-inspect.yml'
+      - 'scripts/wasmer-app-inspect.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wasmer-app-inspect
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decrypt Wasmer state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Inspect Wasmer dashboard
+        run: node scripts/wasmer-app-inspect.mjs
+      - name: Persist safe diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-inspect-status.json || echo '{"status":"runner_error","detail":"inspect_status_missing"}' > /tmp/wasmer-inspect-status.json
+          echo 'SAFE_INSPECT_STATUS:'
+          cat /tmp/wasmer-inspect-status.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wasmer
+            cp /tmp/wasmer-inspect-status.json ops/wasmer/dashboard-inspect.json
+            git add ops/wasmer/dashboard-inspect.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist safe Wasmer dashboard diagnostics'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true || exit 5
