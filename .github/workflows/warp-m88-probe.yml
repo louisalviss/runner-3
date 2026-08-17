@@ -1,0 +1,141 @@
+name: WARP M88 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/warp-m88-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install WARP and Playwright
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cloudflare-warp
+          python -m pip install -q playwright==1.55.0
+          google-chrome --version
+
+      - name: Compare egress before and after WARP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          echo '=== BEFORE WARP ===' | tee evidence/egress.txt
+          curl -s --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' | tee -a evidence/egress.txt
+          for u in \
+            'https://www.m88.com/sports' \
+            'https://msports.m88.com/app/v2/' \
+            'https://msports.m88.com/app/v3/public/sports.html' \
+            'https://prod322.bti-sports.io/en/sports?oddsStyleId=1'; do
+            code=$(curl -L -sS --max-time 20 -o /dev/null -w '%{http_code}' "$u" || true)
+            echo "before $code $u" | tee -a evidence/egress.txt
+          done
+
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos mode warp+doh
+          warp-cli --accept-tos connect
+          for i in {1..15}; do
+            sleep 1
+            state=$(curl -s --max-time 5 https://www.cloudflare.com/cdn-cgi/trace | grep '^warp=' || true)
+            echo "try=$i $state" | tee -a evidence/egress.txt
+            echo "$state" | grep -q '^warp=on' && break
+          done
+
+          echo '=== AFTER WARP ===' | tee -a evidence/egress.txt
+          curl -s --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' | tee -a evidence/egress.txt
+          for u in \
+            'https://www.m88.com/sports' \
+            'https://msports.m88.com/app/v2/' \
+            'https://msports.m88.com/app/v3/public/sports.html' \
+            'https://prod322.bti-sports.io/en/sports?oddsStyleId=1'; do
+            code=$(curl -L -sS --max-time 20 -o /dev/null -w '%{http_code}' "$u" || true)
+            echo "after $code $u" | tee -a evidence/egress.txt
+          done
+
+      - name: Probe M88 in headed Chrome over WARP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/probe.py <<'PY'
+          import json, re, time
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          targets = [
+              ('m88_main_sports', 'https://www.m88.com/sports'),
+              ('msports_v2', 'https://msports.m88.com/app/v2/'),
+              ('msports_v3', 'https://msports.m88.com/app/v3/public/sports.html'),
+              ('bti_guest', 'https://prod322.bti-sports.io/en/sports?oddsStyleId=1'),
+          ]
+
+          out = Path('evidence')
+          results = []
+          with sync_playwright() as p:
+              browser = p.chromium.launch(channel='chrome', headless=False, args=['--no-sandbox','--disable-dev-shm-usage'])
+              context = browser.new_context(viewport={'width':1365,'height':900}, locale='en-US', timezone_id='Asia/Ho_Chi_Minh')
+              page = context.new_page()
+              print('BROWSER_VERSION=' + browser.version)
+              print('NAVIGATOR_WEBDRIVER=' + str(page.evaluate('navigator.webdriver')))
+              for label, url in targets:
+                  item = {'label': label, 'requested_url': url}
+                  try:
+                      started = time.time()
+                      resp = page.goto(url, wait_until='domcontentloaded', timeout=45000)
+                      page.wait_for_timeout(8000)
+                      status = resp.status if resp else None
+                      text = page.locator('body').inner_text(timeout=5000)
+                      html = page.content()
+                      low = (text or '').lower()
+                      markers = ['access denied','access is denied','attention required','verify you are human','checking your browser','just a moment','temporarily blocked','cloudflare ray id','sorry, you have been blocked']
+                      blocked = any(x in low for x in markers) or status in {401,403,407,429}
+                      odds = re.findall(r'(?<!\d)(?:[1-9]\d?\.\d{2})(?!\d)', text or '')
+                      item.update({
+                          'status': status,
+                          'title': page.title(),
+                          'final_url': page.url,
+                          'blocked': blocked,
+                          'text_chars': len(text or ''),
+                          'html_bytes': len(html.encode('utf-8','ignore')),
+                          'odds_like_count': len(odds),
+                          'odds_sample': odds[:20],
+                          'elapsed_seconds': round(time.time()-started, 2),
+                          'text_sample': re.sub(r'\s+',' ',text or '')[:700],
+                      })
+                      print(f'[{label}] STATUS={status} BLOCKED={blocked} ODDS={len(odds)} TITLE={item["title"]!r}')
+                      print(f'[{label}] TEXT=' + item['text_sample'][:500])
+                      page.screenshot(path=str(out / f'{label}.png'), full_page=False)
+                      (out / f'{label}.html').write_text(html, encoding='utf-8', errors='ignore')
+                  except Exception as e:
+                      item['error'] = f'{type(e).__name__}: {e}'
+                      print(f'[{label}] ERROR={item["error"]}')
+                  results.append(item)
+              context.close()
+              browser.close()
+          (out / 'results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding='utf-8')
+          PY
+          xvfb-run -a python /tmp/probe.py
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp-m88-probe-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
