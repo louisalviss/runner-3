@@ -80,14 +80,13 @@ jobs:
             if all(abs(t-q[1])>.48 for q in pick):pick.append((s,t))
             if len(pick)>=58:break
           print('MOMENTS',len(pick));assert len(pick)>=48
-          # 30s / ~52 cuts, varying 0.42-0.75s
           ds=[.58,.50,.66,.46,.72,.52,.56,.44];total=0;clips=[];j=0
           while total<30-.001:
             s,t=pick[j%len(pick)];d=min(ds[j%len(ds)],30-total);clips.append((t-.06,d));total+=d;j+=1
           os.makedirs('clips',exist_ok=True)
           for j,(t,d) in enumerate(clips):
             flash="drawbox=x=0:y=0:w=iw:h=ih:color=white@.11:t=fill:enable='lt(t,.028)'," if j%8==0 else ''
-            fc='[0:v]split=2[b][f];[b]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=34,eq=brightness=-.24:saturation=.72[b2];[f]scale=1040:585:force_original_aspect_ratio=decrease,pad=1040:585:(ow-iw)/2:(oh-ih)/2:black,eq=contrast=1.08:saturation=1.13,unsharp=5:5:.35:5:5:0[f2];[b2][f2]overlay=(W-w)/2:(H-h)/2,'+flash+'fps=30,format=yuv420p[v]'
+            fc='[0:v]split=2[b][f];[b]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=34,eq=brightness=-.24:saturation=.72[b2];[f]scale=1024:576,eq=contrast=1.08:saturation=1.13,unsharp=5:5:.35:5:5:0[f2];[b2][f2]overlay=(W-w)/2:(H-h)/2,'+flash+'fps=30,format=yuv420p[v]'
             subprocess.check_call(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i','source.mp4','-t',f'{d:.3f}','-filter_complex',fc,'-map','[v]','-an','-c:v','libx264','-preset','veryfast','-crf','19','-profile:v','high','-pix_fmt','yuv420p',f'clips/{j:03}.mp4'])
           open('list.txt','w').write(''.join(f"file 'clips/{j:03}.mp4'\n" for j in range(len(clips))));print('CLIPS',len(clips),'TOTAL',total)
           PY
