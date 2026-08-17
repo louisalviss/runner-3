@@ -1,0 +1,52 @@
+name: Wave Rider Recent SESSION Candidates
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wave-rider-recent-session-candidates.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scan:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [SOLUSDT, ETHUSDT, XRPUSDT, BNBUSDT, TRXUSDT, BTCUSDT, ADAUSDT, DOGEUSDT, LINKUSDT, AVAXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-08-01
+      WR_END: 2026-08-16
+      WR_DATA_START: 2026-08-01
+      WR_DATA_END: 2026-08-16
+      WR_MINCONTRACT: '1'
+      WR_POINTVALUE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan 5m only for SESSION exits
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 - <<'PY'
+          import importlib.util,sys,json,os
+          spec=importlib.util.spec_from_file_location('wrp','wave-rider-verify/reference_verify_parity.py');m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
+          m.ref.TFS=(5,)
+          raise SystemExit(m.ref.main())
+          PY
+          python3 - <<'PY'
+          import csv,json,os
+          sym=os.environ['WR_SYMBOL'];rows=list(csv.DictReader(open(f'wave-rider-verify/output/{sym}_5m_trades.csv',newline='')))
+          ses=[r for r in rows if r['exit_reason']=='SESSION']
+          near=[r for r in rows if r['signal_time'][11:16]>='22:00' or r['exit_time'][11:16]>='23:20']
+          out={'symbol':sym,'trades':len(rows),'session':ses,'late':near}
+          print(json.dumps(out,indent=2));open(f'/tmp/{sym}-recent-session.json','w').write(json.dumps(out,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recent-session-${{ matrix.symbol }}-${{ github.run_id }}
+          path: /tmp/${{ matrix.symbol }}-recent-session.json
+          if-no-files-found: warn
+          retention-days: 2
