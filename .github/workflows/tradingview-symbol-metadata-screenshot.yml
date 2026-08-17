@@ -1,0 +1,50 @@
+name: TradingView Symbol Metadata Screenshot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-symbol-metadata-screenshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        run: |
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Capture metadata table
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            for(const sym of ['BNBUSDT.P','TRXUSDT.P']){
+              const p=await c.newPage(); p.setDefaultTimeout(15000); await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3A'+encodeURIComponent(sym)+'&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(7000);
+              const src=`//@version=6\nindicator("WR Meta Table Probe",overlay=true)\nvar table t=table.new(position.top_right,1,1,bgcolor=color.white)\nif barstate.islast\n    table.cell(t,0,0,"WRMETA  mincontract="+str.tostring(syminfo.mincontract)+"  pointvalue="+str.tostring(syminfo.pointvalue)+"  mintick="+str.tostring(syminfo.mintick),text_color=color.black,text_size=size.large)`;
+              const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(2200); const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),src); await p.keyboard.press('Control+V'); await p.waitForTimeout(1000); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(8000);
+              const closeCandidates=dlg.locator('button'); const n=await closeCandidates.count(); let closed=false; for(let i=0;i<n;i++){const q=closeCandidates.nth(i); const a=((await q.getAttribute('aria-label'))||'')+' '+((await q.getAttribute('title'))||''); if(/close/i.test(a)){await q.click().catch(()=>{}); closed=true; break;}}
+              if(!closed) await p.keyboard.press('Escape').catch(()=>{}); await p.waitForTimeout(2500); console.log('META_PANEL_VISIBLE_'+sym+'='+(await dlg.isVisible().catch(()=>false)?'YES':'NO')); await p.screenshot({path:'/tmp/meta-clear-'+sym.replace('.','_')+'.png',fullPage:true}); await p.close();
+            }
+            await b.close();
+          })().catch(e=>{console.error(e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-symbol-metadata-screenshot-${{ github.run_id }}
+          path: /tmp/meta-clear-*.png
+          retention-days: 2
+      - if: always()
+        run: rm -f /tmp/tv-state.json
