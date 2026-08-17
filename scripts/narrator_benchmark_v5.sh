@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set +e
+rm -rf work artifacts/runner3-narrator-v5
 mkdir -p artifacts/runner3-narrator-v5 work/voice work/scenes
 LOG=artifacts/runner3-narrator-v5/render.log
 exec > >(tee "$LOG") 2>&1
@@ -17,7 +18,7 @@ ffprobe -v error -show_entries format=duration,size -of default=nw=1 work/source
 
 if [ "$STATUS" -eq 0 ]; then
 python - <<'PY' || STATUS=$?
-import json, subprocess, os
+import json, subprocess, os, re
 lines=[
  "Bản trước tệ vì nó chỉ là slide ghép bằng FFmpeg.",
  "Runner ba cho phép dùng footage thật, neural voice, nhạc nền và dựng video dọc có chuyển động.",
@@ -46,11 +47,11 @@ starts=[5.0,srcdur*.18,srcdur*.36,srcdur*.54,srcdur*.72]
 for m,start in zip(meta,starts):
     i=m['i']; dur=m['duration']+.10
     start=min(max(0,start),max(0,srcdur-dur-.2))
-    vf=("scale=-2:1920," "crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0," "eq=contrast=1.10:saturation=1.08:brightness=-0.015," "unsharp=5:5:0.45:5:5:0.0,vignette=PI/5,fps=30,format=yuv420p")
-    run(['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',f'{start:.2f}','-i','work/source.mp4','-t',f'{dur:.3f}','-an','-vf',vf,'-c:v','libx264','-preset','veryfast','-crf','21',f'work/scenes/s{i}.mp4'])
+    vf=("scale=-2:1920," "crop=1080:1920:x='(iw-ow)/2+18*sin(0.5*t)':y=0," "eq=contrast=1.12:saturation=1.10:brightness=-0.02," "unsharp=5:5:0.45:5:5:0.0,vignette=PI/6,fps=30,format=yuv420p")
+    run(['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',f'{start:.2f}','-i','work/source.mp4','-t',f'{dur:.3f}','-an','-vf',vf,'-c:v','libx264','-preset','veryfast','-crf','20',f'work/scenes/s{i}.mp4'])
 if os.path.exists('work/repo-card.png') and os.path.getsize('work/repo-card.png')>1000:
     dur=meta[2]['duration']+.10
-    run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i','work/scenes/s3.mp4','-loop','1','-i','work/repo-card.png','-t',f'{dur:.3f}','-filter_complex',"[1:v]scale=900:-2,format=rgba,colorchannelmixer=aa=0.95[card];[0:v][card]overlay=(W-w)/2:(H-h)/2-80",'-an','-c:v','libx264','-preset','veryfast','-crf','21','-pix_fmt','yuv420p','work/scenes/s3x.mp4'])
+    run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i','work/scenes/s3.mp4','-loop','1','-i','work/repo-card.png','-t',f'{dur:.3f}','-filter_complex',"[1:v]scale=760:-2,format=rgba,colorchannelmixer=aa=0.94[card];[0:v][card]overlay=(W-w)/2:(H-h)/2-170",'-an','-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','work/scenes/s3x.mp4'])
     os.replace('work/scenes/s3x.mp4','work/scenes/s3.mp4')
 with open('work/video.txt','w') as f:
     [f.write(f"file 'scenes/s{i}.mp4'\n") for i in range(1,6)]
@@ -60,10 +61,30 @@ def stamp(x):
     h=int(x//3600); x-=h*3600; mm=int(x//60); x-=mm*60; s=int(x); ms=int(round((x-s)*1000))
     if ms>=1000: s+=1; ms=0
     return f'{h:02}:{mm:02}:{s:02},{ms:03}'
-t=0.0
+def chunks(text,maxchars=30):
+    pieces=[]
+    for clause in re.split(r'(?<=[,.!?])\s+', text):
+        words=clause.split(); cur=[]; n=0
+        for w in words:
+            extra=len(w)+(1 if cur else 0)
+            if cur and n+extra>maxchars:
+                pieces.append(' '.join(cur)); cur=[w]; n=len(w)
+            else:
+                cur.append(w); n+=extra
+        if cur: pieces.append(' '.join(cur))
+    return pieces or [text]
+t=0.0; idx=1
 with open('work/subs.srt','w',encoding='utf-8') as f:
-    for idx,m in enumerate(meta,1):
-        f.write(f"{idx}\n{stamp(t)} --> {stamp(t+m['duration'])}\n{m['text']}\n\n")
+    for m in meta:
+        ps=chunks(m['text'])
+        weights=[max(1,len(p.replace(' ',''))) for p in ps]
+        total=sum(weights)
+        local=t
+        for j,(p,w) in enumerate(zip(ps,weights)):
+            d=m['duration']*w/total
+            end=t+m['duration'] if j==len(ps)-1 else local+d
+            f.write(f"{idx}\n{stamp(local)} --> {stamp(end)}\n{p}\n\n")
+            idx+=1; local=end
         t+=m['duration']+.10
 json.dump(meta,open('work/meta.json','w'),ensure_ascii=False,indent=2)
 PY
@@ -76,14 +97,15 @@ fi
 
 if [ "$STATUS" -eq 0 ]; then
   DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/visual.mp4)
+  TITLE="drawtext=font='Noto Sans':text='RUNNER-3 / NARRATOR TEST':fontcolor=white:fontsize=30:x=48:y=54:box=1:boxcolor=black@0.34:boxborderw=14"
+  SUB="subtitles=work/subs.srt:force_style='FontName=Noto Sans,FontSize=10,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H90000000,BorderStyle=3,BackColour=&H66000000,Outline=1,Shadow=0,MarginV=105,Alignment=2'"
   if [ -s work/bgm.mp3 ]; then
     ffmpeg -hide_banner -loglevel error -y -i work/visual.mp4 -i work/narration.m4a -ss 8 -stream_loop -1 -i work/bgm.mp3 \
-      -filter_complex "[0:v]drawbox=x=0:y=0:w=iw:h=160:color=black@0.20:t=fill,drawtext=font='Noto Sans':text='RUNNER-3 VIDEO TEST':fontcolor=white:fontsize=42:x=58:y=54,subtitles=work/subs.srt:force_style='FontName=Noto Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H90000000,BorderStyle=3,BackColour=&H78000000,Outline=1,Shadow=0,MarginV=145,Alignment=2'[v];[1:a]volume=1.0[voice];[2:a]volume=0.08,highpass=f=60,lowpass=f=12000[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=2,alimiter=limit=0.94[a]" \
-      -map '[v]' -map '[a]' -t "$DUR" -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 160k -movflags +faststart artifacts/runner3-narrator-v5/video.mp4 || STATUS=$?
+      -filter_complex "[0:v]${TITLE},${SUB}[v];[1:a]volume=1.0[voice];[2:a]volume=0.055,highpass=f=60,lowpass=f=12000[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=2,alimiter=limit=0.94[a]" \
+      -map '[v]' -map '[a]' -t "$DUR" -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 160k -movflags +faststart artifacts/runner3-narrator-v5/video.mp4 || STATUS=$?
   else
     ffmpeg -hide_banner -loglevel error -y -i work/visual.mp4 -i work/narration.m4a \
-      -filter_complex "[0:v]drawtext=font='Noto Sans':text='RUNNER-3 VIDEO TEST':fontcolor=white:fontsize=42:x=58:y=54,subtitles=work/subs.srt:force_style='FontName=Noto Sans,FontSize=18,BorderStyle=3,BackColour=&H78000000,MarginV=145,Alignment=2'[v]" \
-      -map '[v]' -map 1:a:0 -t "$DUR" -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 160k -movflags +faststart artifacts/runner3-narrator-v5/video.mp4 || STATUS=$?
+      -filter_complex "[0:v]${TITLE},${SUB}[v]" -map '[v]' -map 1:a:0 -t "$DUR" -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 160k -movflags +faststart artifacts/runner3-narrator-v5/video.mp4 || STATUS=$?
   fi
 fi
 
