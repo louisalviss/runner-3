@@ -1,0 +1,133 @@
+name: OddsPapi MailTM Key Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oddspapi-mailtm-key-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --user -q playwright requests
+          mkdir -p evidence
+      - name: Sign up once, verify if requested, inspect API access
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,secrets,string,time,pathlib,requests
+          from playwright.sync_api import sync_playwright
+          OUT=pathlib.Path('evidence'); st={}
+          def rand(n=14): return ''.join(secrets.choice(string.ascii_lowercase+string.digits) for _ in range(n))
+          def body(pg):
+              try:return pg.locator('body').inner_text(timeout=8000)
+              except:return ''
+          # Mail.tm mailbox
+          dj=requests.get('https://api.mail.tm/domains',timeout=20).json()
+          doms=dj.get('hydra:member',dj.get('member',[])) if isinstance(dj,dict) else []
+          dom=next((d.get('domain') for d in doms if d.get('isActive',True)),None)
+          if not dom: raise RuntimeError('no mail.tm domain')
+          email=f'op{rand()}@{dom}'; pw=secrets.token_urlsafe(24)+'A1!'
+          ar=requests.post('https://api.mail.tm/accounts',json={'address':email,'password':pw},timeout=20); st['mailtm_account_http']=ar.status_code; ar.raise_for_status()
+          tr=requests.post('https://api.mail.tm/token',json={'address':email,'password':pw},timeout=20); st['mailtm_token_http']=tr.status_code; tr.raise_for_status()
+          mh={'Authorization':'Bearer '+tr.json()['token']}; st['mailtm_domain']=dom
+          api_key=None
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True); c=b.new_context(locale='en-US',viewport={'width':1400,'height':1000}); pg=c.new_page()
+              r=pg.goto('https://oddspapi.io/en/sign-up',wait_until='domcontentloaded',timeout=45000); st['signup_http']=r.status if r else None; pg.wait_for_timeout(1200)
+              ei=pg.locator('input[type="email"]'); pws=pg.locator('input[type="password"]')
+              if not ei.count() or pws.count()<2: st['result']='form_missing'
+              else:
+                  ei.first.fill(email); pws.nth(0).fill(pw); pws.nth(1).fill(pw)
+                  sb=pg.get_by_role('button',name=re.compile(r'^\s*Sign Up\s*$',re.I)).first
+                  if not sb.count(): sb=pg.locator('button[type="submit"]').first
+                  sb.click(timeout=8000); pg.wait_for_timeout(6500)
+                  t=body(pg); st['after_url']=pg.url
+                  if 'Database error saving new user' in t: st['result']='database_error'
+                  elif re.search(r'disposable|temporary email|invalid email|not allowed|blocked email',t,re.I): st['result']='temp_rejected'
+                  elif re.search(r'captcha|verify you are human|just a moment|access denied',t,re.I): st['result']='challenge'
+                  else: st['result']='submitted'
+              # Poll for verification if any
+              verify=None; msg_seen=False
+              if st.get('result')=='submitted':
+                  end=time.time()+70; seen=set()
+                  while time.time()<end:
+                      mr=requests.get('https://api.mail.tm/messages',headers=mh,timeout=20)
+                      if mr.status_code==200:
+                          mm=mr.json(); msgs=mm.get('hydra:member',mm.get('member',[])) if isinstance(mm,dict) else []
+                          for m in msgs:
+                              mid=m.get('id')
+                              if not mid or mid in seen: continue
+                              seen.add(mid); full=requests.get(f'https://api.mail.tm/messages/{mid}',headers=mh,timeout=20).json()
+                              blob='\n'.join(str(full.get(k,'')) for k in ['subject','text','html'])
+                              if 'oddspapi' in blob.lower():
+                                  msg_seen=True
+                                  for u in re.findall(r'https?://[^\s\"\'<>]+',blob):
+                                      u=u.replace('&amp;','&')
+                                      if 'oddspapi.io' in u.lower() and re.search(r'verif|confirm|activ|token',u,re.I): verify=u; break
+                              if verify:break
+                          if verify:break
+                      time.sleep(2)
+              st['verification_email_seen']=msg_seen; st['verification_link_found']=bool(verify)
+              if verify:
+                  pg.goto(verify,wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(4000); st['verified_url']=pg.url
+              # If we are not in account, normal sign-in.
+              if '/account' not in pg.url:
+                  try:
+                      pg.goto('https://oddspapi.io/en/sign-in',wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(1000)
+                      se=pg.locator('input[type="email"]'); sp=pg.locator('input[type="password"]')
+                      if se.count() and sp.count():
+                          se.first.fill(email); sp.first.fill(pw); btn=pg.get_by_role('button',name=re.compile(r'^\s*Sign In\s*$',re.I)).first
+                          if not btn.count(): btn=pg.locator('button[type="submit"]').first
+                          btn.click(timeout=8000); pg.wait_for_timeout(5000)
+                  except Exception: pass
+              st['account_url']=pg.url
+              # Inspect account page without printing secrets.
+              t=body(pg)
+              st['account_has_api_key_label']=bool(re.search(r'api\s*key',t,re.I))
+              for i in range(pg.locator('input').count()):
+                  el=pg.locator('input').nth(i)
+                  try:
+                      val=el.input_value(); near=el.evaluate("e=>(e.parentElement?.innerText||'')+' '+(e.previousElementSibling?.innerText||'')")
+                      if len(val)>=20 and val not in (email,pw) and re.search(r'api\s*key|key',near,re.I): api_key=val; break
+                  except Exception: pass
+              if not api_key:
+                  lines=t.splitlines()
+                  for i,line in enumerate(lines):
+                      if re.search(r'api\s*key',line,re.I):
+                          chunk=' '.join(lines[i:i+4])
+                          for tok in re.findall(r'[A-Za-z0-9_\-]{24,}',chunk):
+                              if tok not in (email,pw): api_key=tok; break
+                      if api_key: break
+              st['api_key_found']=bool(api_key)
+              if api_key:
+                  # Validate key and SABA bookmaker presence.
+                  br=requests.get('https://v5.oddspapi.io/en/bookmakers',params={'apiKey':api_key},timeout=30); st['bookmakers_http']=br.status_code
+                  try:
+                      bj=br.json(); st['sabasports_present']='sabasports' in json.dumps(bj).lower(); OUT.joinpath('bookmakers.json').write_text(json.dumps(bj,ensure_ascii=False,indent=2))
+                  except Exception: st['sabasports_present']=False
+                  # Probe filtered futures for sabasports. Keep only non-secret response.
+                  fr=requests.get('https://v5.oddspapi.io/en/futures',params={'apiKey':api_key,'bookmakers':'sabasports'},timeout=30); st['futures_http']=fr.status_code
+                  try:
+                      fj=fr.json();
+                      if isinstance(fj,list): st['futures_count']=len(fj)
+                      elif isinstance(fj,dict): st['futures_count']=len(fj.get('data',fj.get('futures',[]))) if isinstance(fj.get('data',fj.get('futures',[])),list) else None
+                      OUT.joinpath('saba-futures.json').write_text(json.dumps(fj,ensure_ascii=False,indent=2))
+                  except Exception: st['futures_parse_error']=True
+              b.close()
+          OUT.joinpath('status.json').write_text(json.dumps(st,ensure_ascii=False,indent=2)); print(json.dumps(st,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oddspapi-mailtm-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1
