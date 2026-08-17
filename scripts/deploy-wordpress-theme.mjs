@@ -15,6 +15,10 @@ const safeOut = `/tmp/wp-theme-deploy-${slug}.json`;
 const safe = { status:'starting', siteSlug:slug, siteUrl:base+'/', adminEntered:false, uploadStarted:false, replacedExisting:false, themeActive:false, homepageVerified:false, articleVerified:false, detail:null, updatedAt:new Date().toISOString() };
 function save(){ safe.updatedAt=new Date().toISOString(); fs.writeFileSync(safeOut, JSON.stringify(safe,null,2)); }
 async function txt(p){ return (await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim(); }
+async function firstVisible(locator){
+  for(let i=0;i<await locator.count();i++) if(await locator.nth(i).isVisible().catch(()=>false)) return locator.nth(i);
+  return null;
+}
 
 async function loginWasmer(page){
   await page.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});
@@ -22,13 +26,13 @@ async function loginWasmer(page){
   const ident=page.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();
   await ident.waitFor({state:'visible',timeout:12000});
   await ident.fill(account.username || account.email);
-  let next=page.locator('button').filter({hasText:/continue|next|log in|sign in/i}).first();
-  if(await next.count() && await next.isVisible().catch(()=>false)) await next.click(); else await ident.press('Enter');
+  let next=await firstVisible(page.locator('button').filter({hasText:/continue|next|log in|sign in/i}));
+  if(next) await next.click(); else await ident.press('Enter');
   const pass=page.locator('input[type=password]').first();
   await pass.waitFor({state:'visible',timeout:12000});
   await pass.fill(account.password);
-  let submit=page.locator('input[type=submit],button').filter({hasText:/log in|sign in|continue/i}).first();
-  if(await submit.count() && await submit.isVisible().catch(()=>false)) await submit.click(); else await pass.press('Enter');
+  let submit=await firstVisible(page.locator('input[type=submit],button').filter({hasText:/log in|sign in|continue/i}));
+  if(submit) await submit.click(); else await pass.press('Enter');
   await page.waitForTimeout(4000);
   if(/\/login(?:[/?#]|$)/i.test(page.url())) throw new Error('wasmer_login_failed');
 }
@@ -57,32 +61,28 @@ async function enterAdmin(ctx,page){
 }
 
 async function deployZip(wp){
-  await wp.goto(`${base}/wp-admin/theme-install.php?upload`,{waitUntil:'domcontentloaded',timeout:60000});
-  await wp.waitForTimeout(1200);
+  await wp.goto(`${base}/wp-admin/theme-install.php`,{waitUntil:'domcontentloaded',timeout:60000});
+  await wp.waitForTimeout(1000);
   if(/wp-login\.php/i.test(wp.url())) throw new Error('wp_session_lost');
-  let file=wp.locator('input[type=file]').first();
-  if(!(await file.count())){
-    const upload=wp.locator('button,a').filter({hasText:/Upload Theme/i}).first();
-    if(await upload.count()) await upload.click();
-    await wp.waitForTimeout(400);
-    file=wp.locator('input[type=file]').first();
-  }
-  if(!(await file.count())) throw new Error('theme_upload_input_missing');
+
+  const uploadToggle=await firstVisible(wp.locator('button,a').filter({hasText:/Upload Theme/i}));
+  if(uploadToggle){ await uploadToggle.click(); await wp.waitForTimeout(500); }
+
+  const file=await firstVisible(wp.locator('input[type=file]'));
+  if(!file) throw new Error('visible_theme_upload_input_missing');
   await file.setInputFiles('/tmp/runner3-starter.zip');
-  let install=wp.locator('#install-theme-submit,input[type=submit]').filter({hasText:/Install Now/i}).first();
-  if(!(await install.count())) install=wp.locator('button,input[type=submit]').filter({hasText:/Install Now/i}).first();
-  if(!(await install.count())) throw new Error('install_theme_button_missing');
+
+  const install=await firstVisible(wp.locator('#install-theme-submit,input[type=submit],button').filter({hasText:/Install Now/i}));
+  if(!install) throw new Error('visible_install_theme_button_missing');
   safe.uploadStarted=true; save();
   await install.click();
   await wp.waitForTimeout(3500);
 
   let body=await txt(wp);
-  if(/already installed|destination folder already exists|newer than the currently installed/i.test(body)){
-    let replace=wp.locator('a,button,input[type=submit]').filter({hasText:/Replace current with uploaded|Replace current|Overwrite|Update Theme/i}).first();
-    if(!(await replace.count())) {
-      replace=wp.locator('a[href*="overwrite"],a[href*="update-theme"],input[name="overwrite"]').first();
-    }
-    if(!(await replace.count())) throw new Error('theme_exists_but_replace_control_missing');
+  if(/already installed|destination folder already exists|newer than the currently installed|same as the currently installed/i.test(body)){
+    let replace=await firstVisible(wp.locator('a,button,input[type=submit]').filter({hasText:/Replace current with uploaded|Replace current|Overwrite|Update Theme/i}));
+    if(!replace) replace=await firstVisible(wp.locator('a[href*="overwrite"],a[href*="update-theme"],input[name="overwrite"]'));
+    if(!replace) throw new Error('theme_exists_but_visible_replace_control_missing');
     await replace.click();
     safe.replacedExisting=true; save();
     await wp.waitForTimeout(4500);
@@ -90,11 +90,8 @@ async function deployZip(wp){
   }
 
   if(/theme installed successfully|theme updated successfully|successfully updated|updated successfully/i.test(body)){
-    const activate=wp.locator('a,button').filter({hasText:/^Activate$/i}).first();
-    if(await activate.count() && await activate.isVisible().catch(()=>false)){
-      await activate.click();
-      await wp.waitForTimeout(1800);
-    }
+    const activate=await firstVisible(wp.locator('a,button').filter({hasText:/^Activate$/i}));
+    if(activate){ await activate.click(); await wp.waitForTimeout(1800); }
   }
 
   await wp.goto(`${base}/wp-admin/themes.php`,{waitUntil:'domcontentloaded',timeout:60000});
