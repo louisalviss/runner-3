@@ -5,12 +5,12 @@ on:
       - '.github/workflows/youtube-test-olifZrb263k.yml'
 
 jobs:
-  warp-pot-test:
+  minimal-warp-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
-      - name: Install WARP and POT provider
+      - name: Install WARP and yt-dlp
         shell: bash
         run: |
           set -e
@@ -18,10 +18,8 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq cloudflare-warp
-          python -m pip install -q -U yt-dlp bgutil-ytdlp-pot-provider
-          docker pull -q brainicism/bgutil-ytdlp-pot-provider:latest
-          docker run --name bgutil-provider -d --init -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider:latest
-      - name: Connect WARP and fetch media bytes
+          python -m pip install -q -U yt-dlp
+      - name: Connect WARP and prove media access
         shell: bash
         run: |
           set -euo pipefail
@@ -35,24 +33,17 @@ jobs:
           done
           curl -s --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' | tee evidence/warp.txt
           URL='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
-          yt-dlp -v --no-playlist --skip-download \
-            --print 'id=%(id)s title=%(title)s duration=%(duration)s' \
-            "$URL" 2>&1 | tee evidence/metadata.log
+          yt-dlp -v --no-playlist --skip-download --print 'id=%(id)s title=%(title)s duration=%(duration)s' "$URL" 2>&1 | tee evidence/metadata.log
           MEDIA_URL=$(yt-dlp --no-playlist -f '18/best[height<=360]/worst' -g "$URL" | head -1)
           test -n "$MEDIA_URL"
-          printf '%s\n' "$MEDIA_URL" > evidence/media_url.txt
-          CODE=$(curl -L --fail --silent --show-error --range 0-1048575 \
-            -o evidence/media_prefix.bin -w '%{http_code}' "$MEDIA_URL")
+          CODE=$(curl -L --fail --silent --show-error --range 0-1048575 -o evidence/media_prefix.bin -w '%{http_code}' "$MEDIA_URL")
           SIZE=$(stat -c%s evidence/media_prefix.bin)
           echo "http=$CODE bytes=$SIZE" | tee evidence/fetch_result.txt
           test "$SIZE" -gt 100000
-      - name: Provider logs
-        if: always()
-        run: docker logs bgutil-provider > evidence/provider.log 2>&1 || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-warp-pot-proof
+          name: youtube-minimal-warp-proof
           path: evidence/
           retention-days: 1
