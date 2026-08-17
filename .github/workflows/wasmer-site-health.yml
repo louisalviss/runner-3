@@ -1,0 +1,31 @@
+name: Wasmer Site Health
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-site-health.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public WordPress endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          SITE='https://runner3-site-b473e5-runner3wp9ad9f797.wasmer.app'
+          for PATHNAME in / /wp-login.php /wp-json/; do
+            URL="${SITE}${PATHNAME}"
+            echo "=== ${PATHNAME} ==="
+            CODE=$(curl -L -sS -o /tmp/body -w '%{http_code}' --connect-timeout 15 --max-time 45 "$URL" || true)
+            echo "HTTP=${CODE}"
+            echo "FINAL_URL=$(curl -L -sS -o /dev/null -w '%{url_effective}' --connect-timeout 15 --max-time 45 "$URL" || true)"
+            sed -E 's/<[^>]+>/ /g' /tmp/body 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | cut -c1-700 || true
+            echo
+          done
