@@ -12,66 +12,96 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Probe 7M public feed
+      - name: Install Chromium
+        run: |
+          python3 -m pip install -q playwright
+          python3 -m playwright install --with-deps chromium
+
+      - name: Capture rendered public 7M data
         shell: bash
         run: |
-          python3 - <<'PY'
-          import json,re,requests
-          from urllib.parse import urljoin
-          from html import unescape
+          cat > /tmp/probe.py <<'PY'
+          import asyncio, json, re, time
+          from playwright.async_api import async_playwright
 
-          s=requests.Session()
-          s.headers.update({'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36','Accept-Language':'en-US,en;q=0.9'})
-          out={}
+          DETAIL='https://live.7msport.com/odds/en/odds.shtml?id=5024390'
+          LIVE=[
+            'https://live.7msport.com/default_odds_en.aspx?view=all&line=no',
+            'https://live.7msport.com/default_en2.aspx?line=no&view=livebetting',
+            'https://live.7msport.com/lbpk_live_en.aspx?line=no',
+            'https://live.7msport.com/'
+          ]
+          out={'timestamp_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'detail':{},'live_pages':[],'responses':[],'response_hits':[]}
+          seen=set()
 
-          def get(u):
-              r=s.get(u,timeout=20,allow_redirects=True)
-              return r
+          async def main():
+            async with async_playwright() as p:
+              browser=await p.chromium.launch(headless=True)
+              ctx=await browser.new_context()
+              page=await ctx.new_page()
 
-          # Known public detail page: verify Runner3 can read Mansion88 without auth.
-          u='https://live.7msport.com/odds/en/odds.shtml?id=5024390'
-          r=get(u)
-          txt=re.sub(r'<[^>]+>',' ',r.text)
-          txt=unescape(re.sub(r'\s+',' ',txt))
-          i=txt.lower().find('mansion88')
-          out['detail_test']={'status':r.status_code,'bytes':len(r.content),'mansion88':i>=0,'snippet':txt[max(0,i-180):i+420] if i>=0 else ''}
+              async def inspect_response(resp):
+                url=resp.url
+                low=url.lower()
+                if '7m' not in low or url in seen: return
+                if not any(k in low for k in ['odds','live','score','data','ajax','fixture','result','.js']): return
+                seen.add(url)
+                rec={'url':url,'status':resp.status,'type':resp.request.resource_type}
+                try:
+                  ct=(await resp.all_headers()).get('content-type','')
+                  rec['content_type']=ct
+                except: pass
+                out['responses'].append(rec)
+                if len(out['response_hits'])>=30: return
+                try:
+                  body=await resp.text()
+                  if len(body)>2000000: return
+                  ids=sorted(set(re.findall(r'(?:id=|matchid["\']?\s*[:=]\s*["\']?)(\d{5,10})',body,re.I)))[:30]
+                  m=re.search(r'\bMansion88\b|\bM88\b',body,re.I)
+                  if m or ids:
+                    hit={'url':url,'status':resp.status,'ids':ids,'m88':bool(m)}
+                    if m: hit['snippet']=re.sub(r'\s+',' ',body[max(0,m.start()-300):m.start()+900])
+                    out['response_hits'].append(hit)
+                except: pass
 
-          # Discover today's match IDs / data endpoints from public live pages and their JS assets.
-          roots=['https://live.7msport.com/','https://live.7msport.com/default_en2.aspx?line=no&view=livebetting','https://live.7msport.com/lbpk_live_en.aspx?line=no']
-          assets=[]; pages=[]; ids=set(); endpoint_hints=[]
-          for root in roots:
-              try:
-                  rr=get(root)
-                  pages.append({'url':root,'status':rr.status_code,'bytes':len(rr.content)})
-                  for m in re.findall(r'''(?:src|href)=["']([^"']+)["']''',rr.text,re.I):
-                      uu=urljoin(rr.url,m)
-                      if '.js' in uu.lower(): assets.append(uu)
-                  for m in re.findall(r'(?:id=|matchid["\']?\s*[:=]\s*["\']?)(\d{5,10})',rr.text,re.I): ids.add(m)
-                  for m in re.findall(r'''["']([^"']*(?:ajax|data|score|live|odds)[^"']*\.(?:aspx|ashx|json|js)(?:\?[^"']*)?)["']''',rr.text,re.I): endpoint_hints.append(urljoin(rr.url,m))
-              except Exception as e: pages.append({'url':root,'error':repr(e)})
-          assets=list(dict.fromkeys(assets))[:60]
-          scanned=[]
-          for a in assets:
-              try:
-                  rr=get(a)
-                  if len(rr.content)>1500000: continue
-                  body=rr.text
-                  hitids=re.findall(r'(?:id=|matchid["\']?\s*[:=]\s*["\']?)(\d{5,10})',body,re.I)
-                  ids.update(hitids)
-                  hints=re.findall(r'''["']([^"']*(?:ajax|data|score|live|odds)[^"']*\.(?:aspx|ashx|json)(?:\?[^"']*)?)["']''',body,re.I)
-                  for h in hints: endpoint_hints.append(urljoin(a,h))
-                  if hitids or hints:
-                      scanned.append({'url':a,'status':rr.status_code,'bytes':len(rr.content),'ids':hitids[:10],'hints':[urljoin(a,h) for h in hints[:15]]})
-              except Exception: pass
+              page.on('response', lambda r: asyncio.create_task(inspect_response(r)))
 
-          out['discovery']={'pages':pages,'asset_count':len(assets),'interesting_assets':scanned[:25],'ids':sorted(ids)[:100],'endpoint_hints':list(dict.fromkeys(endpoint_hints))[:100]}
+              r=await page.goto(DETAIL,wait_until='domcontentloaded',timeout=45000)
+              await page.wait_for_timeout(9000)
+              body=await page.locator('body').inner_text()
+              i=body.lower().find('mansion88')
+              out['detail']={'status':r.status if r else None,'title':await page.title(),'mansion88':i>=0,'snippet':re.sub(r'\s+',' ',body[max(0,i-250):i+650]) if i>=0 else '', 'body_chars':len(body)}
+
+              for u in LIVE:
+                try:
+                  rr=await page.goto(u,wait_until='domcontentloaded',timeout=45000)
+                  await page.wait_for_timeout(7000)
+                  body=await page.locator('body').inner_text()
+                  html=await page.content()
+                  hrefs=await page.locator('a').evaluate_all("els => els.map(e => e.href).filter(Boolean)")
+                  ids=set()
+                  for s in hrefs+[html]:
+                    ids.update(re.findall(r'(?:[?&]id=|/)(\d{6,10})(?:\D|$)',s,re.I))
+                  odds_links=[h for h in hrefs if '/odds/' in h.lower() or 'odds.shtml?id=' in h.lower()]
+                  out['live_pages'].append({'url':u,'status':rr.status if rr else None,'body_chars':len(body),'match_ids':sorted(ids)[:100],'odds_links':list(dict.fromkeys(odds_links))[:100],'body_sample':re.sub(r'\s+',' ',body[:1800])})
+                except Exception as e:
+                  out['live_pages'].append({'url':u,'error':repr(e)})
+
+              await page.wait_for_timeout(3000)
+              await browser.close()
+
+          asyncio.run(main())
           print(json.dumps(out,ensure_ascii=False,indent=2))
           open('/tmp/m88-7m.json','w').write(json.dumps(out,ensure_ascii=False,indent=2))
           PY
+          python3 /tmp/probe.py | tee /tmp/m88-7m.log
+
       - uses: actions/upload-artifact@v4
         with:
           name: m88-7m-${{ github.run_id }}
-          path: /tmp/m88-7m.json
+          path: |
+            /tmp/m88-7m.json
+            /tmp/m88-7m.log
           retention-days: 3
