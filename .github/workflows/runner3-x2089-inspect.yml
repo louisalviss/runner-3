@@ -20,8 +20,8 @@ jobs:
           python -m pip install -q -U yt-dlp
           mkdir -p out
           X='https://x.com/animextwts/status/2089076981358887392'
-          yt-dlp --no-playlist --retries 5 --fragment-retries 5 -f 'bv*+ba/b' --merge-output-format mp4 -o 'out/source.%(ext)s' "$X"
-          SRC=$(find out -maxdepth 1 -type f -name 'source.*' | head -1)
+          yt-dlp --no-playlist --retries 5 --fragment-retries 5 -f 'bv*+ba/b' --merge-output-format mp4 -o 'out/source_dl.%(ext)s' "$X"
+          SRC=$(find out -maxdepth 1 -type f -name 'source_dl.*' | head -1)
           ffmpeg -hide_banner -loglevel error -y -i "$SRC" -map 0:v:0 -map 0:a? -c copy out/source.mp4 || ffmpeg -hide_banner -loglevel error -y -i "$SRC" -c:v libx264 -crf 18 -c:a aac out/source.mp4
 
           curl -L --fail --retry 3 --get 'https://itunes.apple.com/search' \
