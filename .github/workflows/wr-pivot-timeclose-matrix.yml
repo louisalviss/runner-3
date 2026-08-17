@@ -1,0 +1,81 @@
+name: WR Pivot TimeClose Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-pivot-timeclose-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Score pivot/time_close variants against TV entry ledger
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys,math
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          sess=requests.Session(); sess.headers['User-Agent']='wr-pivot-matrix/1.0'
+          def fetch(symbol):
+              bars=[]; prices=[]; d=date(2026,7,27)
+              while d<=date(2026,8,16):
+                  ds=d.isoformat(); url=f'https://data.binance.vision/data/futures/um/daily/klines/{symbol}/1m/{symbol}-1m-{ds}.zip'; r=sess.get(url,timeout=40); r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; return wr.agg([ded[k] for k in sorted(ded)],5),wr.infer_tick(prices)
+          exp={
+            'BNBUSDT':[
+              ('SHORT','2026-07-27T20:15:00Z',575.34),('SHORT','2026-07-30T19:35:00Z',575.27),('SHORT','2026-07-31T13:25:00Z',578.85),('SHORT','2026-08-03T17:10:00Z',551.95),('LONG','2026-08-04T17:50:00Z',549.13),('SHORT','2026-08-05T19:20:00Z',554.24),('SHORT','2026-08-06T18:00:00Z',585.31),('LONG','2026-08-08T03:45:00Z',593.40),('LONG','2026-08-08T04:35:00Z',593.71),('SHORT','2026-08-08T19:05:00Z',603.56),('SHORT','2026-08-12T03:20:00Z',615.37),('LONG','2026-08-13T19:35:00Z',609.96),('SHORT','2026-08-14T10:40:00Z',606.40),('SHORT','2026-08-16T04:10:00Z',606.44)],
+            'TRXUSDT':[
+              ('SHORT','2026-07-27T18:10:00Z',0.32825),('LONG','2026-07-28T08:20:00Z',0.32520),('LONG','2026-07-29T10:25:00Z',0.32622),('SHORT','2026-07-29T16:00:00Z',0.32615),('SHORT','2026-08-03T06:15:00Z',0.32569),('LONG','2026-08-05T08:15:00Z',0.32717),('LONG','2026-08-05T10:55:00Z',0.32843),('SHORT','2026-08-06T17:40:00Z',0.32675),('LONG','2026-08-07T15:15:00Z',0.32829),('LONG','2026-08-10T13:00:00Z',0.33178),('LONG','2026-08-14T19:25:00Z',0.33285),('LONG','2026-08-16T10:05:00Z',0.33118),('SHORT','2026-08-16T19:00:00Z',0.33175),('SHORT','2026-08-16T22:00:00Z',0.33121)]}
+          data={s:fetch(s) for s in exp}
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          orig_piv=wr.pivots
+          def make_piv(allow_ties,delay1):
+              def f(v,left,right,high=True):
+                  base=[None]*len(v); ties=0
+                  for conf in range(left+right,len(v)):
+                      c=conf-right; w=v[c-left:c+right+1]; ext=max(w) if high else min(w)
+                      if v[c]==ext:
+                          if allow_ties or sum(x==ext for x in w)==1: base[conf]=v[c]
+                          else: ties+=1
+                  return ([None]+base[:-1] if delay1 else base),ties
+              return f
+          def score(actual,expected):
+              A=[(t.side,t.entry_time,round(float(t.entry),8)) for t in actual]; E=[(a,b,round(c,8)) for a,b,c in expected]
+              aset=set(A); eset=set(E); matches=[x for x in A if x in eset]
+              return {'actual_n':len(A),'expected_n':len(E),'match_n':len(matches),'false_n':len([x for x in A if x not in eset]),'miss_n':len([x for x in E if x not in aset]),'false': [x for x in A if x not in eset][:20],'miss':[x for x in E if x not in aset][:20]}
+          results=[]
+          for allow in (False,True):
+            for delay in (False,True):
+              for exactct in (False,True):
+                wr.pivots=make_piv(allow,delay)
+                row={'allow_ties':allow,'delay1':delay,'exact_time_close':exactct,'symbols':{}}
+                for sym,(bars0,tick) in data.items():
+                    bars=[wr.Bar(x.ot,(x.ot+5*60000 if exactct else x.ct),x.o,x.h,x.l,x.c) for x in bars0]
+                    wr.SYMBOL=sym; tr,_=wr.run(5,bars,tick,st,en); row['symbols'][sym]=score(tr,exp[sym])
+                row['match_total']=sum(v['match_n'] for v in row['symbols'].values()); row['error_total']=sum(v['false_n']+v['miss_n'] for v in row['symbols'].values()); results.append(row)
+                print('MATRIX='+json.dumps(row,separators=(',',':')))
+          results.sort(key=lambda r:(-r['match_total'],r['error_total']))
+          print('BEST='+json.dumps(results[0],separators=(',',':')))
+          Path('/tmp/pivot_matrix.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-pivot-timeclose-matrix-${{ github.run_id }}
+          path: /tmp/pivot_matrix.json
+          retention-days: 2
