@@ -1,0 +1,91 @@
+name: TradingView Editor Input Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-editor-input-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Test editor input methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          const test='//@version=6\nindicator("WR_INPUT_TEST_6729", overlay=true)\nplot(close)';
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const p=await c.newPage(); p.setDefaultTimeout(12000);
+            const open=async()=>{
+              await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+              await p.waitForTimeout(8000);
+              await p.locator('[data-name="pine-dialog-button"]').first().click();
+              const d=p.locator('[data-name="pine-dialog"]').first(); await d.waitFor({state:'visible'}); await p.waitForTimeout(2200);
+              const ta=d.locator('.monaco-editor textarea.inputarea, .monaco-editor textarea').first();
+              await ta.waitFor({state:'attached'}); return {d,ta};
+            };
+            let {d,ta}=await open();
+            let t=Date.now();
+            let fillErr='';
+            try{await ta.fill(test,{timeout:10000})}catch(e){fillErr=e.message}
+            await p.waitForTimeout(2000);
+            let body=await d.innerText().catch(()=>'');
+            let view=await d.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
+            console.log('TV_EDITOR_FILL_MS='+(Date.now()-t));
+            console.log('TV_EDITOR_FILL_ERR='+(fillErr?'YES':'NO'));
+            console.log('TV_EDITOR_FILL_ACCEPTED='+((body+view).includes('WR_INPUT_TEST_6729')?'YES':'NO'));
+
+            if(!(body+view).includes('WR_INPUT_TEST_6729')){
+              await p.reload({waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(8000);
+              const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click();
+              d=p.locator('[data-name="pine-dialog"]').first(); await d.waitFor({state:'visible'}); await p.waitForTimeout(2200);
+              ta=d.locator('.monaco-editor textarea.inputarea, .monaco-editor textarea').first();
+              await ta.click({force:true});
+              await p.keyboard.press('Control+A');
+              await p.evaluate(async v=>{await navigator.clipboard.writeText(v)},test);
+              t=Date.now();
+              await p.keyboard.press('Control+V');
+              await p.waitForTimeout(2500);
+              body=await d.innerText().catch(()=>''); view=await d.locator('.monaco-editor .view-lines').first().innerText().catch(()=>'');
+              console.log('TV_EDITOR_PASTE_MS='+(Date.now()-t));
+              console.log('TV_EDITOR_PASTE_ACCEPTED='+((body+view).includes('WR_INPUT_TEST_6729')?'YES':'NO'));
+            }
+            const taVal=await ta.inputValue().catch(()=>'');
+            console.log('TV_EDITOR_TEXTAREA_VALUE_LEN='+taVal.length);
+            fs.writeFileSync('/tmp/editor-input-view.txt',view);
+            await p.screenshot({path:'/tmp/editor-input.png',fullPage:true}).catch(()=>{});
+            await b.close();
+          })().catch(e=>{console.error('TV_EDITOR_INPUT_ERROR='+e.stack);process.exit(5)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-editor-input-${{ github.run_id }}
+          path: |
+            /tmp/editor-input-view.txt
+            /tmp/editor-input.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
