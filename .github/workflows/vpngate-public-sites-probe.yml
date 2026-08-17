@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
 
@@ -26,17 +26,62 @@ jobs:
           python3 -m pip install 'playwright>=1.46,<2'
           google-chrome --version
 
+      - name: Define target matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cat > /tmp/targets.tsv <<'EOF'
+          reddit	https://www.reddit.com/
+          reddit_old	https://old.reddit.com/
+          x	https://x.com/
+          facebook	https://www.facebook.com/
+          threads	https://www.threads.net/
+          instagram	https://www.instagram.com/
+          tiktok	https://www.tiktok.com/
+          weibo	https://weibo.com/
+          weibo_mobile	https://m.weibo.cn/
+          zhihu	https://www.zhihu.com/
+          tophub	https://tophub.today/
+          voz	https://voz.vn/
+          youtube	https://www.youtube.com/
+          youtu_be	https://youtu.be/dQw4w9WgXcQ
+          youshu	https://www.youshu.me/
+          youshu_mobile	https://m.youshu.me/
+          xiaoshuo	https://xiaoshuo.me/
+          github	https://github.com/
+          wikipedia	https://en.wikipedia.org/
+          medium	https://medium.com/
+          quora	https://www.quora.com/
+          bilibili	https://www.bilibili.com/
+          douyin	https://www.douyin.com/
+          EOF
+          cp /tmp/targets.tsv evidence/targets.tsv
+          echo "TARGET_COUNT=$(wc -l < /tmp/targets.tsv)"
+
       - name: Baseline US runner probe
         shell: bash
         run: |
-          set -u
-          mkdir -p evidence
+          set -euo pipefail
           curl -fsS --max-time 15 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)=' | tee evidence/baseline_egress.txt || true
-          for u in 'https://www.reddit.com/' 'https://www.youshu.me/' 'https://m.youshu.me/' 'https://xiaoshuo.me/'; do
-            code=$(curl -L -sS --max-time 20 -A 'Mozilla/5.0' -o /tmp/base_body -w '%{http_code}' "$u" || true)
-            n=$(wc -c </tmp/base_body 2>/dev/null || echo 0)
-            printf 'BASE code=%s bytes=%s url=%s\n' "$code" "$n" "$u" | tee -a evidence/baseline_http.txt
-          done
+          python3 - <<'PY'
+          import concurrent.futures, subprocess, pathlib, json
+          targets=[]
+          for line in pathlib.Path('/tmp/targets.tsv').read_text().splitlines():
+              name,url=line.split('\t',1); targets.append((name,url))
+          def probe(t):
+              name,url=t
+              body=f'/tmp/base-{name}.body'
+              p=subprocess.run(['curl','-L','-sS','--compressed','--max-time','15','-A','Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1','-o',body,'-w','%{http_code}\t%{url_effective}\t%{size_download}',url],capture_output=True,text=True)
+              parts=(p.stdout.strip().split('\t')+['','',''])[:3]
+              try:
+                  prefix=pathlib.Path(body).read_text(errors='replace')[:180].replace('\n',' ').replace('\r',' ')
+              except Exception: prefix=''
+              return {'name':name,'url':url,'code':parts[0] or '000','final_url':parts[1],'bytes':parts[2] or '0','curl_rc':p.returncode,'prefix':prefix}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex: out=list(ex.map(probe,targets))
+          pathlib.Path('evidence/baseline.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          for r in out: print(f"BASE {r['name']} code={r['code']} bytes={r['bytes']} final={r['final_url']}")
+          PY
 
       - name: Select VPN Gate relay
         shell: bash
@@ -88,7 +133,7 @@ jobs:
           sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
           sudo ip netns exec vpnns openvpn --config /tmp/vpngate.ovpn --daemon --log /tmp/openvpn.log
           ok=0
-          for i in {1..35}; do
+          for i in {1..40}; do
             sleep 1
             if grep -q 'Initialization Sequence Completed' /tmp/openvpn.log; then ok=1; break; fi
             if grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error' /tmp/openvpn.log; then break; fi
@@ -97,45 +142,82 @@ jobs:
           echo VPN_CONNECT_OK
           sudo ip netns exec vpnns curl -fsS --max-time 15 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)=' | tee evidence/vpn_egress.txt
 
-      - name: HTTP probe through VPN
+      - name: HTTP matrix through VPN
         shell: bash
         run: |
-          set -u
-          for u in 'https://www.reddit.com/' 'https://www.youshu.me/' 'https://m.youshu.me/' 'https://xiaoshuo.me/'; do
-            code=$(sudo ip netns exec vpnns curl -L -sS --max-time 25 -A 'Mozilla/5.0' -o /tmp/vpn_body -w '%{http_code}' "$u" || true)
-            n=$(wc -c </tmp/vpn_body 2>/dev/null || echo 0)
-            prefix=$(head -c 180 /tmp/vpn_body 2>/dev/null | tr '\n\r' '  ' || true)
-            printf 'VPN code=%s bytes=%s url=%s prefix=%s\n' "$code" "$n" "$u" "$prefix" | tee -a evidence/vpn_http.txt
-          done
-
-      - name: Plain Chrome probe through VPN
-        shell: bash
-        run: |
-          set -u
+          set -euo pipefail
           sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner python3 - <<'PY'
-          import json
+          import concurrent.futures, subprocess, pathlib, json
+          targets=[]
+          for line in pathlib.Path('/tmp/targets.tsv').read_text().splitlines():
+              name,url=line.split('\t',1); targets.append((name,url))
+          def probe(t):
+              name,url=t
+              body=f'/tmp/vpn-{name}.body'
+              p=subprocess.run(['curl','-L','-sS','--compressed','--max-time','18','-A','Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1','-o',body,'-w','%{http_code}\t%{url_effective}\t%{size_download}',url],capture_output=True,text=True)
+              parts=(p.stdout.strip().split('\t')+['','',''])[:3]
+              try: prefix=pathlib.Path(body).read_text(errors='replace')[:180].replace('\n',' ').replace('\r',' ')
+              except Exception: prefix=''
+              return {'name':name,'url':url,'code':parts[0] or '000','final_url':parts[1],'bytes':parts[2] or '0','curl_rc':p.returncode,'prefix':prefix}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex: out=list(ex.map(probe,targets))
+          pathlib.Path('evidence/vpn.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          for r in out: print(f"VPN {r['name']} code={r['code']} bytes={r['bytes']} final={r['final_url']}")
+          PY
+
+      - name: Plain Chrome matrix through VPN
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner python3 - <<'PY'
+          import json,pathlib,re
           from playwright.sync_api import sync_playwright
-          targets=['https://www.reddit.com/','https://www.youshu.me/','https://m.youshu.me/','https://xiaoshuo.me/']
+          wanted={'reddit','reddit_old','x','facebook','threads','instagram','tiktok','weibo','weibo_mobile','zhihu','tophub','voz','youtube','youshu','bilibili','douyin'}
+          targets=[]
+          for line in pathlib.Path('/tmp/targets.tsv').read_text().splitlines():
+              name,url=line.split('\t',1)
+              if name in wanted: targets.append((name,url))
+          challenge_terms=['prove your humanity','verify you are human','captcha','access denied','blocked by network security','attention required','unusual traffic','security verification','请完成验证','安全验证','访问异常']
+          login_terms=['log in','login','sign in','đăng nhập','登录','登入']
           out=[]
           with sync_playwright() as p:
-              b=p.chromium.launch(channel='chrome',headless=True)
-              for u in targets:
-                  page=b.new_page()
-                  item={'url':u}
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              context=b.new_context(viewport={'width':1280,'height':720})
+              for name,u in targets:
+                  page=context.new_page()
+                  item={'name':name,'url':u}
                   try:
-                      r=page.goto(u,wait_until='domcontentloaded',timeout=30000)
-                      page.wait_for_timeout(4000)
-                      text=''
-                      try: text=page.locator('body').inner_text(timeout=4000)
-                      except Exception: pass
+                      r=page.goto(u,wait_until='domcontentloaded',timeout=18000)
+                      page.wait_for_timeout(2500)
+                      try: text=page.locator('body').inner_text(timeout=3000)
+                      except Exception: text=''
                       low=text.lower()
-                      item.update(status=(r.status if r else None),final_url=page.url,title=page.title(),text_prefix=text[:300],html_bytes=len(page.content().encode()),challenge=any(x in low for x in ['access denied','blocked by network security','attention required','verify you are human','captcha','cloudflare']))
+                      item.update(status=(r.status if r else None),final_url=page.url,title=page.title(),text_prefix=text[:240],html_bytes=len(page.content().encode()),challenge=any(x in low for x in challenge_terms),login_wall=any(x in low for x in login_terms))
                   except Exception as e:
                       item.update(error=f'{type(e).__name__}: {e}',final_url=page.url)
-                  out.append(item)
-                  page.close()
-              b.close()
-          print('BROWSER_RESULTS=' + json.dumps(out,ensure_ascii=False))
+                  out.append(item); page.close()
+              context.close(); b.close()
+          pathlib.Path('evidence/browser_vpn.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          for r in out: print('BROWSER',json.dumps(r,ensure_ascii=False))
+          PY
+
+      - name: Build summary
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          def load(p):
+              try:return {x['name']:x for x in json.loads(pathlib.Path(p).read_text())}
+              except:return {}
+          a=load('evidence/baseline.json'); v=load('evidence/vpn.json'); b=load('evidence/browser_vpn.json')
+          names=list(a) or list(v)
+          rows=[]
+          for n in names:
+              x=a.get(n,{}); y=v.get(n,{}); z=b.get(n,{})
+              rows.append({'name':n,'baseline':x.get('code'),'vpn':y.get('code'),'browser':z.get('status'),'challenge':z.get('challenge'),'login_wall':z.get('login_wall'),'browser_title':z.get('title'),'browser_final':z.get('final_url')})
+          pathlib.Path('evidence/summary.json').write_text(json.dumps(rows,indent=2,ensure_ascii=False))
+          print('=== ACCESS MATRIX ===')
+          for r in rows: print(json.dumps(r,ensure_ascii=False))
           PY
 
       - name: Upload evidence
