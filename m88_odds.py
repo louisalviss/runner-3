@@ -166,6 +166,7 @@ def parse_scope(payload: dict[str, Any], scope: str) -> list[dict[str, Any]]:
                     "home_score": clean_text(row.get("home_score")) or None,
                     "away_score": clean_text(row.get("away_score")) or None,
                     "live_timer": clean_text(row.get("live_timer")) or None,
+                    "event_round": clean_text(row.get("ev_round")) or None,
                     "is_live": clean_text(row.get("is_live")) or None,
                     "is_neutral": clean_text(row.get("is_neutral")) or None,
                     "markets": {},
@@ -207,7 +208,7 @@ def load_scope(input_dir: Path, scope: str) -> tuple[list[dict[str, Any]], dict[
 
 def write_csv(path: Path, matches: list[dict[str, Any]], odds_format: str) -> None:
     fields = [
-        "scope", "league", "match_id", "match_date", "live_timer", "home", "away",
+        "scope", "league", "match_id", "match_date", "live_timer", "event_round", "home", "away",
         "home_score", "away_score", "market", "game_type", "sub_partai", "line",
         "line_display_raw", "selection", "price", "secondary", "raw_price", "odds_format",
     ]
@@ -224,6 +225,7 @@ def write_csv(path: Path, matches: list[dict[str, Any]], odds_format: str) -> No
                             "match_id": match.get("match_id"),
                             "match_date": match.get("match_date"),
                             "live_timer": match.get("live_timer"),
+                            "event_round": match.get("event_round"),
                             "home": match.get("home"),
                             "away": match.get("away"),
                             "home_score": match.get("home_score"),
