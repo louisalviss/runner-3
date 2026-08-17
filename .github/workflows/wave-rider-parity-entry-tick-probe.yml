@@ -1,0 +1,85 @@
+name: Wave Rider Entry Tick Quantization Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-parity-entry-tick-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  entry-tick:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+      FROZEN_REFERENCE_BLOB: 2ba5f66d33e2e483a4c669c95f3b97778c80fcd0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build pivot-fixed plus entry-tick-only variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object wave-rider-verify/reference_verify.py)" = "$FROZEN_REFERENCE_BLOB"
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('wave-rider-verify/reference_verify.py').read_text()
+          pold="""        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+          pnew="""        if v[c]==ext:\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n"""
+          eold="""                if nl: d=1; e=x.h+tick; s=x.l-tick; t=e+TP_R*(e-s)\n                else: d=-1; e=x.l-tick; s=x.h+tick; t=e-TP_R*(s-e)\n"""
+          enew="""                if nl: d=1; e=round((x.h+tick)/tick)*tick; s=x.l-tick; t=e+TP_R*(e-s)\n                else: d=-1; e=round((x.l-tick)/tick)*tick; s=x.h+tick; t=e-TP_R*(s-e)\n"""
+          assert src.count(pold)==1 and src.count(eold)==1
+          src=src.replace(pold,pnew,1).replace(eold,enew,1)
+          Path('/tmp/reference_entry_tick.py').write_text(src)
+          PY
+
+      - name: Run variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 /tmp/reference_entry_tick.py >/tmp/variant-run.txt
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_trades.csv" "/tmp/${WR_SYMBOL}-entry-tick.csv"
+          cp "wave-rider-verify/output/${WR_SYMBOL}_5m_summary.json" "/tmp/${WR_SYMBOL}-entry-tick-summary.json"
+
+      - name: Score entry timestamps against TradingView
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          sym=os.environ['WR_SYMBOL']
+          expected=set({
+            'BNBUSDT':['2026-07-27T05:55:00Z','2026-07-27T10:05:00Z','2026-07-28T12:45:00Z','2026-07-30T15:20:00Z','2026-08-03T04:10:00Z','2026-08-05T02:40:00Z','2026-08-05T10:00:00Z','2026-08-08T03:45:00Z','2026-08-08T04:35:00Z','2026-08-08T19:05:00Z','2026-08-12T03:20:00Z','2026-08-13T19:35:00Z','2026-08-14T10:40:00Z','2026-08-16T04:10:00Z'],
+            'TRXUSDT':['2026-07-27T18:10:00Z','2026-07-28T08:20:00Z','2026-07-29T10:25:00Z','2026-07-29T16:00:00Z','2026-08-03T06:15:00Z','2026-08-05T08:15:00Z','2026-08-05T10:55:00Z','2026-08-06T17:40:00Z','2026-08-07T15:15:00Z','2026-08-10T13:00:00Z','2026-08-14T19:25:00Z','2026-08-16T10:05:00Z','2026-08-16T19:00:00Z','2026-08-16T22:00:00Z']
+          }[sym])
+          with open(f'/tmp/{sym}-entry-tick.csv',newline='') as f: rows=list(csv.DictReader(f))
+          actual={r['entry_time'] for r in rows}
+          out={'symbol':sym,'count':len(rows),'matched':len(actual&expected),'missing':sorted(expected-actual),'extra':sorted(actual-expected),
+               'target_trade':[r for r in rows if r['entry_time']=='2026-08-14T19:25:00Z']}
+          Path(f'/tmp/{sym}-entry-tick-score.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-entry-tick-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/${{ matrix.symbol }}-entry-tick.csv
+            /tmp/${{ matrix.symbol }}-entry-tick-summary.json
+            /tmp/${{ matrix.symbol }}-entry-tick-score.json
+            /tmp/variant-run.txt
+          if-no-files-found: warn
+          retention-days: 2
