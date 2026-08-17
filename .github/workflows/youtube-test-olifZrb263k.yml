@@ -5,58 +5,74 @@ on:
       - '.github/workflows/youtube-test-olifZrb263k.yml'
 
 jobs:
-  extract:
+  browser-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install yt-dlp and Deno
-        run: |
-          python -m pip install -q -U yt-dlp pillow
-          curl -fsSL https://deno.land/install.sh | sh
-          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
-      - name: Download and extract evidence
+      - name: Install selenium
+        run: python -m pip install -q -U selenium pillow
+      - name: Open YouTube in Chrome and capture player
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
-          URL='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
-          yt-dlp --js-runtimes deno --remote-components ejs:github --no-playlist --write-info-json --merge-output-format mp4 -o 'evidence/video.%(ext)s' "$URL"
-          VIDEO=$(find evidence -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1)
-          ffprobe -v quiet -print_format json -show_format -show_streams "$VIDEO" > evidence/ffprobe.json
+          google-chrome --version | tee evidence/chrome-version.txt
           python - <<'PY'
-          import json, subprocess, pathlib
-          from PIL import Image, ImageDraw
-          p=pathlib.Path('evidence')
-          meta=json.load(open(p/'ffprobe.json'))
-          dur=float(meta['format']['duration'])
-          vids=[x for x in p.iterdir() if x.name.startswith('video.') and x.suffix in {'.mp4','.webm','.mkv'}]
-          v=str(vids[0])
-          ratios=[.05,.18,.31,.44,.57,.70,.83,.96]
-          frames=[]
-          for i,r in enumerate(ratios,1):
-              out=p/f'frame_{i:02d}.jpg'
-              subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',str(dur*r),'-i',v,'-frames:v','1','-q:v','2',str(out)],check=True)
-              frames.append(out)
-          imgs=[Image.open(x).convert('RGB') for x in frames]
-          thumb_w=320
-          thumbs=[]
-          for i,img in enumerate(imgs,1):
-              h=round(img.height*thumb_w/img.width)
-              im=img.resize((thumb_w,h))
-              canvas=Image.new('RGB',(thumb_w,h+28),'white')
-              canvas.paste(im,(0,28))
-              ImageDraw.Draw(canvas).text((8,7),f'frame {i}',fill='black')
-              thumbs.append(canvas)
-          cell_h=max(x.height for x in thumbs)
-          sheet=Image.new('RGB',(thumb_w*4,cell_h*2),'white')
-          for idx,im in enumerate(thumbs):
-              sheet.paste(im,((idx%4)*thumb_w,(idx//4)*cell_h))
-          sheet.save(p/'contact.jpg',quality=88)
+          import time, json, pathlib
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.common.keys import Keys
+
+          out=pathlib.Path('evidence')
+          url='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
+          opt=Options()
+          opt.add_argument('--headless=new')
+          opt.add_argument('--no-sandbox')
+          opt.add_argument('--disable-dev-shm-usage')
+          opt.add_argument('--autoplay-policy=no-user-gesture-required')
+          opt.add_argument('--window-size=1280,900')
+          opt.add_argument('--lang=en-US')
+          d=webdriver.Chrome(options=opt)
+          result={}
+          try:
+              d.get(url)
+              time.sleep(4)
+              result['title']=d.title
+              result['url']=d.current_url
+              result['page_source_head']=d.page_source[:5000]
+              d.save_screenshot(str(out/'page_00.png'))
+              # Try normal player controls and keyboard shortcut.
+              try:
+                  body=d.find_element(By.TAG_NAME,'body')
+                  body.send_keys('k')
+              except Exception as e:
+                  result['key_error']=repr(e)
+              time.sleep(3)
+              d.save_screenshot(str(out/'page_03.png'))
+              # Pull HTML5 video state if player exists.
+              state=d.execute_script("""
+                const v=document.querySelector('video');
+                if(!v) return {video:false};
+                return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};
+              """)
+              result['state_03']=state
+              time.sleep(5)
+              d.save_screenshot(str(out/'page_08.png'))
+              result['state_08']=d.execute_script("""
+                const v=document.querySelector('video');
+                if(!v) return {video:false};
+                return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};
+              """)
+          finally:
+              (out/'browser.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+              d.quit()
           PY
       - name: Upload evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-olifZrb263k-evidence
+          name: youtube-olifZrb263k-browser-evidence
           path: evidence/
           retention-days: 1
