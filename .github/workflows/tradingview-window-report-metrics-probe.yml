@@ -1,0 +1,52 @@
+name: TradingView Window Report Metrics Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-window-report-metrics-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and canonical source
+        run: |
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Capture exact canonical window variables
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const base=fs.readFileSync('/tmp/wr.pine','utf8');
+            const extra=`\n// parity-only display probe; no economic logic changes\nvar table parityProbe = table.new(position.top_center, 1, 1, bgcolor=color.white, border_width=2, force_overlay=true)\nif barstate.islast\n    float ppWR=windowTrades>0?100.0*windowWins/windowTrades:na\n    float ppPF=windowGrossLossCash>0?windowGrossProfitCash/windowGrossLossCash:na\n    float ppAvg=windowTrades>0?windowTotalR/windowTrades:na\n    string pp="WRPARITY|TRADES="+str.tostring(windowTrades)+"|TOTALR="+str.tostring(windowTotalR,"#.########")+"|WR="+str.tostring(ppWR,"#.########")+"|AVGR="+str.tostring(ppAvg,"#.########")+"|PF="+str.tostring(ppPF,"#.########")+"|MAXDD="+str.tostring(windowMaxClosedDDPct,"#.########")+"|MAXL="+str.tostring(windowMaxLossStreak)+"|EQ="+str.tostring(windowEquity,"#.########")+"|GP="+str.tostring(windowGrossProfitCash,"#.########")+"|GL="+str.tostring(windowGrossLossCash,"#.########")\n    table.cell(parityProbe,0,0,pp,text_color=color.black,bgcolor=color.white,text_size=size.large)\n`;
+            const source=base+extra;
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            for(const sym of ['BNBUSDT.P','TRXUSDT.P']){
+              const p=await c.newPage(); p.setDefaultTimeout(15000); await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3A'+encodeURIComponent(sym)+'&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(8000);
+              const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(2200); const dlg=p.locator('[data-name="pine-dialog"]'),ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),source); await p.keyboard.press('Control+V'); await p.waitForTimeout(1200); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(26000);
+              const btns=dlg.locator('button'); for(let i=0;i<await btns.count();i++){const q=btns.nth(i);const a=((await q.getAttribute('aria-label'))||'')+' '+((await q.getAttribute('title'))||'');if(/close/i.test(a)){await q.click().catch(()=>{});break;}} if(await dlg.isVisible().catch(()=>false)) await p.keyboard.press('Escape').catch(()=>{}); await p.waitForTimeout(2500);
+              await p.screenshot({path:'/tmp/metrics-'+sym.replace('.','_')+'.png',fullPage:true}); await p.close();
+            } await b.close();
+          })().catch(e=>{console.error(e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-window-metrics-probe-${{ github.run_id }}
+          path: /tmp/metrics-*.png
+          retention-days: 2
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
