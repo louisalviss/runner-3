@@ -1,0 +1,139 @@
+name: VPN Gate Asia Egress Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vpngate-asia-egress-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenVPN
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn
+
+      - name: Fetch VPN Gate list and choose Asia relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python - <<'PY'
+          import base64, csv, io, json, pathlib, sys
+
+          raw = pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig', errors='replace')
+          lines = [ln for ln in raw.splitlines() if ln and not ln.startswith('*')]
+          if not lines:
+              raise SystemExit('VPN Gate CSV returned no data rows')
+
+          rows = list(csv.DictReader(io.StringIO('\n'.join(lines))))
+          priorities = ['VN','SG','TH','ID','MY','PH','JP','KR','TW']
+          selected = None
+          for cc in priorities:
+              candidates = [r for r in rows if (r.get('CountryShort') or '').upper() == cc and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+              if not candidates:
+                  continue
+              def score(r):
+                  try: speed = int(r.get('Speed') or 0)
+                  except: speed = 0
+                  try: ping = int(r.get('Ping') or 999999)
+                  except: ping = 999999
+                  return (speed, -ping)
+              candidates.sort(key=score, reverse=True)
+              selected = candidates[0]
+              break
+
+          if not selected:
+              available = sorted({(r.get('CountryShort') or '').upper() for r in rows if r.get('OpenVPN_ConfigData_Base64')})
+              pathlib.Path('evidence/available_countries.txt').write_text('\n'.join(available), encoding='utf-8')
+              raise SystemExit('No VN/Asia OpenVPN relay available in current VPN Gate API response')
+
+          cfg = base64.b64decode(selected['OpenVPN_ConfigData_Base64']).decode('utf-8', errors='replace')
+          # Ensure OpenVPN can authenticate non-interactively if the profile asks for credentials.
+          pathlib.Path('/tmp/vpngate.auth').write_text('vpn\nvpn\n', encoding='utf-8')
+          if 'auth-user-pass' in cfg:
+              out=[]
+              for ln in cfg.splitlines():
+                  if ln.strip().startswith('auth-user-pass'):
+                      out.append('auth-user-pass /tmp/vpngate.auth')
+                  else:
+                      out.append(ln)
+              cfg='\n'.join(out)+'\n'
+          pathlib.Path('/tmp/vpngate.ovpn').write_text(cfg, encoding='utf-8')
+
+          public = {
+              'country': selected.get('CountryShort'),
+              'country_long': selected.get('CountryLong'),
+              'hostname': selected.get('HostName'),
+              'ip': selected.get('IP'),
+              'ping_ms': selected.get('Ping'),
+              'speed_bps': selected.get('Speed'),
+              'sessions': selected.get('NumVpnSessions'),
+          }
+          pathlib.Path('evidence/selected_relay.json').write_text(json.dumps(public, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(public, ensure_ascii=False))
+          PY
+
+      - name: Verify baseline egress
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '=== BEFORE VPN ==='
+            curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)='
+          } | tee evidence/egress.txt
+
+      - name: Connect VPN Gate and verify egress
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo openvpn --config /tmp/vpngate.ovpn --daemon --log /tmp/openvpn.log
+          ok=0
+          for i in {1..30}; do
+            sleep 1
+            if grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null; then
+              ok=1
+              break
+            fi
+          done
+          if [ "$ok" != 1 ]; then
+            tail -n 80 /tmp/openvpn.log | sed -E 's/(username|password|auth)[^ ]*/[redacted]/Ig' | tee evidence/openvpn_failure.log
+            exit 3
+          fi
+          {
+            echo '=== AFTER VPN ==='
+            curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)='
+          } | tee -a evidence/egress.txt
+          ip route | tee evidence/routes.txt
+
+      - name: Neutral public connectivity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for u in \
+            'https://example.com/' \
+            'https://www.wikipedia.org/' \
+            'https://httpbin.org/get'; do
+            code=$(curl -L -sS --max-time 15 -o /dev/null -w '%{http_code}' "$u" || true)
+            echo "$code $u" | tee -a evidence/connectivity.txt
+          done
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpngate-asia-egress-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
