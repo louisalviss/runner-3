@@ -1,0 +1,20 @@
+  // Open Pine Logs from the editor More menu and capture exact WRPARITY lines.
+  await p.waitForTimeout(2500);
+  const editorControls=await dlg.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(es=>es.map((e,i)=>({i,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,140),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',cls:String(e.className||'').slice(0,180)})));
+  fs.writeFileSync(`/tmp/tv-pine-editor-controls-${__sym}.json`,JSON.stringify(editorControls,null,2));
+  let more=dlg.locator('button[aria-label*="More" i],button[title*="More" i],[role="button"][aria-label*="More" i],[data-name*="more" i],[data-name*="menu" i]').first();
+  if(await more.count()===0){
+    const btns=dlg.locator('button'); const n=await btns.count();
+    if(n>0) more=btns.nth(n-1);
+  }
+  log('TV_PINE_MORE_CONTROL',await more.count()>0?'PRESENT':'ABSENT');
+  if(await more.count()>0){await more.click({force:true}).catch(()=>{});await p.waitForTimeout(1200)}
+  let logItem=p.getByText(/Pine logs/i).first();
+  log('TV_PINE_LOG_MENU_ITEM',await logItem.count()>0?'PRESENT':'ABSENT');
+  if(await logItem.count()>0){await logItem.click({force:true});await p.waitForTimeout(4000)}
+  const logBody=await p.locator('body').innerText().catch(()=>'');
+  fs.writeFileSync(`/tmp/tv-pine-log-body-${__sym}.txt`,logBody+'\n');
+  const parityLines=logBody.split('\n').map(x=>x.trim()).filter(x=>x.includes('WRPARITY|'));
+  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__sym}.txt`,parityLines.join('\n')+(parityLines.length?'\n':''));
+  log('TV_PINE_PARITY_LOG_LINES',String(parityLines.length));
+  await p.screenshot({path:`/tmp/tv-pine-logs-${__sym}.png`,fullPage:true}).catch(()=>{});
