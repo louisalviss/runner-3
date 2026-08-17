@@ -16,15 +16,15 @@ async function snapshot(page,label){
 async function loginWasmer(page){
   await page.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});
   await page.waitForTimeout(1000);
-  let ident=page.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();
+  const ident=page.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();
   if(!(await ident.waitFor({state:'visible',timeout:12000}).then(()=>true).catch(()=>false))) return {ok:false,stage:'username_field_missing'};
   await ident.fill(state.username||state.email);
-  let next=page.locator('button').filter({hasText:/continue|next|log in|sign in/i}).first();
+  const next=page.locator('button').filter({hasText:/continue|next|log in|sign in/i}).first();
   if(await next.count()&&await next.isVisible().catch(()=>false)) await next.click(); else await ident.press('Enter');
-  let pass=page.locator('input[type=password]').first();
+  const pass=page.locator('input[type=password]').first();
   if(!(await pass.waitFor({state:'visible',timeout:15000}).then(()=>true).catch(()=>false))) return {ok:false,stage:'password_field_missing'};
   await pass.fill(state.password);
-  let submit=page.locator('button').filter({hasText:/log in|sign in|continue/i}).first();
+  const submit=page.locator('button').filter({hasText:/log in|sign in|continue/i}).first();
   if(await submit.count()&&await submit.isVisible().catch(()=>false)) await submit.click(); else await pass.press('Enter');
   await Promise.race([
     page.waitForURL(u=>!/\/login(?:[/?#]|$)/i.test(u.toString()),{timeout:15000}).catch(()=>null),
@@ -35,22 +35,16 @@ async function loginWasmer(page){
   return {ok,stage:ok?'done':'rejected'};
 }
 async function findAppDashboard(page){
-  await page.goto('https://wasmer.io/apps',{waitUntil:'domcontentloaded',timeout:60000});
-  await page.waitForTimeout(1800);
-  let app=page.getByText(state.appName,{exact:false}).first();
-  if(await app.count()&&await app.isVisible().catch(()=>false)){
-    await app.click().catch(()=>{});
-    await page.waitForTimeout(2200);
-    if(!/\/apps(?:[/?#]|$)/i.test(page.url()) || (await bt(page)).includes(state.appName)) return true;
-  }
-  const hrefs=await page.locator('a').evaluateAll(as=>as.map(a=>({t:(a.innerText||a.textContent||'').trim(),h:a.href}))).catch(()=>[]);
-  const hit=hrefs.find(x=>x.t.includes(state.appName)||x.h.includes(state.appName));
-  if(hit){await page.goto(hit.h,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForTimeout(1800);return true;}
-  return false;
+  const dashboard=`https://wasmer.io/apps/${encodeURIComponent(state.username)}/${encodeURIComponent(state.appName)}`;
+  await page.goto(dashboard,{waitUntil:'domcontentloaded',timeout:60000});
+  await page.waitForTimeout(2200);
+  const body=await bt(page);
+  if(/page requested does not exist|\b404\b/i.test(body)) return false;
+  if(/\/login(?:[/?#]|$)/i.test(page.url())) return false;
+  return body.includes(state.appName)||/settings|deployments|logs|wordpress|domains|databases/i.test(body);
 }
 async function enterWpAdminViaWasmer(page){
-  // First use any direct, provider-generated admin/magic-login link already present.
-  for(let round=0;round<4;round++){
+  for(let round=0;round<6;round++){
     const links=await page.locator('a').evaluateAll(as=>as.map(a=>({t:(a.innerText||a.textContent||'').replace(/\s+/g,' ').trim(),h:a.href}))).catch(()=>[]);
     const direct=links.find(x=>/magiclogin=/i.test(x.h)||(/wp-admin/i.test(x.h)&&x.h.startsWith(base))||/wordpress admin|wp admin|open admin|admin dashboard/i.test(x.t));
     if(direct){
@@ -58,11 +52,19 @@ async function enterWpAdminViaWasmer(page){
       await page.waitForTimeout(1800);
       if(page.url().startsWith(base)&&/wp-admin/i.test(page.url())) return true;
     }
-    const control=page.locator('button,a').filter({hasText:/wordpress settings|wordpress|manage wordpress|admin|settings/i}).first();
-    if(await control.count()&&await control.isVisible().catch(()=>false)){
-      await control.click().catch(()=>{});
+
+    const body=await bt(page);
+    const wpSetting=page.locator('button,a').filter({hasText:/wordpress/i}).first();
+    if(await wpSetting.count()&&await wpSetting.isVisible().catch(()=>false)){
+      await wpSetting.click().catch(()=>{});
       await page.waitForTimeout(1600);
       if(page.url().startsWith(base)&&/wp-admin/i.test(page.url())) return true;
+      continue;
+    }
+    const settings=page.locator('button,a').filter({hasText:/^settings$/i}).first();
+    if(await settings.count()&&await settings.isVisible().catch(()=>false) && !/wordpress/i.test(body)){
+      await settings.click().catch(()=>{});
+      await page.waitForTimeout(1400);
       continue;
     }
     break;
@@ -87,7 +89,7 @@ async function installTheme(page){
   }
   if(!(await input.count())) return {installed:false,active:false,why:'theme_upload_input_missing'};
   await input.setInputFiles('/tmp/runner3-starter.zip');
-  let install=page.locator('input[type=submit],button').filter({hasText:/install now/i}).first();
+  const install=page.locator('input[type=submit],button').filter({hasText:/install now/i}).first();
   if(await install.count()) await install.click(); else await page.locator('input[type=submit]').first().click();
   await page.waitForTimeout(5000);
   let body=await bt(page);
