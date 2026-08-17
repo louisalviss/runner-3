@@ -1,0 +1,40 @@
+name: Narrator Video Benchmark v5
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.runner-narrator-v5-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl fonts-noto-core espeak-ng
+          python -m pip install -q -U edge-tts gTTS
+
+      - name: Render benchmark
+        run: bash scripts/narrator_benchmark_v5.sh
+
+      - name: Publish output and diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'runner-3-bot'
+          git config user.email 'runner-3-bot@users.noreply.github.com'
+          git add artifacts/runner3-narrator-v5 || true
+          git commit -m 'Publish runner-3 Narrator benchmark v5' || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main
