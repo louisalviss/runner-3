@@ -38,7 +38,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
-          marker="  let tradesButton=page.locator('[title=\"Trades\"]').first();"
+          marker="  let trades=p.locator('[title=\"Trades\"]').first();"
           if marker not in s:
               raise SystemExit('patch marker missing')
           insert=Path('scripts/tradingview-deep-probe-snippet.js.txt').read_text()
