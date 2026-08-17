@@ -1,0 +1,134 @@
+name: Wave Rider Production Parity Regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/reference_verify_parity.py'
+      - 'wave-rider-verify/golden/tv_accounting_BNBUSDT_2026-07-27_2026-08-16.txt'
+      - 'wave-rider-verify/golden/tv_TRXUSDT_5m_observable_2026-07-27_2026-08-16.json'
+      - '.github/workflows/wave-rider-parity-production-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WR_SYMBOL: ${{ matrix.symbol }}
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+      WR_DATA_START: 2026-07-27
+      WR_DATA_END: 2026-08-16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run production parity engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 wave-rider-verify/reference_verify_parity.py > /tmp/parity-run.txt
+      - name: Assert TradingView golden
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,json,os,sys
+          from datetime import datetime,timezone
+          from pathlib import Path
+          sym=os.environ['WR_SYMBOL']
+          csvp=f'wave-rider-verify/output/{sym}_5m_trades.csv'
+          sump=f'wave-rider-verify/output/{sym}_5m_summary.json'
+          with open(csvp,newline='') as f: rows=list(csv.DictReader(f))
+          summary=json.load(open(sump))
+          def ms(s): return int(datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000)
+          def close(a,b,t=1e-8): return abs(float(a)-float(b))<=max(t,t*max(1,abs(float(a)),abs(float(b))))
+          out={'symbol':sym,'count':len(rows),'exact':True,'first_divergence':None}
+          def fail(x):
+              if out['exact']: out['first_divergence']=x
+              out['exact']=False
+          if sym=='BNBUSDT':
+              lines=Path('wave-rider-verify/golden/tv_accounting_BNBUSDT_2026-07-27_2026-08-16.txt').read_text().splitlines()
+              tv=[]
+              for line in lines:
+                  if not line.startswith('WRP#'): continue
+                  d={}
+                  for p in line.split('|')[1:]:
+                      if '=' in p:
+                          k,v=p.split('=',1);d[k]=v
+                  tv.append(d)
+              if len(tv)!=len(rows): fail({'field':'count','tv':len(tv),'py':len(rows)})
+              eq=100000.0
+              for n,(t,r) in enumerate(zip(tv,rows),1):
+                  checks=[
+                    ('entry_time_ms',int(t['entryMs']),ms(r['entry_time']),0),
+                    ('exit_time_ms',int(t['exitMs']),ms(r['exit_time']),0),
+                    ('qty',float(t['qty']),float(r['qty']),1e-6),
+                    ('risk',float(t['risk']),float(r['risk_cash']),1e-5),
+                    ('entry',float(t['planE']),float(r['entry']),1e-9),
+                    ('stop',float(t['planS']),float(r['stop']),1e-9),
+                    ('target_raw',float(t['planT']),float(r['target']),1e-9),
+                    ('exit_price',float(t['actualX']),float(r['exit_price']),1e-9),
+                    ('canon_r',float(t['canonR']),float(r['canon_r']),1e-9),
+                    ('equity_before',float(t['eqBefore']),eq,1e-5),
+                  ]
+                  for field,a,b,tol in checks:
+                      ok=(a==b) if tol==0 else close(a,b,tol)
+                      if not ok:
+                          fail({'trade':n,'field':field,'tv':a,'py':b});break
+                  if not out['exact']: break
+                  if t['exit']!=r['exit_reason']:
+                      fail({'trade':n,'field':'exit_reason','tv':t['exit'],'py':r['exit_reason']});break
+                  eq += float(r['canon_r'])*float(r['risk_cash'])
+              if out['exact'] and not close(summary['total_r'],10.920895522388,1e-9):
+                  fail({'field':'total_r','tv':10.920895522388,'py':summary['total_r']})
+          else:
+              g=json.load(open('wave-rider-verify/golden/tv_TRXUSDT_5m_observable_2026-07-27_2026-08-16.json'))
+              tv=g['trades']
+              if len(tv)!=len(rows): fail({'field':'count','tv':len(tv),'py':len(rows)})
+              for n,(t,r) in enumerate(zip(tv,rows),1):
+                  checks=[
+                    ('side',t['side'],r['side'],None),
+                    ('entry_time',t['entry_time'],r['entry_time'],None),
+                    ('exit_time',t['exit_time'],r['exit_time'],None),
+                    ('entry',t['entry'],float(r['entry']),1e-9),
+                    ('exit',t['exit'],float(r['exit_price']),1e-9),
+                    ('canon_r',t['canon_r'],float(r['canon_r']),1e-9),
+                  ]
+                  for field,a,b,tol in checks:
+                      ok=(a==b) if tol is None else close(a,b,tol)
+                      if not ok:
+                          fail({'trade':n,'field':field,'tv':a,'py':b});break
+                  if not out['exact']: break
+              d=g['dashboard_display']
+              if out['exact'] and summary['trades']!=d['trades']: fail({'field':'dashboard_trades','tv':d['trades'],'py':summary['trades']})
+              if out['exact'] and not close(summary['total_r'],d['total_r'],1e-9): fail({'field':'dashboard_total_r','tv':d['total_r'],'py':summary['total_r']})
+              if out['exact'] and round(summary['win_rate'],1)!=d['win_rate_pct_1dp']: fail({'field':'win_rate','tv':d['win_rate_pct_1dp'],'py':round(summary['win_rate'],1)})
+              if out['exact'] and round(summary['avg_r'],2)!=d['avg_r_2dp']: fail({'field':'avg_r','tv':d['avg_r_2dp'],'py':round(summary['avg_r'],2)})
+              if out['exact'] and round(summary['profit_factor'],2)!=d['profit_factor_display']: fail({'field':'pf','tv':d['profit_factor_display'],'py':round(summary['profit_factor'],2)})
+              if out['exact'] and round(summary['max_dd_pct'],2)!=d['max_dd_pct_2dp']: fail({'field':'max_dd','tv':d['max_dd_pct_2dp'],'py':round(summary['max_dd_pct'],2)})
+              if out['exact'] and summary['max_losing_streak']!=d['max_losing_streak']: fail({'field':'max_losing_streak','tv':d['max_losing_streak'],'py':summary['max_losing_streak']})
+              if out['exact'] and not (summary.get('contract_meta_verified') and summary.get('mincontract')==1.0 and summary.get('pointvalue')==1.0):
+                  fail({'field':'contract_meta','py':{'verified':summary.get('contract_meta_verified'),'mincontract':summary.get('mincontract'),'pointvalue':summary.get('pointvalue')}})
+          Path(f'/tmp/{sym}-production-parity.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          if not out['exact']: sys.exit(9)
+          PY
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-parity-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/${{ matrix.symbol }}-production-parity.json
+            /tmp/parity-run.txt
+            wave-rider-verify/output/${{ matrix.symbol }}_5m_trades.csv
+            wave-rider-verify/output/${{ matrix.symbol }}_5m_summary.json
+          if-no-files-found: warn
+          retention-days: 3
