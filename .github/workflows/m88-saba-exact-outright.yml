@@ -13,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +26,7 @@ jobs:
           python3 -m pip install -q 'playwright>=1.46,<2'
           mkdir -p evidence /tmp/m88-relays
 
-      - name: Build Thailand relay pool
+      - name: Build Asia relay pool
         shell: bash
         run: |
           set -euo pipefail
@@ -35,13 +35,13 @@ jobs:
           import base64,csv,io,pathlib
           raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
           rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
-          pref=['TH','SG','MY','PH','JP','KR','TW']
+          pref=['TH','SG','MY','PH','ID','JP','KR','TW','VN']
           pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
           meta=[]
           for c in pref:
               rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
               rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
-              limit=8 if c=='TH' else 2
+              limit=10 if c=='TH' else 3
               for r in rs[:limit]:
                   cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
                   cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
@@ -52,7 +52,7 @@ jobs:
           print('RELAYS',len(meta))
           PY
 
-      - name: Create isolated VPN namespace and choose M88-working relay
+      - name: Select relay accepted by M88 guest sports API
         shell: bash
         run: |
           set -euo pipefail
@@ -78,7 +78,7 @@ jobs:
             echo "TRY $country $relay"
             sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
             sleep 1
-            sudo rm -f /tmp/openvpn.log
+            sudo rm -f /tmp/openvpn.log /tmp/m88-top.json
             sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
             sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
             ok=0
@@ -88,8 +88,16 @@ jobs:
               grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|fatal error|Connection refused' /tmp/openvpn.log 2>/dev/null && break || true
             done
             [ "$ok" = 1 ] || continue
-            if sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 20 'https://www.m88.com/' -A 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1' -o /tmp/m88-home.html; then
-              if grep -Eqi 'LOGIN|REGISTER|SPORTS|M88' /tmp/m88-home.html && ! grep -Eqi 'Performing security verification|Just a moment' /tmp/m88-home.html; then
+            if sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 18 \
+              'https://msports.m88.com/api/v1/sport/top?currency=VND' \
+              -H 'Authorization: Bearer GUEST' -o /tmp/m88-top.json; then
+              if python3 - <<'PY'
+          import json
+          try: d=json.load(open('/tmp/m88-top.json'))
+          except Exception: raise SystemExit(1)
+          raise SystemExit(0 if d.get('status')==1 else 1)
+          PY
+              then
                 trace=$(sudo ip netns exec vpnns curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)=' || true)
                 printf '%s\n' "$trace" | tee evidence/egress.txt
                 printf '%s %s\n' "$country" "$relay" > evidence/relay.txt
@@ -100,185 +108,175 @@ jobs:
           done < /tmp/m88-relays.tsv
           test "$selected" = 1
 
-      - name: Launch exact M88 Sports board and inspect Outright
+      - name: Launch exact M88 mobile board and inspect Outright
         shell: bash
         run: |
           set -euo pipefail
           sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner WORKSPACE="$GITHUB_WORKSPACE" python3 - <<'PY'
-          import json,os,re,time
+          import json,os,re
           from pathlib import Path
           from urllib.parse import urlparse
           from playwright.sync_api import sync_playwright
 
           OUT=Path(os.environ['WORKSPACE'])/'evidence'
-          target_names={
-            'winner': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027.*WINNER',re.I),
-            'top4': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027.*TOP\s*4',re.I),
-            'relegation': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027.*RELEGAT',re.I),
-            'goalscorer': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027.*TOP\s*GOAL',re.I),
+          targets={
+            'winner': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027\s*-\s*WINNER',re.I),
+            'top4': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027\s*-\s*TOP\s*4',re.I),
+            'relegation': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027\s*-\s*TO\s*BE\s*RELEGATED',re.I),
+            'goalscorer': re.compile(r'ENGLISH PREMIER LEAGUE\s*2026/2027\s*-\s*TOP\s*GOALSCORER',re.I),
           }
-          allnet=[]; json_hits=[]; frames_log=[]; result={'markets':{},'notes':[]}
+          net=[]; jsonhits=[]; snapshots=[]
+          result={'markets':{},'notes':[]}
 
-          def record_frame(tag,page):
+          def text(f,limit=250000):
+              try: return f.locator('body').inner_text(timeout=8000)[:limit]
+              except Exception: return ''
+
+          def snap(tag,page):
               fs=[]
               for f in page.frames:
-                  try:
-                      txt=f.locator('body').inner_text(timeout=1200)[:5000]
-                  except Exception:
-                      txt=''
-                  fs.append({'name':f.name,'url':f.url,'text':txt})
-              frames_log.append({'tag':tag,'frames':fs})
+                  fs.append({'name':f.name,'url':f.url,'text':text(f,12000)})
+              snapshots.append({'tag':tag,'frames':fs})
               return fs
-
-          def visible_text(frame):
-              try: return frame.locator('body').inner_text(timeout=7000)
-              except Exception: return ''
 
           with sync_playwright() as p:
               b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
-              c=b.new_context(
-                  viewport={'width':390,'height':844},screen={'width':390,'height':844},device_scale_factor=3,
-                  is_mobile=True,has_touch=True,locale='en-US',timezone_id='Asia/Bangkok',
-                  user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1'
-              )
+              c=b.new_context(viewport={'width':390,'height':844},screen={'width':390,'height':844},device_scale_factor=3,is_mobile=True,has_touch=True,locale='en-US',timezone_id='Asia/Bangkok',user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1')
               page=c.new_page()
 
-              def req(r):
+              def onreq(r):
                   if r.resource_type in ('document','xhr','fetch'):
-                      allnet.append({'kind':'request','type':r.resource_type,'method':r.method,'url':r.url,'post':(r.post_data or '')[:6000]})
-              def resp(r):
+                      net.append({'kind':'request','type':r.resource_type,'method':r.method,'url':r.url,'post':(r.post_data or '')[:8000]})
+              def onresp(r):
                   if r.request.resource_type not in ('document','xhr','fetch'): return
-                  allnet.append({'kind':'response','type':r.request.resource_type,'status':r.status,'url':r.url})
+                  net.append({'kind':'response','type':r.request.resource_type,'status':r.status,'url':r.url})
                   try:
                       ct=(r.headers.get('content-type') or '').lower()
                       if 'json' not in ct: return
-                      t=r.text()
-                      if len(t)>4_000_000: return
-                      if any(rx.search(t) for rx in target_names.values()) or re.search(r'outright|relegat|goal.?scorer|top\s*4',t,re.I):
-                          json_hits.append({'url':r.url,'status':r.status,'body':t[:900000]})
+                      body=r.text()
+                      if len(body)>5000000: return
+                      if re.search(r'outright|top\s*4|relegat|goal.?scorer|2026/2027',body,re.I):
+                          jsonhits.append({'url':r.url,'status':r.status,'body':body[:1500000]})
                   except Exception: pass
-              page.on('request',req); page.on('response',resp)
+              page.on('request',onreq); page.on('response',onresp)
 
-              r=page.goto('https://www.m88.com/',wait_until='domcontentloaded',timeout=45000)
-              page.wait_for_timeout(9000)
-              result['home_status']=r.status if r else None
+              resp=page.goto('https://www.m88.com/',wait_until='domcontentloaded',timeout=45000)
+              page.wait_for_timeout(12000)
+              result['home_status']=resp.status if resp else None
               result['home_url']=page.url
-              record_frame('home',page)
+              home=text(page,20000)
+              result['challenge']=bool(re.search(r'Performing security verification|Just a moment|verify you are human',home,re.I))
+              snap('home',page)
 
-              # Click the same visible SPORTS navigation used by the mobile site.
+              # Match the user's iPhone path: tap SPORTS on M88 itself.
               clicked=False
-              sports=page.get_by_text(re.compile(r'^\s*SPORTS\s*$',re.I))
-              for i in range(min(sports.count(),30)):
-                  try:
-                      if sports.nth(i).is_visible():
-                          sports.nth(i).click(timeout=7000); clicked=True; break
-                  except Exception: pass
+              for locator in [page.get_by_text(re.compile(r'^\s*SPORTS\s*$',re.I)), page.locator("a[href*='sportsbook']")]:
+                  for i in range(min(locator.count(),30)):
+                      try:
+                          if locator.nth(i).is_visible():
+                              locator.nth(i).click(timeout=7000); clicked=True; break
+                      except Exception: pass
+                  if clicked: break
               if not clicked:
-                  # Known M88 sportsbook route as fallback; still M88 itself.
                   page.goto('https://www.m88.com/sportsbook',wait_until='domcontentloaded',timeout=45000)
-              page.wait_for_timeout(15000)
+              page.wait_for_timeout(18000)
               result['sports_url']=page.url
-              fs=record_frame('sports',page)
-              page.screenshot(path=str(OUT/'m88-sports.png'),full_page=False)
+              snap('sports',page)
+              page.screenshot(path=str(OUT/'01-m88-sports.png'),full_page=False)
 
-              # Identify any frame containing the actual SABA board controls.
+              # Find Outright in main page or any provider iframe/shadow-pierced text.
               provider=None
               for f in page.frames:
-                  t=visible_text(f)
-                  if re.search(r'Outright',t,re.I) and (re.search(r'SABA|Soccer|Matches',t,re.I) or len(t)>500):
+                  t=text(f,60000)
+                  if re.search(r'\bOutright\b',t,re.I):
                       provider=f; break
               if provider is None:
-                  # Search controls across frames even when innerText hydration is delayed.
                   for f in page.frames:
                       try:
-                          if f.get_by_text(re.compile(r'^\s*Outright\b',re.I)).count(): provider=f; break
+                          if f.get_by_text(re.compile(r'^\s*Outright(?:\s+\d+)?\s*$',re.I)).count(): provider=f; break
                       except Exception: pass
+
               if provider is None:
-                  result['notes'].append('No Outright provider frame found')
+                  result['notes'].append('Outright control not found on M88 mobile board')
               else:
                   result['provider_url']=provider.url
                   result['provider_name']=provider.name
-                  result['provider_before_excerpt']=visible_text(provider)[:30000]
-
-                  # Click Outright in the exact provider board.
-                  ol=provider.get_by_text(re.compile(r'^\s*Outright\b',re.I))
+                  result['before_out'] = text(provider,60000)
+                  ol=provider.get_by_text(re.compile(r'^\s*Outright(?:\s+\d+)?\s*$',re.I))
                   did=False
-                  for i in range(min(ol.count(),20)):
+                  for i in range(min(ol.count(),30)):
                       try:
                           if ol.nth(i).is_visible(): ol.nth(i).click(timeout=7000); did=True; break
                       except Exception: pass
                   result['outright_clicked']=did
                   page.wait_for_timeout(10000)
-                  record_frame('after-outright',page)
-                  page.screenshot(path=str(OUT/'m88-outright.png'),full_page=False)
+                  snap('outright-open',page)
+                  page.screenshot(path=str(OUT/'02-m88-outright.png'),full_page=False)
 
-                  # Provider may navigate/replace after click.
-                  candidates=[]
+                  # Re-identify the frame after navigation/hydration.
+                  best=None
                   for f in page.frames:
-                      t=visible_text(f)
-                      score=sum(bool(rx.search(t)) for rx in target_names.values()) + (2 if re.search(r'Outright',t,re.I) else 0)
-                      if score: candidates.append((score,f,t))
-                  if candidates:
-                      candidates.sort(key=lambda x:x[0],reverse=True)
-                      provider=candidates[0][1]; ptext=candidates[0][2]
+                      t=text(f)
+                      score=(4 if re.search(r'\bOutright\b',t,re.I) else 0)+sum(2 for rx in targets.values() if rx.search(t))
+                      if best is None or score>best[0]: best=(score,f,t)
+                  if best and best[0]>0:
+                      provider=best[1]; alltext=best[2]
                   else:
-                      ptext=visible_text(provider)
-                  result['outright_excerpt']=ptext[:120000]
+                      alltext=text(provider)
 
-                  # Expand/click each requested season market and capture a local text window.
-                  for key,rx in target_names.items():
-                      rec={'found':False}
-                      loc=provider.get_by_text(rx)
-                      chosen=None
-                      for i in range(min(loc.count(),100)):
-                          try:
-                              if loc.nth(i).is_visible(): chosen=loc.nth(i); break
+                  # Scroll the outright list to hydrate virtualized rows; collect text after each scroll.
+                  corpus=alltext
+                  for step in range(18):
+                      if all(rx.search(corpus) for rx in targets.values()): break
+                      try:
+                          provider.locator('body').evaluate('(e)=>window.scrollBy(0,900)')
+                      except Exception:
+                          try: page.mouse.wheel(0,900)
                           except Exception: pass
-                      if chosen is None:
-                          # Search another frame if provider changed.
-                          for f in page.frames:
-                              l=f.get_by_text(rx)
-                              for i in range(min(l.count(),50)):
-                                  try:
-                                      if l.nth(i).is_visible(): chosen=l.nth(i); provider=f; break
-                                  except Exception: pass
-                              if chosen is not None: break
-                      if chosen is not None:
-                          rec['found']=True
-                          try: rec['title']=chosen.inner_text()[:500]
+                      page.wait_for_timeout(700)
+                      now=text(provider)
+                      if now not in corpus: corpus += '\n' + now
+                  result['outright_text']=corpus[:700000]
+
+                  for key,rx in targets.items():
+                      rec={'found':bool(rx.search(corpus))}
+                      chosen=None
+                      for f in page.frames:
+                          loc=f.get_by_text(rx)
+                          for i in range(min(loc.count(),120)):
+                              try:
+                                  if loc.nth(i).is_visible(): chosen=(f,loc.nth(i)); break
+                              except Exception: pass
+                          if chosen: break
+                      if chosen:
+                          f,el=chosen
+                          try: rec['title']=el.inner_text()[:500]
                           except Exception: rec['title']=''
                           try:
-                              chosen.scroll_into_view_if_needed(timeout=3000)
-                              chosen.click(timeout=6000)
-                              page.wait_for_timeout(3500)
-                              rec['clicked']=True
+                              el.scroll_into_view_if_needed(timeout=3000); el.click(timeout=7000); page.wait_for_timeout(3000); rec['clicked']=True
                           except Exception as e:
-                              rec['clicked']=False; rec['click_error']=type(e).__name__
-                          t=visible_text(provider)
+                              rec['clicked']=False; rec['error']=type(e).__name__
+                          t=text(f)
                           m=rx.search(t)
-                          if m:
-                              rec['text_window']=t[max(0,m.start()-500):min(len(t),m.start()+18000)]
-                          else:
-                              rec['text_window']=t[:18000]
-                          try: chosen.click(timeout=3000); page.wait_for_timeout(500)
-                          except Exception: pass
+                          rec['window']=t[max(0,m.start()-300):m.start()+22000] if m else t[:22000]
+                      else:
+                          m=rx.search(corpus)
+                          rec['window']=corpus[max(0,m.start()-300):m.start()+22000] if m else ''
                       result['markets'][key]=rec
 
-              # Host inventory is useful to identify the actual SABA launch host/API.
               hosts={}
-              for x in allnet:
+              for x in net:
                   try:
-                      h=urlparse(x['url']).netloc
-                      hosts[h]=hosts.get(h,0)+1
+                      h=urlparse(x['url']).netloc; hosts[h]=hosts.get(h,0)+1
                   except Exception: pass
-              result['hosts']=dict(sorted(hosts.items(),key=lambda kv:-kv[1])[:80])
+              result['hosts']=dict(sorted(hosts.items(),key=lambda kv:-kv[1])[:100])
               c.close(); b.close()
 
           (OUT/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
-          (OUT/'network.json').write_text(json.dumps(allnet,ensure_ascii=False,indent=2))
-          (OUT/'json-hits.json').write_text(json.dumps(json_hits,ensure_ascii=False,indent=2))
-          (OUT/'frames.json').write_text(json.dumps(frames_log,ensure_ascii=False,indent=2))
-          print(json.dumps(result,ensure_ascii=False,indent=2)[:50000])
+          (OUT/'network.json').write_text(json.dumps(net,ensure_ascii=False,indent=2))
+          (OUT/'json-hits.json').write_text(json.dumps(jsonhits,ensure_ascii=False,indent=2))
+          (OUT/'frames.json').write_text(json.dumps(snapshots,ensure_ascii=False,indent=2))
+          print(json.dumps(result,ensure_ascii=False,indent=2)[:70000])
           PY
 
       - name: Summarize exact-board result
@@ -288,18 +286,17 @@ jobs:
           python3 - <<'PY'
           import json,pathlib
           p=pathlib.Path('evidence/result.json')
-          if not p.exists():
-              print('NO RESULT')
-              raise SystemExit(0)
+          if not p.exists(): print('NO RESULT'); raise SystemExit(0)
           d=json.loads(p.read_text())
-          print('SPORTS_URL',d.get('sports_url'))
-          print('PROVIDER_URL',d.get('provider_url'))
-          print('OUTRIGHT_CLICKED',d.get('outright_clicked'))
+          print('HOME',d.get('home_status'),d.get('home_url'),'challenge=',d.get('challenge'))
+          print('SPORTS',d.get('sports_url'))
+          print('PROVIDER',d.get('provider_url'))
+          print('OUTRIGHT',d.get('outright_clicked'))
           print('HOSTS',json.dumps(d.get('hosts',{}),ensure_ascii=False))
           for k,v in d.get('markets',{}).items():
               print('\n###',k,'FOUND',v.get('found'),'CLICKED',v.get('clicked'))
               print(v.get('title',''))
-              print(v.get('text_window','')[:12000])
+              print(v.get('window','')[:16000])
           PY
 
       - uses: actions/upload-artifact@v4
