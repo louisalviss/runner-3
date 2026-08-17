@@ -1,0 +1,137 @@
+name: Reddit OAuth Secure Import
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'reddit_oauth/import/*.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reddit-oauth-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve encrypted import request
+        id: req
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'reddit_oauth/import/*.json' | tail -n1 || true)"
+          test -n "$file" && test -f "$file" || { echo 'No encrypted Reddit OAuth import request found'; exit 2; }
+          jq -e '.ciphertext_b64 | type == "string" and length > 100' "$file" >/dev/null
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "IMPORT_REQUEST_READY=true"
+
+      - name: Decrypt one-time OAuth payload
+        id: payload
+        shell: bash
+        env:
+          REQUEST_FILE: ${{ steps.req.outputs.file }}
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Automation encryption key unavailable'; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          test -f ops/reddit/import-private-key.aes || { echo 'Encrypted Reddit import private key missing'; exit 4; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/reddit/import-private-key.aes \
+            -out /tmp/reddit-import-private.pem
+          jq -r '.ciphertext_b64' "$REQUEST_FILE" | base64 -d > /tmp/reddit-import.bin
+          openssl pkeyutl -decrypt \
+            -inkey /tmp/reddit-import-private.pem \
+            -in /tmp/reddit-import.bin \
+            -out /tmp/reddit-oauth-payload.json \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256
+          chmod 600 /tmp/reddit-oauth-payload.json
+          python3 - <<'PY'
+          import json,re
+          p=json.load(open('/tmp/reddit-oauth-payload.json'))
+          cid=str(p.get('client_id','')).strip()
+          code=str(p.get('code','')).strip()
+          redir=str(p.get('redirect_uri','')).strip()
+          if not re.fullmatch(r'[A-Za-z0-9_-]{5,100}',cid): raise SystemExit('invalid client_id')
+          if not code or len(code)>1000: raise SystemExit('invalid code')
+          if redir != 'https://example.com/reddit-oauth-callback': raise SystemExit('unexpected redirect_uri')
+          print('PAYLOAD_VALID=true')
+          PY
+
+      - name: Exchange code and verify Reddit account
+        shell: bash
+        run: |
+          set -euo pipefail
+          client_id="$(jq -r '.client_id' /tmp/reddit-oauth-payload.json)"
+          code="$(jq -r '.code' /tmp/reddit-oauth-payload.json)"
+          redirect_uri="$(jq -r '.redirect_uri' /tmp/reddit-oauth-payload.json)"
+          echo "::add-mask::$client_id"
+          echo "::add-mask::$code"
+          response=$(curl -fsS --max-time 30 \
+            -A 'linux:runner3-reddit-reader:v1.0' \
+            -u "${client_id}:" \
+            -X POST 'https://www.reddit.com/api/v1/access_token' \
+            --data-urlencode 'grant_type=authorization_code' \
+            --data-urlencode "code=${code}" \
+            --data-urlencode "redirect_uri=${redirect_uri}")
+          access="$(printf '%s' "$response" | jq -r '.access_token // empty')"
+          refresh="$(printf '%s' "$response" | jq -r '.refresh_token // empty')"
+          scope="$(printf '%s' "$response" | jq -r '.scope // empty')"
+          test -n "$access" || { echo 'Reddit token exchange returned no access token'; exit 5; }
+          test -n "$refresh" || { echo 'Reddit token exchange returned no refresh token; duration=permanent is required'; exit 6; }
+          echo "::add-mask::$access"
+          echo "::add-mask::$refresh"
+          me=$(curl -fsS --max-time 30 \
+            -A 'linux:runner3-reddit-reader:v1.0' \
+            -H "Authorization: bearer ${access}" \
+            'https://oauth.reddit.com/api/v1/me')
+          username="$(printf '%s' "$me" | jq -r '.name // empty')"
+          test -n "$username" || { echo 'Reddit identity verification failed'; exit 7; }
+          jq -nc \
+            --arg client_id "$client_id" \
+            --arg refresh_token "$refresh" \
+            --arg username "$username" \
+            --arg scope "$scope" \
+            --arg stored_at "$(date -u +%FT%TZ)" \
+            '{client_id:$client_id,refresh_token:$refresh_token,username:$username,scope:$scope,stored_at:$stored_at}' \
+            > /tmp/reddit-credentials.json
+          echo "REDDIT_ACCOUNT=$username"
+          echo "REDDIT_SCOPE=$scope"
+          echo 'REDDIT_OAUTH_VERIFIED=true'
+
+      - name: Encrypt credential and persist ciphertext only
+        shell: bash
+        env:
+          REQUEST_FILE: ${{ steps.req.outputs.file }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/reddit-persist
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in /tmp/reddit-credentials.json \
+            -out /tmp/reddit-persist/credentials.aes
+          rm -f /tmp/reddit-credentials.json /tmp/reddit-oauth-payload.json /tmp/reddit-import.bin /tmp/reddit-import-private.pem
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git checkout -B reddit-oauth-persist origin/main
+          mkdir -p ops/reddit
+          cp /tmp/reddit-persist/credentials.aes ops/reddit/credentials.aes
+          rm -f "$REQUEST_FILE"
+          git add ops/reddit/credentials.aes "$REQUEST_FILE"
+          git commit -m 'Persist encrypted Reddit OAuth credential'
+          git push origin HEAD:main
+          echo 'REDDIT_CREDENTIAL_PERSISTED=true'
