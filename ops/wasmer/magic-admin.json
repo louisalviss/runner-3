@@ -1,12 +1,12 @@
 {
-  "status": "blocked_wasmer_login",
+  "status": "error",
   "siteUrl": "https://runner3-wp-a94b8fd2.wasmer.app/",
   "appName": "runner3-wp-a94b8fd2",
-  "wasmerLogin": false,
-  "appDashboard": false,
-  "magicAdmin": false,
+  "wasmerLogin": true,
+  "appDashboard": true,
+  "magicAdmin": true,
   "themeInstalled": false,
   "themeActive": false,
-  "detail": "rejected url=https://wasmer.io/login buttons=[\"Login with Google\",\"Login with GitHub\"] links=[] body=Sign up Log in Logging in as runner3wp0b90f6b4ab Username or email Password or Login with Google Login with GitHub Forgot username or password? Don't have an account Sign up Start for free, pay as you grow Deploy a service for free and enjoy our simple, predictable, and flexible pricing for all your projects Deploy in seconds Deploy your apps from our ready-to-go template, or connect your git repositories and simply push to deploy Fast and autoscalable Save costs and improve efficiency as your apps will automatically scales with traffic Secure Run your applications with our safe runtime keeping them securely sandboxed in any environment.",
-  "updatedAt": "2026-08-17T03:07:58.039Z"
+  "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('input[type=submit],button').filter({ hasText: /install now/i }).first()\n    - locator resolved to <input type=\"submit\" class=\"button\" value=\"Install Now\" id=\"install-theme-submit\" name=\"install-theme-submit\"/>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n      - waiting 100ms\n    58 × waiting for element to be visible, enabled and stable\n       - element is not visible\n     - retrying click action\n       - waiting 500ms\n",
+  "updatedAt": "2026-08-17T16:28:09.004Z"
 }
