@@ -1,0 +1,40 @@
+name: Wasmer Find PNTR Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-find-pntr-backend.yml'
+      - 'scripts/wasmer-find-pntr-backend.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted Wasmer state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          if [ -f ops/wasmer/browser-state.aes ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+          fi
+          chmod 600 /tmp/wasmer-account.json
+          [ ! -f /tmp/wasmer-browser-state.json ] || chmod 600 /tmp/wasmer-browser-state.json
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2 >/dev/null
+      - name: Find app backing PNTR domain
+        run: node scripts/wasmer-find-pntr-backend.mjs
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/wasmer-account.json /tmp/wasmer-browser-state.json
