@@ -85,16 +85,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo rm -f /tmp/vpngate-openvpn.log
+          sudo touch /tmp/vpngate-openvpn.log
+          sudo chmod 644 /tmp/vpngate-openvpn.log
           sudo ip netns exec vpnns openvpn --config /tmp/vpngate.ovpn --daemon --log /tmp/vpngate-openvpn.log
           ok=0
           for i in {1..35}; do
             sleep 1
-            if grep -q 'Initialization Sequence Completed' /tmp/vpngate-openvpn.log 2>/dev/null; then ok=1; break; fi
-            if grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error' /tmp/vpngate-openvpn.log 2>/dev/null; then break; fi
+            if sudo grep -q 'Initialization Sequence Completed' /tmp/vpngate-openvpn.log 2>/dev/null; then ok=1; break; fi
+            if sudo grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error' /tmp/vpngate-openvpn.log 2>/dev/null; then break; fi
           done
           if [ "$ok" != 1 ]; then
             echo 'VPN_CONNECT_FAILED' | tee evidence/vpn_result.txt
-            tail -n 100 /tmp/vpngate-openvpn.log | sed -E 's/(username|password|auth)[^ ]*/[redacted]/Ig' | tee evidence/openvpn_failure.log
+            sudo tail -n 100 /tmp/vpngate-openvpn.log | sed -E 's/(username|password|auth)[^ ]*/[redacted]/Ig' | tee evidence/openvpn_failure.log
             exit 3
           fi
           echo 'VPN_CONNECT_OK' | tee evidence/vpn_result.txt
