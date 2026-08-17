@@ -1,0 +1,44 @@
+name: Wave Rider BNB Native Diff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wave-rider-bnb-native-diff.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WR_SYMBOL: BNBUSDT
+      WR_START: 2026-07-27
+      WR_END: 2026-08-16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run parity engine and print exact native diffs
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wave-rider-verify/output
+          python3 wave-rider-verify/reference_verify_parity.py >/tmp/run.txt
+          python3 - <<'PY'
+          import csv,json
+          rows=list(csv.DictReader(open('wave-rider-verify/output/BNBUSDT_5m_trades.csv',newline='')))
+          golden=json.load(open('wave-rider-verify/golden/tv_5m_native_execution_2026-07-27_2026-08-16.json'))['symbols']['BNBUSDT']
+          diffs=[]
+          for i,(r,g) in enumerate(zip(rows,golden),1):
+              a={'side':r['side'],'entry_time':r['entry_time'],'exit_time':r['exit_time'],'entry':float(r['entry']),'exit_price':float(r['exit_price'])}
+              bad={}
+              for k in ('side','entry_time','exit_time'):
+                  if a[k]!=g[k]: bad[k]={'actual':a[k],'golden':g[k]}
+              for k in ('entry','exit_price'):
+                  if abs(a[k]-float(g[k]))>1e-12: bad[k]={'actual':a[k],'golden':g[k],'delta':a[k]-float(g[k])}
+              if bad: diffs.append({'n':i,'diff':bad,'actual':a,'golden':g})
+          if len(rows)!=len(golden):diffs.append({'count_actual':len(rows),'count_golden':len(golden)})
+          print(json.dumps({'diff_count':len(diffs),'diffs':diffs},indent=2))
+          PY
