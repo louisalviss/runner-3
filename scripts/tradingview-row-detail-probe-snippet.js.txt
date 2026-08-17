@@ -1,4 +1,5 @@
-  // Capture structured Strategy Report rows, including cell/descendant metadata.
+  // Capture structured Strategy Report rows plus focused React/Fiber state so
+  // raw quantities/prices can be recovered when the rendered cell is abbreviated.
   const __detailSymbol=process.env.TV_SYMBOL||'BNBUSDT';
   const __detailRows={};
   const __scroller=p.locator('.ka-table-wrapper').first();
@@ -8,20 +9,68 @@
     for(const pos of [...new Set(poses)]){
       await __scroller.evaluate((e,y)=>{e.scrollTop=y;e.dispatchEvent(new Event('scroll',{bubbles:true}))},pos);
       await p.waitForTimeout(180);
-      const rr=await p.locator('tr.ka-row').evaluateAll(rows=>rows.map(tr=>{
-        const text=(tr.innerText||tr.textContent||'').trim().replace(/\s+/g,' ');
-        const cells=[...tr.querySelectorAll(':scope > td')].map(td=>({
-          text:(td.innerText||td.textContent||'').trim().replace(/\s+/g,' '),
-          attrs:Object.fromEntries([...td.attributes].map(a=>[a.name,a.value])),
-          descendants:[...td.querySelectorAll('*')].map(e=>({
-            tag:e.tagName,
-            text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,250),
-            attrs:Object.fromEntries([...e.attributes].map(a=>[a.name,a.value]))
-          })).filter(x=>x.text||Object.keys(x.attrs).some(k=>/title|aria|data/i.test(k))).slice(0,80),
-          html:td.innerHTML.slice(0,6000)
-        }));
-        return {text,cells,html:tr.outerHTML.slice(0,24000)};
-      }));
+      const rr=await p.locator('tr.ka-row').evaluateAll(rows=>{
+        const interesting=/(qty|quantity|size|position|profit|pnl|price|entry|exit|trade|return|direction|side|time|date|order|value|currency)/i;
+        function scanObject(root,prefix,maxDepth=5,maxItems=220){
+          const out=[]; const seen=new WeakSet();
+          function walk(v,path,depth){
+            if(out.length>=maxItems||depth>maxDepth||v==null)return;
+            const t=typeof v;
+            if(t==='number'||t==='boolean'||t==='string'){
+              if(interesting.test(path)||t==='string'&&/(long|short|entry|exit|BNB|TRX|USDT|USD)/i.test(v)) out.push({path,value:t==='string'?v.slice(0,300):v});
+              return;
+            }
+            if(t!=='object'&&t!=='function')return;
+            if(seen.has(v))return; seen.add(v);
+            let keys=[]; try{keys=Object.keys(v)}catch{return}
+            for(const k of keys.slice(0,120)){
+              if(k==='stateNode'||k==='owner'||k==='_owner')continue;
+              let x; try{x=v[k]}catch{continue}
+              const np=path?`${path}.${k}`:k;
+              if(depth<2||interesting.test(np)||['props','memoizedProps','pendingProps','memoizedState','return','child','sibling'].includes(k)) walk(x,np,depth+1);
+              if(out.length>=maxItems)break;
+            }
+          }
+          walk(root,prefix,0); return out;
+        }
+        function reactState(el){
+          const own=Object.getOwnPropertyNames(el);
+          const pk=own.find(k=>k.startsWith('__reactProps$'));
+          const fk=own.find(k=>k.startsWith('__reactFiber$'));
+          const out={ownReactKeys:own.filter(k=>k.startsWith('__react')).slice(0,20),props:[],fiber:[]};
+          if(pk){try{out.props=scanObject(el[pk],'props',6,260)}catch{}}
+          if(fk){
+            try{
+              let f=el[fk];
+              for(let up=0;up<7&&f;up++,f=f.return){
+                const chunks=[];
+                if(f.memoizedProps)chunks.push(...scanObject(f.memoizedProps,`fiber${up}.memoizedProps`,5,160));
+                if(f.pendingProps&&f.pendingProps!==f.memoizedProps)chunks.push(...scanObject(f.pendingProps,`fiber${up}.pendingProps`,5,120));
+                if(f.memoizedState)chunks.push(...scanObject(f.memoizedState,`fiber${up}.memoizedState`,4,100));
+                out.fiber.push(...chunks);
+                if(out.fiber.length>450){out.fiber=out.fiber.slice(0,450);break;}
+              }
+            }catch{}
+          }
+          const dedupe=a=>{const m=new Map();for(const x of a)m.set(`${x.path}|${String(x.value)}`,x);return [...m.values()]};
+          out.props=dedupe(out.props);out.fiber=dedupe(out.fiber);return out;
+        }
+        return rows.map(tr=>{
+          const text=(tr.innerText||tr.textContent||'').trim().replace(/\s+/g,' ');
+          const cells=[...tr.querySelectorAll(':scope > td')].map(td=>({
+            text:(td.innerText||td.textContent||'').trim().replace(/\s+/g,' '),
+            attrs:Object.fromEntries([...td.attributes].map(a=>[a.name,a.value])),
+            react:reactState(td),
+            descendants:[...td.querySelectorAll('*')].map(e=>({
+              tag:e.tagName,
+              text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,250),
+              attrs:Object.fromEntries([...e.attributes].map(a=>[a.name,a.value]))
+            })).filter(x=>x.text||Object.keys(x.attrs).some(k=>/title|aria|data/i.test(k))).slice(0,80),
+            html:td.innerHTML.slice(0,6000)
+          }));
+          return {text,react:reactState(tr),cells,html:tr.outerHTML.slice(0,24000)};
+        });
+      });
       for(const r of rr){const m=r.text.match(/^(\d+)(long|short)\b/i);if(m)__detailRows[m[1]]=r;}
     }
   }
