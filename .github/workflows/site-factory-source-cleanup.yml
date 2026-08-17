@@ -55,7 +55,7 @@ jobs:
                   set -euo pipefail
                   sed -i 's/timeout: 30000/timeout: 5000/g' scripts/create-wordpress-site.mjs
 
-          """
+          """.replace('                shell:', '        shell:').replace('                run:', '        run:').replace('                  set -euo pipefail', '          set -euo pipefail').replace("                  sed -i", "          sed -i").replace('\n          """','\n"""')
           if block not in y:
               raise SystemExit('runtime hotfix block not found')
           y=y.replace(block,'')
