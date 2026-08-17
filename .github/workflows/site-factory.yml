@@ -1,0 +1,184 @@
+name: Site Factory — Wasmer + PNTR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/site-factory/request.json'
+  workflow_dispatch:
+    inputs:
+      subdomain:
+        description: 'Preferred PNTR subdomain (without .pntr.dev)'
+        required: false
+        type: string
+      site_title:
+        description: 'WordPress site title'
+        required: false
+        type: string
+      strict_name:
+        description: 'Fail instead of adding a suffix when the name is unavailable'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-site-factory-account
+  cancel-in-progress: false
+
+jobs:
+  create-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      REQUEST_SUBDOMAIN: ${{ inputs.subdomain }}
+      REQUEST_SITE_TITLE: ${{ inputs.site_title }}
+      REQUEST_STRICT_NAME: ${{ inputs.strict_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare request and encrypted account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'AUTOMATION_KEY missing'; exit 2; }
+          echo "::add-mask::$AUTOMATION_KEY"
+
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            python - <<'PY'
+          import json, os
+          d = {
+            'requestId': f"manual-{os.environ.get('GITHUB_RUN_ID','unknown')}",
+            'subdomain': os.environ.get('REQUEST_SUBDOMAIN') or None,
+            'siteTitle': os.environ.get('REQUEST_SITE_TITLE') or None,
+            'strictName': str(os.environ.get('REQUEST_STRICT_NAME','false')).lower() == 'true',
+          }
+          open('/tmp/site-request.json','w').write(json.dumps(d))
+          PY
+            echo 'SITE_FACTORY_REQUEST=/tmp/site-request.json' >> "$GITHUB_ENV"
+          else
+            test -f ops/site-factory/request.json || { echo 'request.json missing'; exit 3; }
+            echo 'SITE_FACTORY_REQUEST=ops/site-factory/request.json' >> "$GITHUB_ENV"
+          fi
+
+          test -f ops/wasmer/state.automation.aes || { echo 'Wasmer account state missing'; exit 4; }
+          test -f ops/pntr/account-token.aes || { echo 'PNTR account token missing; run PNTR account bootstrap once'; exit 5; }
+
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+          if test -f ops/wasmer/browser-state.aes; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+              -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+            chmod 600 /tmp/wasmer-browser-state.json
+          fi
+
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/pntr/account-token.aes -out /tmp/pntr-account.json
+          chmod 600 /tmp/pntr-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Create WordPress app, attach domain, configure PNTR, verify HTTPS
+        shell: bash
+        run: node scripts/site-factory.mjs
+
+      - name: Persist safe inventory and encrypted credentials
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/site-factory-status.json || echo '{"status":"runner_error","success":false,"detail":"status_missing"}' > /tmp/site-factory-status.json
+          test -f /tmp/site-factory-secret.json || echo '{}' > /tmp/site-factory-secret.json
+
+          echo 'SITE_FACTORY_STATUS:'
+          cat /tmp/site-factory-status.json
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          pushed=false
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/site-factory/secrets ops/wasmer
+            cp /tmp/site-factory-status.json ops/site-factory/last-run.json
+
+            python - <<'PY'
+          import json
+          status=json.load(open('/tmp/site-factory-status.json'))
+          path='ops/site-factory/sites.json'
+          try:
+              sites=json.load(open(path))
+              if not isinstance(sites,list): sites=[]
+          except Exception:
+              sites=[]
+          if status.get('success') and status.get('domain'):
+              safe={k:status.get(k) for k in [
+                  'subdomain','domain','appName','wasmerUrl','cnameTarget','wordpressReady',
+                  'httpsStatus','status','requestId','updatedAt'
+              ]}
+              replaced=False
+              for i,x in enumerate(sites):
+                  if x.get('domain')==safe['domain']:
+                      sites[i]={**x,**safe}; replaced=True; break
+              if not replaced: sites.append(safe)
+          sites.sort(key=lambda x:(x.get('domain') or ''))
+          open(path,'w').write(json.dumps(sites,indent=2,ensure_ascii=False)+'\n')
+          PY
+
+            domain="$(python - <<'PY'
+          import json
+          d=json.load(open('/tmp/site-factory-status.json'))
+          print((d.get('domain') or '').strip())
+          PY
+          )"
+            success="$(python - <<'PY'
+          import json
+          print('true' if json.load(open('/tmp/site-factory-status.json')).get('success') else 'false')
+          PY
+          )"
+
+            if [ "$success" = true ] && [ -n "$domain" ]; then
+              safe_name="$(printf '%s' "$domain" | tr -cd 'a-zA-Z0-9._-')"
+              openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+                -in /tmp/site-factory-secret.json -out "ops/site-factory/secrets/${safe_name}.aes"
+              git add "ops/site-factory/secrets/${safe_name}.aes"
+            fi
+
+            if test -f /tmp/wasmer-browser-state-new.json; then
+              openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+                -in /tmp/wasmer-browser-state-new.json -out ops/wasmer/browser-state.aes
+              git add ops/wasmer/browser-state.aes
+            fi
+
+            git add ops/site-factory/last-run.json ops/site-factory/sites.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Site factory result: ${domain:-unknown}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep $((attempt * 2))
+          done
+          test "$pushed" = true || { echo 'Could not persist factory result after retries'; exit 6; }
+
+      - name: Cleanup sensitive runtime files
+        if: always()
+        shell: bash
+        run: |
+          rm -f /tmp/wasmer-account.json /tmp/wasmer-browser-state.json /tmp/wasmer-browser-state-new.json \
+            /tmp/pntr-account.json /tmp/site-factory-secret.json /tmp/site-request.json
+
+      - name: Enforce factory result
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, sys
+          d=json.load(open('/tmp/site-factory-status.json'))
+          sys.exit(0 if d.get('success') else 1)
+          PY
