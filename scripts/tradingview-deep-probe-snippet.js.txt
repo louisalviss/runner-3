@@ -1,29 +1,29 @@
-  const rangeEvidence = await p.evaluate(() => {
-    const all=[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')];
-    const items=all.map((e,i)=>({i,tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,240),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',disabled:!!e.disabled||e.getAttribute('aria-disabled')==='true'}));
-    return {body:(document.body.innerText||'').slice(0,80000), candidates:items.filter(x=>/Jul 27, 2026|Aug 17, 2026|date range|deep|backtest|update report|reset to chart|upgrade/i.test([x.text,x.aria,x.title,x.dataName].join(' '))).slice(0,250)};
-  });
+  const rangeEvidence = await p.evaluate(() => ({
+    body:(document.body.innerText||'').slice(0,90000),
+    controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')].map(e=>({tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,240),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||''})).filter(x=>/Jul 27, 2026|Aug 17, 2026|testing period|custom date|entire history|upgrade/i.test([x.text,x.aria,x.title,x.dataName,x.placeholder].join(' '))).slice(0,250)
+  }));
   fs.writeFileSync('/tmp/tv-deep-probe.json',JSON.stringify(rangeEvidence,null,2));
   log('TV_RANGE_HAS_CURRENT_DATES',/Jul 27, 2026/.test(rangeEvidence.body)&&/Aug 17, 2026/.test(rangeEvidence.body)?'YES':'NO');
 
-  const dateButtons=p.locator('button').filter({hasText:/Jul 27, 2026|Aug 17, 2026/});
-  let rangeBtn=null;
-  for(let i=0;i<await dateButtons.count();i++){
-    const c=dateButtons.nth(i);
-    const txt=(await c.innerText().catch(()=>''));
-    if(/Jul 27, 2026/.test(txt)&&/Aug 17, 2026/.test(txt)&&await c.isVisible().catch(()=>false)){rangeBtn=c;break;}
-  }
-  log('TV_REPORT_RANGE_BUTTON_VISIBLE',rangeBtn?'YES':'NO');
-  if(rangeBtn){
-    await rangeBtn.click({force:true});
-    await p.waitForTimeout(2200);
-    const menu=await p.evaluate(()=>({
-      body:(document.body.innerText||'').slice(0,90000),
-      controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')].map(e=>({tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,240),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||'',disabled:!!e.disabled||e.getAttribute('aria-disabled')==='true'})).filter(x=>/date|range|custom|deep|backtest|start|end|apply|update|entire|history|upgrade|reset/i.test([x.text,x.aria,x.title,x.dataName,x.placeholder].join(' '))).slice(0,300)
-    }));
-    fs.writeFileSync('/tmp/tv-deep-after-click.json',JSON.stringify(menu,null,2));
-    log('TV_RANGE_MENU_HAS_CUSTOM',/Custom/i.test(menu.body)?'YES':'NO');
-    log('TV_RANGE_MENU_HAS_DEEP',/Deep Backtesting/i.test(menu.body)?'YES':'NO');
-    log('TV_RANGE_MENU_HAS_UPGRADE',/Upgrade/i.test(menu.body)?'YES':'NO');
-    log('TV_RANGE_MENU_CONTROL_COUNT',String(menu.controls.length));
+  const reportDateButton=p.locator('button').filter({hasText:/Jul 27, 2026.*Aug 17, 2026/}).first();
+  const visible=await reportDateButton.count()>0 && await reportDateButton.isVisible().catch(()=>false);
+  log('TV_REPORT_RANGE_BUTTON_VISIBLE',visible?'YES':'NO');
+  if(visible){
+    await reportDateButton.click({force:true});
+    await p.waitForTimeout(1200);
+    const custom=p.getByText('Custom date range',{exact:true}).last();
+    const customVisible=await custom.count()>0 && await custom.isVisible().catch(()=>false);
+    log('TV_CUSTOM_RANGE_ITEM_VISIBLE',customVisible?'YES':'NO');
+    if(customVisible){
+      await custom.click({force:true});
+      await p.waitForTimeout(1800);
+      const dialog=await p.evaluate(()=>({
+        body:(document.body.innerText||'').slice(0,100000),
+        controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input,[contenteditable="true"]')].map(e=>({tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,260),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||'',contenteditable:e.getAttribute('contenteditable')||''})).filter(x=>/date|from|to|start|end|apply|cancel|custom|testing|range|2026|2025/i.test([x.text,x.aria,x.title,x.dataName,x.placeholder,x.value].join(' '))).slice(0,350)
+      }));
+      fs.writeFileSync('/tmp/tv-deep-after-click.json',JSON.stringify(dialog,null,2));
+      log('TV_CUSTOM_DIALOG_INPUTS',String(dialog.controls.filter(x=>x.tag==='INPUT').length));
+      log('TV_CUSTOM_DIALOG_HAS_APPLY',/Apply/i.test(dialog.body)?'YES':'NO');
+      log('TV_CUSTOM_DIALOG_HAS_FROM_TO',/From/i.test(dialog.body)&&/To/i.test(dialog.body)?'YES':'NO');
+    }
   }
