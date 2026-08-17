@@ -1,0 +1,146 @@
+name: Wasmer Admin Theme Handoff v8
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-admin-theme-v8.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate ephemeral X25519 receiver key
+        run: |
+          openssl genpkey -algorithm X25519 -out /tmp/receiver-private.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/receiver-private.pem -pubout -out receiver-public.pem >/dev/null 2>&1
+      - name: Upload public handoff key
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasmer-x25519-key-${{ github.run_id }}
+          path: receiver-public.pem
+          retention-days: 1
+      - name: Receive encrypted credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASE="https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/wasmer-session/${GITHUB_RUN_ID}"
+          for i in $(seq 1 180); do
+            ok=1
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw+json" "${BASE}.sender.pem?ref=main" -o /tmp/sender-public.pem 2>/dev/null || ok=0
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw+json" "${BASE}.enc.b64?ref=main" -o /tmp/session.enc.b64 2>/dev/null || ok=0
+            [ "$ok" = 1 ] && break
+            sleep 2
+          done
+          test -s /tmp/sender-public.pem && test -s /tmp/session.enc.b64
+          openssl pkeyutl -derive -inkey /tmp/receiver-private.pem -peerkey /tmp/sender-public.pem -out /tmp/shared.bin
+          base64 -d /tmp/session.enc.b64 > /tmp/session.enc
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -in /tmp/session.enc -out /tmp/session.json -pass file:/tmp/shared.bin
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/session.json'))
+          for k in ['wasmer_user','wasmer_password','app_name','mail_address','mail_password']:
+              assert x.get(k), k
+          for v in x.values(): print('::add-mask::'+v)
+          print('HANDOFF_DECRYPTED=true')
+          PY
+      - name: Install Playwright
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Activate theme and inspect claim
+        run: |
+          cat > admin-v8.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          import fs from 'fs';
+          const id=JSON.parse(fs.readFileSync('/tmp/session.json','utf8'));
+          const site='https://'+id.app_name+'.wasmer.app';
+          const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const ctx=await browser.newContext();
+          const page=await ctx.newPage();
+          const mask=s=>(s||'').replaceAll(id.wasmer_user,'[MASKED_USER]').replaceAll(id.wasmer_password,'[MASKED_PASSWORD]').replaceAll(id.mail_address,'[MASKED_EMAIL]').replaceAll(id.mail_password,'[MASKED_MAIL_PASSWORD]');
+          async function body(p=page){return (await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim()}
+          async function report(label,p=page){
+            const c=await p.locator('input,select,textarea,button,a').evaluateAll(els=>els.map(e=>({tag:e.tagName,type:e.type||'',name:e.name||'',placeholder:e.placeholder||'',required:!!e.required,text:(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,100),href:e.href||''})).filter(x=>x.text||x.placeholder||x.name).slice(0,100)).catch(()=>[]);
+            console.log(label+'_URL='+p.url().replace(/([?&](?:token|magiclogin|secret|challenge|code)=)[^&]+/ig,'$1[MASKED]'));
+            console.log(label+'_BODY='+mask((await body(p)).slice(0,2200)));
+            console.log(label+'_CONTROLS='+mask(JSON.stringify(c)));
+          }
+          async function mailToken(){
+            const r=await fetch('https://api.mail.tm/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:id.mail_address,password:id.mail_password})});
+            if(!r.ok) throw Error('Mail.tm token HTTP '+r.status); return (await r.json()).token;
+          }
+          async function messageIds(token){
+            const r=await fetch('https://api.mail.tm/messages',{headers:{Authorization:'Bearer '+token}}); if(!r.ok)return new Set();
+            const j=await r.json();return new Set((j['hydra:member']||j.member||[]).map(x=>x.id));
+          }
+          async function waitAuthMail(token,old){
+            for(let i=0;i<30;i++){
+              await page.waitForTimeout(i?1600:500);
+              const r=await fetch('https://api.mail.tm/messages',{headers:{Authorization:'Bearer '+token}});if(!r.ok)continue;
+              const j=await r.json();for(const m of (j['hydra:member']||j.member||[])){
+                if(old.has(m.id))continue;
+                const q=await fetch('https://api.mail.tm/messages/'+m.id,{headers:{Authorization:'Bearer '+token}});if(!q.ok)continue;
+                const f=await q.json();const html=Array.isArray(f.html)?f.html.join('\n'):(f.html||'');const text=(f.text||'')+'\n'+html;
+                const urls=[...text.matchAll(/https?:\/\/[^\s"'<>]+/g)].map(x=>x[0].replace(/&amp;/g,'&'));
+                const link=urls.find(u=>/wasmer\.io/i.test(u)&&/login|auth|verify|challenge|sign|confirm/i.test(u));
+                const code=(text.match(/\b\d{6}\b/)||[])[0];if(link||code)return{link,code};
+              }
+            }
+            return{};
+          }
+          async function login(p){
+            const token=await mailToken();const old=await messageIds(token);
+            await p.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(700);
+            const u=p.locator('input[name="username"]').first();if(!await u.count())throw Error('username field missing');
+            await u.fill(id.wasmer_user);
+            let form=p.locator('form').first();if(await form.count())await form.evaluate(f=>f.requestSubmit());else await u.press('Enter');
+            await p.waitForTimeout(1800);
+            let pw=p.locator('input[type="password"]').first();
+            if(await pw.count()){
+              await pw.fill(id.wasmer_password);form=p.locator('form').first();if(await form.count())await form.evaluate(f=>f.requestSubmit());else await pw.press('Enter');await p.waitForTimeout(1800);
+            }else{
+              const a=await waitAuthMail(token,old);
+              if(a.link){await p.goto(a.link,{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(1500)}
+              else if(a.code){const ci=p.locator('input').last();await ci.fill(a.code);await ci.press('Enter');await p.waitForTimeout(1500)}
+              else{await report('LOGIN_UNKNOWN',p);throw Error('No password or auth mail')}
+            }
+          }
+          async function main(){
+            await login(page);
+            await page.goto(`https://wasmer.io/apps/${id.wasmer_user}/${id.app_name}`,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForTimeout(900);
+            if(!/WordPress Admin/i.test(await body(page))){await report('DASH_FAIL',page);throw Error('dashboard unavailable')}
+            console.log('WASMER_LOGIN=true');
+            const admin=page.getByRole('link',{name:/wordpress admin/i}).first();const mh=await admin.getAttribute('href');if(!mh)throw Error('magic href missing');
+            const wp=await ctx.newPage();await wp.goto(new URL(mh,page.url()).href,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(900);
+            if(!/wp-admin/i.test(wp.url())){await report('MAGIC_FAIL',wp);throw Error('magic login failed')}
+            console.log('WP_MAGIC_LOGIN=true');
+            await wp.goto(site+'/wp-admin/themes.php',{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(700);
+            const tt=await body(wp);if(!/Runner3 Starter/i.test(tt))throw Error('Runner3 Starter not installed');
+            const activate=wp.locator('a[href*="stylesheet=runner3-starter"][href*="action=activate"],a.activatelink[href*="runner3-starter"]').first();
+            if(await activate.count()){
+              const ah=await activate.getAttribute('href');await wp.goto(new URL(ah,wp.url()).href,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(1000);console.log('RUNNER3_THEME_ACTIVATED=true');
+            }else console.log('RUNNER3_THEME_ALREADY_ACTIVE=true');
+            await wp.goto(site,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(700);
+            const live=await body(wp);console.log('RUNNER3_THEME_MARKER='+/Built as a practical starter|Ready to edit|Runner3 Site/i.test(live));console.log('LIVE_SITE_URL='+site);console.log('LIVE_SITE_SAMPLE='+live.slice(0,1100));
+            await wp.goto(site+'/wp-admin/',{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(700);
+            let claim=wp.getByRole('link',{name:/claim app/i}).first();if(!await claim.count())claim=wp.getByText(/claim app/i).first();
+            if(!await claim.count()){console.log('CLAIM_LINK_PRESENT=false');return}
+            console.log('CLAIM_LINK_PRESENT=true');const ch=await claim.getAttribute('href');if(!ch){console.log('CLAIM_HREF_PRESENT=false');return}
+            const cu=new URL(ch,wp.url());console.log('CLAIM_TARGET='+cu.origin+cu.pathname);
+            const cp=await ctx.newPage();await cp.goto(cu.href,{waitUntil:'domcontentloaded',timeout:60000});await cp.waitForTimeout(1000);
+            if(/\/login/i.test(cp.url())){await login(cp);await cp.goto(cu.href,{waitUntil:'domcontentloaded',timeout:60000});await cp.waitForTimeout(900)}
+            await report('CLAIM_PAGE',cp);
+            const ct=(await body(cp)).toLowerCase();const sensitive=/credit card|payment method|card number|phone number|identity|government|passport|kyc|billing/i.test(ct);console.log('CLAIM_REQUIRES_SENSITIVE_VERIFICATION='+sensitive);
+            const visible=await cp.locator('input:visible,select:visible,textarea:visible').count();
+            if(!sensitive&&visible===0){const btn=cp.getByRole('button',{name:/claim app|claim|verify account|verify|continue/i}).first();if(await btn.count()){await btn.click();await cp.waitForTimeout(1500);await report('CLAIM_AFTER_ACTION',cp);console.log('CLAIM_AUTO_ACTION=true')}}
+          }
+          try{await main()}finally{await browser.close()}
+          JS
+          node admin-v8.mjs
+      - name: Destroy secrets
+        if: always()
+        run: |
+          shred -u /tmp/receiver-private.pem /tmp/shared.bin /tmp/session.json /tmp/session.enc /tmp/session.enc.b64 /tmp/sender-public.pem 2>/dev/null || true
+          rm -f receiver-public.pem admin-v8.mjs
