@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runner3-wp-media",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-17",
+  "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "runner3-wp-media"
+    }
+  ]
+}
