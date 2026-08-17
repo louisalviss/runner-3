@@ -1,0 +1,60 @@
+name: WR No Warmup BNB TRX Parity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-no-warmup-bnb-trx-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Run BNB and TRX from chart-range start with no pre-bars
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys
+          from dataclasses import asdict
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          sess=requests.Session(); sess.headers['User-Agent']='wr-no-warmup-parity/1.0'
+          def fetch(symbol):
+              bars=[]; prices=[]; missing=[]; d=date(2026,7,27)
+              while d<=date(2026,8,17):
+                  ds=d.isoformat(); url=f'https://data.binance.vision/data/futures/um/daily/klines/{symbol}/1m/{symbol}-1m-{ds}.zip'
+                  r=sess.get(url,timeout=40)
+                  if r.status_code==404: missing.append(ds); d+=timedelta(days=1); continue
+                  r.raise_for_status()
+                  with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+                  for row in csv.reader(io.StringIO(text)):
+                      if not row or not row[0].isdigit(): continue
+                      bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+                  d+=timedelta(days=1)
+              ded={x.ot:x for x in bars}; bars=[ded[k] for k in sorted(ded)]
+              return wr.agg(bars,5),wr.infer_tick(prices),missing
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,18,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          allout={}
+          for symbol in ('BNBUSDT','TRXUSDT'):
+              bars,tick,missing=fetch(symbol); wr.SYMBOL=symbol; trades,summary=wr.run(5,bars,tick,st,en)
+              payload={'symbol':symbol,'tick':tick,'missing':missing,'bars':len(bars),'summary':summary,'trades':[asdict(t) for t in trades]}; allout[symbol]=payload
+              print(f'NOWARM_{symbol}_COUNT={len(trades)}')
+              print(f'NOWARM_{symbol}_MISSING={json.dumps(missing)}')
+              for n,t in enumerate(trades,1): print('NOWARM_TRADE='+json.dumps({'symbol':symbol,'n':n,**asdict(t)},separators=(',',':')))
+          Path('/tmp/no_warmup.json').write_text(json.dumps(allout,indent=2),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-no-warmup-bnb-trx-${{ github.run_id }}
+          path: /tmp/no_warmup.json
+          retention-days: 2
