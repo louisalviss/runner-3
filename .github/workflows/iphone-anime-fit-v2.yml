@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg curl
-          python -m pip install -q -U yt-dlp curl_cffi numpy
+          python -m pip install -q -U yt-dlp numpy
 
       - name: Download official Jujutsu Kaisen footage
         shell: bash
@@ -31,7 +31,6 @@ jobs:
             echo "Trying $label: $url"
             if timeout 150s yt-dlp \
               --no-playlist --retries 2 --fragment-retries 2 --socket-timeout 20 \
-              --impersonate chrome \
               --js-runtimes node --remote-components ejs:github \
               -f 'bv*[height<=1080]+ba/b[height<=1080]' \
               --merge-output-format mp4 -o 'ytsrc.%(ext)s' "$url"; then
@@ -45,7 +44,6 @@ jobs:
             return 1
           }
 
-          # Official anime site embeds these TOHO animation videos.
           if download_source 'https://www.youtube.com/watch?v=VEjVqXiiUNY' 'JJK_EXECUTION_2025_OFFICIAL'; then
             :
           elif download_source 'https://www.youtube.com/watch?v=O6qVieflwqs' 'JJK_S2_PV2_2023_OFFICIAL'; then
@@ -96,7 +94,6 @@ jobs:
               if prev is not None:
                   diff=np.abs(cur.astype(np.int16)-prev.astype(np.int16)).astype(np.float32)
                   motion=float(diff.mean())
-                  # Reward strong local action and avoid almost-black transition frames.
                   local=float(np.percentile(diff,90))
                   luminance=float(cur.mean())
                   score=motion*0.72 + local*0.28
@@ -114,7 +111,6 @@ jobs:
           if len(picked)<10:
               raise SystemExit(f'not enough motion moments: {len(picked)}')
 
-          # Alternate strongest moments from different temporal regions for AMV pacing.
           by_time=sorted(picked,key=lambda x:x[1])
           order=[]; lo=0; hi=len(by_time)-1
           while lo<=hi:
@@ -140,8 +136,6 @@ jobs:
           durs=[0.38,0.46,0.54,0.46]
           for m in moments:
               i=m['i']; d=durs[i%4]
-              # Preserve the complete anime composition in a 1024x576 foreground.
-              # A blurred/darkened copy fills 1080x1920; no aggressive portrait crop.
               flash="drawbox=x=0:y=0:w=iw:h=ih:color=white@0.16:t=fill:enable='lt(t,0.035)'," if i%3==0 else ''
               fc=(
                 '[0:v]split=2[bg][fg];'
@@ -154,15 +148,14 @@ jobs:
                 'fps=30,format=yuv420p[v]'
               )
               out=f'clips/c{i:02d}.mp4'
-              cmd=[
+              subprocess.check_call([
                 'ffmpeg','-hide_banner','-loglevel','error','-y',
                 '-ss',f"{m['t']:.3f}",'-i','anime_source.mp4','-t',str(d),
                 '-filter_complex',fc,'-map','[v]','-map','0:a?',
                 '-c:v','libx264','-preset','slow','-crf','18','-profile:v','high','-level','4.1',
                 '-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',
                 '-c:a','aac','-b:a','128k','-ar','48000','-ac','2',out
-              ]
-              subprocess.check_call(cmd)
+              ])
           with open('concat.txt','w') as f:
               for i in range(len(moments)):
                   f.write(f"file 'clips/c{i:02d}.mp4'\n")
