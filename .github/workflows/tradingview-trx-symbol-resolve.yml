@@ -1,0 +1,46 @@
+name: TradingView TRX Symbol Resolve
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-trx-symbol-resolve.yml'
+      - 'scripts/tradingview-trx-symbol-resolve.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Capture TRX resolve_symbol metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/tradingview-trx-symbol-resolve.mjs
+      - name: Upload metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trx-symbol-resolve-${{ github.run_id }}
+          path: |
+            /tmp/trx-resolve-candidates.json
+            /tmp/trx-resolve-frames.txt
+          if-no-files-found: warn
+          retention-days: 2
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/tv-state.json
