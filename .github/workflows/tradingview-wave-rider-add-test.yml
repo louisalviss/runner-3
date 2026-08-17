@@ -53,10 +53,10 @@ jobs:
             console.log('TV_PINE_DIALOG='+(await dlg.isVisible().catch(()=>false)?'YES':'NO'));
             const ta=dlg.locator('.monaco-editor textarea').last();
             console.log('TV_EDITOR_TEXTAREA='+(await ta.isVisible().catch(()=>false)?'YES':'NO'));
-            await ta.click();
+            await ta.focus();
             await p.keyboard.press('Control+A');
             await p.keyboard.insertText(source);
-            await p.waitForTimeout(2500);
+            await p.waitForTimeout(3000);
             const view=dlg.locator('.monaco-editor .view-lines').last();
             const viewText=await view.innerText().catch(()=>'');
             console.log('TV_SOURCE_IN_EDITOR='+(viewText.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'));
@@ -67,7 +67,6 @@ jobs:
             const afterAdd=await p.locator('body').innerText();
             const errLines=afterAdd.split('\n').map(x=>x.trim()).filter(x=>/^(Error|Errors|Compilation error)|error at|problem/i.test(x)).slice(0,20);
             if(errLines.length) console.log('TV_ERROR_LINES='+JSON.stringify(errLines));
-            // Close Pine panel so strategy evidence cannot come only from editor source text.
             await pine.click().catch(()=>{}); await p.waitForTimeout(3000);
             const body=await p.locator('body').innerText();
             const onChart=body.includes('WR 2.5.13 WIN') || body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
