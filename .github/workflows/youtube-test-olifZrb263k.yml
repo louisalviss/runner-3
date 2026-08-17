@@ -5,39 +5,48 @@ on:
       - '.github/workflows/youtube-test-olifZrb263k.yml'
 
 jobs:
-  client-matrix:
+  pot-provider-test:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Install yt-dlp and Deno
+      - name: Install yt-dlp POT plugin
         shell: bash
         run: |
           set -e
-          python -m pip install -q -U yt-dlp
-          curl -fsSL https://deno.land/install.sh | sh
-          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
-      - name: Probe no-cookie YouTube clients
+          python -m pip install -q -U yt-dlp bgutil-ytdlp-pot-provider
+          docker pull -q brainicism/bgutil-ytdlp-pot-provider:latest
+          docker run --name bgutil-provider -d --init -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider:latest
+          for i in {1..15}; do
+            curl -fsS http://127.0.0.1:4416/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+      - name: Resolve and fetch real YouTube media
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           mkdir -p evidence
           URL='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
-          : > evidence/results.txt
-          for CLIENT in web_embedded web_safari tv android_vr; do
-            echo "===== $CLIENT =====" | tee -a evidence/results.txt
-            timeout 30 yt-dlp \
-              --js-runtimes deno --remote-components ejs:github \
-              --no-playlist --skip-download \
-              --extractor-args "youtube:player_client=$CLIENT;player_skip=webpage,configs" \
-              --print 'OK id=%(id)s title=%(title)s duration=%(duration)s' \
-              "$URL" 2>&1 | tee -a evidence/results.txt
-            echo "exit=${PIPESTATUS[0]}" | tee -a evidence/results.txt
-          done
+          yt-dlp -v --no-playlist --skip-download \
+            --extractor-args 'youtube:player_client=mweb' \
+            --print 'id=%(id)s title=%(title)s duration=%(duration)s' \
+            "$URL" 2>&1 | tee evidence/metadata.log
+          MEDIA_URL=$(yt-dlp --no-playlist -f '18/best[height<=360]/worst' -g \
+            --extractor-args 'youtube:player_client=mweb' "$URL" | head -1)
+          test -n "$MEDIA_URL"
+          printf '%s\n' "$MEDIA_URL" > evidence/media_url.txt
+          CODE=$(curl -L --fail --silent --show-error --range 0-1048575 \
+            -o evidence/media_prefix.bin -w '%{http_code}' "$MEDIA_URL")
+          SIZE=$(stat -c%s evidence/media_prefix.bin)
+          echo "http=$CODE bytes=$SIZE" | tee evidence/fetch_result.txt
+          test "$SIZE" -gt 100000
+      - name: Provider logs
+        if: always()
+        run: docker logs bgutil-provider > evidence/provider.log 2>&1 || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-client-matrix
+          name: youtube-pot-provider-proof
           path: evidence/
           retention-days: 1
