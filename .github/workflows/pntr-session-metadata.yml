@@ -1,0 +1,54 @@
+name: PNTR Guest Session Metadata
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-session-metadata.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect non-secret PNTR session metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo "::add-mask::$AUTOMATION_KEY"
+          candidates=(e0c6b9b074e9788b6e52939fdb1de4c7f8f694d3 HEAD)
+          for sha in "${candidates[@]}"; do
+            echo "CANDIDATE=${sha:0:12}"
+            if [ "$sha" != HEAD ]; then git fetch --quiet --depth=1 origin "$sha"; fi
+            git show "$sha:ops/pntr/browser-state.aes" >/tmp/state.aes
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/state.aes -out /tmp/state.json
+            chmod 600 /tmp/state.json
+            python - <<'PY'
+          import json, datetime
+          d=json.load(open('/tmp/state.json'))
+          cookies=d.get('cookies') or []
+          print('COOKIE_COUNT='+str(len(cookies)))
+          for c in cookies:
+              exp=c.get('expires',-1)
+              if isinstance(exp,(int,float)) and exp>0:
+                  iso=datetime.datetime.fromtimestamp(exp,datetime.timezone.utc).isoformat()
+              else: iso='session'
+              print('COOKIE_META name=%s domain=%s path=%s expires=%s httpOnly=%s secure=%s sameSite=%s' % (
+                  c.get('name'),c.get('domain'),c.get('path'),iso,c.get('httpOnly'),c.get('secure'),c.get('sameSite')))
+          origins=d.get('origins') or []
+          for o in origins:
+              keys=[x.get('name') for x in (o.get('localStorage') or [])]
+              print('ORIGIN_META origin=%s localStorageKeys=%s' % (o.get('origin'),','.join(x for x in keys if x)))
+          PY
+            rm -f /tmp/state.aes /tmp/state.json
+          done
+      - if: always()
+        run: rm -f /tmp/state.aes /tmp/state.json
