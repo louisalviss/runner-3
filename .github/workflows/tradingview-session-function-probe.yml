@@ -1,0 +1,103 @@
+name: TradingView Canonical SESSION Function Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-session-function-probe.yml'
+      - 'scripts/tradingview-session-function-probe.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Build canonical SESSION helper runtime probe
+        shell: bash
+        run: |
+          cat > /tmp/wr-session-function-probe.pine <<'PINE'
+          //@version=6
+          indicator("WR SESSION RUNTIME PROBE", overlay=true)
+          bool useSessionGuard=true
+          int noEntryBeforeSessionCloseMin=40
+          int exitBeforeSessionCloseMin=15
+          int chartMs=timeframe.in_seconds()*1000
+          string regularTicker=ticker.new(syminfo.prefix,syminfo.ticker,session.regular)
+          int regularDayClose=request.security(regularTicker,"1D",time_close,gaps=barmerge.gaps_off,lookahead=barmerge.lookahead_on)
+          int noEntryCutoff=regularDayClose-noEntryBeforeSessionCloseMin*60*1000
+          int exitCutoff=regularDayClose-exitBeforeSessionCloseMin*60*1000
+          bool sessionNoEntryWindow=useSessionGuard and session.ismarket and not na(regularDayClose) and time_close<=regularDayClose and (time_close>=noEntryCutoff or time_close+chartMs>=noEntryCutoff)
+          f_sessionExitAtBarClose(int tc)=>
+              bool result=false
+              if useSessionGuard and session.ismarket and not na(regularDayClose)
+                  result := (tc<exitCutoff and tc+chartMs>=exitCutoff) or (tc>=exitCutoff and tc<=regularDayClose)
+              result
+          bool sx=f_sessionExitAtBarClose(time_close)
+          bool sxRise=sx and not sx[1]
+          bool neRise=sessionNoEntryWindow and not sessionNoEntryWindow[1]
+          var int[] sxTimes=array.new_int()
+          var int[] neTimes=array.new_int()
+          if sxRise
+              array.push(sxTimes,time_close)
+              if array.size(sxTimes)>8
+                  array.shift(sxTimes)
+          if neRise
+              array.push(neTimes,time_close)
+              if array.size(neTimes)>8
+                  array.shift(neTimes)
+          var table t=table.new(position.top_left,3,11,border_width=1,force_overlay=true)
+          if barstate.islast
+              table.clear(t,0,0,2,10)
+              table.cell(t,0,0,"WR_SESSION_PROBE",text_color=color.yellow,bgcolor=color.black)
+              table.cell(t,1,0,"NOENTRY_RISE",text_color=color.white,bgcolor=color.black)
+              table.cell(t,2,0,"EXIT_RISE",text_color=color.white,bgcolor=color.black)
+              int n=math.max(array.size(sxTimes),array.size(neTimes))
+              int show=math.min(n,8)
+              for j=0 to show-1
+                  int ni=array.size(neTimes)-show+j
+                  int si=array.size(sxTimes)-show+j
+                  string ns=ni>=0?str.format_time(array.get(neTimes,ni),"yyyy-MM-dd HH:mm","UTC"):"-"
+                  string ss=si>=0?str.format_time(array.get(sxTimes,si),"yyyy-MM-dd HH:mm","UTC"):"-"
+                  table.cell(t,0,j+1,str.tostring(j+1),text_color=color.white,bgcolor=color.black)
+                  table.cell(t,1,j+1,ns,text_color=color.aqua,bgcolor=color.black)
+                  table.cell(t,2,j+1,ss,text_color=color.lime,bgcolor=color.black)
+              table.cell(t,0,9,"NOW",text_color=color.white,bgcolor=color.black)
+              table.cell(t,1,9,str.format_time(time_close,"yyyy-MM-dd HH:mm","UTC"),text_color=color.white,bgcolor=color.black)
+              table.cell(t,2,9,"5m="+str.tostring(chartMs/60000),text_color=color.white,bgcolor=color.black)
+              table.cell(t,0,10,"CUT",text_color=color.white,bgcolor=color.black)
+              table.cell(t,1,10,str.format_time(noEntryCutoff,"HH:mm","UTC"),text_color=color.white,bgcolor=color.black)
+              table.cell(t,2,10,str.format_time(exitCutoff,"HH:mm","UTC"),text_color=color.white,bgcolor=color.black)
+          PINE
+      - name: Compile and capture BNB 5m runtime table
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/tradingview-session-function-probe.mjs
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-session-function-${{ github.run_id }}
+          path: |
+            /tmp/session-function.png
+            /tmp/session-function-body.txt
+            /tmp/session-function-run.txt
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr-session-function-probe.pine
