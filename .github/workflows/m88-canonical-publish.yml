@@ -26,17 +26,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Fetch independent candidate feeds
+      - name: Fetch independent candidate feeds without CDN cache
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p candidates out
-          curl -LfsS --max-time 20 \
-            'https://raw.githubusercontent.com/louisalviss/runner-3/m88-live-data/data.json' \
-            -o candidates/direct.json || true
-          curl -LfsS --max-time 20 \
-            'https://github.com/louisalviss/runner-3/releases/download/m88-live/m88-fullbook.json' \
-            -o candidates/fallback.json || true
+
+          # Resolve the branch through GitHub Contents API, not raw.githubusercontent CDN.
+          gh api \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "repos/${GITHUB_REPOSITORY}/contents/data.json?ref=m88-live-data" \
+            > candidates/direct.json || true
+
+          # Download the current stable fallback release through GitHub API semantics.
+          gh release download m88-live \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'm88-fullbook.json' \
+            --dir candidates \
+            --clobber || true
+          if [ -f candidates/m88-fullbook.json ]; then
+            mv candidates/m88-fullbook.json candidates/fallback.json
+          fi
           ls -lh candidates || true
 
       - name: Select canonical source
@@ -80,8 +92,13 @@ jobs:
                   for line in lines
               )
           d_age = iso_age((direct or {}).get('generated_at'))
+          d_scopes = sorted(set((direct or {}).get('available_scopes') or []) | {
+              str(m.get('scope')) for m in d_matches if m.get('scope')
+          })
+          d_full_scopes = {'live', 'today', 'early'}.issubset(set(d_scopes))
           d_valid = bool(
               direct and len(d_matches) >= 50 and d_selections >= 500
+              and d_full_scopes
               and d_age is not None and d_age <= 900
               and 'M88' in str((direct or {}).get('source', ''))
           )
@@ -104,6 +121,8 @@ jobs:
               'age_seconds': d_age,
               'matches': len(d_matches),
               'selections': d_selections,
+              'available_scopes': d_scopes,
+              'full_scopes': d_full_scopes,
               'freshness_limit_seconds': 900,
           }
           fallback_health = {
@@ -128,7 +147,7 @@ jobs:
               )
 
           health = {
-              'schema_version': 1,
+              'schema_version': 2,
               'generated_at_utc': now.isoformat(),
               'source_mode': source_mode,
               'direct': direct_health,
