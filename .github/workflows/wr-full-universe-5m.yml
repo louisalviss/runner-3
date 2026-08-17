@@ -1,12 +1,7 @@
-name: Wave Rider Full Universe 5m Audit
+name: Wave Rider Full Universe 5m Audit [PARITY GATED]
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - formal-tests/full_universe_5m.py
-      - .github/workflows/wr-full-universe-5m.yml
 
 permissions:
   contents: read
@@ -25,6 +20,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Require TradingView parity PASS
+        run: python wave-rider-verify/assert_parity_gate.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -49,6 +46,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Require TradingView parity PASS
+        run: python wave-rider-verify/assert_parity_gate.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
