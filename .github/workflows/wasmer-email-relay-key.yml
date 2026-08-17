@@ -13,19 +13,20 @@ jobs:
   keygen:
     runs-on: ubuntu-latest
     env:
-      AUTOMATION_KEY: ${{ secrets.AUTOMATION_KEY }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Generate encrypted relay keypair
         shell: bash
         run: |
           set -euo pipefail
+          test -n "$AUTOMATION_KEY"
           echo "::add-mask::$AUTOMATION_KEY"
           mkdir -p ops/wasmer
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/email-relay-private.pem
-          openssl pkey -in /tmp/email-relay-private.pem -pubout -out ops/wasmer/email-relay-public.pem
+          openssl pkey -in /tmp/email-relay-private.pem -pubout -out /tmp/email-relay-public.pem
           openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
-            -in /tmp/email-relay-private.pem -out ops/wasmer/email-relay-private.aes
+            -in /tmp/email-relay-private.pem -out /tmp/email-relay-private.aes
           rm -f /tmp/email-relay-private.pem
       - name: Persist relay keypair
         shell: bash
@@ -35,9 +36,10 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin main
           git reset --hard origin/main
-          test -s ops/wasmer/email-relay-public.pem || exit 2
-          test -s ops/wasmer/email-relay-private.aes || exit 3
-          git add ops/wasmer/email-relay-public.pem ops/wasmer/email-relay-private.aes
+          mkdir -p ops/wasmer
+          cp /tmp/email-relay-public.pem ops/wasmer/email-relay-public.pem
+          cp /tmp/email-relay-private.aes ops/wasmer/email-relay-private.aes
+          git add -f ops/wasmer/email-relay-public.pem ops/wasmer/email-relay-private.aes
           if ! git diff --cached --quiet; then
             git commit -m 'Persist encrypted Wasmer email relay keypair'
             git push origin HEAD:main
