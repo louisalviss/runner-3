@@ -58,19 +58,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cp scripts/tradingview-wave-rider-e2e.mjs scripts/.tv-canon-table-temp.mjs
+          sed -i "s#BINANCE%3ABNBUSDT.P#BINANCE%3A${TV_SYMBOL}.P#" scripts/.tv-canon-table-temp.mjs
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
-          old="  await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout=90000});"
-          new="  const __sym=process.env.TV_SYMBOL||'BNBUSDT';\n  await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});"
-          if s.count(old)!=1: raise SystemExit(f'url patch count={s.count(old)}')
-          s=s.replace(old,new,1)
+          p=Path('scripts/.tv-canon-table-temp.mjs')
+          s=p.read_text()
           marker="  body=await p.locator('body').innerText().catch(()=>''); log('TV_E2E_WR_OUTSIDE_EDITOR',body.includes('WR 2.5.13 WIN')?'PRESENT':'ABSENT');"
           if marker not in s: raise SystemExit('post-editor marker missing')
-          extra='''\n  await p.waitForTimeout(3500);\n  const __parityBody=await p.locator('body').innerText().catch(()=>\'\');\n  const __parityLines=__parityBody.split('\\n').map(x=>x.trim()).filter(x=>x.startsWith('WRP|'));\n  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__sym}.txt`,__parityLines.join('\\n')+(__parityLines.length?'\\n':''));\n  fs.writeFileSync(`/tmp/tv-canonical-table-body-${__sym}.txt`,__parityBody.split('\\n').filter(x=>x.includes('WRP|')||x.includes('WRMETA')).join('\\n')+'\\n');\n  log('TV_CANON_TABLE_ROWS',String(__parityLines.length));\n  await p.screenshot({path:`/tmp/tv-canonical-table-${__sym}.png`,fullPage:true}).catch(()=>{});\n'''
-          s=s.replace(marker,marker+extra,1)
-          Path('scripts/.tv-canon-table-temp.mjs').write_text(s)
+          extra='''\n  const __tableSym=process.env.TV_SYMBOL||'BNBUSDT';\n  await p.waitForTimeout(3500);\n  const __parityBody=await p.locator('body').innerText().catch(()=>\'\');\n  const __parityLines=__parityBody.split('\\n').map(x=>x.trim()).filter(x=>x.startsWith('WRP|'));\n  fs.writeFileSync(`/tmp/tv-canonical-ledger-${__tableSym}.txt`,__parityLines.join('\\n')+(__parityLines.length?'\\n':''));\n  fs.writeFileSync(`/tmp/tv-canonical-table-body-${__tableSym}.txt`,__parityBody.split('\\n').filter(x=>x.includes('WRP|')||x.includes('WRMETA')).join('\\n')+'\\n');\n  log('TV_CANON_TABLE_ROWS',String(__parityLines.length));\n  await p.screenshot({path:`/tmp/tv-canonical-table-${__tableSym}.png`,fullPage:true}).catch(()=>{});\n'''
+          p.write_text(s.replace(marker,marker+extra,1))
           PY
+          grep -q "BINANCE%3A${TV_SYMBOL}.P" scripts/.tv-canon-table-temp.mjs
 
       - name: Run canonical table probe
         shell: bash
