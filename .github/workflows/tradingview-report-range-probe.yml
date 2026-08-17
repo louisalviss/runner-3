@@ -1,0 +1,68 @@
+name: TradingView Report Range Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-report-range-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Probe strategy report date range
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(9000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(3000);
+            const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),source); await p.keyboard.press('Control+V'); await p.waitForTimeout(2000); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(25000);
+            const range=p.locator('[aria-label*="Jul 27, 2026"]').first();
+            console.log('TV_RANGE_CONTROL='+(await range.count()?'PRESENT':'ABSENT'));
+            if(await range.count()) console.log('TV_RANGE_OUTER='+JSON.stringify((await range.evaluate(e=>(e.closest('button')||e).outerHTML)).slice(0,4000)));
+            if(await range.count()) await range.evaluate(e=>(e.closest('button')||e).click());
+            await p.waitForTimeout(2500);
+            const body=await p.locator('body').innerText();
+            const lines=body.split('\n').map(s=>s.trim()).filter(Boolean).filter(s=>/date|range|from|to|start|end|custom|deep|backtest|upgrade|2025|2026|calendar/i.test(s)).slice(0,250);
+            for(const x of lines) console.log('TV_RANGE_LINE='+JSON.stringify(x));
+            const inputs=await p.locator('input').evaluateAll(es=>es.map((e,i)=>({i,type:e.type,value:e.value,placeholder:e.placeholder||'',aria:e.getAttribute('aria-label')||'',name:e.name||'',min:e.min||'',max:e.max||''})).filter(x=>/date|2026|from|to|start|end/i.test(JSON.stringify(x))));
+            for(const x of inputs) console.log('TV_RANGE_INPUT='+JSON.stringify(x));
+            fs.writeFileSync('/tmp/range-lines.txt',lines.join('\n')); fs.writeFileSync('/tmp/range-inputs.json',JSON.stringify(inputs,null,2));
+            await p.screenshot({path:'/tmp/range-menu.png',fullPage:true}); await b.close();
+          })().catch(e=>{console.error('TV_RANGE_PROBE_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-report-range-probe-${{ github.run_id }}
+          path: |
+            /tmp/range-lines.txt
+            /tmp/range-inputs.json
+            /tmp/range-menu.png
+          retention-days: 1
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
