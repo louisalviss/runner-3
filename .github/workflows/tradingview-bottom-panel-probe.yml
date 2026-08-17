@@ -1,0 +1,57 @@
+name: TradingView Bottom Panel Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-bottom-panel-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Probe bottom panel DOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}}); const p=await c.newPage();
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(10000);
+            const rows=await p.locator('button,[role="button"],[aria-label],[title]').evaluateAll(els=>els.map((e,i)=>({i,tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,180),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',class:(e.className||'').toString().slice(0,180)})).filter(x=>/pine|strategy|tester|panel|editor|console|more|maximize|minimize|bottom/i.test([x.text,x.aria,x.title,x.dataName,x.class].join(' '))));
+            fs.writeFileSync('/tmp/bottom-elements.json',JSON.stringify(rows,null,2));
+            console.log('TV_BOTTOM_MATCHES='+rows.length);
+            for(const r of rows.slice(0,80)) console.log('TV_EL='+JSON.stringify(r));
+            await p.screenshot({path:'/tmp/bottom-panel.png',fullPage:true});
+            await b.close();
+          })().catch(e=>{console.error('TV_BOTTOM_PROBE_ERROR='+e.stack);process.exit(5)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-bottom-panel-${{ github.run_id }}
+          path: |
+            /tmp/bottom-elements.json
+            /tmp/bottom-panel.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
