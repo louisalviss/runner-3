@@ -1,0 +1,91 @@
+name: TradingView Wave Rider Paste Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-wave-rider-paste-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' /tmp/wr.pine
+      - name: Paste canonical strategy and add to BNB 5m
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const p=await c.newPage(); p.setDefaultTimeout(12000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await p.waitForTimeout(9000);
+            const body0=await p.locator('body').innerText();
+            console.log('TV_SESSION_OK='+(body0.includes('Sign in')?'NO':'YES'));
+            console.log('TV_BNB_5M='+(p.url().includes('BNBUSDT.P')&&p.url().includes('interval=5')?'YES':'NO'));
+            await p.locator('[data-name="pine-dialog-button"]').first().click();
+            await p.waitForTimeout(3500);
+            const dlg=p.locator('[data-name="pine-dialog"]');
+            const ta=dlg.locator('.monaco-editor textarea').last();
+            await ta.focus();
+            await p.keyboard.press('Control+A');
+            await p.evaluate(async s=>{ await navigator.clipboard.writeText(s); }, source);
+            await p.keyboard.press('Control+V');
+            await p.waitForTimeout(3000);
+            const viewText=await dlg.locator('.monaco-editor .view-lines').last().innerText().catch(()=>'');
+            console.log('TV_SOURCE_VISIBLE_AFTER_PASTE='+(viewText.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'));
+            const add=dlg.getByRole('button',{name:'Add to chart',exact:true}).first();
+            console.log('TV_ADD_VISIBLE='+(await add.isVisible().catch(()=>false)?'YES':'NO'));
+            await add.click({timeout:12000});
+            await p.waitForTimeout(25000);
+            const after=await p.locator('body').innerText();
+            const errorLines=after.split('\n').map(s=>s.trim()).filter(s=>/compilation error|error at|errors?\b|problem/i.test(s)).slice(0,25);
+            console.log('TV_COMPILER_ERRORS='+JSON.stringify(errorLines));
+            // Hide Pine editor; remaining evidence must come from chart / bottom panel.
+            await p.locator('[data-name="pine-dialog-button"]').first().click().catch(()=>{});
+            await p.waitForTimeout(2500);
+            const body=await p.locator('body').innerText();
+            const onChart=body.includes('WR 2.5.13 WIN') || body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT');
+            const tester=/Strategy Tester/i.test(body);
+            console.log('TV_STRATEGY_ON_CHART='+(onChart?'YES':'NO'));
+            console.log('TV_STRATEGY_TESTER_VISIBLE='+(tester?'YES':'NO'));
+            fs.writeFileSync('/tmp/result.txt',`TV_STRATEGY_ON_CHART=${onChart?'YES':'NO'}\nTV_STRATEGY_TESTER_VISIBLE=${tester?'YES':'NO'}\nTV_COMPILER_ERRORS=${JSON.stringify(errorLines)}\n`);
+            await p.screenshot({path:'/tmp/wr-bnb-5m.png',fullPage:true}).catch(()=>{});
+            await b.close();
+            if(!onChart || !tester || errorLines.length) process.exit(7);
+          })().catch(e=>{console.error('TV_PASTE_TEST_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-wave-rider-paste-test-${{ github.run_id }}
+          path: |
+            /tmp/result.txt
+            /tmp/wr-bnb-5m.png
+          retention-days: 1
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
