@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import json
+
+p=Path('wave-rider-verify/reference_verify.py')
+s=p.read_text()
+
+old="END=os.getenv('WR_END','2026-08-14')\nWARMUP_DAYS=3"
+new="END=os.getenv('WR_END','2026-08-14')\nEXEC_START=os.getenv('WR_EXEC_START',START)\nWARMUP_DAYS=3\nPOST_END_DAYS=1"
+assert old in s
+s=s.replace(old,new,1)
+
+old="SESSION_GUARD=True; NO_ENTRY_MIN=40; EXIT_MIN=15\n"
+new="""SESSION_GUARD=True; NO_ENTRY_MIN=40; EXIT_MIN=15
+
+# TradingView syminfo metadata proved directly on canonical BINANCE perpetual charts.
+# Unknown symbols remain configurable via WR_MINTICK / WR_QTY_STEP / WR_POINT_VALUE.
+KNOWN_META={
+    'BNBUSDT':(0.01,0.01,1.0),
+    'TRXUSDT':(0.00001,1.0,1.0),
+}
+
+def contract_meta(symbol,inferred_tick):
+    kt,ks,kp=KNOWN_META.get(symbol,(inferred_tick,1.0,1.0))
+    tick=float(os.getenv('WR_MINTICK',str(kt)))
+    step=float(os.getenv('WR_QTY_STEP',str(ks)))
+    pv=float(os.getenv('WR_POINT_VALUE',str(kp)))
+    if tick<=0 or step<=0 or pv<=0: raise ValueError('invalid contract metadata')
+    return tick,step,pv
+
+def px_ticks(px,tick): return int(round(px/tick))
+def tick_px(u,tick): return round(u*tick,12)
+def effective_tp(plan,tick):
+    raw=plan.t/tick
+    u=math.ceil(raw-1e-10) if plan.d==1 else math.floor(raw+1e-10)
+    return tick_px(u,tick)
+"""
+assert old in s
+s=s.replace(old,new,1)
+
+old_piv="""def pivots(v,left,right,high=True):
+    base=[None]*len(v); ties=0
+    for conf in range(left+right,len(v)):
+        c=conf-right; w=v[c-left:c+right+1]; ext=max(w) if high else min(w)
+        if v[c]==ext:
+            if sum(x==ext for x in w)==1: base[conf]=v[c]
+            else: ties+=1
+    return [None]+base[:-1],ties  # Pine ta.pivothigh/low(...)[1]
+"""
+new_piv="""def pivots(v,left,right,high=True):
+    # Pine ta.pivothigh/low tie semantics: the rightmost equal extreme wins.
+    # Then [1] adds one chart-bar delay exactly as the canonical Pine source.
+    base=[None]*len(v); ties=0
+    for conf in range(left+right,len(v)):
+        c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+        w=L+[x]+R; ext=max(w) if high else min(w)
+        if x==ext and sum(y==ext for y in w)>1: ties+=1
+        ok=(all(x>=y for y in L) and all(x>y for y in R)) if high else (all(x<=y for y in L) and all(x<y for y in R))
+        if ok: base[conf]=x
+    return [None]+base[:-1],ties
+"""
+assert old_piv in s
+s=s.replace(old_piv,new_piv,1)
+
+old="a=datetime.fromisoformat(START).replace(tzinfo=timezone.utc)-timedelta(days=WARMUP_DAYS)\n    b=datetime.fromisoformat(END).replace(tzinfo=timezone.utc)"
+new="a=min(datetime.fromisoformat(START).replace(tzinfo=timezone.utc),datetime.fromisoformat(EXEC_START).replace(tzinfo=timezone.utc))-timedelta(days=WARMUP_DAYS)\n    b=datetime.fromisoformat(END).replace(tzinfo=timezone.utc)+timedelta(days=POST_END_DAYS)"
+assert old in s
+s=s.replace(old,new,1)
+
+a=s.index('def next_bracket(')
+b=s.index('\ndef main():',a)
+replacement='''def next_bracket(plan,x,tick,start_at=None):
+    # TradingView historical OHLC path heuristic, but all exchange price touches
+    # use mintick integers so binary float cannot suppress an exact stop/fill.
+    target=effective_tp(plan,tick)
+    pts=path(x); active=start_at is None; cur=pts[0]
+    if active:
+        if plan.d==1 and px_ticks(x.o,tick)<=px_ticks(plan.s,tick): return 'SL',x.o
+        if plan.d==1 and px_ticks(x.o,tick)>=px_ticks(target,tick): return 'TP',x.o
+        if plan.d==-1 and px_ticks(x.o,tick)>=px_ticks(plan.s,tick): return 'SL',x.o
+        if plan.d==-1 and px_ticks(x.o,tick)<=px_ticks(target,tick): return 'TP',x.o
+    for z in pts[1:]:
+        pos=cur
+        while True:
+            if not active:
+                pu,zu,eu=px_ticks(pos,tick),px_ticks(z,tick),px_ticks(plan.e,tick)
+                enter=(plan.d==1 and pu<eu<=zu) or (plan.d==-1 and pu>eu>=zu)
+                if not enter: break
+                pos=plan.e; active=True; continue
+            pu,zu=px_ticks(pos,tick),px_ticks(z,tick)
+            cand=[]
+            su,tu=px_ticks(plan.s,tick),px_ticks(target,tick)
+            if min(pu,zu)<=su<=max(pu,zu) and su!=pu: cand.append((abs(su-pu),'SL',plan.s))
+            if min(pu,zu)<=tu<=max(pu,zu) and tu!=pu: cand.append((abs(tu-pu),'TP',target))
+            if not cand: break
+            _,r,p=min(cand); return r,p
+        cur=z
+    return None,None
+
+def run(tf,bars,tick,start_ms,end_ms,execution_start_ms=None,qty_step=None,point_value=None):
+    # start_ms/end_ms are REPORT boundaries only. execution_start_ms controls when
+    # the strategy is allowed to begin trading; trades before report start still
+    # affect state and canonical equity. Report inclusion uses signal candle close.
+    tick,default_step,default_pv=contract_meta(SYMBOL,tick)
+    qty_step=default_step if qty_step is None else qty_step
+    point_value=default_pv if point_value is None else point_value
+    execution_start_ms=start_ms if execution_start_ms is None else execution_start_ms
+    ind,pht,plt=calc_ind(bars); chart_ms=tf*60000; eq=INIT
+    pending=active=None; entry_t=None; trades=[]
+    diag=dict(signals=0,pending_expired=0,pending_filled=0,ambiguous=0,tp=0,sl=0,ema=0,session=0,pivot_high_ties=pht,pivot_low_ties=plt)
+    win_eq=win_peak=None; win_cur_ls=win_max_ls=0; win_maxdd=0.0
+    def close_trade(i,reason,px):
+        nonlocal active,entry_t,eq,win_eq,win_peak,win_cur_ls,win_max_ls,win_maxdd
+        tx=effective_tp(active,tick)
+        hs=(px_ticks(bars[i].l,tick)<=px_ticks(active.s,tick) if active.d==1 else px_ticks(bars[i].h,tick)>=px_ticks(active.s,tick))
+        ht=(px_ticks(bars[i].h,tick)>=px_ticks(tx,tick) if active.d==1 else px_ticks(bars[i].l,tick)<=px_ticks(tx,tick))
+        both=reason in ('TP','SL') and hs and ht
+        if both: reason='AMBIG->SL'; diag['ambiguous']+=1
+        native=(px-active.e)*(1 if active.d==1 else -1)*active.qty*point_value
+        cr=TP_R if reason=='TP' else (-1.0 if reason in ('SL','AMBIG->SL') else native/active.risk)
+        cash=cr*active.risk; eq_before=eq; eq+=cash
+        eligible=start_ms<=active.sig_t<end_ms
+        if eligible:
+            if not trades:
+                win_eq=eq_before; win_peak=eq_before
+            win_eq+=cash
+            if cash<0: win_cur_ls+=1; win_max_ls=max(win_max_ls,win_cur_ls)
+            else: win_cur_ls=0
+            win_peak=max(win_peak,win_eq)
+            win_maxdd=max(win_maxdd,100*(win_peak-win_eq)/win_peak if win_peak>0 else 0.0)
+            trades.append(Trade(tf,'LONG' if active.d==1 else 'SHORT',iso(active.sig_t),iso(entry_t),iso(bars[i].ot),active.sig_h,active.sig_l,active.e,active.s,active.t,px,reason,cr,active.risk,active.qty,both))
+        active=None; entry_t=None
+        return True
+    for i,x in enumerate(bars):
+        closed=False
+        if active is not None:
+            r,px=next_bracket(active,x,tick,None)
+            if r:
+                diag['tp' if r=='TP' else 'sl']+=1; closed=close_trade(i,r,px)
+        if active is None and pending is not None and i==pending.sig_i+1 and not closed:
+            fill=(pending.d==1 and px_ticks(x.h,tick)>=px_ticks(pending.e,tick)) or (pending.d==-1 and px_ticks(x.l,tick)<=px_ticks(pending.e,tick))
+            if fill:
+                active=pending; pending=None; entry_t=x.ot; diag['pending_filled']+=1
+                r,px=next_bracket(active,x,tick,active.e)
+                if r:
+                    diag['tp' if r=='TP' else 'sl']+=1; closed=close_trade(i,r,px)
+        allowed,sexit=session_flags(x.ct,chart_ms)
+        if active is not None and not closed:
+            z=ind[i]
+            le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']
+            se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+            if sexit: diag['session']+=1; closed=close_trade(i,'SESSION',x.c)
+            elif le or se: diag['ema']+=1; closed=close_trade(i,'EMA',x.c)
+        if pending is not None and i>=pending.sig_i+1 and active is None:
+            pending=None; diag['pending_expired']+=1
+        if x.ct<execution_start_ms or x.ct>=end_ms: continue
+        if active is None and pending is None and not closed:
+            z=ind[i]
+            lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None
+            sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+            nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']
+            ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+            if nl or ns:
+                if nl:
+                    d=1; e=tick_px(px_ticks(x.h,tick)+1,tick); s=tick_px(px_ticks(x.l,tick)-1,tick); t=e+TP_R*(e-s)
+                else:
+                    d=-1; e=tick_px(px_ticks(x.l,tick)-1,tick); s=tick_px(px_ticks(x.h,tick)+1,tick); t=e-TP_R*(s-e)
+                raw=(max(eq,0)*RISK_PCT/100)/(abs(e-s)*point_value)
+                q=math.floor(raw/qty_step+1e-10)*qty_step
+                risk=abs(e-s)*q*point_value
+                if q>0 and risk>0:
+                    pending=Plan(d,e,s,t,risk,q,i,x.ct,x.h,x.l); diag['signals']+=1
+    wins=sum(t.canon_r>0 for t in trades); losses=sum(t.canon_r<0 for t in trades); even=len(trades)-wins-losses
+    total=sum(t.canon_r for t in trades); gp=sum(max(t.canon_r*t.risk_cash,0) for t in trades); gl=sum(max(-t.canon_r*t.risk_cash,0) for t in trades)
+    exits={k:sum(t.exit_reason==k for t in trades) for k in ('TP','SL','AMBIG->SL','EMA','SESSION')}
+    return trades,dict(symbol=SYMBOL,tf=tf,bars=sum(start_ms<=x.ct<end_ms for x in bars),trades=len(trades),wins=wins,losses=losses,even=even,
+        win_rate=(100*wins/len(trades) if trades else None),total_r=total,avg_r=(total/len(trades) if trades else None),profit_factor=(gp/gl if gl else None),
+        max_dd_pct=win_maxdd,max_losing_streak=win_max_ls,exit_counts=exits,outcome_invariant=len(trades)==wins+losses+even,exit_invariant=len(trades)==sum(exits.values()),diagnostics=diag,
+        report_start=iso(start_ms),report_end_exclusive=iso(end_ms),execution_start=iso(execution_start_ms),canonical_equity_end=eq,mintick=tick,qty_step=qty_step,point_value=point_value)
+'''
+s=s[:a]+replacement+s[b:]
+
+m=s.index('def main():')
+new_main='''def main():
+    OUT.mkdir(parents=True,exist_ok=True)
+    one,inferred_tick,missing=fetch_1m(); sm=[]
+    st=int(datetime.fromisoformat(START).replace(tzinfo=timezone.utc).timestamp()*1000)
+    en=int((datetime.fromisoformat(END).replace(tzinfo=timezone.utc)+timedelta(days=1)).timestamp()*1000)-1
+    ex=int(datetime.fromisoformat(EXEC_START).replace(tzinfo=timezone.utc).timestamp()*1000)
+    tick,qty_step,point_value=contract_meta(SYMBOL,inferred_tick)
+    for tf in TFS:
+        tr,s=run(tf,agg(one,tf),tick,st,en,execution_start_ms=ex,qty_step=qty_step,point_value=point_value); sm.append(s)
+        p=OUT/f'{SYMBOL}_{tf}m_trades.csv'
+        with p.open('w',newline='') as f:
+            fields=list(Trade.__dataclass_fields__); w=csv.DictWriter(f,fieldnames=fields); w.writeheader()
+            for x in tr: w.writerow(asdict(x))
+        (OUT/f'{SYMBOL}_{tf}m_summary.json').write_text(json.dumps(s,indent=2))
+    master=dict(strategy='Wave Rider 2.5.13 TradingView parity repair',source='Binance USD-M 1m public daily klines',symbol=SYMBOL,start=START,end=END,execution_start=EXEC_START,mintick=tick,inferred_tick=inferred_tick,qty_step=qty_step,point_value=point_value,missing=missing,summaries=sm,
+        caveats=['Same 1m source resampled to all timeframes','UTC Binance session-close model still requires generic session parity beyond crypto sample','No external news calendar implementation yet','TradingView historical OHLC path heuristic; Canon both-touch bar forced to -1R','Report Start/End filter by signal candle close; execution start is separate'])
+    (OUT/'master.json').write_text(json.dumps(master,indent=2))
+    print(json.dumps(master,indent=2))
+    print('\\nTF Trades WR PF AvgR TotalR MaxDD MaxLS Invariants')
+    for s in sm:
+        print(f"{s['tf']:>2}m {s['trades']:>5} {(s['win_rate'] or 0):>5.1f} {(s['profit_factor'] or 0):>5.2f} {(s['avg_r'] or 0):>+6.3f} {s['total_r']:>+7.2f} {s['max_dd_pct']:>5.2f}% {s['max_losing_streak']:>5} {s['outcome_invariant']}/{s['exit_invariant']}")
+if __name__=='__main__': main()
+'''
+s=s[:m]+new_main
+p.write_text(s)
+
+golden={
+  'source':'TradingView canonical Wave Rider Strategy v2.5.13 WINDOW REPORT; visible List of Trades, CSV plan-gated',
+  'chart_range':'2026-07-27..2026-08-16 UTC regression subset',
+  'report_window':{'start_ms':1785171600000,'end_ms_exclusive':1786813200000},
+  'symbols':{
+    'BNBUSDT':{'mintick':0.01,'mincontract':0.01,'pointvalue':1.0,'visible_count':14,'window':{'trades':11,'total_r':10.620895522387901,'win_rate':63.63636363636363,'avg_r':0.9655359565807182,'profit_factor':3.7146301586293573,'max_dd_pct':1.9899903501697032,'max_losing_streak':2}},
+    'TRXUSDT':{'mintick':0.00001,'mincontract':1.0,'pointvalue':1.0,'visible_count':14,'window':{'trades':11,'total_r':5.5,'win_rate':45.45454545454545,'avg_r':0.5,'profit_factor':1.849346834980279,'max_dd_pct':3.9403987512528684,'max_losing_streak':4}}
+  }
+}
+gd=Path('wave-rider-verify/golden'); gd.mkdir(parents=True,exist_ok=True)
+(gd/'tradingview_bnb_trx_visible_2026-08-17.json').write_text(json.dumps(golden,indent=2))
+print('PATCH_OK')
