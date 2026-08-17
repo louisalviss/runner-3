@@ -1,0 +1,46 @@
+name: TeraBox Books Children
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/terabox-books-children.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'playwright>=1.58,<2'
+      - name: List children
+        shell: bash
+        run: |
+          cat > /tmp/list_children.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          from urllib.parse import urlparse,parse_qsl,urlencode,urlunparse
+          import json,shutil
+          TARGET='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
+          ROOT='/Truyen/Kho Sách'
+          with sync_playwright() as p:
+              chrome=shutil.which('google-chrome') or shutil.which('chromium')
+              b=p.chromium.launch(headless=True,executable_path=chrome)
+              c=b.new_context(user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+              pg=c.new_page(); api={'u':None}
+              pg.on('response',lambda r: api.update(u=r.url) if api['u'] is None and '/share/list?' in r.url and r.status==200 else None)
+              pg.goto(TARGET,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(8000)
+              pr=urlparse(api['u']); q=dict(parse_qsl(pr.query,keep_blank_values=True)); q.pop('root',None); q.update({'dir':ROOT,'page':'1','num':'100','by':'name','order':'asc'})
+              u=urlunparse((pr.scheme,pr.netloc,pr.path,pr.params,urlencode(q),pr.fragment))
+              raw=pg.evaluate("async u => await (await fetch(u,{credentials:'include'})).text()",u)
+              d=json.loads(raw); print('ERRNO='+str(d.get('errno')))
+              for x in d.get('list') or []:
+                  print('CHILD='+json.dumps({'path':x.get('path'),'name':x.get('server_filename'),'isdir':x.get('isdir'),'size':x.get('size'),'dir_empty':x.get('dir_empty')},ensure_ascii=False))
+              print('COUNT='+str(len(d.get('list') or [])))
+              b.close()
+          PY
+          python /tmp/list_children.py
