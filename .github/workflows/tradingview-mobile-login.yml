@@ -1,0 +1,132 @@
+name: TradingView Mobile Login
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-mobile-login.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DISPLAY: ':99'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore encrypted TradingView profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tv-profile
+          if [ -f ops/tradingview/profile.tar.gz.aes ]; then
+            test -n "${AUTOMATION_KEY:-}" || { echo 'Encryption secret unavailable'; exit 2; }
+            echo "::add-mask::$AUTOMATION_KEY"
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -pass env:AUTOMATION_KEY \
+              -in ops/tradingview/profile.tar.gz.aes \
+              -out /tmp/tv-profile.tar.gz
+            rm -rf /tmp/tv-profile
+            tar -xzf /tmp/tv-profile.tar.gz -C /tmp
+            rm -f /tmp/tv-profile.tar.gz
+          fi
+
+      - name: Install browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb >/dev/null
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          curl -fsSL --retry 3 \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /tmp/cloudflared
+          chmod 700 /tmp/cloudflared
+
+      - name: Start mobile login portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOGIN_TOKEN="$(openssl rand -hex 24)"
+          echo "LOGIN_TOKEN=$LOGIN_TOKEN" >> "$GITHUB_ENV"
+          nohup Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+          sleep 1
+          LOGIN_TOKEN="$LOGIN_TOKEN" nohup node scripts/tradingview-mobile-login.mjs >/tmp/tv-mobile.log 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q 'TV_MOBILE_LOGIN_READY' /tmp/tv-mobile.log && break
+            sleep 1
+          done
+          grep -q 'TV_MOBILE_LOGIN_READY' /tmp/tv-mobile.log || { tail -50 /tmp/tv-mobile.log; exit 4; }
+          nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8787 >/tmp/cloudflared-mobile.log 2>&1 &
+          for i in $(seq 1 40); do
+            URL="$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/cloudflared-mobile.log | head -n1 || true)"
+            [ -n "$URL" ] && break
+            sleep 1
+          done
+          [ -n "${URL:-}" ] || { tail -50 /tmp/cloudflared-mobile.log; exit 5; }
+          printf '%s/%s\n' "$URL" "$LOGIN_TOKEN" >/tmp/tv-mobile-login-url.txt
+          chmod 600 /tmp/tv-mobile-login-url.txt
+          echo 'TV_MOBILE_PORTAL_READY=true'
+
+      - name: Publish portal URL privately
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-mobile-login-url
+          path: /tmp/tv-mobile-login-url.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Wait for successful login
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 750); do
+            [ -f /tmp/tv-session-confirmed ] && exit 0
+            sleep 2
+          done
+          echo 'TV_LOGIN_TIMEOUT'
+          tail -50 /tmp/tv-mobile.log || true
+          exit 6
+
+      - name: Encrypt and persist TradingView profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Encryption secret unavailable'; exit 2; }
+          echo "::add-mask::$AUTOMATION_KEY"
+          rm -rf /tmp/tv-profile/Default/Cache /tmp/tv-profile/Default/Code\ Cache \
+            /tmp/tv-profile/Default/GPUCache /tmp/tv-profile/ShaderCache \
+            /tmp/tv-profile/GrShaderCache /tmp/tv-profile/GraphiteDawnCache 2>/dev/null || true
+          tar -czf /tmp/tv-profile.tar.gz -C /tmp tv-profile
+          mkdir -p ops/tradingview
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in /tmp/tv-profile.tar.gz \
+            -out ops/tradingview/profile.tar.gz.aes
+          rm -f ops/tradingview/connection.enc.b64
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A ops/tradingview
+          if ! git diff --cached --quiet; then
+            git commit -m 'persist encrypted TradingView browser profile' >/dev/null
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main >/dev/null
+          fi
+          echo 'TV_PROFILE_PERSISTED=true'
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          pkill -f tradingview-mobile-login.mjs || true
+          pkill -f cloudflared || true
+          rm -f /tmp/tv-mobile-login-url.txt /tmp/tv-profile.tar.gz /tmp/tv-session-confirmed
