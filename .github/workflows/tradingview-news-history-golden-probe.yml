@@ -1,0 +1,67 @@
+name: TradingView News History Golden Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-news-history-golden-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session and canonical source
+        run: |
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Go to Nov 20 2025 and inspect strategy data
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const src=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']}); const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']}); const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(7000);
+            await p.keyboard.press('Alt+G'); await p.waitForTimeout(1200);
+            const date=p.locator('input[placeholder="YYYY-MM-DD"]').last(); await date.fill('2025-11-20');
+            const time=p.locator('input.time-input-input').last(); if(await time.count()) await time.fill('12:00');
+            const go=p.locator('[data-name="submit-button"]').last(); await go.click(); await p.waitForTimeout(12000);
+            console.log('NEWS_GOTO_URL='+p.url()); await p.screenshot({path:'/tmp/after-goto.png',fullPage:true});
+
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(2500);
+            const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),src); await p.keyboard.press('Control+V'); await p.waitForTimeout(1500); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(30000);
+            const got=p.getByRole('button',{name:'Got it',exact:true}); if(await got.isVisible().catch(()=>false)) await got.click().catch(()=>{});
+            const btns=dlg.locator('button'); for(let i=0;i<await btns.count();i++){const q=btns.nth(i);const a=((await q.getAttribute('aria-label'))||'')+' '+((await q.getAttribute('title'))||'');if(/close/i.test(a)){await q.click().catch(()=>{});break;}} if(await dlg.isVisible().catch(()=>false)) await p.keyboard.press('Escape').catch(()=>{}); await p.waitForTimeout(2500);
+
+            const trades=p.locator('[title="Trades"]').first(); console.log('NEWS_TRADES_CONTROL='+(await trades.count()?'YES':'NO')); if(await trades.count()) await trades.evaluate(e=>(e.closest('button')||e).click()); await p.waitForTimeout(4000);
+            let body=await p.locator('body').innerText(); const lines=body.split('\n').map(s=>s.trim()).filter(Boolean); const li=lines.findIndex(x=>x==='List of trades'); const seg=li>=0?lines.slice(li,li+500):[];
+            console.log('NEWS_LIST_PRESENT='+(li>=0?'YES':'NO')); console.log('NEWS_LIST_SEG='+JSON.stringify(seg.slice(0,180))); fs.writeFileSync('/tmp/news-list.txt',seg.join('\n'));
+            const rangeEls=await p.locator('[data-qa-id="date-range-menu"],[aria-label*="2025"],[aria-label*="2026"]').evaluateAll(es=>es.map(e=>({text:(e.innerText||e.textContent||'').trim(),aria:e.getAttribute('aria-label')||'',outer:e.outerHTML.slice(0,2200)}))); console.log('NEWS_RANGES='+JSON.stringify(rangeEls)); fs.writeFileSync('/tmp/news-ranges.json',JSON.stringify(rangeEls,null,2));
+            const mentions=lines.filter(x=>/Nov|Dec|2025|2026|List of trades|No data|No trades|Upgrade|Deep Backtesting/i.test(x)).slice(0,200); for(const x of mentions) console.log('NEWS_MENTION='+JSON.stringify(x));
+            await p.screenshot({path:'/tmp/news-strategy.png',fullPage:true}); await b.close();
+          })().catch(e=>{console.error('NEWS_HISTORY_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-news-history-${{ github.run_id }}
+          path: |
+            /tmp/after-goto.png
+            /tmp/news-strategy.png
+            /tmp/news-list.txt
+            /tmp/news-ranges.json
+          retention-days: 2
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
