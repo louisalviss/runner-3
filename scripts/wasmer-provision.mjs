@@ -96,10 +96,12 @@ async function main(){
     let blocked=blockedReason(text,html);
     if(blocked){result.status='blocked_'+blocked;result.detail='signup_entry';save();return;}
 
-    const personal=page.getByRole('button',{name:/personal/i}).first();
-    await personal.waitFor({state:'visible',timeout:10000}).catch(()=>{});
-    if(!(await personal.count())){result.status='blocked_signup_flow';result.detail=await safePageState(page,'personal_missing');save();return;}
-    await personal.click();
+    // Wasmer currently renders Hobby as a selectable card/text, not always as a semantic button.
+    const personalButton=page.getByRole('button',{name:/personal/i}).first();
+    const personalCard=page.getByText(/i'?m working on personal projects|personal projects|^hobby$/i).first();
+    if(await personalButton.count()) await personalButton.click().catch(()=>{});
+    else if(await personalCard.count()) await personalCard.click().catch(()=>{});
+    // If neither locator exists, Hobby may already be the default; Continue is authoritative.
     await page.waitForTimeout(500);
 
     const cont=page.getByRole('button',{name:/continue/i}).first();
