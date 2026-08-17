@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: runner3-wordpress
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: wordpress-site
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
+    healthCheckPath: /wp-login.php
+    envVars:
+      - key: TIDB_HOST
+        sync: false
+      - key: TIDB_PORT
+        value: "4000"
+      - key: TIDB_USER
+        sync: false
+      - key: TIDB_PASSWORD
+        sync: false
+      - key: TIDB_DB_NAME
+        value: test
