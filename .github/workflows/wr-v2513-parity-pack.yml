@@ -1,0 +1,61 @@
+name: Wave Rider v2.5.13 Parity Pack
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - wave-rider-verify/reference_verify_v2513_exact.py
+      - formal-tests/wr_v2513_parity_pack.py
+      - .github/workflows/wr-v2513-parity-pack.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT, BATUSDT, ADAUSDT, NEARUSDT, ZECUSDT, SOLUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: Static check
+        run: python -m py_compile wave-rider-verify/reference_verify.py wave-rider-verify/reference_verify_v2513_exact.py formal-tests/wr_v2513_parity_pack.py
+      - name: Run exact parity sample
+        run: python formal-tests/wr_v2513_parity_pack.py --symbol ${{ matrix.symbol }} --outdir parity_out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2513-parity-${{ matrix.symbol }}
+          path: parity_out/*
+          retention-days: 7
+
+  merge:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr2513-parity-*
+          path: parity_all
+          merge-multiple: true
+      - name: Merge parity report
+        run: python formal-tests/wr_v2513_parity_pack.py --merge parity_all --merged-out wr_v2513_parity_pack.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-v2513-parity-pack
+          path: |
+            wr_v2513_parity_pack.json
+            wr_v2513_parity_pack.csv
+          retention-days: 7
