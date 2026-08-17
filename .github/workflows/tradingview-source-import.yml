@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 8
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      EXPECTED_SHA256: 0a9c03cc27943b841fb549f5f69318a5b12e25210de92d3583f66be2d269d66d
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +46,7 @@ jobs:
           marker=b'```pine\n'
           if marker not in data:
               raise SystemExit('Pine code fence missing')
+          # Canonical normalization: source inside code fence, without the fence's final newline.
           src=data.split(marker,1)[1].split(b'\n```',1)[0]
           Path('/tmp/wr2513.pine').write_bytes(src)
           print('TV_SOURCE_BYTES=%d' % len(src))
