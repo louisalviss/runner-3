@@ -49,7 +49,8 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s\n' 'pntr:$apr1$KAhwnbs.$h2SLBhCRr2oQaa/e203t//' | sudo tee /tmp/pntr.htpasswd >/dev/null
-          sudo chmod 600 /tmp/pntr.htpasswd
+          sudo chown root:www-data /tmp/pntr.htpasswd
+          sudo chmod 640 /tmp/pntr.htpasswd
 
           sudo tee /etc/nginx/sites-available/pntr-remote >/dev/null <<'NGINX'
           server {
