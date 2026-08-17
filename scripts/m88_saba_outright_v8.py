@@ -68,8 +68,7 @@ sports_fn=r'''def click_drawer_sports(frame):
 
 more_fn=r'''def click_more(frame):
     def snapshot():
-        try:
-            return {'drawer':frame.locator('.side-nav').inner_text(timeout=4000)[:1000000],'body':frame.locator('body').inner_text(timeout=4000)[:1500000]}
+        try:return {'drawer':frame.locator('.side-nav').inner_text(timeout=4000)[:1000000],'body':frame.locator('body').inner_text(timeout=4000)[:1500000]}
         except Exception:return {'drawer':'','body':''}
     before=snapshot();res['more_before_text']=before['drawer'];attempts=[]
     try:
@@ -95,6 +94,39 @@ more_fn=r'''def click_more(frame):
     res['more_attempts']=attempts;after=snapshot();res['more_after_text']=after['drawer'];res['more_clicked']=bool(re.search(r'\bOutright\b',after['body'],re.I));return res['more_clicked']
 '''
 
-for name,repl,next_name in [('open_drawer',open_fn,'drawer_switch_state'),('click_drawer_sports',sports_fn,'click_more'),('click_more',more_fn,'collect_menu_items')]:
-    a=src.index(f'def {name}(frame):');b=src.index(f'\ndef {next_name}(frame):',a);src=src[:a]+repl+src[b:]
+find_fn=r'''def find_and_click_outright(frame):
+    candidates=[]
+    try:
+        loc=frame.get_by_text(re.compile(r'^\s*Outright(?:\s+\d+)?\s*$',re.I))
+        for i in range(min(loc.count(),200)):
+            el=loc.nth(i)
+            try:
+                if not el.is_visible():continue
+                bb=el.bounding_box()
+                if not bb:continue
+                info=el.evaluate("e=>({text:(e.innerText||e.textContent||'').trim().replace(/\\s+/g,' '),tag:e.tagName,cls:String(e.className||'').slice(0,400),html:(e.outerHTML||'').slice(0,1000)})")
+                candidates.append((i,bb,info,el))
+            except Exception:pass
+    except Exception as ex:res['outright_global_find_error']=type(ex).__name__
+    res['outright_candidates']=[{'box':bb,'info':info} for _,bb,info,_ in candidates[:30]]
+    for _,bb,info,el in candidates:
+        attempts=[]
+        for name,fn in [
+          ('normal-click',lambda:el.click(force=True,timeout=6000)),
+          ('dom-click',lambda:el.evaluate('e=>e.click()')),
+          ('react',lambda:el.evaluate("e=>{for(let n=e;n;n=n.parentElement){let k=Object.keys(n).find(x=>x.startsWith('__reactProps$'));if(!k)continue;let p=n[k]||{};for(let z of ['onClick','onTouchEnd','onPointerUp'])if(typeof p[z]=='function'){p[z]({currentTarget:n,target:e,preventDefault(){},stopPropagation(){},nativeEvent:{}});return z}}return null}")),
+        ]:
+            try:
+                r=fn();frame.page.wait_for_timeout(1200);attempts.append({'strategy':name,'result':r})
+                res['outright_label']=info.get('text','Outright');res['outright_clicked']=True;res['outright_click_strategy']=name;res['outright_click_attempts']=attempts;return True
+            except Exception as ex:attempts.append({'strategy':name,'error':type(ex).__name__})
+        res.setdefault('outright_failed_candidates',[]).append({'info':info,'attempts':attempts})
+    res['outright_clicked']=False;return False
+'''
+
+for name,repl,next_name in [('open_drawer',open_fn,'drawer_switch_state'),('click_drawer_sports',sports_fn,'click_more'),('click_more',more_fn,'collect_menu_items'),('find_and_click_outright',find_fn,'with sync_playwright')]:
+    a=src.index(f'def {name}(frame):')
+    marker=f'\n{next_name}' if next_name.startswith('with ') else f'\ndef {next_name}(frame):'
+    b=src.index(marker,a)
+    src=src[:a]+repl+src[b:]
 exec(compile(src,'m88_v8_runtime.py','exec'),{'__name__':'__main__','__file__':'m88_v8_runtime.py'})
