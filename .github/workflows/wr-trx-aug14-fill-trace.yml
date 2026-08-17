@@ -1,0 +1,103 @@
+name: WR TRX Aug14 Fill Trace
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-trx-aug14-fill-trace.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-day-holiday-temp
+      - name: Trace TRX state machine around Aug14 19:20 signal
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python <<'PY'
+          import csv,io,json,zipfile,requests,importlib.util,sys,math
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('wrref',Path('wave-rider-verify/reference_verify.py')); wr=importlib.util.module_from_spec(spec); sys.modules[spec.name]=wr; spec.loader.exec_module(wr)
+          # Pine tie policy candidate: rightmost equal extreme survives.
+          def piv(v,left,right,high=True):
+              base=[None]*len(v); ties=0
+              for conf in range(left+right,len(v)):
+                  c=conf-right; x=v[c]; L=v[c-left:c]; R=v[c+1:c+right+1]
+                  ok=(all(x>=y for y in L) and all(x>y for y in R)) if high else (all(x<=y for y in L) and all(x<y for y in R))
+                  if ok: base[conf]=x
+              return [None]+base[:-1],ties
+          wr.pivots=piv; wr.SYMBOL='TRXUSDT'
+          sess=requests.Session(); sess.headers['User-Agent']='wr-trx-fill-trace/1.0'; bars=[]; prices=[]; d=date(2026,7,1)
+          while d<=date(2026,8,16):
+              ds=d.isoformat(); r=sess.get(f'https://data.binance.vision/data/futures/um/daily/klines/TRXUSDT/5m/TRXUSDT-5m-{ds}.zip',timeout=40); r.raise_for_status()
+              with zipfile.ZipFile(io.BytesIO(r.content)) as z: text=z.read(z.namelist()[0]).decode()
+              for row in csv.reader(io.StringIO(text)):
+                  if row and row[0].isdigit(): bars.append(wr.Bar(int(row[0]),int(row[6]),*map(float,row[1:5]))); prices.extend(row[1:5])
+              d+=timedelta(days=1)
+          ded={x.ot:x for x in bars}; bars=[ded[k] for k in sorted(ded)]; tick=wr.infer_tick(prices); ind,_,_=wr.calc_ind(bars)
+          st=int(datetime(2026,7,27,tzinfo=timezone.utc).timestamp()*1000); en=int((datetime(2026,8,17,tzinfo=timezone.utc)-timedelta(milliseconds=1)).timestamp()*1000)
+          trace_a=int(datetime(2026,8,14,18,30,tzinfo=timezone.utc).timestamp()*1000); trace_b=int(datetime(2026,8,14,20,0,tzinfo=timezone.utc).timestamp()*1000)
+          eq=wr.INIT; pending=active=None; entry_t=None; trades=[]
+          def pdesc(p):
+              if p is None:return None
+              return {'d':p.d,'e':p.e,'s':p.s,'t':p.t,'sig_i':p.sig_i,'sig_t':wr.iso(p.sig_t),'qty':p.qty}
+          def close_trade(i,reason,px):
+              nonlocal_dummy=None
+          # state machine copied from engine, but logs every transition near target.
+          for i,x in enumerate(bars):
+              if x.ct>end_ms if False else False: pass
+              if x.ct>en: break
+              closed=False
+              if active is not None:
+                  r,px=wr.next_bracket(active,x,None)
+                  if r:
+                      cr=wr.TP_R if r=='TP' else -1.0
+                      eq+=cr*active.risk; trades.append((active.d,wr.iso(entry_t),wr.iso(x.ot),r,px)); active=None; entry_t=None; closed=True
+                      if trace_a<=x.ot<=trace_b: print('TRACE_CLOSE_BRACKET='+json.dumps({'bar':wr.iso(x.ot),'reason':r,'px':px,'eq':eq}))
+              if active is None and pending is not None and i==pending.sig_i+1 and not closed:
+                  fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)
+                  if trace_a<=x.ot<=trace_b: print('TRACE_FILL_CHECK='+json.dumps({'bar':wr.iso(x.ot),'ohlc':[x.o,x.h,x.l,x.c],'pending':pdesc(pending),'fill':fill}))
+                  if fill:
+                      active=pending; pending=None; entry_t=x.ot
+                      if trace_a<=x.ot<=trace_b: print('TRACE_FILLED='+json.dumps({'bar':wr.iso(x.ot),'active':pdesc(active)}))
+                      r,px=wr.next_bracket(active,x,active.e)
+                      if r:
+                          cr=wr.TP_R if r=='TP' else -1.0; eq+=cr*active.risk; trades.append((active.d,wr.iso(entry_t),wr.iso(x.ot),r,px)); active=None; entry_t=None; closed=True
+                          if trace_a<=x.ot<=trace_b: print('TRACE_SAMEBAR_CLOSE='+json.dumps({'bar':wr.iso(x.ot),'reason':r,'px':px,'eq':eq}))
+              allowed,sexit=wr.session_flags(x.ct,5*60000)
+              if active is not None and not closed:
+                  z=ind[i]; le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']; se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+                  if sexit or le or se:
+                      reason='SESSION' if sexit else 'EMA'; px=x.c; cr=((px-active.e)*(1 if active.d==1 else -1)*active.qty/active.risk); eq+=cr*active.risk; trades.append((active.d,wr.iso(entry_t),wr.iso(x.ot),reason,px)); active=None; entry_t=None; closed=True
+                      if trace_a<=x.ot<=trace_b: print('TRACE_CLOSE_MARKET='+json.dumps({'bar':wr.iso(x.ot),'reason':reason,'px':px,'eq':eq}))
+              if pending is not None and i>=pending.sig_i+1 and active is None:
+                  if trace_a<=x.ot<=trace_b: print('TRACE_PENDING_EXPIRE='+json.dumps({'bar':wr.iso(x.ot),'pending':pdesc(pending)}))
+                  pending=None
+              if x.ct<st or x.ct>en: continue
+              z=ind[i]
+              lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None
+              sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+              nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']
+              ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+              if trace_a<=x.ot<=trace_b:
+                  print('TRACE_BAR='+json.dumps({'bar':wr.iso(x.ot),'ct':wr.iso(x.ct),'ohlc':[x.o,x.h,x.l,x.c],'active':pdesc(active),'pending':pdesc(pending),'closed':closed,'allowed':allowed,'nl':nl,'ns':ns,'res':z['res'],'sup':z['sup'],'ha':z['ha'],'hb':z['hb'],'ag':z['ag'],'ar':z['ar'],'chop_ok':z['chop_ok'],'sra_ok':z['sra_ok']}))
+              if active is None and pending is None and not closed and (nl or ns):
+                  if nl: d0=1; e=x.h+tick; s=x.l-tick; t=e+wr.TP_R*(e-s)
+                  else: d0=-1; e=x.l-tick; s=x.h+tick; t=e-wr.TP_R*(s-e)
+                  raw=(eq*wr.RISK_PCT/100)/abs(e-s); q=math.floor(raw); risk=abs(e-s)*q
+                  if q>0 and risk>0:
+                      pending=wr.Plan(d0,e,s,t,risk,q,i,x.ct,x.h,x.l)
+                      if trace_a<=x.ot<=trace_b: print('TRACE_SIGNAL_PLAN='+json.dumps({'bar':wr.iso(x.ot),'pending':pdesc(pending),'eq':eq}))
+          print('TRACE_TOTAL_TRADES='+str(len(trades)))
+          for j,t in enumerate(trades,1):
+              if '2026-08-14' in t[1] or '2026-08-14' in t[2]: print('TRACE_AUG14_TRADE='+json.dumps({'n':j,'t':t}))
+          PY
