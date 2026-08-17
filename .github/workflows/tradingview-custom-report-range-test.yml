@@ -1,0 +1,76 @@
+name: TradingView Custom Report Range Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-custom-report-range-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+      - name: Apply 2025-01-01 to 2026-08-14 report range
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium']; const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')); const source=fs.readFileSync('/tmp/wr.pine','utf8');
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']}); const p=await c.newPage(); p.setDefaultTimeout(15000);
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(9000);
+            const pine=p.locator('[data-name="pine-dialog-button"]').first(); await pine.click(); await p.waitForTimeout(3000); const dlg=p.locator('[data-name="pine-dialog"]'); const ta=dlg.locator('.monaco-editor textarea').last(); await ta.focus(); await p.keyboard.press('Control+A'); await p.evaluate(async s=>navigator.clipboard.writeText(s),source); await p.keyboard.press('Control+V'); await p.waitForTimeout(2000); await dlg.getByRole('button',{name:'Add to chart',exact:true}).first().click(); await p.waitForTimeout(25000);
+            const range=p.locator('[data-qa-id="date-range-menu"]').first(); console.log('TV_RANGE_MENU='+(await range.isVisible().catch(()=>false)?'YES':'NO')); await range.click(); await p.waitForTimeout(1500);
+            const custom=p.getByText('Custom date range',{exact:true}).first(); console.log('TV_CUSTOM_OPTION='+(await custom.isVisible().catch(()=>false)?'YES':'NO')); if(await custom.isVisible().catch(()=>false)) await custom.click(); await p.waitForTimeout(2000);
+            const inputs=await p.locator('input').evaluateAll(es=>es.map((e,i)=>({i,type:e.type,value:e.value,placeholder:e.placeholder||'',aria:e.getAttribute('aria-label')||'',name:e.name||'',outer:e.outerHTML.slice(0,1200)})));
+            for(const x of inputs) console.log('TV_CUSTOM_INPUT='+JSON.stringify(x));
+            fs.writeFileSync('/tmp/custom-inputs.json',JSON.stringify(inputs,null,2));
+            const body1=await p.locator('body').innerText(); const relevant=body1.split('\n').map(s=>s.trim()).filter(Boolean).filter(s=>/custom|date range|from|to|start|end|cancel|apply|2025|2026|available|history|upgrade|deep/i.test(s)).slice(0,160); for(const x of relevant) console.log('TV_CUSTOM_LINE='+JSON.stringify(x));
+            // Try common date inputs only if we can identify two editable fields; avoid blind mutation of unrelated inputs.
+            const editable=p.locator('input:not([disabled]):not([readonly])'); const count=await editable.count(); let dateIdx=[];
+            for(let i=0;i<count;i++){const el=editable.nth(i); const meta=((await el.getAttribute('placeholder'))||'')+' '+((await el.getAttribute('aria-label'))||'')+' '+((await el.getAttribute('value'))||''); if(/date|2026|2025|mm|dd|yyyy/i.test(meta)) dateIdx.push(i);}
+            console.log('TV_DATE_INPUT_INDEXES='+JSON.stringify(dateIdx));
+            let applied=false;
+            if(dateIdx.length>=2){
+              const a=editable.nth(dateIdx[0]), z=editable.nth(dateIdx[1]);
+              const tryVals=[['2025-01-01','2026-08-14'],['01/01/2025','08/14/2026']];
+              for(const vals of tryVals){
+                try{await a.fill(vals[0]); await z.fill(vals[1]); await p.waitForTimeout(500); const apply=p.getByRole('button',{name:/Apply|OK|Set/i}).last(); if(await apply.isVisible().catch(()=>false)){await apply.click(); applied=true; break;}}catch(e){}
+              }
+            }
+            console.log('TV_CUSTOM_APPLY_ATTEMPT='+(applied?'YES':'NO')); await p.waitForTimeout(applied?25000:1000);
+            const body2=await p.locator('body').innerText(); const target=/Jan 1, 2025\s+—\s+Aug 14, 2026|Jan 01, 2025\s+—\s+Aug 14, 2026/i.test(body2);
+            console.log('TV_TARGET_RANGE_VISIBLE='+(target?'YES':'NO'));
+            const ranges=body2.split('\n').map(s=>s.trim()).filter(s=>/2025.*2026|2026.*2025|available chart range|entire history|custom date range|upgrade|deep backtest/i.test(s)).slice(0,100); for(const x of ranges) console.log('TV_RESULT_RANGE='+JSON.stringify(x)); fs.writeFileSync('/tmp/custom-result.txt',ranges.join('\n'));
+            await p.screenshot({path:'/tmp/custom-range.png',fullPage:true}); await b.close();
+          })().catch(e=>{console.error('TV_CUSTOM_RANGE_ERROR='+e.stack);process.exit(8)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tradingview-custom-range-${{ github.run_id }}
+          path: |
+            /tmp/custom-inputs.json
+            /tmp/custom-result.txt
+            /tmp/custom-range.png
+          retention-days: 1
+          if-no-files-found: warn
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr.pine
