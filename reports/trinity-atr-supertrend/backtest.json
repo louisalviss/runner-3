@@ -1,0 +1,33 @@
+{
+  "generated_utc": "2026-08-17T22:42:53.603123+00:00",
+  "data_source": "Binance USDT-M Futures public /fapi/v1/klines",
+  "interval": "3m",
+  "report_days": 90,
+  "report_start_utc": "2026-05-19T20:00:00+00:00",
+  "report_end_utc": "2026-08-17T20:00:00+00:00",
+  "defaults_replicated": {
+    "ST1": "3m",
+    "ST2": "60m",
+    "ST3": "240m",
+    "ATR_length": 10,
+    "multiplier": 1.0,
+    "SL_ATR": 1.0,
+    "TP_ATR": 1.0,
+    "entry_mode": "triple"
+  },
+  "cost_assumption": {
+    "per_side_fraction": 0.0005,
+    "round_trip_bps_approx": 10.0
+  },
+  "symbols": {
+    "SOLUSDT": {
+      "error": "GET failed after 5 tries: https://fapi.binance.com/fapi/v1/klines?symbol=SOLUSDT&interval=3m&startTime=1778011200000&endTime=1786996799999&limit=1500: HTTP Error 451: "
+    },
+    "ETHUSDT": {
+      "error": "GET failed after 5 tries: https://fapi.binance.com/fapi/v1/klines?symbol=ETHUSDT&interval=3m&startTime=1778011200000&endTime=1786996799999&limit=1500: HTTP Error 451: "
+    },
+    "XRPUSDT": {
+      "error": "GET failed after 5 tries: https://fapi.binance.com/fapi/v1/klines?symbol=XRPUSDT&interval=3m&startTime=1778011200000&endTime=1786996799999&limit=1500: HTTP Error 451: "
+    }
+  }
+}

@@ -1,0 +1,60 @@
+//@version=5
+strategy("Trinity ATR ST - confirmed HTF audit", overlay=true, pyramiding=0,
+     process_orders_on_close=false, commission_type=strategy.commission.percent, commission_value=0.05)
+
+atrLen1 = input.int(10, "ST1 ATR Length", minval=1)
+mult1   = input.float(1.0, "ST1 Multiplier", minval=0.1, step=0.1)
+tf2     = input.timeframe("60", "ST2 timeframe")
+tf3     = input.timeframe("240", "ST3 timeframe")
+atrLen2 = input.int(10, "ST2 ATR Length", minval=1)
+mult2   = input.float(1.0, "ST2 Multiplier", minval=0.1, step=0.1)
+atrLen3 = input.int(10, "ST3 ATR Length", minval=1)
+mult3   = input.float(1.0, "ST3 Multiplier", minval=0.1, step=0.1)
+slMult  = input.float(1.0, "SL x ATR", minval=0.1, step=0.1)
+tpMult  = input.float(1.0, "TP x ATR", minval=0.1, step=0.1)
+
+f_supertrend(_high, _low, _close, _len, _mult) =>
+    atr = ta.atr(_len)
+    hl2 = (_high + _low) / 2
+    up = hl2 - _mult * atr
+    dn = hl2 + _mult * atr
+    up := _close[1] > up[1] ? math.max(up, up[1]) : up
+    dn := _close[1] < dn[1] ? math.min(dn, dn[1]) : dn
+    var int dir = 1
+    dir := _close > dn[1] ? -1 : _close < up[1] ? 1 : nz(dir[1], 1)
+    st = dir == -1 ? up : dn
+    [st, dir]
+
+f_supertrend_prev(_len, _mult) =>
+    [s, d] = f_supertrend(high, low, close, _len, _mult)
+    [s[1], d[1]]
+
+[st1, dir1] = f_supertrend(high, low, close, atrLen1, mult1)
+[st2, dir2] = request.security(syminfo.tickerid, tf2, f_supertrend_prev(atrLen2, mult2), lookahead=barmerge.lookahead_on)
+[st3, dir3] = request.security(syminfo.tickerid, tf3, f_supertrend_prev(atrLen3, mult3), lookahead=barmerge.lookahead_on)
+atrHTF = request.security(syminfo.tickerid, tf2, ta.atr(atrLen2)[1], lookahead=barmerge.lookahead_on)
+
+longSignal  = dir1 == -1 and dir1[1] == 1 and dir2 == -1 and dir3 == -1
+shortSignal = dir1 == 1 and dir1[1] == -1 and dir2 == 1 and dir3 == 1
+
+var float riskATR = na
+if strategy.position_size == 0
+    if longSignal
+        riskATR := atrHTF
+        strategy.entry("L", strategy.long)
+    else if shortSignal
+        riskATR := atrHTF
+        strategy.entry("S", strategy.short)
+
+if strategy.position_size > 0 and not na(riskATR)
+    strategy.exit("LX", "L", stop=strategy.position_avg_price - riskATR * slMult,
+         limit=strategy.position_avg_price + riskATR * tpMult)
+if strategy.position_size < 0 and not na(riskATR)
+    strategy.exit("SX", "S", stop=strategy.position_avg_price + riskATR * slMult,
+         limit=strategy.position_avg_price - riskATR * tpMult)
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    riskATR := na
+
+plot(st1, "ST1", color=dir1 == -1 ? color.aqua : color.fuchsia)
+plot(st2, "ST2 confirmed", color=dir2 == -1 ? color.blue : color.purple)
+plot(st3, "ST3 confirmed", color=dir3 == -1 ? color.lime : color.red)
