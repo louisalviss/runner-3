@@ -1,0 +1,84 @@
+name: SABA B2B Demo Probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/saba-b2b-demo-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tooling
+        run: python3 -m pip install --user -q playwright
+      - name: Inspect official SABA B2B public demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re
+          from playwright.sync_api import sync_playwright
+
+          out={'source':'https://www.sabab2b.com/en-US/freetrial','controls':[],'clicks':[]}
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True)
+              c=b.new_context(locale='en-US',viewport={'width':1440,'height':1000})
+              pg=c.new_page()
+              pg.goto(out['source'],wait_until='domcontentloaded',timeout=45000)
+              pg.wait_for_timeout(2500)
+              # Enumerate visible links/buttons, including onclick/href.
+              els=pg.locator('a,button,[role="button"]')
+              for i in range(min(els.count(),300)):
+                  e=els.nth(i)
+                  try:
+                      if not e.is_visible(): continue
+                      txt=(e.inner_text() or '').strip()
+                      href=e.get_attribute('href') or ''
+                      onclick=e.get_attribute('onclick') or ''
+                      title=e.get_attribute('title') or ''
+                      if re.search(r'try|play|demo|galaxy|compact|desktop',txt+' '+title+' '+href+' '+onclick,re.I):
+                          out['controls'].append({'text':txt[:150],'href':href[:500],'onclick':onclick[:500],'title':title[:150],'tag':e.evaluate('x=>x.tagName')})
+                  except: pass
+
+              # Click visible Try Now controls, capture popups/navigation only; no betting actions.
+              tries=pg.get_by_text(re.compile(r'^\s*Try Now\s*$',re.I))
+              for i in range(min(tries.count(),3)):
+                  e=tries.nth(i)
+                  rec={'index':i}
+                  try:
+                      before=pg.url
+                      popup=None
+                      try:
+                          with pg.expect_popup(timeout=3000) as pi:
+                              e.click(timeout=5000)
+                          popup=pi.value
+                      except Exception:
+                          try: e.click(timeout=5000)
+                          except: pass
+                      pg.wait_for_timeout(3500)
+                      target=popup or pg
+                      rec['before']=before
+                      rec['url']=target.url
+                      try: rec['title']=target.title()[:300]
+                      except: rec['title']=''
+                      try:
+                          body=target.locator('body').inner_text(timeout=8000)
+                      except: body=''
+                      rec['body_hint']=body[:5000]
+                      rec['has_outright']=bool(re.search(r'outright|futures|winner|champion|relegat|top\s*4|top\s*scorer|goalscorer',body,re.I))
+                      if popup:
+                          try: popup.close()
+                          except: pass
+                      elif pg.url!=before:
+                          pg.goto(out['source'],wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(1500)
+                  except Exception as ex:
+                      rec['error']=type(ex).__name__+': '+str(ex)[:300]
+                  out['clicks'].append(rec)
+              b.close()
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
