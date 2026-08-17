@@ -5,74 +5,48 @@ on:
       - '.github/workflows/youtube-test-olifZrb263k.yml'
 
 jobs:
-  browser-test:
+  embed-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Install selenium
-        run: python -m pip install -q -U selenium pillow
-      - name: Open YouTube in Chrome and capture player
+        run: python -m pip install -q -U selenium
+      - name: Test official YouTube nocookie embed
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
-          google-chrome --version | tee evidence/chrome-version.txt
           python - <<'PY'
           import time, json, pathlib
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.common.by import By
-          from selenium.webdriver.common.keys import Keys
-
           out=pathlib.Path('evidence')
-          url='https://youtu.be/olifZrb263k?si=812lEQiMA0kD8ULu'
-          opt=Options()
-          opt.add_argument('--headless=new')
-          opt.add_argument('--no-sandbox')
-          opt.add_argument('--disable-dev-shm-usage')
-          opt.add_argument('--autoplay-policy=no-user-gesture-required')
-          opt.add_argument('--window-size=1280,900')
-          opt.add_argument('--lang=en-US')
+          url='https://www.youtube-nocookie.com/embed/olifZrb263k?autoplay=1&mute=1'
+          opt=Options(); opt.page_load_strategy='eager'
+          for x in ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required','--window-size=1280,800']:
+              opt.add_argument(x)
           d=webdriver.Chrome(options=opt)
-          result={}
+          d.set_page_load_timeout(15)
+          r={}
           try:
-              d.get(url)
+              try: d.get(url)
+              except Exception as e: r['load_error']=repr(e)
               time.sleep(4)
-              result['title']=d.title
-              result['url']=d.current_url
-              result['page_source_head']=d.page_source[:5000]
-              d.save_screenshot(str(out/'page_00.png'))
-              # Try normal player controls and keyboard shortcut.
-              try:
-                  body=d.find_element(By.TAG_NAME,'body')
-                  body.send_keys('k')
-              except Exception as e:
-                  result['key_error']=repr(e)
-              time.sleep(3)
-              d.save_screenshot(str(out/'page_03.png'))
-              # Pull HTML5 video state if player exists.
-              state=d.execute_script("""
-                const v=document.querySelector('video');
-                if(!v) return {video:false};
-                return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};
-              """)
-              result['state_03']=state
+              d.save_screenshot(str(out/'embed_04.png'))
+              r['title']=d.title; r['url']=d.current_url
+              r['state_04']=d.execute_script("""const v=document.querySelector('video'); if(!v)return {video:false}; v.muted=true; v.play().catch(()=>{}); return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};""")
               time.sleep(5)
-              d.save_screenshot(str(out/'page_08.png'))
-              result['state_08']=d.execute_script("""
-                const v=document.querySelector('video');
-                if(!v) return {video:false};
-                return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};
-              """)
+              d.save_screenshot(str(out/'embed_09.png'))
+              r['state_09']=d.execute_script("""const v=document.querySelector('video'); if(!v)return {video:false}; return {video:true,currentTime:v.currentTime,duration:v.duration,paused:v.paused,readyState:v.readyState,networkState:v.networkState,src:v.currentSrc};""")
           finally:
-              (out/'browser.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+              (out/'embed.json').write_text(json.dumps(r,ensure_ascii=False,indent=2),encoding='utf-8')
               d.quit()
           PY
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-olifZrb263k-browser-evidence
+          name: youtube-olifZrb263k-embed-evidence
           path: evidence/
           retention-days: 1
