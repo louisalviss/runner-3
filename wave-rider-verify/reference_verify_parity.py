@@ -27,7 +27,7 @@ Current verified 5m golden block through 2026-08-16:
 - BNBUSDT: 14/14 entry/exit execution fields, quantity 14/14, +10.92R.
 - TRXUSDT: 14/14 entry/exit execution fields, quantity 14/14, +12.40R.
 
-Embedded-news behavior and unknown-symbol contract metadata remain outside the
+Unknown-symbol contract metadata and historical NEWS/SESSION trade examples remain outside the
 current BNB/TRX 2026 golden block and must be verified before broader historical
 research is re-enabled.
 """
@@ -49,6 +49,41 @@ VERIFIED_CONTRACT_META = {
     "BNBUSDT": (0.01, 1.0),
     "TRXUSDT": (1.0, 1.0),
 }
+
+# Canonical v2.5.13 embedded high-impact news sample. Pine timestamps use
+# America/New_York; all four sample events are in EST (UTC-5).
+NEWS_FILTER = True
+NEWS_EXIT_BEFORE_MIN = 15
+NEWS_RESUME_AFTER_MIN = 15
+NEWS_TIMES_UTC_MS = tuple(
+    int(x.timestamp()*1000) for x in (
+        datetime(2025,11,20,13,30,tzinfo=timezone.utc),
+        datetime(2025,12,10,19,0,tzinfo=timezone.utc),
+        datetime(2025,12,16,13,30,tzinfo=timezone.utc),
+        datetime(2025,12,18,13,30,tzinfo=timezone.utc),
+    )
+)
+
+def _news_locked_at(t: int) -> bool:
+    if not NEWS_FILTER:
+        return False
+    pre=NEWS_EXIT_BEFORE_MIN*60000
+    post=NEWS_RESUME_AFTER_MIN*60000
+    return any(t>=e-pre and t<e+post for e in NEWS_TIMES_UTC_MS)
+
+def _news_exit_at_bar_close(tc: int, chart_ms: int) -> bool:
+    if not NEWS_FILTER:
+        return False
+    pre=NEWS_EXIT_BEFORE_MIN*60000
+    for e in NEWS_TIMES_UTC_MS:
+        cutoff=e-pre
+        if (tc<cutoff and tc+chart_ms>=cutoff) or (tc>=cutoff and tc<e):
+            return True
+    return False
+
+def _news_safe_for_setup(tc: int, chart_ms: int) -> bool:
+    # Pine: not f_newsLockedAt(time_close) and not f_newsLockedAt(time_close+chartMs)
+    return not _news_locked_at(tc) and not _news_locked_at(tc+chart_ms)
 
 raw = FROZEN.read_bytes()
 git_blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
@@ -134,7 +169,7 @@ def _parity_run(tf,bars,tick,start_ms,end_ms):
     chart_ms=tf*60000
     eq=ref.INIT; peak=ref.INIT
     pending=active=None; entry_t=None; trades=[]
-    diag=dict(signals=0,pending_expired=0,pending_filled=0,ambiguous=0,tp=0,sl=0,ema=0,session=0,
+    diag=dict(signals=0,pending_expired=0,pending_filled=0,ambiguous=0,tp=0,sl=0,ema=0,news=0,session=0,
               pivot_high_ties=pht,pivot_low_ties=plt)
 
     prod_cur_ls=prod_max_ls=0; prod_maxdd=0.0
@@ -203,12 +238,16 @@ def _parity_run(tf,bars,tick,start_ms,end_ms):
 
         tc=x.ct+1
         allowed,sexit=ref.session_flags(tc,chart_ms)
+        news_exit=_news_exit_at_bar_close(tc,chart_ms)
         if active is not None and not closed:
             z=ind[i]
             le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']
             se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
+            # Canonical priority: SESSION > NEWS > EMA. Intrabar TP/SL already ran first.
             if sexit:
                 diag['session']+=1; closed=close_trade(i,'SESSION',x.c)
+            elif news_exit:
+                diag['news']+=1; closed=close_trade(i,'NEWS',x.c)
             elif le or se:
                 diag['ema']+=1; closed=close_trade(i,'EMA',x.c)
 
@@ -222,8 +261,9 @@ def _parity_run(tf,bars,tick,start_ms,end_ms):
             z=ind[i]
             lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None
             sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
-            nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']
-            ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
+            news_safe=_news_safe_for_setup(tc,chart_ms)
+            nl=allowed and news_safe and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']
+            ns=allowed and news_safe and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
             if nl or ns:
                 if nl:
                     d=1; ei=round(x.h/tick)+1; si=round(x.l/tick)-1
@@ -244,7 +284,7 @@ def _parity_run(tf,bars,tick,start_ms,end_ms):
     total=sum(t.canon_r for t in trades)
     gp=sum(max(t.canon_r*t.risk_cash,0) for t in trades)
     gl=sum(max(-t.canon_r*t.risk_cash,0) for t in trades)
-    exits={k:sum(t.exit_reason==k for t in trades) for k in ('TP','SL','AMBIG->SL','EMA','SESSION')}
+    exits={k:sum(t.exit_reason==k for t in trades) for k in ('TP','SL','AMBIG->SL','EMA','NEWS','SESSION')}
     report_bars=sum(start_ms<=x.ct+1<=end_ms for x in bars)
     return trades,dict(
         symbol=ref.SYMBOL,tf=tf,bars=report_bars,trades=len(trades),wins=wins,losses=losses,even=even,
