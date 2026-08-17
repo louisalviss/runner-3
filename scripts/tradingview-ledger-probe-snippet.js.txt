@@ -1,5 +1,5 @@
   // Parity probe: scrape every currently-rendered Strategy Report trade row while
-  // scrolling candidate report containers. Read-only; never changes strategy state.
+  // scrolling candidate report containers. UI-only/read-only with respect to strategy state.
   const __tvSymbol=process.env.TV_SYMBOL||'BNBUSDT';
   const __ledger=await p.evaluate(async (symbol)=>{
     const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
@@ -8,6 +8,15 @@
       const s=getComputedStyle(e);
       return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';
     };
+
+    // Dismiss the Strategy Report caution banner when possible. This only exposes
+    // rows hidden underneath it; it does not alter script inputs or calculations.
+    for(const b of document.querySelectorAll('button,[role="button"]')){
+      const t=(b.innerText||b.textContent||'').trim();
+      const parent=(b.parentElement?.innerText||'');
+      if(/^Close$/i.test(t)&&/look-ahead bias/i.test(parent)){b.click(); await sleep(300); break;}
+    }
+
     const capture=(label)=>{
       const rows=[];
       for(const e of document.querySelectorAll('div,span,td,tr')){
@@ -15,8 +24,7 @@
         const r=e.getBoundingClientRect();
         if(r.left>1000||r.right<0||r.top<540||r.bottom>window.innerHeight+5) continue;
         const t=(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
-        if(!t||t.length>180) continue;
-        // Prefer leaf-ish cells/text; keep semantic row wrappers too.
+        if(!t||t.length>200) continue;
         const childText=[...e.children].map(x=>(x.innerText||x.textContent||'').trim()).filter(Boolean).join(' ');
         if(e.children.length>0 && childText===t && !/\b(?:long|short|Entry|Exit)\b|\b(?:Jul|Aug)\s+\d{1,2},\s+2026\b/i.test(t)) continue;
         rows.push({text:t,tag:e.tagName,cls:String(e.className||'').slice(0,180),role:e.getAttribute('role')||'',x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height)});
@@ -28,7 +36,7 @@
     const all=[...document.querySelectorAll('*')];
     const scrollables=all.map((e,i)=>{
       const r=e.getBoundingClientRect();
-      const txt=(e.innerText||'').slice(0,4000);
+      const txt=(e.innerText||'').slice(0,5000);
       let score=0;
       if(/List of trades/i.test(txt)) score+=20;
       if(/\bEntry\b/i.test(txt)&&/\bExit\b/i.test(txt)) score+=10;
@@ -45,10 +53,12 @@
       const x=scrollables[si], e=x.e;
       const max=Math.max(0,e.scrollHeight-e.clientHeight);
       scrollerMeta.push({si,tag:e.tagName,cls:String(e.className||'').slice(0,220),score:x.score,clientHeight:e.clientHeight,scrollHeight:e.scrollHeight,maxScroll:max,text:(e.innerText||'').trim().replace(/\s+/g,' ').slice(0,500)});
-      const positions=[0,0.2,0.4,0.6,0.8,1].map(v=>Math.round(max*v));
+      const positions=[];
+      for(let f=0;f<=1.0001;f+=0.08) positions.push(Math.round(max*Math.min(f,1)));
+      positions.push(max);
       for(const pos of [...new Set(positions)]){
         e.scrollTop=pos; e.dispatchEvent(new Event('scroll',{bubbles:true}));
-        await sleep(250);
+        await sleep(180);
         snapshots.push(capture(`s${si}@${pos}`));
       }
       e.scrollTop=0;
@@ -65,7 +75,7 @@
         chain.push({tag:n.tagName,cls:String(n.className||'').slice(0,220),role:n.getAttribute('role')||'',text:(n.innerText||n.textContent||'').trim().replace(/\s+/g,' ').slice(0,1000),x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height),scrollHeight:n.scrollHeight,clientHeight:n.clientHeight});
       }
       ancestors.push({text:t,chain});
-      if(ancestors.length>=30) break;
+      if(ancestors.length>=40) break;
     }
     return {symbol,href:location.href,viewport:{w:innerWidth,h:innerHeight},scrollers:scrollerMeta,snapshots,ancestors};
   },__tvSymbol);
