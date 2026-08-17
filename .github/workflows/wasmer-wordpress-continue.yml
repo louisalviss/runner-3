@@ -1,0 +1,74 @@
+name: Continue Existing Wasmer WordPress
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-wordpress-continue.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wasmer-wordpress-existing-account
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decrypt existing Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          test -f ops/wasmer/state.automation.aes || { echo 'Encrypted state missing'; exit 3; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          python - <<'PY'
+          import json
+          s=json.load(open('/tmp/wasmer-result.json'))
+          required=['email','password','appName']
+          missing=[k for k in required if not s.get(k)]
+          assert not missing, f'missing encrypted fields: {missing}'
+          print('EXISTING_WASMER_STATE_READY=true')
+          print('PREVIOUS_STATUS='+str(s.get('status','unknown')))
+          PY
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Continue existing account deployment
+        run: node scripts/wasmer-continue.mjs
+
+      - name: Persist encrypted deployment state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-result.json || { echo 'Existing state disappeared'; exit 4; }
+          test -f /tmp/wasmer-status.json || echo '{"status":"runner_error","detail":"continue_status_missing"}' > /tmp/wasmer-status.json
+          echo 'SAFE_STATUS:'
+          cat /tmp/wasmer-status.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wasmer
+            cp /tmp/wasmer-status.json ops/wasmer/status.json
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/wasmer-result.json -out ops/wasmer/state.automation.aes
+            git add ops/wasmer/status.json ops/wasmer/state.automation.aes
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Continue existing Wasmer WordPress deployment'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true || exit 5
