@@ -41,8 +41,8 @@ jobs:
             const st = JSON.parse(fs.readFileSync('/tmp/pntr-state.json','utf8'));
             const c = (st.cookies || []).find(x => x.name === 'anon_user_id' && /pntr\.dev$/.test(x.domain || ''));
             if (!c?.value) throw new Error('anon_user_id missing');
-            const common = { 'Accept':'application/json', 'Content-Type':'application/json', 'Cookie':`anon_user_id=${c.value}` };
-            const r = await fetch('https://api.pntr.dev/device/code', { method:'POST', headers:common });
+            const headers = { 'Accept':'application/json', 'Content-Type':'application/json', 'Cookie':`anon_user_id=${c.value}` };
+            const r = await fetch('https://api.pntr.dev/device/code', { method:'POST', headers });
             const j = await r.json();
             if (!r.ok || !j.device_code || !j.user_code || !j.verification_uri) throw new Error(`device code failed ${r.status}`);
             fs.writeFileSync('/tmp/pntr-device.json', JSON.stringify(j), {mode:0o600});
@@ -72,10 +72,11 @@ jobs:
             const interval = Math.max(5, Number(d.interval || 5));
             const deadline = Date.now() + Math.min(900, Number(d.expires_in || 900)) * 1000;
             let token = null;
+            await new Promise(res=>setTimeout(res, interval*1000));
             while (Date.now() < deadline) {
               const r = await fetch('https://api.pntr.dev/device/token', {
                 method:'POST',
-                headers:{'Accept':'application/json','Content-Type':'application/json','Cookie':`anon_user_id=${c.value}`},
+                headers:{'Accept':'application/json','Content-Type':'application/json'},
                 body:JSON.stringify({device_code:d.device_code, grant_type:'urn:ietf:params:oauth:grant-type:device_code'})
               });
               const j = await r.json().catch(()=>({}));
