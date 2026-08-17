@@ -1,0 +1,78 @@
+name: TradingView Source Import
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/tradingview/source-import.ready'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 0a9c03cc27943b841fb549f5f69318a5b12e25210de92d3583f66be2d269d66d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decrypt transport and validate canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          test -s ops/tradingview/source-transport-private.pem.aes
+          test -s ops/tradingview/wr2513-source.aes.b64
+          test -s ops/tradingview/wr2513-source-key.enc.b64
+
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/source-transport-private.pem.aes -out /tmp/source-private.pem
+          base64 -d ops/tradingview/wr2513-source-key.enc.b64 >/tmp/source-key.enc
+          openssl pkeyutl -decrypt -inkey /tmp/source-private.pem \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+            -in /tmp/source-key.enc -out /tmp/source-pass.txt
+          base64 -d ops/tradingview/wr2513-source.aes.b64 >/tmp/source.aes
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass file:/tmp/source-pass.txt \
+            -in /tmp/source.aes -out /tmp/wr2513.pine
+
+          ACTUAL_SHA="$(sha256sum /tmp/wr2513.pine | awk '{print $1}')"
+          echo "TV_SOURCE_SHA256=$ACTUAL_SHA"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA256"
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' /tmp/wr2513.pine
+          grep -Fq 'use_bar_magnifier=false' /tmp/wr2513.pine
+          echo 'TV_CANONICAL_SOURCE_VALIDATE=PASS'
+
+      - name: Persist source encrypted under Runner3 key
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in /tmp/wr2513.pine -out /tmp/wave-rider-v2.5.13-window-report.pine.aes
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/tradingview
+            cp /tmp/wave-rider-v2.5.13-window-report.pine.aes ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes
+            rm -f ops/tradingview/wr2513-source.aes.b64 ops/tradingview/wr2513-source-key.enc.b64 ops/tradingview/source-import.ready
+            git add -f -A ops/tradingview
+            git commit -m 'persist encrypted canonical Wave Rider v2.5.13 source' >/dev/null || true
+            if git push origin HEAD:main >/dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || exit 9
+          echo 'TV_CANONICAL_SOURCE_PERSISTED=PASS'
+      - name: Cleanup plaintext
+        if: always()
+        shell: bash
+        run: rm -f /tmp/source-private.pem /tmp/source-key.enc /tmp/source-pass.txt /tmp/source.aes /tmp/wr2513.pine /tmp/wave-rider-v2.5.13-window-report.pine.aes
