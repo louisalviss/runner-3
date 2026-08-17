@@ -1,0 +1,43 @@
+  const deepEvidence = await page.evaluate(() => {
+    const els = [...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')];
+    const hits = els.map((e, i) => ({
+      i,
+      tag: e.tagName,
+      text: (e.innerText || e.textContent || '').trim().replace(/\s+/g,' ').slice(0,220),
+      aria: e.getAttribute('aria-label') || '',
+      title: e.getAttribute('title') || '',
+      dataName: e.getAttribute('data-name') || '',
+      type: e.getAttribute('type') || '',
+      value: e.value || '',
+      disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true'
+    })).filter(x => /deep|backtest|date range|update report|reset to chart|strategy report|properties|start date|end date/i.test([x.text,x.aria,x.title,x.dataName].join(' ')));
+    return {bodyText:(document.body.innerText||'').slice(0,70000),hits};
+  });
+  fs.writeFileSync('/tmp/tv-deep-probe.json', JSON.stringify(deepEvidence,null,2));
+  log('TV_DEEP_BODY_MENTIONS_DEEP', /Deep Backtesting/i.test(deepEvidence.bodyText) ? 'YES' : 'NO');
+  log('TV_DEEP_CONTROL_HITS', String(deepEvidence.hits.length));
+
+  const deepCandidates = [
+    page.getByRole('button',{name:/Deep Backtesting/i}).first(),
+    page.locator('[title*="Deep Backtesting" i]').first(),
+    page.locator('[aria-label*="Deep Backtesting" i]').first(),
+    page.getByText(/Deep Backtesting/i,{exact:false}).first()
+  ];
+  let deepControl=null;
+  for(const c of deepCandidates){
+    if(await c.count()>0 && await c.isVisible().catch(()=>false)){deepControl=c;break;}
+  }
+  log('TV_DEEP_CONTROL_VISIBLE',deepControl?'YES':'NO');
+  if(deepControl){
+    await deepControl.click({force:true}).catch(()=>{});
+    await page.waitForTimeout(3500);
+    const after=await page.evaluate(()=>({
+      body:(document.body.innerText||'').slice(0,70000),
+      controls:[...document.querySelectorAll('button,[role="button"],[aria-label],[title],[data-name],input')].map(e=>({
+        tag:e.tagName,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,220),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',type:e.getAttribute('type')||'',value:e.value||'',placeholder:e.getAttribute('placeholder')||''
+      })).filter(x=>/deep|backtest|date|start|end|update report|reset to chart/i.test([x.text,x.aria,x.title,x.dataName,x.placeholder].join(' '))).slice(0,250)
+    }));
+    fs.writeFileSync('/tmp/tv-deep-after-click.json',JSON.stringify(after,null,2));
+    log('TV_DEEP_AFTER_CLICK_HAS_UPDATE_REPORT',/Update report/i.test(after.body)?'YES':'NO');
+    log('TV_DEEP_AFTER_CLICK_HAS_RESET',/Reset to chart session/i.test(after.body)?'YES':'NO');
+  }
