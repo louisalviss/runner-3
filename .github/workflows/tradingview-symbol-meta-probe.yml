@@ -1,0 +1,96 @@
+name: TradingView Pine Symbol Metadata Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-symbol-meta-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BNBUSDT, TRXUSDT]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TV_SYMBOL: ${{ matrix.symbol }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BASE_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore canonical session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          test "$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" = "$BASE_SHA256"
+
+      - name: Append report-only symbol metadata table
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> /tmp/wr2513.pine <<'PINE'
+
+          // PARITY PROBE ONLY: report-only symbol metadata. No order/signal state changed.
+          var table __parityMeta = table.new(position.middle_left, 2, 4, border_width=1)
+          if barstate.islast
+              table.cell(__parityMeta, 0, 0, "MINTICK")
+              table.cell(__parityMeta, 1, 0, str.tostring(syminfo.mintick, format.mintick))
+              table.cell(__parityMeta, 0, 1, "MINCONTRACT")
+              table.cell(__parityMeta, 1, 1, str.tostring(syminfo.mincontract))
+              table.cell(__parityMeta, 0, 2, "POINTVALUE")
+              table.cell(__parityMeta, 1, 2, str.tostring(syminfo.pointvalue))
+              table.cell(__parityMeta, 0, 3, "TICKVALUE")
+              table.cell(__parityMeta, 1, 3, str.tostring(syminfo.mintick * syminfo.pointvalue))
+          PINE
+          echo "EXPECTED_SHA256=$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Build metadata browser probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('scripts/tradingview-wave-rider-e2e.mjs').read_text()
+          s,n=re.subn(
+              r"await p\.goto\('https://www\.tradingview\.com/chart/\?symbol=BINANCE%3ABNBUSDT\.P&interval=5',\{waitUntil:'domcontentloaded',timeout:90000\}\);",
+              "const __sym=process.env.TV_SYMBOL||'BNBUSDT'; await p.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${__sym}.P&interval=5`,{waitUntil:'domcontentloaded',timeout:90000});",
+              s,count=1)
+          if n!=1: raise SystemExit(f'url patch count={n}')
+          marker="  body=await p.locator('body').innerText().catch(()=>''); log('TV_E2E_WR_OUTSIDE_EDITOR',body.includes('WR 2.5.13 WIN')?'PRESENT':'ABSENT');"
+          if marker not in s: raise SystemExit('screenshot marker missing')
+          s=s.replace(marker, marker+"\n  await p.waitForTimeout(2500); await p.screenshot({path:`/tmp/tv-symbol-meta-${__sym}.png`,fullPage:true});",1)
+          Path('scripts/.tv-symbol-meta-temp.mjs').write_text(s)
+          PY
+
+      - name: Run TradingView metadata probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node scripts/.tv-symbol-meta-temp.mjs
+
+      - name: Upload metadata screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-symbol-meta-${{ matrix.symbol }}-${{ github.run_id }}
+          path: |
+            /tmp/tv-symbol-meta-${{ matrix.symbol }}.png
+            /tmp/wr2513-e2e-report.txt
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr2513.pine scripts/.tv-symbol-meta-temp.mjs
