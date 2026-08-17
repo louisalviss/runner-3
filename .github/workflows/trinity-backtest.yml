@@ -25,8 +25,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run audit backtest on Bybit linear perpetual data
-        run: python3 trinity_backtest_bybit.py
+      - name: Run 30-day audit backtest on Bybit linear perpetual data
+        run: python3 trinity_backtest_bybit_30d.py
 
       - name: Commit results robustly
         shell: bash
@@ -39,6 +39,6 @@ jobs:
             echo 'No result changes'
             exit 0
           fi
-          git commit -m 'Run Trinity ATR non-repaint backtest'
+          git commit -m 'Run Trinity ATR 30d non-repaint backtest'
           git pull --rebase origin main
           git push origin HEAD:main
