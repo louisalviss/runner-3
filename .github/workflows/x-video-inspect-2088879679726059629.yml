@@ -1,0 +1,69 @@
+name: X video inspect 2088879679726059629
+
+on:
+  push:
+    paths:
+      - '.github/workflows/x-video-inspect-2088879679726059629.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade yt-dlp
+
+      - name: Download tweet video and extract evidence
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT='artifacts/x-2088879679726059629'
+          URL='https://x.com/jnwang9527/status/2088879679726059629?s=12'
+          mkdir -p "$OUT"
+
+          yt-dlp --no-playlist --write-info-json --write-description \
+            -o "$OUT/video.%(ext)s" "$URL"
+
+          VIDEO="$(find "$OUT" -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -n1)"
+          test -n "$VIDEO"
+
+          ffprobe -v error -show_entries format=duration,size,bit_rate \
+            -show_entries stream=index,codec_name,codec_type,width,height,r_frame_rate \
+            -of json "$VIDEO" > "$OUT/ffprobe.json"
+
+          DURATION="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$VIDEO")"
+          python - "$DURATION" "$OUT/times.txt" <<'PY'
+          import sys
+          d=float(sys.argv[1])
+          n=12
+          ts=[d*(i+0.5)/n for i in range(n)]
+          open(sys.argv[2],'w').write('\n'.join(f'{x:.3f}' for x in ts))
+          PY
+
+          i=1
+          while read -r t; do
+            ffmpeg -hide_banner -loglevel error -ss "$t" -i "$VIDEO" -frames:v 1 -q:v 3 "$OUT/frame_$(printf '%02d' "$i").jpg"
+            i=$((i+1))
+          done < "$OUT/times.txt"
+
+          ffmpeg -hide_banner -loglevel error \
+            -i "$OUT/frame_%02d.jpg" \
+            -filter_complex 'tile=4x3:padding=4:margin=4' \
+            -q:v 3 "$OUT/contact.jpg"
+
+          rm -f "$VIDEO"
+
+      - name: Commit extracted evidence
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add artifacts/x-2088879679726059629
+          git commit -m 'Add evidence for X video 2088879679726059629' || exit 0
+          git push
