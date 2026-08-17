@@ -1,0 +1,121 @@
+name: VPN Gate Asia NetNS Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vpngate-asia-netns-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl
+
+      - name: Select VPN Gate Asia relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python - <<'PY'
+          import base64, csv, io, json, pathlib
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig', errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          order=['VN','SG','TH','ID','MY','PH','JP','KR','TW']
+          chosen=None
+          for cc in order:
+              c=[r for r in rows if (r.get('CountryShort') or '').upper()==cc and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+              if c:
+                  c.sort(key=lambda r:int(r.get('Speed') or 0), reverse=True)
+                  chosen=c[0]; break
+          if not chosen:
+              raise SystemExit('No prioritized Asia OpenVPN relay available')
+          cfg=base64.b64decode(chosen['OpenVPN_ConfigData_Base64']).decode('utf-8', errors='replace')
+          pathlib.Path('/tmp/vpngate.auth').write_text('vpn\nvpn\n')
+          out=[]
+          for ln in cfg.splitlines():
+              if ln.strip().startswith('auth-user-pass'):
+                  out.append('auth-user-pass /tmp/vpngate.auth')
+              else:
+                  out.append(ln)
+          pathlib.Path('/tmp/vpngate.ovpn').write_text('\n'.join(out)+'\n')
+          info={k:chosen.get(k) for k in ['CountryShort','CountryLong','HostName','IP','Ping','Speed','NumVpnSessions']}
+          pathlib.Path('evidence/selected_relay.json').write_text(json.dumps(info,indent=2,ensure_ascii=False))
+          print(json.dumps(info,ensure_ascii=False))
+          PY
+
+      - name: Create isolated network namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          echo "HOST_IFACE=$IFACE" | tee evidence/netns_setup.txt
+          sudo ip netns add vpnns
+          sudo ip link add veth-host type veth peer name veth-ns
+          sudo ip link set veth-ns netns vpnns
+          sudo ip addr add 10.231.0.1/24 dev veth-host
+          sudo ip link set veth-host up
+          sudo ip netns exec vpnns ip addr add 10.231.0.2/24 dev veth-ns
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set veth-ns up
+          sudo ip netns exec vpnns ip route add default via 10.231.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.231.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i veth-host -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o veth-host -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+          echo '=== NAMESPACE BASELINE ===' | tee -a evidence/netns_setup.txt
+          sudo ip netns exec vpnns curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)=' | tee -a evidence/netns_setup.txt
+
+      - name: Connect OpenVPN inside namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip netns exec vpnns openvpn --config /tmp/vpngate.ovpn --daemon --log /tmp/vpngate-openvpn.log
+          ok=0
+          for i in {1..35}; do
+            sleep 1
+            if grep -q 'Initialization Sequence Completed' /tmp/vpngate-openvpn.log 2>/dev/null; then ok=1; break; fi
+            if grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error' /tmp/vpngate-openvpn.log 2>/dev/null; then break; fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo 'VPN_CONNECT_FAILED' | tee evidence/vpn_result.txt
+            tail -n 100 /tmp/vpngate-openvpn.log | sed -E 's/(username|password|auth)[^ ]*/[redacted]/Ig' | tee evidence/openvpn_failure.log
+            exit 3
+          fi
+          echo 'VPN_CONNECT_OK' | tee evidence/vpn_result.txt
+          sudo ip netns exec vpnns ip addr show | tee evidence/netns_addr.txt
+          sudo ip netns exec vpnns ip route show | tee evidence/netns_routes.txt
+          echo '=== VPN EGRESS ===' | tee -a evidence/vpn_result.txt
+          sudo ip netns exec vpnns curl -fsS --max-time 15 'https://www.cloudflare.com/cdn-cgi/trace' | grep -E '^(ip|loc|warp)=' | tee -a evidence/vpn_result.txt
+
+      - name: Neutral connectivity over VPN namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          for u in 'https://example.com/' 'https://www.wikipedia.org/' 'https://httpbin.org/get'; do
+            code=$(sudo ip netns exec vpnns curl -L -sS --max-time 15 -o /dev/null -w '%{http_code}' "$u" || true)
+            echo "$code $u" | tee -a evidence/connectivity.txt
+          done
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpngate-asia-netns-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
