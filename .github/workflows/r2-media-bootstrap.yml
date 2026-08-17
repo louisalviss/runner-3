@@ -21,18 +21,24 @@ jobs:
     timeout-minutes: 12
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       BUCKET: runner3-wp-media
       WORKER: runner3-wp-media
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate auth
+      - name: Validate account-scoped auth
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Cloudflare API token unavailable'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare Account ID unavailable'; exit 2; }
           echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
-          npx -y wrangler@4.57.0 whoami >/tmp/whoami.txt
+          echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
+          code="$(curl -sS -o /tmp/workers-list.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
+          test "$code" = 200 || { echo "Account-scoped auth failed HTTP=$code"; exit 2; }
 
       - name: Ensure R2 bucket
         shell: bash
