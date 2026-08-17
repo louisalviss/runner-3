@@ -114,7 +114,7 @@ jobs:
           import json,pathlib
           common={'sport_id':'10','lang_id':'en','view_type':'0','leagues':'999','odds_type':'3','odds_group':'3','view_date':'0','time_filter':'0','category':'0','branch_code':'','currency':'VND','is_full':'true','prev_params':'','version':'','top_x':0,'is_stream':'false','is_live_center':'false','currentMenu':'spesificSport','prevMenu':'','method':'LoadOddsData'}
           for scope,slot in [('live','1'),('today','2'),('early','3')]:
-              for group in [1,4,5,6,7,8]:
+              for group in [1,2,4,5,6,7,8]:
                   p=dict(common);p['currentTimeSlot']=slot;p['display_type']=f'{group}{slot}'
                   if slot=='3':p['view_date']='1'
                   pathlib.Path(f'/tmp/{scope}_g{group}.req').write_text(json.dumps(p,separators=(',',':')))
@@ -144,14 +144,39 @@ jobs:
           fetch_full_scope() {
             scope="$1"
             fetch_group "$scope" 1 || return 1
-            for g in 4 5 6 7 8; do fetch_group "$scope" "$g" || rm -f "evidence/${scope}_g${g}.json"; done
+            for g in 2 4 5 6 7 8; do fetch_group "$scope" "$g" || rm -f "evidence/${scope}_g${g}.json"; done
           }
 
           fetch_full_scope live
           fetch_full_scope today || echo 'TODAY_OPTIONAL_MISS'
           fetch_full_scope early || echo 'EARLY_OPTIONAL_MISS'
-          AUTH_HEADER=$(git config --local --get http.https://github.com/.extraheader || true)
 
+          python3 - <<'PY'
+          import json,pathlib,re
+          for scope in ('live','today','early'):
+              p=pathlib.Path(f'evidence/{scope}_g2.json')
+              if not p.exists():
+                  print(f'SPECIAL {scope}: MISSING'); continue
+              d=json.loads(p.read_text()); rows=[]
+              for block in d.get('data') or []:
+                  if isinstance(block,dict): rows += [r for r in (block.get('data') or []) if isinstance(r,dict)]
+              suffixes={}
+              for r in rows:
+                  for k,v in r.items():
+                      if not str(v or '').strip(): continue
+                      m=re.match(r'(?:game_type|sub_partai|odds_\d+)_([A-Za-z]+)$',k)
+                      if m: suffixes.setdefault(m.group(1),set()).add(k)
+              print(f'SPECIAL {scope}: status={d.get("status")} rows={len(rows)} bytes={p.stat().st_size} suffixes={ {k:sorted(v) for k,v in suffixes.items()} }')
+              shown=0
+              for r in rows:
+                  rel={k:v for k,v in r.items() if (k.startswith('game_type_') or k.startswith('sub_partai_') or k.startswith('odds_')) and str(v or '').strip()}
+                  if rel:
+                      print('SPECIAL_SAMPLE',scope,r.get('club_home'),'vs',r.get('club_away'),json.dumps(rel,ensure_ascii=False)[:5000])
+                      shown+=1
+                      if shown>=3: break
+          PY
+
+          AUTH_HEADER=$(git config --local --get http.https://github.com/.extraheader || true)
           publish_once() {
             iteration="$1"
             python3 m88_full_odds.py --input-dir evidence --output-json publish/data.json --output-csv publish/odds.csv --odds-format decimal
@@ -168,8 +193,8 @@ jobs:
           PY
             python3 render_m88_full.py --input publish/data.json --output publish/index.html
             grep -q '<details class="match"' publish/index.html
-            grep -q 'CƠ HỘI KÉP' publish/index.html || true
-            grep -q 'CƯỢC TỈ SỐ' publish/index.html || true
+            ! grep -q 'ĐĂNG NHẬP' publish/index.html
+            ! grep -q 'CASINO' publish/index.html
 
             rm -rf /tmp/m88-pub
             git init -q /tmp/m88-pub
@@ -179,10 +204,10 @@ jobs:
             [ -z "$AUTH_HEADER" ] || git -C /tmp/m88-pub config http.https://github.com/.extraheader "$AUTH_HEADER"
             git -C /tmp/m88-pub checkout --orphan m88-live-data >/dev/null 2>&1
             cp publish/data.json publish/index.html publish/odds.csv /tmp/m88-pub/
-            printf '%s\n' "M88 full-market guest feed. Poll iteration ${iteration}." > /tmp/m88-pub/README.md
+            printf '%s\n' "M88 sports odds only. Poll iteration ${iteration}." > /tmp/m88-pub/README.md
             touch /tmp/m88-pub/.nojekyll
             git -C /tmp/m88-pub add .
-            git -C /tmp/m88-pub commit -q -m "M88 full markets $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            git -C /tmp/m88-pub commit -q -m "M88 sports odds $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
             git -C /tmp/m88-pub push -q --force origin HEAD:m88-live-data
             echo "PUBLISHED_ITERATION=$iteration"
           }
