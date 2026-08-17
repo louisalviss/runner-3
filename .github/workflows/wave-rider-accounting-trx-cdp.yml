@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/wave-rider-accounting-trx-cdp.yml'
       - 'scripts/tradingview-accounting-trx-cdp.mjs'
+      - 'scripts/build_wr_accounting_probe.py'
   workflow_dispatch:
 
 permissions:
@@ -30,12 +31,8 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513-base.pine
           test "$(sha256sum /tmp/wr2513-base.pine | awk '{print $1}')" = "$BASE_SHA256"
-      - name: Build fresh report-only accounting probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/build_wr_accounting_probe.py
-          printf '\nplotchar(false, title="PARITY_NONCE_%s")\n' "$GITHUB_RUN_ID" >> /tmp/wr2513-accounting-probe.pine
+      - name: Build fresh uniquely-named report-only accounting probe
+        run: python3 scripts/build_wr_accounting_probe.py
       - name: Capture exact TRX accounting via CDP
         shell: bash
         run: |
