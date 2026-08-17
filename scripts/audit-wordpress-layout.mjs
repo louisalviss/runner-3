@@ -54,9 +54,22 @@ try {
           horizontalOverflow: Math.max(root.scrollWidth, document.body.scrollWidth) - vw,
           offenders: offenders.sort((a,b) => (b.leftOverflow+b.rightOverflow) - (a.leftOverflow+a.rightOverflow)).slice(0,40),
           header: (() => { const e=document.querySelector('.site-header'); if(!e) return null; const r=e.getBoundingClientRect(); return {width:Math.round(r.width),height:Math.round(r.height)}; })(),
-          hero: (() => { const e=document.querySelector('.edition-hero,.article-shell'); if(!e) return null; const r=e.getBoundingClientRect(); return {left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),height:Math.round(r.height)}; })()
+          hero: (() => { const e=document.querySelector('.signal-stage,.edition-hero,.article-shell'); if(!e) return null; const r=e.getBoundingClientRect(); return {left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),height:Math.round(r.height)}; })()
         };
       });
+
+      // Trigger IntersectionObserver/scroll-driven presentation before the visual capture.
+      if (target.name === 'home') {
+        const total = await page.evaluate(() => document.documentElement.scrollHeight);
+        const step = Math.max(360, Math.floor(vp.height * 0.72));
+        for (let y = 0; y < total; y += step) {
+          await page.evaluate(yPos => window.scrollTo(0, yPos), y);
+          await page.waitForTimeout(90);
+        }
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForTimeout(250);
+      }
+
       const screenshot = path.join(outDir, `${target.name}-${vp.name}.png`);
       await page.screenshot({ path: screenshot, fullPage: true });
       summary.results.push({ target: target.name, url: target.url, viewport: vp, status: response?.status() ?? null, title: await page.title(), consoleErrors, screenshot, ...metrics });
