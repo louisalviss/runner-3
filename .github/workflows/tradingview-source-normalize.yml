@@ -1,0 +1,63 @@
+name: TradingView Source Normalize
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-source-normalize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Normalize encrypted canonical Pine
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr.pine
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/wr.pine')
+          d=p.read_bytes()
+          if d.endswith(b'\n'):
+              d=d[:-1]
+              print('TV_SOURCE_TRAILING_NEWLINE_REMOVED=YES')
+          else:
+              print('TV_SOURCE_TRAILING_NEWLINE_REMOVED=NO')
+          p.write_bytes(d)
+          PY
+          SHA="$(sha256sum /tmp/wr.pine | awk '{print $1}')"
+          echo "TV_SOURCE_NORMALIZED_SHA256=$SHA"
+          test "$SHA" = "$EXPECTED_SHA256"
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' /tmp/wr.pine
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in /tmp/wr.pine -out /tmp/wr.pine.aes
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            cp /tmp/wr.pine.aes ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes
+            git add -f ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes
+            git commit -m 'normalize encrypted canonical Wave Rider source' >/dev/null || true
+            if git push origin HEAD:main >/dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || exit 9
+          echo 'TV_SOURCE_NORMALIZE_PERSIST=PASS'
+      - if: always()
+        run: rm -f /tmp/wr.pine /tmp/wr.pine.aes
