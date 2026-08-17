@@ -1,0 +1,47 @@
+name: Google PageSpeed Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/pagespeed/requests/*.json'
+      - 'scripts/pagespeed-audit.mjs'
+      - '.github/workflows/pagespeed-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-pagespeed-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Google PageSpeed Insights API
+        env:
+          PSI_URL: https://runner3-factory-smoke-2.wasmer.app/
+          PSI_OUT: ops/pagespeed/latest.json
+        run: node scripts/pagespeed-audit.mjs
+      - name: Persist PageSpeed result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/pagespeed/latest.json || exit 2
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/pagespeed/latest.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Persist Google PageSpeed audit'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort || true; git reset --hard origin/main; cp /tmp/psi-backup.json ops/pagespeed/latest.json 2>/dev/null || true; }
+            sleep 2
+          done
+          exit 1
