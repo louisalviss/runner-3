@@ -1,0 +1,138 @@
+name: TeraBox Fast Inventory
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/terabox-fast-inventory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright client
+        run: python -m pip install 'playwright>=1.58,<2'
+      - name: Fast recursive inventory
+        shell: bash
+        run: |
+          cat > /tmp/inventory.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+          from collections import deque, defaultdict
+          import json, re, shutil, time
+
+          TARGET='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
+          ROOT='/Truyen'
+          BATCH=8
+
+          def human(n):
+              x=float(n)
+              for u in ['B','KiB','MiB','GiB','TiB']:
+                  if x < 1024 or u=='TiB': return f'{x:.2f} {u}'
+                  x/=1024
+
+          with sync_playwright() as p:
+              chrome=shutil.which('google-chrome') or shutil.which('chromium')
+              if not chrome: raise SystemExit('NO_CHROME')
+              browser=p.chromium.launch(headless=True,executable_path=chrome)
+              ctx=browser.new_context(user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+              page=ctx.new_page()
+              root_url={'v':None}
+              def capture(r):
+                  if root_url['v'] is None and '/share/list?' in r.url and r.status==200:
+                      root_url['v']=r.url
+              page.on('response',capture)
+              r=page.goto(TARGET,wait_until='domcontentloaded',timeout=90000)
+              page.wait_for_timeout(9000)
+              print('HTTP='+str(r.status if r else None))
+              if not root_url['v']: raise SystemExit('NO_ROOT_API')
+
+              pr=urlparse(root_url['v'])
+              qbase=dict(parse_qsl(pr.query,keep_blank_values=True))
+              qbase.pop('root',None)
+              qbase['num']='100'
+              qbase['by']='time'; qbase['order']='desc'
+              def url_for(path,pageno):
+                  q=dict(qbase); q['dir']=path; q['page']=str(pageno)
+                  return urlunparse((pr.scheme,pr.netloc,pr.path,pr.params,urlencode(q),pr.fragment))
+
+              # Tasks are (directory path, page number). Pagination and subdirs are added dynamically.
+              tasks=deque([(ROOT,1)])
+              scheduled={(ROOT,1)}
+              seen_dirs=set()
+              seen_files=set()
+              total_bytes=0; total_files=0; failures=0; requests=0
+              branch=defaultdict(lambda:{'files':0,'dirs':0,'bytes':0})
+              exts=defaultdict(int)
+
+              while tasks:
+                  chunk=[]
+                  while tasks and len(chunk)<BATCH:
+                      chunk.append(tasks.popleft())
+                  urls=[url_for(d,pn) for d,pn in chunk]
+                  raws=page.evaluate("""async (urls) => Promise.all(urls.map(async u => {
+                    try { const r=await fetch(u,{credentials:'include'}); return await r.text(); }
+                    catch(e) { return JSON.stringify({errno:-999,err:String(e)}); }
+                  }))""",urls)
+                  requests += len(chunk)
+
+                  for (d,pn),raw in zip(chunk,raws):
+                      try: data=json.loads(raw)
+                      except Exception:
+                          failures+=1; print('BAD_JSON='+d); continue
+                      if data.get('errno')!=0:
+                          failures+=1; print('API_ERR='+d+'#'+str(pn)+'='+str(data.get('errno'))); continue
+                      items=data.get('list') or []
+                      if pn==1: seen_dirs.add(d)
+                      for it in items:
+                          path=str(it.get('path') or '')
+                          rel=path[len(ROOT):].lstrip('/') if path.startswith(ROOT) else path.lstrip('/')
+                          top=rel.split('/',1)[0] if rel else '(root)'
+                          isdir=str(it.get('isdir','0'))=='1' or it.get('isdir')==1
+                          if isdir:
+                              branch[top]['dirs']+=1
+                              task=(path,1)
+                              if path and task not in scheduled:
+                                  scheduled.add(task); tasks.append(task)
+                          else:
+                              fid=str(it.get('fs_id') or path)
+                              if fid in seen_files: continue
+                              seen_files.add(fid)
+                              size=int(it.get('size') or 0)
+                              total_files+=1; total_bytes+=size
+                              branch[top]['files']+=1; branch[top]['bytes']+=size
+                              name=str(it.get('server_filename') or '')
+                              m=re.search(r'(\.[A-Za-z0-9]{1,10})$',name)
+                              exts[m.group(1).lower() if m else '(noext)']+=1
+                      # Full page means there may be another page.
+                      if len(items)>=100:
+                          task=(d,pn+1)
+                          if task not in scheduled and pn<1000:
+                              scheduled.add(task); tasks.append(task)
+
+                  if requests % 200 < BATCH:
+                      print(f'PROGRESS requests={requests} pending={len(tasks)} dirs={len(seen_dirs)} files={total_files} size={human(total_bytes)}')
+                  if requests>50000:
+                      print('REQUEST_LIMIT=true'); break
+                  time.sleep(0.02)
+
+              print('RESULT_REQUESTS='+str(requests))
+              print('RESULT_DIRS='+str(len(seen_dirs)))
+              print('RESULT_FILES='+str(total_files))
+              print('RESULT_BYTES='+str(total_bytes))
+              print('RESULT_SIZE='+human(total_bytes))
+              print('RESULT_FAILURES='+str(failures))
+              for k,v in sorted(branch.items()):
+                  print('BRANCH='+json.dumps({'name':k,**v,'size':human(v['bytes'])},ensure_ascii=False))
+              print('EXTENSIONS='+json.dumps(sorted(exts.items(),key=lambda x:x[1],reverse=True)[:20],ensure_ascii=False))
+              browser.close()
+          PY
+          python /tmp/inventory.py
