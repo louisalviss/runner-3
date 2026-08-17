@@ -1,0 +1,69 @@
+name: Reddit OAuth Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/reddit/credentials.aes'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decrypt credential locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          test -f ops/reddit/credentials.aes
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/reddit/credentials.aes \
+            -out /tmp/reddit-credentials.json
+          chmod 600 /tmp/reddit-credentials.json
+          jq -e '.client_id and .refresh_token and .username' /tmp/reddit-credentials.json >/dev/null
+          echo 'REDDIT_ENCRYPTED_CREDENTIAL_READY=true'
+
+      - name: Refresh OAuth and read Reddit API
+        shell: bash
+        run: |
+          set -euo pipefail
+          client_id="$(jq -r '.client_id' /tmp/reddit-credentials.json)"
+          refresh="$(jq -r '.refresh_token' /tmp/reddit-credentials.json)"
+          username="$(jq -r '.username' /tmp/reddit-credentials.json)"
+          echo "::add-mask::$client_id"
+          echo "::add-mask::$refresh"
+          ua="linux:runner3-reddit-reader:v1.0 (by /u/${username})"
+          token_json=$(curl -fsS --max-time 30 \
+            -A "$ua" \
+            -u "${client_id}:" \
+            -X POST 'https://www.reddit.com/api/v1/access_token' \
+            --data-urlencode 'grant_type=refresh_token' \
+            --data-urlencode "refresh_token=${refresh}")
+          access="$(printf '%s' "$token_json" | jq -r '.access_token // empty')"
+          test -n "$access"
+          echo "::add-mask::$access"
+          me=$(curl -fsS --max-time 30 -A "$ua" -H "Authorization: bearer ${access}" 'https://oauth.reddit.com/api/v1/me')
+          api_user="$(printf '%s' "$me" | jq -r '.name // empty')"
+          test "$api_user" = "$username"
+          listing=$(curl -fsS --max-time 30 -A "$ua" -H "Authorization: bearer ${access}" 'https://oauth.reddit.com/r/all/hot?limit=3&raw_json=1')
+          count="$(printf '%s' "$listing" | jq '.data.children | length')"
+          test "$count" -gt 0
+          echo "REDDIT_ACCOUNT=$api_user"
+          echo "REDDIT_PUBLIC_POSTS_READ=$count"
+          printf '%s' "$listing" | jq -r '.data.children[] | "POST=" + (.data.subreddit // "") + " | " + (.data.title // "")' | head -n 3
+          echo 'REDDIT_OAUTH_API_OK=true'
+
+      - name: Remove decrypted credential
+        if: always()
+        run: rm -f /tmp/reddit-credentials.json
