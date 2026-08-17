@@ -15,6 +15,10 @@ function runner3_editorial_assets() {
     wp_enqueue_style('runner3-editorial', get_stylesheet_uri(), [], $version);
 
     if (is_front_page()) {
+        $home_path = get_stylesheet_directory() . '/home.css';
+        $home_version = file_exists($home_path) ? (string) filemtime($home_path) : $version;
+        wp_enqueue_style('runner3-home', get_stylesheet_directory_uri() . '/home.css', ['runner3-editorial'], $home_version);
+
         $motion_path = get_stylesheet_directory() . '/motion.js';
         $motion_version = file_exists($motion_path) ? (string) filemtime($motion_path) : $version;
         wp_enqueue_script('runner3-motion', get_stylesheet_directory_uri() . '/motion.js', [], $motion_version, true);
