@@ -1,4 +1,5 @@
-  // Open Pine Logs from the editor More menu and capture exact WRPARITY lines.
+  // Open Pine Logs from the editor More menu and capture parity lines.
+  const __sym=process.env.TV_SYMBOL||'BNBUSDT';
   await p.waitForTimeout(2500);
   const editorControls=await dlg.locator('button,[role="button"],[aria-label],[title],[data-name]').evaluateAll(es=>es.map((e,i)=>({i,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,140),aria:e.getAttribute('aria-label')||'',title:e.getAttribute('title')||'',dataName:e.getAttribute('data-name')||'',cls:String(e.className||'').slice(0,180)})));
   fs.writeFileSync(`/tmp/tv-pine-editor-controls-${__sym}.json`,JSON.stringify(editorControls,null,2));
