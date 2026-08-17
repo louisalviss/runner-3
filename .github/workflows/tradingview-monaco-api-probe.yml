@@ -1,0 +1,61 @@
+name: TradingView Monaco API Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-monaco-api-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+      - name: Probe Monaco APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const b=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const c=await b.newContext({storageState:state,viewport:{width:1920,height:1080}}); const p=await c.newPage();
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(8000);
+            await p.locator('[data-name="pine-dialog-button"]').first().click(); await p.locator('[data-name="pine-dialog"]').first().waitFor({state:'visible'}); await p.waitForTimeout(2500);
+            const r=await p.evaluate(()=>{
+              const w=window;
+              let models=[]; let err='';
+              try{ if(w.monaco?.editor?.getModels) models=w.monaco.editor.getModels().map((m,i)=>({i,len:m.getValue().length,uri:String(m.uri),head:m.getValue().slice(0,120)})); }catch(e){err=String(e)}
+              const req=typeof w.require;
+              let keys=[]; try{ keys=Object.keys(w).filter(k=>/monaco|editor|pine/i.test(k)).slice(0,100); }catch{}
+              return {monaco:typeof w.monaco,hasEditor:!!w.monaco?.editor,models,requireType:req,keys,err};
+            });
+            console.log('TV_MONACO_API='+JSON.stringify(r));
+            fs.writeFileSync('/tmp/monaco-api.json',JSON.stringify(r,null,2));
+            await b.close();
+          })().catch(e=>{console.error('TV_MONACO_API_ERROR='+e.stack);process.exit(5)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-monaco-api-${{ github.run_id }}
+          path: /tmp/monaco-api.json
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
