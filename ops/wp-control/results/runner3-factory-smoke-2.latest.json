@@ -1,42 +1,117 @@
 {
   "status": "ok",
   "siteSlug": "runner3-factory-smoke-2",
-  "action": "inspect",
-  "result": {
-    "me": {
-      "id": 1,
-      "roles": ["administrator"],
-      "capabilities": {
-        "manage_options": true,
-        "install_plugins": true,
-        "activate_plugins": true,
-        "update_plugins": true,
-        "delete_plugins": true,
-        "install_themes": true,
-        "switch_themes": true,
-        "update_themes": true,
-        "delete_themes": true,
-        "update_core": true,
-        "edit_users": true,
-        "create_users": true,
-        "delete_users": true,
-        "publish_posts": true,
-        "publish_pages": true,
-        "upload_files": true
-      }
-    },
-    "settings": {
-      "title": "Runner3 Factory Smoke 2",
-      "description": "Independent smoke test for the parameterized Runner3 WordPress Site Factory.",
-      "url": "https://runner3-factory-smoke-2.wasmer.app",
-      "posts_per_page": 10,
-      "show_on_front": "posts"
-    },
-    "plugins": [
-      {"plugin":"hello","status":"inactive","name":"Hello Dolly","version":"1.7.2"},
-      {"plugin":"runner3-pntr-bridge/runner3-pntr-bridge","status":"active","name":"Runner3 PNTR Cookie Bridge","version":"0.1.0"},
-      {"plugin":"wp-wasmer/wp-wasmer","status":"active","name":"WP Wasmer","version":"0.4.2"}
-    ]
+  "action": "seed_demo",
+  "summary": {
+    "type": "object",
+    "id": null,
+    "slug": null,
+    "status": null
   },
-  "updatedAt": "2026-08-17T16:20:48.304Z"
+  "result": {
+    "seeded": true,
+    "categories": [
+      {
+        "id": 2,
+        "slug": "technology",
+        "name": "Technology"
+      },
+      {
+        "id": 3,
+        "slug": "culture",
+        "name": "Culture"
+      },
+      {
+        "id": 4,
+        "slug": "systems",
+        "name": "Systems"
+      },
+      {
+        "id": 5,
+        "slug": "field-notes",
+        "name": "Field Notes"
+      }
+    ],
+    "posts": [
+      {
+        "id": 8,
+        "slug": "the-quiet-machines-running-the-city",
+        "title": "The Quiet Machines Running the City",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/the-quiet-machines-running-the-city/"
+      },
+      {
+        "id": 9,
+        "slug": "after-the-feed-what-comes-next-for-the-open-web",
+        "title": "After the Feed: What Comes Next for the Open Web",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/"
+      },
+      {
+        "id": 10,
+        "slug": "small-models-big-consequences",
+        "title": "Small Models, Big Consequences",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/small-models-big-consequences/"
+      },
+      {
+        "id": 11,
+        "slug": "why-interfaces-are-becoming-invisible",
+        "title": "Why Interfaces Are Becoming Invisible",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/why-interfaces-are-becoming-invisible/"
+      },
+      {
+        "id": 12,
+        "slug": "the-new-geography-of-digital-work",
+        "title": "The New Geography of Digital Work",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/the-new-geography-of-digital-work/"
+      },
+      {
+        "id": 13,
+        "slug": "a-field-guide-to-useful-friction",
+        "title": "A Field Guide to Useful Friction",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/a-field-guide-to-useful-friction/"
+      },
+      {
+        "id": 14,
+        "slug": "the-return-of-personal-software",
+        "title": "The Return of Personal Software",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/the-return-of-personal-software/"
+      },
+      {
+        "id": 15,
+        "slug": "designing-for-people-who-skip-the-tutorial",
+        "title": "Designing for People Who Skip the Tutorial",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/2026/08/17/designing-for-people-who-skip-the-tutorial/"
+      }
+    ],
+    "pages": [
+      {
+        "id": 16,
+        "slug": "about",
+        "title": "About",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/about/"
+      },
+      {
+        "id": 17,
+        "slug": "contact",
+        "title": "Contact",
+        "status": "publish",
+        "link": "https://runner3-factory-smoke-2.wasmer.app/contact/"
+      }
+    ],
+    "settings": {
+      "title": "OFFSET — Independent Journal",
+      "description": "Technology, culture and the systems underneath.",
+      "posts_per_page": 7,
+      "show_on_front": "posts"
+    }
+  },
+  "updatedAt": "2026-08-17T16:33:52.594Z"
 }
