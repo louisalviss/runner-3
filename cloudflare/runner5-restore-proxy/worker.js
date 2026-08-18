@@ -1,8 +1,9 @@
-import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_SNAPSHOTS } from './snapshot.generated.js';
+import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_BUNDLE } from './snapshot.generated.js';
 
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
-const CACHE_VERSION = 'runner5-opt-v2';
+const CACHE_VERSION = 'runner5-opt-v3';
+const EDGE_CSS_PATH = '/__edge/runner5.css';
 
 function isAdminPath(pathname) {
   return pathname === '/wp-login.php' ||
@@ -63,18 +64,10 @@ async function proxyOrigin(request, incoming) {
     const body = rewriteOrigin(await upstreamResponse.text(), incoming.origin);
     outHeaders.delete('content-length');
     outHeaders.delete('content-encoding');
-    return new Response(body, {
-      status: upstreamResponse.status,
-      statusText: upstreamResponse.statusText,
-      headers: outHeaders,
-    });
+    return new Response(body, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: outHeaders });
   }
 
-  return new Response(upstreamResponse.body, {
-    status: upstreamResponse.status,
-    statusText: upstreamResponse.statusText,
-    headers: outHeaders,
-  });
+  return new Response(upstreamResponse.body, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: outHeaders });
 }
 
 function snapshotResponse(request, incoming) {
@@ -90,8 +83,8 @@ function snapshotResponse(request, incoming) {
   return new Response(request.method === 'HEAD' ? null : html, { status: 200, headers });
 }
 
-function styleSnapshotResponse(request, incoming, css) {
-  const body = rewriteOrigin(css, incoming.origin);
+function cssBundleResponse(request, incoming) {
+  const body = rewriteOrigin(STYLE_BUNDLE || '', incoming.origin);
   const headers = new Headers({
     'content-type': 'text/css; charset=UTF-8',
     'cache-control': 'public, max-age=86400, stale-while-revalidate=604800',
@@ -111,10 +104,8 @@ export default {
       return snapshotResponse(request, incoming);
     }
 
-    const styleKey = incoming.pathname + incoming.search;
-    const snapCss = STYLE_SNAPSHOTS?.[styleKey];
-    if (canUsePublicEdge(request, incoming) && typeof snapCss === 'string') {
-      return styleSnapshotResponse(request, incoming, snapCss);
+    if (canUsePublicEdge(request, incoming) && incoming.pathname === EDGE_CSS_PATH && STYLE_BUNDLE) {
+      return cssBundleResponse(request, incoming);
     }
 
     if (!canUsePublicEdge(request, incoming)) {
@@ -150,17 +141,8 @@ export default {
 
     const staticAsset = isStaticPath(incoming.pathname);
     if (response.status === 200 && !headers.has('set-cookie')) {
-      headers.set(
-        'cache-control',
-        staticAsset
-          ? 'public, max-age=86400, stale-while-revalidate=604800'
-          : 'public, max-age=60, stale-while-revalidate=600'
-      );
-      const cacheable = new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+      headers.set('cache-control', staticAsset ? 'public, max-age=86400, stale-while-revalidate=604800' : 'public, max-age=60, stale-while-revalidate=600');
+      const cacheable = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
       ctx.waitUntil(cache.put(key, cacheable.clone()));
       return cacheable;
     }
