@@ -1,6 +1,10 @@
 name: Cloudflare Edge PageSpeed UI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-edge-pagespeed-ui.yml'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -17,7 +21,7 @@ concurrency:
 
 jobs:
   audit:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
       PSI_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
@@ -28,7 +32,7 @@ jobs:
         with:
           ref: main
 
-      - name: Install ARM64 PageSpeed browser runtime
+      - name: Install PageSpeed browser runtime
         shell: bash
         run: |
           set -euo pipefail
