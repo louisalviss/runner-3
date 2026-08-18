@@ -1,0 +1,49 @@
+name: X Chain Backtrace 2088992578016510160
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/x-chain-backtrace-2088992578016510160.yml']
+permissions:
+  contents: write
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch source and unavailable ancestor
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p x-trace
+          python3 - <<'PY'
+          import json,urllib.request,pathlib
+          UA='runner-3-x-chain-backtrace/1.0'
+          targets=[('2088992578016510160','python_xxt'),('2088942412597023058','i')]
+          def get(u):
+            try:
+              r=urllib.request.urlopen(urllib.request.Request(u,headers={'User-Agent':UA,'Accept':'application/json,*/*'}),timeout=30)
+              return {'ok':True,'status':r.status,'url':r.geturl(),'body':r.read().decode('utf-8','replace')}
+            except Exception as e:return {'ok':False,'url':u,'error':f'{type(e).__name__}: {e}'}
+          for ID,H in targets:
+            urls={
+              'conversation':f'https://api.fxtwitter.com/2/conversation/{ID}',
+              'legacy':f'https://api.fxtwitter.com/{H}/status/{ID}',
+              'legacy_nohandle':f'https://api.fxtwitter.com/status/{ID}',
+              'vx':f'https://api.vxtwitter.com/{H}/status/{ID}',
+              'syndication':f'https://cdn.syndication.twimg.com/tweet-result?id={ID}&lang=en'
+            }
+            raw={k:get(v) for k,v in urls.items()}
+            out={'target_id':ID,'sources':{k:{z:v.get(z) for z in ('ok','status','url','error')} for k,v in raw.items()}}
+            for k,v in raw.items():
+              try:out[k]=json.loads(v.get('body') or '')
+              except:out[k+'_prefix']=(v.get('body') or '')[:10000]
+            pathlib.Path(f'x-trace/{ID}.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+            print('TARGET',ID,json.dumps(out['sources'],ensure_ascii=False))
+          PY
+      - name: Publish results
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add x-trace/2088992578016510160.json x-trace/2088942412597023058.json
+          git diff --cached --quiet || (git commit -m 'store X chain backtrace results' && git push)
