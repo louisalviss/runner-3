@@ -18,8 +18,9 @@ const dashboard = site.dashboardUrl || `https://wasmer.io/apps/${encodeURICompon
 
 const safe = {
   status: 'starting', siteSlug: slug, publicUrl: publicBase + '/', nativeUrl: nativeBase + '/',
-  plugin: 'runner3-r2-responsive', installed: false, activated: false, frontendHttp: null,
-  responsiveV2: false, preloadMatchesHero: false, r2Preconnect: false, responsiveImageCount: 0,
+  plugin: 'runner3-r2-responsive', installed: false, activated: false, pluginUpdated: false,
+  settingsPageReachable: false, frontendHttp: null, responsiveV2: false,
+  preloadMatchesHero: false, r2Preconnect: false, responsiveImageCount: 0,
   heroCurrentSrc: null, heroRenderedWidth: null, heroNaturalWidth: null,
   consoleErrors: [], pageErrors: [], consoleWarnings: [], detail: null, adminDiagnostic: null,
   updatedAt: new Date().toISOString(),
@@ -47,6 +48,7 @@ function isNativeAdmin(raw) {
   try { const u = new URL(raw); return u.host === new URL(nativeBase).host && u.pathname.startsWith('/wp-admin'); }
   catch { return false; }
 }
+
 async function enterAdmin(ctx, page) {
   await page.goto(dashboard, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(1000);
@@ -71,53 +73,61 @@ async function enterAdmin(ctx, page) {
 async function pluginRow(wp) {
   let row = wp.locator('tr[data-slug="runner3-r2-responsive"]').first();
   if (await row.count()) return row;
-  row = wp.locator('tr').filter({ hasText: /Runner3 R2 Responsive Images/i }).first();
+  row = wp.locator('tr').filter({ hasText: /Runner3 (?:R2 Responsive Images|Media Optimizer)/i }).first();
   return (await row.count()) ? row : null;
 }
 
-async function ensurePlugin(wp) {
-  await wp.goto(`${adminBase}plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await wp.waitForTimeout(600);
-  let row = await pluginRow(wp);
+async function forceUploadCurrentPlugin(wp) {
+  await wp.goto(`${adminBase}plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const input = wp.locator('input[type=file]').first();
+  await input.waitFor({ state: 'attached', timeout: 12000 });
+  await input.setInputFiles(pluginZip);
+  const install = wp.locator('input[type=submit][value*="Install" i],button[type=submit]').first();
+  await install.click();
+  await wp.waitForLoadState('domcontentloaded').catch(() => {});
+  await wp.waitForTimeout(1400);
 
-  if (!row) {
-    await wp.goto(`${adminBase}plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    const input = wp.locator('input[type=file]').first();
-    await input.waitFor({ state: 'attached', timeout: 12000 });
-    await input.setInputFiles(pluginZip);
-    const install = wp.locator('input[type=submit][value*="Install" i],button[type=submit]').first();
-    await install.click();
-    await wp.waitForLoadState('domcontentloaded').catch(() => {});
-    await wp.waitForTimeout(1300);
-    const replace = wp.locator('a').filter({ hasText: /replace (current|installed).*uploaded/i }).first();
-    if (await replace.count()) {
-      const href = await replace.getAttribute('href');
-      if (href) await wp.goto(new URL(href, adminBase).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    }
-    const body = await text(wp);
-    if (/installation failed|could not be installed|fatal error/i.test(body)) throw new Error(`plugin_install_failed:${body.slice(0, 500)}`);
-    await wp.goto(`${adminBase}plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await wp.waitForTimeout(600);
-    row = await pluginRow(wp);
+  const body = await text(wp);
+  if (/installation failed|could not be installed|fatal error/i.test(body)) throw new Error(`plugin_install_failed:${body.slice(0, 600)}`);
+
+  const replace = wp.locator('a').filter({ hasText: /replace (current|installed).*uploaded/i }).first();
+  if (await replace.count()) {
+    const href = await replace.getAttribute('href');
+    if (!href) throw new Error('plugin_replace_href_missing');
+    await wp.goto(new URL(href, adminBase).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await wp.waitForTimeout(1400);
+    const replaceBody = await text(wp);
+    if (/update failed|installation failed|fatal error/i.test(replaceBody)) throw new Error(`plugin_replace_failed:${replaceBody.slice(0, 600)}`);
+    safe.pluginUpdated = true;
+  } else if (/plugin installed successfully|successfully installed/i.test(body)) {
+    safe.pluginUpdated = true;
+  } else {
+    throw new Error(`plugin_replace_control_missing:${body.slice(0, 700)}`);
   }
+}
 
+async function ensurePlugin(wp) {
+  // Always upload the ZIP from the repository. Previously this script skipped upload
+  // when the slug already existed, which left an old plugin version on the live site.
+  await forceUploadCurrentPlugin(wp);
+
+  await wp.goto(`${adminBase}plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await wp.waitForTimeout(700);
+  let row = await pluginRow(wp);
   if (!row) throw new Error('plugin_not_present_after_upload');
   safe.installed = true;
+
   let cls = String(await row.getAttribute('class').catch(() => ''));
   if (!/\bactive\b/.test(cls)) {
     const activate = row.locator('a[href*="action=activate"]').first();
     if (!(await activate.count())) throw new Error('plugin_activation_action_missing');
     const href = await activate.getAttribute('href');
     if (!href) throw new Error('plugin_activation_href_missing');
-    const activationUrl = new URL(href, adminBase).href;
-    await wp.goto(activationUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await wp.goto(new URL(href, adminBase).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await wp.waitForTimeout(900);
     const activationBody = await text(wp);
     safe.adminDiagnostic = activationBody.slice(0, 1200);
-    if (/fatal error|could not be activated|plugin could not be activated/i.test(activationBody)) {
-      save();
-      throw new Error(`plugin_activation_failed:${activationBody.slice(0, 500)}`);
-    }
+    if (/fatal error|could not be activated|plugin could not be activated/i.test(activationBody)) throw new Error(`plugin_activation_failed:${activationBody.slice(0, 500)}`);
     await wp.goto(`${adminBase}plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await wp.waitForTimeout(600);
     row = await pluginRow(wp);
@@ -125,6 +135,11 @@ async function ensurePlugin(wp) {
   }
   safe.activated = /\bactive\b/.test(cls);
   if (!safe.activated) throw new Error('plugin_not_active_after_activation');
+
+  await wp.goto(`${adminBase}options-general.php?page=runner3-media-optimizer`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await wp.waitForTimeout(400);
+  safe.settingsPageReachable = /Runner3 Media Optimizer/i.test(await text(wp));
+  if (!safe.settingsPageReachable) throw new Error('media_optimizer_settings_page_missing_after_deploy');
   save();
 }
 
@@ -132,6 +147,7 @@ function attr(tag, name) {
   const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i'));
   return m?.[1] || '';
 }
+
 async function verifyFrontend(browser) {
   const url = `${publicBase}/?runner3_r2_probe=${Date.now()}`;
   const reqCtx = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -168,7 +184,7 @@ async function verifyFrontend(browser) {
   if (safe.consoleErrors.length || safe.pageErrors.length) throw new Error('frontend_javascript_error_detected');
 }
 
-const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
 const page = await ctx.newPage();
 try {
@@ -178,9 +194,9 @@ try {
   await ensurePlugin(wp);
   await verifyFrontend(browser);
   safe.status = 'ok';
-  safe.detail = safe.consoleWarnings.length ? 'responsive_v2_active; non-fatal browser warning(s) recorded' : 'responsive_v2_active';
+  safe.detail = safe.consoleWarnings.length ? 'media_optimizer_v2_deployed; responsive_v2_active; non-fatal browser warning(s) recorded' : 'media_optimizer_v2_deployed; responsive_v2_active';
   save();
-  console.log(`WP_R2_RESPONSIVE_OK images=${safe.responsiveImageCount} hero=${safe.heroCurrentSrc}`);
+  console.log(`WP_R2_RESPONSIVE_OK updated=${safe.pluginUpdated} settings=${safe.settingsPageReachable} images=${safe.responsiveImageCount}`);
 } catch (e) {
   safe.status = 'failed'; safe.detail = String(e?.message || e); save();
   console.error(`WP_R2_RESPONSIVE_FAILED ${safe.detail}`); process.exitCode = 1;
