@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/rss-reader.yml"
       - "scripts/rss_reader_collect.py"
+      - "scripts/rss_reader_collect_v2.py"
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
   schedule:
@@ -42,7 +43,7 @@ jobs:
       - name: Collect 10 core Runner3 RSS sources
         id: core
         continue-on-error: true
-        run: python scripts/rss_reader_collect.py
+        run: python scripts/rss_reader_collect_v2.py
 
       - name: Collect Võ Hoàng Hạc Articles + Substack Notes
         id: vohoanghac
