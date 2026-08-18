@@ -28,13 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build homepage and bundled CSS edge snapshot
+      - name: Build optimized homepage edge snapshot
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, re, urllib.parse, urllib.request, time
-          origin=os.environ['ORIGIN_URL']; ua='Mozilla/5.0 EdgeSnapshotBuilder/3.0'; edge_css='/__edge/runner5.css'
+          origin=os.environ['ORIGIN_URL']; ua='Mozilla/5.0 EdgeSnapshotBuilder/4.0'; edge_css='/__edge/runner5.css'
           def fetch(url, timeout=40):
               req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*','Cache-Control':'no-cache'})
               with urllib.request.urlopen(req,timeout=timeout) as r: return r.read(), r.headers.get('content-type','')
@@ -62,6 +62,11 @@ jobs:
                   css=css_raw.decode('utf-8','ignore')
                   if not css.strip(): continue
                   css=re.sub(r'^\s*@charset\s+[^;]+;','',css,flags=re.I); css=rewrite_css_urls(css,css_url)
+                  def add_font_display(m):
+                      block=m.group(0)
+                      if re.search(r'font-display\s*:',block,re.I): return block
+                      return block[:-1]+'font-display:swap;}'
+                  css=re.sub(r'@font-face\s*\{.*?\}',add_font_display,css,flags=re.I|re.S)
                   media=media_re.search(tag); media_value=media.group(2).strip() if media else ''
                   if media_value and media_value.lower() not in ('all','screen'): css=f'@media {media_value} {{\n{css}\n}}'
                   bundle.append(f'/* {css_url} */\n{css}'); captured.append({'tag':tag,'url':css_url,'bytes':len(css_raw)})
@@ -70,10 +75,29 @@ jobs:
           first=True
           for item in captured:
               html=html.replace(item['tag'], f'<link rel="stylesheet" id="runner5-edge-css" href="{edge_css}">' if first else '', 1); first=False
-          built=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()); css_bundle='\n'.join(bundle)
+          deferred=[]
+          script_open_re=re.compile(r'<script\b[^>]*\bsrc\s*=\s*(["\'])(.*?)\1[^>]*>',re.I|re.S)
+          safe_fragments=('jquery/jquery.min.js','jquery-migrate.min.js','/themes/inspiro/assets/js/','wp-emoji-release.min.js')
+          def defer_known(m):
+              tag=m.group(0); src=m.group(2)
+              if not any(x in src for x in safe_fragments): return tag
+              if re.search(r'\b(?:defer|async)\b',tag,re.I): return tag
+              deferred.append(src)
+              return tag[:-1]+' defer>'
+          html=script_open_re.sub(defer_known,html)
+          css_bundle='\n'.join(bundle)
+          fonts=[]
+          for m in re.finditer(r'url\(["\']?([^"\')]+\.woff2(?:\?[^"\')]+)?)',css_bundle,re.I):
+              u=m.group(1)
+              if u.startswith('/') and u not in fonts: fonts.append(u)
+              if len(fonts)>=2: break
+          if fonts:
+              preloads=''.join(f'<link rel="preload" href="{u}" as="font" type="font/woff2" crossorigin>' for u in fonts)
+              html=html.replace('</head>',preloads+'</head>',1)
+          built=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
           out='// Generated immediately before Cloudflare deployment. Do not hand-edit.\n'; out+=f'export const SNAPSHOT_BUILT_AT = {json.dumps(built)};\n'; out+=f'export const HOME_SNAPSHOT = {json.dumps(html)};\n'; out+=f'export const STYLE_BUNDLE = {json.dumps(css_bundle)};\n'
           open('cloudflare/runner5-restore-proxy/snapshot.generated.js','w').write(out)
-          print(json.dumps({'htmlBytes':len(html.encode()),'bundleBytes':len(css_bundle.encode()),'styleCount':len(captured),'styles':captured,'builtAt':built},indent=2))
+          print(json.dumps({'htmlBytes':len(html.encode()),'bundleBytes':len(css_bundle.encode()),'styleCount':len(captured),'deferredScripts':deferred,'preloadedFonts':fonts,'builtAt':built},indent=2))
           PY
 
       - name: Deploy optimized Worker
@@ -87,17 +111,17 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, time, urllib.request
-          url=os.environ['PROXY_URL']; result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'cssReady':False,'firstMs':None,'warmMs':None,'detail':None}; timings=[]; err=None
+          import json, os, time, urllib.request, re
+          url=os.environ['PROXY_URL']; result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'cssReady':False,'jqueryDeferred':False,'firstMs':None,'warmMs':None,'detail':None}; timings=[]; err=None
           for _ in range(12):
               try:
                   t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
                   with urllib.request.urlopen(req,timeout=25) as r:
-                      body=r.read(1000000).decode('utf-8','ignore'); timings.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body; result['edgeMode']=r.headers.get('x-edge-mode'); result['edgeCache']=r.headers.get('x-edge-cache')
+                      body=r.read(1000000).decode('utf-8','ignore'); timings.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body; result['edgeMode']=r.headers.get('x-edge-mode'); result['edgeCache']=r.headers.get('x-edge-cache'); result['jqueryDeferred']=bool(re.search(r'<script[^>]+jquery\.min\.js[^>]+defer',body,re.I))
                   css_req=urllib.request.Request(url.rstrip('/')+'/__edge/runner5.css',headers={'User-Agent':'Mozilla/5.0'})
                   with urllib.request.urlopen(css_req,timeout=25) as cr:
                       css=cr.read(1000000); result['cssReady']=cr.status==200 and cr.headers.get('x-edge-mode')=='snapshot-asset' and len(css)>1000
-                  if result['http']==200 and result['titleMarker'] and result['edgeMode']=='snapshot' and result['cssReady'] and len(timings)>=2: result['status']='READY'; break
+                  if result['http']==200 and result['titleMarker'] and result['edgeMode']=='snapshot' and result['cssReady'] and result['jqueryDeferred'] and len(timings)>=2: result['status']='READY'; break
               except Exception as e: err=str(e)
               time.sleep(3)
           result['firstMs']=timings[0] if timings else None; result['warmMs']=timings[-1] if len(timings)>1 else None; result['detail']=None if result['status']=='READY' else err; result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
@@ -112,8 +136,7 @@ jobs:
           set -euo pipefail
           test -s /tmp/runner5-proxy.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PROXY_URL" > /tmp/runner5-proxy.json
           cp /tmp/runner5-proxy.json /tmp/runner5-proxy-safe.json
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
             git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/runner5-proxy-safe.json ops/wordpress-access/runner5-restore-proxy.json; git add ops/wordpress-access/runner5-restore-proxy.json
             if git diff --cached --quiet; then exit 0; fi
