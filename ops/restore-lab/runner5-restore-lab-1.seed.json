@@ -1,35 +1,19 @@
 {
-  "status": "starting",
+  "status": "FAILED",
   "siteSlug": "runner5-restore-lab-1",
   "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
   "mode": "rest-api-seed-v4",
-  "applicationPassword": true,
-  "backupPlugin": {
-    "plugin": "all-in-one-wp-migration/all-in-one-wp-migration",
-    "status": "active",
-    "version": "7.109"
-  },
-  "activeTheme": {
-    "stylesheet": "inspiro",
-    "name": "Inspiro",
-    "version": "2.2.3"
-  },
+  "applicationPassword": false,
+  "backupPlugin": null,
+  "activeTheme": null,
   "pages": 0,
   "posts": 0,
-  "categories": 3,
+  "categories": 0,
   "mediaUpload": "deferred_after_origin_500",
   "homepageHttp": null,
   "steps": [
-    "wasmer_login",
-    "wordpress_admin",
-    "application_password",
-    "verify_api",
-    "plugin_all-in-one-wp-migration",
-    "theme_snapshot",
-    "settings",
-    "categories",
-    "pages"
+    "wasmer_login"
   ],
-  "detail": null,
-  "updatedAt": "2026-08-18T05:31:51.908Z"
+  "detail": "locator.waitFor: Timeout 12000ms exceeded.\nCall log:\n  - waiting for locator('input[type=password]').first() to be visible\n",
+  "updatedAt": "2026-08-18T05:32:25.022Z"
 }
