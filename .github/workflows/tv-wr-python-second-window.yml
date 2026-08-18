@@ -22,6 +22,7 @@ jobs:
           p=p.replace("src=src.replace('sra<=SIGNAL_RANGE_MAX','sra<SIGNAL_RANGE_MAX')","# canonical comparator remains <=")
           p=p.replace("REPORT_START=local_ms('2026-08-05')","REPORT_START=local_ms('2026-08-10')")
           p=p.replace("REPORT_END=local_ms('2026-08-10')","REPORT_END=local_ms('2026-08-16')")
+          p=p.replace("RUN_END=local_ms('2026-08-12')","RUN_END=local_ms('2026-08-18')")
           p=p.replace("report_start='2026-08-05 00:00 VN'","report_start='2026-08-10 00:00 VN'")
           p=p.replace("report_end_exclusive='2026-08-10 00:00 VN'","report_end_exclusive='2026-08-16 00:00 VN'")
           pos=p.find("expected={'BNBUSDT'")
