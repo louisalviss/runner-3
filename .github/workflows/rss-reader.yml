@@ -55,6 +55,27 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+      - name: Persist one-shot VHH health diagnostic on push
+        if: always() && github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f data/rss-reader/substack-health.json ]; then
+            echo "No VHH health file produced"
+            exit 0
+          fi
+          mkdir -p data/rss-reader/debug
+          cp data/rss-reader/substack-health.json data/rss-reader/debug/vhh-health-push.json
+          git config user.name "runner3-rss-bot"
+          git config user.email "runner3-rss-bot@users.noreply.github.com"
+          git add data/rss-reader/debug/vhh-health-push.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Persist VHH RSS diagnostic"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
       - name: Persist source mirrors only when content changes
         shell: bash
         run: |
