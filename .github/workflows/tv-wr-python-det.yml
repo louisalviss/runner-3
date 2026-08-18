@@ -27,6 +27,10 @@ jobs:
 
           src=Path('/tmp/reference_verify.py').read_text()
           src=src.replace('sra<=SIGNAL_RANGE_MAX','sra<SIGNAL_RANGE_MAX')
+          pivot_old="""        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+          pivot_new="""        if v[c]==ext:\n            # Pine parity: equal extreme on older/left bars is allowed;\n            # equal extreme on newer/right bars rejects the pivot.\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n"""
+          if src.count(pivot_old)!=1: raise RuntimeError(f'pivot patch anchor count={src.count(pivot_old)}')
+          src=src.replace(pivot_old,pivot_new,1)
           mod=types.ModuleType('wrref')
           mod.__file__='reference_verify.py'
           sys.modules['wrref']=mod
@@ -50,6 +54,7 @@ jobs:
               ind,pht,plt=ns['calc_ind'](bars)
               Plan=ns['Plan']; Trade=ns['Trade']; next_bracket=ns['next_bracket']; session_flags=ns['session_flags']; iso=ns['iso']; asdict=ns['asdict']
               TP_R=ns['TP_R']; RISK_PCT=ns['RISK_PCT']; INIT=ns['INIT']
+              qty_step=0.01 if symbol=='BNBUSDT' else 1.0
               eq=INIT; pending=active=None; entry_t=None; trades=[]
               w_eq=w_peak=None; w_dd=0.0; w_gp=w_gl=0.0; w_ls=w_max_ls=0
               all_closed=0; all_signals=0
@@ -77,13 +82,13 @@ jobs:
                       r,px=next_bracket(active,x,None)
                       if r: closed=close_trade(i,r,px)
                   if active is None and pending is not None and i==pending.sig_i+1 and not closed:
-                      fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)
+                      fill=(pending.d==1 and round(x.h/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.l/tick)<=round(pending.e/tick))
                       if fill:
-                          gap=(pending.d==1 and x.o>=pending.e) or (pending.d==-1 and x.o<=pending.e)
+                          gap=(pending.d==1 and round(x.o/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.o/tick)<=round(pending.e/tick))
                           active=pending; pending=None; entry_t=x.ot
                           r,px=next_bracket(active,x,None if gap else active.e)
                           if r: closed=close_trade(i,r,px)
-                  allowed,sexit=session_flags(x.ct,5*60000)
+                  allowed,sexit=session_flags(x.ct+1,5*60000)
                   if active is not None and not closed:
                       z=ind[i]
                       le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']
@@ -100,7 +105,7 @@ jobs:
                       if nl or sh:
                           if nl: d=1; e=x.h+tick; s=x.l-tick; t=e+TP_R*(e-s)
                           else: d=-1; e=x.l-tick; s=x.h+tick; t=e-TP_R*(s-e)
-                          raw=(eq*RISK_PCT/100)/abs(e-s); q=math.floor(raw); risk=abs(e-s)*q
+                          raw=(eq*RISK_PCT/100)/abs(e-s); q=math.floor(raw/qty_step)*qty_step; risk=abs(e-s)*q
                           if q>0 and risk>0:
                               pending=Plan(d,e,s,t,risk,q,i,x.ct,x.h,x.l); all_signals+=1
               wins=sum(t.canon_r>0 for t in trades); losses=sum(t.canon_r<0 for t in trades); total=sum(t.canon_r for t in trades)
@@ -110,7 +115,13 @@ jobs:
               return out
           results=[run_symbol('BNBUSDT'),run_symbol('TRXUSDT')]
           print(json.dumps(results,indent=2))
-          print('PY_DET_RUN=PASS')
+          expected={'BNBUSDT':(5,3.420895522388),'TRXUSDT':(4,2.6)}
+          for r in results:
+              n,rr=expected[r['symbol']]
+              ok=r['trades']==n and abs(r['total_r']-rr)<=0.02
+              print(f"{r['symbol']}_PARITY={'PASS' if ok else 'FAIL'}")
+              if not ok: raise SystemExit(7)
+          print('PY_DET_PARITY=PASS')
           PY
           python3 /tmp/run_det.py | tee /tmp/wrpy/run.log
       - uses: actions/upload-artifact@v4
