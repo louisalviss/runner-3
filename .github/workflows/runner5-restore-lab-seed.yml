@@ -17,8 +17,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: runner5-restore-lab-seed-${{ github.run_id }}
-  cancel-in-progress: false
+  group: runner5-restore-lab-seed-runner5-restore-lab-1
+  cancel-in-progress: true
 
 jobs:
   seed:
