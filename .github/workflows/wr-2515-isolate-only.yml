@@ -16,6 +16,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/wriso
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-isolate.yml' -o /tmp/source.yml
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
           python3 - <<'PY'
           from pathlib import Path
           import textwrap
