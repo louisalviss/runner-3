@@ -1,0 +1,200 @@
+name: Solo Beru Xonada V14 TikTok
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/solo-beru-xonada-v14-tiktok.yml']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl openvpn iproute2 iptables
+          python -m pip install -q -U yt-dlp numpy
+
+      - name: Acquire 720p Solo Leveling source
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 35 https://www.vpngate.net/api/iphone/ -o vpn.csv
+          python <<'PY'
+          import csv,base64
+          a=[]
+          for r in csv.reader(open('vpn.csv',encoding='utf-8-sig',errors='replace')):
+            if len(r)<15 or not r or r[0].startswith(('*','#')): continue
+            cc=r[6].strip().upper()
+            if cc not in {'VN','JP','KR'}: continue
+            try:a.append((0 if cc=='VN' else 1,-int(r[2] or 0),cc,r[1],base64.b64decode(r[14]).decode('utf8','replace')))
+            except:pass
+          a.sort();a=a[:10]
+          with open('vpns.tsv','w') as m:
+            for i,(_,_,cc,ip,cfg) in enumerate(a):
+              p=f'v{i}.ovpn';open(p,'w').write(cfg+'\nauth-nocache\nconnect-retry-max 1\nconnect-timeout 7\n');m.write(f'{p}\t{cc}\t{ip}\n')
+          PY
+          sudo mkdir -p /etc/netns/vpnns;printf 'nameserver 1.1.1.1\n'|sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+          sudo ip netns add vpnns;sudo ip link add vh type veth peer name vv;sudo ip link set vv netns vpnns
+          sudo ip addr add 10.203.0.1/24 dev vh;sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.203.0.2/24 dev vv;sudo ip netns exec vpnns ip link set lo up;sudo ip netns exec vpnns ip link set vv up;sudo ip netns exec vpnns ip route add default via 10.203.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null;W=$(ip route show default|awk '/default/{print $5;exit}')
+          sudo iptables -t nat -A POSTROUTING -s 10.203.0.0/24 -o "$W" -j MASQUERADE;sudo iptables -A FORWARD -i vh -o "$W" -j ACCEPT;sudo iptables -A FORWARD -i "$W" -o vh -m state --state RELATED,ESTABLISHED -j ACCEPT
+          Y=$(command -v yt-dlp);got=0
+          while IFS=$'\t' read -r p cc ip;do
+            [ -f /tmp/v.pid ]&&sudo kill "$(cat /tmp/v.pid)" 2>/dev/null||true;sudo rm -f /tmp/v.pid /tmp/v.log;sleep 1
+            sudo ip netns exec vpnns openvpn --config "$GITHUB_WORKSPACE/$p" --daemon --writepid /tmp/v.pid --log /tmp/v.log||true
+            tun=0;for n in $(seq 1 12);do sudo ip netns exec vpnns ip link show tun0 >/dev/null 2>&1&&{ tun=1;break;};sleep 1;done;[ "$tun" = 1 ]||continue
+            eg=$(sudo ip netns exec vpnns curl -4 -fsS --max-time 8 https://api.ipify.org||true);[ -n "$eg" ]||continue;echo "EGRESS=$eg $cc"
+            rm -f source.*
+            if timeout 420s sudo ip netns exec vpnns env PATH="$PATH" HOME="$HOME" "$Y" --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 20 --js-runtimes node --remote-components ejs:github -f 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]' --merge-output-format mp4 -o "$GITHUB_WORKSPACE/source.%(ext)s" 'https://www.youtube.com/watch?v=IrHTT2IEKpE';then
+              f=$(find . -maxdepth 1 -name 'source.*' -type f|head -1);[ -n "$f" ]&&{ [ "$f" = './source.mp4' ]||mv "$f" source.mp4;got=1;break;}
+            fi
+          done<vpns.tsv
+          [ "$got" = 1 ]||exit 22
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_type,codec_name,width,height -of default=nw=1 source.mp4
+
+      - name: Get XONADA and find strongest beat window
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 'https://itunes.apple.com/search?term=MONTAGEM%20XONADA%20MXZI%20Dj%20Samir%20DJ%20Javi26&entity=song&limit=50&country=US' -o i.json
+          python <<'PY'
+          import json
+          for x in json.load(open('i.json')).get('results',[]):
+            if (x.get('trackName') or '').lower().strip()=='montagem xonada' and x.get('previewUrl') and 'mxzi' in (x.get('artistName') or '').lower():
+              print('TRACK',x.get('trackName'),'ARTIST',x.get('artistName'))
+              open('u','w').write(x['previewUrl']);break
+          else:raise SystemExit('NO_XONADA')
+          PY
+          curl -fL --max-time 45 -A 'Mozilla/5.0' "$(cat u)" -o xonada.m4a
+          ffmpeg -hide_banner -loglevel error -y -i xonada.m4a -ac 1 -ar 22050 -f s16le xonada.raw
+          python <<'PY'
+          import numpy as np
+          sr=22050; beat=60/172; total=48*beat
+          x=np.fromfile('xonada.raw',dtype=np.int16).astype(np.float32)/32768
+          hop=220; win=1024
+          if len(x)<win: raise SystemExit('AUDIO_TOO_SHORT')
+          # log-energy and positive energy flux every ~10ms
+          e=np.array([np.sqrt(np.mean(x[i:i+win]**2)+1e-10) for i in range(0,len(x)-win,hop)])
+          le=np.log(e+1e-6); onset=np.maximum(0,np.diff(le,prepend=le[0])); times=np.arange(len(e))*hop/sr
+          dur=len(x)/sr; maxstart=max(0,dur-total-0.05)
+          cand=np.argsort(onset)[-min(500,len(onset)):]
+          best=None
+          for idx in cand:
+            st=times[idx]
+            if st<0 or st>maxstart: continue
+            ids=np.searchsorted(times, st+np.arange(48)*beat)
+            ids=np.clip(ids,0,len(onset)-1)
+            grid=float(onset[ids].sum())
+            mask=(times>=st)&(times<st+total)
+            energy=float(np.percentile(e[mask],70)) if mask.any() else 0
+            first=float(onset[idx])
+            score=grid+8*energy+0.6*first
+            if best is None or score>best[0]: best=(score,st,grid,energy)
+          st=best[1] if best else 0.0
+          open('music_start.txt','w').write(f'{st:.3f}')
+          open('beat_meta.txt','w').write(f'bpm=172\nbeat={beat:.6f}\nbeats=48\nduration={total:.6f}\nmusic_start={st:.3f}\n')
+          print(open('beat_meta.txt').read())
+          PY
+
+      - name: TikTok-native 26-cut render
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          # st,en,beats,source_crop_x,zoom,shake,flash,sfx_volume
+          clips=[
+            (512.00,512.35,1,438,1.12,0,0,0.00),
+            (494.00,494.60,1,438,1.18,1,1,0.00),
+            (530.00,530.25,1,438,1.22,1,0,0.20),
+            (510.00,510.50,1,438,1.10,0,1,0.00),
+            (470.00,471.20,2,430,1.08,0,0,0.00),
+            (484.00,484.80,2,700,1.12,0,0,0.00),
+            (486.00,487.20,2,120,1.10,0,1,0.00),
+            (492.00,492.50,2,438,1.18,0,0,0.00),
+            (504.00,505.20,2,438,1.12,1,0,0.00),
+            (512.00,512.55,2,438,1.15,0,1,0.00),
+            (520.00,521.40,2,650,1.12,1,0,0.15),
+            (524.00,524.45,2,438,1.22,0,1,0.12),
+            (528.00,529.40,2,438,1.10,1,1,0.38),
+            (530.00,530.50,2,438,1.24,0,0,0.20),
+            (532.00,533.40,2,438,1.10,1,0,0.32),
+            (534.00,534.50,2,438,1.20,1,1,0.42),
+            (536.00,537.40,2,438,1.12,1,0,0.42),
+            (538.00,539.40,2,438,1.14,1,1,0.45),
+            (540.00,540.45,2,438,1.20,0,1,0.18),
+            (542.00,543.40,2,438,1.12,1,0,0.42),
+            (544.00,545.40,2,438,1.14,1,1,0.42),
+            (536.40,536.90,2,438,1.22,1,0,0.38),
+            (548.00,549.20,2,438,1.10,0,0,0.16),
+            (550.00,550.50,2,438,1.16,0,0,0.10),
+            (552.00,553.20,2,438,1.10,0,1,0.08),
+            (512.00,512.55,2,438,1.14,0,0,0.00),
+          ]
+          beat=60/172
+          n=len(clips)
+          vf=[];af=[]
+          vf.append('[0:v]setpts=PTS-STARTPTS,split='+str(n)+''.join(f'[v{i}i]' for i in range(n)))
+          af.append('[0:a]asetpts=PTS-STARTPTS,asplit='+str(n)+''.join(f'[a{i}i]' for i in range(n)))
+          for i,(st,en,beats,cx,z,shake,flash,svol) in enumerate(clips):
+            out=beats*beat; src=en-st; speed=src/out
+            sw=int(round(1080*z/2)*2); sh=int(round(1920*z/2)*2)
+            sx=f'(iw-ow)/2+{12 if shake else 0}*sin(2*PI*t*18)'
+            sy=f'(ih-oh)/2+{8 if shake else 0}*sin(2*PI*t*23)'
+            flashf=",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.20:t=fill:enable='lt(t,0.035)'" if flash else ''
+            vf.append(f'[v{i}i]trim=start={st}:end={en},setpts=(PTS-STARTPTS)*{out/src:.8f},crop=405:720:{cx}:0,scale={sw}:{sh},crop=1080:1920:x={sx}:y={sy},eq=contrast=1.10:saturation=1.16:gamma=0.97,unsharp=5:5:0.30:5:5:0{flashf},fps=30,format=yuv420p[v{i}]')
+            af.append(f'[a{i}i]atrim=start={st}:end={en},asetpts=PTS-STARTPTS,atempo={speed:.8f},volume={svol:.3f},aresample=48000[a{i}]')
+          chain=''.join(f'[v{i}][a{i}]' for i in range(n))
+          filt=';'.join(vf+af+[chain+f'concat=n={n}:v=1:a=1[vout][sfx]'])
+          open('filter.txt','w').write(filt)
+          with open('edit_map.txt','w') as m:
+            t=0
+            for i,(st,en,beats,cx,z,shake,flash,svol) in enumerate(clips):
+              d=beats*beat;m.write(f'{i+1:02d} out={t:.3f}-{t+d:.3f} src={st:.2f}-{en:.2f} beats={beats} cropx={cx} zoom={z} shake={shake} flash={flash}\n');t+=d
+            m.write(f'TOTAL={t:.6f}\n')
+          PY
+          ffmpeg -hide_banner -loglevel error -y -i source.mp4 -filter_complex_script filter.txt -map '[vout]' -map '[sfx]' -c:v libx264 -preset medium -crf 17 -profile:v high -level 4.1 -pix_fmt yuv420p -c:a aac -b:a 128k -ar 48000 -ac 2 visual_sfx.mp4
+          DUR=$(python - <<'PY'
+          print(f'{48*(60/172):.6f}')
+          PY
+          )
+          MS=$(cat music_start.txt)
+          ffmpeg -hide_banner -loglevel error -y -i visual_sfx.mp4 -ss "$MS" -i xonada.m4a -t "$DUR" -filter_complex "[0:a]volume=0.92[sfx];[1:a]volume=1.00,bass=g=3.0:f=90[music];[sfx][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.94[a]" -map 0:v -map '[a]' -c:v copy -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart solo_beru_xonada_v14_tiktok.mp4
+          mkdir -p qa
+          for t in 0.2 0.8 1.4 2.5 4.2 5.8 7.2 8.6 10.0 11.4 12.8 14.2 15.4 16.3;do ffmpeg -hide_banner -loglevel error -y -ss $t -i solo_beru_xonada_v14_tiktok.mp4 -frames:v 1 "qa/q_${t}.jpg";done
+          ffmpeg -hide_banner -loglevel error -y -i solo_beru_xonada_v14_tiktok.mp4 -vf "fps=1/1.2,scale=180:-2,tile=7x2:padding=3:margin=3" -frames:v 1 qa_contact.jpg
+          ffprobe -v error -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,sample_rate,channels -show_entries format=duration,size,bit_rate -of default=nw=1 solo_beru_xonada_v14_tiktok.mp4 | tee specs.txt
+
+      - name: Upload V14
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: solo-beru-xonada-v14-tiktok
+          path: |
+            solo_beru_xonada_v14_tiktok.mp4
+            qa_contact.jpg
+            qa/*.jpg
+            edit_map.txt
+            beat_meta.txt
+            specs.txt
+          retention-days: 3
+
+      - name: Persist V14 manifest
+        shell: bash
+        run: |
+          set -e
+          mkdir -p audit/solo-beru-v14
+          printf 'run_id=%s\nartifact_id=%s\ncommit=%s\n' '${{ github.run_id }}' '${{ steps.upload.outputs.artifact-id }}' '${{ github.sha }}' > audit/solo-beru-v14/manifest.txt
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add audit/solo-beru-v14/manifest.txt
+          git commit -m 'Add Solo Beru V14 manifest' || exit 0
+          for n in 1 2 3 4 5; do
+            git pull --rebase origin main || true
+            git push && exit 0
+            sleep 2
+          done
+          exit 0

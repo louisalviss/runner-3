@@ -1,0 +1,25 @@
+name: SPMO NPORT Parser Test
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-backtest/parse_nport_jina.py'
+      - '.github/workflows/spmo-nport-parser-test.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests pandas
+      - run: python -u spmo-backtest/parse_nport_jina.py --accession 0001752724-22-170575 --output /tmp/known.csv --min-pct 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nport-parser-test-${{ github.run_id }}
+          path: /tmp/known.csv
+          retention-days: 2

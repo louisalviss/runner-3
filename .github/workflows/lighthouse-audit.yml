@@ -1,0 +1,75 @@
+name: Lighthouse Performance Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/lighthouse/requests/*.json'
+      - '.github/workflows/lighthouse-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-lighthouse-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lighthouse
+        run: npm install --no-save lighthouse@13.0.1
+      - name: Run mobile and desktop Lighthouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/lh
+          URL='https://runner3-factory-smoke-2.wasmer.app/'
+          npx lighthouse "$URL" --quiet --chrome-path=/usr/bin/google-chrome --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --only-categories=performance,accessibility,best-practices,seo --output=json --output-path=/tmp/lh/mobile.json
+          npx lighthouse "$URL" --quiet --preset=desktop --chrome-path=/usr/bin/google-chrome --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --only-categories=performance,accessibility,best-practices,seo --output=json --output-path=/tmp/lh/desktop.json
+          python3 - <<'PY'
+          import json, os, datetime
+          out={'status':'ready','site':'https://runner3-factory-smoke-2.wasmer.app/','source':'Lighthouse 13','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'runs':{}}
+          ids=['first-contentful-paint','largest-contentful-paint','speed-index','total-blocking-time','cumulative-layout-shift','interactive','server-response-time','render-blocking-insight','image-delivery-insight','cache-insight','font-display-insight','document-latency-insight','network-dependency-tree-insight','unused-css-rules','unused-javascript','total-byte-weight','dom-size','lcp-discovery-insight','third-parties-insight']
+          for mode in ['mobile','desktop']:
+            d=json.load(open('/tmp/lh/'+mode+'.json'))
+            cats=d.get('categories',{})
+            audits=d.get('audits',{})
+            out['runs'][mode]={
+              'lighthouseVersion':d.get('lighthouseVersion'),
+              'fetchTime':d.get('fetchTime'),
+              'scores':{k:round((v.get('score') or 0)*100) for k,v in cats.items()},
+              'audits':{i:{'score':audits[i].get('score'),'numericValue':audits[i].get('numericValue'),'displayValue':audits[i].get('displayValue'),'title':audits[i].get('title'),'details':{k:audits[i].get('details',{}).get(k) for k in ['overallSavingsMs','overallSavingsBytes'] if k in audits[i].get('details',{})}} for i in ids if i in audits},
+              'failed':[
+                {'id':a.get('id'),'title':a.get('title'),'score':a.get('score'),'displayValue':a.get('displayValue'),'numericValue':a.get('numericValue')}
+                for a in audits.values() if a.get('score') is not None and a.get('score') < 1 and a.get('scoreDisplayMode') in ('binary','numeric')
+              ][:100]
+            }
+          os.makedirs('ops/lighthouse',exist_ok=True)
+          json.dump(out,open('ops/lighthouse/latest.json','w'),indent=2)
+          print(json.dumps({m:out['runs'][m]['scores'] for m in ['mobile','desktop']},indent=2))
+          PY
+      - name: Persist Lighthouse result
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ops/lighthouse/latest.json /tmp/lighthouse-latest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/lighthouse
+            cp /tmp/lighthouse-latest.json ops/lighthouse/latest.json
+            git add ops/lighthouse/latest.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist Lighthouse performance audit'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true

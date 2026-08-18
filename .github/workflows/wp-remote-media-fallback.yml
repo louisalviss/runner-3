@@ -1,0 +1,85 @@
+name: WordPress Remote Media Fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wp-remote-media-fallback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-remote-media
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Decrypt WordPress API credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in "ops/wp-control/${WP_SITE_SLUG}.credential.aes" -out /tmp/wp-control-credential.json
+          chmod 600 /tmp/wp-control-credential.json
+
+      - name: Install image optimizer
+        run: npm install --no-save sharp@0.34.3
+
+      - name: Prepare optimized WebP media
+        run: node scripts/prepare-wordpress-remote-media.mjs
+
+      - name: Publish optimized media remotely before mapping WordPress
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "media/${WP_SITE_SLUG}"
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish optimized remote media: ${WP_SITE_SLUG}"
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then break; fi
+              git pull --rebase origin main
+              sleep 2
+            done
+          fi
+
+      - name: Map remote media and prune Wasmer copies only after verification
+        run: node scripts/apply-wordpress-remote-media.mjs
+
+      - name: Persist safe migration result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="/tmp/wp-remote-media-${WP_SITE_SLUG}.json"
+          test -f "$result" || printf '{"status":"runner_error","siteSlug":"%s","detail":"remote_media_status_missing"}\n' "$WP_SITE_SLUG" > "$result"
+          rm -f /tmp/wp-control-credential.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git pull --rebase origin main || true
+            mkdir -p ops/wp-remote-media/results
+            cp "$result" "ops/wp-remote-media/results/${WP_SITE_SLUG}.latest.json"
+            git add "ops/wp-remote-media/results/${WP_SITE_SLUG}.latest.json"
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Persist WordPress remote media status: ${WP_SITE_SLUG}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true || exit 5

@@ -1,0 +1,110 @@
+name: moxing-translate-vi-finalize
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/moxing-translate-vi-finalize.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  SOURCE_RUN_ID: '31974744041'
+  SOURCE_TAG: webnovel-writing-brain-v1-2026-08-17
+  SOURCE_SHA256: ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f
+  MODEL_ID: DanVP/MoxhiMT-60
+  MODEL_REVISION: 3ae60c790cf21deebeab8e1a82f4024fbdc1fc87
+  TAG: moxing-vi-translation-v1-2026-08-17
+  ASSET: moxing-vi-translation-v1-2026-08-17.zip
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all 16 validated Moxhi shards from run 31974744041
+        uses: actions/download-artifact@v4
+        with:
+          pattern: moxing-vi-shard-*
+          path: shards
+          merge-multiple: true
+          run-id: 31974744041
+          github-token: ${{ github.token }}
+      - name: Download pinned translation input
+        uses: actions/download-artifact@v4
+        with:
+          name: moxing-translation-input
+          path: input
+          run-id: 31974744041
+          github-token: ${{ github.token }}
+      - name: Merge and final QA
+        run: |
+          set -euo pipefail
+          test $(ls shards/translation-*.jsonl | wc -l) -eq 16
+          cat shards/translation-*.jsonl > translations.unsorted.jsonl
+          python - <<'PY'
+          import json,pathlib,hashlib,re,os,statistics
+          inp={}
+          for line in open('input/moxing-translation-input.jsonl',encoding='utf-8'):
+              x=json.loads(line); inp[x['passage_id']]=x
+          out=[];ids=set();empty=bad_sha=bad_model=empty_evidence=0;zh_chars=chars=zh_heavy=length_outlier=0;ratios=[];chunked=0
+          ZH=re.compile(r'[\u3400-\u9fff]')
+          for line in open('translations.unsorted.jsonl',encoding='utf-8'):
+              x=json.loads(line);pid=x['passage_id'];assert pid not in ids,pid;ids.add(pid)
+              assert pid in inp,pid
+              empty_evidence += not bool(x.get('evidence_id'))
+              assert x['evidence_id']==inp[pid]['evidence_id'],pid
+              src=inp[pid]['text_zh'];expected=hashlib.sha256(src.encode()).hexdigest();bad_sha+=x['text_zh_sha256']!=expected
+              bad_model += x.get('model_id')!=os.environ['MODEL_ID'] or x.get('model_revision')!=os.environ['MODEL_REVISION'] or x.get('runtime')!='CTranslate2 INT8'
+              t=x['text_vi'].strip();empty+=not bool(t);c=len(t);z=len(ZH.findall(t));chars+=c;zh_chars+=z;zh_heavy+=bool(c and z/c>.25);length_outlier+=c>1200;chunked+=int(x.get('translation_chunks',1)>1)
+              if len(src):ratios.append(c/len(src))
+              out.append(x)
+          assert len(inp)==9538 and len(out)==9538,(len(inp),len(out))
+          assert ids==set(inp),len(set(inp)-ids)
+          assert empty==0 and empty_evidence==0,(empty,empty_evidence)
+          assert bad_sha==0 and bad_model==0,(bad_sha,bad_model)
+          ratio=zh_chars/max(chars,1);median_ratio=statistics.median(ratios)
+          assert ratio<.08,ratio
+          assert zh_heavy<200,zh_heavy
+          assert length_outlier<20,length_outlier
+          assert median_ratio<4.5,median_ratio
+          assert chunked==197,chunked
+          out.sort(key=lambda x:x['passage_id'])
+          root=pathlib.Path('moxing_vi_translation');root.mkdir()
+          with open(root/'translations.jsonl','w',encoding='utf-8') as f:
+              for x in out:f.write(json.dumps(x,ensure_ascii=False)+'\n')
+          quality={'rows':9538,'empty':empty,'empty_evidence_id':empty_evidence,'sha_mismatch':bad_sha,'model_mismatch':bad_model,'zh_char_ratio':round(ratio,6),'zh_heavy_rows':zh_heavy,'length_outlier_rows':length_outlier,'median_vi_zh_length_ratio':round(median_ratio,4),'chunked_rows':chunked}
+          manifest={'schema':'moxing-vi-translation-v1.2','source_tag':os.environ['SOURCE_TAG'],'source_sha256':os.environ['SOURCE_SHA256'],'model_id':os.environ['MODEL_ID'],'model_revision':os.environ['MODEL_REVISION'],'model_license':'Apache-2.0','runtime':'CTranslate2 INT8','beam_size':4,'selected_by':'12-sentence Moxing webnovel-craft A/B probe versus HachimiMT-60; Helsinki baseline rejected on qualitative QA','quality':quality,'shards':16,'source_run_id':os.environ['SOURCE_RUN_ID'],'long_passage_policy':'split at Chinese sentence/clause punctuation around 160 chars before translation','policy':'Vietnamese machine translation is the retrieval/display layer. Original Chinese remains canonical provenance; repeated evidence hashes are valid because one source sentence may back multiple retained records.'}
+          (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(manifest,ensure_ascii=False,indent=2))
+          PY
+      - name: Package translation layer
+        run: |
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('moxing_vi_translation');asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():z.write(p,p.as_posix())
+          m=json.load(open(root/'manifest.json',encoding='utf-8'));m['package']={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()};(root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+      - name: Publish durable translation release and trigger VI brain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Moxing Writing Vietnamese Translation v1 — MoxhiMT-60 — 2026-08-17' --notes 'Vietnamese translation layer for all 9,538 retained Moxing writing passages using pinned MoxhiMT-60. Original Chinese remains canonical provenance.'
+          fi
+          gh release edit "$TAG" --notes '9,538 retained Moxing writing passages translated to Vietnamese with DanVP/MoxhiMT-60 @ 3ae60c790cf21deebeab8e1a82f4024fbdc1fc87 (Apache-2.0), CTranslate2 INT8, beam 4. Exactly 197 long passages were chunked at Chinese sentence/clause boundaries. Helsinki output was rejected after qualitative QA. Chinese originals remain canonical provenance.'
+          gh release upload "$TAG" "$ASSET" --clobber
+          gh workflow run webnovel-writing-brain-vi.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moxing-vi-translation-v1-final
+          path: |
+            moxing_vi_translation
+            moxing-vi-translation-v1-2026-08-17.zip
+          retention-days: 90

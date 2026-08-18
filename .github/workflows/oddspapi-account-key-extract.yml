@@ -1,0 +1,189 @@
+name: OddsPapi Account Key Extract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oddspapi-account-key-extract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --user -q playwright requests
+          mkdir -p evidence
+      - name: Create account, capture key in memory, test SABA futures
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,secrets,string,time,pathlib,requests
+          from urllib.parse import urlparse
+          from playwright.sync_api import sync_playwright
+          OUT=pathlib.Path('evidence'); st={}; net=[]
+          def rand(n=14): return ''.join(secrets.choice(string.ascii_lowercase+string.digits) for _ in range(n))
+          def text(pg):
+              try:return pg.locator('body').inner_text(timeout=8000)
+              except:return ''
+          def looks_secret(v):
+              if not isinstance(v,str): return False
+              v=v.strip()
+              if len(v)<20 or len(v)>500: return False
+              if ' ' in v or '\n' in v: return False
+              return bool(re.fullmatch(r'[A-Za-z0-9._\-]+',v))
+          def redact(v):
+              if not isinstance(v,str): return v
+              # Remove emails and any long token-like strings from all persisted diagnostics.
+              v=re.sub(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}','<EMAIL>',v)
+              v=re.sub(r'(?<![A-Za-z0-9])[A-Za-z0-9._\-]{20,}(?![A-Za-z0-9])','<TOKEN>',v)
+              return v[:4000]
+
+          # Fresh Mail.tm account. No credential is persisted.
+          dj=requests.get('https://api.mail.tm/domains',timeout=20).json(); ds=dj.get('hydra:member',dj.get('member',[]))
+          dom=next(d['domain'] for d in ds if d.get('isActive',True)); email=f'kp{rand()}@{dom}'; pw=secrets.token_urlsafe(24)+'A1!'
+          ar=requests.post('https://api.mail.tm/accounts',json={'address':email,'password':pw},timeout=20); ar.raise_for_status(); st['mail_domain']=dom
+
+          api_key=None
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True); c=b.new_context(locale='en-US',viewport={'width':1440,'height':1000})
+              def onreq(r):
+                  if r.resource_type in ('xhr','fetch'):
+                      u=r.url
+                      if 'oddspapi.io' in u:
+                          net.append({'kind':'request','method':r.method,'url':redact(u)})
+              def onresp(r):
+                  if r.request.resource_type in ('xhr','fetch') and 'oddspapi.io' in r.url:
+                      net.append({'kind':'response','status':r.status,'url':redact(r.url)})
+              c.on('request',onreq); c.on('response',onresp)
+              pg=c.new_page(); r=pg.goto('https://oddspapi.io/en/sign-up',wait_until='domcontentloaded',timeout=45000); st['signup_http']=r.status if r else None; pg.wait_for_timeout(1000)
+              ei=pg.locator('input[type="email"]'); pws=pg.locator('input[type="password"]')
+              ei.first.fill(email); pws.nth(0).fill(pw); pws.nth(1).fill(pw)
+              sb=pg.get_by_role('button',name=re.compile(r'^\s*Sign Up\s*$',re.I)).first
+              if not sb.count(): sb=pg.locator('button[type="submit"]').first
+              sb.click(timeout=8000); pg.wait_for_timeout(6000)
+              st['after_signup_url']=pg.url
+              if '/account' not in pg.url:
+                  st['result']='signup_not_account'; st['body_hint']=redact(text(pg)[:3000])
+              else:
+                  st['result']='account_open'
+                  # Account DOM structure around API-key labels, values redacted.
+                  dominfo=pg.evaluate('''() => {
+                    const out=[];
+                    const all=[...document.querySelectorAll('body *')];
+                    for(const e of all){
+                      const tx=(e.innerText||'').trim();
+                      const ar=[...e.attributes||[]].map(a=>[a.name,a.value]);
+                      const hay=(tx+' '+JSON.stringify(ar)).toLowerCase();
+                      if(hay.includes('api key') || hay.includes('apikey')){
+                        out.push({tag:e.tagName,id:e.id||'',cls:e.className||'',text:tx.slice(0,700),attrs:ar.slice(0,20),html:e.outerHTML.slice(0,2000)});
+                        if(out.length>=20) break;
+                      }
+                    }
+                    return out;
+                  }''')
+                  st['api_nodes']=[{k:redact(v) if isinstance(v,str) else [[redact(a),redact(b)] for a,b in v] if k=='attrs' else v for k,v in x.items()} for x in dominfo]
+                  buttons=pg.locator('button,a,[role="button"]')
+                  st['account_controls']=[]
+                  for i in range(min(buttons.count(),120)):
+                      el=buttons.nth(i)
+                      try:
+                          if not el.is_visible(): continue
+                          tx=(el.inner_text() or '').strip()
+                          aria=el.get_attribute('aria-label') or ''; title=el.get_attribute('title') or ''
+                          if re.search(r'api|key|copy|reveal|show|generate|reset|regenerate',tx+' '+aria+' '+title,re.I):
+                              st['account_controls'].append({'text':redact(tx),'aria':redact(aria),'title':redact(title),'tag':el.evaluate('e=>e.tagName')})
+                      except: pass
+
+                  # Candidate extraction from DOM/property values. Keep actual candidates only in RAM.
+                  candidates=[]
+                  vals=pg.evaluate('''() => {
+                    const a=[];
+                    for(const e of document.querySelectorAll('input,textarea,code,pre,[data-api-key],[data-key],[data-token]')){
+                      a.push({tag:e.tagName,value:e.value||'',text:e.innerText||'',attrs:[...e.attributes].map(x=>[x.name,x.value])});
+                    }
+                    return a;
+                  }''')
+                  for x in vals:
+                      near=' '.join([x.get('value',''),x.get('text','')]+[v for k,v in x.get('attrs',[])])
+                      for v in [x.get('value',''),x.get('text','')]+[v for k,v in x.get('attrs',[])]:
+                          if looks_secret(v) and v not in (email,pw): candidates.append(v.strip())
+
+                  # Click ordinary API-key controls once if present, then re-scan.
+                  clicked=[]
+                  for pat in [r'Generate.*API.*Key',r'Reveal',r'Show',r'Copy.*API.*Key',r'Copy']:
+                      loc=pg.get_by_role('button',name=re.compile(pat,re.I))
+                      for i in range(min(loc.count(),5)):
+                          try:
+                              if loc.nth(i).is_visible():
+                                  clicked.append(redact(loc.nth(i).inner_text())); loc.nth(i).click(timeout=4000); pg.wait_for_timeout(1000); break
+                          except: pass
+                      if candidates: break
+                  st['controls_clicked']=clicked
+
+                  # Scan all visible text/value sources after control actions. Use label context preferentially.
+                  allsrc=pg.evaluate('''() => [...document.querySelectorAll('input,textarea,code,pre,span,div,p')].map(e=>({tag:e.tagName,value:e.value||'',text:(e.innerText||'').trim().slice(0,1000),parent:(e.parentElement?.innerText||'').trim().slice(0,1800)})).slice(0,5000)''')
+                  for x in allsrc:
+                      if re.search(r'api\s*key|apikey',x.get('parent',''),re.I):
+                          for v in [x.get('value',''),x.get('text','')]:
+                              if looks_secret(v) and v not in (email,pw): candidates.insert(0,v.strip())
+                  # local/session storage: inspect values only in memory, log key names only.
+                  stores=pg.evaluate('''() => ({local:Object.keys(localStorage),session:Object.keys(sessionStorage),localVals:Object.entries(localStorage),sessionVals:Object.entries(sessionStorage)})''')
+                  st['storage_keys']={'local':stores['local'],'session':stores['session']}
+                  for k,v in stores['localVals']+stores['sessionVals']:
+                      if re.search(r'api|key|token',k,re.I) and looks_secret(v): candidates.append(v.strip())
+                  # Deduplicate and validate candidates against bookmaker endpoint. Never print candidate.
+                  uniq=[]
+                  for q in candidates:
+                      if q not in uniq: uniq.append(q)
+                  st['candidate_count']=len(uniq)
+                  for q in uniq[:20]:
+                      for param in ['apiKey','apikey','key']:
+                          try:
+                              br=requests.get('https://v5.oddspapi.io/en/bookmakers',params={param:q},timeout=20)
+                              if br.status_code==200:
+                                  api_key=q; st['api_key_found']=True; st['api_key_param']=param; st['bookmakers_http']=200
+                                  try:
+                                      bj=br.json(); st['sabasports_present']='sabasports' in json.dumps(bj).lower(); OUT.joinpath('bookmakers.json').write_text(json.dumps(bj,ensure_ascii=False,indent=2))
+                                  except: st['sabasports_present']=False
+                                  break
+                          except: pass
+                      if api_key: break
+                  st.setdefault('api_key_found',False)
+
+                  if api_key:
+                      # Try documented-looking futures paths without exposing key.
+                      futures_attempts=[]
+                      for path in ['/en/futures','/en/futures/odds']:
+                          params={st.get('api_key_param','apiKey'):api_key,'bookmakers':'sabasports'}
+                          try:
+                              fr=requests.get('https://v5.oddspapi.io'+path,params=params,timeout=30)
+                              rec={'path':path,'http':fr.status_code,'content_type':fr.headers.get('content-type','')}
+                              futures_attempts.append(rec)
+                              if fr.status_code==200:
+                                  try:
+                                      fj=fr.json(); OUT.joinpath('saba-futures.json').write_text(json.dumps(fj,ensure_ascii=False,indent=2))
+                                      blob=json.dumps(fj,ensure_ascii=False)
+                                      st['saba_futures_has_top4']=bool(re.search(r'top\s*4|top four',blob,re.I))
+                                      st['saba_futures_has_relegation']=bool(re.search(r'relegat',blob,re.I))
+                                      st['saba_futures_has_goalscorer']=bool(re.search(r'goal.?scorer|golden boot',blob,re.I))
+                                      st['saba_futures_has_winner']=bool(re.search(r'winner|champion',blob,re.I))
+                                      st['saba_futures_response_size']=len(blob)
+                                  except: pass
+                                  break
+                          except Exception as e: futures_attempts.append({'path':path,'error':type(e).__name__})
+                      st['futures_attempts']=futures_attempts
+              b.close()
+          OUT.joinpath('status.json').write_text(json.dumps(st,ensure_ascii=False,indent=2)); print(json.dumps(st,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oddspapi-key-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1

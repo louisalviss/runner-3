@@ -1,0 +1,186 @@
+name: WordPress Site Factory
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wordpress-site/**'
+      - 'render.yaml'
+      - '.github/workflows/wordpress-site.yml'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy to configured FTP hosting after build'
+        required: true
+        default: false
+        type: boolean
+      deploy_scope:
+        description: 'full = WordPress core + wp-content, content = wp-content only'
+        required: true
+        default: content
+        type: choice
+        options:
+          - content
+          - full
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wordpress-site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download latest WordPress
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist wordpress.tar.gz
+          curl --fail --location --retry 3 https://wordpress.org/latest.tar.gz -o wordpress.tar.gz
+          tar -xzf wordpress.tar.gz
+          mv wordpress dist
+          rm wordpress.tar.gz
+
+      - name: Add Runner3 site content
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/wp-content/themes dist/wp-content/mu-plugins
+          cp -a wordpress-site/wp-content/themes/runner3-starter dist/wp-content/themes/
+          cp -a wordpress-site/wp-content/mu-plugins/. dist/wp-content/mu-plugins/
+
+      - name: Validate package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dist/wp-load.php
+          test -f dist/wp-content/themes/runner3-starter/style.css
+          test -f dist/wp-content/mu-plugins/runner3-bootstrap.php
+          test -f dist/wp-content/mu-plugins/tidb-compatibility.php
+          php -l dist/wp-content/themes/runner3-starter/functions.php
+          php -l dist/wp-content/mu-plugins/runner3-bootstrap.php
+          php -l dist/wp-content/mu-plugins/tidb-compatibility.php
+          sh -n wordpress-site/render-entrypoint.sh
+
+      - name: Build Render Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag runner3-wordpress:test wordpress-site
+
+      - name: Smoke-test WordPress with PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm -f runner3-wp runner3-pg >/dev/null 2>&1 || true
+            docker network rm runner3-test >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker network create runner3-test >/dev/null
+          docker run -d --name runner3-pg --network runner3-test \
+            -e POSTGRES_DB=runner3wp \
+            -e POSTGRES_USER=runner3wp \
+            -e POSTGRES_PASSWORD=runner3pass \
+            postgres:14 >/dev/null
+          for i in $(seq 1 45); do
+            if docker exec runner3-pg pg_isready -U runner3wp -d runner3wp >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec runner3-pg pg_isready -U runner3wp -d runner3wp >/dev/null
+          docker run -d --name runner3-wp --network runner3-test \
+            -p 18080:10000 \
+            -e PORT=10000 \
+            -e DATABASE_URL='postgresql://runner3wp:runner3pass@runner3-pg:5432/runner3wp' \
+            runner3-wordpress:test >/dev/null
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsSL http://127.0.0.1:18080/wp-admin/install.php -o /tmp/wp-install.html; then
+              if grep -Eqi 'WordPress|Information needed|Select a Default language' /tmp/wp-install.html; then
+                ok=1
+                break
+              fi
+            fi
+            sleep 1
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo 'WordPress/Postgres smoke test failed'
+            docker logs runner3-wp || true
+            exit 1
+          fi
+
+      - name: Package build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-wordpress-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Check deploy credentials
+        if: ${{ inputs.deploy }}
+        env:
+          FTP_USERNAME: ${{ secrets.WP_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.WP_FTP_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FTP_USERNAME" || { echo 'Missing secret WP_FTP_USERNAME'; exit 2; }
+          test -n "$FTP_PASSWORD" || { echo 'Missing secret WP_FTP_PASSWORD'; exit 2; }
+
+      - name: Install FTP client
+        if: ${{ inputs.deploy }}
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Deploy full WordPress to InfinityFree
+        if: ${{ inputs.deploy && inputs.deploy_scope == 'full' }}
+        env:
+          FTP_HOST: ${{ secrets.WP_FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.WP_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.WP_FTP_PASSWORD }}
+          FTP_DIR: ${{ secrets.WP_FTP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST="${FTP_HOST:-ftpupload.net}"
+          DIR="${FTP_DIR:-/htdocs/}"
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "ftp://$HOST" <<EOF
+          set cmd:fail-exit yes
+          set ftp:ssl-allow no
+          set net:max-retries 3
+          set net:timeout 30
+          mirror --reverse --verbose --parallel=4 --exclude-glob wp-config.php --exclude-glob .ftp-deploy-sync-state.json dist/ "$DIR"
+          bye
+          EOF
+
+      - name: Deploy wp-content only
+        if: ${{ inputs.deploy && inputs.deploy_scope == 'content' }}
+        env:
+          FTP_HOST: ${{ secrets.WP_FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.WP_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.WP_FTP_PASSWORD }}
+          FTP_DIR: ${{ secrets.WP_FTP_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST="${FTP_HOST:-ftpupload.net}"
+          DIR="${FTP_DIR:-/htdocs/}"
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "ftp://$HOST" <<EOF
+          set cmd:fail-exit yes
+          set ftp:ssl-allow no
+          set net:max-retries 3
+          set net:timeout 30
+          mirror --reverse --verbose --parallel=4 dist/wp-content/themes/runner3-starter/ "${DIR%/}/wp-content/themes/runner3-starter/"
+          mirror --reverse --verbose --parallel=4 dist/wp-content/mu-plugins/ "${DIR%/}/wp-content/mu-plugins/"
+          bye
+          EOF

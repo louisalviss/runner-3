@@ -1,0 +1,207 @@
+name: vidian-repair
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-repair.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: vidian-repair-v1
+  cancel-in-progress: true
+
+jobs:
+  parser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub/checkpoints
+          key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+      - name: Validate dependency parser
+        run: python scripts/vidian_pipeline.py smoke
+
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Load #22 inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+          github-token: ${{ github.token }}
+          run-id: 31881649961
+      - name: Validate inventory
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('vidian_inventory/vidian_inventory.json').read_text(encoding='utf-8'))
+          assert x.get('trusted_urls') == 8826, x.get('trusted_urls')
+          assert x.get('known_untrusted') == 15, x.get('known_untrusted')
+          assert len(x.get('page_failures', [])) == 0, len(x.get('page_failures', []))
+          print({'trusted_urls':8826,'known_untrusted':15,'page_failures':0})
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory/vidian_inventory.json
+          retention-days: 3
+          compression-level: 9
+
+  snapshot:
+    needs: inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install snapshot dependencies
+        run: pip install requests beautifulsoup4 lxml
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+      - name: Load #22 checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-snapshot-${{ matrix.chunk }}
+          path: previous_snapshot
+          github-token: ${{ github.token }}
+          run-id: 31881649961
+      - name: Seed checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot_out
+          f=$(printf 'vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
+          cp "previous_snapshot/$f" "snapshot_out/$f"
+          python - "$f" <<'PY'
+          import json,sys
+          from pathlib import Path
+          p=Path('snapshot_out')/sys.argv[1]
+          rows=[json.loads(x) for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          print({'seed_rows':len(rows),'seed_fetched':sum(r.get('status')=='fetched' for r in rows)})
+          PY
+      - name: Repair only missing URLs
+        run: |
+          f=$(printf 'snapshot_out/vidian_snapshot_chunk_%02d.jsonl' ${{ matrix.chunk }})
+          python scripts/vidian_snapshot.py \
+            --inventory vidian_inventory/vidian_inventory.json \
+            --out snapshot_out \
+            --index ${{ matrix.chunk }} \
+            --count 64 \
+            --passes 6 \
+            --delay 0.6 \
+            --timeout 15 \
+            --resume "$f" \
+            --cooldown-429 40 \
+            --max-429-retries 8 \
+            --allow-incomplete
+      - name: Validate complete snapshot
+        run: |
+          python - <<'PY'
+          import json, glob
+          p=glob.glob('snapshot_out/snapshot_*_summary.json')[0]
+          x=json.load(open(p,encoding='utf-8'))
+          print(x)
+          assert x['failed'] == 0, x
+          PY
+      - name: Upload repaired snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidian-snapshot-${{ matrix.chunk }}
+          path: snapshot_out
+          retention-days: 3
+          compression-level: 6
+
+  semantic:
+    needs: [parser-smoke, snapshot]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub/checkpoints
+          key: vidian-dp-v1a1-${{ runner.os }}-py311-v1
+      - name: Install CPU NLP stack
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy requests beautifulsoup4 lxml "transformers>=4.30,<5" "underthesea[deep]==9.5.0"
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-snapshot-${{ matrix.chunk }}
+          path: snapshot_in
+      - name: Build semantic frame
+        run: python scripts/vidian_semantic_snapshot.py --snapshot snapshot_in/vidian_snapshot_chunk_$(printf '%02d' ${{ matrix.chunk }}).jsonl --out semantic_out --index ${{ matrix.chunk }} --count 64 --parse-group-size 512
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-${{ matrix.chunk }}
+          path: semantic_out
+          retention-days: 3
+          compression-level: 6
+
+  merge:
+    needs: [semantic, inventory]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: vidian-inventory
+          path: vidian_inventory
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vidian-semantic-*
+          path: semantic_all
+      - name: Merge and validate corpus
+        run: python scripts/vidian_pipeline.py merge --inventory vidian_inventory/vidian_inventory.json --input semantic_all --out vidian_semantic_corpus --count 64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus
+          path: vidian_semantic_corpus
+          retention-days: 7
+          compression-level: 6

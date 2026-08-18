@@ -1,0 +1,57 @@
+name: Deploy WordPress R2 Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-wordpress-r2-plugin.yml'
+      - 'scripts/deploy-wordpress-plugin.mjs'
+      - 'wordpress/plugins/runner3-r2-media/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-wordpress-r2-plugin
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      WP_PLUGIN_SLUG: runner3-r2-media
+      WP_PLUGIN_ZIP: /tmp/runner3-r2-media.zip
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+      - name: Build plugin zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wordpress/plugins
+          zip -qr /tmp/runner3-r2-media.zip runner3-r2-media
+          test -s /tmp/runner3-r2-media.zip
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Deploy and activate plugin
+        run: node scripts/deploy-wordpress-plugin.mjs
+      - name: Prove REST route is registered
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/route.json -w '%{http_code}' 'https://runner3-factory-smoke-2.wasmer.app/wp-json/runner3/v1/offload/1')"
+          # An unauthenticated registered admin route returns 401/403; a missing route returns 404.
+          test "$code" = 401 -o "$code" = 403
+          rm -f /tmp/wasmer-account.json

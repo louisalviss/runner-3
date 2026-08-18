@@ -1,0 +1,236 @@
+name: Dafabet OW Asia Outright Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dafabet-ow-th-outright-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install VPN and browser tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl python3-venv
+          python3 -m venv /tmp/pwvenv
+          /tmp/pwvenv/bin/pip install -q playwright
+          mkdir -p evidence /tmp/dafa-relays
+
+      - name: Build Asia relay pool
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64,csv,io,pathlib
+          pref=['TH','SG','MY','PH','ID','JP','KR','TW']
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          picked=[]
+          for c in pref:
+              rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+              rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
+              picked.extend((c,r) for r in rs[:2])
+          if not picked: raise SystemExit('No Asia VPN Gate relay')
+          meta=[]
+          for i,(c,r) in enumerate(picked):
+              cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+              cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+              p=pathlib.Path(f'/tmp/dafa-relays/{i:02d}-{c}.ovpn'); p.write_text(cfg)
+              meta.append(f'{p}\t{c}\t{r.get("IP","")}')
+          pathlib.Path('/tmp/dafa-relays.tsv').write_text('\n'.join(meta)+'\n')
+          print('RELAYS='+str(len(meta)))
+          PY
+
+      - name: Create isolated VPN namespace
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn
+          sudo ip link set vn netns vpnns
+          sudo ip addr add 10.237.0.1/24 dev vh
+          sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.237.0.2/24 dev vn
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.237.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.237.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+
+      - name: Find an OW Sports public region and inspect Outrights
+        shell: bash
+        run: |
+          set -euo pipefail
+          selected=0
+          while IFS=$'\t' read -r cfg country relay; do
+            echo "TRY $country $relay"
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+            sleep 1
+            sudo rm -f /tmp/openvpn.log /tmp/dafa-region.json
+            sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
+            ok=0
+            for i in {1..12}; do
+              sleep 1
+              grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null && { ok=1; break; }
+              grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Connection refused|fatal error' /tmp/openvpn.log 2>/dev/null && break || true
+            done
+            [ "$ok" = 1 ] || continue
+
+            trace=$(sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 12 'https://www.cloudflare.com/cdn-cgi/trace' 2>/dev/null | grep -E '^(ip|loc|warp)=' || true)
+            echo "$trace"
+
+            # Load the normal public OW Sports page. No login, challenge, or betting interaction.
+            if sudo ip netns exec vpnns env HOME=/home/runner USER=runner /tmp/pwvenv/bin/python - <<'PY' > /tmp/dafa-region.json
+          import json,re
+          from playwright.sync_api import sync_playwright
+          rec={}
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox'])
+              c=b.new_context(locale='en-US',viewport={'width':1440,'height':1000})
+              pg=c.new_page()
+              try:
+                  r=pg.goto('https://www.dafabet.com/en/sports',wait_until='domcontentloaded',timeout=40000)
+                  pg.wait_for_timeout(6500)
+                  txt=pg.locator('body').inner_text(timeout=8000)
+                  rec={'http':r.status if r else None,'url':pg.url,'restricted':bool(re.search(r'COUNTRY RESTRICTION|restricted country',txt,re.I)),'challenge':bool(re.search(r'captcha|verify you are human|access denied|just a moment',txt,re.I)),'login_only':bool(re.search(r'LOGIN|JOIN NOW',txt,re.I)) and len(txt)<2500,'body':txt[:7000]}
+              except Exception as e:
+                  rec={'error':type(e).__name__+': '+str(e)[:500]}
+              b.close()
+          print(json.dumps(rec,ensure_ascii=False))
+          raise SystemExit(0 if rec.get('http')==200 and not rec.get('restricted') and not rec.get('challenge') else 3)
+          PY
+            then
+              echo "SELECTED $country $relay"
+              echo "$trace" > evidence/egress.txt
+              printf '%s\n' "$country" > evidence/selected-country.txt
+              cp /tmp/dafa-region.json evidence/region-check.json
+              selected=1
+              break
+            fi
+          done < /tmp/dafa-relays.tsv
+          test "$selected" = 1
+
+          sudo ip netns exec vpnns env HOME=/home/runner USER=runner /tmp/pwvenv/bin/python - <<'PY'
+          import json,re,pathlib
+          from playwright.sync_api import sync_playwright
+          out=pathlib.Path('evidence')
+          result={}; network=[]; hits=[]
+          kw=re.compile(r'outright|future|premier league|top\s*4|top four|relegat|goal.?scorer|golden boot|winner|champion',re.I)
+
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox'])
+              c=b.new_context(locale='en-US',viewport={'width':1440,'height':1100})
+              def onreq(r):
+                  if r.resource_type in ('document','xhr','fetch'):
+                      network.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url})
+              def onresp(r):
+                  if r.request.resource_type not in ('document','xhr','fetch'): return
+                  network.append({'kind':'response','status':r.status,'type':r.request.resource_type,'url':r.url})
+                  try:
+                      ct=(r.headers.get('content-type') or '').lower()
+                      if ('json' in ct or 'text' in ct) and len(hits)<120:
+                          t=r.text()
+                          if len(t)<3500000 and kw.search(t):
+                              m=kw.search(t); hits.append({'url':r.url,'status':r.status,'snippet':t[max(0,m.start()-1200):min(len(t),m.end()+8000)]})
+                  except: pass
+              c.on('request',onreq); c.on('response',onresp)
+              pg=c.new_page()
+              r=pg.goto('https://www.dafabet.com/en/sports',wait_until='domcontentloaded',timeout=45000)
+              pg.wait_for_timeout(8000)
+              result['initial']={'http':r.status if r else None,'url':pg.url}
+              result['frames_before']=[{'name':f.name,'url':f.url} for f in pg.frames]
+              try: result['body_before']=pg.locator('body').inner_text(timeout=8000)[:30000]
+              except: result['body_before']=''
+              pg.screenshot(path=str(out/'ow-home.png'),full_page=False)
+
+              def all_frames(): return list(pg.frames)
+              def find_visible_text(pattern):
+                  for f in all_frames():
+                      try:
+                          loc=f.get_by_text(re.compile(pattern,re.I))
+                          for i in range(min(loc.count(),80)):
+                              e=loc.nth(i)
+                              if e.is_visible(): return f,e
+                      except: pass
+                  return None,None
+
+              # Public navigation only. Try common Outright labels.
+              f,e=find_visible_text(r'^\s*(Outright|Outrights|Futures?|Long Term Futures)\s*$')
+              result['outright_control_found']=bool(e)
+              if e:
+                  try:
+                      result['outright_control']={'frame':f.url,'text':(e.inner_text() or '')[:200],'tag':e.evaluate('x=>x.tagName')}
+                      e.click(timeout=6000); pg.wait_for_timeout(7000)
+                      result['outright_clicked']=True
+                  except Exception as ex: result['outright_error']=type(ex).__name__+': '+str(ex)[:300]
+
+              result['frames_after_outright']=[{'name':f.name,'url':f.url} for f in pg.frames]
+              texts=[]
+              for f in all_frames():
+                  try:
+                      t=f.locator('body').inner_text(timeout=6000)
+                      if t.strip(): texts.append({'frame':f.url,'text':t[:50000]})
+                  except: pass
+              result['frame_texts_after_outright']=texts
+
+              # If EPL appears, click the exact league label once.
+              f,e=find_visible_text(r'^\s*(English\s+Premier\s+League|Premier\s+League)\s*$')
+              result['epl_control_found']=bool(e)
+              if e:
+                  try:
+                      result['epl_control']={'frame':f.url,'text':(e.inner_text() or '')[:200],'tag':e.evaluate('x=>x.tagName')}
+                      e.click(timeout=6000); pg.wait_for_timeout(6500)
+                      result['epl_clicked']=True
+                  except Exception as ex: result['epl_error']=type(ex).__name__+': '+str(ex)[:300]
+
+              final=[]
+              for f in all_frames():
+                  try:
+                      t=f.locator('body').inner_text(timeout=6000)
+                      if t.strip(): final.append({'frame':f.url,'text':t[:80000]})
+                  except: pass
+              result['final_frame_texts']=final
+              blob='\n'.join(x['text'] for x in final)
+              result['target_presence']={
+                'epl':bool(re.search(r'English\s+Premier\s+League|\bPremier League\b',blob,re.I)),
+                'winner':bool(re.search(r'\bWinner\b|Champion',blob,re.I)),
+                'top4':bool(re.search(r'Top\s*4|Top Four|Finish.*4',blob,re.I)),
+                'relegation':bool(re.search(r'Relegat',blob,re.I)),
+                'goalscorer':bool(re.search(r'Goal.?scorer|Golden Boot|Top Scorer',blob,re.I)),
+              }
+              pg.screenshot(path=str(out/'ow-after.png'),full_page=False)
+              b.close()
+
+          out.joinpath('result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          out.joinpath('network.json').write_text(json.dumps(network,ensure_ascii=False,indent=2))
+          out.joinpath('hits.json').write_text(json.dumps(hits,ensure_ascii=False,indent=2))
+          print('SUMMARY',json.dumps({k:result.get(k) for k in ['initial','frames_before','outright_control_found','outright_control','outright_clicked','frames_after_outright','epl_control_found','epl_control','epl_clicked','target_presence','outright_error','epl_error']},ensure_ascii=False))
+          for x in result.get('final_frame_texts',[]):
+              if kw.search(x.get('text','')):
+                  print('FRAME',x['frame']); print(x['text'][:30000])
+          print('HITS',len(hits))
+          for h in hits[:60]: print('HIT',json.dumps(h,ensure_ascii=False)[:7000])
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dafabet-ow-asia-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3

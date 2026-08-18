@@ -1,0 +1,117 @@
+name: vidian-writing-interface
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'query | direct | review | checklist'
+        required: true
+        default: 'direct'
+      text:
+        description: 'Question, writing brief, or draft text'
+        required: false
+        default: 'Tiên hiệp, nhân vật chính thận trọng, progression rõ, tài nguyên và kỳ ngộ'
+      topic:
+        description: 'Checklist/query topic; leave blank when not needed'
+        required: false
+        default: ''
+      mode:
+        description: 'hybrid | semantic | lexical (query only)'
+        required: false
+        default: 'hybrid'
+      limit:
+        description: 'Maximum evidence items'
+        required: false
+        default: '24'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-writing-interface.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: vidian-writing-v1-2026-08-17
+      ASSET: vidian-writing-v1-2026-08-17.zip
+      ACTION: ${{ inputs.action || 'direct' }}
+      TEXT: ${{ inputs.text || 'Tiên hiệp, nhân vật chính thận trọng, progression rõ, tài nguyên và kỳ ngộ' }}
+      TOPIC: ${{ inputs.topic || '' }}
+      MODE: ${{ inputs.mode || 'hybrid' }}
+      LIMIT: ${{ inputs.limit || '24' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install retrieval dependencies
+        run: python -m pip install --disable-pip-version-check numpy joblib scikit-learn requests beautifulsoup4 lxml
+      - name: Download writing knowledge layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p writing_work
+          gh release download "$RELEASE_TAG" --pattern "$ASSET" --dir writing_work
+          unzip -q "writing_work/$ASSET" -d writing_work/index
+          test -f writing_work/index/vidian_writing/vidian_writing.sqlite
+      - name: Run quality interface
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$LIMIT" in ''|*[!0-9]*) echo "invalid limit" >&2; exit 2;; esac
+          test "$LIMIT" -ge 1 && test "$LIMIT" -le 100
+          IDX=writing_work/index/vidian_writing
+          case "$ACTION" in
+            query)
+              case "$MODE" in hybrid|semantic|lexical) ;; *) echo "invalid mode" >&2; exit 2;; esac
+              ARGS=(query --index "$IDX" --q "$TEXT" --limit "$LIMIT" --mode "$MODE" --json-out writing_work/result.json --md-out writing_work/result.md)
+              if [ -n "$TOPIC" ]; then ARGS+=(--topic "$TOPIC"); fi
+              python scripts/vidian_writing_agent.py "${ARGS[@]}" > /dev/null
+              ;;
+            direct)
+              python scripts/vidian_writing_agent.py direct --index "$IDX" --brief "$TEXT" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
+              ;;
+            review)
+              python scripts/vidian_writing_agent.py review --index "$IDX" --text "$TEXT" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
+              ;;
+            checklist)
+              test -n "$TOPIC" || { echo 'topic required for checklist' >&2; exit 2; }
+              python scripts/vidian_writing_agent.py checklist --index "$IDX" --topic "$TOPIC" --limit "$LIMIT" --json-out writing_work/result.json --md-out writing_work/result.md > /dev/null
+              ;;
+            *) echo "invalid action: $ACTION" >&2; exit 2;;
+          esac
+          cat writing_work/result.md >> "$GITHUB_STEP_SUMMARY"
+      - name: QA packet
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sys
+          sys.path.insert(0,'scripts')
+          import vidian_writing_quality as quality
+          quality.apply()
+          p=json.load(open('writing_work/result.json',encoding='utf-8'))
+          assert p.get('schema')
+          groups=[]
+          if 'hits' in p: groups+=p['hits']
+          for s in p.get('sections',[]): groups+=s.get('all',[])
+          for b in p.get('evidence_buckets',[]): groups+=b.get('hits',[])
+          groups+=p.get('items',[])
+          assert groups, p
+          assert all(quality.actionable(x) for x in groups), 'non-actionable evidence leaked'
+          assert all(x.get('url') and x.get('sentence_sha') for x in groups), 'missing provenance'
+          print('Writing quality interface PASS:',p['schema'],len(groups))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-writing-result
+          path: |
+            writing_work/result.json
+            writing_work/result.md
+          retention-days: 14
+          compression-level: 6

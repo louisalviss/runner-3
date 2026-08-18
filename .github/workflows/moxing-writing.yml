@@ -1,0 +1,105 @@
+name: moxing-writing
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/moxing_writing.py'
+      - 'scripts/moxing_writing_quality.py'
+      - '.github/workflows/moxing-writing.yml'
+permissions:
+  contents: write
+concurrency:
+  group: moxing-writing-v1
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TAG: moxing-writing-v1-2026-08-17
+      ASSET: moxing-writing-v1-2026-08-17.zip
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check requests beautifulsoup4 lxml
+      - name: Build Moxing Writing Layer v1.1
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0,'scripts')
+          import moxing_writing_quality as q
+          m=q.apply(); m.build('moxing_writing',55,8)
+          PY
+      - name: QA gate
+        run: |
+          python - <<'PY'
+          import json,sqlite3,sys
+          sys.path.insert(0,'scripts')
+          import moxing_writing_quality as q
+          m=q.apply()
+          x=json.load(open('moxing_writing/manifest.json',encoding='utf-8')); c=x['counts']
+          assert c['listing_pages']==55,c
+          assert c['inventory_urls']>=1200,c
+          assert c['listing_failures']==0,c
+          assert c['articles_ok']==c['inventory_urls'],c
+          assert c['articles_failed']==0,c
+          assert c['passages']>=10000,c
+          assert c['directive_passages']>=8000,c
+          assert c['topics']>=18,c
+          assert q.strict_kind('可以避免很多新人常见问题')[0] != 'dont'
+          assert q.strict_kind('不要在开篇出现过多配角')[0] == 'dont'
+          con=sqlite3.connect('moxing_writing/moxing_writing.sqlite')
+          assert con.execute('select count(*) from articles').fetchone()[0]==c['articles_ok']
+          assert con.execute("select count(*) from passages where sentence_sha<>''").fetchone()[0]==c['passages']
+          assert con.execute("select count(*) from passages p join articles a on a.id=p.article_id where a.title like '%情色%' or a.title like '%色情%'").fetchone()[0]==0
+          con.close()
+          print(json.dumps(x,ensure_ascii=False,indent=2))
+          PY
+      - name: Query smoke
+        run: |
+          python - <<'PY'
+          import json,sys,pathlib
+          sys.path.insert(0,'scripts')
+          import moxing_writing_quality as q
+          m=q.apply()
+          cases=[('smoke_opening.json','mở đầu tiên hiệp thu hút độc giả'),('smoke_character.json','nhân vật chính progression sảng điểm kỳ ngộ tài nguyên')]
+          for fn,query in cases:
+            x=m.query('moxing_writing',query,10,None)
+            pathlib.Path('moxing_writing/'+fn).write_text(json.dumps(x,ensure_ascii=False,indent=2),encoding='utf-8')
+            assert x['hits'],fn
+            assert all(h['url'].startswith('https://www.mx-xz.com/show_') for h in x['hits']),fn
+            assert not any('情色' in h['title'] or '色情' in h['title'] for h in x['hits']),fn
+          print('Moxing v1.1 query smoke PASS')
+          PY
+      - name: Package
+        run: |
+          python - <<'PY'
+          import hashlib,json,pathlib,zipfile,os
+          root=pathlib.Path('moxing_writing'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+            for p in sorted(root.rglob('*')):
+              if p.is_file(): z.write(p,p.as_posix())
+          m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          m['quality_layer']='moxing-writing-quality-v1.1: strict directives + adult-topic exclusion + Vietnamese query aliases'
+          m['package']={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(m['package'],indent=2))
+          PY
+      - name: Publish release
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Moxing Writing Knowledge Layer v1 — 2026-08-17' --notes 'Derived craft knowledge from public Moxing 手法技巧 listings/articles. Stores metadata and capped actionable passages, not full article mirrors.'
+          fi
+          gh release edit "$TAG" --notes 'Moxing Writing Layer v1.1: full 55-page public 手法技巧 sweep; derived metadata and capped actionable passages only; strict directive labels, adult-writing-topic exclusion, Vietnamese/English-to-Chinese query aliases. Full article prose is not mirrored.'
+          gh release upload "$TAG" "$ASSET" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moxing-writing-v1
+          path: |
+            moxing_writing
+            moxing-writing-v1-2026-08-17.zip
+          retention-days: 90

@@ -1,0 +1,42 @@
+name: YouTube probe UwnylaM15So
+on:
+  push:
+    paths:
+      - '.github/workflows/youtube_probe_uwnyla.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yt-dlp
+        run: |
+          python -m pip install -U yt-dlp
+      - name: Fetch metadata and subtitles
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ytprobe
+          URL='https://youtu.be/UwnylaM15So'
+          yt-dlp --dump-single-json --skip-download "$URL" > ytprobe/metadata.json
+          yt-dlp --skip-download --write-subs --write-auto-subs --sub-langs 'en.*,vi.*,zh.*,ja.*,ko.*' --sub-format vtt -o 'ytprobe/%(id)s.%(ext)s' "$URL" || true
+          python - <<'PY'
+          import json, glob, os
+          p='ytprobe/metadata.json'
+          d=json.load(open(p,encoding='utf-8'))
+          keep=['id','title','channel','uploader','upload_date','duration','description','view_count','like_count','categories','tags','language','availability','webpage_url']
+          out={k:d.get(k) for k in keep}
+          open('ytprobe/summary.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          print('SUB_FILES',glob.glob('ytprobe/*.vtt'))
+          PY
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-probe-uwnyla
+          path: ytprobe/
+          if-no-files-found: error

@@ -1,0 +1,87 @@
+name: TeraBox Kindle Kobo 13
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/terabox-kindle-kobo-13.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    strategy:
+      fail-fast: false
+      max-parallel: 13
+      matrix:
+        root:
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Kỹ Năng Sống'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Khoa Học-Lịch Sử'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Kinh Tế'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Light Novel'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Làm Cha Mẹ'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Ngoại Ngữ'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Pháp Luật'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Sức Khỏe-Y Học'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Sách Song Ngữ'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Tự Truyện-Hồi Ký'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Thiếu Nhi'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Trinh Thám-Kinh Dị'
+          - '/Truyen/Kho Sách/Sách Kindle & Kobo/Văn Học'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'playwright>=1.58,<2'
+      - name: Inventory
+        env:
+          ROOT_PATH: ${{ matrix.root }}
+        shell: bash
+        run: |
+          cat > /tmp/inv.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          from urllib.parse import urlparse,parse_qsl,urlencode,urlunparse
+          from collections import deque
+          import json,os,shutil,time
+          T='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'; R=os.environ['ROOT_PATH']; B=4
+          with sync_playwright() as p:
+            ch=shutil.which('google-chrome') or shutil.which('chromium'); b=p.chromium.launch(headless=True,executable_path=ch)
+            c=b.new_context(user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36'); pg=c.new_page(); a={'u':None}
+            def cap(x):
+              if a['u'] is None and '/share/list?' in x.url and x.status==200:a['u']=x.url
+            pg.on('response',cap); pg.goto(T,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(6500)
+            pr=urlparse(a['u']); base=dict(parse_qsl(pr.query,keep_blank_values=True));base.pop('root',None);base.update({'num':'100','by':'name','order':'asc'})
+            def mk(d,pn):
+              q=dict(base);q['dir']=d;q['page']=str(pn);return urlunparse((pr.scheme,pr.netloc,pr.path,pr.params,urlencode(q),pr.fragment))
+            q=deque([(R,1,0)]);sched={(R,1)};dirs=set();files=set();nbytes=0;fails=0;req=0
+            while q:
+              chunk=[]
+              while q and len(chunk)<B:chunk.append(q.popleft())
+              raws=pg.evaluate("""async us=>Promise.all(us.map(async u=>{try{return await(await fetch(u,{credentials:'include'})).text()}catch(e){return JSON.stringify({errno:-998})}}))""",[mk(d,pn) for d,pn,_ in chunk]);req+=len(chunk)
+              for (d,pn,rt),raw in zip(chunk,raws):
+                try:x=json.loads(raw)
+                except:x={'errno':-997}
+                if x.get('errno')!=0:
+                  if rt<3:q.append((d,pn,rt+1));time.sleep(.15*(rt+1))
+                  else:fails+=1
+                  continue
+                if pn==1:dirs.add(d)
+                ls=x.get('list') or []
+                for it in ls:
+                  path=str(it.get('path') or '');isd=str(it.get('isdir','0'))=='1' or it.get('isdir')==1
+                  if isd:
+                    k=(path,1)
+                    if path and k not in sched:sched.add(k);q.append((path,1,0))
+                  else:
+                    fid=str(it.get('fs_id') or path)
+                    if fid not in files:files.add(fid);nbytes+=int(it.get('size') or 0)
+                if len(ls)>=100:
+                  k=(d,pn+1)
+                  if k not in sched:sched.add(k);q.append((d,pn+1,0))
+              time.sleep(.04)
+            print('RESULT='+json.dumps({'root':R,'requests':req,'dirs':len(dirs),'files':len(files),'bytes':nbytes,'failures':fails},ensure_ascii=False));b.close()
+          PY
+          python /tmp/inv.py

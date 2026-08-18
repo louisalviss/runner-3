@@ -1,0 +1,113 @@
+name: Cloudflare Free Hosting Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-free-hosting-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'CLOUDFLARE_API_TOKEN=MISSING'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'CLOUDFLARE_ACCOUNT_ID=MISSING'; exit 2; }
+          curl -fsS 'https://api.cloudflare.com/client/v4/user/tokens/verify' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -o /tmp/token.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/token.json'))
+          print('TOKEN_ACTIVE=' + str(bool(d.get('success') and (d.get('result') or {}).get('status') == 'active')).lower())
+          if not d.get('success') or (d.get('result') or {}).get('status') != 'active':
+              raise SystemExit(3)
+          PY
+
+      - name: Probe signup pages with Cloudflare Browser Run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re, subprocess
+          from html import unescape
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          targets=[
+              ('byethost','https://byet.host/signup.php'),
+              ('googiehost','https://client.googiehost.com/register.php'),
+              ('infinityfree','https://dash.infinityfree.com/register'),
+          ]
+
+          for name,url in targets:
+              body=json.dumps({
+                  'url':url,
+                  'gotoOptions':{'waitUntil':'networkidle2','timeout':30000}
+              })
+              out=f'/tmp/{name}.out'
+              cmd=[
+                  'curl','-sS','-X','POST',
+                  f'https://api.cloudflare.com/client/v4/accounts/{account}/browser-rendering/content',
+                  '-H','Content-Type: application/json',
+                  '-H',f'Authorization: Bearer {token}',
+                  '--data',body,'-o',out,'-w','%{http_code}'
+              ]
+              code=subprocess.check_output(cmd,text=True).strip()
+              raw=open(out,'rb').read()
+              text=raw.decode('utf-8','replace')
+              html=text
+              api_success=None
+              try:
+                  d=json.loads(text)
+                  api_success=bool(d.get('success'))
+                  r=d.get('result')
+                  if isinstance(r,str): html=r
+                  elif isinstance(r,dict): html=str(r.get('content') or r.get('html') or r)
+              except Exception:
+                  pass
+
+              low=html.lower()
+              visible=re.sub(r'<script\b[^>]*>.*?</script>',' ',html,flags=re.I|re.S)
+              visible=re.sub(r'<style\b[^>]*>.*?</style>',' ',visible,flags=re.I|re.S)
+              visible=unescape(re.sub(r'<[^>]+>',' ',visible))
+              visible=re.sub(r'\s+',' ',visible).strip()
+              forms=len(re.findall(r'<form\b',html,re.I))
+              inputs=len(re.findall(r'<input\b',html,re.I))
+              captcha_markers=[
+                  x for x in ['recaptcha','hcaptcha','turnstile','captcha','security code','verify you are human','cf-chl-']
+                  if x in low or x in visible.lower()
+              ]
+              auth_markers=[
+                  x for x in ['email','password','register','sign up','create account','subdomain']
+                  if x in visible.lower()
+              ]
+              m=re.search(r'<title[^>]*>(.*?)</title>',html,re.I|re.S)
+              title=''
+              if m:
+                  title=re.sub(r'\s+',' ',unescape(re.sub(r'<[^>]+>',' ',m.group(1)))).strip()
+
+              print(f'--- {name.upper()} ---')
+              print('URL=' + url)
+              print('HTTP=' + code)
+              print('CF_API_SUCCESS=' + str(api_success).lower())
+              print('TITLE=' + title[:180])
+              print('FORM_COUNT=' + str(forms))
+              print('INPUT_COUNT=' + str(inputs))
+              print('CAPTCHA_MARKERS=' + ','.join(captcha_markers))
+              print('AUTH_MARKERS=' + ','.join(auth_markers))
+              print('VISIBLE_CHARS=' + str(len(visible)))
+              print('VISIBLE_SAMPLE=' + visible[:650].replace('\n',' '))
+          PY

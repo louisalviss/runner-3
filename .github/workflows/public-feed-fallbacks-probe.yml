@@ -1,0 +1,59 @@
+name: Public Feed Fallbacks Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-feed-fallbacks-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe alternate public endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cat > /tmp/targets.tsv <<'EOF'
+          reddit_iosgaming_rss	https://www.reddit.com/r/iosgaming/new/.rss
+          reddit_all_rss	https://www.reddit.com/r/all/hot/.rss
+          reddit_old_iosgaming_rss	https://old.reddit.com/r/iosgaming/new/.rss
+          voz_forums_rss	https://voz.vn/forums/-/index.rss
+          voz_f33_rss	https://voz.vn/f/diem-bao.33/index.rss
+          voz_newposts_rss	https://voz.vn/whats-new/posts/index.rss
+          medium_ai_feed	https://medium.com/feed/tag/artificial-intelligence
+          medium_tech_feed	https://medium.com/feed/tag/technology
+          quora_robots	https://www.quora.com/robots.txt
+          quora_sitemap	https://www.quora.com/sitemap.xml
+          douyin_robots	https://www.douyin.com/robots.txt
+          tophub_home	https://tophub.today/
+          EOF
+          python3 - <<'PY'
+          import concurrent.futures, subprocess, pathlib, json
+          targets=[]
+          for line in pathlib.Path('/tmp/targets.tsv').read_text().splitlines():
+              n,u=line.split('\t',1); targets.append((n,u))
+          def one(x):
+              n,u=x; body=f'/tmp/{n}.body'; hdr=f'/tmp/{n}.hdr'
+              p=subprocess.run(['curl','-L','-sS','--compressed','--max-time','20','-A','Mozilla/5.0','-D',hdr,'-o',body,'-w','%{http_code}\t%{url_effective}\t%{size_download}\t%{content_type}',u],capture_output=True,text=True)
+              parts=(p.stdout.strip().split('\t')+['','','',''])[:4]
+              b=pathlib.Path(body).read_text(errors='replace') if pathlib.Path(body).exists() else ''
+              low=b[:1000].lower()
+              return {'name':n,'url':u,'code':parts[0] or '000','final':parts[1],'bytes':parts[2] or '0','content_type':parts[3],'rc':p.returncode,'prefix':b[:220].replace('\n',' '),'looks_feed':('<rss' in low or '<feed' in low or '<rdf:rdf' in low)}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex: out=list(ex.map(one,targets))
+          pathlib.Path('evidence/results.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          for r in out: print('RESULT',json.dumps(r,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-feed-fallbacks-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3

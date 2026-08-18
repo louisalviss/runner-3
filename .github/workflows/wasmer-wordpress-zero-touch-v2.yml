@@ -1,0 +1,100 @@
+name: Wasmer WordPress Zero Touch v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-wordpress-zero-touch-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wasmer-wordpress-zero-touch-v2
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check durable encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 2
+          echo '::add-mask::'"$AUTOMATION_KEY"
+
+      - name: Create Mail.tm inbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,secrets,urllib.request
+          def req(url,data=None):
+              h={'Content-Type':'application/json'}
+              r=urllib.request.Request(url,data=(json.dumps(data).encode() if data is not None else None),headers=h,method='POST' if data is not None else 'GET')
+              with urllib.request.urlopen(r,timeout=30) as x:return json.loads(x.read().decode())
+          d=req('https://api.mail.tm/domains')
+          ds=d.get('hydra:member') or d.get('member') or []
+          domain=next(x['domain'] for x in ds if x.get('isActive',True))
+          address=f"runner3wp{secrets.token_hex(6)}@{domain}"
+          password=secrets.token_urlsafe(30)
+          req('https://api.mail.tm/accounts',{'address':address,'password':password})
+          token=req('https://api.mail.tm/token',{'address':address,'password':password})['token']
+          open('/tmp/mailtm.json','w').write(json.dumps({'address':address,'password':password,'token':token}))
+          print('MAILTM_READY=true')
+          PY
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Provision Wasmer WordPress
+        run: node scripts/wasmer-provision.mjs
+
+      - name: Persist encrypted state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-result.json || echo '{"status":"runner_error","detail":"result_missing"}' > /tmp/wasmer-result.json
+          test -f /tmp/wasmer-status.json || echo '{"status":"runner_error","detail":"status_missing"}' > /tmp/wasmer-status.json
+          mkdir -p ops/wasmer
+          cp /tmp/wasmer-status.json ops/wasmer/status.json
+
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/wasmer-result.json -out ops/wasmer/state.automation.aes
+
+          cat > /tmp/recovery-public.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAowctxsQUZOcIHabYEUt/
+          TNUEP+IXuI4ZDHYvupLpVgzvAXXLw5k1vD+Wp4YlZp3jttxBB1doCw28OJSKcRCT
+          +l2j5kF0062jpXZtgepesiSrg/fjSCWCXCgPHa0CnP841uOXNsBlf02nFmchFpNP
+          0o6lYz54vA75CsweplL6qhbq/ZbWdt5Utn+kVbSUGhX0KmfqEJArX8luwzNGDqS8
+          iOwcAoyPFOlBfdMOY6EhgL74h3env3Cou2Ifuxx5lNzHVss8hQaonLjB5DCKJ9mW
+          FNjr6QzUx4yQrtaZ/wqKliUy6tJ9/bnufucC1j6y2bw8XSnRkl8HpLhlS2WefhDI
+          QJd+r6KzqvTGLtocylPpSAWqEFjfXoACw3RSBIEsPJLiJWwzO+UzIe4bEdidCzV+
+          +mrvuRioDkmsgexBNQ/fa0zpnfloYSM3SOMFi3KKNdB/9D1Lu2H32K3bQOT+KCHC
+          BwPXa3AvMoOGvUdhoUALJj9r8pSPEZB2ZkoW4zlXW6fhAgMBAAE=
+          -----END PUBLIC KEY-----
+          PEM
+          RECOVERY_PASS="$(openssl rand -hex 32)"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass pass:"$RECOVERY_PASS" -in /tmp/wasmer-result.json -out ops/wasmer/state.recovery.aes
+          printf '%s' "$RECOVERY_PASS" | openssl pkeyutl -encrypt -pubin -inkey /tmp/recovery-public.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out ops/wasmer/state.recovery.key.rsa
+          unset RECOVERY_PASS
+
+          echo 'SAFE_STATUS:'
+          cat ops/wasmer/status.json
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/wasmer/status.json ops/wasmer/state.automation.aes ops/wasmer/state.recovery.aes ops/wasmer/state.recovery.key.rsa
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update encrypted Wasmer provisioning state'
+            git push
+          fi

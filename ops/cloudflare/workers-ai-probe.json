@@ -1,0 +1,35 @@
+{
+  "checked_at": "2026-08-17T23:18:22.184396Z",
+  "account_id_present": true,
+  "token_present": true,
+  "user_token_verify": {
+    "http": 200,
+    "success": true,
+    "status": "active",
+    "id_present": true
+  },
+  "account_token_verify": {
+    "http": 401,
+    "success": false,
+    "errors": [
+      {
+        "code": 1000,
+        "message": "Invalid API Token"
+      }
+    ]
+  },
+  "workers_list": {
+    "http": 200,
+    "success": true
+  },
+  "workers_ai": {
+    "http": 401,
+    "success": false,
+    "errors": [
+      {
+        "code": 10000,
+        "message": "Authentication error"
+      }
+    ]
+  }
+}

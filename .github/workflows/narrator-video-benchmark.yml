@@ -1,0 +1,171 @@
+name: Narrator Video Benchmark v2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/narrator-video-benchmark.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install video and TTS tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl fonts-noto-core
+          python -m pip install -q -U edge-tts
+
+      - name: Probe Narrator CLI without spending credits
+        shell: bash
+        env:
+          NARRATOR_APP_KEY: ${{ secrets.NARRATOR_APP_KEY }}
+        run: |
+          set -euxo pipefail
+          python -m pip install -q "narrator-ai-cli @ https://github.com/NarratorAI-Studio/narrator-ai-cli/archive/refs/tags/v1.0.0.zip"
+          narrator-ai-cli --version | tee narrator_cli_version.txt || true
+          if [ -n "${NARRATOR_APP_KEY:-}" ]; then
+            echo "NARRATOR_KEY_PRESENT=yes" | tee narrator_probe.txt
+            narrator-ai-cli user balance --json >> narrator_probe.txt 2>&1 || true
+          else
+            echo "NARRATOR_KEY_PRESENT=no" | tee narrator_probe.txt
+          fi
+
+      - name: Download cinematic source and BGM
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Blender Foundation trailer; used as high-quality cinematic test footage.
+          curl -L --fail --retry 3 \
+            'https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4' \
+            -o cinematic.mp4
+          # Jamendo archive phonk track, same stable public source already proven on runner-3.
+          curl -L --fail --retry 3 \
+            'https://archive.org/download/jamendo-621715/01-2294083-Waveloom-TikTok%20Phonk.mp3' \
+            -o bgm.mp3
+          # GitHub OpenGraph card for the actual Narrator CLI repo.
+          curl -L --fail --retry 3 \
+            'https://opengraph.githubassets.com/1/NarratorAI-Studio/narrator-ai-cli' \
+            -o repo-card.png || true
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 cinematic.mp4
+
+      - name: Generate Vietnamese neural narration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p voice
+          python - <<'PY'
+          import subprocess, json, os
+          lines = [
+            "Một AI agent có thể tự biến một bộ phim thành video kể chuyện gần như từ đầu đến cuối.",
+            "Narrator AI đóng gói cả quy trình: tìm tư liệu, viết lời, chọn giọng, chọn nhạc và dựng video.",
+            "Runner ba hiện không có API key của Narrator, nên tôi không giả vờ gọi backend của họ.",
+            "Nhưng runner có Internet, FFmpeg và neural TTS, nên chất lượng dựng local có thể cao hơn hẳn bản slide trước.",
+            "Điểm còn thiếu vẫn là footage đúng nội dung và voice premium. Runner cải thiện execution, không tự tạo ra chất lượng đầu vào."
+          ]
+          meta=[]
+          for i, text in enumerate(lines,1):
+              out=f"voice/v{i}.mp3"
+              cmd=["edge-tts","--voice","vi-VN-HoaiMyNeural","--rate=+12%","--text",text,"--write-media",out]
+              subprocess.check_call(cmd)
+              dur=float(subprocess.check_output([
+                  "ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0",out
+              ], text=True).strip())
+              meta.append({"i":i,"text":text,"duration":dur})
+          with open("voice/meta.json","w",encoding="utf-8") as f:
+              json.dump(meta,f,ensure_ascii=False,indent=2)
+          print(json.dumps(meta,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Build cinematic vertical scenes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p scenes
+          python - <<'PY'
+          import json, subprocess, os
+          meta=json.load(open('voice/meta.json',encoding='utf-8'))
+          starts=[7.0,16.0,27.5,39.0,50.5]
+          for m, start in zip(meta, starts):
+              i=m['i']; dur=m['duration']+0.18
+              base=(
+                "scale=-2:1920,"
+                "crop=1080:1920:x='(iw-ow)/2+18*sin(0.55*t)':y=0,"
+                "eq=contrast=1.10:saturation=1.08:brightness=-0.015,"
+                "unsharp=5:5:0.45:5:5:0.0,"
+                "vignette=PI/5,fps=30,format=yuv420p"
+              )
+              out=f"scenes/s{i}.mp4"
+              subprocess.check_call([
+                'ffmpeg','-hide_banner','-loglevel','error','-y',
+                '-ss',str(start),'-i','cinematic.mp4','-t',str(dur),'-an',
+                '-vf',base,'-c:v','libx264','-preset','veryfast','-crf','18',out
+              ])
+          PY
+
+          # Put the real Narrator GitHub card over scene 2 if available.
+          if [ -s repo-card.png ]; then
+            D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 scenes/s2.mp4)
+            ffmpeg -hide_banner -loglevel error -y \
+              -i scenes/s2.mp4 -loop 1 -i repo-card.png -t "$D" \
+              -filter_complex "[1:v]scale=930:-2,format=rgba,colorchannelmixer=aa=0.96[card];[0:v][card]overlay=(W-w)/2:(H-h)/2-80:enable='between(t,0.20,$D)'" \
+              -an -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p scenes/s2-card.mp4
+            mv scenes/s2-card.mp4 scenes/s2.mp4
+          fi
+
+      - name: Assemble narration, subtitles, music and motion graphics
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import json
+          meta=json.load(open('voice/meta.json',encoding='utf-8'))
+          def ts(x):
+              h=int(x//3600); x-=h*3600
+              m=int(x//60); x-=m*60
+              s=int(x); ms=int(round((x-s)*1000))
+              if ms==1000: s+=1; ms=0
+              return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+          t=0.0
+          with open('subs.srt','w',encoding='utf-8') as f:
+              for idx,m in enumerate(meta,1):
+                  st=t; en=t+m['duration']
+                  f.write(f"{idx}\n{ts(st)} --> {ts(en)}\n{m['text']}\n\n")
+                  t=en+0.18
+          with open('video_concat.txt','w') as f:
+              for i in range(1,6): f.write(f"file 'scenes/s{i}.mp4'\n")
+          with open('audio_concat.txt','w') as f:
+              for i in range(1,6): f.write(f"file 'voice/v{i}.mp3'\n")
+          PY
+
+          ffmpeg -hide_banner -loglevel error -y -f concat -safe 0 -i video_concat.txt -c copy visual.mp4
+          ffmpeg -hide_banner -loglevel error -y -f concat -safe 0 -i audio_concat.txt -c:a aac -b:a 192k narration.m4a
+
+          VDUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 visual.mp4)
+          # Voice stays dominant; BGM is deliberately low.
+          ffmpeg -hide_banner -loglevel error -y \
+            -i visual.mp4 -i narration.m4a -ss 8 -stream_loop -1 -i bgm.mp3 \
+            -filter_complex "[0:v]drawbox=x=0:y=0:w=iw:h=180:color=black@0.22:t=fill,drawtext=font='Noto Sans':text='RUNNER-3 / NARRATOR BENCHMARK':fontcolor=white:fontsize=38:x=60:y=62,subtitles=subs.srt:force_style='FontName=Noto Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H90000000,BorderStyle=3,BackColour=&H70000000,Outline=1,Shadow=0,MarginV=150,Alignment=2'[v];[1:a]volume=1.0[voice];[2:a]volume=0.095,highpass=f=55,lowpass=f=12000[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=2,alimiter=limit=0.95[a]" \
+            -map '[v]' -map '[a]' -t "$VDUR" \
+            -c:v libx264 -preset medium -crf 18 -c:a aac -b:a 192k \
+            -movflags +faststart runner3_narrator_benchmark_v2.mp4
+
+          ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration,size -of default=nw=1 runner3_narrator_benchmark_v2.mp4 | tee output_probe.txt
+          ls -lh runner3_narrator_benchmark_v2.mp4
+
+      - name: Upload benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-narrator-benchmark-v2
+          path: |
+            runner3_narrator_benchmark_v2.mp4
+            narrator_probe.txt
+            narrator_cli_version.txt
+            output_probe.txt
+          retention-days: 3

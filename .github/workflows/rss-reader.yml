@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/rss-reader.yml"
       - "scripts/rss_reader_collect.py"
+      - "scripts/rss_substack_collect.py"
+      - "scripts/rss_substack_collect_v2.py"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -36,15 +38,20 @@ jobs:
       - name: Install collector dependencies
         run: python -m pip install "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
 
-      - name: Collect 10 Runner3 RSS sources
+      - name: Collect 10 core Runner3 RSS sources
         run: python scripts/rss_reader_collect.py
+
+      - name: Collect Võ Hoàng Hạc RSS source
+        run: python scripts/rss_substack_collect_v2.py
 
       - name: Upload per-run health
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rss-reader-health-${{ github.run_id }}
-          path: data/rss-reader/health.json
+          path: |
+            data/rss-reader/health.json
+            data/rss-reader/substack-health.json
           if-no-files-found: warn
           retention-days: 1
 

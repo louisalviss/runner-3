@@ -1,0 +1,149 @@
+name: X2089076981358887392_V3
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/x2089076981358887392-v3.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Build story-first beat edit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg curl jq
+          python -m pip install -q -U yt-dlp numpy
+
+          X='https://x.com/animextwts/status/2089076981358887392'
+          yt-dlp --no-playlist --retries 5 --fragment-retries 5 -f 'bv*+ba/b' --merge-output-format mp4 -o 'src.%(ext)s' "$X"
+          SRC=$(find . -maxdepth 1 -type f -name 'src.*' | head -1)
+          ffmpeg -hide_banner -loglevel error -y -i "$SRC" -map 0:v:0 -map 0:a? -c copy source.mp4 || ffmpeg -hide_banner -loglevel error -y -i "$SRC" -c:v libx264 -crf 18 -c:a aac source.mp4
+
+          # Exact Apple Music track: MONTAGEM XONADA (Tiktok version), track ID 1869763656.
+          curl -L --fail --retry 3 'https://itunes.apple.com/lookup?id=1869763656&country=US' -o itunes.json
+          TRACK=$(jq -r '.results[0].trackName // empty' itunes.json)
+          ARTIST=$(jq -r '.results[0].artistName // empty' itunes.json)
+          PREVIEW=$(jq -r '.results[0].previewUrl // empty' itunes.json)
+          echo "TRACK=$TRACK | ARTIST=$ARTIST"
+          echo "$TRACK" | grep -qi 'tiktok version'
+          test -n "$PREVIEW"
+          curl -L --fail --retry 3 "$PREVIEW" -o music.m4a
+
+          VD=$(ffprobe -v error -show_entries format=duration -of csv=p=0 source.mp4)
+          MD=$(ffprobe -v error -show_entries format=duration -of csv=p=0 music.m4a)
+          ffmpeg -hide_banner -loglevel error -y -i music.m4a -ac 1 -ar 22050 -f f32le music.f32
+
+          cat > build.py <<'PY'
+          import math, os, subprocess
+          import numpy as np
+
+          vd=float(os.environ['VD']); md=float(os.environ['MD'])
+          sr=22050
+          x=np.fromfile('music.f32',dtype='<f4')
+          n=1024; hop=256
+          if len(x)<n*4: raise SystemExit('music preview too short')
+          win=np.hanning(n).astype(np.float32)
+          mags=[]; rms=[]
+          for i in range(0,len(x)-n,hop):
+              w=x[i:i+n]
+              mags.append(np.abs(np.fft.rfft(w*win)))
+              rms.append(float(np.sqrt(np.mean(w*w)+1e-12)))
+          mags=np.asarray(mags)
+          flux=np.maximum(0,mags[1:]-mags[:-1]).sum(axis=1)
+          flux=np.r_[0,flux]
+          flux=(flux-np.median(flux))/(np.std(flux)+1e-9)
+          rms=np.asarray(rms)
+          rms=(rms-rms.min())/(rms.ptp()+1e-9)
+
+          # Estimate beat interval from onset-envelope autocorrelation, constrained to phonk-like 100–200 BPM.
+          env=np.maximum(flux,0)
+          best=(0.0,0)
+          lo=int(0.30*sr/hop); hi=int(0.60*sr/hop)
+          for lag in range(lo,hi+1):
+              s=float(np.dot(env[:-lag],env[lag:]))
+              if s>best[0]: best=(s,lag)
+          beat=max(0.36,min(0.50,best[1]*hop/sr if best[1] else 0.43))
+          bpm=60.0/beat
+
+          # Strongest combined transient+energy point, leaving enough preview after it.
+          times=np.arange(len(env))*hop/sr
+          score=np.maximum(flux,0)*(0.65+0.70*rms)
+          mask=(times>2.0)&(times<max(2.1,md-vd+2.5))
+          cand=np.where(mask)[0]
+          drop=float(times[cand[np.argmax(score[cand])]]) if len(cand) else min(md/2,8.0)
+
+          # Put the main drop after: setup (3 beats) + two 1-beat microcuts.
+          drop_rel=5*beat
+          music_start=max(0.0,drop-drop_rel)
+          if music_start+vd>md:
+              music_start=max(0.0,md-vd-0.05)
+          drop_rel=drop-music_start
+
+          # Story-first semantic segmentation inferred from the actual source sequence.
+          # 8 shots total for ~9.4s: long narrative shots, only two microcuts around drop.
+          canon=9.36
+          cuts=[0.00,1.36,1.93,2.37,3.70,5.00,6.60,8.17,9.36]
+          scale=vd/canon
+          cuts=[min(vd,c*scale) for c in cuts]
+          cuts[-1]=vd
+
+          targets=[3*beat, beat, beat, 3*beat, 3*beat, 3*beat, 3*beat]
+          remain=vd-sum(targets)
+          if remain<1.0:
+              k=(vd-1.1)/sum(targets)
+              targets=[t*k for t in targets]
+              remain=vd-sum(targets)
+          targets.append(remain)
+
+          parts=[]; labels=[]
+          impact={2,4,6}
+          for i,(s,e,td) in enumerate(zip(cuts[:-1],cuts[1:],targets)):
+              sd=max(0.05,e-s); factor=td/sd
+              pre=f"[0:v]trim=start={s:.4f}:end={e:.4f},setpts=(PTS-STARTPTS)*{factor:.7f},split=2[b{i}][f{i}];"
+              bg=f"[b{i}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=28,eq=brightness=-0.18:saturation=.82[bg{i}];"
+              fg=f"[f{i}]scale=1080:1920:force_original_aspect_ratio=decrease,eq=contrast=1.06:saturation=1.08,unsharp=5:5:.40:5:5:0[fg{i}];"
+              ov=f"[bg{i}][fg{i}]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30,format=yuv420p"
+              if i==1:
+                  ov += f",scale=1110:1973,crop=1080:1920:x=(iw-ow)/2:y=(ih-oh)/2"
+              elif i==2:
+                  ov += f",scale=1180:2098,crop=1080:1920:x='(iw-ow)/2+6*sin(58*t)':y='(ih-oh)/2+4*cos(51*t)',eq=brightness='if(lt(t,0.060),0.32,0)':eval=frame"
+              elif i in impact:
+                  ov += f",scale=1140:2027,crop=1080:1920:x=(iw-ow)/2:y=(ih-oh)/2,eq=brightness='if(lt(t,0.050),0.20,0)':eval=frame"
+              ov += f"[v{i}];"
+              parts.append(pre+bg+fg+ov); labels.append(f"[v{i}]")
+          parts.append(''.join(labels)+f"concat=n={len(labels)}:v=1:a=0[vout];")
+          # Music is the master audio. Make it clearly audible on phone speakers.
+          parts.append(f"[1:a]atrim=start=0:end={vd:.4f},asetpts=PTS-STARTPTS,highpass=f=30,bass=g=4:f=92,loudnorm=I=-7:TP=-0.8:LRA=4,volume=1.12,alimiter=limit=0.95[aout]")
+          open('filter_v3.txt','w').write(''.join(parts))
+          open('edit_report.txt','w').write(
+              f'source_duration={vd:.3f}\npreview_duration={md:.3f}\nbeat={beat:.4f}\nbpm={bpm:.1f}\n'
+              f'drop_abs={drop:.3f}\nmusic_start={music_start:.3f}\ndrop_in_edit={drop_rel:.3f}\n'
+              f'source_cuts={cuts}\ntarget_durations={targets}\n'
+          )
+          print(f'MUSIC_START={music_start:.4f}')
+          PY
+
+          export VD MD
+          python build.py | tee build.out
+          MS=$(grep '^MUSIC_START=' build.out | cut -d= -f2)
+
+          ffmpeg -hide_banner -loglevel error -y -i source.mp4 -ss "$MS" -i music.m4a \
+            -filter_complex_script filter_v3.txt -map '[vout]' -map '[aout]' -t "$VD" \
+            -c:v libx264 -preset medium -crf 17 -profile:v high -pix_fmt yuv420p \
+            -c:a aac -b:a 256k -ar 48000 -movflags +faststart final_v3.mp4
+
+          printf 'track=%s\nartist=%s\n' "$TRACK" "$ARTIST" >> edit_report.txt
+          ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration,size -of default=nw=1 final_v3.mp4 >> edit_report.txt
+          ffmpeg -hide_banner -i final_v3.mp4 -vn -af volumedetect -f null - 2>&1 | grep -E 'mean_volume|max_volume' >> edit_report.txt || true
+          cat edit_report.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: animextwts-2089076981358887392-v3-story-beat
+          path: |
+            final_v3.mp4
+            edit_report.txt
+          retention-days: 3

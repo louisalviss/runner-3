@@ -1,0 +1,44 @@
+name: Trinity ATR Backtest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/trinity-backtest/**'
+      - '.github/workflows/trinity-backtest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trinity-atr-backtest
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run 30-day audit backtest on OKX perpetual data
+        run: python3 trinity_backtest_okx.py
+
+      - name: Commit results robustly
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'runner-3-bot'
+          git config user.email 'runner-3-bot@users.noreply.github.com'
+          git add reports/trinity-atr-supertrend/backtest.json reports/trinity-atr-supertrend/backtest.md reports/trinity-atr-supertrend/fixed_nonrepaint_strategy.pine
+          if git diff --cached --quiet; then
+            echo 'No result changes'
+            exit 0
+          fi
+          git commit -m 'Run Trinity ATR 30d OKX non-repaint backtest'
+          git pull --rebase origin main
+          git push origin HEAD:main

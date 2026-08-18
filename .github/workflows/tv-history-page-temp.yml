@@ -1,0 +1,72 @@
+name: TV history pagination temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tv-history-page-temp.yml']
+permissions:
+  contents: write
+jobs:
+  page:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - name: Fetch paged CME history
+        run: |
+          cat > /tmp/page.py <<'PY'
+          import json,random,re,string,time,websocket
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          TV='wss://data.tradingview.com/socket.io/websocket?from=chart%2F'; RX=re.compile(r'~m~(\d+)~m~'); NY=ZoneInfo('America/New_York')
+          def frame(s):return f'~m~{len(s)}~m~{s}'
+          def cmd(m,p):return frame(json.dumps({'m':m,'p':p},separators=(',',':')))
+          def payloads(raw):
+            pos=0
+            while pos<len(raw):
+              m=RX.match(raw,pos)
+              if not m:break
+              n=int(m.group(1));a=m.end();b=a+n
+              if b>len(raw):break
+              yield raw[a:b];pos=b
+          cs='cs_'+''.join(random.choice(string.ascii_lowercase) for _ in range(12)); ws=websocket.create_connection(TV,timeout=25,origin='https://www.tradingview.com',header=['User-Agent: Mozilla/5.0'])
+          rows={}; completions=0; rounds=[]
+          try:
+            ws.send(cmd('set_auth_token',['unauthorized_user_token']));ws.send(cmd('chart_create_session',[cs,'']))
+            spec={'symbol':'NASDAQ:CME','adjustment':'splits','session':'regular'}
+            ws.send(cmd('resolve_symbol',[cs,'sym_0','='+json.dumps(spec,separators=(',',':'))]));ws.send(cmd('create_series',[cs,'ser_0','ser_0','sym_0','3',5000]))
+            deadline=time.monotonic()+90
+            while time.monotonic()<deadline and completions<4:
+              try:raw=ws.recv()
+              except Exception:break
+              if not isinstance(raw,str):continue
+              for p in payloads(raw):
+                if p.startswith('~h~'):ws.send(frame(p));continue
+                try:msg=json.loads(p)
+                except:continue
+                if msg.get('m')=='timescale_update':
+                  u=msg.get('p',[None,{}])[1];s=u.get('ser_0') if isinstance(u,dict) else None
+                  if isinstance(s,dict):
+                    for x in s.get('s',[]):
+                      v=x.get('v',[])
+                      if len(v)>=6:
+                        try:rows[float(v[0])]=tuple(map(float,v[:6]))
+                        except:pass
+                if msg.get('m')=='series_completed':
+                  completions+=1
+                  vals=sorted(rows)
+                  rounds.append({'round':completions,'count':len(vals),'from':datetime.fromtimestamp(vals[0],NY).isoformat() if vals else None,'to':datetime.fromtimestamp(vals[-1],NY).isoformat() if vals else None})
+                  if completions<4: ws.send(cmd('request_more_data',[cs,'ser_0',5000]))
+          finally:
+            ws.close()
+          out={'rounds':rounds,'unique_bars':len(rows)}
+          open('tv_history_page_test.json','w').write(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))
+          PY
+          python /tmp/page.py
+      - name: Persist
+        run: |
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tv_history_page_test.json;git commit -m 'temp: TV history pagination result [skip ci]';git push

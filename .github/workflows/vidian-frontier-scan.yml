@@ -1,0 +1,115 @@
+name: vidian-frontier-scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-frontier-scan.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vidian-frontier-scan-v1
+  cancel-in-progress: true
+
+env:
+  PRIMARY_RELEASE: 'vidian-corpus-canonical'
+  PRIMARY_ASSET: 'vidian-semantic-corpus-canonical.zip'
+  FALLBACK_RELEASE: 'vidian-corpus-v2-2026-08-16'
+  FALLBACK_ASSET: 'vidian-semantic-corpus-v2-full-2026-08-16.zip'
+
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests beautifulsoup4 lxml
+      - name: Download canonical URL source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          if gh release view "$PRIMARY_RELEASE" >/dev/null 2>&1; then
+            TAG="$PRIMARY_RELEASE"; ASSET="$PRIMARY_ASSET"
+          else
+            TAG="$FALLBACK_RELEASE"; ASSET="$FALLBACK_ASSET"
+          fi
+          gh release download "$TAG" -p "$ASSET" -D src
+          cp "src/$ASSET" source.zip
+          echo "SOURCE_TAG=$TAG" >> "$GITHUB_ENV"
+      - name: Scan newest frontier until three known pages per category
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python - <<'PY'
+          import gzip, io, json, time, zipfile
+          from pathlib import Path
+          import vidian_pipeline as vp
+
+          known=set()
+          with zipfile.ZipFile('source.zip') as z:
+              for name in sorted(n for n in z.namelist() if n.endswith('.jsonl.gz')):
+                  with gzip.GzipFile(fileobj=io.BytesIO(z.read(name))) as g:
+                      for raw in g:
+                          if raw.strip(): known.add(json.loads(raw)['url'])
+
+          cats=vp.discover_categories()
+          found={}; details={}; failures=[]
+          # Homepage is an extra safety net for very fresh content.
+          try:
+              r=vp.session().get(vp.BASE+'/',timeout=20); r.raise_for_status()
+              from bs4 import BeautifulSoup
+              soup=BeautifulSoup(r.text,'html.parser')
+              for a in soup.find_all('a',href=True):
+                  u=vp.canon(a['href'])
+                  if u and u not in known:
+                      found[u]=vp.clean(a.get_text(' ',strip=True))
+          except Exception as e:
+              failures.append({'scope':'homepage','error':f'{type(e).__name__}:{e}'})
+
+          for cat in cats:
+              consecutive_known=0; page=1; scanned=0; new_here=0
+              while page<=30 and consecutive_known<3:
+                  ok=False; last_err=''
+                  for attempt in range(1,5):
+                      c,p,d,err=vp.fetch_listing(cat,page)
+                      if not err:
+                          ok=True; break
+                      last_err=err; time.sleep(attempt)
+                  if not ok:
+                      failures.append({'scope':cat,'page':page,'error':last_err})
+                      break
+                  scanned+=1
+                  page_new=0
+                  for u,t in d.items():
+                      if u not in known:
+                          found[u]=max(found.get(u,''),t,key=len); page_new+=1
+                  new_here += page_new
+                  consecutive_known = consecutive_known + 1 if page_new==0 else 0
+                  page += 1
+              details[cat]={'pages_scanned':scanned,'new_hits':new_here,'stopped_after_known_pages':consecutive_known}
+
+          rows=[{'url':u,'listing_title':t} for u,t in sorted(found.items())]
+          report={'source_tag':__import__('os').environ.get('SOURCE_TAG',''),'canonical_urls':len(known),'categories':details,'frontier_new_urls':len(rows),'failures':failures,'new_items':rows}
+          Path('frontier_summary.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False))
+          if failures:
+              raise SystemExit(f'frontier scan failures: {failures[:3]}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vidian-frontier-${{ github.run_id }}
+          path: frontier_summary.json
+          if-no-files-found: warn
+          retention-days: 14

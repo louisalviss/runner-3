@@ -1,0 +1,179 @@
+name: Wasmer Admin Theme Handoff v5
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-admin-theme-v5.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v6
+      - name: Package theme
+        run: |
+          cd wordpress-site/wp-content/themes
+          zip -qr "$GITHUB_WORKSPACE/runner3-starter.zip" runner3-starter
+      - name: Generate ephemeral X25519 receiver key
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm X25519 -out /tmp/receiver-private.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/receiver-private.pem -pubout -out receiver-public.pem >/dev/null 2>&1
+          chmod 600 /tmp/receiver-private.pem
+      - name: Upload public handoff key
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasmer-x25519-key-${{ github.run_id }}
+          path: receiver-public.pem
+          retention-days: 1
+      - name: Receive and decrypt credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASE="https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/wasmer-session/${GITHUB_RUN_ID}"
+          found=0
+          for i in $(seq 1 180); do
+            ok=1
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw+json" "${BASE}.sender.pem?ref=main" -o /tmp/sender-public.pem 2>/dev/null || ok=0
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw+json" "${BASE}.enc.b64?ref=main" -o /tmp/session.enc.b64 2>/dev/null || ok=0
+            if [ "$ok" = 1 ]; then found=1; break; fi
+            sleep 2
+          done
+          test "$found" = 1
+          openssl pkeyutl -derive -inkey /tmp/receiver-private.pem -peerkey /tmp/sender-public.pem -out /tmp/shared.bin
+          base64 -d /tmp/session.enc.b64 > /tmp/session.enc
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -in /tmp/session.enc -out /tmp/session.json -pass file:/tmp/shared.bin
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/session.json'))
+          for k in ['wasmer_user','wasmer_password','app_name','mail_address','mail_password']:
+              assert x.get(k), k
+          for v in x.values(): print('::add-mask::'+v)
+          print('HANDOFF_DECRYPTED=true')
+          PY
+      - name: Install Playwright
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Login, inspect verification, magic-login WordPress, activate theme
+        run: |
+          cat > admin-v5.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          import fs from 'fs';
+          import path from 'path';
+          const id=JSON.parse(fs.readFileSync('/tmp/session.json','utf8'));
+          const site='https://'+id.app_name+'.wasmer.app';
+          const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const ctx=await browser.newContext();
+          const page=await ctx.newPage();
+          const mask=s=>(s||'').replaceAll(id.wasmer_user,'[MASKED_USER]').replaceAll(id.wasmer_password,'[MASKED_PASSWORD]').replaceAll(id.mail_address,'[MASKED_EMAIL]').replaceAll(id.mail_password,'[MASKED_MAIL_PASSWORD]');
+          async function body(p=page){return (await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim()}
+          async function report(label,p=page){
+            const controls=await p.locator('input,select,textarea,button,a,form').evaluateAll(els=>els.map(e=>({tag:e.tagName,type:e.type||'',name:e.name||'',method:e.method||'',action:e.action||'',placeholder:e.placeholder||'',required:!!e.required,text:(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,100)})).filter(x=>x.text||x.placeholder||x.name||x.action).slice(0,100)).catch(()=>[]);
+            console.log(label+'_URL='+p.url().replace(/([?&](?:token|magiclogin|secret|challenge|code)=)[^&]+/ig,'$1[MASKED]'));
+            console.log(label+'_BODY='+mask((await body(p)).slice(0,2000)));
+            console.log(label+'_CONTROLS='+mask(JSON.stringify(controls)));
+          }
+          async function mailToken(){
+            const r=await fetch('https://api.mail.tm/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:id.mail_address,password:id.mail_password})});
+            if(!r.ok) throw Error('Mail.tm token HTTP '+r.status); return (await r.json()).token;
+          }
+          async function messageIds(token){
+            const r=await fetch('https://api.mail.tm/messages',{headers:{Authorization:'Bearer '+token}}); if(!r.ok) return new Set();
+            const j=await r.json(); return new Set((j['hydra:member']||j.member||[]).map(x=>x.id));
+          }
+          async function waitNewMail(token,oldIds,seconds=65){
+            const until=Date.now()+seconds*1000;
+            while(Date.now()<until){
+              await page.waitForTimeout(1500);
+              const r=await fetch('https://api.mail.tm/messages',{headers:{Authorization:'Bearer '+token}}); if(!r.ok) continue;
+              const j=await r.json(); const msgs=j['hydra:member']||j.member||[];
+              for(const m of msgs){
+                if(oldIds.has(m.id)) continue;
+                const q=await fetch('https://api.mail.tm/messages/'+m.id,{headers:{Authorization:'Bearer '+token}}); if(!q.ok) continue;
+                const full=await q.json(); const html=Array.isArray(full.html)?full.html.join('\n'):(full.html||''); const text=(full.text||'')+'\n'+html;
+                const urls=[...text.matchAll(/https?:\/\/[^\s"'<>]+/g)].map(x=>x[0].replace(/&amp;/g,'&'));
+                const link=urls.find(u=>/wasmer\.io/i.test(u)&&/login|auth|verify|challenge|sign|confirm/i.test(u));
+                const code=(text.match(/\b\d{6}\b/)||[])[0];
+                if(link||code) return {link,code,subject:full.subject||''};
+              }
+            }
+            return {};
+          }
+          async function login(){
+            const token=await mailToken(); const old=await messageIds(token);
+            await page.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000}); await page.waitForTimeout(700);
+            const u=page.locator('input[name="username"]').first(); if(!await u.count()) throw Error('username field missing');
+            await u.fill(id.wasmer_user);
+            const form=page.locator('form').first();
+            if(await form.count()) await form.evaluate(f=>f.requestSubmit()); else await u.press('Enter');
+            await page.waitForTimeout(1800); await report('LOGIN_AFTER_SUBMIT');
+            let p=page.locator('input[type="password"]').first();
+            if(await p.count()){
+              await p.fill(id.wasmer_password);
+              const pf=page.locator('form').first(); if(await pf.count()) await pf.evaluate(f=>f.requestSubmit()); else await p.press('Enter');
+              await page.waitForTimeout(2000);
+            } else if(/verify-email|check your email|verification|magic link|sent.*email/i.test((await body()).toLowerCase()) || /verify-email/i.test(page.url())){
+              const auth=await waitNewMail(token,old);
+              if(auth.link){ await page.goto(auth.link,{waitUntil:'domcontentloaded',timeout:60000}); await page.waitForTimeout(1800); }
+              else if(auth.code){ const ci=page.locator('input').last(); await ci.fill(auth.code); await ci.press('Enter'); await page.waitForTimeout(1800); }
+              else throw Error('Wasmer login requested email auth but no new mail arrived');
+            } else {
+              throw Error('Unknown Wasmer login step');
+            }
+            await page.goto(`https://wasmer.io/apps/${id.wasmer_user}/${id.app_name}`,{waitUntil:'domcontentloaded',timeout:60000}); await page.waitForTimeout(1400);
+            const dash=await body(); await report('DASHBOARD');
+            if(!/WordPress Admin/i.test(dash)) throw Error('app dashboard unavailable after login');
+            console.log('WASMER_LOGIN=true');
+          }
+          async function inspectVerification(){
+            const txt=await body();
+            if(!/verify your account/i.test(txt)){ console.log('ACCOUNT_VERIFICATION_REQUIRED=false'); return; }
+            console.log('ACCOUNT_VERIFICATION_REQUIRED=true');
+            let v=page.getByRole('link',{name:/verify your account|verify now/i}).first(); if(!await v.count()) v=page.getByText(/verify your account|verify now/i).first();
+            if(!await v.count()){console.log('ACCOUNT_VERIFICATION_LINK=false');return;}
+            const verifyPage=await ctx.newPage();
+            const href=await v.getAttribute('href');
+            if(href) await verifyPage.goto(new URL(href,page.url()).href,{waitUntil:'domcontentloaded',timeout:60000}); else { await v.click(); await page.waitForTimeout(1600); }
+            await verifyPage.waitForTimeout(1300).catch(()=>{});
+            await report('ACCOUNT_VERIFY_PAGE',href?verifyPage:page);
+          }
+          async function magicLogin(){
+            await page.goto(`https://wasmer.io/apps/${id.wasmer_user}/${id.app_name}`,{waitUntil:'domcontentloaded',timeout:60000}); await page.waitForTimeout(900);
+            let admin=page.getByRole('link',{name:/wordpress admin/i}).first(); if(!await admin.count()) admin=page.getByText(/wordpress admin/i).first();
+            if(!await admin.count()) throw Error('WordPress Admin control missing');
+            const href=await admin.getAttribute('href'); if(!href) throw Error('WordPress Admin href missing');
+            const target=new URL(href,page.url()).href;
+            const wp=await ctx.newPage();
+            const res=await wp.goto(target,{waitUntil:'domcontentloaded',timeout:90000}).catch(()=>null);
+            console.log('MAGIC_HTTP='+(res?res.status():'NA'));
+            for(let i=0;i<20&&!/wp-admin/i.test(wp.url());i++){await wp.waitForTimeout(700);}
+            await report('MAGIC_RESULT',wp);
+            if(!/wp-admin/i.test(wp.url())) throw Error('Magic login did not reach wp-admin');
+            return wp;
+          }
+          async function theme(wp){
+            console.log('WP_MAGIC_LOGIN=true');
+            await wp.goto(site+'/wp-admin/theme-install.php',{waitUntil:'domcontentloaded',timeout:90000}); await wp.waitForTimeout(900);
+            const upload=wp.getByRole('button',{name:/upload theme/i}).first(); if(await upload.count()) await upload.click();
+            const file=wp.locator('input[type="file"]').first(); if(!await file.count()) throw Error('theme upload missing');
+            await file.setInputFiles(path.resolve('runner3-starter.zip'));
+            const install=wp.getByRole('button',{name:/install now/i}).first(); if(!await install.count()) throw Error('install button missing');
+            await install.click(); await wp.waitForTimeout(5000);
+            const activate=wp.getByRole('link',{name:/activate/i}).first(); if(await activate.count()){await activate.click();await wp.waitForTimeout(2200)}
+            await wp.goto(site,{waitUntil:'domcontentloaded',timeout:90000}); await wp.waitForTimeout(900);
+            const txt=await body(wp);
+            console.log('RUNNER3_THEME_MARKER='+/Built as a practical starter|Ready to edit|Runner3 Site/i.test(txt));
+            console.log('LIVE_SITE_URL='+site);
+            console.log('LIVE_SITE_SAMPLE='+txt.slice(0,1000));
+            console.log('ADMIN_THEME_COMPLETE=true');
+          }
+          try{await login();await inspectVerification();const wp=await magicLogin();await theme(wp)}finally{await browser.close()}
+          JS
+          node admin-v5.mjs
+      - name: Destroy ephemeral secrets
+        if: always()
+        run: |
+          shred -u /tmp/receiver-private.pem /tmp/shared.bin /tmp/session.json /tmp/session.enc /tmp/session.enc.b64 /tmp/sender-public.pem 2>/dev/null || true
+          rm -f receiver-public.pem admin-v5.mjs

@@ -1,0 +1,75 @@
+name: Trinity Source Fetch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/trinity-source-fetch/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Fetch Pastebin Pine source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/trinity-atr-supertrend
+          RAW='https://pastebin.com/raw/71TNcTMu'
+          PAGE='https://pastebin.com/71TNcTMu'
+          OUT='reports/trinity-atr-supertrend/source.pine'
+          if ! curl -A 'Mozilla/5.0' -fL --retry 3 --connect-timeout 10 --max-time 30 "$RAW" -o "$OUT"; then
+            curl -A 'Mozilla/5.0' -fL --retry 3 --connect-timeout 10 --max-time 30 "$PAGE" -o /tmp/pastebin.html
+            python3 - <<'PY'
+          from pathlib import Path
+          import html, re
+          s = Path('/tmp/pastebin.html').read_text(errors='replace')
+          pats = [
+              r'<textarea[^>]*id="postform-text"[^>]*>(.*?)</textarea>',
+              r'<div[^>]*class="source"[^>]*>.*?<ol[^>]*>(.*?)</ol>',
+          ]
+          out = ''
+          m = re.search(pats[0], s, re.I|re.S)
+          if m:
+              out = html.unescape(m.group(1))
+          if not out:
+              lines = re.findall(r'<li[^>]*>\s*<div[^>]*>(.*?)</div>\s*</li>', s, re.I|re.S)
+              if lines:
+                  out = '\n'.join(re.sub(r'<[^>]+>', '', html.unescape(x)) for x in lines)
+          if not out.strip():
+              raise SystemExit('Could not extract Pastebin source')
+          Path('reports/trinity-atr-supertrend/source.pine').write_text(out)
+          PY
+          fi
+          test -s "$OUT"
+          printf 'Fetched UTC: %s\nSource: %s\nBytes: %s\n' "$(date -u +%FT%TZ)" "$RAW" "$(wc -c < "$OUT")" > reports/trinity-atr-supertrend/fetch-meta.txt
+          {
+            echo '# Static audit hits'
+            echo
+            echo '## request.security / lookahead / strategy / entries'
+            grep -nE 'request\.security|lookahead|strategy\(|strategy\.|ta\.atr|supertrend' "$OUT" || true
+          } > reports/trinity-atr-supertrend/static-audit.txt
+
+      - name: Commit fetched source and audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'runner-3-bot'
+          git config user.email 'runner-3-bot@users.noreply.github.com'
+          git add reports/trinity-atr-supertrend/
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit'
+            exit 0
+          fi
+          git commit -m 'Fetch and audit Trinity ATR Supertrend source'
+          git push

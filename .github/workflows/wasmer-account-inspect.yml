@@ -1,0 +1,43 @@
+name: Wasmer Account Inspect
+
+# Recheck after verification completed by account owner.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-account-inspect.yml'
+      - 'scripts/wasmer-account-inspect.mjs'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted Wasmer state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+      - run: npm install --no-save playwright-core@1.58.2
+      - name: Inspect current account state
+        run: node scripts/wasmer-account-inspect.mjs
+      - name: Persist safe inspection
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-account-inspect.json || echo '{"status":"runner_error"}' >/tmp/wasmer-account-inspect.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main && git reset --hard origin/main
+          cp /tmp/wasmer-account-inspect.json ops/wasmer/account-inspect.json
+          git add ops/wasmer/account-inspect.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist safe Wasmer account inspection'; git push origin HEAD:main; fi

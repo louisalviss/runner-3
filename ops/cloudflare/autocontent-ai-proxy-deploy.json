@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-08-17T23:45:54.752090Z",
+  "worker": "runner3-autocontent-ai",
+  "deploy_rc": 0,
+  "secret_rc": 0,
+  "route_http": 200,
+  "route_success": true,
+  "probe_http": 502,
+  "proxy_url": "https://runner3-autocontent-ai.ducduy2411.workers.dev",
+  "probe_success": false,
+  "probe_error": "workers_ai_failed",
+  "deploy_log_tail": "\n ⛅️ wrangler 4.123.0\n────────────────────\nTotal Upload: 2.21 KiB / gzip: 0.93 KiB\nWorker Startup Time: 4 ms\nYour Worker has access to the following bindings:\nBinding        Resource      \nenv.AI         AI            \n\nUploaded runner3-autocontent-ai (1.60 sec)\nDeployed runner3-autocontent-ai triggers (0.56 sec)\n  https://runner3-autocontent-ai.ducduy2411.workers.dev\nCurrent Version ID: 85ba9d30-928e-4ed3-870b-3d40246bef07\n\nCloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md\n",
+  "secret_log_tail": "\n ⛅️ wrangler 4.123.0\n────────────────────\n🌀 Creating the secret for the Worker \"runner3-autocontent-ai\"\n✨ Success! Uploaded secret AUTOCONTENT_PROXY_KEY\n"
+}

@@ -1,0 +1,28 @@
+name: SEC list Trust II filings 2018-2019
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sec-list-trust2-2018-2019.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Query SEC submissions
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          req=urllib.request.Request('https://data.sec.gov/submissions/CIK0001378872.json',headers={'User-Agent':'SPMO research louis@example.com'})
+          with urllib.request.urlopen(req,timeout=30) as f: d=json.load(f)
+          r=d['filings']['recent']
+          for acc,form,fd,rd,pd in zip(r['accessionNumber'],r['form'],r['filingDate'],r['reportDate'],r['primaryDocument']):
+              if '2018-01-01' <= fd <= '2019-12-31' and form in ('N-Q','N-CSR','N-CSRS'):
+                  print(acc, form, 'filed',fd,'report',rd,'doc',pd)
+          for f in d['filings'].get('files',[]): print('OLDER_FILE',f)
+          PY

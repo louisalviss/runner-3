@@ -1,0 +1,187 @@
+name: AutoContent Engine Real MVP
+# validation-trigger: unit-sanitizer-20260818
+
+on:
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: Editorial focus
+        required: false
+        default: EV technology, charging, battery economics and real-world ownership
+        type: string
+      publish_status:
+        description: WordPress status
+        required: true
+        default: draft
+        type: choice
+        options: [draft, publish]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/autocontent-engine.yml'
+      - 'scripts/autocontent_engine.py'
+      - 'scripts/autocontent_cloudflare_runner.py'
+      - 'scripts/autocontent_quality_runner.py'
+      - 'scripts/autocontent_strict_runner.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-autocontent-main
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GITHUB_TOKEN: ${{ github.token }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      AUTOCONTENT_MODEL: '@cf/openai/gpt-oss-120b'
+      AUTOCONTENT_PROXY_URL: 'https://runner3-autocontent-ai.ducduy2411.workers.dev'
+      AUTOCONTENT_FOCUS: ${{ github.event_name == 'workflow_dispatch' && inputs.focus || 'EV technology, charging, battery economics and real-world ownership' }}
+      AUTOCONTENT_STATUS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_status || 'draft' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
+
+      - name: Generate grounded package plus strict editorial QA
+        id: engine
+        shell: bash
+        run: |
+          set +e
+          python scripts/autocontent_strict_runner.py \
+            --focus "$AUTOCONTENT_FOCUS" \
+            --status "$AUTOCONTENT_STATUS" \
+            --model "$AUTOCONTENT_MODEL" 2>&1 | tee /tmp/autocontent-engine.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" != "0" ]; then
+            python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          log = Path('/tmp/autocontent-engine.log').read_text(errors='replace')[-6000:]
+          out = Path('data/autocontent/latest.json')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps({
+              'status': 'engine_failed',
+              'generated_at': datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
+              'provider': 'cloudflare-workers-ai-binding-proxy',
+              'model': '@cf/openai/gpt-oss-120b',
+              'quality_gate': 'strict-multipass',
+              'error_tail': log,
+              'wordpress': {'requested_status': 'draft', 'result': None}
+          }, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+          fi
+          exit 0
+
+      - name: Decrypt existing WordPress credential
+        if: steps.engine.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo "Automation key unavailable"; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          encrypted="ops/wp-control/${WP_SITE_SLUG}.credential.aes"
+          test -f "$encrypted" || { echo "Credential not found for ${WP_SITE_SLUG}"; exit 4; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY -in "$encrypted" -out /tmp/wp-control.json
+          chmod 600 /tmp/wp-control.json
+
+      - name: Create WordPress post
+        if: steps.engine.outputs.rc == '0'
+        id: wordpress
+        shell: bash
+        env:
+          WP_CONTROL_REQUEST: data/autocontent/wp-request.json
+        run: |
+          set +e
+          node scripts/wordpress-control.mjs 2>&1 | tee /tmp/autocontent-wordpress.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Merge safe WordPress result
+        if: steps.engine.outputs.rc == '0'
+        shell: bash
+        env:
+          WP_RC: ${{ steps.wordpress.outputs.rc }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          latest = Path('data/autocontent/latest.json')
+          data = json.loads(latest.read_text(encoding='utf-8'))
+          data['provider'] = 'cloudflare-workers-ai-binding-proxy'
+          data['quality_gate'] = 'strict-multipass'
+          slug = os.environ.get('WP_SITE_SLUG', 'runner3-factory-smoke-2')
+          rp = Path(f'/tmp/wp-control-result-{slug}.json')
+          rc = int(os.environ.get('WP_RC') or 99)
+          safe = json.loads(rp.read_text(encoding='utf-8')) if rp.exists() else None
+          wp = data.setdefault('wordpress', {})
+          wp['runner_rc'] = rc
+          wp['result'] = safe
+          if rc == 0 and safe and safe.get('status') == 'ok':
+              result = safe.get('result') or {}
+              data['status'] = 'wordpress_created'
+              wp['post'] = {k: result.get(k) for k in ('id','status','slug','link')}
+          else:
+              data['status'] = 'wordpress_failed'
+          latest.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+
+      - name: Clean decrypted credential
+        if: always()
+        run: rm -f /tmp/wp-control.json
+
+      - name: Upload run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autocontent-${{ github.run_id }}
+          path: |
+            data/autocontent/latest.json
+            /tmp/autocontent-engine.log
+            /tmp/autocontent-wordpress.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Persist safe run report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f data/autocontent/wp-request.json
+          test -f data/autocontent/latest.json || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/autocontent/latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist AutoContent run report"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5
+
+      - name: Enforce result
+        if: always()
+        shell: bash
+        env:
+          ENGINE_RC: ${{ steps.engine.outputs.rc }}
+          WP_RC: ${{ steps.wordpress.outputs.rc }}
+        run: |
+          test "${ENGINE_RC:-99}" = "0" || { echo "Engine failed rc=${ENGINE_RC:-99}"; exit 10; }
+          test "${WP_RC:-99}" = "0" || { echo "WordPress failed rc=${WP_RC:-99}"; exit 11; }

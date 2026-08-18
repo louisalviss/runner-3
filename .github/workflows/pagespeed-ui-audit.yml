@@ -1,0 +1,62 @@
+name: Google PageSpeed UI Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/pagespeed/ui-requests/*.json'
+      - 'scripts/pagespeed-ui-audit.mjs'
+      - '.github/workflows/pagespeed-ui-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-pagespeed-ui
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright runtime
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Run direct Google PageSpeed web UI
+        id: psi
+        continue-on-error: true
+        env:
+          PSI_URL: https://runner3-factory-smoke-2.wasmer.app/
+          PSI_UI_OUT: /tmp/pagespeed-ui-fresh.json
+          PSI_UI_SCREENSHOT: /tmp/pagespeed-ui-mobile.png
+        run: |
+          set -euo pipefail
+          rm -f /tmp/pagespeed-ui-fresh.json
+          node scripts/pagespeed-ui-audit.mjs
+      - name: Persist fresh PageSpeed result
+        if: always()
+        shell: bash
+        env:
+          PSI_STEP_OUTCOME: ${{ steps.psi.outcome }}
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/pagespeed-ui-fresh.json ]; then
+            printf '{"status":"failed","target":"https://runner3-factory-smoke-2.wasmer.app/","checkedAt":"%s","detail":"PageSpeed runner produced no fresh JSON; step outcome: %s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PSI_STEP_OUTCOME" > /tmp/pagespeed-ui-fresh.json
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed
+            cp /tmp/pagespeed-ui-fresh.json ops/pagespeed/ui-latest.json
+            git add ops/pagespeed/ui-latest.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist fresh Google PageSpeed UI audit'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true

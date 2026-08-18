@@ -1,0 +1,104 @@
+name: Cloudflare TeraBox Interactive Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-terabox-interactive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Inspect TeraBox share interactively
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > probe-terabox.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const endpoint=`wss://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/devtools/browser?keep_alive=600000`;
+          const browser=await chromium.connectOverCDP(endpoint,{headers:{Authorization:`Bearer ${token}`}});
+          const target='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww';
+          const seen=new Set();
+          const pending=[];
+          try {
+            const context=browser.contexts()[0];
+            const page=context.pages()[0] || await context.newPage();
+            page.on('response', r => {
+              const task=(async()=>{
+                const rt=r.request().resourceType();
+                if (!['xhr','fetch'].includes(rt)) return;
+                const u=r.url();
+                if (!/(1024tera|terabox|data\.)/i.test(u) || seen.has(u)) return;
+                seen.add(u);
+                console.log('XHR_URL=' + u);
+                console.log('XHR_STATUS=' + r.status());
+                if (/(list|share|api|file|dir)/i.test(u)) {
+                  try {
+                    const ct=(await r.allHeaders())['content-type'] || '';
+                    if (/json|text/i.test(ct)) {
+                      const t=await r.text();
+                      console.log('XHR_BODY=' + t.slice(0,16000).replace(/\s+/g,' '));
+                    }
+                  } catch {}
+                }
+              })();
+              pending.push(task);
+            });
+            await page.goto(target,{waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForTimeout(8000);
+            console.log('TITLE=' + await page.title());
+            console.log('URL0=' + page.url());
+            const rows=page.locator('.file-item-listmode');
+            console.log('ROOT_ROW_COUNT=' + await rows.count());
+            for(let i=0;i<Math.min(await rows.count(),20);i++){
+              const txt=(await rows.nth(i).innerText()).replace(/\s+/g,' ').trim();
+              console.log(`ROOT_ROW_${i}=${txt}`);
+            }
+            const root=page.locator('.file-item-listmode .file-content').first();
+            if (await root.count()) {
+              await root.click({timeout:10000});
+              await page.waitForTimeout(8000);
+              console.log('CLICK_ROOT=ok');
+              console.log('URL1=' + page.url());
+              const rows2=page.locator('.file-item-listmode');
+              console.log('INNER_ROW_COUNT=' + await rows2.count());
+              for(let i=0;i<Math.min(await rows2.count(),100);i++){
+                const txt=(await rows2.nth(i).innerText()).replace(/\s+/g,' ').trim();
+                console.log(`INNER_ROW_${i}=${txt}`);
+              }
+              const body=(await page.locator('body').innerText()).replace(/\s+/g,' ').trim();
+              console.log('BODY_AFTER=' + body.slice(0,12000));
+            } else {
+              console.log('CLICK_ROOT=no-row');
+            }
+            await Promise.allSettled(pending);
+          } finally {
+            await browser.close();
+          }
+          JS
+          node probe-terabox.mjs
+
+      - name: Marker
+        run: echo TERABOX_PROBE_V1

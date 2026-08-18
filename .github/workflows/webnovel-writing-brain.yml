@@ -1,0 +1,164 @@
+name: webnovel-writing-brain
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/webnovel_writing_brain.py'
+      - 'scripts/webnovel_writing_brain_agent.py'
+      - '.github/workflows/webnovel-writing-brain.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-v1
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VIDIAN_TAG: vidian-writing-v1-2026-08-17
+      VIDIAN_ASSET: vidian-writing-v1-2026-08-17.zip
+      VIDIAN_SHA256: 6753fed05dcca517750569eb5db02541c36a78d473ba168105429dd4ea362b91
+      MOXING_TAG: moxing-writing-v1-2026-08-17
+      MOXING_ASSET: moxing-writing-v1-2026-08-17.zip
+      MOXING_SHA256: afce13a55b4902b7e1559af902cf492e68bc809fb0265d3c35e0dc63868ba9f7
+      TAG: webnovel-writing-brain-v1-2026-08-17
+      ASSET: webnovel-writing-brain-v1-2026-08-17.zip
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check numpy scipy scikit-learn joblib
+      - name: Download durable source releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source/vidian source/moxing
+          gh release download "$VIDIAN_TAG" --pattern "$VIDIAN_ASSET" --dir source
+          gh release download "$MOXING_TAG" --pattern "$MOXING_ASSET" --dir source
+          echo "$VIDIAN_SHA256  source/$VIDIAN_ASSET" | sha256sum -c -
+          echo "$MOXING_SHA256  source/$MOXING_ASSET" | sha256sum -c -
+          unzip -q source/$VIDIAN_ASSET -d source/vidian
+          unzip -q source/$MOXING_ASSET -d source/moxing
+          test -f source/vidian/vidian_writing/vidian_writing.sqlite
+          test -f source/moxing/moxing_writing/moxing_writing.sqlite
+      - name: Normalize Vidian schema compatibility
+        run: |
+          python - <<'PY'
+          import sqlite3
+          db='source/vidian/vidian_writing/vidian_writing.sqlite'
+          con=sqlite3.connect(db)
+          cols={r[1] for r in con.execute('pragma table_info(passages)')}
+          if 'rule_text' not in cols:
+              assert 'rule' in cols, cols
+              con.execute('alter table passages add column rule_text TEXT')
+              con.execute('update passages set rule_text=rule')
+          if 'section' not in cols:
+              con.execute("alter table passages add column section TEXT DEFAULT ''")
+          con.commit(); con.close()
+          print('Vidian schema compatibility PASS')
+          PY
+      - name: Build fused Writing Brain
+        run: |
+          python scripts/webnovel_writing_brain.py build \
+            --vidian source/vidian/vidian_writing \
+            --moxing source/moxing/moxing_writing \
+            --out writing_brain --dims 96 --max-features 50000
+      - name: QA gate
+        run: |
+          python - <<'PY'
+          import json,sqlite3,pathlib
+          m=json.load(open('writing_brain/manifest.json',encoding='utf-8')); c=m['counts']
+          assert m['sources']['vidian']['raw_passages']==11921,m['sources']['vidian']
+          assert m['sources']['moxing']['raw_passages']==12924,m['sources']['moxing']
+          assert c['raw_passages']==24845,c
+          assert c['retained_passages']>=18000,c
+          assert c['deduplicated_within_source']>0,c
+          assert c['topics']==27,c
+          assert c['cross_source_support_clusters']>=100,c
+          assert c['cross_source_supported_passages']>=1000,c
+          sem=m['retrieval']['semantic']
+          assert sem['vidian']['enabled'] and sem['moxing']['enabled'],sem
+          assert sem['vidian']['dimensions']==96 and sem['moxing']['dimensions']==96,sem
+          con=sqlite3.connect('writing_brain/writing_brain.sqlite')
+          assert con.execute("select count(*) from passages where source='vidian'").fetchone()[0]==m['sources']['vidian']['retained']
+          assert con.execute("select count(*) from passages where source='moxing'").fetchone()[0]==m['sources']['moxing']['retained']
+          assert con.execute("select count(*) from passages where evidence_id<>''").fetchone()[0]==c['retained_passages']
+          assert con.execute("select count(*) from passages where source='vidian' and verbatim=1").fetchone()[0]==0
+          con.close()
+          for f in ['vidian_semantic.joblib','moxing_semantic.joblib','vidian_vectors.npy','moxing_vectors.npy']:
+              assert pathlib.Path('writing_brain',f).exists(),f
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+      - name: Interface smoke
+        run: |
+          set -euo pipefail
+          AGENT='python scripts/webnovel_writing_brain_agent.py'
+          $AGENT query --index writing_brain --q 'mở đầu tiên hiệp thu hút độc giả' --limit 20 --json-out writing_brain/smoke_opening.json >/dev/null
+          $AGENT query --index writing_brain --q 'progression tài nguyên kỳ ngộ sảng' --limit 20 --json-out writing_brain/smoke_progression.json >/dev/null
+          $AGENT direct --index writing_brain --brief 'Tiên hiệp, main thận trọng, progression rõ, tài nguyên và kỳ ngộ, arc 30 chương' --limit 40 --json-out writing_brain/smoke_direct.json >/dev/null
+          $AGENT review --index writing_brain --text 'Nhân vật chính vào tông môn, tu luyện nhiều chương rồi đột phá và nhận bảo vật. Cuối chương xuất hiện một bí ẩn mới.' --limit 28 --json-out writing_brain/smoke_review.json >/dev/null
+          $AGENT checklist --index writing_brain --topic character_design --limit 20 --json-out writing_brain/smoke_checklist.json >/dev/null
+          python - <<'PY'
+          import json,re
+          q1=json.load(open('writing_brain/smoke_opening.json',encoding='utf-8'))
+          q2=json.load(open('writing_brain/smoke_progression.json',encoding='utf-8'))
+          d=json.load(open('writing_brain/smoke_direct.json',encoding='utf-8'))
+          r=json.load(open('writing_brain/smoke_review.json',encoding='utf-8'))
+          c=json.load(open('writing_brain/smoke_checklist.json',encoding='utf-8'))
+          for q in (q1,q2):
+              assert q['hits'],q
+              assert {x['source'] for x in q['hits']}=={'vidian','moxing'}
+              assert all(x['url'] and x['evidence_id'] for x in q['hits'])
+              assert not any(re.search(r'情色|色情|黄文',x['title']+x['text']) for x in q['hits'])
+          assert len(d['sections'])>=6,d['directive_topics']
+          both=sum(set(s['sources'])=={'vidian','moxing'} for s in d['sections'])
+          assert both>=5,[(s['topic'],s['sources']) for s in d['sections']]
+          de=[x for s in d['sections'] for x in s['all']]
+          assert not any('天生的嫉妒心理' in x['text'] for x in de)
+          assert r['evidence_buckets'] and all(b['hits'] for b in r['evidence_buckets'])
+          assert c['items'] and set(c['sources'])=={'vidian','moxing'},c['sources']
+          assert c['sources']['vidian']>=5 and c['sources']['moxing']>=5,c['sources']
+          assert not any('天生的嫉妒心理' in x['text'] for x in c['items'])
+          print('Webnovel Writing Brain balanced-agent smoke PASS')
+          PY
+      - name: Bundle runtime
+        run: |
+          mkdir -p writing_brain/runtime
+          cp scripts/webnovel_writing_brain.py scripts/webnovel_writing_brain_agent.py writing_brain/runtime/
+      - name: Package
+        run: |
+          python - <<'PY'
+          import hashlib,json,pathlib,zipfile,os
+          root=pathlib.Path('writing_brain'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,p.as_posix())
+          m=json.load(open(root/'manifest.json',encoding='utf-8'))
+          m['quality_layer']='balanced-source-agent-v1.1'
+          m['package']={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          (root/'release_manifest.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(m['package'],indent=2))
+          PY
+      - name: Publish durable release
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain v1 — Vidian + Moxing — 2026-08-17' --notes 'Unified authoring/review brain from durable Vidian Writing v1.2 and Moxing Writing v1.1 releases.'
+          fi
+          gh release edit "$TAG" --notes 'Unified Vidian + Moxing Writing Brain. 27-topic canonical taxonomy; 21k+ retained passages after within-source dedup; conservative cross-source thematic support; unified FTS5 plus separate Vietnamese/Chinese TF-IDF+SVD semantic models bridged by bilingual query expansion; balanced-source Agent for Query, Direct, Review, Checklist. Cross-source support is corroborating theme evidence, not proof of identical rules. Vidian evidence is parser-reconstructed, not verbatim source prose.'
+          gh release upload "$TAG" "$ASSET" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webnovel-writing-brain-v1
+          path: |
+            writing_brain
+            webnovel-writing-brain-v1-2026-08-17.zip
+          retention-days: 90

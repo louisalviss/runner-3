@@ -1,0 +1,173 @@
+name: M88 TH Odds Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/m88-th-odds-probe.yml'
+      - 'm88_odds.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install VPN tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl
+
+      - name: Collect Thailand relay candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64,csv,io,json,pathlib
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          rs=[r for r in rows if (r.get('CountryShort') or '').upper()=='TH' and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+          rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
+          rs=rs[:8]
+          if not rs: raise SystemExit('No TH relay available')
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          infos=[]
+          for i,r in enumerate(rs):
+              cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+              cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+              pathlib.Path(f'/tmp/vpn{i}.ovpn').write_text(cfg)
+              infos.append({k:r.get(k) for k in ['CountryShort','CountryLong','IP','Ping','Speed','NumVpnSessions']})
+          pathlib.Path('evidence/relay_candidates.json').write_text(json.dumps(infos,indent=2,ensure_ascii=False))
+          print('TH_RELAY_CANDIDATES='+str(len(infos)))
+          PY
+
+      - name: Connect first working Thailand relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn
+          sudo ip link set vn netns vpnns
+          sudo ip addr add 10.236.0.1/24 dev vh
+          sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.236.0.2/24 dev vn
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.236.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.236.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+
+          connected=0
+          for cfg in /tmp/vpn*.ovpn; do
+            idx=$(basename "$cfg" .ovpn | sed 's/vpn//')
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+            sleep 1
+            sudo rm -f /tmp/openvpn.log
+            sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
+            echo "TRY_RELAY_INDEX=$idx" | tee -a evidence/connect_attempts.txt
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
+            ok=0
+            for i in {1..12}; do
+              sleep 1
+              if grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null; then ok=1; break; fi
+              if grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error|Connection refused' /tmp/openvpn.log 2>/dev/null; then break; fi
+            done
+            if [ "$ok" = 1 ]; then
+              trace=$(sudo ip netns exec vpnns curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' 2>/dev/null | grep -E '^(ip|loc|warp)=' || true)
+              if echo "$trace" | grep -q '^loc=TH$'; then
+                echo "$trace" | tee evidence/egress.txt
+                echo "SELECTED_RELAY_INDEX=$idx" | tee evidence/selected_relay.txt
+                connected=1
+                break
+              fi
+            fi
+            echo "RELAY_INDEX_${idx}=FAILED" | tee -a evidence/connect_attempts.txt
+          done
+          test "$connected" = 1
+
+      - name: Fetch M88 public guest soccer odds in decimal format
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          common={
+            'sport_id':'10','lang_id':'en','view_type':'0','leagues':'999',
+            'odds_type':'3','odds_group':'3','view_date':'0','time_filter':'0',
+            'category':'0','branch_code':'','currency':'VND','is_full':'true',
+            'prev_params':'','version':'','top_x':0,'is_stream':'false',
+            'is_live_center':'false','currentMenu':'spesificSport','prevMenu':'',
+            'method':'LoadOddsData'
+          }
+          for name,slot in [('live','1'),('today','2'),('early','3')]:
+            p=dict(common)
+            p['currentTimeSlot']=slot
+            p['display_type']='1'+slot
+            if slot=='3': p['view_date']='1'
+            pathlib.Path(f'/tmp/{name}.json').write_text(json.dumps(p,separators=(',',':')))
+          PY
+          for name in live today early; do
+            sudo ip netns exec vpnns curl -L -sS --max-time 35 \
+              -X POST 'https://msports.m88.com/api/v1/m88/data/main' \
+              -H 'Accept: application/json, text/plain, */*' \
+              -H 'Content-Type: application/json' \
+              -H 'Authorization: Bearer GUEST' \
+              --data-binary @"/tmp/${name}.json" \
+              -D "evidence/${name}.headers" \
+              -o "evidence/${name}.json" \
+              -w 'http_code=%{http_code}\ncontent_type=%{content_type}\nsize=%{size_download}\nremote_ip=%{remote_ip}\n' \
+              > "evidence/${name}.meta" \
+              2> "evidence/${name}.error"
+          done
+
+      - name: Validate API responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          for name in ['live','today','early']:
+              meta={}
+              for line in pathlib.Path(f'evidence/{name}.meta').read_text().splitlines():
+                  if '=' in line:
+                      k,v=line.split('=',1); meta[k]=v
+              if meta.get('http_code') != '200':
+                  raise SystemExit(f'{name}: HTTP {meta.get("http_code")}')
+              d=json.loads(pathlib.Path(f'evidence/{name}.json').read_text())
+              if d.get('status') != 1:
+                  raise SystemExit(f'{name}: API status {d.get("status")}')
+              rows=sum(len(x.get('data') or []) for x in (d.get('data') or []) if isinstance(x,dict))
+              print(f'{name.upper()}_RAW_ROWS={rows} BYTES={meta.get("size")}')
+          PY
+
+      - name: Normalize matches and markets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 m88_odds.py \
+            --input-dir evidence \
+            --output-json evidence/m88_odds.json \
+            --output-csv evidence/m88_odds.csv \
+            --odds-format decimal
+
+      - name: Upload odds artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m88-th-odds-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3

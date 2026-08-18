@@ -1,0 +1,186 @@
+name: Deploy AutoContent AI Proxy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-autocontent-ai-proxy.yml'
+      - 'cloudflare/autocontent-ai-proxy/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-autocontent-ai-proxy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CONFIG: cloudflare/autocontent-ai-proxy/wrangler.jsonc
+      WORKER_NAME: runner3-autocontent-ai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install current Wrangler
+        run: npm install --no-save wrangler@latest
+
+      - name: Deploy Worker with AI binding
+        id: deploy
+        shell: bash
+        run: |
+          set +e
+          npx wrangler deploy --config "$CONFIG" 2>&1 | tee /tmp/autocontent-ai-deploy.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Configure derived proxy secret
+        id: secret
+        if: steps.deploy.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          proxy_key=$(python - <<'PY'
+          import hashlib, os
+          raw=(os.environ['CLOUDFLARE_API_TOKEN']+'|runner3-autocontent-ai-v1').encode()
+          print(hashlib.sha256(raw).hexdigest())
+          PY
+          )
+          printf '%s' "$proxy_key" | npx wrangler secret put AUTOCONTENT_PROXY_KEY --config "$CONFIG" 2>&1 | tee /tmp/autocontent-ai-secret.log
+          rc=${PIPESTATUS[1]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Enable workers.dev route and probe AI binding
+        id: probe
+        if: steps.deploy.outputs.rc == '0' && steps.secret.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          route_http=$(curl -sS -o /tmp/autocontent-ai-route.json -w '%{http_code}' \
+            -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '{"enabled":true,"previews_enabled":true}')
+          echo "route_http=$route_http" >> "$GITHUB_OUTPUT"
+
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -o /tmp/subdomain.json
+          subdomain=$(python - <<'PY'
+          import json
+          try:
+              d=json.load(open('/tmp/subdomain.json'))
+              print((d.get('result') or {}).get('subdomain') or '')
+          except Exception:
+              print('')
+          PY
+          )
+          url=""
+          if [ -n "$subdomain" ]; then
+            url="https://${WORKER_NAME}.${subdomain}.workers.dev"
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+          proxy_key=$(python - <<'PY'
+          import hashlib, os
+          raw=(os.environ['CLOUDFLARE_API_TOKEN']+'|runner3-autocontent-ai-v1').encode()
+          print(hashlib.sha256(raw).hexdigest())
+          PY
+          )
+          if [ -z "$url" ]; then
+            echo 'http=0' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          sleep 5
+          http=$(curl -sS -o /tmp/autocontent-ai-probe-response.json -w '%{http_code}' \
+            -X POST "$url" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${proxy_key}" \
+            --data '{"model":"@cf/meta/llama-3.1-8b-instruct","messages":[{"role":"user","content":"Reply with exactly OK"}],"max_tokens":8,"temperature":0}')
+          echo "http=$http" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Write safe deployment report
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_RC: ${{ steps.deploy.outputs.rc }}
+          SECRET_RC: ${{ steps.secret.outputs.rc }}
+          ROUTE_HTTP: ${{ steps.probe.outputs.route_http }}
+          PROBE_HTTP: ${{ steps.probe.outputs.http }}
+          PROXY_URL: ${{ steps.probe.outputs.url }}
+        run: |
+          mkdir -p ops/cloudflare
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def tail(path, n=3000):
+              p=Path(path)
+              return p.read_text(errors='replace')[-n:] if p.exists() else ''
+
+          def load(path):
+              p=Path(path)
+              if not p.exists(): return {}
+              try: return json.loads(p.read_text(errors='replace'))
+              except Exception: return {'raw':p.read_text(errors='replace')[:800]}
+
+          response=load('/tmp/autocontent-ai-probe-response.json')
+          route=load('/tmp/autocontent-ai-route.json')
+          report={
+              'checked_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
+              'worker':'runner3-autocontent-ai',
+              'deploy_rc':int(os.environ.get('DEPLOY_RC') or 99),
+              'secret_rc':int(os.environ.get('SECRET_RC') or 99),
+              'route_http':int(os.environ.get('ROUTE_HTTP') or 0),
+              'route_success':bool(route.get('success')) if isinstance(route,dict) else False,
+              'probe_http':int(os.environ.get('PROBE_HTTP') or 0),
+              'proxy_url':os.environ.get('PROXY_URL') or None,
+              'probe_success':bool(response.get('success')) if isinstance(response,dict) else False,
+              'probe_error':response.get('error') if isinstance(response,dict) else None,
+              'deploy_log_tail':tail('/tmp/autocontent-ai-deploy.log'),
+              'secret_log_tail':tail('/tmp/autocontent-ai-secret.log'),
+          }
+          Path('ops/cloudflare/autocontent-ai-proxy-deploy.json').write_text(
+              json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Persist safe deployment report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/cloudflare/autocontent-ai-proxy-deploy.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Persist AutoContent AI proxy deployment'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5
+
+      - name: Enforce deployment
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_RC: ${{ steps.deploy.outputs.rc }}
+          SECRET_RC: ${{ steps.secret.outputs.rc }}
+          ROUTE_HTTP: ${{ steps.probe.outputs.route_http }}
+          PROBE_HTTP: ${{ steps.probe.outputs.http }}
+        run: |
+          test "${DEPLOY_RC:-99}" = "0" || exit 20
+          test "${SECRET_RC:-99}" = "0" || exit 21
+          test "${ROUTE_HTTP:-0}" = "200" || exit 22
+          test "${PROBE_HTTP:-0}" = "200" || exit 23

@@ -1,0 +1,53 @@
+name: WordPress Layout Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/wp-layout-audit/requests/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-layout-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright runtime
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Audit live layout
+        env:
+          WP_SITE_URL: https://runner3-factory-smoke-2.wasmer.app/
+          AUDIT_OUT: ops/wp-layout-audit/results/latest
+        run: node scripts/audit-wordpress-layout.mjs
+      - name: Upload visual audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp-layout-audit
+          path: ops/wp-layout-audit/results/latest
+          retention-days: 3
+      - name: Persist audit screenshots and metrics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/wp-layout-audit/results/latest
+          git diff --cached --quiet && exit 0
+          git commit -m 'Persist live WordPress layout audit'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+            sleep 2
+          done
+          exit 1

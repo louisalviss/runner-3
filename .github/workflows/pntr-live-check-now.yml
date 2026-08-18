@@ -1,0 +1,43 @@
+name: PNTR Live Check Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-live-check-now.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check DNS and HTTPS
+        shell: bash
+        run: |
+          set -uo pipefail
+          DOMAIN='runner3wp.pntr.dev'
+          EXPECTED='lnh8iwtjmk3x.id.wasmer.app.'
+          echo "DOMAIN=$DOMAIN"
+          echo '--- DNS CNAME ---'
+          CNAME="$(dig +short CNAME "$DOMAIN" | head -n1 || true)"
+          echo "CNAME=${CNAME:-NONE}"
+          if [ "$CNAME" = "$EXPECTED" ]; then echo 'DNS_OK=true'; else echo 'DNS_OK=false'; fi
+          echo '--- DNS A/AAAA ---'
+          dig +short A "$DOMAIN" || true
+          dig +short AAAA "$DOMAIN" || true
+          echo '--- HTTPS ---'
+          code="$(curl -L -sS -o /tmp/body -w '%{http_code}' --connect-timeout 10 --max-time 20 "https://$DOMAIN/" || true)"
+          echo "HTTPS_STATUS=${code:-000}"
+          if [ "${code:-000}" = '200' ]; then echo 'HTTPS_OK=true'; else echo 'HTTPS_OK=false'; fi
+          if [ -s /tmp/body ]; then
+            python - <<'PY'
+          import re
+          s=open('/tmp/body','rb').read(4096).decode('utf-8','replace')
+          s=re.sub(r'\s+',' ',s).strip()
+          print('BODY_SNIPPET='+s[:240])
+          PY
+          fi

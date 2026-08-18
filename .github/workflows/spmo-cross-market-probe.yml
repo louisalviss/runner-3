@@ -1,0 +1,21 @@
+name: SPMO Cross-Market Probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spmo-cross-market-probe.yml'
+      - 'spmo-backtest/cross_market_probe_ishares.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - run: python spmo-backtest/cross_market_probe_ishares.py

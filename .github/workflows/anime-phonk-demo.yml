@@ -1,0 +1,104 @@
+name: Anime Phonk Demo
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/anime-phonk-demo.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl
+          python -m pip install -q -U yt-dlp
+
+      - name: Download real anime footage
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Official MAPPA Chainsaw Man teaser. Private technical demo only.
+          VIDEO_URL='https://www.youtube.com/watch?v=_PRaywfa1LE'
+          if yt-dlp --no-playlist --retries 3 --fragment-retries 3 \
+              -f 'bv*[height<=1080]+ba/b[height<=1080]' \
+              --merge-output-format mp4 -o 'source.%(ext)s' "$VIDEO_URL"; then
+            mv source.mp4 anime_source.mp4
+            echo 'SOURCE_KIND=MAPPA_OFFICIAL_TRAILER' >> "$GITHUB_ENV"
+          else
+            echo 'YouTube download failed; using public-domain real Japanese anime fallback.'
+            curl -L --fail --retry 3 \
+              'https://archive.org/download/namakura-gatana-1917/Namakura%20Gatana%201917%20restoration.mp4' \
+              -o anime_source.mp4
+            echo 'SOURCE_KIND=NAMAKURA_GATANA_PD' >> "$GITHUB_ENV"
+          fi
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 anime_source.mp4
+
+      - name: Download real phonk track
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Waveloom - TikTok Phonk, Jamendo archive. Private technical demo only.
+          curl -L --fail --retry 3 \
+            'https://archive.org/download/jamendo-621715/01-2294083-Waveloom-TikTok%20Phonk.mp3' \
+            -o phonk.mp3
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 phonk.mp3
+
+      - name: Build vertical beat-cut edit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p clips
+          DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 anime_source.mp4)
+          python - "$DUR" <<'PY'
+          import sys, subprocess, random
+          dur=float(sys.argv[1])
+          random.seed(17)
+          starts=[]
+          lo=4.0 if dur>20 else 0.5
+          hi=max(lo+1.0, dur-3.0)
+          for i in range(20):
+              base=lo + (hi-lo) * ((i*7 % 20)/20.0)
+              starts.append(min(hi, base + random.uniform(-0.35,0.35)))
+          for i,s in enumerate(starts):
+              cd=[0.32,0.40,0.48,0.40][i%4]
+              vf=(
+                "scale=1200:2134:force_original_aspect_ratio=increase,"
+                "crop=1080:1920:x='(iw-ow)/2+10*sin(45*t)':y='(ih-oh)/2+7*sin(57*t)',"
+                "eq=contrast=1.18:saturation=1.20:brightness='if(lt(t,0.045),0.24,0)':eval=frame,"
+                "unsharp=5:5:0.65:5:5:0.0,fps=30,format=yuv420p"
+              )
+              out=f"clips/c{i:02d}.mp4"
+              cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',f'{s:.3f}','-i','anime_source.mp4',
+                   '-t',str(cd),'-an','-vf',vf,'-c:v','libx264','-preset','veryfast','-crf','19',out]
+              subprocess.check_call(cmd)
+          with open('concat.txt','w') as f:
+              for i in range(len(starts)):
+                  f.write(f"file 'clips/c{i:02d}.mp4'\n")
+          PY
+
+          ffmpeg -hide_banner -loglevel error -y -f concat -safe 0 -i concat.txt -c copy visual.mp4
+          ffmpeg -hide_banner -loglevel error -y \
+            -i visual.mp4 -ss 8 -i phonk.mp3 \
+            -filter:a 'volume=1.08,bass=g=4:f=85,alimiter=limit=0.95' \
+            -map 0:v:0 -map 1:a:0 -shortest \
+            -c:v copy -c:a aac -b:a 192k -movflags +faststart anime_phonk_demo.mp4
+
+          echo "SOURCE_KIND=${SOURCE_KIND:-unknown}"
+          ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration,size -of default=nw=1 anime_phonk_demo.mp4
+          ls -lh anime_phonk_demo.mp4
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: anime-phonk-demo
+          path: anime_phonk_demo.mp4
+          retention-days: 3
+
+# trigger-2: existing workflow push test

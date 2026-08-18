@@ -1,0 +1,162 @@
+name: TeraBox QR bridge test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/terabox-qr-bridge.yml'
+      - 'trigger-terabox-qr.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'playwright>=1.58,<2' pillow
+      - name: Generate QR and hold authenticated browser session
+        shell: bash
+        run: |
+          mkdir -p /tmp/tbqr
+          cat > /tmp/terabox_qr.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          from PIL import Image
+          import os,re,shutil,time
+          LOGIN='https://www.terabox.com/vietnamese/login/loginsetting'
+          SHARE='https://www.1024tera.com/vietnamese/sharing/link?surl=ZEQeI5EJydtP4xp4Bx4Lww'
+          os.makedirs('/tmp/tbqr',exist_ok=True)
+          with sync_playwright() as p:
+            chrome=shutil.which('google-chrome') or shutil.which('chromium')
+            b=p.chromium.launch(headless=True,executable_path=chrome,args=['--disable-dev-shm-usage'])
+            c=b.new_context(viewport={'width':1440,'height':1100},user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36')
+            pg=c.new_page(); pg.goto(LOGIN,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(3500)
+            body=(pg.locator('body').inner_text() or '')
+            if 'Quét mã QR' not in body and 'Scan the QR' not in body:
+              clicked=False
+              for loc in reversed(pg.get_by_text('Đăng nhập',exact=True).all()):
+                try:
+                  if loc.is_visible(): loc.click(timeout=4000); clicked=True; break
+                except: pass
+              print('LOGIN_BUTTON_CLICKED='+str(clicked),flush=True)
+              pg.wait_for_timeout(4000)
+            try:
+              pg.mouse.click(816,634)
+              print('QR_ICON_CLICKED=True',flush=True)
+              pg.wait_for_timeout(4000)
+            except Exception as e:
+              print('QR_ICON_CLICKED=False '+repr(e),flush=True)
+            pg.screenshot(path='/tmp/tbqr/login.png',full_page=True)
+            print('LOGIN_TITLE='+pg.title(),flush=True)
+            print('LOGIN_URL='+pg.url,flush=True)
+            print('BODY='+repr((pg.locator('body').inner_text() or '')[:2500]),flush=True)
+            cand=[];seen=set()
+            for sel in ['canvas','img','svg','[class*="qr"]','[class*="QR"]','[id*="qr"]','[id*="QR"]']:
+              try:
+                for loc in pg.locator(sel).all():
+                  try:
+                    if not loc.is_visible(): continue
+                    bb=loc.bounding_box()
+                    if not bb: continue
+                    w,h=bb['width'],bb['height']; k=(round(bb['x']),round(bb['y']),round(w),round(h))
+                    if k in seen: continue
+                    seen.add(k)
+                    if 120<=w<=600 and 120<=h<=600 and .70<=w/h<=1.40:
+                      cand.append((abs(w-h)+abs(max(w,h)-240)*.05,loc,sel,w,h))
+                  except: pass
+              except: pass
+            if cand:
+              cand.sort(key=lambda x:x[0]); cand[0][1].screenshot(path='/tmp/tbqr/qr.png'); print('QR_SELECTOR='+cand[0][2]+f' SIZE={cand[0][3]}x{cand[0][4]}',flush=True)
+            else:
+              im=Image.open('/tmp/tbqr/login.png');W,H=im.size
+              im.crop((max(0,W//2-450),max(0,H//2-450),min(W,W//2+450),min(H,H//2+450))).save('/tmp/tbqr/qr.png')
+              print('QR_FALLBACK=1',flush=True)
+            open('/tmp/tbqr/ready','w').write('1')
+            while not os.path.exists('/tmp/tbqr/artifact_uploaded'):
+              time.sleep(.2)
+            deadline=time.time()+8*60; logged=False
+            while time.time()<deadline:
+              try:
+                url=pg.url.lower(); names={x['name'].lower() for x in c.cookies()}; txt=(pg.locator('body').inner_text(timeout=2000) or '').lower()
+                if any(n in names for n in ['ndus','bduss','stoken']) or ('tệp của tôi' in txt and 'quét mã qr' not in txt): logged=True; break
+              except: pass
+              pg.wait_for_timeout(1500)
+            print('LOGIN_SUCCESS='+str(logged),flush=True)
+            if not logged:
+              pg.screenshot(path='/tmp/tbqr/login-timeout.png',full_page=True); b.close(); raise SystemExit(2)
+            pg.goto(SHARE,wait_until='domcontentloaded',timeout=90000); pg.wait_for_timeout(7000)
+            opened=False
+            for loc in pg.get_by_text('Truyen',exact=True).all():
+              try:
+                if loc.is_visible(): loc.dblclick(timeout=4000); opened=True; break
+              except: pass
+            if not opened:
+              for loc in pg.get_by_text('Truyen',exact=True).all():
+                try:
+                  if loc.is_visible(): loc.click(); pg.keyboard.press('Enter'); opened=True; break
+                except: pass
+            pg.wait_for_timeout(5000); print('OPEN_TRUYEN='+str(opened),flush=True)
+            pg.screenshot(path='/tmp/tbqr/inside-truyen.png',full_page=True)
+            target=None
+            for loc in pg.get_by_text('Từ điển English Kindle',exact=True).all():
+              try:
+                if loc.is_visible(): target=loc; break
+              except: pass
+            if target is None:
+              print('TARGET_NOT_FOUND',flush=True); b.close(); raise SystemExit(3)
+            target.click(); pg.wait_for_timeout(1200)
+            save=False
+            for pat in [r'Lưu vào TeraBox',r'Lưu vào',r'Save to TeraBox',r'Save to',r'保存到']:
+              for loc in pg.get_by_text(re.compile(pat,re.I)).all():
+                try:
+                  if loc.is_visible(): loc.click(timeout=3000); save=True; break
+                except: pass
+              if save: break
+            print('SAVE_CLICKED='+str(save),flush=True); pg.wait_for_timeout(2500); pg.screenshot(path='/tmp/tbqr/save-dialog.png',full_page=True)
+            conf=False
+            for pat in [r'^Lưu$',r'^Save$',r'Xác nhận',r'Confirm',r'^OK$',r'保存']:
+              locs=pg.get_by_text(re.compile(pat,re.I)).all()
+              for loc in reversed(locs):
+                try:
+                  if loc.is_visible(): loc.click(timeout=2500); conf=True; break
+                except: pass
+              if conf: break
+            pg.wait_for_timeout(7000); txt=pg.locator('body').inner_text() or ''
+            print('SAVE_CONFIRMED='+str(conf),flush=True)
+            print('SAVE_TEXT='+repr(txt[-2500:]),flush=True)
+            pg.screenshot(path='/tmp/tbqr/after-save.png',full_page=True)
+            with open('/tmp/tbqr/result.txt','w',encoding='utf-8') as f: f.write(txt[:30000])
+            b.close()
+          PY
+          (python /tmp/terabox_qr.py; echo $? > /tmp/tbqr/exitcode) > /tmp/tbqr/process.log 2>&1 &
+          echo $! > /tmp/tbqr/pid
+          for i in $(seq 1 120); do [ -f /tmp/tbqr/ready ] && break; sleep 1; done
+          [ -f /tmp/tbqr/ready ] || { cat /tmp/tbqr/process.log || true; echo 'QR_NOT_READY'; exit 4; }
+      - name: Upload temporary QR
+        uses: actions/upload-artifact@v4
+        with:
+          name: terabox-qr-temporary
+          path: |
+            /tmp/tbqr/qr.png
+            /tmp/tbqr/login.png
+          retention-days: 1
+      - name: Let browser continue and wait for scan
+        shell: bash
+        run: |
+          touch /tmp/tbqr/artifact_uploaded
+          for i in $(seq 1 600); do [ -f /tmp/tbqr/exitcode ] && break; sleep 1; done
+          cat /tmp/tbqr/process.log || true
+          [ -f /tmp/tbqr/exitcode ] || { echo 'BROWSER_TIMEOUT'; exit 5; }
+          CODE=$(cat /tmp/tbqr/exitcode)
+          [ "$CODE" = "0" ] || exit "$CODE"
+      - name: Upload test result evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terabox-test-result
+          path: /tmp/tbqr/*
+          retention-days: 1

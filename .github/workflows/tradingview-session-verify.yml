@@ -1,0 +1,79 @@
+name: TradingView Session Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-session-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore encrypted TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ops/tradingview/session-state.json.aes || { echo 'TV_SESSION_FILE_MISSING'; exit 2; }
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Encryption secret unavailable'; exit 3; }
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes \
+            -out /tmp/tv-storage-state.json
+          python3 - <<'PY'
+          import json
+          s=json.load(open('/tmp/tv-storage-state.json'))
+          assert s.get('cookies'), 'No cookies in restored state'
+          print('TV_SESSION_DECRYPT=PASS')
+          print('TV_COOKIE_COUNT=%d' % len(s.get('cookies', [])))
+          PY
+
+      - name: Verify authenticated TradingView session on fresh runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs');
+          const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            if(!executablePath) throw new Error('Chrome/Chromium missing');
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-storage-state.json','utf8'));
+            const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1280,height:800}});
+            const page=await context.newPage();
+            await page.goto('https://www.tradingview.com/chart/',{waitUntil:'domcontentloaded',timeout:90000});
+            await page.waitForTimeout(8000);
+            const url=page.url();
+            const body=(await page.locator('body').innerText().catch(()=>''));
+            const signin=/\bSign in\b/i.test(body);
+            const hasAuthCookie=(await context.cookies()).some(c=>/(^|\.)tradingview\.com$/i.test(c.domain.replace(/^\./,'')) && /session/i.test(c.name) && c.value);
+            console.log('TV_VERIFY_URL_HOST='+new URL(url).hostname);
+            console.log('TV_VERIFY_SIGNIN_TEXT='+(signin?'PRESENT':'ABSENT'));
+            console.log('TV_VERIFY_SESSION_COOKIE='+(hasAuthCookie?'PRESENT':'ABSENT'));
+            if(new URL(url).hostname.endsWith('tradingview.com') && !/accounts\/signin/i.test(url) && hasAuthCookie && !signin){
+              console.log('TV_FRESH_RUNNER_AUTH=PASS');
+            }else{
+              console.log('TV_FRESH_RUNNER_AUTH=FAIL');
+              process.exitCode=5;
+            }
+            await browser.close();
+          })().catch(e=>{console.error('TV_VERIFY_ERROR='+e.message);process.exit(6)});
+          NODE
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -f /tmp/tv-storage-state.json

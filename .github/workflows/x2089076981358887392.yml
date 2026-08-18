@@ -1,0 +1,52 @@
+name: X2089076981358887392
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/x2089076981358887392.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg curl jq
+          python -m pip install -q -U yt-dlp
+          X='https://x.com/animextwts/status/2089076981358887392'
+          yt-dlp --no-playlist --retries 5 --fragment-retries 5 -f 'bv*+ba/b' --merge-output-format mp4 -o 'src.%(ext)s' "$X"
+          SRC=$(find . -maxdepth 1 -type f -name 'src.*' | head -1)
+          ffmpeg -hide_banner -loglevel error -y -i "$SRC" -map 0:v:0 -map 0:a? -c copy source.mp4 || ffmpeg -hide_banner -loglevel error -y -i "$SRC" -c:v libx264 -crf 18 -c:a aac source.mp4
+          curl -L --fail --retry 3 --get 'https://itunes.apple.com/search' --data-urlencode 'term=MONTAGEM XONADA MXZI dj Samir DJ Javi26' --data 'entity=song' --data 'limit=50' --data 'country=US' -o itunes.json
+          P=$(jq -r '[.results[]|select((.trackName//""|ascii_downcase|contains("montagem xonada")) and (.artistName//""|ascii_downcase|contains("mxzi")))|.previewUrl][0]//empty' itunes.json)
+          [ -n "$P" ] || P=$(jq -r '[.results[]|select(.trackName//""|ascii_downcase|contains("montagem xonada"))|.previewUrl][0]//empty' itunes.json)
+          test -n "$P" && curl -L --fail --retry 3 "$P" -o music.m4a
+          VD=$(ffprobe -v error -show_entries format=duration -of csv=p=0 source.mp4)
+          ffmpeg -hide_banner -loglevel error -y -i music.m4a -ac 1 -ar 16000 -f s16le music.pcm
+          PEAK=$(python - <<'PY'
+          from array import array
+          import math
+          sr=16000; step=4000; a=array('h'); a.frombytes(open('music.pcm','rb').read()); best=(0,0)
+          for i in range(0,max(1,len(a)-step),step):
+            w=a[i:i+step]
+            if w:
+              r=math.sqrt(sum(x*x for x in w)/len(w))
+              if r>best[0]: best=(r,i)
+          print(best[1]/sr)
+          PY
+          )
+          MS=$(python - "$PEAK" "$VD" <<'PY'
+          import sys
+          p=float(sys.argv[1]); d=float(sys.argv[2]); t=min(max(d*.34,1.8),7.5); print(f'{max(0,p-t):.3f}')
+          PY
+          )
+          ffmpeg -hide_banner -loglevel error -y -i source.mp4 -stream_loop -1 -ss "$MS" -i music.m4a -filter_complex "[0:v]split=2[b][f];[b]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=32,eq=brightness=-0.16:saturation=.85[b2];[f]scale=1080:1920:force_original_aspect_ratio=decrease,eq=contrast=1.04:saturation=1.04,unsharp=5:5:.35:5:5:0[f2];[b2][f2]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30,format=yuv420p[v];[1:a]volume=.96,bass=g=2.5:f=88,alimiter=limit=.95[a]" -map '[v]' -map '[a]' -t "$VD" -c:v libx264 -preset medium -crf 18 -profile:v high -c:a aac -b:a 192k -movflags +faststart final.mp4
+          ffprobe -v error -show_entries stream=codec_name,width,height -show_entries format=duration,size -of default=nw=1 final.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: animextwts-2089076981358887392-phonk
+          path: final.mp4
+          retention-days: 3

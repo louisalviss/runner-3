@@ -1,0 +1,76 @@
+name: vidian-archive
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vidian-archive.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: vidian-archive-v2
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download canonical v2 corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2-full
+          path: corpus
+          github-token: ${{ github.token }}
+          run-id: '31945936628'
+      - name: Validate archive payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import glob,gzip,json,os
+          files=sorted(glob.glob('corpus/chunks/*.jsonl.gz'))
+          assert len(files)==64, len(files)
+          total=0; urls=set()
+          for p in files:
+              with gzip.open(p,'rt',encoding='utf-8') as f:
+                  for line in f:
+                      if not line.strip(): continue
+                      r=json.loads(line); total+=1; urls.add(r['url'])
+          assert total==8826,total
+          assert len(urls)==8826,len(urls)
+          assert os.path.exists('corpus/manifest.json')
+          assert os.path.exists('corpus/summary.json')
+          print(json.dumps({'chunks':64,'records':total,'unique_urls':len(urls),'status':'PASS'}))
+          PY
+      - name: Write archive provenance
+        shell: bash
+        run: |
+          cat > corpus/ARCHIVE_PROVENANCE.json <<'EOF'
+          {
+            "status": "canonical-v2-archive",
+            "source_run_id": 31945936628,
+            "source_artifact": "vidian-semantic-corpus-v2-full",
+            "source_artifact_id": 9265535962,
+            "source_artifact_sha256": "f176ec9b1a0d5e71a6dfd0cf2f261ae2a72e04147bb0117e7c6a6885eb83c7b4",
+            "records": 8826,
+            "unique_urls": 8826,
+            "created_date": "2026-08-16"
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidian-semantic-corpus-v2-archive
+          path: corpus
+          retention-days: 90
+          compression-level: 6

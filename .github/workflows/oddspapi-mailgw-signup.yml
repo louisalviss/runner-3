@@ -1,0 +1,222 @@
+name: OddsPapi MailGW Signup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oddspapi-mailgw-signup.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  signup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -q playwright requests beautifulsoup4
+          mkdir -p evidence
+          google-chrome --version
+      - name: Create one Mail.gw inbox and sign up normally
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, random, re, secrets, string, time, pathlib
+          import requests
+          from bs4 import BeautifulSoup
+          from playwright.sync_api import sync_playwright
+
+          OUT=pathlib.Path('evidence')
+          status={'mail_provider':'mail.gw','signup_site':'oddspapi.io'}
+          creds={}
+
+          # One disposable mailbox only. If the target rejects disposable mail, stop.
+          domains=requests.get('https://api.mail.gw/domains',timeout=20).json().get('hydra:member',[])
+          active=[d for d in domains if d.get('isActive',True)] or domains
+          if not active:
+              raise RuntimeError('Mail.gw returned no domains')
+          domain=active[0]['domain']
+          local='op'+''.join(secrets.choice(string.ascii_lowercase+string.digits) for _ in range(14))
+          email=f'{local}@{domain}'
+          password=secrets.token_urlsafe(24)+'A1!'
+          mail_password=secrets.token_urlsafe(24)+'mG1!'
+          ar=requests.post('https://api.mail.gw/accounts',json={'address':email,'password':mail_password},timeout=20)
+          status['mail_account_http']=ar.status_code
+          ar.raise_for_status()
+          tr=requests.post('https://api.mail.gw/token',json={'address':email,'password':mail_password},timeout=20)
+          status['mail_token_http']=tr.status_code
+          tr.raise_for_status()
+          mail_token=tr.json()['token']
+          mh={'Authorization':f'Bearer {mail_token}'}
+          creds.update({'email':email,'password':password,'mail_password':mail_password})
+          status['mail_domain']=domain
+
+          def body_text(pg):
+              try: return pg.locator('body').inner_text(timeout=8000)
+              except Exception: return ''
+
+          def redact(t):
+              if not t: return t
+              return t.replace(email,'<TEMP_EMAIL>').replace(password,'<PASSWORD>').replace(mail_password,'<MAIL_PASSWORD>')
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(channel='chrome',headless=True)
+              ctx=browser.new_context(locale='en-US',viewport={'width':1440,'height':1000})
+              pg=ctx.new_page()
+              try:
+                  r=pg.goto('https://oddspapi.io/en/sign-up',wait_until='domcontentloaded',timeout=45000)
+                  status['signup_page_http']=r.status if r else None
+                  pg.wait_for_timeout(2500)
+                  status['signup_title']=pg.title()
+                  text=body_text(pg)
+                  status['signup_initial_text']=redact(text[:5000])
+                  if re.search(r'captcha|verify you are human|just a moment|access denied',text,re.I):
+                      status['stop_reason']='challenge_before_signup'
+                  else:
+                      email_input=pg.locator('input[type="email"]').first
+                      pws=pg.locator('input[type="password"]')
+                      if not email_input.count() or pws.count()<2:
+                          status['stop_reason']='signup_form_not_found'
+                      else:
+                          email_input.fill(email)
+                          pws.nth(0).fill(password)
+                          pws.nth(1).fill(password)
+                          btn=pg.get_by_role('button',name=re.compile(r'^\s*Sign Up\s*$',re.I)).first
+                          if not btn.count():
+                              btn=pg.locator('button[type="submit"]').first
+                          btn.click(timeout=8000)
+                          pg.wait_for_timeout(7000)
+                          text=body_text(pg)
+                          status['after_signup_url']=pg.url
+                          status['after_signup_text']=redact(text[:10000])
+                          status['signup_clicked']=True
+                          pg.screenshot(path=str(OUT/'after-signup.png'),full_page=False)
+                          if re.search(r'disposable|temporary email|invalid email|not allowed|blocked email',text,re.I):
+                              status['stop_reason']='disposable_email_rejected'
+                          elif re.search(r'captcha|verify you are human|just a moment|access denied',text,re.I):
+                              status['stop_reason']='challenge_after_signup'
+                          else:
+                              # Poll mailbox for a verification email, but do not rotate addresses.
+                              verify_url=None
+                              seen=[]
+                              for _ in range(45):
+                                  mr=requests.get('https://api.mail.gw/messages',headers=mh,timeout=20)
+                                  if mr.status_code==200:
+                                      msgs=mr.json().get('hydra:member',[])
+                                      for m in msgs:
+                                          mid=m.get('id')
+                                          if not mid or mid in seen: continue
+                                          seen.append(mid)
+                                          full=requests.get(f'https://api.mail.gw/messages/{mid}',headers=mh,timeout=20).json()
+                                          blob='\n'.join(str(full.get(k,'')) for k in ['subject','text','html'])
+                                          # Accept only verification links belonging to OddsPapi.
+                                          urls=re.findall(r'https?://[^\s\"\'<>]+',blob)
+                                          for u in urls:
+                                              u=u.replace('&amp;','&')
+                                              if 'oddspapi.io' in u.lower() and re.search(r'verif|confirm|activ|token',u,re.I):
+                                                  verify_url=u; break
+                                          if verify_url: break
+                                      if verify_url: break
+                                  time.sleep(2)
+                              status['verification_email_seen']=bool(seen)
+                              status['verification_link_found']=bool(verify_url)
+                              if verify_url:
+                                  vr=pg.goto(verify_url,wait_until='domcontentloaded',timeout=45000)
+                                  status['verification_http']=vr.status if vr else None
+                                  pg.wait_for_timeout(5000)
+                                  status['verification_url_after']=pg.url
+                                  status['verification_text']=redact(body_text(pg)[:8000])
+                                  pg.screenshot(path=str(OUT/'after-verification.png'),full_page=False)
+
+                              # If not already in an account/dashboard, try normal sign-in.
+                              text=body_text(pg)
+                              if re.search(r'\bSign In\b|\bLog In\b',text,re.I) or 'sign-in' in pg.url:
+                                  try:
+                                      pg.goto('https://oddspapi.io/en/sign-in',wait_until='domcontentloaded',timeout=45000)
+                                      pg.wait_for_timeout(1500)
+                                      ei=pg.locator('input[type="email"]').first
+                                      pwi=pg.locator('input[type="password"]').first
+                                      if ei.count() and pwi.count():
+                                          ei.fill(email); pwi.fill(password)
+                                          sb=pg.get_by_role('button',name=re.compile(r'^\s*Sign In\s*$',re.I)).first
+                                          if not sb.count(): sb=pg.locator('button[type="submit"]').first
+                                          sb.click(timeout=8000); pg.wait_for_timeout(6000)
+                                          status['signin_attempted']=True
+                                  except Exception as e:
+                                      status['signin_error']=type(e).__name__
+
+                              # Inspect current account page and visible account links for an API key.
+                              candidate_pages=[pg.url]
+                              try:
+                                  links=pg.locator('a').evaluate_all("els=>els.map(e=>({t:(e.innerText||'').trim(),h:e.href||''}))")
+                                  for x in links:
+                                      if re.search(r'api|key|dashboard|account|profile',x.get('t','')+' '+x.get('h',''),re.I) and x.get('h','').startswith('http'):
+                                          candidate_pages.append(x['h'])
+                              except Exception: pass
+                              candidate_pages=list(dict.fromkeys(candidate_pages))[:10]
+                              api_key=None
+                              api_source=None
+                              page_summaries=[]
+                              for url in candidate_pages:
+                                  try:
+                                      if url!=pg.url:
+                                          pg.goto(url,wait_until='domcontentloaded',timeout=35000); pg.wait_for_timeout(2000)
+                                      t=body_text(pg)
+                                      page_summaries.append({'url':pg.url,'title':pg.title(),'text':redact(t[:6000])})
+                                      # Prefer values associated with API key labels/inputs.
+                                      for inp in pg.locator('input').all():
+                                          try:
+                                              val=inp.input_value()
+                                              if len(val)>=20 and val not in (email,password,mail_password):
+                                                  nearby=inp.evaluate("e=>(e.parentElement?.innerText||'')+' '+(e.previousElementSibling?.innerText||'')")
+                                                  if re.search(r'api\s*key|key',nearby,re.I):
+                                                      api_key=val; api_source=pg.url; break
+                                          except Exception: pass
+                                      if api_key: break
+                                      # Text-pattern fallback only when the line is explicitly labeled API Key.
+                                      lines=t.splitlines()
+                                      for i,line in enumerate(lines):
+                                          if re.search(r'api\s*key',line,re.I):
+                                              chunk=' '.join(lines[i:i+3])
+                                              for tok in re.findall(r'[A-Za-z0-9_\-]{24,}',chunk):
+                                                  if tok not in (email,password,mail_password) and tok.lower() not in ('authentication','documentation'):
+                                                      api_key=tok; api_source=pg.url; break
+                                          if api_key: break
+                                      if api_key: break
+                                  except Exception: pass
+                              status['account_pages']=page_summaries
+                              status['api_key_found']=bool(api_key)
+                              status['api_key_source']=api_source
+                              if api_key:
+                                  creds['api_key']=api_key
+                                  # Minimal validation plus SABA bookmaker presence. No secret printed.
+                                  rr=requests.get('https://v5.oddspapi.io/en/bookmakers',params={'apiKey':api_key},timeout=30)
+                                  status['bookmakers_http']=rr.status_code
+                                  try:
+                                      data=rr.json()
+                                      items=data if isinstance(data,list) else data.get('data',data.get('bookmakers',[])) if isinstance(data,dict) else []
+                                      status['sabasports_present']=any('saba' in str(x).lower() for x in items)
+                                      OUT.joinpath('bookmakers.json').write_text(json.dumps(data,ensure_ascii=False,indent=2))
+                                  except Exception:
+                                      status['bookmakers_parse_error']=True
+              finally:
+                  try: pg.screenshot(path=str(OUT/'final.png'),full_page=False)
+                  except Exception: pass
+                  browser.close()
+
+          OUT.joinpath('status.json').write_text(json.dumps(status,ensure_ascii=False,indent=2))
+          OUT.joinpath('credentials.json').write_text(json.dumps(creds,ensure_ascii=False,indent=2))
+          safe={k:v for k,v in status.items() if k not in ('signup_initial_text','after_signup_text','verification_text','account_pages')}
+          print(json.dumps(safe,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oddspapi-mailgw-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1

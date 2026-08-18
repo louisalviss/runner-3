@@ -1,0 +1,153 @@
+{
+  "checkpoint_date": "2026-08-18",
+  "timezone": "Asia/Ho_Chi_Minh",
+  "objective": "Find a self-serve/passive revenue opportunity where buyer intent already exists in a marketplace/search channel; avoid client-by-client outreach. Market/buyer/pain/payment evidence must come before building.",
+  "selection_criteria": {
+    "must_have": [
+      "Existing buyer demand / willingness to pay",
+      "Low or manageable strong-competitor density",
+      "Product quality can be verified deterministically",
+      "Can run largely self-serve/passive",
+      "Can be built with current engineering stack without heavy proprietary data licensing"
+    ],
+    "avoid": [
+      "Build-first then try to sell",
+      "Generic AI/content APIs with weak proprietary data",
+      "Markets already nativeized by the platform",
+      "Price-war commodity APIs",
+      "Opportunities that require heavy manual support to function",
+      "Short-lived deadline/event opportunities unless edge is unusually strong"
+    ]
+  },
+  "current_benchmark": {
+    "rank": 1,
+    "candidate": "B2B Purchase Order / PDF -> Shopify Draft Order",
+    "buyer": "Shopify wholesalers, distributors, manufacturers receiving purchase orders by PDF/Excel/CSV/email",
+    "pain": "Staff manually re-key SKU, quantity, customer and order data from incoming POs into Shopify; high line-count POs consume substantial labor and create entry-error risk.",
+    "market_evidence": {
+      "incumbent": "LevelOps",
+      "observed_pricing": "$100/month for 33 orders; $250/month for 100 orders",
+      "traction_signal": "18 reviews, all 5-star at time of research",
+      "review_signals": [
+        "Merchant reported processing a 100+ line PO in under 4 minutes",
+        "Merchant reported roughly halving PO entry time",
+        "Multiple reviews praise onboarding/support and custom override fixes"
+      ],
+      "direct_competitors_seen": [
+        "LevelOps - proven traction",
+        "POMate - new entrant, low/no review traction at checkpoint",
+        "DraftGenius - low/no review traction at checkpoint",
+        "ReorderInbox - very new/low/no review traction at checkpoint"
+      ]
+    },
+    "why_it_is_interesting": [
+      "ARPU already proven around $100-$250/month",
+      "Only one clearly proven incumbent found in direct niche",
+      "Pain is operational and recurring, not cosmetic",
+      "Output can be audited line-by-line",
+      "Shopify App Store provides buyer-intent distribution"
+    ],
+    "core_product_principle": "Never guess. Every parsed line must map source text -> matched SKU/UPC -> quantity -> confidence. Ambiguous/low-confidence rows are blocked rather than silently matched.",
+    "initial_scope": [
+      "PDF text",
+      "Excel",
+      "CSV",
+      "Email attachments/body",
+      "SKU/UPC identification",
+      "Deterministic Shopify catalog matching",
+      "Customer detection/mapping",
+      "Use Shopify pricing",
+      "Per-line confidence",
+      "Human review screen",
+      "Create Shopify Draft Order only after validation"
+    ],
+    "do_not_scope_initially": [
+      "Handwriting",
+      "Poor-quality scanned images",
+      "Free-form inference that can silently invent SKU matches"
+    ],
+    "benchmark_before_building_full_app": {
+      "dataset_target": "~100 diverse purchase orders",
+      "sku_exact_accuracy_target": ">=99%",
+      "quantity_accuracy_target": ">=99.5%",
+      "silent_wrong_match_tolerance": "0",
+      "uncertain_behavior": "reject/block",
+      "decision_rule": "If benchmark cannot meet these thresholds, drop the idea rather than list a mediocre parser."
+    },
+    "current_score": {
+      "money_evidence": 9,
+      "competition": 4,
+      "ability_to_build_well": 7,
+      "passive_self_serve": 7
+    }
+  },
+  "eliminated_or_downgraded": [
+    {
+      "candidate": "Narrative / Emerging Trends Intelligence API",
+      "status": "eliminated",
+      "reason": "Current API/data quality is not strong/proprietary enough to justify buyer payment; engineering ability to expose an endpoint is not a moat."
+    },
+    {
+      "candidate": "Generic SEO / Google Trends / keyword APIs",
+      "status": "eliminated",
+      "reason": "Strong demand but commodity/price-war competition and entrenched providers."
+    },
+    {
+      "candidate": "LLM/AI visibility API",
+      "status": "downgraded",
+      "reason": "Interesting market but current stack lacks sufficiently reliable multi-LLM observation access to deliver the core product well."
+    },
+    {
+      "candidate": "Canva generic templates",
+      "status": "downgraded",
+      "reason": "Very passive distribution but broad categories are heavily saturated and Creator approval/portfolio quality adds friction."
+    },
+    {
+      "candidate": "WordPress + Cloudflare R2 private media / WooCommerce secure downloads",
+      "status": "eliminated_as_primary_business",
+      "reason": "Broad offload competition is already strong; secure Woo niche appears too small; restore/re-hydrate is a useful feature but likely too small as a standalone business."
+    },
+    {
+      "candidate": "Shopify EU B2B VAT validator / automatic tax exemption",
+      "status": "eliminated",
+      "reason": "Core VAT validation/reverse-charge functionality has been nativeized by Shopify Tax, reducing the opportunity."
+    },
+    {
+      "candidate": "Shopify Stocky replacement",
+      "status": "eliminated",
+      "reason": "Real demand but shutdown window is too short and incumbent replacement already has strong traction."
+    },
+    {
+      "candidate": "Shopify barcode / PO labels",
+      "status": "eliminated",
+      "reason": "Multiple new entrants are rapidly attacking the same gap; edge is shrinking."
+    },
+    {
+      "candidate": "Shopify duplicate SKU/catalog audit",
+      "status": "eliminated",
+      "reason": "Simple to build but market appears too small/low-ARPU."
+    },
+    {
+      "candidate": "EU Withdrawal Button / similar compliance widgets",
+      "status": "eliminated",
+      "reason": "Existing incumbents already have substantial traction."
+    },
+    {
+      "candidate": "French e-invoicing compliance",
+      "status": "downgraded",
+      "reason": "Large demand/deadline but legal/integration risk and competition from approved-platform ecosystems make it less passive and harder to guarantee."
+    },
+    {
+      "candidate": "GPSR compliance apps",
+      "status": "downgraded",
+      "reason": "Several entrants already appeared quickly; category becoming a race."
+    },
+    {
+      "candidate": "HS/customs classification",
+      "status": "downgraded",
+      "reason": "Competition increasing quickly and quality/liability burden is higher."
+    }
+  ],
+  "research_process_rule": "Do not code a full product yet. Continue market search and only replace the current #1 benchmark if a candidate has stronger payment evidence, lower strong-competitor density, and equal or better self-serve/passive characteristics. If no better candidate appears, validate the PO->Draft Order parser benchmark first.",
+  "next_research_target": "Continue scanning Shopify App Store, WordPress Plugin Directory and Chrome Web Store for deterministic operational pains with marketplace buyer intent, using the current B2B PO->Shopify Draft Order opportunity as the minimum benchmark to beat."
+}

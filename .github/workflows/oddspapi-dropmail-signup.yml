@@ -1,0 +1,116 @@
+name: OddsPapi DropMail Signup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oddspapi-dropmail-signup.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  signup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --user -q playwright requests
+          mkdir -p evidence
+      - name: One DropMail attempt only
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,secrets,string,time,pathlib,requests
+          from playwright.sync_api import sync_playwright
+          OUT=pathlib.Path('evidence'); st={'provider':'DropMail'}; creds={}
+          password=secrets.token_urlsafe(24)+'A1!'
+          with sync_playwright() as p:
+            b=p.chromium.launch(channel='chrome',headless=True)
+            c=b.new_context(locale='en-US',viewport={'width':1440,'height':1000})
+            dm=c.new_page(); op=c.new_page()
+            dm.goto('https://dropmail.me/en/',wait_until='domcontentloaded',timeout=45000)
+            dm.wait_for_timeout(6000)
+            # Find the live generated address from visible values/text.
+            candidates=[]
+            try:
+              for i in range(dm.locator('input').count()):
+                try:
+                  v=dm.locator('input').nth(i).input_value()
+                  if '@' in v: candidates.append(v.strip())
+                except Exception: pass
+            except Exception: pass
+            text=dm.locator('body').inner_text(timeout=8000)
+            candidates += re.findall(r'\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b',text,re.I)
+            # Exclude obvious examples/common real providers.
+            email=None
+            for x in candidates:
+              if not re.search(r'@(gmail|outlook|hotmail|yahoo|icloud)\.',x,re.I):
+                email=x; break
+            st['dropmail_address_found']=bool(email)
+            if not email:
+              st['stop_reason']='no_dropmail_address'
+            else:
+              creds={'email':email,'password':password}
+              r=op.goto('https://oddspapi.io/en/sign-up',wait_until='domcontentloaded',timeout=45000)
+              st['signup_http']=r.status if r else None
+              op.wait_for_timeout(1500)
+              op.locator('input[type="email"]').first.fill(email)
+              pws=op.locator('input[type="password"]'); pws.nth(0).fill(password); pws.nth(1).fill(password)
+              btn=op.get_by_role('button',name=re.compile(r'^\s*Sign Up\s*$',re.I)).first
+              if not btn.count(): btn=op.locator('button[type="submit"]').first
+              btn.click(timeout=8000); op.wait_for_timeout(7000)
+              t=op.locator('body').inner_text(timeout=8000)
+              st['after_url']=op.url
+              st['after_text']=t.replace(email,'<TEMP_EMAIL>').replace(password,'<PASSWORD>')[:12000]
+              op.screenshot(path=str(OUT/'after-signup.png'),full_page=False)
+              if 'Database error saving new user' in t:
+                st['stop_reason']='oddspapi_database_error'
+              elif re.search(r'disposable|temporary email|invalid email|not allowed|blocked email',t,re.I):
+                st['stop_reason']='disposable_email_rejected'
+              elif re.search(r'captcha|verify you are human|just a moment|access denied',t,re.I):
+                st['stop_reason']='challenge'
+              else:
+                # Wait on the same DropMail page; do not rotate address or bypass challenges.
+                verify=None
+                for _ in range(45):
+                  try:
+                    links=dm.locator('a').evaluate_all("els=>els.map(e=>e.href||'').filter(Boolean)")
+                    for u in links:
+                      if 'oddspapi.io' in u.lower() and re.search(r'verif|confirm|activ|token',u,re.I):
+                        verify=u; break
+                    if verify: break
+                  except Exception: pass
+                  time.sleep(2)
+                st['verification_link_found']=bool(verify)
+                if verify:
+                  op.goto(verify,wait_until='domcontentloaded',timeout=45000); op.wait_for_timeout(4000)
+                  st['verification_after']=op.url
+                  st['verification_text']=op.locator('body').inner_text(timeout=8000)[:8000].replace(email,'<TEMP_EMAIL>')
+                # Normal sign-in only.
+                try:
+                  op.goto('https://oddspapi.io/en/sign-in',wait_until='domcontentloaded',timeout=45000); op.wait_for_timeout(1000)
+                  ei=op.locator('input[type="email"]').first; pw=op.locator('input[type="password"]').first
+                  if ei.count() and pw.count():
+                    ei.fill(email); pw.fill(password)
+                    sb=op.get_by_role('button',name=re.compile(r'^\s*Sign In\s*$',re.I)).first
+                    if not sb.count(): sb=op.locator('button[type="submit"]').first
+                    sb.click(timeout=8000); op.wait_for_timeout(5000)
+                    st['signin_url']=op.url
+                    st['signin_text']=op.locator('body').inner_text(timeout=8000)[:10000].replace(email,'<TEMP_EMAIL>').replace(password,'<PASSWORD>')
+                except Exception as e: st['signin_error']=type(e).__name__
+              try: dm.screenshot(path=str(OUT/'dropmail.png'),full_page=False)
+              except Exception: pass
+            b.close()
+          OUT.joinpath('status.json').write_text(json.dumps(st,ensure_ascii=False,indent=2))
+          OUT.joinpath('credentials.json').write_text(json.dumps(creds,ensure_ascii=False,indent=2))
+          print(json.dumps({k:v for k,v in st.items() if not k.endswith('_text')},ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oddspapi-dropmail-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1

@@ -1,0 +1,86 @@
+name: Probe AutoContent AI Runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-autocontent-ai-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_NAME: runner3-autocontent-ai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Call secured Worker with current model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/cloudflare
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -o /tmp/subdomain.json
+          subdomain=$(python - <<'PY'
+          import json
+          d=json.load(open('/tmp/subdomain.json'))
+          print((d.get('result') or {}).get('subdomain') or '')
+          PY
+          )
+          url="https://${WORKER_NAME}.${subdomain}.workers.dev"
+          key=$(python - <<'PY'
+          import hashlib, os
+          print(hashlib.sha256((os.environ['CLOUDFLARE_API_TOKEN']+'|runner3-autocontent-ai-v1').encode()).hexdigest())
+          PY
+          )
+          http=$(curl -sS -o /tmp/runtime.json -w '%{http_code}' \
+            -X POST "$url" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${key}" \
+            --data '{"model":"@cf/openai/gpt-oss-120b","messages":[{"role":"user","content":"Reply with exactly OK"}],"max_tokens":16,"temperature":0}')
+          python - "$http" "$url" <<'PY'
+          import json,sys
+          from datetime import datetime,timezone
+          from pathlib import Path
+          try: r=json.load(open('/tmp/runtime.json'))
+          except Exception: r={}
+          result=r.get('result') if isinstance(r,dict) else None
+          response_present=False
+          if isinstance(result,dict):
+              response_present=bool(result.get('response') or result.get('choices'))
+          report={
+            'checked_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
+            'http':int(sys.argv[1]),
+            'url':sys.argv[2],
+            'success':bool(r.get('success')),
+            'model':r.get('model'),
+            'error':r.get('error'),
+            'detail':r.get('detail'),
+            'result_present':bool(result),
+            'response_present':response_present,
+          }
+          Path('ops/cloudflare/autocontent-ai-runtime-probe.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Persist probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/cloudflare/autocontent-ai-runtime-probe.json
+          git commit -m 'Persist AutoContent AI runtime probe'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5

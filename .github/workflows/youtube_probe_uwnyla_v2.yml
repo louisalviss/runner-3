@@ -1,0 +1,63 @@
+name: YouTube probe UwnylaM15So v2
+on:
+  push:
+    paths:
+      - '.github/workflows/youtube_probe_uwnyla_v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          python -m pip install -U yt-dlp youtube-transcript-api
+      - name: Probe alternate endpoints
+        shell: bash
+        run: |
+          set +e
+          mkdir -p ytprobe2
+          ID='UwnylaM15So'
+          URL="https://www.youtube.com/watch?v=$ID"
+          curl -L --max-time 20 -A 'Mozilla/5.0' "https://www.youtube.com/oembed?url=$URL&format=json" -o ytprobe2/oembed.json -w '\nHTTP=%{http_code}\n' > ytprobe2/oembed_status.txt 2>&1
+          curl -L --max-time 20 -A 'Mozilla/5.0' "https://noembed.com/embed?url=$URL" -o ytprobe2/noembed.json -w '\nHTTP=%{http_code}\n' > ytprobe2/noembed_status.txt 2>&1
+          for client in 'tv_embedded' 'web_embedded' 'android' 'ios' 'mweb'; do
+            echo "=== $client ===" | tee -a ytprobe2/clients.log
+            yt-dlp --extractor-args "youtube:player_client=$client" --dump-single-json --skip-download "$URL" > "ytprobe2/meta_$client.json" 2>>ytprobe2/clients.log
+            echo "RC=$?" | tee -a ytprobe2/clients.log
+          done
+          python - <<'PY' > ytprobe2/transcript_api.txt 2>&1
+          from youtube_transcript_api import YouTubeTranscriptApi
+          vid='UwnylaM15So'
+          api=YouTubeTranscriptApi()
+          try:
+              items=api.list(vid)
+              print(items)
+              for t in items:
+                  print('TRACK',t.language,t.language_code,'generated',t.is_generated)
+                  try:
+                      data=t.fetch()
+                      print('COUNT',len(data))
+                      for x in data[:30]: print(x)
+                  except Exception as e: print('FETCH_ERR',repr(e))
+          except Exception as e:
+              print('LIST_ERR',repr(e))
+          PY
+          echo '--- OEMBED ---'
+          cat ytprobe2/oembed_status.txt; cat ytprobe2/oembed.json || true
+          echo '--- NOEMBED ---'
+          cat ytprobe2/noembed_status.txt; cat ytprobe2/noembed.json || true
+          echo '--- CLIENTS ---'
+          cat ytprobe2/clients.log || true
+          echo '--- TRANSCRIPT API ---'
+          cat ytprobe2/transcript_api.txt || true
+          exit 0
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-probe-uwnyla-v2
+          path: ytprobe2/

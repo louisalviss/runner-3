@@ -1,0 +1,41 @@
+name: Solo Beru V14 Status Probe
+on:
+  push:
+    paths: ['.github/workflows/solo-beru-v14-status-probe.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Poll V14 run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 9cd5530ec22441ffe28b628d997171f573b2d92e
+        run: |
+          set -e
+          mkdir -p audit/solo-beru-v14
+          for n in $(seq 1 70); do
+            j=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/solo-beru-xonada-v14-tiktok.yml/runs?head_sha=$TARGET_SHA&per_page=5")
+            id=$(echo "$j"|jq -r '.workflow_runs[0].id // empty')
+            st=$(echo "$j"|jq -r '.workflow_runs[0].status // empty')
+            co=$(echo "$j"|jq -r '.workflow_runs[0].conclusion // empty')
+            echo "attempt=$n id=$id status=$st conclusion=$co"
+            if [ "$st" = completed ]; then
+              printf 'run_id=%s\nstatus=%s\nconclusion=%s\ntarget_sha=%s\n' "$id" "$st" "$co" "$TARGET_SHA" > audit/solo-beru-v14/status_probe.txt
+              break
+            fi
+            sleep 15
+          done
+          [ -f audit/solo-beru-v14/status_probe.txt ] || printf 'run_id=%s\nstatus=%s\nconclusion=%s\ntarget_sha=%s\n' "${id:-}" "${st:-unknown}" "${co:-}" "$TARGET_SHA" > audit/solo-beru-v14/status_probe.txt
+      - name: Commit status
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add audit/solo-beru-v14/status_probe.txt
+          git commit -m 'Persist Solo Beru V14 render status' || exit 0
+          for n in 1 2 3 4 5; do git pull --rebase origin main || true; git push && exit 0; sleep 2; done
+          exit 0

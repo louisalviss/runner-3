@@ -1,0 +1,44 @@
+name: Market Data Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/market-data-probe/**'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe public market data endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/trinity-atr-supertrend
+          OUT=reports/trinity-atr-supertrend/market-data-probe.txt
+          : > "$OUT"
+          urls=(
+            'https://data.binance.vision/data/futures/um/daily/klines/SOLUSDT/3m/SOLUSDT-3m-2026-08-17.zip'
+            'https://www.okx.com/api/v5/market/candles?instId=SOL-USDT-SWAP&bar=3m&limit=2'
+            'https://api.exchange.coinbase.com/products/ETH-USD/candles?granularity=180'
+          )
+          for u in "${urls[@]}"; do
+            code=$(curl -A 'Mozilla/5.0' -sS -L -o /tmp/probe.bin -w '%{http_code}' --max-time 20 "$u" || true)
+            bytes=$(wc -c < /tmp/probe.bin 2>/dev/null || echo 0)
+            printf '%s\nhttp=%s bytes=%s\n' "$u" "$code" "$bytes" >> "$OUT"
+            head -c 180 /tmp/probe.bin | tr '\n' ' ' >> "$OUT" || true
+            printf '\n---\n' >> "$OUT"
+          done
+          git config user.name 'runner-3-bot'
+          git config user.email 'runner-3-bot@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'Probe public market data endpoints' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main

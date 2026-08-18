@@ -1,0 +1,35 @@
+name: Export X video evidence as base64
+
+on:
+  push:
+    paths:
+      - '.github/workflows/x-video-export-b64-2088879679726059629.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Encode evidence
+        run: |
+          set -e
+          DIR='artifacts/x-2088879679726059629'
+          for f in "$DIR"/*.jpg; do
+            base64 -w 0 "$f" > "$f.b64"
+          done
+      - name: Commit
+        run: |
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add artifacts/x-2088879679726059629/*.b64
+          git commit -m 'Export X video evidence as base64' || exit 0
+          for i in 1 2 3; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 1

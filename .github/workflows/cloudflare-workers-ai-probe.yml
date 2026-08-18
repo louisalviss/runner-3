@@ -1,0 +1,102 @@
+name: Cloudflare Workers AI Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-workers-ai-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-workers-ai-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify token and Workers AI access
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/cloudflare
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          from datetime import datetime, timezone
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','').strip()
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','').strip()
+          base='https://api.cloudflare.com/client/v4'
+
+          def request(method,path,body=None):
+              headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+              data=json.dumps(body).encode() if body is not None else None
+              req=urllib.request.Request(base+path,data=data,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=45) as r:
+                      raw=r.read().decode(errors='replace')
+                      try: payload=json.loads(raw)
+                      except Exception: payload={'raw':raw[:1000]}
+                      return r.status,payload
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try: payload=json.loads(raw)
+                  except Exception: payload={'raw':raw[:1000]}
+                  return e.code,payload
+              except Exception as e:
+                  return 0,{'error':type(e).__name__,'message':str(e)[:500]}
+
+          def safe_summary(code,payload):
+              result=payload.get('result') if isinstance(payload,dict) else None
+              errors=payload.get('errors') if isinstance(payload,dict) else None
+              out={'http':code,'success':bool(payload.get('success')) if isinstance(payload,dict) else False}
+              if isinstance(result,dict):
+                  if 'status' in result: out['status']=result.get('status')
+                  if 'id' in result: out['id_present']=bool(result.get('id'))
+                  if 'response' in result: out['response_present']=bool(result.get('response'))
+              if errors:
+                  out['errors']=[{'code':x.get('code'),'message':x.get('message')} for x in errors[:5] if isinstance(x,dict)]
+              return out
+
+          user_code,user_payload=request('GET','/user/tokens/verify')
+          acct_code,acct_payload=request('GET',f'/accounts/{account}/tokens/verify')
+          workers_code,workers_payload=request('GET',f'/accounts/{account}/workers/scripts')
+          ai_code,ai_payload=request('POST',f'/accounts/{account}/ai/run/@cf/meta/llama-3.1-8b-instruct',{'prompt':'Reply with exactly: OK','max_tokens':8})
+
+          report={
+              'checked_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
+              'account_id_present':bool(account),
+              'token_present':bool(token),
+              'user_token_verify':safe_summary(user_code,user_payload),
+              'account_token_verify':safe_summary(acct_code,acct_payload),
+              'workers_list':safe_summary(workers_code,workers_payload),
+              'workers_ai':safe_summary(ai_code,ai_payload),
+          }
+          open('ops/cloudflare/workers-ai-probe.json','w').write(json.dumps(report,ensure_ascii=False,indent=2))
+          print(json.dumps(report,ensure_ascii=False))
+          PY
+
+      - name: Persist safe probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/cloudflare/workers-ai-probe.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Persist Cloudflare Workers AI probe'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5

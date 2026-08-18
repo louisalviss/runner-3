@@ -1,0 +1,44 @@
+name: Wasmer Login Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-login-probe.yml'
+      - 'scripts/wasmer-login-probe.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore encrypted state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+      - run: npm install --no-save playwright-core@1.58.2
+      - name: Probe login form
+        run: node scripts/wasmer-login-probe.mjs
+      - name: Persist safe probe
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-login-probe.json || echo '{"status":"runner_error"}' > /tmp/wasmer-login-probe.json
+          cat /tmp/wasmer-login-probe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/wasmer
+          cp /tmp/wasmer-login-probe.json ops/wasmer/login-probe.json
+          git add ops/wasmer/login-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist safe Wasmer login probe'; git push origin HEAD:main; fi

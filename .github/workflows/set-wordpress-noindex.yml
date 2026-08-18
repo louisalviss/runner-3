@@ -1,0 +1,85 @@
+name: Set WordPress Noindex
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/set-wordpress-noindex.yml'
+      - 'scripts/set-wordpress-noindex.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-noindex
+  cancel-in-progress: true
+
+jobs:
+  noindex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 3
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Set Search Engine Visibility off and verify frontend
+        id: noindex
+        shell: bash
+        run: |
+          set +e
+          node scripts/set-wordpress-noindex.mjs
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Persist safe noindex status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/wp-control
+          if [ ! -f /tmp/wp-noindex-result.json ]; then
+            printf '{"status":"runner_error","detail":"noindex_result_missing"}\n' > /tmp/wp-noindex-result.json
+          fi
+          cp /tmp/wp-noindex-result.json ops/wp-control/noindex-status.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/wp-control/noindex-status.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Persist WordPress noindex status'
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+            git pull --rebase origin main
+          done
+          exit 5
+
+      - name: Enforce verified noindex
+        if: always()
+        shell: bash
+        env:
+          RC: ${{ steps.noindex.outputs.rc }}
+        run: |
+          test "${RC:-99}" = "0" || exit 10

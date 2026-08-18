@@ -1,0 +1,37 @@
+name: moxing-translate-vi
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/moxing-translate-vi-release-signal.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify durable Moxhi translation release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download moxing-vi-translation-v1-2026-08-17 \
+            --repo louisalviss/runner-3 \
+            --pattern moxing-vi-translation-v1-2026-08-17.zip
+          echo '3e9a5b880eb41e5b295e81f9cc5db1b6508d7323c87dc03a08a26f2dd41e0569  moxing-vi-translation-v1-2026-08-17.zip' | sha256sum -c -
+          unzip -p moxing-vi-translation-v1-2026-08-17.zip moxing_vi_translation/manifest.json > manifest.json
+          python - <<'PY'
+          import json
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          assert m['schema']=='moxing-vi-translation-v1.2',m
+          assert m['model_id']=='DanVP/MoxhiMT-60',m
+          assert m['model_revision']=='3ae60c790cf21deebeab8e1a82f4024fbdc1fc87',m
+          assert m['quality']['rows']==9538,m
+          assert m['quality']['empty']==0 and m['quality']['sha_mismatch']==0,m
+          assert m['quality']['chunked_rows']==197,m
+          print('validated Moxhi Vietnamese translation release PASS')
+          PY

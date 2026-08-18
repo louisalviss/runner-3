@@ -1,0 +1,124 @@
+name: 568Win Anonymous Sports Flow Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/568win-anon-sports-flow-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --user -q playwright
+          mkdir -p evidence
+      - name: Follow public Sports navigation
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,pathlib
+          from playwright.sync_api import sync_playwright
+          out=pathlib.Path('evidence')
+          kw=re.compile(r'saba|outright|future|top\s*4|relegat|goal.?scorer|golden boot|winner|champion|anonymous',re.I)
+          net=[]; bodies=[]; result={}
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True)
+              c=b.new_context(locale='en-US',viewport={'width':1440,'height':900})
+              def rq(r):
+                  if r.resource_type in ('document','xhr','fetch'):
+                      net.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:12000]})
+              def rs(r):
+                  if r.request.resource_type not in ('document','xhr','fetch'): return
+                  net.append({'kind':'response','status':r.status,'type':r.request.resource_type,'url':r.url})
+                  try:
+                      ct=(r.headers.get('content-type') or '').lower()
+                      if 'json' in ct and ('jjppzz.com/api/' in r.url or '568win.com' in r.url):
+                          t=r.text()
+                          if len(t)<3000000:
+                              bodies.append({'url':r.url,'status':r.status,'body':t})
+                  except Exception: pass
+              c.on('request',rq);c.on('response',rs)
+              pg=c.new_page()
+              r=pg.goto('https://demo.568win.com/',wait_until='domcontentloaded',timeout=35000)
+              pg.wait_for_timeout(7000)
+              result['home']={'status':r.status if r else None,'url':pg.url,'title':pg.title(),'text':pg.locator('body').inner_text()[:25000]}
+              sports=pg.get_by_text(re.compile(r'^\s*Sports\s*$',re.I),exact=True)
+              result['sports_count']=sports.count()
+              clicked=False
+              for i in range(min(sports.count(),20)):
+                  el=sports.nth(i)
+                  try:
+                      if not el.is_visible(): continue
+                      result['sports_control']={'tag':el.evaluate('e=>e.tagName'),'html':el.evaluate('e=>e.outerHTML')[:5000]}
+                      before=set(c.pages); el.click(timeout=6000); pg.wait_for_timeout(10000)
+                      new=[x for x in c.pages if x not in before]
+                      target=new[-1] if new else pg
+                      try: target.wait_for_load_state('domcontentloaded',timeout=15000)
+                      except Exception: pass
+                      target.wait_for_timeout(6000)
+                      result['sports_page']={'url':target.url,'title':target.title(),'text':target.locator('body').inner_text(timeout=8000)[:60000],'frames':[{'name':f.name,'url':f.url} for f in target.frames]}
+                      target.screenshot(path=str(out/'sports.png'),full_page=False)
+                      clicked=True
+                      # Search for public SABA control after entering Sports.
+                      saba=target.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*SABA(?:\s+SPORTS|\s+SPORTS\s+LOBBY)?\s*$',re.I))
+                      result['saba_count']=saba.count()
+                      for j in range(min(saba.count(),40)):
+                          se=saba.nth(j)
+                          try:
+                              if not se.is_visible(): continue
+                              result['saba_control']={'tag':se.evaluate('e=>e.tagName'),'text':se.inner_text()[:300],'html':se.evaluate('e=>e.outerHTML')[:5000]}
+                              bef=set(c.pages); se.click(timeout=6000); target.wait_for_timeout(10000)
+                              np=[x for x in c.pages if x not in bef]; sp=np[-1] if np else target
+                              try: sp.wait_for_load_state('domcontentloaded',timeout=15000)
+                              except Exception: pass
+                              sp.wait_for_timeout(5000)
+                              result['saba_page']={'url':sp.url,'title':sp.title(),'text':sp.locator('body').inner_text(timeout=8000)[:80000],'frames':[{'name':f.name,'url':f.url} for f in sp.frames]}
+                              sp.screenshot(path=str(out/'saba.png'),full_page=False)
+                              # Public Outright/Futures click.
+                              cand=sp.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*(Outright|Outrights|Futures?)\s*$',re.I))
+                              result['outright_count']=cand.count()
+                              for k in range(min(cand.count(),50)):
+                                  oe=cand.nth(k)
+                                  try:
+                                      if not oe.is_visible(): continue
+                                      result['outright_control']={'tag':oe.evaluate('e=>e.tagName'),'text':oe.inner_text()[:300],'html':oe.evaluate('e=>e.outerHTML')[:5000]}
+                                      oe.click(timeout=6000); sp.wait_for_timeout(10000)
+                                      result['outright_page']={'url':sp.url,'title':sp.title(),'text':sp.locator('body').inner_text(timeout=8000)[:120000]}
+                                      sp.screenshot(path=str(out/'outright.png'),full_page=False)
+                                      break
+                                  except Exception as e: result.setdefault('outright_errors',[]).append(repr(e)[:500])
+                              break
+                          except Exception as e: result.setdefault('saba_errors',[]).append(repr(e)[:500])
+                      break
+                  except Exception as e: result.setdefault('sports_errors',[]).append(repr(e)[:500])
+              result['sports_clicked']=clicked
+              b.close()
+          out.joinpath('result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          out.joinpath('network.json').write_text(json.dumps(net,ensure_ascii=False,indent=2))
+          out.joinpath('json-bodies.json').write_text(json.dumps(bodies,ensure_ascii=False,indent=2))
+          print('SUMMARY',json.dumps({k:result.get(k) for k in ['sports_count','sports_control','sports_clicked','sports_page','saba_count','saba_control','saba_page','outright_count','outright_control','outright_page','sports_errors','saba_errors','outright_errors']},ensure_ascii=False)[:60000])
+          print('PUBLIC_JSON_HINTS')
+          for x in bodies:
+              if kw.search(x['body']):
+                  m=kw.search(x['body']); print(x['url'],x['body'][max(0,m.start()-1000):min(len(x['body']),m.end()+6000)])
+          print('NETWORK_HINTS')
+          seen=set()
+          for x in net:
+              u=x['url']
+              if u in seen: continue
+              seen.add(u)
+              if re.search(r'sport|saba|odds|api|event|market|launch|game',u,re.I): print(x.get('kind'),x.get('status',''),x.get('method',''),u)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 568win-anon-sports-${{ github.run_id }}
+          path: evidence/
+          retention-days: 7

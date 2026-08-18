@@ -30,8 +30,6 @@ def jina(u,timeout=180):
 def primary_for(acc,known=None):
  folder=acc.replace('-','')
  if known:return f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{known}',known
- # Jina's rendered SEC index omits Document Format Files. Read the complete
- # submission instead and extract the filename from the N-CSRS/N-CSR document block.
  complete=f'https://www.sec.gov/Archives/edgar/data/1378872/{folder}/{acc}.txt'
  t,_=jina(complete,180)
  blocks=re.findall(r'<DOCUMENT>([\s\S]*?)</DOCUMENT>',t,re.I)
@@ -49,7 +47,7 @@ def stock_line_count(z):
  n=0
  for line in z.splitlines():
   x=line.replace('\xa0',' ').strip().strip('*')
-  if re.match(r'^[\d,]+\s+.+(?:\$)?[\d,]+$',x):n+=1
+  if re.match(r'^[\d,]+\s+.+(?:\$)?[\d][\d,]*$',x):n+=1
   elif '\t' in line and re.match(r'^\s*\t?[\d,]+\t',line.replace('\xa0',' ')):n+=1
  return n
 
@@ -59,8 +57,7 @@ def segment(t):
  candidates=[]
  for s0 in occ:
   line=t[s0:t.find('\n',s0) if t.find('\n',s0)>=0 else s0+300]
-  if 'continued' in line.lower():
-   continue
+  if 'continued' in line.lower():continue
   prev=t.rfind('Schedule of Investments',max(0,s0-1200),s0)
   s=prev if prev>=0 else s0
   m=re.search(r'(?:\*\*)?Schedule of Investments(?:\([^\n]*\))?',t[s0+1500:],re.I)
@@ -86,14 +83,14 @@ def parse(z):
  for line in z.splitlines():
   p=[x.strip() for x in line.replace('\xa0',' ').split('\t')]
   p=[x for x in p if x not in ('','$')]
-  if len(p)>=3 and re.fullmatch(r'[\d,]+',p[0]) and re.fullmatch(r'[\d,]+',p[-1]):
+  if len(p)>=3 and re.fullmatch(r'[\d,]+',p[0]) and re.fullmatch(r'[\d,]+',p[-1]) and re.search(r'\d',p[-1]):
    names=[x for x in p[1:-1] if re.search('[A-Za-z]',x)]
    if names:
     name=clean_name(max(names,key=len));low=name.lower()
     if not any(x in low for x in ['common stocks','total investments','net assets','money market fund','other assets less']):
      rows.append((int(p[0].replace(',','')),name,int(p[-1].replace(',',''))));continue
   x=line.replace('\xa0',' ').strip().strip('*')
-  m=re.match(r'^([\d,]+)\s+(.+?)(?:\$)?([\d,]+)$',x)
+  m=re.match(r'^([\d][\d,]*)\s+(.+?)(?:\$)?([\d][\d,]*)$',x)
   if not m:continue
   shares=int(m.group(1).replace(',',''));name=clean_name(m.group(2));value=int(m.group(3).replace(',',''))
   low=name.lower()

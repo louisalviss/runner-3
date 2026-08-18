@@ -1,0 +1,160 @@
+name: Wave CME historical temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wave-cme-hist-temp.yml']
+permissions:
+  contents: write
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client==1.8.0
+      - name: Historical CME 3m backtest
+        run: |
+          git show 20939d0767153cef6b8af0bc275cc8b64064aaae:jobs/wave_stage2_smoke.py > /tmp/base.py
+          cat > /tmp/hist.py <<'PY'
+          import importlib.util,json,math
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          spec=importlib.util.spec_from_file_location('m','/tmp/base.py'); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          NY=ZoneInfo('America/New_York'); VN=ZoneInfo('Asia/Ho_Chi_Minh')
+          BARS_REQUESTED=20000
+          bars=m.fetch('NASDAQ','CME',bars=BARS_REQUESTED,timeout=30)
+          bars=sorted(bars)
+          O=[x[1] for x in bars]; H=[x[2] for x in bars]; L=[x[3] for x in bars]; C=[x[4] for x in bars]
+          E=m.ema(C,21)
+          tr=[]
+          for i,x in enumerate(bars):
+              pc=C[i-1] if i else C[i]
+              tr.append(max(H[i]-L[i],abs(H[i]-pc),abs(L[i]-pc)))
+          A10=m.rma(tr,10); A14=m.rma(tr,14)
+          fomc_dates={'2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29','2026-09-16','2026-10-28','2026-12-09'}
+          def nodes(x):
+              o,h,l,c=x[1],x[2],x[3],x[4]
+              return [o,h,l,c] if abs(o-h)<=abs(o-l) else [o,l,h,c]
+          def entry_loc(x,side,e):
+              n=nodes(x); o=x[1]
+              if side==1 and o>=e:return (o,0,0.0)
+              if side==-1 and o<=e:return (o,0,0.0)
+              for s,(a,b) in enumerate(zip(n,n[1:])):
+                  if side==1 and a<e<=b:return (e,s,0 if b==a else abs((e-a)/(b-a)))
+                  if side==-1 and a>e>=b:return (e,s,0 if b==a else abs((e-a)/(b-a)))
+              return None
+          def first_on(a,b,levels):
+              cand=[]
+              for name,p in levels:
+                  if min(a,b)<=p<=max(a,b):
+                      f=0 if a==b else abs((p-a)/(b-a)); cand.append((f,name,p))
+              if not cand:return None
+              cand.sort(); return cand[0][1],cand[0][2]
+          def bracket_after(x,side,stop,target,seg,frac):
+              n=nodes(x)
+              for s in range(seg,len(n)-1):
+                  a,b=n[s],n[s+1]
+                  if s==seg and frac>0:a=a+(b-a)*frac
+                  hit=first_on(a,b,[('SL',stop),('TP',target)])
+                  if hit:return hit
+              return None
+          def existing_bracket(x,side,stop,target):
+              h,l=x[2],x[3]
+              sh=l<=stop if side==1 else h>=stop
+              th=h>=target if side==1 else l<=target
+              if sh and th:return ('AMBIG->SL',stop,-1.0,True)
+              if sh:return ('SL',stop,-1.0,False)
+              if th:return ('TP',target,2.3,False)
+              return None
+          above=below=0; resistance=support=None; pending=None; pos=None; trades=[]
+          for i,x in enumerate(bars):
+              if i<1:continue
+              dt=datetime.fromtimestamp(x[0],NY); mins=dt.hour*60+dt.minute
+              regular=570<=mins<960
+              above=above+1 if C[i]>E[i] else 0; below=below+1 if C[i]<E[i] else 0
+              center=i-11
+              if center>=10 and center+10<i:
+                  ph=H[center]
+                  if ph>=max(H[center-10:center+11]):resistance=ph
+                  pl=L[center]
+                  if pl<=min(L[center-10:center+11]):support=pl
+              if not regular:continue
+              closed=False
+              # fill one-candle pending order, then only inspect path AFTER entry
+              if pending and pending['signal_i']==i-1 and pos is None:
+                  loc=entry_loc(x,pending['side'],pending['entry'])
+                  if loc:
+                      fill,seg,frac=loc; pos={**pending,'actual_entry':fill,'entry_i':i}; pending=None
+                      hit=bracket_after(x,pos['side'],pos['stop'],pos['target'],seg,frac)
+                      if hit:
+                          reason,px=hit; r=2.3 if reason=='TP' else -1.0
+                          trades.append({'side':'L' if pos['side']==1 else 'S','signal_ts':pos['signal_ts'],'entry_ts':x[0],'exit_ts':x[0],'entry':pos['entry'],'actual_entry':fill,'stop':pos['stop'],'target':pos['target'],'exit':px,'reason':reason,'r':r,'ambiguous':False})
+                          pos=None;closed=True
+              if pending and pending['signal_i']<=i-1 and pos is None:pending=None
+              # existing position bracket
+              if pos is not None and not closed:
+                  bh=existing_bracket(x,pos['side'],pos['stop'],pos['target'])
+                  if bh:
+                      reason,px,r,amb=bh
+                      trades.append({'side':'L' if pos['side']==1 else 'S','signal_ts':pos['signal_ts'],'entry_ts':bars[pos['entry_i']][0],'exit_ts':x[0],'entry':pos['entry'],'actual_entry':pos['actual_entry'],'stop':pos['stop'],'target':pos['target'],'exit':px,'reason':reason,'r':r,'ambiguous':amb})
+                      pos=None;closed=True
+                  else:
+                      time_close=mins+3
+                      session_exit=time_close>=945
+                      fomc=dt.date().isoformat() in fomc_dates
+                      news_exit=fomc and time_close>=825 and (mins<825)
+                      ema_up=E[i]>=E[max(0,i-2)]
+                      long_exit=pos['side']==1 and C[i]<E[i] and above<12 and not ema_up
+                      short_exit=pos['side']==-1 and C[i]>E[i] and below<12 and ema_up
+                      if session_exit or news_exit or long_exit or short_exit:
+                          reason='SESSION' if session_exit else ('NEWS' if news_exit else 'EMA'); side=pos['side']; one=abs(pos['entry']-pos['stop']); r=side*(C[i]-pos['entry'])/one if one else 0
+                          trades.append({'side':'L' if side==1 else 'S','signal_ts':pos['signal_ts'],'entry_ts':bars[pos['entry_i']][0],'exit_ts':x[0],'entry':pos['entry'],'actual_entry':pos['actual_entry'],'stop':pos['stop'],'target':pos['target'],'exit':C[i],'reason':reason,'r':r,'ambiguous':False})
+                          pos=None;closed=True
+              if pos is not None or pending is not None or closed:continue
+              if i<30 or A10[i] is None or A14[i] is None or resistance is None or support is None:continue
+              angle=180/math.pi*math.atan((E[i]-E[i-4])/A10[i]/4) if A10[i] else 0
+              prev_angle=180/math.pi*math.atan((E[i-1]-E[i-5])/A10[i-1]/4) if A10[i-1] else 0
+              outside=abs(angle)>5; ag=outside and angle>prev_angle; ar=outside and angle<prev_angle
+              trs=sum(tr[i-13:i+1]); pr=max(H[i-13:i+1])-min(L[i-13:i+1]); chop=100*math.log10(trs/pr)/math.log10(14) if pr>0 else 100
+              range_pass=(H[i]-L[i])/A14[i]<=1.5
+              time_close=mins+3
+              no_entry=time_close>=920 or time_close+3>=920
+              fomc=dt.date().isoformat() in fomc_dates
+              if fomc and 825<=time_close<=855:no_entry=True
+              if no_entry:continue
+              long_ready=above>=12 and C[i]>E[i] and ag and chop<50
+              short_ready=below>=12 and C[i]<E[i] and ar and chop<50
+              side=0
+              if range_pass and C[i]>O[i] and long_ready and C[i]>resistance and L[i]<=resistance:side=1
+              if range_pass and C[i]<O[i] and short_ready and C[i]<support and H[i]>=support:side=-1
+              if side:
+                  entry=(H[i]+.01) if side==1 else (L[i]-.01); stop=(L[i]-.01) if side==1 else (H[i]+.01); target=entry+side*2.3*abs(entry-stop)
+                  pending={'side':side,'signal_i':i,'signal_ts':x[0],'entry':entry,'stop':stop,'target':target}
+          rs=[t['r'] for t in trades]; wins=[r for r in rs if r>0]; losses=[r for r in rs if r<0]
+          curve=peak=dd=0; streak=mx=0
+          for r in rs:
+              curve+=r;peak=max(peak,curve);dd=max(dd,peak-curve);streak=streak+1 if r<0 else 0;mx=max(mx,streak)
+          for t in trades:
+              for k in ('signal_ts','entry_ts','exit_ts'):
+                  t[k.replace('_ts','_vn')]=datetime.fromtimestamp(t.pop(k),VN).isoformat(timespec='minutes')
+              for k in ('entry','actual_entry','stop','target','exit','r'):t[k]=round(t[k],4)
+          dates=sorted({datetime.fromtimestamp(x[0],NY).date().isoformat() for x in bars if 570<=datetime.fromtimestamp(x[0],NY).hour*60+datetime.fromtimestamp(x[0],NY).minute<960})
+          by_reason={}
+          for t in trades:by_reason[t['reason']]=by_reason.get(t['reason'],0)+1
+          p={'symbol':'CME','timeframe':'3m','bars_requested':BARS_REQUESTED,'bars_received':len(bars),'regular_sessions':len(dates),'date_from':dates[0] if dates else None,'date_to':dates[-1] if dates else None,'news_filter':'FOMC 2026 15m pre/post; CPI/NFP are premarket','same_bar':'entry-aware; existing-position both-touch conservative','summary':{'trades':len(rs),'total_r':round(sum(rs),4),'win_rate':round(100*len(wins)/len(rs),2) if rs else 0,'avg_r':round(sum(rs)/len(rs),4) if rs else 0,'pf':round(sum(wins)/(-sum(losses)),4) if losses else None,'max_dd_r':round(dd,4),'max_losing_streak':mx,'exit_counts':by_reason},'trades':trades}
+          open('wave_cme_hist.json','w').write(json.dumps(p,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps({k:v for k,v in p.items() if k!='trades'},ensure_ascii=False,indent=2))
+          PY
+          python /tmp/hist.py
+      - name: Persist
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wave_cme_hist.json
+          git commit -m 'temp: CME historical result [skip ci]'
+          git push

@@ -1,0 +1,62 @@
+name: Wasmer Edge Speed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/wasmer-edge-speed/requests/*.json'
+      - 'scripts/wasmer-edge-speed.mjs'
+      - '.github/workflows/wasmer-edge-speed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wasmer-edge-speed
+  cancel-in-progress: false
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_APP_OWNER: runner3wp0b90f6b4ab
+      WASMER_APP_SLUG: runner3-factory-smoke-2
+      WP_SITE_URL: https://runner3-factory-smoke-2.wasmer.app/
+      EDGE_SPEED_OUT: /tmp/wasmer-edge-speed.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore Wasmer browser session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Optimize Wasmer edge delivery and measure
+        run: node scripts/wasmer-edge-speed.mjs
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/wasmer-edge-speed.json || echo '{"status":"runner_error","detail":"edge_speed_result_missing"}' >/tmp/wasmer-edge-speed.json
+          cp /tmp/wasmer-edge-speed.json /tmp/edge-speed-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wasmer-edge-speed/results
+            cp /tmp/edge-speed-safe.json ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json
+            git add ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist Wasmer edge speed result'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 3
+          done
+          test "$pushed" = true

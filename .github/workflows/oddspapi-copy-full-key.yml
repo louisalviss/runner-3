@@ -1,0 +1,88 @@
+name: OddsPapi Copy Full Key
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oddspapi-copy-full-key.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --user -q playwright requests
+          mkdir -p evidence
+      - name: Copy full API key in memory and validate SABA access
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,secrets,string,pathlib,requests
+          from playwright.sync_api import sync_playwright
+          OUT=pathlib.Path('evidence'); st={}
+          def rand(n=14): return ''.join(secrets.choice(string.ascii_lowercase+string.digits) for _ in range(n))
+          dj=requests.get('https://api.mail.tm/domains',timeout=20).json(); ds=dj.get('hydra:member',dj.get('member',[])); dom=next(d['domain'] for d in ds if d.get('isActive',True))
+          email=f'cp{rand()}@{dom}'; pw=secrets.token_urlsafe(24)+'A1!'; requests.post('https://api.mail.tm/accounts',json={'address':email,'password':pw},timeout=20).raise_for_status(); st['mail_domain']=dom
+          full_key=None; preview=None
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True)
+              c=b.new_context(locale='en-US',viewport={'width':1400,'height':1000},permissions=['clipboard-read','clipboard-write'])
+              pg=c.new_page(); pg.goto('https://oddspapi.io/en/sign-up',wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(800)
+              pg.locator('input[type="email"]').first.fill(email); pws=pg.locator('input[type="password"]'); pws.nth(0).fill(pw); pws.nth(1).fill(pw)
+              sb=pg.get_by_role('button',name=re.compile(r'^\s*Sign Up\s*$',re.I)).first
+              if not sb.count(): sb=pg.locator('button[type="submit"]').first
+              sb.click(timeout=8000); pg.wait_for_timeout(5000); st['account_open']='/account' in pg.url
+              if st['account_open']:
+                  row=pg.locator('p').filter(has_text=re.compile(r'API\s*Key',re.I)).first
+                  mono=row.locator('span.font-mono')
+                  if mono.count(): preview=mono.first.inner_text().strip(); st['preview_length']=len(preview)
+                  copy=pg.locator('button[title="Copy"]').first
+                  st['copy_button_found']=bool(copy.count())
+                  if copy.count():
+                      copy.click(timeout=5000); pg.wait_for_timeout(800)
+                      try: full_key=pg.evaluate('navigator.clipboard.readText()')
+                      except Exception: full_key=None
+                      if isinstance(full_key,str): full_key=full_key.strip()
+                  st['clipboard_key_captured']=bool(full_key)
+                  st['clipboard_key_length']=len(full_key) if full_key else 0
+                  st['clipboard_differs_from_preview']=bool(full_key and preview and full_key!=preview)
+              b.close()
+
+          if full_key:
+              r=requests.get('https://v5.oddspapi.io/en/bookmakers',params={'apiKey':full_key},timeout=30)
+              st['bookmakers_http']=r.status_code
+              if r.status_code==200:
+                  bj=r.json(); blob=json.dumps(bj,ensure_ascii=False); st['saba_present']=bool(re.search(r'sabasports|\bsaba\b',blob,re.I)); OUT.joinpath('bookmakers.json').write_text(json.dumps(bj,ensure_ascii=False,indent=2))
+                  # Get futures list using the documented v5 family. Try only routes from docs naming conventions.
+                  attempts=[]
+                  for path,params2 in [
+                      ('/en/futures',{'sportId':10,'bookmakers':'sabasports'}),
+                      ('/en/futures',{'sportId':10}),
+                      ('/en/futures/bookmakers',{'bookmakers':'sabasports'}),
+                  ]:
+                      q={'apiKey':full_key,**params2}; fr=requests.get('https://v5.oddspapi.io'+path,params=q,timeout=30)
+                      rec={'path':path,'http':fr.status_code}
+                      if fr.status_code==200:
+                          try:
+                              data=fr.json(); blob2=json.dumps(data,ensure_ascii=False); rec.update({'bytes':len(blob2),'saba':bool(re.search(r'sabasports|\bsaba\b',blob2,re.I)),'top4':bool(re.search(r'top\s*4|top four',blob2,re.I)),'relegation':bool(re.search(r'relegat',blob2,re.I)),'goalscorer':bool(re.search(r'goal.?scorer|golden boot',blob2,re.I)),'winner':bool(re.search(r'winner|champion',blob2,re.I))}); OUT.joinpath('futures.json').write_text(json.dumps(data,ensure_ascii=False,indent=2)); attempts.append(rec); break
+                          except: rec['json_error']=True
+                      else: rec['body_hint']=fr.text[:200].replace(full_key,'<KEY>')
+                      attempts.append(rec)
+                  st['futures_attempts']=attempts
+              else:
+                  st['bookmakers_body_hint']=r.text[:300].replace(full_key,'<KEY>')
+          # No email/password/full key/preview value is written or printed.
+          OUT.joinpath('status.json').write_text(json.dumps(st,ensure_ascii=False,indent=2)); print(json.dumps(st,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oddspapi-copy-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1

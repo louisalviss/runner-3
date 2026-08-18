@@ -1,0 +1,52 @@
+name: Runner3 X2089 Inspect
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ops/x2089-inspect-trigger.txt'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download source and music
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl jq
+          python -m pip install -q -U yt-dlp
+          mkdir -p out
+          X='https://x.com/animextwts/status/2089076981358887392'
+          yt-dlp --no-playlist --retries 5 --fragment-retries 5 -f 'bv*+ba/b' --merge-output-format mp4 -o 'out/source_dl.%(ext)s' "$X"
+          SRC=$(find out -maxdepth 1 -type f -name 'source_dl.*' | head -1)
+          ffmpeg -hide_banner -loglevel error -y -i "$SRC" -map 0:v:0 -map 0:a? -c copy out/source.mp4 || ffmpeg -hide_banner -loglevel error -y -i "$SRC" -c:v libx264 -crf 18 -c:a aac out/source.mp4
+
+          curl -L --fail --retry 3 --get 'https://itunes.apple.com/search' \
+            --data-urlencode 'term=MONTAGEM XONADA Tiktok version MXZI dj Samir DJ Javi26' \
+            --data 'entity=song' --data 'limit=100' --data 'country=US' -o out/itunes.json
+          jq -r '.results[] | [.trackId,.trackName,.artistName,.previewUrl] | @tsv' out/itunes.json > out/music_candidates.tsv
+          PREVIEW=$(jq -r '[.results[] | select((.trackName//""|ascii_downcase|contains("montagem xonada")) and (.trackName//""|ascii_downcase|contains("tiktok")) and (.artistName//""|ascii_downcase|contains("mxzi"))) | .previewUrl][0] // empty' out/itunes.json)
+          TRACK=$(jq -r '[.results[] | select((.trackName//""|ascii_downcase|contains("montagem xonada")) and (.trackName//""|ascii_downcase|contains("tiktok")) and (.artistName//""|ascii_downcase|contains("mxzi"))) | .trackName][0] // empty' out/itunes.json)
+          ARTIST=$(jq -r '[.results[] | select((.trackName//""|ascii_downcase|contains("montagem xonada")) and (.trackName//""|ascii_downcase|contains("tiktok")) and (.artistName//""|ascii_downcase|contains("mxzi"))) | .artistName][0] // empty' out/itunes.json)
+          test -n "$PREVIEW"
+          curl -L --fail --retry 3 "$PREVIEW" -o out/music.m4a
+
+          DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 out/source.mp4)
+          ffmpeg -hide_banner -loglevel error -y -i out/source.mp4 \
+            -vf "fps=2,drawtext=text='%{pts\\:hms}':x=8:y=8:fontsize=26:fontcolor=white:box=1:boxcolor=black@0.65,scale=360:-2,tile=5x4:padding=4:margin=4" \
+            -frames:v 1 out/contact_sheet.jpg
+          ffmpeg -hide_banner -loglevel info -i out/source.mp4 -vf "select='gt(scene,0.10)',showinfo" -an -f null - 2> out/scene.log || true
+          grep -oE 'pts_time:[0-9.]+' out/scene.log | cut -d: -f2 > out/scene_times.txt || true
+          ffprobe -v error -show_streams -show_format -of json out/source.mp4 > out/source_probe.json
+          ffprobe -v error -show_streams -show_format -of json out/music.m4a > out/music_probe.json
+          printf 'duration=%s\ntrack=%s\nartist=%s\n' "$DUR" "$TRACK" "$ARTIST" > out/summary.txt
+
+      - name: Upload inspection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-x2089-inspect
+          path: out/
+          retention-days: 3

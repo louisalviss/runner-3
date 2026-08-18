@@ -1,0 +1,93 @@
+name: Solo Beru Xonada Story V8 Sections
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/solo-beru-xonada-story-v8sections.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl openvpn iproute2 iptables
+          python -m pip install -q -U yt-dlp
+      - name: Connect source route
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 35 https://www.vpngate.net/api/iphone/ -o vpn.csv
+          python <<'PY'
+          import csv,base64
+          a=[];preferred='42.117.112.253'
+          for r in csv.reader(open('vpn.csv',encoding='utf-8-sig',errors='replace')):
+            if len(r)<15 or not r or r[0].startswith(('*','#')):continue
+            cc=r[6].strip().upper();ip=r[1].strip()
+            if cc not in {'VN','JP','KR'}:continue
+            try:a.append((0 if ip==preferred else 1 if cc=='VN' else 2,-int(r[2] or 0),cc,ip,base64.b64decode(r[14]).decode('utf8','replace')))
+            except:pass
+          a.sort();a=a[:8]
+          with open('vpns.tsv','w') as m:
+            for i,(_,_,cc,ip,cfg) in enumerate(a):
+              p=f'v{i}.ovpn';open(p,'w').write(cfg+'\nauth-nocache\nconnect-retry-max 1\nconnect-timeout 7\n');m.write(f'{p}\t{cc}\t{ip}\n')
+          PY
+          sudo mkdir -p /etc/netns/vpnns;printf 'nameserver 1.1.1.1\n'|sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+          sudo ip netns add vpnns;sudo ip link add vh type veth peer name vv;sudo ip link set vv netns vpnns
+          sudo ip addr add 10.203.0.1/24 dev vh;sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.203.0.2/24 dev vv;sudo ip netns exec vpnns ip link set lo up;sudo ip netns exec vpnns ip link set vv up;sudo ip netns exec vpnns ip route add default via 10.203.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null;W=$(ip route show default|awk '/default/{print $5;exit}')
+          sudo iptables -t nat -A POSTROUTING -s 10.203.0.0/24 -o "$W" -j MASQUERADE;sudo iptables -A FORWARD -i vh -o "$W" -j ACCEPT;sudo iptables -A FORWARD -i "$W" -o vh -m state --state RELATED,ESTABLISHED -j ACCEPT
+          got=0
+          while IFS=$'\t' read -r p cc ip;do
+            [ -f /tmp/v.pid ]&&sudo kill "$(cat /tmp/v.pid)" 2>/dev/null||true;sudo rm -f /tmp/v.pid /tmp/v.log;sleep 1
+            sudo ip netns exec vpnns openvpn --config "$GITHUB_WORKSPACE/$p" --daemon --writepid /tmp/v.pid --log /tmp/v.log||true
+            tun=0;for n in $(seq 1 12);do sudo ip netns exec vpnns ip link show tun0 >/dev/null 2>&1&&{ tun=1;break;};sleep 1;done;[ "$tun" = 1 ]||continue
+            eg=$(sudo ip netns exec vpnns curl -4 -fsS --max-time 8 https://api.ipify.org||true);[ -n "$eg" ]||continue;echo "EGRESS=$eg $cc";got=1;break
+          done<vpns.tsv
+          [ "$got" = 1 ]||exit 22
+      - name: Download only story sections
+        shell: bash
+        run: |
+          set -euo pipefail
+          Y=$(command -v yt-dlp);URL='https://www.youtube.com/watch?v=IrHTT2IEKpE';mkdir -p raw clips
+          i=0
+          for pair in '112 119' '258 267' '338 345' '497 504';do
+            set -- $pair;st=$1;en=$2;echo "SECTION $i $st-$en"
+            timeout 120s sudo ip netns exec vpnns env PATH="$PATH" HOME="$HOME" "$Y" --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 20 --js-runtimes node --remote-components ejs:github -f 'bv*[height<=720][ext=mp4]/bv*[height<=720]' --download-sections "*$st-$en" --force-keyframes-at-cuts -o "$GITHUB_WORKSPACE/raw/$i.%(ext)s" "$URL"
+            f=$(find raw -maxdepth 1 -name "$i.*" -type f|head -1);[ -n "$f" ];[ "$f" = "raw/$i.mp4" ]||mv "$f" "raw/$i.mp4";i=$((i+1))
+          done
+      - name: Render and add XONADA
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 0 1 2 3;do
+            flash='';[ "$i" -gt 0 ]&&flash="drawbox=x=0:y=0:w=iw:h=ih:color=white@0.07:t=fill:enable='lt(t,0.025)',"
+            FC="[0:v]split=2[b][f];[b]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=32,eq=brightness=-0.23:saturation=0.72[b2];[f]scale=1024:576,eq=contrast=1.06:saturation=1.09,unsharp=5:5:0.28:5:5:0[f2];[b2][f2]overlay=(W-w)/2:(H-h)/2,${flash}fps=30,format=yuv420p[v]"
+            ffmpeg -hide_banner -loglevel error -y -i "raw/$i.mp4" -filter_complex "$FC" -map '[v]' -an -c:v libx264 -preset veryfast -crf 18 -profile:v high -level 4.1 -pix_fmt yuv420p "clips/$i.mp4"
+          done
+          printf "file 'clips/0.mp4'\nfile 'clips/1.mp4'\nfile 'clips/2.mp4'\nfile 'clips/3.mp4'\n" > list.txt
+          ffmpeg -hide_banner -loglevel error -y -f concat -safe 0 -i list.txt -c copy visual.mp4
+          curl -fsSL --max-time 30 'https://itunes.apple.com/search?term=MONTAGEM%20XONADA%20MXZI%20Dj%20Samir%20DJ%20Javi26&entity=song&limit=50&country=US' -o i.json
+          python <<'PY'
+          import json
+          d=json.load(open('i.json'))
+          for x in d.get('results',[]):
+            if (x.get('trackName') or '').strip().lower()=='montagem xonada' and x.get('previewUrl'):
+              open('u','w').write(x['previewUrl']);print('TRACK',x.get('trackName'),x.get('artistName'));break
+          else:raise SystemExit('NO_PREVIEW')
+          PY
+          curl -fL --max-time 45 -A 'Mozilla/5.0' "$(cat u)" -o xonada.m4a
+          ffmpeg -hide_banner -loglevel error -y -i visual.mp4 -i xonada.m4a -t 30 -map 0:v -map 1:a -c:v copy -af 'volume=.98,bass=g=3:f=90,alimiter=limit=.95' -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart solo_beru_xonada_story_v8.mp4
+          ffprobe -v error -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,sample_rate,channels -show_entries format=duration,size,bit_rate -of default=nw=1 solo_beru_xonada_story_v8.mp4
+          for t in 3 10 19 26;do ffmpeg -hide_banner -loglevel error -y -ss $t -i solo_beru_xonada_story_v8.mp4 -frames:v 1 qa_$t.jpg;done
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: solo-beru-xonada-story-v8
+          path: |
+            solo_beru_xonada_story_v8.mp4
+            qa_*.jpg
+          retention-days: 3

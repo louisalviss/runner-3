@@ -1,0 +1,52 @@
+name: Solo Beru Source Audit V8
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/solo-beru-source-audit-v8.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install media tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q -U yt-dlp
+      - name: Download official Crunchyroll fight directly
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.youtube.com/watch?v=IrHTT2IEKpE'
+          yt-dlp --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 15 \
+            --js-runtimes node --remote-components ejs:github \
+            -f 'bv*[height<=720]+ba/b[height<=720]' --merge-output-format mp4 \
+            -o 'beru_source.%(ext)s' "$URL"
+          f=$(find . -maxdepth 1 -name 'beru_source*.mp4' | head -1)
+          [ -n "$f" ]
+          [ "$f" = './beru_source.mp4' ] || mv "$f" beru_source.mp4
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height -of default=nw=1 beru_source.mp4
+      - name: Build full-fight contact sheets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y -i beru_source.mp4 \
+            -vf "fps=1/20,scale=320:-2,tile=5x6:padding=4:margin=4" -frames:v 1 beru_contact_20s.jpg
+          ffmpeg -hide_banner -loglevel error -y -ss 0 -i beru_source.mp4 -t 180 \
+            -vf "fps=1/10,scale=300:-2,tile=6x3:padding=4:margin=4" -frames:v 1 beru_contact_0_180.jpg
+          ffmpeg -hide_banner -loglevel error -y -ss 180 -i beru_source.mp4 -t 180 \
+            -vf "fps=1/10,scale=300:-2,tile=6x3:padding=4:margin=4" -frames:v 1 beru_contact_180_360.jpg
+          ffmpeg -hide_banner -loglevel error -y -ss 360 -i beru_source.mp4 -t 240 \
+            -vf "fps=1/12,scale=300:-2,tile=5x4:padding=4:margin=4" -frames:v 1 beru_contact_360_end.jpg
+      - name: Upload audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: solo-beru-source-audit-v8
+          path: |
+            beru_contact_20s.jpg
+            beru_contact_0_180.jpg
+            beru_contact_180_360.jpg
+            beru_contact_360_end.jpg
+          retention-days: 2

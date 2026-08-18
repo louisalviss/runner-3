@@ -1,0 +1,112 @@
+name: WordPress Media to R2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wp-media-to-r2.yml'
+      - 'scripts/prepare-wordpress-r2-plan.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wordpress-media-r2
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      BUCKET: runner3-wp-media
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve and verify R2 public base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
+          echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
+          code="$(curl -sS -o /tmp/r2-domain.json -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"enabled":true}' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$BUCKET/domains/managed")"
+          test "$code" = 200 || { echo "R2 managed domain failed HTTP=$code"; exit 2; }
+          base="$(python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/r2-domain.json'))
+          domain=(d.get('result') or {}).get('domain')
+          if not domain: raise SystemExit(2)
+          print('https://'+domain.rstrip('/'))
+          PY
+          )"
+          echo "R2_BASE_URL=$base" >> "$GITHUB_ENV"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$base/health/runner3-proof.txt")" = 200
+
+      - name: Decrypt WordPress API credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in "ops/wp-control/${WP_SITE_SLUG}.credential.aes" -out /tmp/wp-control-credential.json
+          chmod 600 /tmp/wp-control-credential.json
+
+      - name: Build R2 migration plan
+        run: node scripts/prepare-wordpress-r2-plan.mjs
+
+      - name: Upload optimized WebP files to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/r2-items.tsv
+          import json,os
+          slug=os.environ['WP_SITE_SLUG']
+          p=json.load(open(f'/tmp/wp-remote-media-{slug}.plan.json'))
+          for x in p['items']:
+              print(x['localPath']+'\t'+x['r2Key'])
+          PY
+          while IFS=$'\t' read -r file key; do
+            test -s "$file"
+            npx -y wrangler@4.123.0 r2 object put "$BUCKET/$key" \
+              --file="$file" --content-type=image/webp \
+              --cache-control='public, max-age=31536000, immutable' --remote
+            code="$(curl -sS -I -o /dev/null -w '%{http_code}' "$R2_BASE_URL/$key" || true)"
+            test "$code" = 200 || { echo "R2 verify failed key=$key HTTP=$code"; exit 3; }
+          done </tmp/r2-items.tsv
+
+      - name: Remap WordPress attachments to R2
+        run: node scripts/apply-wordpress-remote-media.mjs
+
+      - name: Persist safe migration result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="/tmp/wp-remote-media-${WP_SITE_SLUG}.json"
+          test -f "$result" || printf '{"status":"runner_error","siteSlug":"%s","detail":"r2_media_status_missing"}\n' "$WP_SITE_SLUG" > "$result"
+          rm -f /tmp/wp-control-credential.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wp-remote-media/results
+            cp "$result" "ops/wp-remote-media/results/${WP_SITE_SLUG}.latest.json"
+            git add "ops/wp-remote-media/results/${WP_SITE_SLUG}.latest.json"
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist WordPress R2 media status: ${WP_SITE_SLUG}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 5

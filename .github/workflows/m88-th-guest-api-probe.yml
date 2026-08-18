@@ -1,0 +1,190 @@
+name: M88 TH Guest API Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/m88-th-guest-api-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl
+
+      - name: Collect Thailand VPN Gate relay candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64,csv,io,json,pathlib
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          rs=[r for r in rows if (r.get('CountryShort') or '').upper()=='TH' and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+          rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
+          rs=rs[:5]
+          if not rs: raise SystemExit('No TH relay available')
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          infos=[]
+          for i,r in enumerate(rs):
+              cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+              cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+              pathlib.Path(f'/tmp/vpn{i}.ovpn').write_text(cfg)
+              infos.append({k:r.get(k) for k in ['CountryShort','CountryLong','IP','Ping','Speed','NumVpnSessions']})
+          pathlib.Path('evidence/relay_candidates.json').write_text(json.dumps(infos,indent=2,ensure_ascii=False))
+          print(json.dumps(infos,ensure_ascii=False))
+          PY
+
+      - name: Connect first working Thailand relay in isolated namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn
+          sudo ip link set vn netns vpnns
+          sudo ip addr add 10.235.0.1/24 dev vh
+          sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.235.0.2/24 dev vn
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.235.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.235.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+
+          connected=0
+          for cfg in /tmp/vpn*.ovpn; do
+            idx=$(basename "$cfg" .ovpn | sed 's/vpn//')
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+            sleep 1
+            sudo rm -f /tmp/openvpn.log
+            sudo touch /tmp/openvpn.log && sudo chmod 644 /tmp/openvpn.log
+            echo "TRY_RELAY_INDEX=$idx" | tee -a evidence/connect_attempts.txt
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
+            ok=0
+            for i in {1..12}; do
+              sleep 1
+              if grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null; then ok=1; break; fi
+              if grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error|Connection refused' /tmp/openvpn.log 2>/dev/null; then break; fi
+            done
+            if [ "$ok" = 1 ]; then
+              trace=$(sudo ip netns exec vpnns curl -fsS --max-time 10 'https://www.cloudflare.com/cdn-cgi/trace' 2>/dev/null | grep -E '^(ip|loc|warp)=' || true)
+              echo "$trace" | tee evidence/egress.txt
+              if echo "$trace" | grep -q '^loc=TH$'; then
+                echo "SELECTED_RELAY_INDEX=$idx" | tee evidence/selected_relay_index.txt
+                connected=1
+                break
+              fi
+            fi
+            echo "RELAY_INDEX_${idx}=FAILED" | tee -a evidence/connect_attempts.txt
+          done
+          test "$connected" = 1
+
+      - name: Probe M88 guest initconfig candidates
+        shell: bash
+        run: |
+          set -u
+          base='https://msports.m88.com/api/v1'
+          for op in m88 M88; do
+            sudo ip netns exec vpnns curl -L -sS --max-time 25 \
+              -H 'Accept: application/json, text/plain, */*' \
+              -H 'Authorization: Bearer GUEST' \
+              -D "evidence/initconfig_${op}.headers" \
+              -o "evidence/initconfig_${op}.body" \
+              -w 'http_code=%{http_code}\ncontent_type=%{content_type}\nsize=%{size_download}\nremote_ip=%{remote_ip}\n' \
+              "$base/$op/initconfig" > "evidence/initconfig_${op}.meta" \
+              2> "evidence/initconfig_${op}.error" || true
+          done
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence'); out={}
+          for op in ['m88','M88']:
+              meta={}; p=root/f'initconfig_{op}.meta'
+              if p.exists():
+                  for line in p.read_text(errors='replace').splitlines():
+                      if '=' in line:
+                          k,v=line.split('=',1); meta[k]=v
+              body=(root/f'initconfig_{op}.body').read_text(errors='replace') if (root/f'initconfig_{op}.body').exists() else ''
+              item={'meta':meta,'json':False,'top_keys':[],'status_field':None,'data_keys':[]}
+              try:
+                  d=json.loads(body); item['json']=True
+                  if isinstance(d,dict):
+                      item['top_keys']=sorted(d.keys())[:100]; item['status_field']=d.get('status')
+                      data=d.get('data')
+                      if isinstance(data,dict): item['data_keys']=sorted(data.keys())[:150]
+                      elif isinstance(data,list): item['data_type']='list'; item['data_len']=len(data)
+              except Exception:
+                  item['body_prefix']=body[:500]
+              ep=root/f'initconfig_{op}.error'
+              if ep.exists(): item['error']=ep.read_text(errors='replace').strip()[:500]
+              out[op]=item
+          (root/'initconfig_summary.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Probe public top sports as guest
+        shell: bash
+        run: |
+          set -u
+          base='https://msports.m88.com/api/v1/sport/top'
+          for cur in THB VND USD; do
+            sudo ip netns exec vpnns curl -L -sS --max-time 25 \
+              -H 'Accept: application/json, text/plain, */*' \
+              -H 'Authorization: Bearer GUEST' \
+              -D "evidence/top_${cur}.headers" \
+              -o "evidence/top_${cur}.body" \
+              -w 'http_code=%{http_code}\ncontent_type=%{content_type}\nsize=%{size_download}\nremote_ip=%{remote_ip}\n' \
+              "$base?currency=$cur" > "evidence/top_${cur}.meta" \
+              2> "evidence/top_${cur}.error" || true
+          done
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence'); out={}
+          for cur in ['THB','VND','USD']:
+              meta={}; p=root/f'top_{cur}.meta'
+              if p.exists():
+                  for line in p.read_text(errors='replace').splitlines():
+                      if '=' in line:
+                          k,v=line.split('=',1); meta[k]=v
+              body=(root/f'top_{cur}.body').read_text(errors='replace') if (root/f'top_{cur}.body').exists() else ''
+              item={'meta':meta,'json':False}
+              try:
+                  d=json.loads(body); item['json']=True
+                  if isinstance(d,dict):
+                      item['top_keys']=sorted(d.keys())[:100]; item['status_field']=d.get('status')
+                      data=d.get('data'); item['data_type']=type(data).__name__
+                      if isinstance(data,list): item['data_len']=len(data); item['sample']=data[:5]
+                      elif isinstance(data,dict): item['data_keys']=sorted(data.keys())[:100]
+                  elif isinstance(d,list): item['list_len']=len(d); item['sample']=d[:5]
+              except Exception:
+                  item['body_prefix']=body[:500]
+              out[cur]=item
+          (root/'top_summary.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m88-th-guest-api-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3

@@ -1,0 +1,68 @@
+name: Cloudflare InfinityFree Interactive Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-infinityfree-interactive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          curl -fsS 'https://api.cloudflare.com/client/v4/user/tokens/verify' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -o /tmp/token.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/token.json'))
+          ok=bool(d.get('success') and (d.get('result') or {}).get('status') == 'active')
+          print('TOKEN_ACTIVE=' + str(ok).lower())
+          if not ok: raise SystemExit(2)
+          PY
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Check InfinityFree Turnstile state
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > probe-infinityfree.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const endpoint=`wss://api.cloudflare.com/client/v4/accounts/${account}/browser-rendering/devtools/browser?keep_alive=600000`;
+          const browser=await chromium.connectOverCDP(endpoint,{headers:{Authorization:`Bearer ${token}`}});
+          try {
+            const context=browser.contexts()[0];
+            const page=context.pages()[0] || await context.newPage();
+            await page.goto('https://dash.infinityfree.com/register/email',{waitUntil:'domcontentloaded',timeout:45000});
+            for (const ms of [2500,5000,10000]) {
+              await page.waitForTimeout(ms===2500?2500:ms-(ms===5000?2500:5000));
+              const value=await page.locator('input[name="cf-turnstile-response"]').inputValue().catch(()=> '');
+              console.log(`TURNSTILE_TOKEN_LENGTH_${ms}MS=${value.length}`);
+              console.log(`TURNSTILE_SOLVED_${ms}MS=${value.length>20}`);
+            }
+            const body=(await page.locator('body').innerText()).replace(/\s+/g,' ').trim();
+            console.log('BODY_SAMPLE=' + body.slice(0,1000));
+          } finally {
+            await browser.close();
+          }
+          JS
+          node probe-infinityfree.mjs

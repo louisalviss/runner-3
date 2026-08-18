@@ -1,0 +1,21 @@
+name: SPMO Jina SEC Probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spmo-backtest/diagnostics/jina_sec_probe.py'
+      - '.github/workflows/spmo-jina-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests
+      - name: Probe SEC through Jina reader
+        run: python -u spmo-backtest/diagnostics/jina_sec_probe.py

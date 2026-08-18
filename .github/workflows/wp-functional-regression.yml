@@ -1,0 +1,102 @@
+name: WordPress Functional Regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/wp-functional-regression/requests/*.json'
+  workflow_dispatch:
+    inputs:
+      site_slug:
+        description: Site factory slug
+        required: true
+        default: runner3-factory-smoke-2
+        type: string
+      site_url:
+        description: Optional explicit site URL
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-wp-functional-regression
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve target
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SITE_SLUG: ${{ inputs.site_slug }}
+          INPUT_SITE_URL: ${{ inputs.site_url }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            slug="$INPUT_SITE_SLUG"
+            url="$INPUT_SITE_URL"
+            test -n "$url" || url="https://${slug}.wasmer.app/"
+          else
+            request="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^ops/wp-functional-regression/requests/.*\.json$' | tail -1 || true)"
+            test -n "$request" || { echo 'Functional regression request missing'; exit 2; }
+            slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+            url="$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("site_url") or "")' "$request")"
+            test -n "$url" || url="https://${slug}.wasmer.app/"
+          fi
+          echo "WP_SITE_SLUG=$slug" >> "$GITHUB_ENV"
+          echo "WP_SITE_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Run functional regression
+        id: regression
+        continue-on-error: true
+        env:
+          FUNCTIONAL_OUT: /tmp/wp-functional-regression.json
+        run: |
+          rm -f /tmp/wp-functional-regression.json
+          node scripts/test-wordpress-functional.mjs
+
+      - name: Persist regression result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${WP_SITE_SLUG}"
+          result=/tmp/wp-functional-regression.json
+          if [ ! -f "$result" ]; then
+            printf '{"status":"failed","site":"%s","detail":"functional_regression_result_missing"}\n' "$WP_SITE_URL" > "$result"
+          fi
+          cp "$result" /tmp/wp-functional-regression-result.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wp-functional-regression/results
+            cp /tmp/wp-functional-regression-result.json "ops/wp-functional-regression/results/${slug}.latest.json"
+            git add "ops/wp-functional-regression/results/${slug}.latest.json"
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Persist WordPress functional regression: ${slug}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true
+
+      - name: Enforce regression gate
+        if: always()
+        env:
+          REGRESSION_OUTCOME: ${{ steps.regression.outcome }}
+        run: test "$REGRESSION_OUTCOME" = success
