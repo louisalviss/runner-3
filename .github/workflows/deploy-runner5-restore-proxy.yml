@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build homepage and stylesheet edge snapshots
+      - name: Build homepage and bundled CSS edge snapshot
         shell: bash
         run: |
           set -euo pipefail
@@ -37,21 +37,26 @@ jobs:
           import json, os, re, urllib.parse, urllib.request, time
 
           origin=os.environ['ORIGIN_URL']
-          ua='Mozilla/5.0 EdgeSnapshotBuilder/2.0'
+          ua='Mozilla/5.0 EdgeSnapshotBuilder/3.0'
+          edge_css='/__edge/runner5.css'
 
           def fetch(url, timeout=40):
               req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*','Cache-Control':'no-cache'})
               with urllib.request.urlopen(req,timeout=timeout) as r:
                   return r.read(), r.headers.get('content-type','')
 
-          raw,ctype=fetch(origin)
+          raw,_=fetch(origin)
           html=raw.decode('utf-8','ignore')
           if len(html) < 1000 or 'Runner5 Restore Lab Demo' not in html:
               raise SystemExit('homepage snapshot marker missing')
 
           base=urllib.parse.urlparse(origin)
-          styles={}
-          style_meta=[]
+          link_re=re.compile(r'<link\b[^>]*>',re.I)
+          href_re=re.compile(r'\bhref\s*=\s*(["\'])(.*?)\1',re.I|re.S)
+          rel_re=re.compile(r'\brel\s*=\s*(["\'])(.*?)\1',re.I|re.S)
+          media_re=re.compile(r'\bmedia\s*=\s*(["\'])(.*?)\1',re.I|re.S)
+          captured=[]
+          bundle=[]
 
           def rewrite_css_urls(css, css_url):
               def repl(m):
@@ -59,41 +64,56 @@ jobs:
                   if not raw or raw.startswith(('data:','#','about:')):
                       return m.group(0)
                   absolute=urllib.parse.urljoin(css_url,raw)
-                  return 'url("'+absolute.replace('"','%22')+'")'
+                  u=urllib.parse.urlparse(absolute)
+                  if u.netloc == base.netloc:
+                      target=u.path + (('?' + u.query) if u.query else '')
+                  else:
+                      target=absolute
+                  return 'url("'+target.replace('"','%22')+'")'
               return re.sub(r'url\(([^)]+)\)', repl, css, flags=re.I)
 
-          link_re=re.compile(r'<link\b[^>]*>',re.I)
-          href_re=re.compile(r'\bhref\s*=\s*(["\'])(.*?)\1',re.I|re.S)
-          rel_re=re.compile(r'\brel\s*=\s*(["\'])(.*?)\1',re.I|re.S)
-
           for tag in link_re.findall(html):
-              rel=rel_re.search(tag)
-              href=href_re.search(tag)
+              rel=rel_re.search(tag); href=href_re.search(tag)
               if not rel or not href or 'stylesheet' not in rel.group(2).lower().split():
                   continue
               css_url=urllib.parse.urljoin(origin,href.group(2))
-              u=urllib.parse.urlparse(css_url)
-              if u.netloc != base.netloc:
+              if not css_url.startswith(('http://','https://')):
                   continue
               try:
-                  css_raw,css_type=fetch(css_url,30)
+                  css_raw,_=fetch(css_url,30)
+                  if len(css_raw) > 900000:
+                      continue
                   css=css_raw.decode('utf-8','ignore')
                   if not css.strip():
                       continue
+                  css=re.sub(r'^\s*@charset\s+[^;]+;','',css,flags=re.I)
                   css=rewrite_css_urls(css,css_url)
-                  key=u.path + (('?' + u.query) if u.query else '')
-                  styles[key]=css
-                  style_meta.append({'key':key,'bytes':len(css_raw)})
-              except Exception as exc:
-                  style_meta.append({'key':u.path,'error':str(exc)[:160]})
+                  media=media_re.search(tag)
+                  media_value=media.group(2).strip() if media else ''
+                  if media_value and media_value.lower() not in ('all','screen'):
+                      css=f'@media {media_value} {{\n{css}\n}}'
+                  bundle.append(f'/* {css_url} */\n{css}')
+                  captured.append({'tag':tag,'url':css_url,'bytes':len(css_raw)})
+              except Exception:
+                  continue
+
+          if not bundle:
+              raise SystemExit('no stylesheet captured for edge bundle')
+
+          first=True
+          for item in captured:
+              replacement=f'<link rel="stylesheet" id="runner5-edge-css" href="{edge_css}">' if first else ''
+              html=html.replace(item['tag'],replacement,1)
+              first=False
 
           built=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          css_bundle='\n'.join(bundle)
           out='// Generated immediately before Cloudflare deployment. Do not hand-edit.\n'
           out+=f'export const SNAPSHOT_BUILT_AT = {json.dumps(built)};\n'
           out+=f'export const HOME_SNAPSHOT = {json.dumps(html)};\n'
-          out+=f'export const STYLE_SNAPSHOTS = Object.freeze({json.dumps(styles)});\n'
+          out+=f'export const STYLE_BUNDLE = {json.dumps(css_bundle)};\n'
           open('cloudflare/runner5-restore-proxy/snapshot.generated.js','w').write(out)
-          print(json.dumps({'htmlBytes':len(html.encode()),'styleCount':len(styles),'styles':style_meta,'builtAt':built},indent=2))
+          print(json.dumps({'htmlBytes':len(html.encode()),'bundleBytes':len(css_bundle.encode()),'styleCount':len(captured),'styles':captured,'builtAt':built},indent=2))
           PY
 
       - name: Deploy optimized Worker with custom domain
@@ -112,26 +132,26 @@ jobs:
           result={'status':'FAILED','url':urls[0],'customUrl':urls[1],'checks':{},'detail':None}
           last=[]
           for url in urls:
-              check={'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'firstMs':None,'warmMs':None,'ready':False}
-              timings=[]
-              err=None
-              for attempt in range(20):
+              check={'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'cssReady':False,'firstMs':None,'warmMs':None,'ready':False}
+              timings=[]; err=None
+              for _ in range(20):
                   try:
                       t=time.perf_counter()
                       req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
                       with urllib.request.urlopen(req,timeout=25) as r:
                           body=r.read(1000000).decode('utf-8','ignore')
-                          ms=(time.perf_counter()-t)*1000
-                          timings.append(round(ms,1))
+                          timings.append(round((time.perf_counter()-t)*1000,1))
                           check['http']=r.status
                           check['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
                           check['edgeMode']=r.headers.get('x-edge-mode')
                           check['edgeCache']=r.headers.get('x-edge-cache')
-                          if r.status==200 and check['titleMarker'] and check['edgeMode']=='snapshot':
-                              if len(timings) < 2:
-                                  continue
-                              check['ready']=True
-                              break
+                      css_req=urllib.request.Request(url.rstrip('/')+'/__edge/runner5.css',headers={'User-Agent':'Mozilla/5.0'})
+                      with urllib.request.urlopen(css_req,timeout=25) as cr:
+                          css=cr.read(1000000)
+                          check['cssReady']=cr.status==200 and cr.headers.get('x-edge-mode')=='snapshot-asset' and len(css)>1000
+                      if check['http']==200 and check['titleMarker'] and check['edgeMode']=='snapshot' and check['cssReady']:
+                          if len(timings)<2: continue
+                          check['ready']=True; break
                   except Exception as e:
                       err=str(e)
                   time.sleep(4)
@@ -139,10 +159,8 @@ jobs:
               check['warmMs']=timings[-1] if len(timings)>1 else None
               check['detail']=None if check['ready'] else err
               result['checks'][url]=check
-              if not check['ready']:
-                  last.append(f'{url}: {err or "not_ready"}')
-          if all(v['ready'] for v in result['checks'].values()):
-              result['status']='READY'
+              if not check['ready']: last.append(f'{url}: {err or "not_ready"}')
+          if all(v['ready'] for v in result['checks'].values()): result['status']='READY'
           result['detail']='; '.join(last) if last else None
           result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
           open('/tmp/runner5-proxy.json','w').write(json.dumps(result,indent=2))
