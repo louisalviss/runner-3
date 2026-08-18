@@ -38,6 +38,12 @@ class AttributeRewriter {
   }
 }
 
+class PublicRobotsRewriter {
+  element(element) {
+    element.setAttribute('content', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+  }
+}
+
 function rewriteLocation(headers, origin, publicOrigin) {
   const location = headers.get('Location');
   if (!location) return;
@@ -50,6 +56,29 @@ export default {
     const origin = new URL(env.ORIGIN || DEFAULT_ORIGIN);
     const target = new URL(incoming.pathname + incoming.search, origin);
     const method = request.method.toUpperCase();
+
+    // Keep public crawl policy explicit at the edge. The Wasmer origin remains a
+    // staging/control origin and may intentionally advertise noindex.
+    if (incoming.pathname === '/robots.txt' && ['GET', 'HEAD'].includes(method)) {
+      const body = [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /wp-admin/',
+        'Disallow: /wp-login.php',
+        'Disallow: /wp-json/',
+        `Sitemap: ${incoming.origin}/wp-sitemap.xml`,
+        '',
+      ].join('\n');
+      return new Response(method === 'HEAD' ? null : body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=300, s-maxage=3600',
+          'X-Edge-Proxy': 'cloudflare-worker',
+          'X-Edge-Mode': 'robots',
+        },
+      });
+    }
 
     // Keep WordPress authentication/admin control on the native origin. This avoids
     // caching or proxy-cookie ambiguity on sensitive control paths.
@@ -105,6 +134,9 @@ export default {
           ? 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=300'
           : 'public, max-age=60, s-maxage=300, stale-while-revalidate=60, stale-if-error=600',
       );
+      // Public edge pages are the canonical browsable surface. Do not inherit the
+      // staging origin's noindex header.
+      if (!staticAsset) outHeaders.delete('X-Robots-Tag');
     }
 
     let response = new Response(upstream.body, {
@@ -130,6 +162,9 @@ export default {
       let rewriter = new HTMLRewriter();
       for (const [selector, attribute] of selectors) {
         rewriter = rewriter.on(selector, new AttributeRewriter(attribute, origin, publicOrigin));
+      }
+      if (!bypass) {
+        rewriter = rewriter.on('meta[name="robots" i]', new PublicRobotsRewriter());
       }
       response = rewriter.transform(response);
     }
