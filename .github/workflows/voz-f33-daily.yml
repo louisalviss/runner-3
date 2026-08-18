@@ -47,6 +47,7 @@ jobs:
               status: 'RUNNING'
             };
             let sha;
+            let currentPointer = null;
             try {
               const current = await github.rest.repos.getContent({
                 owner: context.repo.owner,
@@ -55,8 +56,13 @@ jobs:
                 ref: process.env.GITHUB_REF_NAME
               });
               sha = current.data.sha;
+              currentPointer = JSON.parse(Buffer.from(current.data.content, 'base64').toString('utf8'));
             } catch (e) {
-              if (e.status !== 404) throw e;
+              if (e.status !== 404 && !(e instanceof SyntaxError)) throw e;
+            }
+            if (currentPointer?.run_id && Number(currentPointer.run_id) > Number(context.runId)) {
+              core.warning(`Skip stale start-pointer write from run ${context.runId}; newer run ${currentPointer.run_id} already owns pointer`);
+              return;
             }
             const args = {
               owner: context.repo.owner,
@@ -134,6 +140,7 @@ jobs:
               posts_total: manifest.posts_total ?? null
             };
             let sha;
+            let currentPointer = null;
             try {
               const current = await github.rest.repos.getContent({
                 owner: context.repo.owner,
@@ -142,8 +149,13 @@ jobs:
                 ref: process.env.GITHUB_REF_NAME
               });
               sha = current.data.sha;
+              currentPointer = JSON.parse(Buffer.from(current.data.content, 'base64').toString('utf8'));
             } catch (e) {
-              if (e.status !== 404) throw e;
+              if (e.status !== 404 && !(e instanceof SyntaxError)) throw e;
+            }
+            if (currentPointer?.run_id && Number(currentPointer.run_id) > Number(context.runId)) {
+              core.warning(`Skip stale final-pointer write from run ${context.runId}; newer run ${currentPointer.run_id} already owns pointer`);
+              return;
             }
             const args = {
               owner: context.repo.owner,
