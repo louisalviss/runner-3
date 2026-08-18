@@ -1,0 +1,50 @@
+name: Edge Image Inventory
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'ops/pagespeed/edge-image-requests/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edge-image-inventory
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      EDGE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
+      EDGE_IMAGE_OUT: /tmp/edge-image-inventory.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Probe live image inventory
+        run: node scripts/probe-edge-image-inventory.mjs
+      - name: Persist image inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$EDGE_IMAGE_OUT" /tmp/image-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/edge-image-results/runs
+            cp /tmp/image-safe.json ops/pagespeed/edge-image-results/latest.json
+            cp /tmp/image-safe.json "ops/pagespeed/edge-image-results/runs/${GITHUB_RUN_ID}.json"
+            git add ops/pagespeed/edge-image-results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist edge image inventory: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
