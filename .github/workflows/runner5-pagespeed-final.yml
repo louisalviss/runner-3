@@ -1,0 +1,102 @@
+name: Runner5 Final Google PageSpeed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-pagespeed-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-final-pagespeed
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Run Google PageSpeed UI on first resolvable frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          targets=(
+            'https://runner5-restore-fast-louis.pages.dev/'
+            'https://runner5-restore-lab-louis.pages.dev/'
+            'https://runner5-restore-proxy.ducduy2411.workers.dev/'
+          )
+          printf '{"status":"failed","detail":"no_candidate_succeeded"}\n' >/tmp/runner5-final-psi.json
+          for target in "${targets[@]}"; do
+            echo "=== candidate $target ==="
+            if ! curl -LfsS --max-time 20 -A 'Mozilla/5.0' "$target" -o /tmp/candidate.html; then
+              echo 'candidate not publicly reachable'; continue
+            fi
+            if ! grep -Eq 'Runner5 Restore Lab Demo|Restore Lab' /tmp/candidate.html; then
+              echo 'candidate content marker missing'; continue
+            fi
+            rm -f /tmp/psi-candidate.json
+            PSI_URL="$target" PSI_UI_OUT=/tmp/psi-candidate.json PSI_UI_SCREENSHOT=/tmp/psi-candidate.png node scripts/pagespeed-ui-audit.mjs || true
+            if python - <<'PY'
+import json,os,sys
+p='/tmp/psi-candidate.json'
+if not os.path.exists(p): raise SystemExit(1)
+d=json.load(open(p))
+ok=d.get('status')=='ready' and str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/')
+raise SystemExit(0 if ok else 1)
+PY
+            then
+              cp /tmp/psi-candidate.json /tmp/runner5-final-psi.json
+              echo "$target" >/tmp/runner5-final-site.txt
+              break
+            fi
+            echo 'Google PSI did not produce a result for this candidate'
+          done
+          python - <<'PY'
+import json,os
+p='/tmp/runner5-final-psi.json'; d=json.load(open(p))
+print(json.dumps({
+ 'status':d.get('status'),'target':d.get('target'),'resultUrl':d.get('resultUrl'),
+ 'mobile':(d.get('mobile') or {}).get('scores'),'mobileMetrics':(d.get('mobile') or {}).get('metrics'),
+ 'desktop':(d.get('desktop') or {}).get('scores'),'desktopMetrics':(d.get('desktop') or {}).get('metrics'),
+ 'detail':d.get('detail')
+},indent=2))
+PY
+      - name: Persist final PageSpeed result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-final-psi.json || printf '{"status":"failed","detail":"missing_result"}\n' >/tmp/runner5-final-psi.json
+          cp /tmp/runner5-final-psi.json /tmp/final-psi-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/pagespeed/runner5-final; cp /tmp/final-psi-safe.json ops/pagespeed/runner5-final/latest.json; git add ops/pagespeed/runner5-final/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner5 final Google PageSpeed: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
+      - name: Require actual Google result
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+import json
+d=json.load(open('/tmp/runner5-final-psi.json'))
+assert d.get('status')=='ready', json.dumps(d,indent=2)
+assert str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/'), d.get('resultUrl')
+PY
