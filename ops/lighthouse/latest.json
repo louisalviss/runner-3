@@ -2,36 +2,233 @@
   "status": "ready",
   "site": "https://runner3-factory-smoke-2.wasmer.app/",
   "source": "Lighthouse 13",
-  "checkedAt": "2026-08-17T23:05:18.403174+00:00",
+  "checkedAt": "2026-08-18T01:24:01.064702+00:00",
   "runs": {
     "mobile": {
       "lighthouseVersion": "13.0.1",
-      "fetchTime": "2026-08-17T23:04:55.039Z",
+      "fetchTime": "2026-08-18T01:23:38.536Z",
       "scores": {
         "performance": 93,
-        "accessibility": 95,
+        "accessibility": 100,
         "best-practices": 100,
-        "seo": 92
+        "seo": 66
       },
       "audits": {
         "first-contentful-paint": {
-          "score": 0.97,
-          "numericValue": 1425.6209999999996,
-          "displayValue": "1.4\u00a0s",
+          "score": 0.99,
+          "numericValue": 1170.438,
+          "displayValue": "1.2\u00a0s",
           "title": "First Contentful Paint",
           "details": {}
         },
         "largest-contentful-paint": {
-          "score": 0.75,
-          "numericValue": 3088.5654999999997,
-          "displayValue": "3.1\u00a0s",
+          "score": 0.78,
+          "numericValue": 2993.624,
+          "displayValue": "3.0\u00a0s",
           "title": "Largest Contentful Paint",
           "details": {}
         },
         "speed-index": {
+          "score": 1,
+          "numericValue": 1553.2696180552855,
+          "displayValue": "1.6\u00a0s",
+          "title": "Speed Index",
+          "details": {}
+        },
+        "total-blocking-time": {
+          "score": 0.95,
+          "numericValue": 143,
+          "displayValue": "140\u00a0ms",
+          "title": "Total Blocking Time",
+          "details": {}
+        },
+        "cumulative-layout-shift": {
+          "score": 1,
+          "numericValue": 0,
+          "displayValue": "0",
+          "title": "Cumulative Layout Shift",
+          "details": {}
+        },
+        "interactive": {
+          "score": 0.96,
+          "numericValue": 2993.624,
+          "displayValue": "3.0\u00a0s",
+          "title": "Time to Interactive",
+          "details": {}
+        },
+        "server-response-time": {
+          "score": 1,
+          "numericValue": 170,
+          "displayValue": "Root document took 170\u00a0ms",
+          "title": "Initial server response time was short",
+          "details": {
+            "overallSavingsMs": 70
+          }
+        },
+        "render-blocking-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "Render blocking requests",
+          "details": {}
+        },
+        "image-delivery-insight": {
+          "score": 0,
+          "numericValue": null,
+          "displayValue": "Est savings of 199\u00a0KiB",
+          "title": "Improve image delivery",
+          "details": {}
+        },
+        "cache-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "Use efficient cache lifetimes",
+          "details": {}
+        },
+        "font-display-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "Font display",
+          "details": {}
+        },
+        "document-latency-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "Document request latency",
+          "details": {}
+        },
+        "network-dependency-tree-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "Network dependency tree",
+          "details": {}
+        },
+        "unused-css-rules": {
+          "score": 1,
+          "numericValue": 0,
+          "displayValue": "",
+          "title": "Reduce unused CSS",
+          "details": {
+            "overallSavingsMs": 0,
+            "overallSavingsBytes": 0
+          }
+        },
+        "unused-javascript": {
+          "score": 1,
+          "numericValue": 0,
+          "displayValue": "",
+          "title": "Reduce unused JavaScript",
+          "details": {
+            "overallSavingsMs": 0,
+            "overallSavingsBytes": 0
+          }
+        },
+        "total-byte-weight": {
+          "score": 1,
+          "numericValue": 323615,
+          "displayValue": "Total size was 316\u00a0KiB",
+          "title": "Avoids enormous network payloads",
+          "details": {}
+        },
+        "lcp-discovery-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "LCP request discovery",
+          "details": {}
+        },
+        "third-parties-insight": {
+          "score": 1,
+          "numericValue": null,
+          "displayValue": null,
+          "title": "3rd parties",
+          "details": {}
+        }
+      },
+      "failed": [
+        {
+          "id": "first-contentful-paint",
+          "title": "First Contentful Paint",
           "score": 0.99,
-          "numericValue": 1966.5479479999967,
-          "displayValue": "2.0\u00a0s",
+          "displayValue": "1.2\u00a0s",
+          "numericValue": 1170.438
+        },
+        {
+          "id": "largest-contentful-paint",
+          "title": "Largest Contentful Paint",
+          "score": 0.78,
+          "displayValue": "3.0\u00a0s",
+          "numericValue": 2993.624
+        },
+        {
+          "id": "total-blocking-time",
+          "title": "Total Blocking Time",
+          "score": 0.95,
+          "displayValue": "140\u00a0ms",
+          "numericValue": 143
+        },
+        {
+          "id": "max-potential-fid",
+          "title": "Max Potential First Input Delay",
+          "score": 0.9,
+          "displayValue": "130\u00a0ms",
+          "numericValue": 127
+        },
+        {
+          "id": "interactive",
+          "title": "Time to Interactive",
+          "score": 0.96,
+          "displayValue": "3.0\u00a0s",
+          "numericValue": 2993.624
+        },
+        {
+          "id": "label-content-name-mismatch",
+          "title": "Elements with visible text labels do not have matching accessible names.",
+          "score": 0,
+          "displayValue": null,
+          "numericValue": null
+        },
+        {
+          "id": "is-crawlable",
+          "title": "Page is blocked from indexing",
+          "score": 0,
+          "displayValue": null,
+          "numericValue": null
+        }
+      ]
+    },
+    "desktop": {
+      "lighthouseVersion": "13.0.1",
+      "fetchTime": "2026-08-18T01:23:51.622Z",
+      "scores": {
+        "performance": 98,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 66
+      },
+      "audits": {
+        "first-contentful-paint": {
+          "score": 1,
+          "numericValue": 508.5760000000001,
+          "displayValue": "0.5\u00a0s",
+          "title": "First Contentful Paint",
+          "details": {}
+        },
+        "largest-contentful-paint": {
+          "score": 0.9,
+          "numericValue": 1180.655,
+          "displayValue": "1.2\u00a0s",
+          "title": "Largest Contentful Paint",
+          "details": {}
+        },
+        "speed-index": {
+          "score": 1,
+          "numericValue": 545.1322191666658,
+          "displayValue": "0.5\u00a0s",
           "title": "Speed Index",
           "details": {}
         },
@@ -50,39 +247,39 @@
           "details": {}
         },
         "interactive": {
-          "score": 0.95,
-          "numericValue": 3088.5654999999997,
-          "displayValue": "3.1\u00a0s",
+          "score": 1,
+          "numericValue": 1186.6550000000002,
+          "displayValue": "1.2\u00a0s",
           "title": "Time to Interactive",
           "details": {}
         },
         "server-response-time": {
           "score": 1,
-          "numericValue": 218,
-          "displayValue": "Root document took 220\u00a0ms",
+          "numericValue": 146,
+          "displayValue": "Root document took 150\u00a0ms",
           "title": "Initial server response time was short",
           "details": {
-            "overallSavingsMs": 118
+            "overallSavingsMs": 46
           }
         },
         "render-blocking-insight": {
-          "score": 0,
+          "score": 1,
           "numericValue": null,
-          "displayValue": "Est savings of 230\u00a0ms",
+          "displayValue": null,
           "title": "Render blocking requests",
           "details": {}
         },
         "image-delivery-insight": {
           "score": 0,
           "numericValue": null,
-          "displayValue": "Est savings of 273\u00a0KiB",
+          "displayValue": "Est savings of 105\u00a0KiB",
           "title": "Improve image delivery",
           "details": {}
         },
         "cache-insight": {
-          "score": 0,
+          "score": 1,
           "numericValue": null,
-          "displayValue": "Est savings of 13\u00a0KiB",
+          "displayValue": null,
           "title": "Use efficient cache lifetimes",
           "details": {}
         },
@@ -101,7 +298,7 @@
           "details": {}
         },
         "network-dependency-tree-insight": {
-          "score": 0,
+          "score": 1,
           "numericValue": null,
           "displayValue": null,
           "title": "Network dependency tree",
@@ -129,13 +326,13 @@
         },
         "total-byte-weight": {
           "score": 1,
-          "numericValue": 397961,
-          "displayValue": "Total size was 389\u00a0KiB",
+          "numericValue": 323636,
+          "displayValue": "Total size was 316\u00a0KiB",
           "title": "Avoids enormous network payloads",
           "details": {}
         },
         "lcp-discovery-insight": {
-          "score": 0,
+          "score": 1,
           "numericValue": null,
           "displayValue": null,
           "title": "LCP request discovery",
@@ -151,32 +348,11 @@
       },
       "failed": [
         {
-          "id": "first-contentful-paint",
-          "title": "First Contentful Paint",
-          "score": 0.97,
-          "displayValue": "1.4\u00a0s",
-          "numericValue": 1425.6209999999996
-        },
-        {
           "id": "largest-contentful-paint",
           "title": "Largest Contentful Paint",
-          "score": 0.75,
-          "displayValue": "3.1\u00a0s",
-          "numericValue": 3088.5654999999997
-        },
-        {
-          "id": "speed-index",
-          "title": "Speed Index",
-          "score": 0.99,
-          "displayValue": "2.0\u00a0s",
-          "numericValue": 1966.5479479999967
-        },
-        {
-          "id": "interactive",
-          "title": "Time to Interactive",
-          "score": 0.95,
-          "displayValue": "3.1\u00a0s",
-          "numericValue": 3088.5654999999997
+          "score": 0.9,
+          "displayValue": "1.2\u00a0s",
+          "numericValue": 1180.655
         },
         {
           "id": "label-content-name-mismatch",
@@ -186,247 +362,8 @@
           "numericValue": null
         },
         {
-          "id": "link-name",
-          "title": "Links do not have a discernible name",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "meta-description",
-          "title": "Document does not have a meta description",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "lcp-discovery-insight",
-          "title": "LCP request discovery",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "network-dependency-tree-insight",
-          "title": "Network dependency tree",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        }
-      ]
-    },
-    "desktop": {
-      "lighthouseVersion": "13.0.1",
-      "fetchTime": "2026-08-17T23:05:08.489Z",
-      "scores": {
-        "performance": 91,
-        "accessibility": 96,
-        "best-practices": 100,
-        "seo": 92
-      },
-      "audits": {
-        "first-contentful-paint": {
-          "score": 0.95,
-          "numericValue": 785.5620000000001,
-          "displayValue": "0.8\u00a0s",
-          "title": "First Contentful Paint",
-          "details": {}
-        },
-        "largest-contentful-paint": {
-          "score": 0.91,
-          "numericValue": 1133.1650000000002,
-          "displayValue": "1.1\u00a0s",
-          "title": "Largest Contentful Paint",
-          "details": {}
-        },
-        "speed-index": {
-          "score": 0.99,
-          "numericValue": 847.0170525000005,
-          "displayValue": "0.8\u00a0s",
-          "title": "Speed Index",
-          "details": {}
-        },
-        "total-blocking-time": {
-          "score": 0.81,
-          "numericValue": 191.40499999999997,
-          "displayValue": "190\u00a0ms",
-          "title": "Total Blocking Time",
-          "details": {}
-        },
-        "cumulative-layout-shift": {
-          "score": 1,
-          "numericValue": 0,
-          "displayValue": "0",
-          "title": "Cumulative Layout Shift",
-          "details": {}
-        },
-        "interactive": {
-          "score": 1,
-          "numericValue": 1133.1650000000002,
-          "displayValue": "1.1\u00a0s",
-          "title": "Time to Interactive",
-          "details": {}
-        },
-        "server-response-time": {
-          "score": 1,
-          "numericValue": 224,
-          "displayValue": "Root document took 220\u00a0ms",
-          "title": "Initial server response time was short",
-          "details": {
-            "overallSavingsMs": 124
-          }
-        },
-        "render-blocking-insight": {
-          "score": 0,
-          "numericValue": null,
-          "displayValue": "Est savings of 160\u00a0ms",
-          "title": "Render blocking requests",
-          "details": {}
-        },
-        "image-delivery-insight": {
-          "score": 0.5,
-          "numericValue": null,
-          "displayValue": "Est savings of 79\u00a0KiB",
-          "title": "Improve image delivery",
-          "details": {}
-        },
-        "cache-insight": {
-          "score": 0,
-          "numericValue": null,
-          "displayValue": "Est savings of 13\u00a0KiB",
-          "title": "Use efficient cache lifetimes",
-          "details": {}
-        },
-        "font-display-insight": {
-          "score": 1,
-          "numericValue": null,
-          "displayValue": null,
-          "title": "Font display",
-          "details": {}
-        },
-        "document-latency-insight": {
-          "score": 1,
-          "numericValue": null,
-          "displayValue": null,
-          "title": "Document request latency",
-          "details": {}
-        },
-        "network-dependency-tree-insight": {
-          "score": 0,
-          "numericValue": null,
-          "displayValue": null,
-          "title": "Network dependency tree",
-          "details": {}
-        },
-        "unused-css-rules": {
-          "score": 1,
-          "numericValue": 0,
-          "displayValue": "",
-          "title": "Reduce unused CSS",
-          "details": {
-            "overallSavingsMs": 0,
-            "overallSavingsBytes": 0
-          }
-        },
-        "unused-javascript": {
-          "score": 1,
-          "numericValue": 0,
-          "displayValue": "",
-          "title": "Reduce unused JavaScript",
-          "details": {
-            "overallSavingsMs": 0,
-            "overallSavingsBytes": 0
-          }
-        },
-        "total-byte-weight": {
-          "score": 1,
-          "numericValue": 331436,
-          "displayValue": "Total size was 324\u00a0KiB",
-          "title": "Avoids enormous network payloads",
-          "details": {}
-        },
-        "lcp-discovery-insight": {
-          "score": 0,
-          "numericValue": null,
-          "displayValue": null,
-          "title": "LCP request discovery",
-          "details": {}
-        },
-        "third-parties-insight": {
-          "score": 1,
-          "numericValue": null,
-          "displayValue": null,
-          "title": "3rd parties",
-          "details": {}
-        }
-      },
-      "failed": [
-        {
-          "id": "first-contentful-paint",
-          "title": "First Contentful Paint",
-          "score": 0.95,
-          "displayValue": "0.8\u00a0s",
-          "numericValue": 785.5620000000001
-        },
-        {
-          "id": "largest-contentful-paint",
-          "title": "Largest Contentful Paint",
-          "score": 0.91,
-          "displayValue": "1.1\u00a0s",
-          "numericValue": 1133.1650000000002
-        },
-        {
-          "id": "speed-index",
-          "title": "Speed Index",
-          "score": 0.99,
-          "displayValue": "0.8\u00a0s",
-          "numericValue": 847.0170525000005
-        },
-        {
-          "id": "total-blocking-time",
-          "title": "Total Blocking Time",
-          "score": 0.81,
-          "displayValue": "190\u00a0ms",
-          "numericValue": 191.40499999999997
-        },
-        {
-          "id": "max-potential-fid",
-          "title": "Max Potential First Input Delay",
-          "score": 0.18,
-          "displayValue": "390\u00a0ms",
-          "numericValue": 393
-        },
-        {
-          "id": "label-content-name-mismatch",
-          "title": "Elements with visible text labels do not have matching accessible names.",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "link-name",
-          "title": "Links do not have a discernible name",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "meta-description",
-          "title": "Document does not have a meta description",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "lcp-discovery-insight",
-          "title": "LCP request discovery",
-          "score": 0,
-          "displayValue": null,
-          "numericValue": null
-        },
-        {
-          "id": "network-dependency-tree-insight",
-          "title": "Network dependency tree",
+          "id": "is-crawlable",
+          "title": "Page is blocked from indexing",
           "score": 0,
           "displayValue": null,
           "numericValue": null
