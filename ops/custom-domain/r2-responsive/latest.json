@@ -1,23 +1,33 @@
 {
-  "status": "failed",
+  "status": "ok",
   "siteSlug": "runner3-factory-smoke-2",
   "publicUrl": "https://runner3wp.pntr.dev/",
   "nativeUrl": "https://runner3-factory-smoke-2.wasmer.app/",
   "plugin": "runner3-r2-responsive",
   "installed": true,
-  "activated": false,
-  "frontendHttp": null,
-  "responsiveV2": false,
-  "preloadMatchesHero": false,
-  "r2Preconnect": false,
-  "responsiveImageCount": 0,
-  "heroCurrentSrc": null,
-  "heroRenderedWidth": null,
-  "heroNaturalWidth": null,
+  "activated": true,
+  "frontendHttp": 200,
+  "responsiveV2": true,
+  "preloadMatchesHero": true,
+  "r2Preconnect": true,
+  "responsiveImageCount": 8,
+  "heroCurrentSrc": "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/responsive-v2/offset-demo-01-w640.webp",
+  "heroRenderedWidth": 264,
+  "heroNaturalWidth": 314,
   "consoleErrors": [],
   "pageErrors": [],
-  "consoleWarnings": [],
-  "detail": "plugin_not_active_after_activation",
-  "adminDiagnostic": "Select Runner3 R2 Responsive Images\n\t\nRunner3 R2 Responsive Images\nActivate | Delete\n\t\n\nAdds verified static R2 responsive variants to OFFSET frontend images without client-side JavaScript.\n\nVersion 1.0.0 | By Runner3",
-  "updatedAt": "2026-08-18T09:53:18.260Z"
+  "consoleWarnings": [
+    {
+      "type": "warning",
+      "text": "[webmcp-interceptor] document.modelContext is not available.\nTo enable WebMCP, use Chrome M146+ and enable:\nchrome://flags/#enable-experimental-web-platform-features",
+      "location": {
+        "url": "https://runner3wp.pntr.dev/.webmcp/bridge.js",
+        "lineNumber": 1343,
+        "columnNumber": 12
+      }
+    }
+  ],
+  "detail": "responsive_v2_active; non-fatal browser warning(s) recorded",
+  "adminDiagnostic": "Skip to main content Skip to toolbar Dashboard Home Updates Posts All Posts Add Post Categories Tags Media Library Add Media File Pages All Pages Add Page Comments Appearance Themes Patterns Customize Fonts Menus Theme File Editor Plugins Installed Plugins Add Plugin Plugin File Editor Users All Users Add User Profile Tools Available Tools Import Export Site Health Export Personal Data Erase Personal Data Settings General Connectors Writing Reading Discussion Media Permalinks Privacy Collapse Menu About WordPress OFFSET — Independent Journal Ctrl+K Open command palette 0 0 Comments in moderation New Wasmer Howdy, runner3wp0b90f6b4ab Screen Options Help Plugins Add Plugin Plugin activated. Dismiss this notice. Filter plugins list All (6) | Active (5) | Inactive (1) Search installed plugins Select bulk action Bulk actions Activate Deactivate Update Delete 6 items Plugins list Select All Plugin Description Select Adding Nofollow External/Outbound Link Adding Nofollow External/Outbound Link Deactivate Adding rel=\"nofollow\" attribute to external/outbound links which will be added advantages for your SEO Score. Version 1.0.0 | By Sumit Malviya | View details Select Hello Dolly Hello Doll",
+  "updatedAt": "2026-08-18T09:56:18.293Z"
 }
