@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       R2_BUCKET_NAME: runner3-wp-media
       R2_PUBLIC_HOST: pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev
       SITE_SLUG: runner3-factory-smoke-2
@@ -37,27 +38,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare Account ID unavailable'; exit 2; }
           python - <<'PY'
           import io, json, os, subprocess, urllib.request
           from pathlib import Path
           from PIL import Image
 
-          token=os.environ['CLOUDFLARE_API_TOKEN']
+          account_id=os.environ['CLOUDFLARE_ACCOUNT_ID']
           bucket_name=os.environ['R2_BUCKET_NAME']
           public_host=os.environ['R2_PUBLIC_HOST']
           slug=os.environ['SITE_SLUG']
           result_path=os.environ['RESULT_PATH']
           widths=(360,480,640)
-
-          # Account listing is already permitted by the Worker-deploy token. Avoid the
-          # R2 bucket-list API because this token intentionally lacks R2 admin/list scope.
-          req=urllib.request.Request('https://api.cloudflare.com/client/v4/accounts?per_page=50',headers={'Authorization':f'Bearer {token}','Accept':'application/json'})
-          with urllib.request.urlopen(req,timeout=30) as r: payload=json.load(r)
-          accounts=payload.get('result') if payload.get('success') else []
-          if not accounts: raise RuntimeError('cloudflare_account_unavailable')
-          account_id=sorted(accounts,key=lambda x:x.get('id',''))[0]['id']
-          os.environ['CLOUDFLARE_ACCOUNT_ID']=account_id
-
           source_dir=Path('media')/slug
           out_dir=Path('/tmp/r2-responsive')
           out_dir.mkdir(parents=True,exist_ok=True)
@@ -75,7 +67,7 @@ jobs:
                       local=out_dir/f'{src.stem}-w{width}.webp'
                       resized.save(local,'WEBP',quality=82,method=6)
                       key=f'sites/{slug}/responsive/{src.stem}-w{width}.webp'
-                      cmd=['npx','--yes','wrangler@4.102.0','r2','object','put',f'{bucket_name}/{key}','--file',str(local),'--remote','--content-type','image/webp','--cache-control','public, max-age=31536000, immutable']
+                      cmd=['npx','--yes','wrangler@4.123.0','r2','object','put',f'{bucket_name}/{key}','--file',str(local),'--remote','--content-type','image/webp','--cache-control','public, max-age=31536000, immutable']
                       p=subprocess.run(cmd,env=os.environ,capture_output=True,text=True,timeout=120)
                       if p.returncode!=0:
                           Path(result_path).write_text(json.dumps({'status':'failed','stage':'upload','bucketName':bucket_name,'key':key,'detail':(p.stderr or p.stdout)[-1200:]},indent=2))
