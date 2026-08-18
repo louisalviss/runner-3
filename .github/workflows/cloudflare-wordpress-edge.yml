@@ -5,16 +5,11 @@ on:
     branches: [main]
     paths:
       - 'edge/wordpress-edge-proxy/**'
-      - 'scripts/deploy-wordpress-cloudflare-edge.mjs'
+      - 'scripts/deploy-wordpress-workers-cache.mjs'
+      - 'scripts/configure-wordpress-edge-cache.mjs'
+      - 'scripts/deploy-wordpress-plugin.mjs'
+      - 'wordpress/plugins/runner3-edge-cache-purge/**'
       - '.github/workflows/cloudflare-wordpress-edge.yml'
-      - 'ops/cloudflare-edge/requests/*.json'
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'ops/cloudflare-edge/requests/*.json'
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -26,70 +21,156 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 12
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_WORKER_NAME: wordpress-edge-proxy
       CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev
       CF_EDGE_OUT: /tmp/cloudflare-wordpress-edge.json
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      WP_PLUGIN_SLUG: runner3-edge-cache-purge
+      WP_PLUGIN_ZIP: /tmp/runner3-edge-cache-purge.zip
+      RUNNER3_PURGE_ENDPOINT: https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge
+      RUNNER3_EDGE_WP_OUT: /tmp/runner3-edge-cache-wordpress.json
+
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 2
 
-      - name: Deploy Worker and verify persistent HTML snapshots
+      - name: Validate edge and WordPress controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -l wordpress/plugins/runner3-edge-cache-purge/runner3-edge-cache-purge.php
+          node --check edge/wordpress-edge-proxy/src/index.js
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          node --check scripts/deploy-wordpress-workers-cache.mjs
+          node --check scripts/configure-wordpress-edge-cache.mjs
+
+      - name: Deploy Worker and verify Workers Caching safety
         id: edge
         continue-on-error: true
-        run: node scripts/deploy-wordpress-cloudflare-edge.mjs
+        run: node scripts/deploy-wordpress-workers-cache.mjs
 
-      - name: Persist immutable edge result
+      - name: Decrypt Wasmer account state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Automation encryption key unavailable'; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Package edge purge plugin
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "$WP_PLUGIN_ZIP"
+          (cd wordpress/plugins && zip -qr "$WP_PLUGIN_ZIP" runner3-edge-cache-purge)
+          test -s "$WP_PLUGIN_ZIP"
+
+      - name: Install browser automation
+        if: always()
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Install edge purge plugin
+        id: plugin
+        if: always()
+        continue-on-error: true
+        run: node scripts/deploy-wordpress-plugin.mjs
+
+      - name: Configure signed purge and verify manual purge
+        id: configure
+        if: always()
+        continue-on-error: true
+        run: node scripts/configure-wordpress-edge-cache.mjs
+
+      - name: Verify cache is warm after WordPress purge
+        id: warm
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const u='https://wordpress-edge-proxy.ducduy2411.workers.dev/';
+          const rows=[];
+          for(let i=0;i<3;i++){
+            const t=performance.now();
+            const r=await fetch(u,{redirect:'manual'});
+            await r.arrayBuffer();
+            rows.push({http:r.status,ms:Math.round((performance.now()-t)*10)/10,cache:r.headers.get('cf-cache-status'),age:r.headers.get('age'),policy:r.headers.get('x-edge-cache-policy')});
+            await new Promise(x=>setTimeout(x,350));
+          }
+          const ok=rows.every(x=>x.http===200&&x.policy==='workers-caching') && rows.some(x=>String(x.cache).toUpperCase()==='HIT'||x.age!==null);
+          require('fs').writeFileSync('/tmp/runner3-edge-cache-warm.json',JSON.stringify({status:ok?'ok':'failed',rows,checkedAt:new Date().toISOString()},null,2)+'\n');
+          console.log(JSON.stringify({ok,rows},null,2));
+          if(!ok) process.exit(7);
+          NODE
+
+      - name: Persist edge cache results
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           test -s /tmp/cloudflare-wordpress-edge.json || echo '{"status":"runner_error","detail":"cloudflare_edge_result_missing"}' >/tmp/cloudflare-wordpress-edge.json
+          test -s /tmp/runner3-edge-cache-wordpress.json || echo '{"status":"runner_error","detail":"wordpress_edge_cache_result_missing"}' >/tmp/runner3-edge-cache-wordpress.json
+          test -s /tmp/runner3-edge-cache-warm.json || echo '{"status":"runner_error","detail":"edge_cache_warm_result_missing"}' >/tmp/runner3-edge-cache-warm.json
           cp /tmp/cloudflare-wordpress-edge.json /tmp/cloudflare-edge-safe.json
+          cp /tmp/runner3-edge-cache-wordpress.json /tmp/wordpress-edge-safe.json
+          cp /tmp/runner3-edge-cache-warm.json /tmp/warm-safe.json
+          rm -f /tmp/wasmer-account.json "$WP_PLUGIN_ZIP"
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           pushed=false
-          for attempt in 1 2 3 4; do
+          for attempt in 1 2 3 4 5; do
             git fetch origin main
             git reset --hard origin/main
-            mkdir -p ops/cloudflare-edge/results/runs
-            cp /tmp/cloudflare-edge-safe.json "ops/cloudflare-edge/results/wordpress-edge-proxy.latest.json"
+            mkdir -p ops/cloudflare-edge/results/runs ops/custom-domain/edge-cache
+            cp /tmp/cloudflare-edge-safe.json ops/cloudflare-edge/results/wordpress-edge-proxy.latest.json
             cp /tmp/cloudflare-edge-safe.json "ops/cloudflare-edge/results/runs/wordpress-edge-proxy.${GITHUB_RUN_ID}.json"
-            git add ops/cloudflare-edge/results
+            cp /tmp/wordpress-edge-safe.json ops/custom-domain/edge-cache/wordpress.latest.json
+            cp /tmp/warm-safe.json ops/custom-domain/edge-cache/warm.latest.json
+            git add ops/cloudflare-edge/results ops/custom-domain/edge-cache
             if git diff --cached --quiet; then pushed=true; break; fi
-            git commit -m "Persist Cloudflare WordPress edge result: ${GITHUB_RUN_ID}"
+            git commit -m "Persist WordPress Workers cache result: ${GITHUB_RUN_ID}"
             if git push origin HEAD:main; then pushed=true; break; fi
-            sleep 2
+            sleep $((attempt * 2))
           done
           test "$pushed" = true
 
-      - name: Require verified Cloudflare snapshot
+      - name: Require verified full-page edge cache
         if: always()
         shell: bash
         run: |
           python - <<'PY'
           import json
-          d=json.load(open('/tmp/cloudflare-wordpress-edge.json'))
-          assert d.get('status') == 'completed', json.dumps(d,indent=2)
-          p=d['probe']
-          assert p.get('snapshotVerified') is True, json.dumps(d,indent=2)
-          assert p.get('coldFast') is True, json.dumps(d,indent=2)
+          edge=json.load(open('/tmp/cloudflare-wordpress-edge.json'))
+          wp=json.load(open('/tmp/runner3-edge-cache-wordpress.json'))
+          warm=json.load(open('/tmp/runner3-edge-cache-warm.json'))
+          assert edge.get('status') == 'completed', json.dumps(edge,indent=2)
+          p=edge['probe']
+          for key in ('publicReady','policyReady','cacheHit','signedPurgeRequired','loginSafe','cookieSafe','responsiveReady','noindexReady'):
+              assert p.get(key) is True, key+' failed: '+json.dumps(edge,indent=2)
+          assert wp.get('status') == 'ok' and wp.get('manualPurgeOk') is True and wp.get('signingKeyReady') is True, json.dumps(wp,indent=2)
+          assert warm.get('status') == 'ok', json.dumps(warm,indent=2)
           print(json.dumps({
-            'status':d['status'],
-            'edgeUrl':d['edgeUrl'],
-            'snapshot':d.get('snapshot'),
-            'snapshotVerified':p['snapshotVerified'],
-            'coldFast':p['coldFast'],
-            'proof':p['proof'],
-            'firstTtfbMs':p['firstTtfbMs'],
-            'warmMedianTtfbMs':p['warmMedianTtfbMs'],
-            'internalLinkRewritten':p['internalLinkRewritten'],
-            'loginSafe':p['loginSafe'],
-            'restSafe':p['restSafe'],
-            'cookieSafe':p['cookieSafe'],
+            'status':'completed',
+            'edgeUrl':edge['edgeUrl'],
+            'architecture':edge.get('architecture'),
+            'cacheHit':p['cacheHit'],
+            'signedPurgeRequired':p['signedPurgeRequired'],
+            'manualPurgeOk':wp['manualPurgeOk'],
+            'warm':warm['rows'],
           },indent=2))
           PY
