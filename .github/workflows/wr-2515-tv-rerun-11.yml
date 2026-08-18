@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/correct /tmp/final
+          mkdir -p /tmp/correct /tmp/final /tmp/wr
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-rebuild-5m-s3.yml' -o /tmp/source.yml
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
           python3 - <<'PY'
@@ -70,7 +70,6 @@ jobs:
           cmap={r['symbol']:r for r in corr}
           merged=[cmap.get(r['symbol'],r) for r in base]
           merged.sort(key=lambda x:(-(x.get('net_r_6bps') if x.get('net_r_6bps') is not None else -1e99),x['symbol']))
-          # Replace trade ledger rows only for corrected symbols.
           with open('/tmp/final/trades.jsonl','w') as out:
             with open('/tmp/base/trades.jsonl') as f:
               for line in f:
@@ -80,7 +79,6 @@ jobs:
             with open('/tmp/correct/trades-corrected.jsonl') as f:
               for line in f:
                 if line.strip(): out.write(line if line.endswith('\n') else line+'\n')
-          # Tick QA against TradingView for all currently matched contracts.
           matched=0; mismatch=[]; missing=[]
           for r in merged:
             x=tv.get(r['symbol'])
@@ -90,7 +88,6 @@ jobs:
             if not math.isclose(float(r['tick']),float(x['tick']),rel_tol=0,abs_tol=max(1e-15,abs(float(x['tick']))*1e-12)):
               mismatch.append({'symbol':r['symbol'],'baseline_tick':r['tick'],'tv_tick':x['tick']})
           if mismatch: raise SystemExit('remaining TradingView tick mismatches '+json.dumps(mismatch[:30]))
-          # Explicit control QA. SLERF/FORTH are allowed to be missing because TradingView no longer exposes them.
           controls={}
           for s in ['BNBUSDT','TRXUSDT','SLERFUSDT','C98USDT','PYTHUSDT','FORTHUSDT']:
             row=next((x for x in merged if x['symbol']==s),None); meta=tv.get(s)
