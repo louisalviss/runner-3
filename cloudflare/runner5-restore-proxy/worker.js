@@ -1,3 +1,4 @@
+// Dedicated access proxy for the restored Runner5 WordPress staging site.
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
 
