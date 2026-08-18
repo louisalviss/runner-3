@@ -10,12 +10,22 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: wasmer-wordpress-settings-inspect
+  cancel-in-progress: true
+
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 20
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_APP_OWNER: runner3wp0b90f6b4ab
+      WASMER_APP_SLUG: runner3-factory-smoke-2
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      WP_SITE_URL: https://runner3-factory-smoke-2.wasmer.app/
+      EDGE_SPEED_OUT: /tmp/wasmer-edge-speed.json
+      FUNCTIONAL_OUT: /tmp/wp-functional-regression.json
     steps:
       - uses: actions/checkout@v4
       - name: Restore encrypted Wasmer state
@@ -24,19 +34,52 @@ jobs:
           set -euo pipefail
           echo "::add-mask::$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-result.json
+          cp /tmp/wasmer-result.json /tmp/wasmer-account.json
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
       - run: npm install --no-save playwright-core@1.58.2
       - name: Inspect WordPress settings
         run: node scripts/wasmer-wordpress-settings-inspect.mjs
-      - name: Persist safe inspection
+      - name: Build current optimized theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wordpress-site/wp-content/themes
+          zip -qr /tmp/runner3-starter.zip runner3-starter
+          test -s /tmp/runner3-starter.zip
+      - name: Deploy optimized theme
+        run: node scripts/deploy-wordpress-theme-v2.mjs
+      - name: Enable CDN cache and measure TTFB
+        run: node scripts/wasmer-edge-speed.mjs
+      - name: Functional regression
+        run: node scripts/test-wordpress-functional.mjs
+      - name: Persist safe inspection and optimization results
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           test -f /tmp/wasmer-wp-settings-inspect.json || echo '{"status":"runner_error"}' >/tmp/wasmer-wp-settings-inspect.json
+          test -f /tmp/wasmer-edge-speed.json || echo '{"status":"runner_error","detail":"edge_speed_result_missing"}' >/tmp/wasmer-edge-speed.json
+          test -f /tmp/wp-functional-regression.json || echo '{"status":"failed","detail":"functional_result_missing"}' >/tmp/wp-functional-regression.json
+          test -f /tmp/wp-theme-deploy-runner3-factory-smoke-2.json || echo '{"status":"runner_error","detail":"theme_status_missing"}' >/tmp/wp-theme-deploy-runner3-factory-smoke-2.json
+          cp /tmp/wasmer-wp-settings-inspect.json /tmp/inspect-safe.json
+          cp /tmp/wasmer-edge-speed.json /tmp/edge-safe.json
+          cp /tmp/wp-functional-regression.json /tmp/reg-safe.json
+          cp /tmp/wp-theme-deploy-runner3-factory-smoke-2.json /tmp/deploy-safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin main && git reset --hard origin/main
-          cp /tmp/wasmer-wp-settings-inspect.json ops/wasmer/wp-settings-inspect.json
-          git add ops/wasmer/wp-settings-inspect.json
-          if ! git diff --cached --quiet; then git commit -m 'Persist safe Wasmer WordPress settings inspection'; git push origin HEAD:main; fi
+          pushed=false
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wasmer ops/wasmer-edge-speed/results ops/wp-functional-regression/results ops/wp-theme-deploy/results
+            cp /tmp/inspect-safe.json ops/wasmer/wp-settings-inspect.json
+            cp /tmp/edge-safe.json ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json
+            cp /tmp/reg-safe.json ops/wp-functional-regression/results/runner3-factory-smoke-2.latest.json
+            cp /tmp/deploy-safe.json ops/wp-theme-deploy/results/runner3-factory-smoke-2.latest.json
+            git add ops/wasmer/wp-settings-inspect.json ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json ops/wp-functional-regression/results/runner3-factory-smoke-2.latest.json ops/wp-theme-deploy/results/runner3-factory-smoke-2.latest.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m 'Persist live WordPress edge optimization verification'
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 3
+          done
+          test "$pushed" = true
