@@ -1,0 +1,232 @@
+name: WR v2.5.15 Live Sync
+on:
+  push:
+    branches: [v2515-live-sync]
+    paths:
+      - '.github/workflows/v2515-live-sync.yml'
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      VERIFIER_URL: "https://uc4d81288d5b5547b9afdeff7cf8.dl.dropboxusercontent.com/cd/0/get/DGb7aoP5tr98bgcplNq0sB8wRRCRW9qL0dEpfxVNoqZ5xhAYdMYgmYI7q-UIn4iAr5onNVY8CRnzggTFY1EC_6F1Rbe-AtRFdsgaVXqdtQQ_JywQelRqUoQgpZOnlQR3y7g8xc9_9Mk5g2kNxE7IMOBUurhog0UMYqpr6NEriKD8Tg/file?c_luid=3c63ed66"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Restore canonical v2.5.13 and session
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          git fetch --no-tags --depth=1 origin b059f45f98d2a94f41c76f4dc886b4d943a337af
+          git show b059f45f98d2a94f41c76f4dc886b4d943a337af:ops/tradingview/wr-window-report.pine.aes > /tmp/wr.aes
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/wr.aes -out /tmp/wr2513.pine
+          test "$(sha256sum /tmp/wr2513.pine | awk '{print $1}')" = "9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          curl -fL "$VERIFIER_URL" -o /tmp/reference_verify.py
+          test -s /tmp/reference_verify.py
+          echo BASE_SOURCE=PASS
+
+      - name: Build exact v2.5.15 source and verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/build2515.py <<'PY'
+          from pathlib import Path
+          import hashlib
+          p=Path('/tmp/wr2513.pine').read_text()
+          def rep(old,new,n=1):
+              global p
+              c=p.count(old)
+              if c<n: raise SystemExit(f'PINE_PATCH_MISSING count={c}: {old[:100]}')
+              p=p.replace(old,new,n)
+          rep('strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT", shorttitle="WR 2.5.13 WIN"',
+              'strategy("Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC", shorttitle="WR 2.5.15 WIN"')
+          rep('// Wave Rider 2.5.13 WINDOW REPORT', '''// Wave Rider 2.5.15 WINDOW DETERMINISTIC\n// v2.5.15 = v2.5.13 Window Report + v2.5.14 3x notional cap + deterministic state anchor.\n// State Start gates deterministic indicator/state initialization; Window Start/End remain report-only.''')
+          rep('riskPct=input.float(1.0,"1R Risk (% of Equity)",minval=0.01,maxval=10.0,step=0.1,group=groupLife)',
+              'riskPct=input.float(1.0,"1R Risk (% of Equity)",minval=0.01,maxval=10.0,step=0.1,group=groupLife)\nmaxNotionalMultiple=input.float(3.0,"Max Notional / Equity (x)",minval=0.1,step=0.1,group=groupLife)')
+          rep('''groupWindow="10. Window Report"\nstartTime=input.time(1785171600000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)\nvalidWindow=endTime>startTime\nsignalInReportWindow=validWindow and time_close>=startTime and time_close<endTime''',
+              '''groupWindow="10. Deterministic Window"\nstateStartTime=input.time(1785171600000,"State Start (VN, exact bar required)",group=groupWindow)\nstartTime=input.time(1785862800000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786294800000,"End (VN, exclusive)",group=groupWindow)\nvar bool stateAnchorSeen=false\nif time==stateStartTime\n    stateAnchorSeen:=true\nstateActive=stateAnchorSeen\nvalidWindow=endTime>startTime\nsignalInReportWindow=stateActive and validWindow and time_close>=startTime and time_close<endTime\ndetClose=stateActive?close:na\ndetHigh=stateActive?high:na\ndetLow=stateActive?low:na\ndetTR=stateActive?(na(detClose[1])?high-low:math.max(high-low,math.abs(high-detClose[1]),math.abs(low-detClose[1]))):na''')
+          rep('var int recoveredPendingPlanCount=0\nvar int processedClosedTrades=0',
+              'var int recoveredPendingPlanCount=0\nvar int notionalCapSkips=0\nvar int processedClosedTrades=0')
+          rep('ema21=ta.ema(close,emaLength)','ema21=ta.ema(detClose,emaLength)')
+          rep('ph=ta.pivothigh(high,leftBars,rightBars)[1]','ph=ta.pivothigh(detHigh,leftBars,rightBars)[1]')
+          rep('pl=ta.pivotlow(low,leftBars,rightBars)[1]','pl=ta.pivotlow(detLow,leftBars,rightBars)[1]')
+          rep('belowCount:=close<ema21?nz(belowCount[1])+1:0','belowCount:=stateActive and not na(ema21) and close<ema21?nz(belowCount[1])+1:0')
+          rep('aboveCount:=close>ema21?nz(aboveCount[1])+1:0','aboveCount:=stateActive and not na(ema21) and close>ema21?nz(aboveCount[1])+1:0')
+          rep('atrAngle=ta.atr(atrPeriod)','atrAngle=ta.rma(detTR,atrPeriod)')
+          rep('trSum=math.sum(ta.atr(1),chopLength)','trSum=math.sum(detTR,chopLength)')
+          rep('priceRange=ta.highest(high,chopLength)-ta.lowest(low,chopLength)','priceRange=ta.highest(detHigh,chopLength)-ta.lowest(detLow,chopLength)')
+          rep('signalATR=ta.atr(signalAtrLength)','signalATR=ta.rma(detTR,signalAtrLength)')
+          rep('''    float q=f_riskQty(e,s,canonicalEquity)\n    float plannedRisk=math.abs(e-s)*q*syminfo.pointvalue\n    if q>0 and plannedRisk>0\n        pendingDir:=1''',
+              '''    float q=f_riskQty(e,s,canonicalEquity)\n    float plannedRisk=math.abs(e-s)*q*syminfo.pointvalue\n    float plannedNotional=math.abs(e)*q*syminfo.pointvalue\n    float requiredNotionalMultiple=canonicalEquity>0?plannedNotional/canonicalEquity:na\n    bool notionalCapPass=not na(requiredNotionalMultiple) and requiredNotionalMultiple<maxNotionalMultiple\n    if q>0 and plannedRisk>0 and notionalCapPass\n        pendingDir:=1''')
+          rep('''    float q=f_riskQty(e,s,canonicalEquity)\n    float plannedRisk=math.abs(s-e)*q*syminfo.pointvalue\n    if q>0 and plannedRisk>0\n        pendingDir:=-1''',
+              '''    float q=f_riskQty(e,s,canonicalEquity)\n    float plannedRisk=math.abs(s-e)*q*syminfo.pointvalue\n    float plannedNotional=math.abs(e)*q*syminfo.pointvalue\n    float requiredNotionalMultiple=canonicalEquity>0?plannedNotional/canonicalEquity:na\n    bool notionalCapPass=not na(requiredNotionalMultiple) and requiredNotionalMultiple<maxNotionalMultiple\n    if q>0 and plannedRisk>0 and notionalCapPass\n        pendingDir:=-1''')
+          rep('        strategy.exit("L-X",from_entry="L",stop=s,limit=t,comment="SL/TP")',
+              '        strategy.exit("L-X",from_entry="L",stop=s,limit=t,comment="SL/TP")\n    else if q>0 and plannedRisk>0 and not notionalCapPass\n        notionalCapSkips+=1')
+          rep('        strategy.exit("S-X",from_entry="S",stop=s,limit=t,comment="SL/TP")',
+              '        strategy.exit("S-X",from_entry="S",stop=s,limit=t,comment="SL/TP")\n    else if q>0 and plannedRisk>0 and not notionalCapPass\n        notionalCapSkips+=1')
+          rep('plot(newsLockoutAtClose?1:0,"RAW News Lockout",display=display.data_window)',
+              'plot(newsLockoutAtClose?1:0,"RAW News Lockout",display=display.data_window)\nplot(notionalCapSkips,"RAW Notional Cap Skips",display=display.data_window)')
+          rep('var table audit=table.new(position.bottom_right,2,8,border_width=1,force_overlay=true)',
+              'var table audit=table.new(position.bottom_right,2,9,border_width=1,force_overlay=true)')
+          rep('bool engineOK=canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK',
+              'bool engineOK=stateAnchorSeen and canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK')
+          rep('string engineText=engineOK?"✓ CLEAN":"! CHECK"',
+              'string engineText=not stateAnchorSeen?"! ANCHOR":engineOK?"✓ CLEAN":"! CHECK"')
+          rep('string ambText=str.tostring(canonicalAmbiguousCount)+(conservativeSameBar?" → SL":" audit")',
+              'string ambText=str.tostring(canonicalAmbiguousCount)+(conservativeSameBar?" → SL":" audit")\n        string capSkipText=str.tostring(notionalCapSkips)+" @ >"+str.tostring(maxNotionalMultiple,"#.##")+"x"')
+          rep('''        table.cell(audit,0,7,"Ambiguous TP+SL",text_color=cFg,bgcolor=cLabel,text_size=size.tiny,text_halign=text.align_left)\n        table.cell(audit,1,7,ambText,text_color=cFg,bgcolor=cNeutral,text_size=size.small,text_halign=text.align_center)\n    else\n        table.clear(audit,0,0,1,7)''',
+              '''        table.cell(audit,0,7,"Ambiguous TP+SL",text_color=cFg,bgcolor=cLabel,text_size=size.tiny,text_halign=text.align_left)\n        table.cell(audit,1,7,ambText,text_color=cFg,bgcolor=cNeutral,text_size=size.small,text_halign=text.align_center)\n        table.cell(audit,0,8,"Notional cap skips",text_color=cFg,bgcolor=cLabel,text_size=size.tiny,text_halign=text.align_left)\n        table.cell(audit,1,8,capSkipText,text_color=cFg,bgcolor=cNeutral,text_size=size.small,text_halign=text.align_center)\n    else\n        table.clear(audit,0,0,1,8)''')
+          if 'signalRangePass=not na(signalRangeATR) and signalRangeATR<=maxSignalRangeATR' not in p:
+              raise SystemExit('CANONICAL_COMPARATOR_CHANGED')
+          Path('/tmp/wr2515.pine').write_text(p)
+          Path('/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md').write_text('```pine\n'+p+'```\n')
+          print('WR2515_SHA256='+hashlib.sha256(p.encode()).hexdigest())
+
+          v=Path('/tmp/reference_verify.py').read_text()
+          v=v.replace('# Wave Rider 2.5.13 defaults','# Wave Rider 2.5.15 deterministic-window defaults',1)
+          v=v.replace("END=os.getenv('WR_END','2026-08-14')", "END=os.getenv('WR_END','2026-08-10')\nREPORT_START=os.getenv('WR_REPORT_START','2026-08-05T00:00:00+07:00')\nREPORT_END=os.getenv('WR_REPORT_END','2026-08-10T00:00:00+07:00')\nSTATE_START=os.getenv('WR_STATE_START','2026-07-28T00:00:00+07:00')",1)
+          v=v.replace('TFS=(3,5,10)',"TFS=(int(os.getenv('WR_TF','5')),)",1)
+          v=v.replace('TP_R=2.3; RISK_PCT=1.0; INIT=100000.0','TP_R=2.3; RISK_PCT=1.0; INIT=100000.0\nMAX_NOTIONAL_MULTIPLE=float(os.getenv("WR_MAX_NOTIONAL_MULTIPLE","3.0"))\nQTY_STEP=float(os.getenv("WR_QTY_STEP","1.0"))',1)
+          oldpivot='''        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n'''
+          newpivot='''        if v[c]==ext:\n            # Pine ta.pivothigh/low parity: older/left equal extremes are allowed;\n            # a newer/right equal extreme rejects the candidate.\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n'''
+          if v.count(oldpivot)!=1: raise SystemExit('VERIFIER_PIVOT_PATCH_MISSING')
+          v=v.replace(oldpivot,newpivot,1)
+          v=v.replace('a=datetime.fromisoformat(START).replace(tzinfo=timezone.utc)-timedelta(days=WARMUP_DAYS)\n    b=datetime.fromisoformat(END).replace(tzinfo=timezone.utc)',
+                      'a=datetime.fromisoformat(STATE_START).astimezone(timezone.utc)\n    b=datetime.fromisoformat(REPORT_END).astimezone(timezone.utc)+timedelta(days=2)',1)
+          v=v.replace('def run(tf,bars,tick,start_ms,end_ms):\n    ind,pht,plt=calc_ind(bars); chart_ms=tf*60000; eq=INIT; peak=INIT',
+                      'def run(tf,bars,tick,start_ms,end_ms):\n    state_ms=int(datetime.fromisoformat(STATE_START).timestamp()*1000)\n    bars=[x for x in bars if x.ot>=state_ms]\n    ind,pht,plt=calc_ind(bars); chart_ms=tf*60000; eq=INIT; peak=INIT',1)
+          v=v.replace('if start_ms<=bars[i].ct<end_ms:\n            trades.append(Trade', 'if start_ms<=active.sig_t<end_ms:\n            trades.append(Trade',1)
+          v=v.replace('        if x.ct>end_ms: break\n','',1)
+          v=v.replace('        # Warmup bars compute indicators only; no orders until evaluation window.\n        if x.ct<start_ms or x.ct>end_ms: continue\n','',1)
+          v=v.replace('raw=(eq*RISK_PCT/100)/abs(e-s); q=math.floor(raw); risk=abs(e-s)*q\n                if q>0 and risk>0:',
+                      'raw=(eq*RISK_PCT/100)/abs(e-s); q=math.floor(raw/QTY_STEP)*QTY_STEP; risk=abs(e-s)*q\n                planned_notional=abs(e)*q\n                notional_mult=(planned_notional/eq) if eq>0 else math.inf\n                if q>0 and risk>0 and notional_mult<MAX_NOTIONAL_MULTIPLE:',1)
+          mainpos=v.index('def main():')
+          v=v[:mainpos]+'''def main():\n    OUT.mkdir(parents=True,exist_ok=True)\n    one,tick,missing=fetch_1m(); sm=[]\n    st=int(datetime.fromisoformat(REPORT_START).timestamp()*1000)\n    en=int(datetime.fromisoformat(REPORT_END).timestamp()*1000)\n    for tf in TFS:\n        tr,s=run(tf,agg(one,tf),tick,st,en); sm.append(s)\n        p=OUT/f'{SYMBOL}_{tf}m_trades.csv'\n        with p.open('w',newline='') as f:\n            fields=list(Trade.__dataclass_fields__); w=csv.DictWriter(f,fieldnames=fields); w.writeheader()\n            for x in tr: w.writerow(asdict(x))\n    payload={'symbol':SYMBOL,'state_start':STATE_START,'report_start':REPORT_START,'report_end':REPORT_END,'tick':tick,'missing_days':missing,'summary':sm}\n    print(json.dumps(payload,indent=2))\n    (OUT/f'{SYMBOL}_summary.json').write_text(json.dumps(payload,indent=2))\n\nif __name__=='__main__': main()\n'''
+          Path('/tmp/reference_verify_v2.5.15.py').write_text(v)
+          print('VER2515_SHA256='+hashlib.sha256(v.encode()).hexdigest())
+          PY
+          python3 /tmp/build2515.py | tee /tmp/build.log
+          python3 -m py_compile /tmp/reference_verify_v2.5.15.py
+
+      - name: Python parity windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pyproof
+          run_case() {
+            sym="$1"; start="$2"; end="$3"; tag="$4"; step="$5"
+            rm -rf wave-rider-verify/output
+            WR_SYMBOL="$sym" WR_TF=5 WR_QTY_STEP="$step" WR_STATE_START='2026-07-28T00:00:00+07:00' WR_REPORT_START="$start" WR_REPORT_END="$end" python3 /tmp/reference_verify_v2.5.15.py > "/tmp/pyproof/${tag}_${sym}.json"
+          }
+          run_case BNBUSDT '2026-08-05T00:00:00+07:00' '2026-08-10T00:00:00+07:00' W1 1
+          run_case TRXUSDT '2026-08-05T00:00:00+07:00' '2026-08-10T00:00:00+07:00' W1 1
+          run_case BNBUSDT '2026-08-10T00:00:00+07:00' '2026-08-16T00:00:00+07:00' W2 1
+          run_case TRXUSDT '2026-08-10T00:00:00+07:00' '2026-08-16T00:00:00+07:00' W2 1
+          python3 - <<'PY' | tee /tmp/python-summary.txt
+          import json,glob
+          for f in sorted(glob.glob('/tmp/pyproof/*.json')):
+              d=json.load(open(f)); s=d['summary'][0]
+              print(f.split('/')[-1], 'TRADES='+str(s['trades']), 'TOTAL_R='+str(s['total_r']), 'WR='+str(s['win_rate']))
+          PY
+
+      - name: TradingView compile save and screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          const base=fs.readFileSync('/tmp/wr2515.pine','utf8');
+          const W1S='1785862800000', W1E='1786294800000';
+          const W2S='1786294800000', W2E='1786813200000';
+          function sourceWindow(s,e){return base.replace(`startTime=input.time(${W1S},"Start (VN)"`,`startTime=input.time(${s},"Start (VN)"`).replace(`endTime=input.time(${W1E},"End (VN, exclusive)"`,`endTime=input.time(${e},"End (VN, exclusive)"`)}
+          (async()=>{
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync);
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const page=await context.newPage();
+            async function openSymbol(sym){
+              await page.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${sym}&interval=5`,{waitUntil:'domcontentloaded',timeout:90000}); await page.waitForTimeout(10000);
+              let body=await page.locator('body').innerText().catch(()=> ''); if(/\bSign in\b/i.test(body)) throw new Error('AUTH_FAIL');
+              const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); if(!(await pine.count())) throw new Error('PINE_BUTTON_MISSING');
+              await pine.first().click({force:true}); await page.waitForTimeout(5000);
+            }
+            async function pasteCompile(src){
+              const ta=page.locator('.monaco-editor textarea').last(); if(!(await ta.count())) throw new Error('MONACO_MISSING');
+              await page.evaluate(s=>navigator.clipboard.writeText(s),src); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+V'); await page.waitForTimeout(1200);
+              const add=page.getByRole('button',{name:/Add to chart/i}); if(await add.count()) await add.first().click({force:true}); else {await ta.click({force:true});await page.keyboard.press('Control+Enter');}
+              await page.waitForTimeout(18000);
+              const body=await page.locator('body').innerText().catch(()=> ''); if(/Compilation error|Syntax error|Error at/i.test(body)) throw new Error('COMPILE_FAIL');
+              return ta;
+            }
+            async function shot(sym,tag,src){
+              await openSymbol(sym); await pasteCompile(src); await page.waitForTimeout(3000);
+              await page.screenshot({path:`/tmp/${tag}-${sym}.png`,fullPage:false});
+              console.log(`${tag}_${sym}=SCREENSHOT_PASS`);
+            }
+            await shot('BNBUSDT.P','W1',sourceWindow(W1S,W1E));
+            await shot('TRXUSDT.P','W1',sourceWindow(W1S,W1E));
+            await shot('BNBUSDT.P','W2',sourceWindow(W2S,W2E));
+            await shot('TRXUSDT.P','W2',sourceWindow(W2S,W2E));
+            // Save canonical W1-default version as a new cloud script, never overwrite 2.5.13/2.5.14.
+            await openSymbol('BNBUSDT.P');
+            const ta=await pasteCompile(base); await ta.click({force:true}); await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(2200);
+            const dialogs=page.getByRole('dialog'); let dlg=null; for(let i=0;i<await dialogs.count();i++){if(await dialogs.nth(i).isVisible().catch(()=>false)){dlg=dialogs.nth(i);break;}}
+            if(!dlg) throw new Error('SAVE_AS_DIALOG_MISSING');
+            const boxes=dlg.getByRole('textbox'); await boxes.first().fill('Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC');
+            const save=dlg.getByRole('button',{name:/save/i}); await save.last().click({force:true}); await page.waitForTimeout(5000);
+            await page.screenshot({path:'/tmp/v2515-saved.png',fullPage:false});
+            console.log('TV_SAVE_AS=PASS');
+            await browser.close();
+          })().catch(e=>{console.error('TV2515_ERROR='+e.stack);process.exit(7)});
+          NODE
+
+      - name: Package proof
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/v2515-artifact
+          cp '/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md' /tmp/v2515-artifact/ 2>/dev/null
+          cp /tmp/reference_verify_v2.5.15.py /tmp/v2515-artifact/ 2>/dev/null
+          cp /tmp/build.log /tmp/python-summary.txt /tmp/pyproof/*.json /tmp/*.png /tmp/v2515-artifact/ 2>/dev/null
+          sha256sum /tmp/wr2515.pine /tmp/reference_verify_v2.5.15.py > /tmp/v2515-artifact/SHA256SUMS.txt 2>/dev/null
+          printf 'RUN_ID=%s\nCOMMIT=%s\n' '${{ github.run_id }}' '${{ github.sha }}' > /tmp/v2515-artifact/RUN.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-v2515-sync
+          path: /tmp/v2515-artifact
+          retention-days: 1
+
+      - name: Persist non-secret result pointer
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/tradingview
+          {
+            echo 'WR_V2515_SYNC_RESULT'
+            echo 'RUN_ID=${{ github.run_id }}'
+            grep -E 'WR2515_SHA256|VER2515_SHA256' /tmp/build.log 2>/dev/null || true
+            cat /tmp/python-summary.txt 2>/dev/null || true
+          } > ops/tradingview/v2515-sync-result.txt
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add ops/tradingview/v2515-sync-result.txt
+          git commit -m 'chore: save v2.5.15 sync result [skip ci]' || true
+          git push origin HEAD:v2515-live-sync
+
+      - name: Cleanup plaintext
+        if: always()
+        run: rm -rf /tmp/wr*.pine /tmp/reference_verify*.py '/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md' /tmp/tv-state.json /tmp/v2515-artifact /tmp/pyproof
