@@ -1,1 +1,32 @@
-{"status":"RUNNER_ERROR","siteSlug":"runner5-restore-lab-1","detail":"restore_status_missing"}
+{
+  "status": "FAILED",
+  "siteSlug": "runner5-restore-lab-1",
+  "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
+  "backupName": "runner5-restore-lab-1-wasmer-app-20260818-055846-n7zl22wiii34.wpress",
+  "backupSha256": "908727acbcf24d27e8fd31db59c27e862cfded3dcc2f171091d07c9ad113b403",
+  "stage": "poll_restored_public_state",
+  "authMode": "wp-admin-cookie-nonce",
+  "restNonce": true,
+  "baseline": {
+    "title": "Runner5 Restore Lab Demo",
+    "postSlug": "restore-lab-article-1",
+    "pageSlug": "restore-lab-case-study",
+    "postId": 17,
+    "pageId": 16
+  },
+  "mutation": {
+    "title": "BROKEN Restore Lab 1787034616140",
+    "titleChanged": true,
+    "postDeleted": true,
+    "pageDeleted": true,
+    "verified": true
+  },
+  "restore": {
+    "requestStatus": 403,
+    "responseSummary": "{\"code\":\"upgrade_required\",\"message\":\"\\\"Restore\\\" functionality is available in our Unlimited Extension (https://servmask.com/products/unlimited-extension). If you would rather go the manual route, you can still restore by downloading your backup and using the import endpoint.\",\"data\":{\"status\":403}}",
+    "verified": false,
+    "elapsedSeconds": null
+  },
+  "detail": "restore_verify_timeout:{\"rootStatus\":200,\"title\":\"BROKEN Restore Lab 1787034616140\",\"postCount\":0,\"pageCount\":0}",
+  "updatedAt": "2026-08-18T06:50:28.385Z"
+}
