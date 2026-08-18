@@ -1,0 +1,37 @@
+name: WR 2.5.15 Isolate Only
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-isolate-only.yml']
+permissions:
+  contents: read
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Run isolated divergence diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wriso
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-isolate.yml' -o /tmp/source.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          s=Path('/tmp/source.yml').read_text()
+          a=s.index("          cat >/tmp/isolate.py <<'PY'\n")+len("          cat >/tmp/isolate.py <<'PY'\n")
+          b=s.index("\n          PY\n",a)
+          code=textwrap.dedent(s[a:b])
+          old="m=types.ModuleType('wrp' if patched else 'wro');m.__file__='reference_verify.py';exec(compile(src,m.__file__,'exec'),m.__dict__);return m"
+          new="name='wrp' if patched else 'wro';m=types.ModuleType(name);m.__file__='reference_verify.py';sys.modules[name]=m;exec(compile(src,m.__file__,'exec'),m.__dict__);return m"
+          if code.count(old)!=1: raise SystemExit('module patch anchor missing')
+          Path('/tmp/isolate.py').write_text(code.replace(old,new,1))
+          PY
+          python3 /tmp/isolate.py | tee /tmp/wriso/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-isolate-only
+          path: /tmp/wriso
+          retention-days: 3
