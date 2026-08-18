@@ -33,6 +33,7 @@ jobs:
       CF_EDGE_OUT: /tmp/cloudflare-wordpress-edge.json
       WP_SITE_SLUG: runner3-factory-smoke-2
       WP_PLUGIN_SLUG: runner3-edge-cache-purge
+      WP_PLUGIN_EXPECT_VERSION: 1.3.0
       WP_PLUGIN_ZIP: /tmp/runner3-edge-cache-purge.zip
       RUNNER3_PURGE_ENDPOINT: https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge
       RUNNER3_EDGE_WP_OUT: /tmp/runner3-edge-cache-wordpress.json
@@ -62,6 +63,7 @@ jobs:
           node --check edge/wordpress-edge-proxy/src/entry.js
           node --check scripts/deploy-wordpress-workers-cache.mjs
           node --check scripts/configure-wordpress-edge-cache.mjs
+          node --check scripts/deploy-wordpress-plugin.mjs
 
       - name: Deploy Worker and verify Workers Caching safety
         id: edge
