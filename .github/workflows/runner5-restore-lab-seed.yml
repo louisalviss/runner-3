@@ -6,12 +6,14 @@ on:
     paths:
       - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-seed.yml'
+      - 'scripts/seed-runner5-restore-lab-v2.mjs'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-seed.yml'
+      - 'scripts/seed-runner5-restore-lab-v2.mjs'
 
 permissions:
   contents: write
@@ -43,20 +45,11 @@ jobs:
             -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
 
-      - name: Download official free theme and importer
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fL --retry 3 --retry-delay 2 https://downloads.wordpress.org/theme/inspiro.zip -o /tmp/inspiro.zip
-          curl -fL --retry 3 --retry-delay 2 https://downloads.wordpress.org/plugin/inspiro-starter-sites.zip -o /tmp/inspiro-starter-sites.zip
-          test -s /tmp/inspiro.zip
-          test -s /tmp/inspiro-starter-sites.zip
-
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Seed demo site
-        run: node scripts/seed-runner5-restore-lab.mjs
+        run: node scripts/seed-runner5-restore-lab-v2.mjs
 
       - name: Persist safe seed status
         if: always()
@@ -67,7 +60,7 @@ jobs:
           if [ ! -s "$status" ]; then
             printf '{"status":"RUNNER_ERROR","siteSlug":"runner5-restore-lab-1","detail":"seed_status_missing"}\n' > "$status"
           fi
-          rm -f /tmp/wasmer-account.json /tmp/inspiro.zip /tmp/inspiro-starter-sites.zip
+          rm -f /tmp/wasmer-account.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
