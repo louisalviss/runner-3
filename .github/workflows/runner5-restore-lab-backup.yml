@@ -7,7 +7,7 @@ on:
     paths:
       - 'restore-lab/requests/backup-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-backup.yml'
-      - 'scripts/export-runner5-restore-lab-v2.mjs'
+      - 'scripts/recover-runner5-restore-lab-backup.mjs'
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   backup:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -42,12 +42,8 @@ jobs:
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Export WPress snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          sed -i 's/await file.click({noWaitAfter:true})/await file.click({force:true,noWaitAfter:true})/' scripts/export-runner5-restore-lab-v2.mjs
-          node scripts/export-runner5-restore-lab-v2.mjs
+      - name: Recover WPress snapshot
+        run: node scripts/recover-runner5-restore-lab-backup.mjs
 
       - name: Upload WPress snapshot artifact
         if: success()
