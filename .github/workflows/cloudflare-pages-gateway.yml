@@ -1,0 +1,156 @@
+name: Cloudflare Pages Gateway
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/triggers/cloudflare-pages-gateway.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-pages-gateway
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: runner3wp-pages-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Preflight Pages permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          if not token or not account:
+              raise SystemExit('cloudflare_credentials_missing')
+          url=f'https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects?per_page=1'
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+token})
+          try:
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  data=json.loads(r.read().decode())
+                  if r.status != 200 or not data.get('success'):
+                      raise SystemExit('pages_permission_unavailable')
+          except urllib.error.HTTPError as e:
+              print(e.read().decode(errors='replace')[:1000])
+              raise SystemExit(f'pages_permission_unavailable_http_{e.code}')
+          print('pages_permission_ok')
+          PY
+
+      - name: Ensure Pages project exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          project=os.environ['CF_PAGES_PROJECT']
+          base='https://api.cloudflare.com/client/v4'
+          headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          get=urllib.request.Request(f'{base}/accounts/{account}/pages/projects/{project}',headers=headers)
+          try:
+              with urllib.request.urlopen(get,timeout=20) as r:
+                  data=json.loads(r.read().decode())
+                  if r.status == 200 and data.get('success'):
+                      print('project_exists')
+                      raise SystemExit(0)
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  print(e.read().decode(errors='replace')[:1000])
+                  raise
+          body=json.dumps({'name':project,'production_branch':'main'}).encode()
+          create=urllib.request.Request(f'{base}/accounts/{account}/pages/projects',data=body,headers=headers,method='POST')
+          with urllib.request.urlopen(create,timeout=30) as r:
+              data=json.loads(r.read().decode())
+              if r.status not in (200,201) or not data.get('success'):
+                  raise SystemExit('pages_project_create_failed')
+          print('project_created')
+          PY
+
+      - name: Deploy gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd edge/wordpress-pages-gateway
+          npx --yes wrangler@4.102.0 pages deploy ./dist \
+            --project-name "$CF_PAGES_PROJECT" \
+            --branch main \
+            --commit-dirty=true
+
+      - name: Verify pages.dev gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, time, urllib.request, urllib.error, datetime
+          project=os.environ['CF_PAGES_PROJECT']
+          base=f'https://{project}.pages.dev'
+          out={'status':'starting','project':project,'pagesUrl':base,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
+          def fetch(path):
+              req=urllib.request.Request(base+path,headers={'User-Agent':'Runner3PagesGatewayProbe/1.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      return r.status,dict(r.headers),r.read().decode(errors='replace')
+              except urllib.error.HTTPError as e:
+                  return e.code,dict(e.headers),e.read().decode(errors='replace')
+          health=None
+          for _ in range(12):
+              health=fetch('/__runner3/pages-gateway/health')
+              if health[0] == 200 and 'runner3wp-pages-gateway' in health[2]: break
+              time.sleep(5)
+          home=fetch('/')
+          out.update({
+            'healthHttp':health[0] if health else None,
+            'healthOk':bool(health and health[0]==200 and 'runner3wp-pages-gateway' in health[2]),
+            'homeHttp':home[0],
+            'homeHasRunner3':home[0]==200 and ('Runner3' in home[2] or 'runner3' in home[2].lower()),
+            'homeNoindex':('noindex' in (home[1].get('X-Robots-Tag','')+home[2]).lower()),
+            'edgeProxy':home[1].get('X-Edge-Proxy'),
+            'edgeMode':home[1].get('X-Edge-Mode'),
+          })
+          out['status']='ok' if out['healthOk'] and out['homeHttp']==200 and out['homeHasRunner3'] and out['homeNoindex'] else 'failed'
+          os.makedirs('/tmp/pages-gateway',exist_ok=True)
+          open('/tmp/pages-gateway/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          if out['status'] != 'ok': raise SystemExit('pages_gateway_verify_failed')
+          PY
+
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/pages-gateway/latest.json ]; then
+            mkdir -p /tmp/pages-gateway
+            printf '{"status":"failed","detail":"deployment_or_preflight_failed","runId":"%s"}\n' "$GITHUB_RUN_ID" >/tmp/pages-gateway/latest.json
+          fi
+          cp /tmp/pages-gateway/latest.json /tmp/pages-gateway-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/cloudflare-pages-gateway
+            cp /tmp/pages-gateway-safe.json ops/cloudflare-pages-gateway/latest.json
+            git add ops/cloudflare-pages-gateway/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Cloudflare Pages gateway: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
