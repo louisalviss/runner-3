@@ -19,11 +19,12 @@ SOURCES_ROOT = DATA_ROOT / "sources"
 HEALTH_PATH = DATA_ROOT / "substack-health.json"
 MAX_ARCHIVE_ITEMS = 1000
 MAX_NOTE_PAGES = 3
+NOTE_PAGE_LIMIT = 50
 TIMEOUT = 45
 
 # Võ Hoàng Hạc is one logical source with two REQUIRED freshness components:
 # 1) long-form publication posts via the publication RSS feed;
-# 2) short-form Substack Notes via the public profile reader feed.
+# 2) original top-level Substack Notes via the public profile reader feed.
 # If either component cannot be verified, the source fails closed.
 SOURCE = {
     "key": "vohoanghac",
@@ -31,12 +32,11 @@ SOURCE = {
     "article_feed": "https://vohoanghac.com/feed",
     "handle": "vohoanghac",
     "profile_url": "https://substack.com/@vohoanghac",
-    "track_content_hash": True,
 }
 
 SESSION = requests.Session()
 SESSION.headers.update({
-    "User-Agent": "Mozilla/5.0 (compatible; runner-3-rss-reader/2.0; +https://github.com/louisalviss/runner-3)",
+    "User-Agent": "Mozilla/5.0 (compatible; runner-3-rss-reader/3.0; +https://github.com/louisalviss/runner-3)",
 })
 
 
@@ -249,6 +249,33 @@ def get_json(url, *, params=None):
     return response.json(), response.url
 
 
+def profile_id_from_preloads(raw_html, handle):
+    # Substack profile HTML embeds:
+    #   window._preloads = JSON.parse("{...escaped JSON...}")
+    pattern = r'window\._preloads\s*=\s*JSON\.parse\(("(?:\\.|[^"\\])*")\)'
+    match = re.search(pattern, raw_html, flags=re.S)
+    if not match:
+        return None
+
+    try:
+        decoded_json_text = json.loads(match.group(1))
+        payload = json.loads(decoded_json_text)
+    except Exception:
+        return None
+
+    profile = payload.get("profile") if isinstance(payload, dict) else None
+    if not isinstance(profile, dict):
+        return None
+
+    profile_handle = str(profile.get("handle") or profile.get("username") or "").lstrip("@").lower()
+    profile_id = profile.get("id")
+    if profile_handle and profile_handle != handle.lower():
+        return None
+    if str(profile_id).isdigit() and int(profile_id) > 0:
+        return int(profile_id)
+    return None
+
+
 def extract_profile_user_id(obj, handle):
     target = handle.lower()
 
@@ -269,37 +296,14 @@ def extract_profile_user_id(obj, handle):
                     return found
         return None
 
-    found = walk(obj)
-    if found is not None:
-        return found
-
-    if isinstance(obj, dict):
-        top_id = obj.get("id") or obj.get("user_id") or obj.get("userId")
-        if str(top_id).isdigit():
-            return int(top_id)
-    return None
+    return walk(obj)
 
 
 def resolve_profile_user_id(handle):
-    # Substack does not document a public Notes RSS feed. The web client exposes
-    # a public profile JSON surface; this is deliberately treated as fragile and
-    # fail-closed so an upstream change cannot produce a false "healthy" result.
-    candidates = [
-        f"https://substack.com/api/v1/user/{handle}/public_profile",
-        f"https://substack.com/api/v1/user/{handle}/public_profile/self",
-    ]
     errors = []
-    for url in candidates:
-        try:
-            payload, final_url = get_json(url)
-            user_id = extract_profile_user_id(payload, handle)
-            if user_id is not None:
-                return user_id, final_url
-            errors.append(f"{url}: JSON returned but user id was not found")
-        except Exception as exc:
-            errors.append(f"{url}: {type(exc).__name__}: {exc}")
 
-    # Last-resort discovery from the public profile HTML/hydration only.
+    # First choice: public profile page. This matches Substack's current web client
+    # and avoids depending on a guessed profile API route.
     try:
         response = SESSION.get(
             f"https://substack.com/@{handle}",
@@ -308,214 +312,173 @@ def resolve_profile_user_id(handle):
             headers={"Accept": "text/html,application/xhtml+xml"},
         )
         response.raise_for_status()
-        raw = response.text
+        user_id = profile_id_from_preloads(response.text, handle)
+        if user_id is not None:
+            return user_id, response.url, "profile_preloads"
+
         patterns = [
             r"/api/v1/reader/feed/profile/(\d+)",
             r'"user_id"\s*:\s*(\d+)',
             r'"userId"\s*:\s*(\d+)',
         ]
         for pattern in patterns:
-            for match in re.finditer(pattern, raw):
+            match = re.search(pattern, response.text)
+            if match:
                 candidate = int(match.group(1))
                 if candidate > 0:
-                    return candidate, response.url
-        errors.append("public profile HTML returned but user id was not discoverable")
+                    return candidate, response.url, "profile_html_fallback"
+        errors.append("public profile HTML returned but profile id was not discoverable")
     except Exception as exc:
         errors.append(f"profile HTML: {type(exc).__name__}: {exc}")
+
+    # Secondary fallback for layouts where public profile JSON is available.
+    candidates = [
+        f"https://substack.com/api/v1/user/{handle}/public_profile",
+        f"https://substack.com/api/v1/user/{handle}/public_profile/self",
+    ]
+    for url in candidates:
+        try:
+            payload, final_url = get_json(url)
+            user_id = extract_profile_user_id(payload, handle)
+            if user_id is not None:
+                return user_id, final_url, "public_profile_json"
+            errors.append(f"{url}: JSON returned but matching user id was not found")
+        except Exception as exc:
+            errors.append(f"{url}: {type(exc).__name__}: {exc}")
 
     raise RuntimeError("unable to resolve Substack profile user id; " + " | ".join(errors))
 
 
-def value_at(obj, path):
-    cur = obj
-    for key in path:
-        if not isinstance(cur, dict) or key not in cur:
-            return None
-        cur = cur[key]
-    return cur
+def body_json_text(value):
+    parts = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "text" and isinstance(node.get("text"), str):
+                parts.append(node["text"])
+            content = node.get("content")
+            if isinstance(content, list):
+                for child in content:
+                    walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(value)
+    text = " ".join(part.strip() for part in parts if part.strip())
+    return re.sub(r"\s+", " ", text).strip() or None
 
 
-def extract_feed_dt(item):
-    preferred_paths = [
-        ("context", "timestamp"),
-        ("context", "published_at"),
-        ("context", "publishedAt"),
-        ("context", "created_at"),
-        ("context", "createdAt"),
-        ("timestamp",),
-        ("published_at",),
-        ("publishedAt",),
-        ("created_at",),
-        ("createdAt",),
-        ("comment", "date"),
-        ("comment", "created_at"),
-        ("comment", "createdAt"),
-    ]
-    for path in preferred_paths:
-        dt = parse_dt(value_at(item, path))
-        if dt is not None:
-            return dt
-
-    keys = {"timestamp", "published_at", "publishedAt", "created_at", "createdAt", "date"}
-
-    def walk(value):
-        if isinstance(value, dict):
-            for key, child in value.items():
-                if key in keys:
-                    dt = parse_dt(child)
-                    if dt is not None:
-                        return dt
-            for child in value.values():
-                dt = walk(child)
-                if dt is not None:
-                    return dt
-        elif isinstance(value, list):
-            for child in value:
-                dt = walk(child)
-                if dt is not None:
-                    return dt
+def parse_original_note(item, target_user_id, handle):
+    if not isinstance(item, dict) or item.get("type") != "comment":
         return None
 
-    return walk(item)
-
-
-def collect_ids(value):
-    ids = set()
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {"id", "user_id", "userId"} and str(child).isdigit():
-                ids.add(int(child))
-            elif key in {"users", "user", "author", "profile"}:
-                ids.update(collect_ids(child))
-    elif isinstance(value, list):
-        for child in value:
-            ids.update(collect_ids(child))
-    return ids
-
-
-def extract_note_excerpt(item):
-    paths = [
-        ("context", "comment", "body"),
-        ("context", "comment", "body_text"),
-        ("context", "comment", "bodyText"),
-        ("context", "comment", "truncated_body_text"),
-        ("comment", "body"),
-        ("comment", "body_text"),
-        ("comment", "bodyText"),
-        ("body",),
-        ("body_text",),
-        ("bodyText",),
-        ("truncated_body_text",),
-    ]
-    for path in paths:
-        value = value_at(item, path)
-        if isinstance(value, str):
-            text = clean_text(value)
-            if text:
-                return text
-    return None
-
-
-def parse_note_item(item, target_user_id, handle, detected_dt):
-    if not isinstance(item, dict):
+    comment = item.get("comment")
+    if not isinstance(comment, dict):
         return None
 
-    entity_key = item.get("entity_key") or item.get("entityKey")
-    if not entity_key:
-        entity_key = value_at(item, ("context", "entity_key")) or value_at(item, ("context", "entityKey"))
-    entity_key = str(entity_key or "")
-    match = re.fullmatch(r"c-(\d+)", entity_key)
-    if not match:
+    # Live Substack shape: Notes and post comments share the "comment" entity.
+    # An original top-level Note is a feed comment with no post_id and no ancestors.
+    if str(comment.get("type") or "").lower() != "feed":
+        return None
+    if comment.get("post_id") not in (None, ""):
+        return None
+    if str(comment.get("ancestor_path") or "").strip():
         return None
 
-    # Profile feeds can include likes/restacks. When author/user metadata is
-    # present, reject entities that clearly belong to another user.
-    scoped_ids = set()
-    for path in [
-        ("context", "users"),
-        ("users",),
-        ("context", "user"),
-        ("context", "author"),
-        ("author",),
-    ]:
-        scoped_ids.update(collect_ids(value_at(item, path)))
-    if scoped_ids and target_user_id not in scoped_ids:
+    author_user_id = comment.get("user_id")
+    if not str(author_user_id).isdigit() or int(author_user_id) != int(target_user_id):
         return None
 
-    note_id = match.group(1)
-    dt = extract_feed_dt(item)
-    time_source = "profile_feed"
+    note_numeric_id = comment.get("id")
+    if not str(note_numeric_id).isdigit():
+        return None
+
+    dt = parse_dt(comment.get("date"))
     if dt is None:
-        dt = detected_dt
-        time_source = "collector_detected"
+        # Never substitute collection time. An undated Note must not move the cursor.
+        return None
 
-    excerpt = extract_note_excerpt(item)
-    title = excerpt[:140].strip() if excerpt else f"Võ Hoàng Hạc Note {entity_key}"
-    if excerpt and len(excerpt) > 140:
+    body = clean_text(comment.get("body"))
+    if not body and comment.get("body_json") is not None:
+        body = body_json_text(comment.get("body_json"))
+
+    entity_key = f"c-{int(note_numeric_id)}"
+    title = body[:140].strip() if body else f"Võ Hoàng Hạc Note {entity_key}"
+    if body and len(body) > 140:
         title = title.rstrip(" .,:;-") + "…"
 
     return {
         "key": f"note:{entity_key}",
-        "articleId": note_id,
+        "articleId": str(int(note_numeric_id)),
+        "noteId": entity_key,
         "canonicalUrl": f"https://substack.com/@{handle}/note/{entity_key}",
         "title": title,
         "publishedAt": dt.isoformat(timespec="seconds").replace("+00:00", "Z"),
         "publishedTs": int(dt.timestamp() * 1000),
-        "publishedTimeSource": time_source,
+        "publishedTimeSource": "comment.date",
         "thumbnail": None,
-        "author": "Võ Hoàng Hạc",
-        "description": excerpt,
+        "author": clean_text(comment.get("name")) or f"@{handle}",
+        "authorHandle": clean_text(comment.get("handle")) or handle,
+        "authorUserId": int(author_user_id),
+        "description": body,
         "contentSource": "substack_profile_radar",
         "itemType": "note",
-        "noteId": entity_key,
     }
 
 
 def fetch_notes(handle):
-    detected_dt = now_dt()
-    user_id, profile_endpoint = resolve_profile_user_id(handle)
+    user_id, profile_lookup_url, profile_id_source = resolve_profile_user_id(handle)
     feed_url = f"https://substack.com/api/v1/reader/feed/profile/{user_id}"
 
     all_raw = []
     cursor = None
     final_url = feed_url
     for _ in range(MAX_NOTE_PAGES):
-        params = [("types[]", "note")]
+        params = {"limit": NOTE_PAGE_LIMIT}
         if cursor:
-            params.append(("cursor", cursor))
+            params["cursor"] = cursor
+
         payload, final_url = get_json(feed_url, params=params)
         if not isinstance(payload, dict):
             raise RuntimeError("profile feed returned a non-object payload")
+
         items = payload.get("items")
         if not isinstance(items, list):
             raise RuntimeError(f"profile feed missing items[]; keys={sorted(payload.keys())}")
-        all_raw.extend(items)
 
-        next_cursor = payload.get("nextCursor") or payload.get("next_cursor") or payload.get("cursor")
+        all_raw.extend(items)
+        next_cursor = payload.get("nextCursor")
         if not next_cursor or not items:
             break
         cursor = str(next_cursor)
 
-    notes_by_url = {}
+    notes_by_id = {}
+    comment_activity_count = 0
     for raw in all_raw:
-        parsed = parse_note_item(raw, user_id, handle, detected_dt)
+        if isinstance(raw, dict) and raw.get("type") == "comment":
+            comment_activity_count += 1
+        parsed = parse_original_note(raw, user_id, handle)
         if parsed:
-            notes_by_url[parsed["canonicalUrl"]] = parsed
+            notes_by_id[parsed["noteId"]] = parsed
 
-    notes = list(notes_by_url.values())
+    notes = list(notes_by_id.values())
     notes.sort(key=lambda x: x["publishedTs"], reverse=True)
+
     if not notes:
         raise RuntimeError(
-            f"profile feed was reachable for user {user_id} but yielded no author-owned Notes "
-            f"from {len(all_raw)} activity items"
+            f"profile feed reachable for user {user_id} but yielded no verified original Notes "
+            f"from {len(all_raw)} profile entries ({comment_activity_count} comment-type entries)"
         )
 
     return notes, {
         "userId": user_id,
-        "profileLookupUrl": profile_endpoint,
+        "profileLookupUrl": profile_lookup_url,
+        "profileIdSource": profile_id_source,
         "feedUrl": final_url,
-        "rawActivityCount": len(all_raw),
-        "validNoteCount": len(notes),
+        "rawProfileEntryCount": len(all_raw),
+        "commentActivityCount": comment_activity_count,
+        "validOriginalNoteCount": len(notes),
     }
 
 
@@ -541,7 +504,7 @@ def main():
     old_items = old.get("items") or []
 
     health = {
-        "version": 2,
+        "version": 3,
         "collector": "runner-3",
         "scope": "1-substack-hybrid",
         "runStartedAt": now_iso(),
@@ -591,8 +554,18 @@ def main():
             "error": f"{type(exc).__name__}: {exc}",
         }
 
-    overall_ok = all(component.get("ok") for component in components.values()) and len(components) == 2
-    merged = merge_items(old_items, fresh_articles + fresh_notes) if (fresh_articles or fresh_notes) else normalize_old_items(old_items)
+    overall_ok = (
+        len(components) == 2
+        and components.get("articles", {}).get("ok") is True
+        and components.get("notes", {}).get("ok") is True
+    )
+
+    merged = (
+        merge_items(old_items, fresh_articles + fresh_notes)
+        if (fresh_articles or fresh_notes)
+        else normalize_old_items(old_items)
+    )
+
     changed = (
         old.get("items") != merged
         or old.get("transport") != "hybrid-rss+substack-profile"
@@ -600,8 +573,7 @@ def main():
         or bool(changes)
     )
 
-    # Only write a new mirror when BOTH components are verified. This keeps the
-    # mirror itself aligned with the same fail-closed semantics as health.
+    # Fail closed: only publish a new combined mirror when BOTH components verify.
     if overall_ok and changed:
         article_count = sum(1 for item in merged if item.get("itemType") == "article")
         note_count = sum(1 for item in merged if item.get("itemType") == "note")
@@ -653,6 +625,7 @@ def main():
         "notes_ok": components.get("notes", {}).get("ok", False),
         "fresh_articles": len(fresh_articles),
         "fresh_notes": len(fresh_notes),
+        "notes_error": components.get("notes", {}).get("error"),
     }, ensure_ascii=False))
     return 0 if overall_ok else 2
 
