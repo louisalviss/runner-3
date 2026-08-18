@@ -3,13 +3,15 @@ on:
   pull_request:
     paths: ['trigger-chainsaw-v18c.txt']
 permissions:
-  actions: write
+  actions: read
   contents: read
 jobs:
-  dispatch:
+  locate:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch V18C workflow
+      - name: Locate latest V18C run
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run chainsaw-v18c-direct.yml --repo louisalviss/runner-3 --ref main
+        run: |
+          gh api 'repos/louisalviss/runner-3/actions/workflows/chainsaw-v18c-direct.yml/runs?event=workflow_dispatch&per_page=5' \
+            --jq '.workflow_runs[] | [.id,.status,.conclusion,.head_sha,.created_at] | @tsv'
