@@ -1,0 +1,335 @@
+{
+  "status": "REST_ROUTES_FOUND",
+  "siteSlug": "runner5-restore-lab-1",
+  "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
+  "stage": "complete",
+  "routes": [
+    {
+      "route": "/ai1wm/v1",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {
+            "namespace": {
+              "required": false,
+              "type": null,
+              "default": "ai1wm/v1",
+              "description": null
+            },
+            "context": {
+              "required": false,
+              "type": null,
+              "default": "view",
+              "description": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/capabilities",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/exports",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "password": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": "Archive password. For exports: enables encryption. For imports: used to decrypt an encrypted archive."
+            },
+            "options": {
+              "required": false,
+              "type": "object",
+              "default": null,
+              "description": null
+            },
+            "find_replace": {
+              "required": false,
+              "type": "array",
+              "default": null,
+              "description": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/exports/(?P<job_id>[a-f0-9]{13,40})",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {
+            "secret_key": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": "Shared-secret auth fallback for status/log polling after an import has invalidated the Application Password."
+            }
+          }
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/exports/(?P<job_id>[a-f0-9]{13,40})/log",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {
+            "secret_key": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": "Shared-secret auth fallback for status/log polling after an import has invalidated the Application Password."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/imports",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/imports/(?P<job_id>[a-f0-9]{13,40})/file",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "auto_confirm": {
+              "required": false,
+              "type": "boolean",
+              "default": null,
+              "description": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/imports/(?P<job_id>[a-f0-9]{13,40})",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {
+            "secret_key": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": "Shared-secret auth fallback for status/log polling after an import has invalidated the Application Password."
+            }
+          }
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/imports/(?P<job_id>[a-f0-9]{13,40})/confirm",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "password": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": "Archive password. For exports: enables encryption. For imports: used to decrypt an encrypted archive."
+            },
+            "proceed": {
+              "required": true,
+              "type": "boolean",
+              "default": null,
+              "description": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/imports/(?P<job_id>[a-f0-9]{13,40})/log",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {
+            "secret_key": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": "Shared-secret auth fallback for status/log polling after an import has invalidated the Application Password."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/backups",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/backups/(?P<name>[a-zA-Z0-9._-]{1,247}\\.wpress)",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {}
+        },
+        {
+          "methods": [
+            "PATCH"
+          ],
+          "args": {
+            "label": {
+              "required": false,
+              "type": "string",
+              "default": null,
+              "description": null
+            }
+          }
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/backups/(?P<name>[a-zA-Z0-9._-]{1,247}\\.wpress)/download",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": {}
+        }
+      ]
+    },
+    {
+      "route": "/ai1wm/v1/backups/(?P<name>[a-zA-Z0-9._-]{1,247}\\.wpress)/restore",
+      "namespace": "ai1wm/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {}
+        }
+      ]
+    }
+  ],
+  "detail": null,
+  "updatedAt": "2026-08-18T06:14:36.860Z"
+}
