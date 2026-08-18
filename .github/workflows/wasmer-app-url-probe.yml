@@ -1,89 +1,103 @@
-name: Wasmer App URL Probe
+name: Runner5 Public Access Diagnostic
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/wasmer-app-url-probe.yml'
-      - 'ops/wasmer-url-probe/request.json'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  probe:
+  diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY || secrets.CLOUDFLARE_API_TOKEN }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Decrypt Wasmer account state
+      - name: Install Chromium
+        run: |
+          npm install --no-save playwright-core@1.58.2
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium
+          if command -v chromium-browser >/dev/null; then echo "CHROME_PATH=$(command -v chromium-browser)" >> "$GITHUB_ENV"; else echo "CHROME_PATH=$(command -v chromium)" >> "$GITHUB_ENV"; fi
+      - name: Diagnose DNS TLS HTTP and browser access
         shell: bash
         run: |
           set -euo pipefail
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -pass env:AUTOMATION_KEY \
-            -in ops/wasmer/state.automation.aes \
-            -out /tmp/wasmer-account.json
-          chmod 600 /tmp/wasmer-account.json
-      - name: Install Playwright
-        run: npm install --no-save playwright-core@1.58.2
-      - name: Probe canonical app URLs
-        shell: bash
-        run: |
+          python - <<'PY'
+          import json, socket, ssl, urllib.request, urllib.error, subprocess, os
+          targets=[
+            'https://runner5-restore-lab-1.wasmer.app/',
+            'https://runner5-restore-proxy.ducduy2411.workers.dev/'
+          ]
+          out={'status':'READY','targets':[]}
+          for url in targets:
+            host=url.split('/')[2]
+            row={'url':url,'host':host}
+            try:
+              infos=socket.getaddrinfo(host,443,type=socket.SOCK_STREAM)
+              row['dns']=sorted({x[4][0] for x in infos})
+            except Exception as e:
+              row['dns_error']=repr(e)
+            try:
+              ctx=ssl.create_default_context()
+              with socket.create_connection((host,443),timeout=15) as s:
+                with ctx.wrap_socket(s,server_hostname=host) as t:
+                  cert=t.getpeercert()
+                  row['tls']={'version':t.version(),'subject':cert.get('subject'),'notAfter':cert.get('notAfter')}
+            except Exception as e:
+              row['tls_error']=repr(e)
+            try:
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 Runner5Diagnostic'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                body=r.read(300000).decode('utf-8','ignore')
+                row['http']={'status':r.status,'final_url':r.geturl(),'server':r.headers.get('server'),'content_type':r.headers.get('content-type'),'bytes_sampled':len(body.encode()),'title_marker':'Runner5 Restore Lab Demo' in body}
+            except urllib.error.HTTPError as e:
+              row['http']={'status':e.code,'final_url':e.geturl(),'server':e.headers.get('server'),'content_type':e.headers.get('content-type'),'error':'HTTPError'}
+            except Exception as e:
+              row['http_error']=repr(e)
+            out['targets'].append(row)
+          open('/tmp/connectivity-base.json','w').write(json.dumps(out,indent=2,ensure_ascii=False))
+          PY
           node <<'NODE'
           const { chromium } = require('playwright-core');
-          const fs = require('fs');
-          const account = JSON.parse(fs.readFileSync('/tmp/wasmer-account.json','utf8'));
-          const app = 'runner5-restore-lab-1';
-          const owner = account.username;
-          const dashboard = `https://wasmer.io/apps/${encodeURIComponent(owner)}/${encodeURIComponent(app)}`;
-          const out = '/tmp/wasmer-url-probe.json';
-          const browser = await chromium.launch({headless:true, executablePath:'/usr/bin/google-chrome', args:['--no-sandbox']});
-          const ctx = await browser.newContext({ignoreHTTPSErrors:true});
-          const p = await ctx.newPage();
-          async function login(){
-            await p.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});
-            const ident=p.locator('input[name=username],input[placeholder*=Username i],input[autocomplete=username],input[type=email],input[type=text]').first();
-            await ident.waitFor({state:'visible',timeout:15000});
-            await ident.fill(account.username||account.email);
-            const next=p.locator('button,input[type=submit]').filter({hasText:/continue|next|log in|sign in/i}).first();
-            if(await next.count()&&await next.isVisible().catch(()=>false)) await next.click({noWaitAfter:true}).catch(()=>{}); else await ident.press('Enter');
-            const pass=p.locator('input[type=password]').first();
-            await pass.waitFor({state:'visible',timeout:15000});
-            await pass.fill(account.password);
-            const submit=p.locator('button,input[type=submit]').filter({hasText:/continue|log in|sign in/i}).first();
-            if(await submit.count()&&await submit.isVisible().catch(()=>false)) await submit.click({noWaitAfter:true}).catch(()=>{}); else await pass.press('Enter');
-            await p.waitForTimeout(3500);
-          }
-          try{
-            await login();
-            await p.goto(dashboard,{waitUntil:'domcontentloaded',timeout:60000});
-            await p.waitForTimeout(3000);
-            const links=[...new Set(await p.locator('a[href]').evaluateAll(as=>as.map(a=>a.href).filter(Boolean)))];
-            const wasmerLinks=links.filter(x=>/\.wasmer\.app(?:\/|$)/i.test(x)||/\.id\.wasmer\.app(?:\/|$)/i.test(x));
-            const body=(await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
-            const urls=[...new Set(wasmerLinks.map(x=>x.replace(/\/$/,'')+'/'))];
-            const checks=[];
-            for(const u of urls){
-              try{const r=await ctx.request.get(u,{timeout:20000,failOnStatusCode:false}); checks.push({url:u,status:r.status(),finalUrl:r.url()});}catch(e){checks.push({url:u,status:0,error:String(e.message||e)});}
+          const fs=require('fs');
+          const data=JSON.parse(fs.readFileSync('/tmp/connectivity-base.json','utf8'));
+          (async()=>{
+            const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,args:['--no-sandbox']});
+            const ctx=await browser.newContext({ignoreHTTPSErrors:false});
+            for(const row of data.targets){
+              const p=await ctx.newPage();
+              try{
+                const resp=await p.goto(row.url,{waitUntil:'domcontentloaded',timeout:45000});
+                row.browser={status:resp?resp.status():null,final_url:p.url(),title:await p.title(),body_marker:(await p.locator('body').innerText().catch(()=>'' )).includes('Runner5 Restore Lab Demo')};
+              }catch(e){ row.browser={error:String(e.message||e),final_url:p.url()}; }
+              await p.close();
             }
-            fs.writeFileSync(out,JSON.stringify({status:'OK',app,owner,dashboard,urls,checks,bodyHint:body.slice(0,1200),updatedAt:new Date().toISOString()},null,2));
-          }catch(e){fs.writeFileSync(out,JSON.stringify({status:'FAILED',app,detail:String(e.message||e),updatedAt:new Date().toISOString()},null,2));process.exitCode=1;}finally{await browser.close().catch(()=>{});}
+            await browser.close();
+            data.updatedAt=new Date().toISOString();
+            fs.writeFileSync('/tmp/connectivity.json',JSON.stringify(data,null,2));
+          })().catch(e=>{console.error(e);process.exit(2)});
           NODE
-      - name: Persist URL probe
+      - name: Persist diagnostic
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          rm -f /tmp/wasmer-account.json
-          mkdir -p ops/wasmer-url-probe
-          cp /tmp/wasmer-url-probe.json ops/wasmer-url-probe/runner5-restore-lab-1.json
+          test -s /tmp/connectivity.json || cp /tmp/connectivity-base.json /tmp/connectivity.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/wasmer-url-probe/runner5-restore-lab-1.json
-          git diff --cached --quiet && exit 0
-          git commit -m 'Persist Wasmer app URL probe'
-          git pull --rebase origin main
-          git push origin HEAD:main
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/connectivity.json ops/wordpress-access/runner5-connectivity.json
+            git add ops/wordpress-access/runner5-connectivity.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 public access diagnostic'
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 5
