@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -39,9 +40,13 @@ jobs:
         run: python -m pip install "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
 
       - name: Collect 10 core Runner3 RSS sources
+        id: core
+        continue-on-error: true
         run: python scripts/rss_reader_collect.py
 
       - name: Collect Võ Hoàng Hạc Articles + Substack Notes
+        id: vohoanghac
+        continue-on-error: true
         run: python scripts/rss_substack_collect_v2.py
 
       - name: Upload per-run health
@@ -55,7 +60,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Persist source mirrors only when content changes
+      - name: Persist healthy source mirrors even when another collector fails
+        if: always() && steps.checkout.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -69,3 +75,15 @@ jobs:
           git commit -m "Update Runner3 RSS source mirrors"
           git pull --rebase origin main
           git push origin HEAD:main
+
+      - name: Enforce collector health after persistence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          core='${{ steps.core.outcome }}'
+          vhh='${{ steps.vohoanghac.outcome }}'
+          echo "core=$core vohoanghac=$vhh"
+          if [[ "$core" != "success" || "$vhh" != "success" ]]; then
+            exit 1
+          fi
