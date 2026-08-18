@@ -1,0 +1,99 @@
+name: Chainsaw V18C Direct Sony
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/chainsaw-v18c-direct.yml']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl
+      - name: Download official SonyPictures GIF clips
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          curl -fL --retry 2 --max-time 45 -A 'Mozilla/5.0' 'https://media1.tenor.com/m/lrPq8cKmfIUAAAAd/explosive-attack-bomb-girl.gif' -o src/fight.gif
+          curl -fL --retry 2 --max-time 45 -A 'Mozilla/5.0' 'https://media1.tenor.com/m/V8W5uC8kGB0AAAAd/incoming-attack-chainsaw-man---the-movie-reze-arc.gif' -o src/incoming.gif
+          curl -fL --retry 2 --max-time 45 -A 'Mozilla/5.0' 'https://media1.tenor.com/m/p_rlJAIhcjIAAAAd/explosive-attack-bomb-girl.gif' -o src/bomb.gif
+          curl -fL --retry 2 --max-time 45 -A 'Mozilla/5.0' 'https://media1.tenor.com/m/eZNU7uVMe9QAAAAd/massive-explosion-chainsaw-man---the-movie-reze-arc.gif' -o src/massive.gif
+          ls -lh src
+      - name: Get XONADA preview
+        run: |
+          curl -fsSL --max-time 30 'https://itunes.apple.com/search?term=MONTAGEM%20XONADA%20MXZI%20Dj%20Samir%20DJ%20Javi26&entity=song&limit=50&country=US' -o i.json
+          python <<'PY'
+          import json
+          for x in json.load(open('i.json')).get('results',[]):
+            if (x.get('trackName') or '').strip().lower()=='montagem xonada' and x.get('previewUrl') and 'mxzi' in (x.get('artistName') or '').lower():
+              open('u','w').write(x['previewUrl']);break
+          else:raise SystemExit('NO_XONADA')
+          PY
+          curl -fL --max-time 45 -A 'Mozilla/5.0' "$(cat u)" -o xonada.m4a
+      - name: Normalize clips
+        run: |
+          mkdir -p norm
+          for n in fight incoming bomb massive; do
+            ffmpeg -hide_banner -loglevel error -y -stream_loop 2 -i "src/$n.gif" -t 6 -vf 'fps=30,scale=1280:534:force_original_aspect_ratio=increase,crop=1280:534,setsar=1,format=yuv420p' -an -c:v libx264 -preset veryfast -crf 18 "norm/$n.mp4"
+          done
+      - name: Render aggressive vertical edit
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          # input, st, en, beats, style. 36 beats = 12.558s @ 172 bpm
+          seq=[
+            (1,.00,.25,.5,'hit'),(2,.00,.25,.5,'hit'),(0,.00,.25,.5,'hit'),(3,.00,.25,.5,'hit'),
+            (0,.10,1.20,2,'fight'),(2,.15,1.25,2,'bomb'),(1,.20,1.55,2,'incoming'),(3,.10,1.55,2,'massive'),
+            (0,.80,2.20,2,'fight'),(2,.70,2.10,2,'bomb'),
+            (1,.50,3.20,4,'incoming'),(0,1.40,2.75,4,'fight'),(2,1.20,2.70,4,'bomb'),
+            (3,.60,2.60,4,'massive'),(0,.20,2.60,4,'fight'),(2,.30,2.70,4,'bomb')]
+          assert abs(sum(x[3] for x in seq)-36)<1e-9
+          beat=60/172;n=len(seq);parts=[];labels=[];t=0;plan=[]
+          for k,(idx,st,en,b,style) in enumerate(seq):
+            od=b*beat;sd=en-st
+            parts.append(f'[{idx}:v]trim=start={st}:end={en},setpts=(PTS-STARTPTS)*{od/sd:.8f},split=2[b{k}][f{k}]')
+            parts.append(f'[b{k}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=34,eq=brightness=-.20:saturation=.90[b2{k}]')
+            fw=1040 if style in ('hit','fight','bomb') else 1000;fh=int(round(fw*534/1280/2)*2)
+            fx=f'[f{k}]scale={fw}:{fh},eq=contrast=1.22:saturation=1.34:gamma=.94'
+            if style in ('bomb','massive'):fx+=',colorbalance=rs=.12:bs=-.04'
+            else:fx+=',colorbalance=bs=.10:rs=-.02'
+            if style=='hit':fx+=",rgbashift=rh=7:bh=-7,drawbox=x=0:y=0:w=iw:h=ih:color=white@.34:t=fill:enable='lt(t,.05)'"
+            if style in ('fight','bomb'):fx+=',unsharp=5:5:.40:5:5:0'
+            parts.append(fx+f'[f2{k}]')
+            parts.append(f'[b2{k}][f2{k}]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30,format=yuv420p[v{k}]')
+            labels.append(f'[v{k}]');plan.append(f'{k+1:02d} {t:.3f}-{t+od:.3f} src={idx} {st}-{en} {b}b {style}');t+=od
+          parts.append(''.join(labels)+f'concat=n={n}:v=1:a=0[vout]')
+          open('filter.txt','w').write(';'.join(parts));open('edit_plan.txt','w').write('\n'.join(plan)+f'\nTOTAL={t:.6f}\n')
+          PY
+          ffmpeg -hide_banner -loglevel error -y -i norm/fight.mp4 -i norm/incoming.mp4 -i norm/bomb.mp4 -i norm/massive.mp4 -filter_complex_script filter.txt -map '[vout]' -an -c:v libx264 -preset medium -crf 17 -profile:v high -level 4.1 -pix_fmt yuv420p visual.mp4
+          DUR=$(python - <<'PY'
+          print(f'{36*(60/172):.6f}')
+          PY
+          )
+          ffmpeg -hide_banner -loglevel error -y -i visual.mp4 -ss 11.065 -i xonada.m4a -t "$DUR" -map 0:v -map 1:a -c:v copy -af 'volume=1,bass=g=3:f=90,alimiter=limit=.94' -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart chainsaw_v18c.mp4
+          mkdir -p qa
+          ffmpeg -hide_banner -loglevel error -y -i chainsaw_v18c.mp4 -vf 'fps=1/.9,scale=180:-2,tile=7x2:padding=3:margin=3' -frames:v 1 qa/contact.jpg
+          ffprobe -v error -show_entries stream=codec_name,profile,width,height,r_frame_rate,sample_rate,channels -show_entries format=duration,size,bit_rate -of default=nw=1 chainsaw_v18c.mp4 | tee specs.txt
+      - name: Upload
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainsaw-v18c
+          path: |
+            chainsaw_v18c.mp4
+            qa/contact.jpg
+            edit_plan.txt
+            specs.txt
+          retention-days: 3
+      - name: Persist manifest
+        run: |
+          mkdir -p audit/chainsaw-v18c
+          printf 'run_id=%s\nartifact_id=%s\ncommit=%s\n' '${{ github.run_id }}' '${{ steps.upload.outputs.artifact-id }}' '${{ github.sha }}' > audit/chainsaw-v18c/manifest.txt
+          git config user.name github-actions;git config user.email github-actions@github.com
+          git add audit/chainsaw-v18c/manifest.txt;git commit -m 'Add Chainsaw V18C manifest' || exit 0
+          git pull --rebase origin main || true; git push || true
