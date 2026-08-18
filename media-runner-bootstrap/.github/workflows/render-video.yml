@@ -1,0 +1,58 @@
+name: Render Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Config JSON path
+        required: true
+        default: configs/chainsaw-reze-v18d.json
+        type: string
+      source_run_id:
+        description: Successful Source Ingest run ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: media-render-${{ inputs.config_path }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify runtime
+        run: |
+          python --version
+          command -v ffmpeg
+          command -v ffprobe
+
+      - name: Download normalized source artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: source-*
+          path: work/source
+          merge-multiple: true
+
+      - name: Render from config
+        run: python scripts/render.py "${{ inputs.config_path }}" work/source out/final.mp4
+
+      - name: Upload render artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-${{ github.run_id }}
+          path: |
+            out/final.mp4
+            out/render_manifest.json
+            out/edit_plan.txt
+          retention-days: 3
+          if-no-files-found: error
