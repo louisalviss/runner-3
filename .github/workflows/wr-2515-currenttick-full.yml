@@ -1,0 +1,111 @@
+name: WR 2.5.15 Current-Tick Full 5m
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-currenttick-full.yml']
+permissions:
+  contents: read
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Re-run verified four-window oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wr
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-rebuild-5m-s3.yml' -o /tmp/source.yml
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          s=Path('/tmp/source.yml').read_text(); marker="          cat >/tmp/oracle.py <<'PY'\n"
+          a=s.index(marker)+len(marker); b=s.index("\n          PY\n",a)
+          Path('/tmp/oracle.py').write_text(textwrap.dedent(s[a:b]))
+          PY
+          python3 /tmp/oracle.py | tee /tmp/wr/oracle.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-currenttick-oracle
+          path: /tmp/wr
+          retention-days: 3
+
+  baseline:
+    needs: oracle
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - name: Run current-tick 5m shard
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 8
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wr
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-rebuild-5m-s3.yml' -o /tmp/source.yml
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          s=Path('/tmp/source.yml').read_text(); marker="          cat >/tmp/full5.py <<'PY'\n"
+          a=s.index(marker)+len(marker); b=s.index("\n          PY\n",a)
+          code=textwrap.dedent(s[a:b])
+          old1="try:x,p=readzip(getzip(u));b.extend(x);px.extend(p[:2000] if len(px)<8000 else [])"
+          new1="try:x,p=readzip(getzip(u));b.extend(x);px=(px+p)[-8064:]"
+          old2="try:x,p=readzip(getzip(u));b.extend(x);px.extend(p[:1000] if len(px)<8000 else [])"
+          new2="try:x,p=readzip(getzip(u));b.extend(x);px=(px+p)[-8064:]"
+          if code.count(old1)!=1 or code.count(old2)!=1: raise SystemExit('tick patch anchor missing')
+          code=code.replace(old1,new1,1).replace(old2,new2,1)
+          Path('/tmp/full5.py').write_text(code)
+          PY
+          python3 /tmp/full5.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-currenttick-shard-${{ matrix.shard }}
+          path: /tmp/wr
+          retention-days: 3
+
+  merge:
+    needs: baseline
+    if: always() && needs.baseline.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr2515-currenttick-shard-*
+          path: /tmp/all
+          merge-multiple: true
+      - name: Merge current-tick baseline
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv,glob,json,os
+          S=[];E=[]
+          for p in glob.glob('/tmp/all/summary-*.json'): S+=json.load(open(p))
+          for p in glob.glob('/tmp/all/errors-*.json'): E+=json.load(open(p))
+          os.makedirs('/tmp/final',exist_ok=True)
+          S.sort(key=lambda x:(-(x.get('net_r_6bps') if x.get('net_r_6bps') is not None else -1e99),x['symbol']))
+          json.dump(S,open('/tmp/final/summary.json','w'),indent=2);json.dump(E,open('/tmp/final/errors.json','w'),indent=2)
+          fields=['symbol','tf','bars','tick','n','total_r','avg_r','win_rate','pf','net_r_4bps','net_r_6bps','net_r_8bps','net_r_10bps']
+          with open('/tmp/final/summary.csv','w',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows({k:r.get(k) for k in fields} for r in S)
+          with open('/tmp/final/trades.jsonl','w') as dst:
+            for p in glob.glob('/tmp/all/trades-*.jsonl'):
+              with open(p) as src: dst.write(src.read())
+          elig=[x for x in S if x['n']>=100]
+          report={'tick_model':'recent ~7 days of available 5m OHLC price grid, static per symbol for TradingView syminfo.mintick parity','symbols_completed':len(S),'errors':len(E),'cells_n_ge_100':len(elig),'gross_positive_n_ge_100':sum(x['avg_r']>0 for x in elig),'net6_positive_n_ge_100':sum(x['net_r_6bps']>0 for x in elig),'top20_net6':S[:20]}
+          json.dump(report,open('/tmp/final/report.json','w'),indent=2);print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-5m-currenttick-final
+          path: /tmp/final
+          retention-days: 7
