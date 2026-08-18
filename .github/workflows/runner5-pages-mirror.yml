@@ -1,0 +1,185 @@
+name: Runner5 Optimized Pages Mirror
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-pages-mirror.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SOURCE_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
+      ORIGIN_URL: https://runner5-restore-lab-1.wasmer.app/
+      PROJECT_NAME: runner5-restore-lab-louis
+      PAGES_URL: https://runner5-restore-lab-louis.pages.dev/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Wait for final optimized edge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,time,urllib.request
+          url=os.environ['SOURCE_URL']
+          for i in range(30):
+              try:
+                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      html=r.read(500000).decode('utf-8','ignore')
+                      mode=r.headers.get('x-edge-mode')
+                  req=urllib.request.Request(url.rstrip('/')+'/__edge/runner5.css',headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      css=r.read(1000000).decode('utf-8','ignore')
+                  if mode=='snapshot' and 'jquery.min.js' in html and ' defer' in html and 'font-display:optional' in css:
+                      print('final edge ready'); break
+              except Exception as e:
+                  print('wait',i,str(e)[:160])
+              time.sleep(4)
+          else: raise SystemExit('final optimized edge did not become ready')
+          PY
+
+      - name: Build static frontend mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,re,time,urllib.parse,urllib.request,pathlib,json
+          source=os.environ['SOURCE_URL'].rstrip('/')
+          origin=os.environ['ORIGIN_URL'].rstrip('/')
+          out=pathlib.Path('/tmp/runner5-pages'); out.mkdir(parents=True,exist_ok=True)
+          ua='Mozilla/5.0 Runner5StaticMirror/1.0'
+          html_queue=['/']; seen_html=set(); assets=set(); copied=[]; errors=[]
+          static_ext=re.compile(r'\.(?:css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|mp4|webm|pdf)(?:$|\?)',re.I)
+          skip_prefix=('/wp-admin','/wp-login.php','/wp-json','/xmlrpc.php','/wp-cron.php','/feed','/comments/feed')
+          def get(path_or_url, binary=False):
+              url=path_or_url if path_or_url.startswith('http') else source+('/' if not path_or_url.startswith('/') else '')+path_or_url
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*'})
+              with urllib.request.urlopen(req,timeout=35) as r:
+                  b=r.read(5000000); ct=r.headers.get('content-type',''); final=r.geturl()
+              return b,ct,final
+          def norm_path(raw,base_url=source+'/'):
+              raw=raw.strip().replace('&amp;','&')
+              if not raw or raw.startswith(('#','mailto:','tel:','javascript:','data:','blob:')): return None
+              try: u=urllib.parse.urlparse(urllib.parse.urljoin(base_url,raw))
+              except: return None
+              if u.netloc not in (urllib.parse.urlparse(source).netloc,urllib.parse.urlparse(origin).netloc): return None
+              return u.path + (('?' + u.query) if u.query else '')
+          def disk_for(path,is_html=False):
+              p=urllib.parse.urlparse(path).path
+              if is_html:
+                  if p=='/': return out/'index.html'
+                  if p.endswith('/'): return out/p.lstrip('/')/'index.html'
+                  if '.' not in pathlib.PurePosixPath(p).name: return out/p.lstrip('/')/'index.html'
+              return out/p.lstrip('/')
+          def rewrite_text(text):
+              return text.replace(source,'').replace(origin,'').replace('http://runner5-restore-lab-1.wasmer.app','')
+          attr_re=re.compile(r'(?:href|src)\s*=\s*["\']([^"\']+)["\']',re.I)
+          srcset_re=re.compile(r'srcset\s*=\s*["\']([^"\']+)["\']',re.I)
+          # Crawl public HTML routes discovered from links.
+          while html_queue and len(seen_html)<40:
+              path=html_queue.pop(0)
+              clean=urllib.parse.urlparse(path).path
+              if clean in seen_html or any(clean.startswith(x) for x in skip_prefix): continue
+              try:
+                  b,ct,final=get(path); text=b.decode('utf-8','ignore')
+                  if 'text/html' not in ct.lower() and '<html' not in text[:2000].lower(): continue
+                  seen_html.add(clean)
+                  for raw in attr_re.findall(text):
+                      p=norm_path(raw,source+clean)
+                      if not p: continue
+                      cp=urllib.parse.urlparse(p).path
+                      if static_ext.search(p): assets.add(p)
+                      elif not any(cp.startswith(x) for x in skip_prefix) and len(seen_html)+len(html_queue)<50 and cp not in seen_html: html_queue.append(cp + ('/' if not cp.endswith('/') and '.' not in pathlib.PurePosixPath(cp).name else ''))
+                  for group in srcset_re.findall(text):
+                      for item in group.split(','):
+                          p=norm_path(item.strip().split()[0],source+clean)
+                          if p: assets.add(p)
+                  text=rewrite_text(text)
+                  dest=disk_for(clean,is_html=True); dest.parent.mkdir(parents=True,exist_ok=True); dest.write_text(text,encoding='utf-8'); copied.append(clean)
+              except Exception as e: errors.append({'path':path,'error':str(e)[:200]})
+          # Always capture the optimized edge CSS and common favicon.
+          assets.update(['/__edge/runner5.css','/favicon.ico'])
+          processed=set(); queue=list(assets)
+          css_url_re=re.compile(r'url\(\s*["\']?([^"\')]+)',re.I)
+          while queue and len(processed)<300:
+              path=queue.pop(0)
+              if path in processed: continue
+              processed.add(path)
+              try:
+                  b,ct,final=get(path)
+                  disk=disk_for(path); disk.parent.mkdir(parents=True,exist_ok=True)
+                  if 'text/css' in ct.lower() or urllib.parse.urlparse(path).path.endswith('.css'):
+                      text=b.decode('utf-8','ignore')
+                      for raw in css_url_re.findall(text):
+                          p=norm_path(raw,source+urllib.parse.urlparse(path).path)
+                          if p and p not in processed: queue.append(p)
+                      text=rewrite_text(text); disk.write_text(text,encoding='utf-8')
+                  else: disk.write_bytes(b)
+              except Exception as e: errors.append({'asset':path,'error':str(e)[:200]})
+          (out/'_headers').write_text('/*\n  Cache-Control: public, max-age=300\n\n/wp-content/*\n  Cache-Control: public, max-age=31536000, immutable\n\n/wp-includes/*\n  Cache-Control: public, max-age=31536000, immutable\n\n/__edge/*\n  Cache-Control: public, max-age=31536000, immutable\n',encoding='utf-8')
+          summary={'status':'BUILT','htmlPages':len(seen_html),'assets':len(processed),'errors':errors[:20],'builtAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          pathlib.Path('/tmp/runner5-pages-build.json').write_text(json.dumps(summary,indent=2)+'\n'); print(json.dumps(summary,indent=2))
+          if not (out/'index.html').exists(): raise SystemExit('index.html missing')
+          PY
+
+      - name: Create Pages project if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages project create "$PROJECT_NAME" --production-branch main >/tmp/pages-create.log 2>&1 || true
+          cat /tmp/pages-create.log
+
+      - name: Deploy Pages production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages deploy /tmp/runner5-pages --project-name "$PROJECT_NAME" --branch main --commit-hash "$GITHUB_SHA" --commit-message 'Runner5 optimized static frontend' | tee /tmp/pages-deploy.log
+
+      - name: Verify Pages site
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,time,urllib.request,json
+          url=os.environ['PAGES_URL']; result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'firstMs':None,'warmMs':None,'detail':None}; times=[]; err=None
+          for _ in range(20):
+              try:
+                  t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=25) as r: body=r.read(1000000).decode('utf-8','ignore'); times.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
+                  if result['http']==200 and result['titleMarker'] and len(times)>=2: result['status']='READY'; break
+              except Exception as e: err=str(e)
+              time.sleep(4)
+          result['firstMs']=times[0] if times else None; result['warmMs']=times[-1] if len(times)>1 else None; result['detail']=None if result['status']=='READY' else err; result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          build=json.load(open('/tmp/runner5-pages-build.json')); result['build']=build
+          open('/tmp/runner5-pages-status.json','w').write(json.dumps(result,indent=2)+'\n'); print(json.dumps(result,indent=2))
+          if result['status']!='READY': raise SystemExit(2)
+          PY
+
+      - name: Persist Pages status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-pages-status.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PAGES_URL" >/tmp/runner5-pages-status.json
+          cp /tmp/runner5-pages-status.json /tmp/pages-status-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/pages-status-safe.json ops/wordpress-access/runner5-pages.json; git add ops/wordpress-access/runner5-pages.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Pages deployment status'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
