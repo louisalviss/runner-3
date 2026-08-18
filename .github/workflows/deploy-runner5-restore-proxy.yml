@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build homepage edge snapshot
+      - name: Build homepage and stylesheet edge snapshots
         shell: bash
         run: |
           set -euo pipefail
@@ -35,7 +35,7 @@ jobs:
           import json, os, re, urllib.parse, urllib.request, time
 
           origin=os.environ['ORIGIN_URL']
-          ua='Mozilla/5.0 EdgeSnapshotBuilder/1.0'
+          ua='Mozilla/5.0 EdgeSnapshotBuilder/2.0'
 
           def fetch(url, timeout=40):
               req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*','Cache-Control':'no-cache'})
@@ -48,7 +48,8 @@ jobs:
               raise SystemExit('homepage snapshot marker missing')
 
           base=urllib.parse.urlparse(origin)
-          inlined=[]
+          styles={}
+          style_meta=[]
 
           def rewrite_css_urls(css, css_url):
               def repl(m):
@@ -62,38 +63,35 @@ jobs:
           link_re=re.compile(r'<link\b[^>]*>',re.I)
           href_re=re.compile(r'\bhref\s*=\s*(["\'])(.*?)\1',re.I|re.S)
           rel_re=re.compile(r'\brel\s*=\s*(["\'])(.*?)\1',re.I|re.S)
-          media_re=re.compile(r'\bmedia\s*=\s*(["\'])(.*?)\1',re.I|re.S)
 
-          def inline_link(m):
-              tag=m.group(0)
+          for tag in link_re.findall(html):
               rel=rel_re.search(tag)
               href=href_re.search(tag)
               if not rel or not href or 'stylesheet' not in rel.group(2).lower().split():
-                  return tag
+                  continue
               css_url=urllib.parse.urljoin(origin,href.group(2))
               u=urllib.parse.urlparse(css_url)
               if u.netloc != base.netloc:
-                  return tag
+                  continue
               try:
                   css_raw,css_type=fetch(css_url,30)
                   css=css_raw.decode('utf-8','ignore')
-                  if not css.strip(): return tag
+                  if not css.strip():
+                      continue
                   css=rewrite_css_urls(css,css_url)
-                  css=css.replace('</style','<\\/style')
-                  media=media_re.search(tag)
-                  media_attr=f' media="{media.group(2)}"' if media else ''
-                  inlined.append({'url':css_url,'bytes':len(css_raw)})
-                  return f'<style data-edge-inline="1"{media_attr}>\n{css}\n</style>'
-              except Exception:
-                  return tag
+                  key=u.path + (('?' + u.query) if u.query else '')
+                  styles[key]=css
+                  style_meta.append({'key':key,'bytes':len(css_raw)})
+              except Exception as exc:
+                  style_meta.append({'key':u.path,'error':str(exc)[:160]})
 
-          html=link_re.sub(inline_link,html)
           built=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
           out='// Generated immediately before Cloudflare deployment. Do not hand-edit.\n'
           out+=f'export const SNAPSHOT_BUILT_AT = {json.dumps(built)};\n'
           out+=f'export const HOME_SNAPSHOT = {json.dumps(html)};\n'
+          out+=f'export const STYLE_SNAPSHOTS = Object.freeze({json.dumps(styles)});\n'
           open('cloudflare/runner5-restore-proxy/snapshot.generated.js','w').write(out)
-          print(json.dumps({'snapshotBytes':len(html.encode()),'inlinedCss':inlined,'builtAt':built},indent=2))
+          print(json.dumps({'htmlBytes':len(html.encode()),'styleCount':len(styles),'styles':style_meta,'builtAt':built},indent=2))
           PY
 
       - name: Deploy isolated optimized Worker proxy
