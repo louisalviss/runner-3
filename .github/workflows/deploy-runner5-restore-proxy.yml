@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: runner5-restore-proxy-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -19,10 +23,80 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PROXY_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
+      ORIGIN_URL: https://runner5-restore-lab-1.wasmer.app/
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy isolated Worker proxy
+      - name: Build homepage edge snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re, urllib.parse, urllib.request, time
+
+          origin=os.environ['ORIGIN_URL']
+          ua='Mozilla/5.0 EdgeSnapshotBuilder/1.0'
+
+          def fetch(url, timeout=40):
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*','Cache-Control':'no-cache'})
+              with urllib.request.urlopen(req,timeout=timeout) as r:
+                  return r.read(), r.headers.get('content-type','')
+
+          raw,ctype=fetch(origin)
+          html=raw.decode('utf-8','ignore')
+          if len(html) < 1000 or 'Runner5 Restore Lab Demo' not in html:
+              raise SystemExit('homepage snapshot marker missing')
+
+          base=urllib.parse.urlparse(origin)
+          inlined=[]
+
+          def rewrite_css_urls(css, css_url):
+              def repl(m):
+                  raw=m.group(1).strip().strip('"\'')
+                  if not raw or raw.startswith(('data:','#','about:')):
+                      return m.group(0)
+                  absolute=urllib.parse.urljoin(css_url,raw)
+                  return 'url("'+absolute.replace('"','%22')+'")'
+              return re.sub(r'url\(([^)]+)\)', repl, css, flags=re.I)
+
+          link_re=re.compile(r'<link\b[^>]*>',re.I)
+          href_re=re.compile(r'\bhref\s*=\s*(["\'])(.*?)\1',re.I|re.S)
+          rel_re=re.compile(r'\brel\s*=\s*(["\'])(.*?)\1',re.I|re.S)
+          media_re=re.compile(r'\bmedia\s*=\s*(["\'])(.*?)\1',re.I|re.S)
+
+          def inline_link(m):
+              tag=m.group(0)
+              rel=rel_re.search(tag)
+              href=href_re.search(tag)
+              if not rel or not href or 'stylesheet' not in rel.group(2).lower().split():
+                  return tag
+              css_url=urllib.parse.urljoin(origin,href.group(2))
+              u=urllib.parse.urlparse(css_url)
+              if u.netloc != base.netloc:
+                  return tag
+              try:
+                  css_raw,css_type=fetch(css_url,30)
+                  css=css_raw.decode('utf-8','ignore')
+                  if not css.strip(): return tag
+                  css=rewrite_css_urls(css,css_url)
+                  css=css.replace('</style','<\\/style')
+                  media=media_re.search(tag)
+                  media_attr=f' media="{media.group(2)}"' if media else ''
+                  inlined.append({'url':css_url,'bytes':len(css_raw)})
+                  return f'<style data-edge-inline="1"{media_attr}>\n{css}\n</style>'
+              except Exception:
+                  return tag
+
+          html=link_re.sub(inline_link,html)
+          built=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          out='// Generated immediately before Cloudflare deployment. Do not hand-edit.\n'
+          out+=f'export const SNAPSHOT_BUILT_AT = {json.dumps(built)};\n'
+          out+=f'export const HOME_SNAPSHOT = {json.dumps(html)};\n'
+          open('cloudflare/runner5-restore-proxy/snapshot.generated.js','w').write(out)
+          print(json.dumps({'snapshotBytes':len(html.encode()),'inlinedCss':inlined,'builtAt':built},indent=2))
+          PY
+
+      - name: Deploy isolated optimized Worker proxy
         shell: bash
         run: |
           set -euo pipefail
@@ -30,33 +104,43 @@ jobs:
             --name runner5-restore-proxy \
             --compatibility-date 2026-08-18
 
-      - name: Verify proxy
+      - name: Verify optimized proxy
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, time, urllib.request, urllib.error
+          import json, os, time, urllib.request
           url=os.environ['PROXY_URL']
-          result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'detail':None}
+          result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'firstMs':None,'warmMs':None,'detail':None}
           last=None
-          for _ in range(12):
+          timings=[]
+          for attempt in range(12):
               try:
+                  t=time.perf_counter()
                   req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
                   with urllib.request.urlopen(req,timeout=25) as r:
-                      body=r.read(500000).decode('utf-8','ignore')
+                      body=r.read(1000000).decode('utf-8','ignore')
+                      ms=(time.perf_counter()-t)*1000
+                      timings.append(round(ms,1))
                       result['http']=r.status
                       result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
-                      if r.status==200:
+                      result['edgeMode']=r.headers.get('x-edge-mode')
+                      result['edgeCache']=r.headers.get('x-edge-cache')
+                      if r.status==200 and result['titleMarker']:
+                          if len(timings) < 2:
+                              continue
                           result['status']='READY'
                           break
               except Exception as e:
                   last=str(e)
-              time.sleep(5)
+              time.sleep(3)
+          result['firstMs']=timings[0] if timings else None
+          result['warmMs']=timings[-1] if len(timings)>1 else None
           result['detail']=last if result['status']!='READY' else None
           result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
           open('/tmp/runner5-proxy.json','w').write(json.dumps(result,indent=2))
           print(json.dumps(result,indent=2))
-          if result['status']!='READY': raise SystemExit(2)
+          if result['status']!='READY' or result['edgeMode']!='snapshot': raise SystemExit(2)
           PY
 
       - name: Persist proxy status
@@ -65,13 +149,14 @@ jobs:
         run: |
           set -euo pipefail
           test -s /tmp/runner5-proxy.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PROXY_URL" > /tmp/runner5-proxy.json
+          cp /tmp/runner5-proxy.json /tmp/runner5-proxy-safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
             git fetch origin main
             git reset --hard origin/main
             mkdir -p ops/wordpress-access
-            cp /tmp/runner5-proxy.json ops/wordpress-access/runner5-restore-proxy.json
+            cp /tmp/runner5-proxy-safe.json ops/wordpress-access/runner5-restore-proxy.json
             git add ops/wordpress-access/runner5-restore-proxy.json
             if git diff --cached --quiet; then exit 0; fi
             git commit -m 'Persist Runner5 restore proxy status'
