@@ -1,0 +1,85 @@
+name: TV WR Live Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tv-wr-live-inspect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore TradingView session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-storage-state.json
+          python3 - <<'PY'
+          import json
+          s=json.load(open('/tmp/tv-storage-state.json'))
+          assert s.get('cookies')
+          print('TV_SESSION_DECRYPT=PASS')
+          PY
+      - name: Inspect live TradingView editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs');
+          const {chromium}=require('playwright-core');
+          (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
+            const executablePath=exes.find(p=>fs.existsSync(p));
+            if(!executablePath) throw new Error('Chrome/Chromium missing');
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-storage-state.json','utf8'));
+            const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1600,height:1000}});
+            const page=await context.newPage();
+            await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await page.waitForTimeout(12000);
+            const body0=await page.locator('body').innerText().catch(()=> '');
+            const cookies=await context.cookies();
+            const hasAuthCookie=cookies.some(c=>/(^|\.)tradingview\.com$/i.test(c.domain.replace(/^\./,'')) && /session/i.test(c.name) && c.value);
+            console.log('AUTH_COOKIE='+(hasAuthCookie?'PASS':'FAIL'));
+            console.log('URL='+page.url());
+            console.log('HAS_SIGNIN='+(/\bSign in\b/i.test(body0)?'YES':'NO'));
+            console.log('CHART_HAS_BNB='+(body0.includes('BNBUSDT')?'YES':'NO'));
+            const pineCandidates=page.getByText('Pine Editor',{exact:true});
+            console.log('PINE_EDITOR_COUNT='+await pineCandidates.count());
+            if(await pineCandidates.count()){
+              await pineCandidates.first().click().catch(()=>{});
+              await page.waitForTimeout(6000);
+            }
+            const body=await page.locator('body').innerText().catch(()=> '');
+            console.log('HAS_WR_WINDOW_TITLE='+(body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'));
+            console.log('HAS_WR_SHORTTITLE='+(body.includes('WR 2.5.13 WIN')?'YES':'NO'));
+            console.log('HAS_PINE_EDITOR='+(body.includes('Pine Editor')?'YES':'NO'));
+            const lines=body.split('\n').map(x=>x.trim()).filter(Boolean);
+            const hits=lines.filter(x=>/Wave Rider|WR 2\.5\.13|Pine Editor|Strategy Tester|BNBUSDT/i.test(x));
+            console.log('TEXT_HITS_BEGIN');
+            console.log(hits.slice(0,120).join('\n'));
+            console.log('TEXT_HITS_END');
+            await page.screenshot({path:'/tmp/tv-inspect.png',fullPage:false});
+            await browser.close();
+          })().catch(e=>{console.error('TV_INSPECT_ERROR='+e.stack);process.exit(7)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tv-wr-live-inspect
+          path: /tmp/tv-inspect.png
+          retention-days: 1
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/tv-storage-state.json
