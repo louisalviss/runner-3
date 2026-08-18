@@ -7,6 +7,11 @@ on:
       - 'ops/wasmer-edge-speed/requests/*.json'
       - 'scripts/wasmer-edge-speed.mjs'
       - '.github/workflows/wasmer-edge-speed.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'ops/wasmer-edge-speed/requests/*.json'
   workflow_dispatch:
 
 permissions:
