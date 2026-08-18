@@ -1,0 +1,179 @@
+name: Chainsaw Reze V18 Tenor Official
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/chainsaw-reze-v18-tenor.yml']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl fonts-dejavu-core
+          python -m pip install -q numpy
+      - name: Download SonyPictures official Tenor source pool
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import re,html,urllib.request,os,time
+          pages=[
+          'https://tenor.com/view/incoming-attack-chainsaw-man---the-movie-reze-arc-explosive-attack-kaboom-massive-explosion-gif-6324665452427745309',
+          'https://tenor.com/view/explosive-attack-bomb-girl-bomb-devil-chainsaw-man---the-movie-reze-arc-triggering-explosions-gif-12104238891328959026',
+          'https://tenor.com/view/explosive-attack-bomb-girl-bomb-devil-chainsaw-man-chainsaw-man---the-movie-reze-arc-gif-10859281450594106501',
+          'https://tenor.com/view/explosive-punch-bomb-girl-bomb-devil-chainsaw-man---the-movie-reze-arc-attacking-gif-3360656980861711299',
+          'https://tenor.com/view/evading-attacks-chainsaw-man-shark-fiend-chainsaw-man---the-movie-reze-arc-dodging-gif-16364583445376573605',
+          'https://tenor.com/view/roar-chainsaw-man-chainsaw-man---the-movie-reze-arc-monster-scream-sony-pictures-gif-5329216668127084356',
+          'https://tenor.com/view/reaching-out-to-you-bomb-girl-bomb-devil-chainsaw-man---the-movie-reze-arc-about-to-grab-you-gif-2717792440833412419',
+          'https://tenor.com/view/hell-yea-denji-chainsaw-man---the-movie-reze-arc-oh-yeah-yahoo-gif-12651366856199326233',
+          'https://tenor.com/view/blushing-reze-chainsaw-man---the-movie-reze-arc-feeling-happy-delighted-gif-11744087022567648846',
+          'https://tenor.com/view/massive-explosion-chainsaw-man---the-movie-reze-arc-kaboom-big-explosion-mushroom-cloud-gif-8760439085191691220',
+          'https://tenor.com/view/surprised-denji-chainsaw-man---the-movie-reze-arc-shocked-speechless-gif-11247000256078843147',
+          'https://tenor.com/view/receiving-a-flower-chainsaw-man---the-movie-reze-arc-flower-for-you-flower-gift-sony-pictures-gif-14750220445323611034'
+          ]
+          os.makedirs('src',exist_ok=True)
+          ua={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36'}
+          log=[]
+          for i,p in enumerate(pages):
+            req=urllib.request.Request(p,headers=ua)
+            text=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','ignore')
+            text=html.unescape(text).replace('\\u0026','&').replace('\\/','/')
+            urls=[]
+            for pat in [r'https://media\.tenor\.com/[^"\'<> ]+?\.mp4[^"\'<> ]*',r'https://media\.tenor\.com/[^"\'<> ]+?\.gif[^"\'<> ]*']:
+              urls += re.findall(pat,text)
+            urls=list(dict.fromkeys(urls))
+            if not urls:
+              raise SystemExit(f'NO_MEDIA {i} {p}')
+            # Prefer MP4 and largest-looking media variant when multiple are present.
+            url=next((u for u in urls if '.mp4' in u),urls[0])
+            ext='.mp4' if '.mp4' in url else '.gif'
+            out=f'src/{i:02d}{ext}'
+            req=urllib.request.Request(url,headers=ua)
+            data=urllib.request.urlopen(req,timeout=45).read()
+            open(out,'wb').write(data)
+            log.append(f'{i:02d}\t{len(data)}\t{url}\t{p}')
+            print(log[-1])
+          open('source_manifest.tsv','w').write('\n'.join(log))
+          PY
+          ls -lh src
+      - name: Get MONTAGEM XONADA official preview and beat window
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 'https://itunes.apple.com/search?term=MONTAGEM%20XONADA%20MXZI%20Dj%20Samir%20DJ%20Javi26&entity=song&limit=50&country=US' -o i.json
+          python <<'PY'
+          import json
+          for x in json.load(open('i.json')).get('results',[]):
+            if (x.get('trackName') or '').strip().lower()=='montagem xonada' and x.get('previewUrl') and 'mxzi' in (x.get('artistName') or '').lower():
+              open('music_url','w').write(x['previewUrl']);open('music_meta.txt','w').write(f"{x.get('trackName')} | {x.get('artistName')}\n");break
+          else: raise SystemExit('NO_XONADA')
+          PY
+          curl -fL --max-time 45 -A 'Mozilla/5.0' "$(cat music_url)" -o xonada.m4a
+          ffmpeg -hide_banner -loglevel error -y -i xonada.m4a -ac 1 -ar 22050 -f s16le x.raw
+          python <<'PY'
+          import numpy as np
+          sr=22050; bpm=172; beat=60/bpm; total=48*beat
+          x=np.fromfile('x.raw',dtype=np.int16).astype(np.float32)/32768
+          hop=220;win=1024
+          e=np.array([np.sqrt(np.mean(x[i:i+win]**2)+1e-9) for i in range(0,len(x)-win,hop)])
+          on=np.maximum(0,np.diff(np.log(e+1e-6),prepend=np.log(e[0]+1e-6))); tt=np.arange(len(e))*hop/sr
+          maxst=max(0,len(x)/sr-total-.05);best=(-1,0)
+          for idx in np.argsort(on)[-min(600,len(on)):]:
+            st=tt[idx]
+            if st>maxst: continue
+            ids=np.searchsorted(tt,st+np.arange(48)*beat);ids=np.clip(ids,0,len(on)-1)
+            mask=(tt>=st)&(tt<st+total)
+            score=float(on[ids].sum()+7*np.percentile(e[mask],70)+.8*on[idx])
+            if score>best[0]:best=(score,st)
+          open('music_start.txt','w').write(f'{best[1]:.3f}')
+          open('beat_meta.txt','w').write(f'bpm={bpm}\nbeat={beat:.6f}\nbeats=48\nduration={total:.6f}\nmusic_start={best[1]:.3f}\n')
+          print(open('beat_meta.txt').read())
+          PY
+      - name: Normalize source clips
+        run: |
+          set -euo pipefail
+          mkdir -p norm
+          i=0
+          for f in src/*; do
+            ffmpeg -hide_banner -loglevel error -y -stream_loop 1 -i "$f" -t 5 -vf "fps=30,scale=1280:534:force_original_aspect_ratio=increase,crop=1280:534,setsar=1,format=yuv420p" -an -c:v libx264 -preset veryfast -crf 18 "norm/$(printf '%02d' $i).mp4"
+            i=$((i+1))
+          done
+      - name: Render Chainsaw Man viral edit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          # input index, source start, source end, beat count, style
+          seq=[
+          (5,.05,.45,.5,'hit'),(3,.10,.50,.5,'hit'),(9,.10,.50,.5,'hit'),(2,.10,.50,.5,'hit'),
+          (10,.00,1.40,2,'denji'),(8,.00,1.70,2,'reze'),(11,.00,1.20,2,'soft'),(7,.20,1.80,2,'denji'),
+          (6,.00,1.10,2,'bomb'),(0,.40,2.00,2,'explode'),(1,.20,1.80,2,'bomb'),
+          (5,.00,1.40,4,'chainsaw'),(4,.00,1.30,4,'action'),(3,.00,1.80,4,'bomb'),(2,.00,2.20,4,'action'),
+          (0,.00,3.20,4,'explode'),(9,.00,2.50,4,'explode'),(1,.00,2.50,4,'bomb'),(5,.00,1.50,4,'chainsaw')]
+          assert abs(sum(x[3] for x in seq)-48)<1e-9
+          beat=60/172
+          n=len(seq)
+          # ffmpeg inputs are norm/00..11 followed by xonada later in second command
+          parts=[]; labels=[]; t=0; plan=[]
+          for k,(idx,st,en,b,style) in enumerate(seq):
+            od=b*beat; src=en-st
+            # 1000px-wide cinematic foreground inside iPhone-safe central area.
+            bg=f'[{idx}:v]trim=start={st}:end={en},setpts=(PTS-STARTPTS)*{od/src:.8f},split=2[b{k}][f{k}]'
+            parts.append(bg)
+            parts.append(f'[b{k}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=34,eq=brightness=-.18:saturation=.88[b2{k}]')
+            col='eq=contrast=1.18:saturation=1.28:gamma=.96'
+            if style in ('bomb','explode'): col+=',colorbalance=rs=.09:bs=-.035'
+            if style in ('chainsaw','denji'): col+=',colorbalance=bs=.08:rs=-.02'
+            zoom=1.06 if style in ('hit','action','explode') else 1.0
+            fw=int(1000*zoom); fh=int(round(fw*534/1280/2)*2)
+            fx=f'[f{k}]scale={fw}:{fh},{col}'
+            if style=='hit': fx+=",rgbashift=rh=5:bh=-5,drawbox=x=0:y=0:w=iw:h=ih:color=white@.30:t=fill:enable='lt(t,.045)'"
+            if style in ('action','explode'): fx+=",unsharp=5:5:.35:5:5:0"
+            fx+=f'[f2{k}]'
+            parts.append(fx)
+            y='(H-h)/2'
+            x='(W-w)/2'
+            parts.append(f'[b2{k}][f2{k}]overlay=x={x}:y={y},setsar=1,fps=30,format=yuv420p[v{k}]')
+            labels.append(f'[v{k}]')
+            plan.append(f'{k+1:02d} out={t:.3f}-{t+od:.3f} src={idx} {st:.2f}-{en:.2f} beats={b} style={style}')
+            t+=od
+          parts.append(''.join(labels)+f'concat=n={n}:v=1:a=0[vout]')
+          open('filter.txt','w').write(';'.join(parts));open('edit_plan.txt','w').write('\n'.join(plan)+f'\nTOTAL={t:.6f}\n')
+          PY
+          ffmpeg -hide_banner -loglevel error -y \
+            -i norm/00.mp4 -i norm/01.mp4 -i norm/02.mp4 -i norm/03.mp4 -i norm/04.mp4 -i norm/05.mp4 \
+            -i norm/06.mp4 -i norm/07.mp4 -i norm/08.mp4 -i norm/09.mp4 -i norm/10.mp4 -i norm/11.mp4 \
+            -filter_complex_script filter.txt -map '[vout]' -an -c:v libx264 -preset medium -crf 17 -profile:v high -level 4.1 -pix_fmt yuv420p visual.mp4
+          DUR=$(python - <<'PY'
+          print(f'{48*(60/172):.6f}')
+          PY
+          ); MS=$(cat music_start.txt)
+          ffmpeg -hide_banner -loglevel error -y -i visual.mp4 -ss "$MS" -i xonada.m4a -t "$DUR" -map 0:v -map 1:a -c:v copy -af 'volume=1.0,bass=g=3:f=90,alimiter=limit=.94' -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart chainsaw_reze_v18.mp4
+          mkdir -p qa
+          ffmpeg -hide_banner -loglevel error -y -i chainsaw_reze_v18.mp4 -vf 'fps=1/1.2,scale=180:-2,tile=7x2:padding=3:margin=3' -frames:v 1 qa/master_contact.jpg
+          ffmpeg -hide_banner -loglevel error -y -i chainsaw_reze_v18.mp4 -vf 'crop=886:1920:97:0,scale=180:390,setsar=1,tile=7x2:padding=3:margin=3' -frames:v 1 qa/iphone_sample.jpg || true
+          ffprobe -v error -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,sample_rate,channels -show_entries format=duration,size,bit_rate -of default=nw=1 chainsaw_reze_v18.mp4 | tee specs.txt
+      - name: Upload
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainsaw-reze-v18
+          path: |
+            chainsaw_reze_v18.mp4
+            qa/*.jpg
+            source_manifest.tsv
+            beat_meta.txt
+            edit_plan.txt
+            specs.txt
+          retention-days: 3
+      - name: Persist manifest
+        run: |
+          mkdir -p audit/chainsaw-reze-v18
+          printf 'run_id=%s\nartifact_id=%s\ncommit=%s\n' '${{ github.run_id }}' '${{ steps.upload.outputs.artifact-id }}' '${{ github.sha }}' > audit/chainsaw-reze-v18/manifest.txt
+          git config user.name github-actions;git config user.email github-actions@github.com
+          git add audit/chainsaw-reze-v18/manifest.txt;git commit -m 'Add Chainsaw Reze V18 manifest' || exit 0
+          for n in 1 2 3 4 5;do git pull --rebase origin main || true;git push&&exit 0;sleep 2;done;exit 0
