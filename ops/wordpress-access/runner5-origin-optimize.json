@@ -1,8 +1,18 @@
 {
   "status": "FAILED",
+  "url": "https://runner5-restore-lab-1.wasmer.app/",
+  "http": 200,
+  "cacheEligible": false,
+  "cacheControl": null,
+  "contentLength": null,
+  "jqueryDeferred": false,
+  "originStamp": null,
+  "detail": null,
   "deployOutcome": "failure",
   "deployExit": "1",
-  "verifyOutcome": "cancelled",
-  "deployLogTail": "file:///home/runner/work/runner-3/runner-3/scripts/deploy-wordpress-plugin.mjs:54\n  throw new Error('magic_admin_failed');\n        ^\n\nError: magic_admin_failed\n    at enterAdmin (file:///home/runner/work/runner-3/runner-3/scripts/deploy-wordpress-plugin.mjs:54:9)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/deploy-wordpress-plugin.mjs:104:14\n\nNode.js v22.23.2\n",
-  "updatedAt": "2026-08-18T17:39:43Z"
+  "verifyOutcome": "failure",
+  "deployStage": "wp-admin",
+  "deployDetail": "Error: magic_admin_failed\n    at file:///home/runner/work/runner-3/runner-3/scripts/deploy-runner5-edge-optimizer.mjs:36:17",
+  "deployLogTail": "{\n  \"status\": \"FAILED\",\n  \"stage\": \"wp-admin\",\n  \"dashboard\": \"https://wasmer.io/apps/runner3wp0b90f6b4ab/runner5-restore-lab-1\",\n  \"base\": \"https://runner5-restore-lab-1.wasmer.app\",\n  \"detail\": \"Error: magic_admin_failed\\n    at file:///home/runner/work/runner-3/runner-3/scripts/deploy-runner5-edge-optimizer.mjs:36:17\",\n  \"updatedAt\": \"2026-08-18T17:40:17.862Z\"\n}\n",
+  "updatedAt": "2026-08-18T17:40:54Z"
 }
