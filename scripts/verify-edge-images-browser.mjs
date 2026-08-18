@@ -46,7 +46,9 @@ try {
     renderedHeight: Math.round(img.getBoundingClientRect().height),
   })));
 
-  const broken = images.filter((img) => !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0);
+  // `complete` can remain false for a duplicated lazy image while Chromium already
+  // has decoded dimensions. naturalWidth/naturalHeight are the reliable broken-image gate.
+  const broken = images.filter((img) => img.naturalWidth <= 0 || img.naturalHeight <= 0);
   const transformed = images.filter((img) => (img.currentSrc || '').includes('/_img/'));
   const r2Images = images.filter((img) => (img.currentSrc || '').includes('.r2.dev/'));
 
