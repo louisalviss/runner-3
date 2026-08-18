@@ -44,6 +44,7 @@ def main():
 
     match_list = matches.get("matches") or []
     out_list = outs.get("markets") or []
+    out_failures = outs.get("failures") or []
     source_text = " ".join(str(matches.get(k, "")) for k in ("source", "source_mode"))
     exact_match = ("m88" in source_text.lower()) and len(match_list) >= 50
     exact_out = outs.get("exact_operator_odds") is True and len(out_list) >= 40
@@ -76,6 +77,14 @@ def main():
         comp = (m.get("competition_guess") or "").strip()
         if comp:
             competitions[comp] = competitions.get(comp, 0) + 1
+
+    outright_failure_index = []
+    for failure in out_failures:
+        outright_failure_index.append({
+            "market_id": failure.get("market_id"),
+            "title": failure.get("title"),
+            "reason": failure.get("reason"),
+        })
 
     match_status = "fresh" if match_age is not None and match_age <= 600 else "stale"
     if ratio >= 0.90 and out_age is not None and out_age <= 2700:
@@ -116,7 +125,8 @@ def main():
         "ai_usage": {
             "primary_instruction": "Use this file as the canonical current M88 odds database. Never substitute another bookmaker for an M88 price.",
             "article_refresh": "Identify the article competition/season and requested market. Search index.outright_titles then datasets.outrights.markets. For match odds search datasets.match_odds.matches by league, home, away and scope.",
-            "absence_rule": "Only state that an Outright market is not currently listed when freshness.outrights.status is fresh and capture_ratio is at least 0.90. Otherwise state that capture coverage/freshness is insufficient.",
+            "absence_rule": "Before saying an Outright market is not listed, search both datasets.outrights.markets and datasets.outrights.failures (or index.outright_failures). A market appearing in failures was discovered on M88 but its price capture failed; report it as capture_failed/temporarily unavailable, never as not listed. Only state not currently listed when freshness.outrights.status is fresh, capture_ratio is at least 0.90, and no matching title/market appears in either markets or failures.",
+            "failure_rule": "If a requested Outright market appears in datasets.outrights.failures, preserve its title/market_id/reason and say the current M88 board exposed the market but this snapshot did not capture its prices. Do not reuse old odds and do not substitute another bookmaker.",
             "freshness_rule": "Always inspect freshness before quoting odds. If the relevant dataset is stale, disclose that instead of presenting it as current.",
             "preserve_structure_rule": "When refreshing an existing article, preserve valid structure and wording unless explicitly asked to rewrite; replace outdated facts and odds only.",
         },
@@ -126,8 +136,10 @@ def main():
             "match_count": len(match_list),
             "match_selection_count": selection_count,
             "outright_market_count": len(out_list),
+            "outright_failed_market_count": len(out_failures),
             "outright_competitions": dict(sorted(competitions.items(), key=lambda x: x[0].casefold())),
             "outright_titles": outright_index,
+            "outright_failures": outright_failure_index,
         },
         "datasets": {"match_odds": matches, "outrights": outs},
     }
@@ -146,11 +158,12 @@ def main():
                 "match_count": len(match_list),
                 "match_selection_count": selection_count,
                 "outright_market_count": len(out_list),
+                "outright_failed_market_count": len(out_failures),
                 "outright_competition_count": len(competitions),
             },
         }
         Path(args.health).write_text(json.dumps(health, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"status": db["status"], "freshness": db["freshness"], "match_count": len(match_list), "outright_market_count": len(out_list)}, ensure_ascii=False))
+    print(json.dumps({"status": db["status"], "freshness": db["freshness"], "match_count": len(match_list), "outright_market_count": len(out_list), "outright_failed_market_count": len(out_failures)}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
