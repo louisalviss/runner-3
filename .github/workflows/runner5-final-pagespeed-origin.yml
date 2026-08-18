@@ -1,0 +1,89 @@
+name: Runner5 Final PageSpeed Origin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-final-pagespeed-origin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-final-pagespeed-origin
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PSI_URL: https://runner5-restore-lab-1.wasmer.app/
+      PSI_UI_OUT: /tmp/runner5-final-origin-psi.json
+      PSI_UI_SCREENSHOT: /tmp/runner5-final-origin-mobile.png
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Wait for cache-eligible optimized origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import urllib.request,time,os,json
+          url=os.environ['PSI_URL']; last={}
+          for i in range(45):
+              try:
+                  t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-cache'})
+                  with urllib.request.urlopen(req,timeout=35) as r:
+                      body=r.read(1000000); ms=round((time.perf_counter()-t)*1000,1); last={'http':r.status,'ms':ms,'cacheControl':r.headers.get('cache-control'),'length':r.headers.get('content-length'),'eligible':r.headers.get('x-runner5-cache-eligible'),'age':r.headers.get('age'),'stamp':r.headers.get('x-runner5-origin-stamp'),'bytes':len(body)}
+                  print(json.dumps(last))
+                  if last['http']==200 and last['eligible']=='1' and last['cacheControl'] and last['length']: break
+              except Exception as e: print('wait',i,str(e)[:200])
+              time.sleep(4)
+          else: raise SystemExit('optimized origin did not become cache eligible')
+          PY
+      - name: Warm public origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4; do curl -LfsS --max-time 40 -A 'Mozilla/5.0 Chrome/151' "$PSI_URL" -o /dev/null || true; sleep 2; done
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Run Google PageSpeed web UI
+        id: psi
+        continue-on-error: true
+        run: node scripts/pagespeed-ui-audit.mjs
+      - name: Persist final Google PageSpeed result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-final-origin-psi.json || printf '{"status":"failed","target":"%s","detail":"missing_result"}\n' "$PSI_URL" >/tmp/runner5-final-origin-psi.json
+          cp /tmp/runner5-final-origin-psi.json /tmp/psi-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/pagespeed/runner5-final-origin/runs; cp /tmp/psi-safe.json ops/pagespeed/runner5-final-origin/latest.json; cp /tmp/psi-safe.json "ops/pagespeed/runner5-final-origin/runs/${GITHUB_RUN_ID}.json"; git add ops/pagespeed/runner5-final-origin
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner5 final origin PageSpeed: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
+      - name: Require actual PageSpeed result URL
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/runner5-final-origin-psi.json'))
+          assert d.get('status')=='ready', json.dumps(d,indent=2)
+          assert str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/'), d.get('resultUrl')
+          print(json.dumps({'target':d.get('target'),'resultUrl':d.get('resultUrl'),'mobile':(d.get('mobile')or{}).get('scores'),'desktop':(d.get('desktop')or{}).get('scores')},indent=2))
+          PY
