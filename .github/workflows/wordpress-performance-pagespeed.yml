@@ -14,6 +14,7 @@ concurrency:
   group: wordpress-performance-pagespeed
   cancel-in-progress: false
 
+# Live PSI benchmark for the custom domain after performance-controller changes.
 jobs:
   pagespeed:
     runs-on: ubuntu-latest
