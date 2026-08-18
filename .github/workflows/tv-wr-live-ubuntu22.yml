@@ -1,0 +1,60 @@
+name: TV WR Live Ubuntu22
+on:
+  push:
+    branches: [tv-wr-live-20260818]
+    paths: ['.github/workflows/tv-wr-live-ubuntu22.yml']
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore and verify inputs
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wr-window-report.pine.aes -out /tmp/base.pine
+          test "$(sha256sum /tmp/base.pine|awk '{print $1}')" = 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+          python3 - <<'PY'
+          p=open('/tmp/base.pine').read()
+          assert 'Wave Rider Strategy v2.5.13 WINDOW REPORT' in p
+          p=p.replace('1785171600000','1735689600000',1).replace('1786813200000','1786752000000',1)
+          open('/tmp/live.pine','w').write(p)
+          PY
+      - name: TradingView BNB 5m
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'),crypto=require('crypto'); const {chromium}=require('playwright-core');
+          const out=[]; const log=(k,v)=>{let s=k+'='+v;out.push(s);console.log(s)};
+          (async()=>{
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync); if(!exe)throw Error('chrome missing');
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const ctx=await browser.newContext({storageState:JSON.parse(fs.readFileSync('/tmp/state.json')),viewport:{width:1700,height:1050},permissions:['clipboard-read','clipboard-write']});
+            const p=await ctx.newPage(); const src=fs.readFileSync('/tmp/live.pine','utf8'); log('SRC_SHA',crypto.createHash('sha256').update(src).digest('hex'));
+            await p.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await p.waitForTimeout(12000);
+            let b=await p.locator('body').innerText(); log('AUTH',(/\bSign in\b/i.test(b)?'FAIL':'PASS')); log('BNB',b.includes('BNBUSDT')?'PASS':'FAIL');
+            let tab=p.getByText('Pine Editor',{exact:true}); log('PINE_TAB',await tab.count()); if(await tab.count())await tab.first().click({force:true}); await p.waitForTimeout(5000);
+            let tas=p.locator('.monaco-editor textarea'); log('MONACO',await tas.count()); if(!await tas.count())throw Error('monaco missing'); let ta=tas.last(); await ta.click({force:true}); await p.keyboard.press('Control+A'); await p.keyboard.insertText(src); await p.waitForTimeout(1500);
+            await ta.click({force:true}); await p.keyboard.press('Control+A'); await p.keyboard.press('Control+C'); await p.waitForTimeout(300); let cp=await p.evaluate(()=>navigator.clipboard.readText()).catch(()=> ''); log('EDITOR_MATCH',cp===src?'YES':'NO'); log('EDITOR_SHA',cp?crypto.createHash('sha256').update(cp).digest('hex'):'NONE');
+            let add=p.getByRole('button',{name:/Add to chart/i}); if(await add.count())await add.first().click({force:true}); else {await ta.click({force:true});await p.keyboard.press('Control+Enter');} await p.waitForTimeout(20000);
+            b=await p.locator('body').innerText(); const lines=b.split('\n').map(x=>x.trim()).filter(Boolean); log('COMPILE_ERROR',/Compilation error/i.test(b)?'YES':'NO'); log('HAS_WR',b.includes('WR 2.5.13 WIN')||b.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'); log('HAS_TOTAL_TRADES',b.includes('Total Trades')?'YES':'NO');
+            out.push('HITS_BEGIN',...lines.filter(x=>/Wave Rider|WR 2\.5\.13|Total Trades|Total R|Win Rate|Average R|Profit Factor|Max Drawdown|Max L Streak|Strategy Tester|Compilation error|Error at/i.test(x)).slice(0,200),'HITS_END');
+            fs.writeFileSync('/tmp/out.txt',out.join('\n')+'\n'); await p.screenshot({path:'/tmp/bnb.png'}); await browser.close();
+          })().catch(e=>{out.push('ERROR='+e.stack);fs.writeFileSync('/tmp/out.txt',out.join('\n')+'\n');process.exit(7)});
+          NODE
+      - name: Persist result
+        if: always()
+        run: |
+          cp /tmp/out.txt ops/tradingview/live-ubuntu22-result.txt || echo NO_RESULT > ops/tradingview/live-ubuntu22-result.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ops/tradingview/live-ubuntu22-result.txt
+          git commit -m 'chore: save TV ubuntu22 result' || true
+          git push origin HEAD:tv-wr-live-20260818
