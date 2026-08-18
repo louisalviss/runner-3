@@ -55,16 +55,20 @@ jobs:
           def compact_details(audit_id, audit):
               details=audit.get('details') or {}
               items=details.get('items') or []
+              if not isinstance(items,list):
+                  return []
               out=[]
               for item in items[:25]:
                   if not isinstance(item,dict): continue
                   row={}
-                  for k in ('url','wastedMs','wastedBytes','totalBytes','transferSize','resourceSize','duration','startTime','endTime','cacheLifetimeMs','entity','phase','subpart','node','source'):
+                  for k in ('url','wastedMs','wastedBytes','totalBytes','transferSize','resourceSize','duration','startTime','endTime','cacheLifetimeMs','entity','phase','subpart','source'):
                       v=item.get(k)
-                      if isinstance(v,(str,int,float,bool)) or v is None:
-                          if v is not None: row[k]=v
-                      elif k=='node' and isinstance(v,dict):
-                          row[k]={x:v.get(x) for x in ('nodeLabel','snippet','selector') if v.get(x)}
+                      if isinstance(v,(str,int,float,bool)) and v is not None:
+                          row[k]=v
+                  v=item.get('node')
+                  if isinstance(v,dict):
+                      node={x:v.get(x) for x in ('nodeLabel','snippet','selector') if v.get(x)}
+                      if node: row['node']=node
                   if row: out.append(row)
               return out
           def parse(path):
