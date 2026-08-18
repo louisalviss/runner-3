@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Runner3 Edge Cache Purge
- * Description: Purges the Runner3 Cloudflare full-page HTML cache after WordPress content changes, with manual purge and rollback controls.
- * Version: 1.0.0
+ * Description: Purges the Runner3 Cloudflare full-page HTML cache after WordPress content changes, with signed requests, manual purge and rollback controls.
+ * Version: 1.1.0
  * Author: Runner3
  */
 
@@ -12,13 +12,13 @@ if (!defined('ABSPATH')) {
 
 const RUNNER3_EDGE_OPTION = 'runner3_edge_cache_purge';
 const RUNNER3_EDGE_STATUS_OPTION = 'runner3_edge_cache_purge_status';
+const RUNNER3_EDGE_KEY_OPTION = 'runner3_edge_cache_signing_key';
 const RUNNER3_EDGE_PAGE = 'runner3-edge-cache';
 
 function runner3_edge_defaults() {
     return array(
         'enabled' => 1,
         'endpoint' => 'https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge',
-        'secret' => '',
     );
 }
 
@@ -34,12 +34,9 @@ function runner3_edge_sanitize($input) {
         add_settings_error(RUNNER3_EDGE_OPTION, 'endpoint_https', 'Edge purge endpoint must use HTTPS.');
         $endpoint = $current['endpoint'];
     }
-    $secret = isset($input['secret']) ? trim((string) $input['secret']) : '';
-    if ($secret === '') $secret = (string) $current['secret'];
     return array(
         'enabled' => empty($input['enabled']) ? 0 : 1,
         'endpoint' => $endpoint,
-        'secret' => $secret,
     );
 }
 
@@ -47,6 +44,55 @@ function runner3_edge_register_settings() {
     register_setting('runner3_edge_group', RUNNER3_EDGE_OPTION, array('sanitize_callback' => 'runner3_edge_sanitize'));
 }
 add_action('admin_init', 'runner3_edge_register_settings');
+
+function runner3_edge_ensure_keypair() {
+    $existing = (array) get_option(RUNNER3_EDGE_KEY_OPTION, array());
+    if (!empty($existing['private']) && !empty($existing['public']) && !empty($existing['key_id'])) return $existing;
+    if (!function_exists('openssl_pkey_new') || !function_exists('openssl_pkey_export')) return new WP_Error('openssl_unavailable');
+
+    $resource = openssl_pkey_new(array(
+        'private_key_bits' => 2048,
+        'private_key_type' => OPENSSL_KEYTYPE_RSA,
+    ));
+    if (!$resource) return new WP_Error('key_generation_failed');
+
+    $private = '';
+    if (!openssl_pkey_export($resource, $private)) return new WP_Error('private_key_export_failed');
+    $details = openssl_pkey_get_details($resource);
+    $public = is_array($details) && !empty($details['key']) ? $details['key'] : '';
+    if (!$public) return new WP_Error('public_key_export_failed');
+
+    $pair = array(
+        'private' => $private,
+        'public' => $public,
+        'key_id' => hash('sha256', $public),
+        'created_at' => gmdate('c'),
+    );
+    update_option(RUNNER3_EDGE_KEY_OPTION, $pair, false);
+    return $pair;
+}
+
+function runner3_edge_activate() {
+    runner3_edge_ensure_keypair();
+}
+register_activation_hook(__FILE__, 'runner3_edge_activate');
+
+function runner3_edge_register_rest() {
+    register_rest_route('runner3/v1', '/edge-key', array(
+        'methods' => 'GET',
+        'callback' => function () {
+            $pair = runner3_edge_ensure_keypair();
+            if (is_wp_error($pair)) return new WP_Error('runner3_edge_key_unavailable', $pair->get_error_code(), array('status' => 503));
+            return rest_ensure_response(array(
+                'algorithm' => 'RSASSA-PKCS1-v1_5-SHA256',
+                'public_key' => $pair['public'],
+                'key_id' => $pair['key_id'],
+            ));
+        },
+        'permission_callback' => '__return_true',
+    ));
+}
+add_action('rest_api_init', 'runner3_edge_register_rest');
 
 function runner3_edge_admin_menu() {
     add_options_page('Runner3 Edge Cache', 'Runner3 Edge Cache', 'manage_options', RUNNER3_EDGE_PAGE, 'runner3_edge_settings_page');
@@ -67,18 +113,20 @@ function runner3_edge_settings_page() {
     if (!current_user_can('manage_options')) return;
     $opts = runner3_edge_options();
     $status = runner3_edge_safe_status();
+    $pair = runner3_edge_ensure_keypair();
+    $key_id = is_wp_error($pair) ? 'UNAVAILABLE' : substr($pair['key_id'], 0, 16) . '…';
     ?>
     <div class="wrap">
         <h1>Runner3 Edge Cache</h1>
         <?php settings_errors(); ?>
         <p><strong>Status:</strong> <?php echo $opts['enabled'] ? '<span style="color:#008a20">ACTIVE</span>' : '<span style="color:#b32d2e">DISABLED / ROLLBACK</span>'; ?></p>
-        <p>Published content changes automatically invalidate the Cloudflare public HTML cache. WordPress admin, login, REST and authenticated traffic are not cached by this plugin.</p>
+        <p>Published content changes automatically invalidate the Cloudflare public HTML cache. Requests are signed by this WordPress site; the private signing key never leaves WordPress.</p>
         <form method="post" action="options.php">
             <?php settings_fields('runner3_edge_group'); ?>
             <table class="form-table" role="presentation">
                 <tr><th scope="row">Master switch</th><td><label><input type="checkbox" name="<?php echo RUNNER3_EDGE_OPTION; ?>[enabled]" value="1" <?php checked($opts['enabled'], 1); ?>> Purge edge cache automatically after public content changes</label></td></tr>
                 <tr><th scope="row">Purge endpoint</th><td><input type="url" class="regular-text code" name="<?php echo RUNNER3_EDGE_OPTION; ?>[endpoint]" value="<?php echo esc_attr($opts['endpoint']); ?>" autocomplete="off"></td></tr>
-                <tr><th scope="row">Shared secret</th><td><input type="password" class="regular-text code" name="<?php echo RUNNER3_EDGE_OPTION; ?>[secret]" value="" autocomplete="new-password" placeholder="<?php echo $opts['secret'] ? 'Configured — leave blank to keep' : 'Not configured'; ?>"><p class="description">The secret is never shown back in the UI or stored in status logs.</p></td></tr>
+                <tr><th scope="row">Signing key</th><td><code><?php echo esc_html($key_id); ?></code><p class="description">Only the public key is exposed for verification. The private key is stored as a non-autoloaded WordPress option.</p></td></tr>
             </table>
             <?php submit_button('Save Edge Cache Settings'); ?>
         </form>
@@ -120,8 +168,14 @@ function runner3_edge_purge($reason = 'wordpress-change', $urls = array(), $forc
     static $sent = false;
     $opts = runner3_edge_options();
     if (!$force && (!$opts['enabled'] || $sent)) return false;
-    if (empty($opts['endpoint']) || empty($opts['secret'])) {
-        runner3_edge_record_status(false, null, $reason, 'endpoint_or_secret_missing');
+    if (empty($opts['endpoint'])) {
+        runner3_edge_record_status(false, null, $reason, 'endpoint_missing');
+        return false;
+    }
+
+    $pair = runner3_edge_ensure_keypair();
+    if (is_wp_error($pair)) {
+        runner3_edge_record_status(false, null, $reason, $pair->get_error_code());
         return false;
     }
 
@@ -133,18 +187,31 @@ function runner3_edge_purge($reason = 'wordpress-change', $urls = array(), $forc
         if (count($paths) >= 8) break;
     }
 
+    $payload = array(
+        'reason' => sanitize_text_field((string) $reason),
+        'urls' => $paths,
+    );
+    $body = wp_json_encode($payload, JSON_UNESCAPED_SLASHES);
+    $timestamp = (string) time();
+    $message = $timestamp . "\n" . $body;
+    $signature = '';
+    $signed = openssl_sign($message, $signature, $pair['private'], OPENSSL_ALGO_SHA256);
+    if (!$signed) {
+        runner3_edge_record_status(false, null, $reason, 'signature_failed');
+        return false;
+    }
+
     $response = wp_remote_post($opts['endpoint'], array(
         'timeout' => 10,
         'redirection' => 0,
         'sslverify' => true,
         'headers' => array(
-            'Authorization' => 'Bearer ' . $opts['secret'],
             'Content-Type' => 'application/json',
+            'X-Runner3-Timestamp' => $timestamp,
+            'X-Runner3-Signature' => base64_encode($signature),
+            'X-Runner3-Key-Id' => $pair['key_id'],
         ),
-        'body' => wp_json_encode(array(
-            'reason' => sanitize_text_field((string) $reason),
-            'urls' => $paths,
-        )),
+        'body' => $body,
     ));
 
     if (is_wp_error($response)) {
@@ -153,8 +220,8 @@ function runner3_edge_purge($reason = 'wordpress-change', $urls = array(), $forc
     }
 
     $http = (int) wp_remote_retrieve_response_code($response);
-    $body = json_decode((string) wp_remote_retrieve_body($response), true);
-    $ok = $http >= 200 && $http < 300 && is_array($body) && !empty($body['ok']) && !empty($body['purged']);
+    $response_body = json_decode((string) wp_remote_retrieve_body($response), true);
+    $ok = $http >= 200 && $http < 300 && is_array($response_body) && !empty($response_body['ok']) && !empty($response_body['purged']);
     runner3_edge_record_status($ok, $http, $reason, $ok ? 'purged_and_prewarmed' : 'purge_rejected');
     return $ok;
 }
