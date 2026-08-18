@@ -38,7 +38,9 @@ async function enterAdmin(ctx,p){
   throw new Error('magic_admin_failed');
 }
 async function findVisible(page,re){const q=page.locator('button:visible,a:visible,input[type=submit]:visible,[role=button]:visible');for(let i=0;i<await q.count();i++){const el=q.nth(i);const t=((await el.innerText().catch(()=>''))||(await el.getAttribute('value').catch(()=>''))||'').replace(/\s+/g,' ').trim();if(re.test(t))return el;}return null;}
-async function downloadHref(page){const links=page.locator('a[href]');for(let i=0;i<await links.count();i++){const a=links.nth(i);const href=await a.getAttribute('href').catch(()=>null);const t=await a.innerText().catch(()=> '');if(href&&(/\.wpress(?:\?|$)/i.test(href)||(/Download/i.test(t)&&/ai1wm|backup|wpress/i.test(href))))return new URL(href,base).href;}return null;}
+async function downloadHref(page){const links=page.locator('a[href]');for(let i=0;i<await links.count();i++){const a=links.nth(i);const href=await a.getAttribute('href').catch(()=>null);const t=(await a.innerText().catch(()=> '')).trim();if(!href||href==='#'||/^javascript:/i.test(href))continue;if(/\.wpress(?:\?|$)/i.test(href)||/Download/i.test(t)||/ai1wm.*(?:backup|download)|(?:backup|download).*ai1wm/i.test(href))return new URL(href,base).href;}return null;}
+function finalizeBuffer(buf){if(buf.length<1024)throw new Error(`backup_too_small:${buf.length}`);fs.writeFileSync(backupPath,buf,{mode:0o600});safe.backupBytes=buf.length;safe.sha256=crypto.createHash('sha256').update(buf).digest('hex');safe.status='BACKUP_READY';safe.stage='complete';safe.downloadFound=true;save();console.log(`BACKUP_READY bytes=${buf.length} sha256=${safe.sha256}`);}
+async function fetchBackup(href){stage('download_backup');console.log('backup href detected; URL intentionally not persisted');const r=await ctx.request.get(href,{timeout:120000,failOnStatusCode:false});if(!r.ok())throw new Error(`backup_download_http_${r.status()}`);finalizeBuffer(await r.body());}
 
 const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const ctx=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});const p=await ctx.newPage();
@@ -50,17 +52,36 @@ try{
   if(!/EXPORT SITE TO/i.test(t))throw new Error(`export_site_to_missing:${t.slice(0,700)}`);
   safe.exportPage=true;save();
   stage('start_export');
-  // In AI1WM 7.109 the destinations are already visible under "EXPORT SITE TO"; no heading click is needed.
   let file=await findVisible(wp,/^FILE$/i);
   if(!file){const exact=wp.getByText(/^FILE$/i).first();if(await exact.count()&&await exact.isVisible().catch(()=>false))file=exact;}
   if(!file)throw new Error(`file_export_control_missing:${(await body(wp)).slice(0,1000)}`);
-  await file.click({noWaitAfter:true});safe.exportStarted=true;save();
-  stage('wait_export');let href=null;const end=Date.now()+8*60*1000;
-  while(Date.now()<end){href=await downloadHref(wp);if(href)break;const bt=await body(wp);if(/unable to export|export failed|out of disk|not enough space|permission denied|critical error/i.test(bt))throw new Error(`export_failed:${bt.slice(-900)}`);await wp.waitForTimeout(1800);}
-  if(!href)throw new Error(`backup_download_link_timeout:${(await body(wp)).slice(-1400)}`);
-  safe.downloadFound=true;save();stage('download_backup');console.log('backup href detected; URL intentionally not persisted');
-  const r=await ctx.request.get(href,{timeout:120000,failOnStatusCode:false});if(!r.ok())throw new Error(`backup_download_http_${r.status()}`);
-  const buf=await r.body();if(buf.length<1024)throw new Error(`backup_too_small:${buf.length}`);fs.writeFileSync(backupPath,buf,{mode:0o600});
-  safe.backupBytes=buf.length;safe.sha256=crypto.createHash('sha256').update(buf).digest('hex');safe.status='BACKUP_READY';safe.stage='complete';save();
-  console.log(`BACKUP_READY bytes=${buf.length} sha256=${safe.sha256}`);
+  await file.click({force:true,noWaitAfter:true});safe.exportStarted=true;save();
+
+  // First allow the export UI to expose a direct link, but do not wait forever.
+  stage('wait_export');let href=null;const directEnd=Date.now()+75*1000;
+  while(Date.now()<directEnd){href=await downloadHref(wp);if(href)break;const bt=await body(wp);if(/unable to export|export failed|out of disk|not enough space|permission denied|critical error/i.test(bt))throw new Error(`export_failed:${bt.slice(-900)}`);await wp.waitForTimeout(1800);}
+  if(href){await fetchBackup(href);}
+  else {
+    // AI1WM can finish FILE export without leaving a usable link on the export screen.
+    // Poll its Backups page and retrieve the newest generated archive there.
+    stage('backups_fallback');
+    const end=Date.now()+4*60*1000;
+    let got=false;
+    while(Date.now()<end&&!got){
+      await wp.goto(`${base}/wp-admin/admin.php?page=ai1wm_backups`,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
+      await wp.waitForTimeout(1400);
+      const bt=await body(wp);console.log('BACKUPS PAGE',bt.slice(0,1200));
+      href=await downloadHref(wp);
+      if(href){await fetchBackup(href);got=true;break;}
+      const dl=await findVisible(wp,/Download/i);
+      if(dl){
+        const dp=wp.waitForEvent('download',{timeout:15000}).catch(()=>null);
+        await dl.click({force:true,noWaitAfter:true}).catch(()=>{});
+        const d=await dp;
+        if(d){await d.saveAs(backupPath);const buf=fs.readFileSync(backupPath);finalizeBuffer(buf);got=true;break;}
+      }
+      if(/no backups|no backup/i.test(bt))await wp.waitForTimeout(2500);else await wp.waitForTimeout(1800);
+    }
+    if(!got)throw new Error(`backup_not_found_on_backups_page:${(await body(wp)).slice(-1400)}`);
+  }
 }catch(e){safe.status='FAILED';safe.detail=String(e?.message||e);save();console.error(e);process.exitCode=1;}finally{await browser.close().catch(()=>{});}
