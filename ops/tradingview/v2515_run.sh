@@ -10,11 +10,15 @@ curl -fL "$VERIFIER_URL" -o /tmp/reference_verify.py
 python3 ops/tradingview/v2515_builder.py | tee /tmp/build.log
 python3 -m py_compile /tmp/reference_verify_v2.5.15.py
 mkdir -p /tmp/pyproof
-case1(){ sym="$1"; s="$2"; e="$3"; tag="$4"; rm -rf wave-rider-verify/output; WR_SYMBOL="$sym" WR_TF=5 WR_QTY_STEP=1 WR_STATE_START='2026-07-28T00:00:00+07:00' WR_REPORT_START="$s" WR_REPORT_END="$e" python3 /tmp/reference_verify_v2.5.15.py >"/tmp/pyproof/${tag}_${sym}.json"; }
-case1 BNBUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1
-case1 TRXUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1
-case1 BNBUSDT 2026-08-10T00:00:00+07:00 2026-08-16T00:00:00+07:00 W2
-case1 TRXUSDT 2026-08-10T00:00:00+07:00 2026-08-16T00:00:00+07:00 W2
+case1(){ sym="$1"; s="$2"; e="$3"; tag="$4"; cap="$5"; rm -rf wave-rider-verify/output; WR_SYMBOL="$sym" WR_TF=5 WR_QTY_STEP=1 WR_MAX_NOTIONAL_MULTIPLE="$cap" WR_STATE_START='2026-07-28T00:00:00+07:00' WR_REPORT_START="$s" WR_REPORT_END="$e" python3 /tmp/reference_verify_v2.5.15.py >"/tmp/pyproof/${tag}_${sym}.json"; }
+# Canonical 3x cap, Window 1
+case1 BNBUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1_CAP3 3
+case1 TRXUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1_CAP3 3
+# 100x oracle: cap effectively disabled; must recover deterministic parity stream.
+case1 BNBUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1_CAP100 100
+case1 TRXUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1_CAP100 100
+case1 BNBUSDT 2026-08-10T00:00:00+07:00 2026-08-16T00:00:00+07:00 W2_CAP100 100
+case1 TRXUSDT 2026-08-10T00:00:00+07:00 2026-08-16T00:00:00+07:00 W2_CAP100 100
 python3 - <<'PY' | tee /tmp/python-summary.txt
 import glob,json,os
 for f in sorted(glob.glob('/tmp/pyproof/*.json')):
