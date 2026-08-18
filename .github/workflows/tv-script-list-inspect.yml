@@ -1,0 +1,44 @@
+name: TV Saved Pine Script Inspect
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect saved scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core'); const NAME='Wave Rider Strategy v2.5.14 DETERMINISTIC';
+          (async()=>{
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync);
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8')),viewport:{width:1920,height:1080}});
+            const page=await context.newPage(); await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await page.waitForTimeout(12000);
+            const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(5000);
+            let body=await page.locator('body').innerText().catch(()=> ''); console.log('AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'FAIL')); console.log('NAME_ALREADY_VISIBLE='+(body.includes(NAME)?'YES':'NO'));
+            const untitled=page.getByText('Untitled script',{exact:true}); let title=null; for(let i=0;i<await untitled.count();i++){let e=untitled.nth(i);if(await e.isVisible().catch(()=>false)){title=e;break;}}
+            if(title){await title.click({force:true}); await page.waitForTimeout(3500);}
+            body=await page.locator('body').innerText().catch(()=> ''); console.log('NAME_AFTER_TITLE_MENU='+(body.includes(NAME)?'YES':'NO'));
+            console.log('SCRIPT_MENU_HITS_BEGIN'); console.log(body.split('\n').filter(x=>/Wave Rider|2\.5\.14|2\.5\.13|script/i.test(x)).slice(0,140).join('\n')); console.log('SCRIPT_MENU_HITS_END');
+            await page.screenshot({path:'/tmp/script-list.png',fullPage:false}); await browser.close();
+          })().catch(e=>{console.error(e.stack);process.exit(7)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tv-script-list-inspect
+          path: /tmp/script-list.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json
