@@ -35,7 +35,6 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p=Path('wave-rider-verify/wr2515_stage12_5m.py');s=p.read_text()
-          # Strategy state must run from deterministic State Start. Record Dec setups only for Jan's 14d past-only lookback.
           old='        if x.ct<START_MS or x.ct>=END_MS:continue'
           new='        if x.ct>=END_MS:continue'
           if s.count(old)!=1:raise SystemExit('state gate patch anchor missing')
@@ -107,7 +106,6 @@ def stage1_passes_fast(rows,sym):
           name: wr2515-stage12-shard-${{ matrix.shard }}
           path: /tmp/stage12
           retention-days: 7
-
   merge:
     needs: shard
     if: always() && needs.shard.result == 'success'
@@ -142,3 +140,4 @@ def stage1_passes_fast(rows,sym):
           name: wr2515-stage12-5m-final
           path: /tmp/final
           retention-days: 14
+# trigger synchronize
