@@ -18,126 +18,118 @@ jobs:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Restore authenticated session and canonical Pine
+      - name: Restore session and canonical Pine
         shell: bash
         run: |
           set -euo pipefail
           echo "::add-mask::$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-storage-state.json
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wr-window-report.pine.aes -out /tmp/wr-window-report.pine
-          test "$(sha256sum /tmp/wr-window-report.pine | awk '{print $1}')" = "9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026"
+          BASE_SHA=$(sha256sum /tmp/wr-window-report.pine | awk '{print $1}')
+          test "$BASE_SHA" = "9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026"
           python3 - <<'PY'
           import json
-          s=json.load(open('/tmp/tv-storage-state.json'))
-          assert s.get('cookies')
-          p=open('/tmp/wr-window-report.pine').read()
-          assert 'Wave Rider Strategy v2.5.13 WINDOW REPORT' in p
-          assert '1785171600000' in p and '1786813200000' in p
-          # Report-only input defaults: exact benchmark window, UTC.
+          s=json.load(open('/tmp/tv-storage-state.json')); assert s.get('cookies')
+          p=open('/tmp/wr-window-report.pine').read(); assert 'Wave Rider Strategy v2.5.13 WINDOW REPORT' in p
           p=p.replace('1785171600000','1735689600000',1).replace('1786813200000','1786752000000',1)
           open('/tmp/wr-live.pine','w').write(p)
-          print('TV_SESSION_DECRYPT=PASS')
-          print('PINE_BASE_SHA256=9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026')
-          print('REPORT_START_UTC=2025-01-01T00:00:00Z')
-          print('REPORT_END_EXCLUSIVE_UTC=2026-08-15T00:00:00Z')
+          print('BASE_SHA=9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026')
           PY
-      - name: Install on TradingView and inspect BNB 5m
+      - name: Locate Pine icon and install strategy
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.58.2 >/dev/null
           node <<'NODE'
-          const fs=require('fs');
-          const crypto=require('crypto');
+          const fs=require('fs'), crypto=require('crypto');
           const {chromium}=require('playwright-core');
-          const result=[]; const add=(k,v)=>{const s=`${k}=${v}`; result.push(s); console.log(s)};
+          const out=[]; const log=(x)=>{out.push(x);console.log(x)};
           (async()=>{
-            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
-            const executablePath=exes.find(p=>fs.existsSync(p));
-            if(!executablePath) throw new Error('Chrome/Chromium missing');
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync);
             const state=JSON.parse(fs.readFileSync('/tmp/tv-storage-state.json','utf8'));
             const source=fs.readFileSync('/tmp/wr-live.pine','utf8');
-            add('PATCHED_SHA256',crypto.createHash('sha256').update(source).digest('hex'));
-            const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
-            const context=await browser.newContext({storageState:state,viewport:{width:1700,height:1050},permissions:['clipboard-read','clipboard-write'],acceptDownloads:true});
+            log('SRC_SHA='+crypto.createHash('sha256').update(source).digest('hex'));
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1700,height:1050},permissions:['clipboard-read','clipboard-write']});
             const page=await context.newPage();
             await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
             await page.waitForTimeout(12000);
             const body0=await page.locator('body').innerText().catch(()=> '');
             const cookies=await context.cookies();
-            add('AUTH_COOKIE',cookies.some(c=>/tradingview\.com$/i.test(c.domain.replace(/^\./,'')) && /session/i.test(c.name) && c.value)?'PASS':'FAIL');
-            add('HAS_SIGNIN',/\bSign in\b/i.test(body0)?'YES':'NO');
-            add('URL',page.url());
-            const pineTab=page.getByText('Pine Editor',{exact:true});
-            add('PINE_TAB_COUNT',await pineTab.count());
-            if(await pineTab.count()) await pineTab.first().click({force:true});
-            await page.waitForTimeout(6000);
-            const tas=page.locator('.monaco-editor textarea');
-            add('MONACO_TEXTAREA_COUNT',await tas.count());
-            if(!await tas.count()) throw new Error('Monaco textarea not found');
-            const ta=tas.last();
-            await ta.click({force:true});
-            await page.keyboard.press('Control+A');
-            await page.keyboard.insertText(source);
-            await page.waitForTimeout(2500);
-            await page.keyboard.press('Control+A');
-            await page.keyboard.press('Control+C');
-            await page.waitForTimeout(500);
-            const copied=await page.evaluate(()=>navigator.clipboard.readText()).catch(()=> '');
-            add('EDITOR_COPY_LEN',copied.length);
-            add('EDITOR_COPY_SHA256',copied?crypto.createHash('sha256').update(copied).digest('hex'):'NONE');
-            add('EDITOR_MATCH_PATCHED',copied===source?'YES':'NO');
-            let clicked=false;
-            const btns=[
-              page.getByRole('button',{name:/Add to chart/i}),
-              page.getByText('Add to chart',{exact:true}),
-              page.locator('[data-name="add-script-to-chart"]'),
-              page.locator('button[title*="Add to chart" i]')
-            ];
-            for(const b of btns){
-              if(await b.count().catch(()=>0)){ await b.first().click({force:true}).catch(()=>{}); clicked=true; break; }
+            log('AUTH='+(cookies.some(c=>/tradingview\.com$/i.test(c.domain.replace(/^\./,''))&&/session/i.test(c.name)&&c.value)&&!/\bSign in\b/i.test(body0)?'PASS':'FAIL'));
+            log('BNB='+(body0.includes('BNBUSDT.P')?'PASS':'FAIL'));
+
+            const pineSel='[aria-label*="pine" i],[title*="pine" i],[data-name*="pine" i],[data-tooltip*="pine" i]';
+            const pine=page.locator(pineSel);
+            log('PINE_ATTR_COUNT='+await pine.count());
+            for(let i=0;i<Math.min(20,await pine.count());i++){
+              const el=pine.nth(i); if(!await el.isVisible().catch(()=>false)) continue;
+              const info=await el.evaluate(e=>({tag:e.tagName,aria:e.getAttribute('aria-label'),title:e.getAttribute('title'),data:e.getAttribute('data-name'),cls:e.className?.toString().slice(0,120),text:(e.textContent||'').trim().slice(0,80)}));
+              log('PINE_EL='+JSON.stringify(info));
             }
-            if(!clicked){ await ta.click({force:true}); await page.keyboard.press('Control+Enter'); }
-            add('ADD_TO_CHART_CLICKED',clicked?'YES':'CTRL_ENTER');
-            await page.waitForTimeout(18000);
-            const body=await page.locator('body').innerText().catch(()=> '');
-            const lines=body.split('\n').map(x=>x.trim()).filter(Boolean);
-            add('BODY_HAS_WINDOW_TITLE',body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO');
-            add('BODY_HAS_SHORTTITLE',body.includes('WR 2.5.13 WIN')?'YES':'NO');
-            add('BODY_HAS_TOTAL_TRADES',body.includes('Total Trades')?'YES':'NO');
-            add('BODY_HAS_TOTAL_R',body.includes('Total R')?'YES':'NO');
-            add('BODY_HAS_COMPILATION_ERROR',/Compilation error/i.test(body)?'YES':'NO');
-            result.push('METRIC_CONTEXT_BEGIN');
-            for(let i=0;i<lines.length;i++){
-              if(/Total Trades|Total R|Win Rate|Average R|Profit Factor|Max Drawdown|Max L Streak|Compilation error|Syntax error|Error at/i.test(lines[i])){
-                result.push(...lines.slice(Math.max(0,i-2),Math.min(lines.length,i+5)).map(x=>'CTX '+x));
+            const controls=page.locator('button,[role="button"]');
+            for(let i=0;i<Math.min(500,await controls.count());i++){
+              const el=controls.nth(i); if(!await el.isVisible().catch(()=>false)) continue;
+              const box=await el.boundingBox().catch(()=>null); if(!box || box.x<1580) continue;
+              const info=await el.evaluate(e=>({tag:e.tagName,aria:e.getAttribute('aria-label'),title:e.getAttribute('title'),data:e.getAttribute('data-name'),text:(e.textContent||'').trim().slice(0,60)}));
+              log('RIGHT='+JSON.stringify({x:Math.round(box.x),y:Math.round(box.y),w:Math.round(box.width),h:Math.round(box.height),...info}));
+            }
+
+            let opened=false;
+            for(let i=0;i<await pine.count();i++){
+              const el=pine.nth(i); if(await el.isVisible().catch(()=>false)){ await el.click({force:true}).catch(()=>{}); opened=true; break; }
+            }
+            if(!opened){
+              // New TradingView Pine button is on the right toolbar; try accessible button names explicitly.
+              for(const re of [/^Pine$/i,/Pine Editor/i,/Pine Script/i]){
+                const b=page.getByRole('button',{name:re});
+                if(await b.count().catch(()=>0)){await b.first().click({force:true}).catch(()=>{}); opened=true;break;}
               }
             }
-            result.push('METRIC_CONTEXT_END');
-            result.push('UI_HITS_BEGIN');
-            result.push(...lines.filter(x=>/Wave Rider|WR 2\.5\.13|Pine Editor|Strategy Tester|BNBUSDT|Total Trades|Total R/i.test(x)).slice(0,160).map(x=>'HIT '+x));
-            result.push('UI_HITS_END');
-            await page.screenshot({path:'/tmp/tv-bnb.png',fullPage:false});
-            fs.writeFileSync('/tmp/live-run-result.txt',result.join('\n')+'\n');
+            log('PINE_OPEN_ATTEMPT='+(opened?'YES':'NO'));
+            await page.waitForTimeout(7000);
+            let tas=page.locator('.monaco-editor textarea');
+            log('MONACO='+await tas.count());
+            if(await tas.count()){
+              const ta=tas.last(); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.insertText(source); await page.waitForTimeout(1800);
+              await page.keyboard.press('Control+A'); await page.keyboard.press('Control+C'); await page.waitForTimeout(300);
+              const copied=await page.evaluate(()=>navigator.clipboard.readText()).catch(()=> '');
+              log('EDITOR_MATCH='+(copied===source?'YES':'NO'));
+              let add=false;
+              for(const b of [page.getByRole('button',{name:/Add to chart/i}),page.getByText('Add to chart',{exact:true}),page.locator('[data-name="add-script-to-chart"]')]){
+                if(await b.count().catch(()=>0)){await b.first().click({force:true}).catch(()=>{});add=true;break;}
+              }
+              if(!add){await ta.click({force:true});await page.keyboard.press('Control+Enter');}
+              log('ADD='+(add?'BUTTON':'CTRL_ENTER'));
+              await page.waitForTimeout(18000);
+              const body=await page.locator('body').innerText().catch(()=> '');
+              log('WINDOW_TITLE='+(body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'));
+              log('TOTAL_TRADES_LABEL='+(body.includes('Total Trades')?'YES':'NO'));
+              log('TOTAL_R_LABEL='+(body.includes('Total R')?'YES':'NO'));
+              const lines=body.split('\n').map(s=>s.trim()).filter(Boolean);
+              for(let i=0;i<lines.length;i++) if(/Total Trades|Total R|Win Rate|Average R|Profit Factor|Max Drawdown|Max L Streak|Compilation error|Syntax error/i.test(lines[i])) log('CTX='+lines.slice(Math.max(0,i-2),Math.min(lines.length,i+5)).join(' | '));
+            }
+            await page.screenshot({path:'/tmp/tv-ui.png',fullPage:false});
+            fs.writeFileSync('/tmp/result.txt',out.join('\n')+'\n');
             await browser.close();
-          })().catch(e=>{result.push('ERROR='+e.stack);fs.writeFileSync('/tmp/live-run-result.txt',result.join('\n')+'\n');console.error(e);process.exit(7)});
+          })().catch(e=>{log('ERROR='+e.stack);fs.writeFileSync('/tmp/result.txt',out.join('\n')+'\n');process.exit(7)});
           NODE
-      - name: Persist temporary result to branch
+      - name: Persist result
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          cp /tmp/live-run-result.txt ops/tradingview/live-run-result.txt || echo 'NO_RESULT' > ops/tradingview/live-run-result.txt
+          cp /tmp/result.txt ops/tradingview/live-ui-result.txt || echo NO_RESULT > ops/tradingview/live-ui-result.txt
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add ops/tradingview/live-run-result.txt
-          git commit -m 'chore: persist TradingView live result' || true
+          git add ops/tradingview/live-ui-result.txt
+          git commit -m 'chore: save TradingView new UI result' || true
           git push origin HEAD:tv-wr-live-20260818
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tv-wr-bnb-live
-          path: /tmp/tv-bnb.png
+          name: tv-wr-ui
+          path: /tmp/tv-ui.png
           retention-days: 1
       - name: Cleanup
         if: always()
