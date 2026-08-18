@@ -9,10 +9,11 @@ function sourceWindow(s,e){return base.replace(`startTime=input.time(${W1S},"Sta
   const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
   const context=await browser.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
   const page=await context.newPage();
+  const pineSel='[data-name="pine-dialog-button"],button[aria-label="Pine"]';
   async function openSymbol(sym){
     await page.goto(`https://www.tradingview.com/chart/?symbol=BINANCE%3A${sym}&interval=5`,{waitUntil:'domcontentloaded',timeout:90000}); await page.waitForTimeout(10000);
     let body=await page.locator('body').innerText().catch(()=> ''); if(/\bSign in\b/i.test(body)) throw new Error('AUTH_FAIL');
-    const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); if(!(await pine.count())) throw new Error('PINE_BUTTON_MISSING');
+    const pine=page.locator(pineSel); if(!(await pine.count())) throw new Error('PINE_BUTTON_MISSING');
     await pine.first().click({force:true}); await page.waitForTimeout(5000);
   }
   async function pasteCompile(src){
@@ -23,22 +24,33 @@ function sourceWindow(s,e){return base.replace(`startTime=input.time(${W1S},"Sta
     const body=await page.locator('body').innerText().catch(()=> ''); if(/Compilation error|Syntax error|Error at/i.test(body)) throw new Error('COMPILE_FAIL');
     return ta;
   }
+  async function closePine(){
+    const pine=page.locator(pineSel); if(await pine.count()){await pine.first().click({force:true}).catch(()=>{}); await page.waitForTimeout(3500);}
+    if(await page.locator('.monaco-editor').count()){
+      const close=page.locator('button[aria-label*="Close" i],[data-name*="close" i]').filter({visible:true});
+      if(await close.count()) await close.last().click({force:true}).catch(()=>{});
+      await page.waitForTimeout(2500);
+    }
+  }
   async function shot(sym,tag,src){
-    await openSymbol(sym); await pasteCompile(src); await page.waitForTimeout(3000);
+    await openSymbol(sym); await pasteCompile(src); await closePine(); await page.waitForTimeout(3000);
     await page.screenshot({path:`/tmp/${tag}-${sym}.png`,fullPage:false});
-    console.log(`${tag}_${sym}=SCREENSHOT_PASS`);
+    console.log(`${tag}_${sym}=DASHBOARD_SHOT_PASS`);
   }
   await shot('BNBUSDT.P','W1',sourceWindow(W1S,W1E));
   await shot('TRXUSDT.P','W1',sourceWindow(W1S,W1E));
   await shot('BNBUSDT.P','W2',sourceWindow(W2S,W2E));
   await shot('TRXUSDT.P','W2',sourceWindow(W2S,W2E));
   await openSymbol('BNBUSDT.P');
-  const ta=await pasteCompile(base); await ta.click({force:true}); await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(2200);
+  await pasteCompile(base);
+  const saveBtn=page.getByText('Save',{exact:true});
+  if(await saveBtn.count()) await saveBtn.first().click({force:true}); else {const ta=page.locator('.monaco-editor textarea').last(); await ta.click({force:true}); await page.keyboard.press('Control+S');}
+  await page.waitForTimeout(2500);
   const dialogs=page.getByRole('dialog'); let dlg=null; for(let i=0;i<await dialogs.count();i++){if(await dialogs.nth(i).isVisible().catch(()=>false)){dlg=dialogs.nth(i);break;}}
-  if(!dlg) throw new Error('SAVE_AS_DIALOG_MISSING');
-  const boxes=dlg.getByRole('textbox'); await boxes.first().fill('Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC');
-  const save=dlg.getByRole('button',{name:/save/i}); await save.last().click({force:true}); await page.waitForTimeout(5000);
-  await page.screenshot({path:'/tmp/v2515-saved.png',fullPage:false});
-  console.log('TV_SAVE_AS=PASS');
+  if(!dlg) throw new Error('SAVE_DIALOG_MISSING');
+  const boxes=dlg.getByRole('textbox'); if(await boxes.count()) await boxes.first().fill('Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC');
+  const save=dlg.getByRole('button',{name:/save/i}); if(!(await save.count())) throw new Error('SAVE_BUTTON_MISSING'); await save.last().click({force:true}); await page.waitForTimeout(5000);
+  await closePine(); await page.screenshot({path:'/tmp/v2515-saved.png',fullPage:false});
+  console.log('TV_SAVE=PASS');
   await browser.close();
 })().catch(e=>{console.error('TV2515_ERROR='+e.stack);process.exit(7)});
