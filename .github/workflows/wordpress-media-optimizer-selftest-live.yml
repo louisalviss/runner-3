@@ -1,0 +1,93 @@
+name: WordPress Media Optimizer Live Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-media-optimizer-selftest-live.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-media-optimizer-selftest-live
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      WP_PUBLIC_URL: https://runner3wp.pntr.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || exit 3
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+      - name: Install browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2
+          if command -v google-chrome >/dev/null 2>&1; then echo "CHROME_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"; elif command -v chromium >/dev/null 2>&1; then echo "CHROME_PATH=$(command -v chromium)" >> "$GITHUB_ENV"; else exit 4; fi
+      - name: Enable options and verify real upload
+        id: test
+        shell: bash
+        run: |
+          set +e
+          node scripts/test-wordpress-media-optimizer.mjs
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Persist verification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner3-media-selftest.json || printf '{"status":"runner_error","detail":"selftest_result_missing"}\n' >/tmp/runner3-media-selftest.json
+          cp /tmp/runner3-media-selftest.json /tmp/result.safe.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/custom-domain/media-optimizer/runs
+            cp /tmp/result.safe.json ops/custom-domain/media-optimizer/selftest.latest.json
+            cp /tmp/result.safe.json "ops/custom-domain/media-optimizer/runs/selftest.${GITHUB_RUN_ID}.json"
+            git add ops/custom-domain/media-optimizer
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist media optimizer self-test: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep $((attempt * 2)); git pull --rebase origin main
+          done
+          exit 5
+      - name: Require PASS
+        if: always()
+        env:
+          SELFTEST_RC: ${{ steps.test.outputs.rc }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${SELFTEST_RC:-99}" = 0
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/runner3-media-selftest.json'))
+          assert d.get('status') == 'ok', json.dumps(d, indent=2)
+          assert d.get('enabled') is True
+          assert d.get('autoNew') is True
+          assert d.get('rewriteSrcset') is True
+          assert int(d.get('responsiveVariantCount') or 0) >= 3
+          print(json.dumps(d, indent=2))
+          PY
