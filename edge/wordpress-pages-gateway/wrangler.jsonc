@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runner3wp-pages-gateway",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-19",
+  "services": [
+    {
+      "binding": "EDGE",
+      "service": "wordpress-edge-proxy"
+    }
+  ]
+}
