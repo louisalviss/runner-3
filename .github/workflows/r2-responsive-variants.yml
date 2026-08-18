@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_BUCKET_NAME: runner3-wp-media
       R2_PUBLIC_HOST: pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev
       SITE_SLUG: runner3-factory-smoke-2
       RESULT_PATH: /tmp/r2-responsive-result.json
@@ -37,42 +38,24 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import io, json, os, subprocess, urllib.parse, urllib.request
+          import io, json, os, subprocess, urllib.request
           from pathlib import Path
           from PIL import Image
 
           token=os.environ['CLOUDFLARE_API_TOKEN']
+          bucket_name=os.environ['R2_BUCKET_NAME']
           public_host=os.environ['R2_PUBLIC_HOST']
           slug=os.environ['SITE_SLUG']
           result_path=os.environ['RESULT_PATH']
-          base_api='https://api.cloudflare.com/client/v4'
           widths=(360,480,640)
 
-          def cf(path):
-              req=urllib.request.Request(base_api+path, headers={'Authorization':f'Bearer {token}','Accept':'application/json'})
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  payload=json.load(r)
-              if not payload.get('success'):
-                  raise RuntimeError(f"cloudflare_api_failed:{path}:{payload.get('errors')}")
-              return payload.get('result')
-
-          accounts=cf('/accounts?per_page=50')
-          matches=[]
-          for account in sorted(accounts, key=lambda x:x.get('id','')):
-              aid=account['id']
-              buckets=(cf(f'/accounts/{aid}/r2/buckets') or {}).get('buckets',[])
-              for bucket in buckets:
-                  name=bucket.get('name')
-                  if not name: continue
-                  try:
-                      managed=cf(f"/accounts/{aid}/r2/buckets/{urllib.parse.quote(name,safe='')}/domains/managed")
-                  except Exception:
-                      continue
-                  if managed and managed.get('enabled') and managed.get('domain') == public_host:
-                      matches.append((aid,name,managed))
-          if len(matches)!=1:
-              raise RuntimeError(f'bucket_domain_match_count:{len(matches)}')
-          account_id,bucket_name,managed=matches[0]
+          # Account listing is already permitted by the Worker-deploy token. Avoid the
+          # R2 bucket-list API because this token intentionally lacks R2 admin/list scope.
+          req=urllib.request.Request('https://api.cloudflare.com/client/v4/accounts?per_page=50',headers={'Authorization':f'Bearer {token}','Accept':'application/json'})
+          with urllib.request.urlopen(req,timeout=30) as r: payload=json.load(r)
+          accounts=payload.get('result') if payload.get('success') else []
+          if not accounts: raise RuntimeError('cloudflare_account_unavailable')
+          account_id=sorted(accounts,key=lambda x:x.get('id',''))[0]['id']
           os.environ['CLOUDFLARE_ACCOUNT_ID']=account_id
 
           source_dir=Path('media')/slug
@@ -85,8 +68,7 @@ jobs:
               original_url=f'https://{public_host}/sites/{slug}/{src.name}'
               variants=[]
               with Image.open(src) as im:
-                  im.load()
-                  ow,oh=im.size
+                  im.load(); ow,oh=im.size
                   for width in widths:
                       height=max(1,round(oh*width/ow))
                       resized=im.resize((width,height),Image.Resampling.LANCZOS)
@@ -96,31 +78,21 @@ jobs:
                       cmd=['npx','--yes','wrangler@4.102.0','r2','object','put',f'{bucket_name}/{key}','--file',str(local),'--remote','--content-type','image/webp','--cache-control','public, max-age=31536000, immutable']
                       p=subprocess.run(cmd,env=os.environ,capture_output=True,text=True,timeout=120)
                       if p.returncode!=0:
-                          raise RuntimeError(f"upload_failed:{key}:{(p.stderr or p.stdout)[-800:]}")
+                          Path(result_path).write_text(json.dumps({'status':'failed','stage':'upload','bucketName':bucket_name,'key':key,'detail':(p.stderr or p.stdout)[-1200:]},indent=2))
+                          raise RuntimeError(f'upload_failed:{key}')
                       url=f'https://{public_host}/{key}'
-                      req=urllib.request.Request(url,headers={'User-Agent':'Runner3StaticResponsiveVerify/1.0','Cache-Control':'no-cache'})
-                      with urllib.request.urlopen(req,timeout=30) as r:
-                          data=r.read()
-                          status=r.status
-                          ctype=r.headers.get('content-type','')
-                      if status!=200 or not data:
-                          raise RuntimeError(f'get_failed:{url}:{status}:{len(data)}')
+                      get=urllib.request.Request(url,headers={'User-Agent':'Runner3StaticResponsiveVerify/1.0','Cache-Control':'no-cache'})
+                      with urllib.request.urlopen(get,timeout=30) as r:
+                          data=r.read(); status=r.status; ctype=r.headers.get('content-type','')
+                      if status!=200 or not data: raise RuntimeError(f'get_failed:{url}:{status}:{len(data)}')
                       with Image.open(io.BytesIO(data)) as check:
-                          check.load()
-                          vw,vh=check.size
-                          fmt=check.format
-                      if vw!=width or vh!=height or fmt!='WEBP':
-                          raise RuntimeError(f'decode_mismatch:{url}:{vw}x{vh}:{fmt}:expected={width}x{height}')
+                          check.load(); vw,vh=check.size; fmt=check.format
+                      if vw!=width or vh!=height or fmt!='WEBP': raise RuntimeError(f'decode_mismatch:{url}:{vw}x{vh}:{fmt}')
                       item={'width':width,'height':height,'bytes':len(data),'url':url,'key':key,'contentType':ctype}
-                      variants.append(item)
-                      uploaded.append(item)
+                      variants.append(item); uploaded.append(item)
               entries[original_url]={'originalWidth':ow,'originalHeight':oh,'variants':variants}
 
-          result={
-            'status':'pass','siteSlug':slug,'accountId':account_id,'bucketName':bucket_name,
-            'publicHost':public_host,'managedDomainEnabled':bool(managed.get('enabled')),
-            'originals':len(entries),'variants':len(uploaded),'entries':entries,
-          }
+          result={'status':'pass','siteSlug':slug,'accountId':account_id,'bucketName':bucket_name,'publicHost':public_host,'originals':len(entries),'variants':len(uploaded),'entries':entries}
           Path(result_path).write_text(json.dumps(result,indent=2))
           print(json.dumps({'status':'pass','bucketName':bucket_name,'originals':len(entries),'variants':len(uploaded)},indent=2))
           PY
@@ -156,8 +128,7 @@ jobs:
           import json, os
           d=json.load(open(os.environ['RESULT_PATH']))
           assert d.get('status')=='pass', json.dumps(d,indent=2)
-          assert d.get('originals')==8, json.dumps(d,indent=2)
-          assert d.get('variants')==24, json.dumps(d,indent=2)
+          assert d.get('originals')==8 and d.get('variants')==24, json.dumps(d,indent=2)
           for original,entry in d['entries'].items():
               assert [v['width'] for v in entry['variants']]==[360,480,640], original
               assert all(v['bytes']>0 for v in entry['variants']), original
