@@ -7,7 +7,7 @@ on:
     paths:
       - 'restore-lab/requests/backup-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-backup.yml'
-      - 'scripts/export-runner5-restore-lab.mjs'
+      - 'scripts/export-runner5-restore-lab-v2.mjs'
 
 permissions:
   contents: write
@@ -43,7 +43,7 @@ jobs:
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Export WPress snapshot
-        run: node scripts/export-runner5-restore-lab.mjs
+        run: node scripts/export-runner5-restore-lab-v2.mjs
 
       - name: Upload WPress snapshot artifact
         if: success()
