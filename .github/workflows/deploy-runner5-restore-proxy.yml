@@ -52,7 +52,7 @@ jobs:
 
           def rewrite_css_urls(css, css_url):
               def repl(m):
-                  raw=m.group(1).strip().strip('"\'')
+                  raw=m.group(1).strip().strip(chr(34)+chr(39))
                   if not raw or raw.startswith(('data:','#','about:')):
                       return m.group(0)
                   absolute=urllib.parse.urljoin(css_url,raw)
