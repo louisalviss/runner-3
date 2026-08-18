@@ -102,7 +102,7 @@ async function uploadImport(ctx,nonce,jobId,buf){
   stage('upload_import_file');
   const r=await ctx.request.post(`${base}/wp-json/ai1wm/v1/imports/${encodeURIComponent(jobId)}/file?auto_confirm=true`,{
     headers:{'X-WP-Nonce':nonce,Accept:'application/json'},
-    multipart:{file:{name:backupName,mimeType:'application/octet-stream',buffer:buf}},
+    multipart:{upload_file:{name:backupName,mimeType:'application/octet-stream',buffer:buf}},
     timeout:10*60*1000,failOnStatusCode:false
   });
   const text=await r.text();safe.recovery.uploadStatus=r.status();save();
