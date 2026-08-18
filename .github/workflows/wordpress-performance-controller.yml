@@ -1,0 +1,118 @@
+name: WordPress Performance Controller
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-performance-controller.yml'
+      - 'wordpress/plugins/runner3-performance-controller/**'
+      - 'scripts/deploy-wordpress-plugin.mjs'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-performance-controller
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner3-factory-smoke-2
+      WP_PUBLIC_URL: https://runner3wp.pntr.dev
+      WP_PLUGIN_SLUG: runner3-performance-controller
+      WP_PLUGIN_ZIP: /tmp/runner3-performance-controller.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Validate and package plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -l wordpress/plugins/runner3-performance-controller/runner3-performance-controller.php
+          rm -f "$WP_PLUGIN_ZIP"
+          (cd wordpress/plugins && zip -qr "$WP_PLUGIN_ZIP" runner3-performance-controller)
+          test -s "$WP_PLUGIN_ZIP"
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Deploy plugin
+        shell: bash
+        run: node scripts/deploy-wordpress-plugin.mjs
+
+      - name: Verify public loading policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="${WP_PUBLIC_URL}/?runner3_perf_probe=${GITHUB_RUN_ID}"
+          code="$(curl -LsS -o /tmp/perf.html -w '%{http_code}' "$url")"
+          test "$code" = "200"
+          grep -qi 'name=["'"']robots["'"'][^>]*noindex\|noindex[^>]*name=["'"']robots' /tmp/perf.html
+          grep -qi 'offset-demo-01\.webp' /tmp/perf.html
+          python3 - <<'PY'
+          import json,re
+          h=open('/tmp/perf.html',encoding='utf-8').read()
+          imgs=re.findall(r'<img\b[^>]*>',h,re.I)
+          def a(tag,name):
+              m=re.search(r'\b'+re.escape(name)+r'\s*=\s*["\x27]([^"\x27]*)["\x27]',tag,re.I)
+              return m.group(1) if m else None
+          hero=next((t for t in imgs if 'offset-demo-01.webp' in (a(t,'src') or '')),None)
+          lazy=sum(1 for t in imgs if (a(t,'loading') or '').lower()=='lazy')
+          responsive=sum(1 for t in imgs if 'responsive-v2/offset-demo-' in (a(t,'srcset') or ''))
+          result={
+            'status':'ok', 'frontendHttp':200, 'imageCount':len(imgs),
+            'lazyImageCount':lazy, 'responsiveV2Count':responsive,
+            'heroFound':bool(hero), 'heroFetchPriority':a(hero,'fetchpriority') if hero else None,
+            'heroLoading':a(hero,'loading') if hero else None,
+          }
+          if not hero: raise SystemExit('hero_missing')
+          if (a(hero,'fetchpriority') or '').lower()!='high': raise SystemExit('hero_not_high_priority')
+          if (a(hero,'loading') or '').lower()=='lazy': raise SystemExit('hero_is_lazy')
+          if len(imgs)>=3 and lazy<1: raise SystemExit('lazy_loading_missing')
+          if responsive<1: raise SystemExit('responsive_v2_regressed')
+          open('/tmp/performance-controller-result.json','w').write(json.dumps(result,indent=2))
+          print(json.dumps(result))
+          PY
+
+      - name: Persist result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/custom-domain/performance-controller
+          if [ -s /tmp/performance-controller-result.json ]; then
+            cp /tmp/performance-controller-result.json ops/custom-domain/performance-controller/latest.json
+          else
+            printf '{"status":"failed","detail":"verification_result_missing"}\n' > ops/custom-domain/performance-controller/latest.json
+          fi
+          rm -f /tmp/wasmer-account.json "$WP_PLUGIN_ZIP" /tmp/perf.html
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/custom-domain/performance-controller/latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist WordPress performance controller result: ${GITHUB_RUN_ID}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep $((attempt * 2))
+            git pull --rebase origin main
+          done
+          exit 5
