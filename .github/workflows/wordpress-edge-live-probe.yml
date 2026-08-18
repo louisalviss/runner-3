@@ -18,6 +18,7 @@ jobs:
       HOME_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
       ARTICLE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/
       R2_HERO: https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp
+      R2_HERO_VARIANT: https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/responsive-v2/offset-demo-01-w480.webp
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +71,18 @@ jobs:
               with urllib.request.urlopen(req,timeout=20) as r:
                   return r.read().decode('utf-8','replace')
 
+          def head(url):
+              req=urllib.request.Request(url,method='HEAD',headers={'User-Agent':'edge-live-probe'})
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  h={k.lower():v for k,v in r.headers.items()}
+                  return {
+                      'status':r.status,
+                      'cache_control':h.get('cache-control'),
+                      'content_length':h.get('content-length'),
+                      'content_type':h.get('content-type'),
+                      'etag':h.get('etag'),
+                  }
+
           class ResourceParser(HTMLParser):
               def __init__(self):
                   super().__init__()
@@ -92,6 +105,8 @@ jobs:
           hero_img=next((x for x in parser.images if 'offset-demo-01.webp' in str(x.get('src',''))), next((x for x in parser.images if str(x.get('fetchpriority','')).lower()=='high'), {}))
           preload_sizes=hero_preload.get('imagesizes')
           image_sizes=hero_img.get('sizes')
+          preload_srcset=str(hero_preload.get('imagesrcset') or '')
+          image_srcset=str(hero_img.get('srcset') or '')
           out['render_path']={
               'has_preconnect_r2': bool(re.search(r'<link[^>]+rel=["\']preconnect["\'][^>]+r2\.dev|<link[^>]+r2\.dev[^>]+rel=["\']preconnect["\']',html,re.I)),
               'has_image_preload': bool(parser.preloads),
@@ -99,26 +114,34 @@ jobs:
               'preload_imagesizes': preload_sizes,
               'hero_img_sizes': image_sizes,
               'responsive_sizes_match': bool(preload_sizes and image_sizes and preload_sizes == image_sizes),
-              'preload_imagesrcset': hero_preload.get('imagesrcset'),
-              'hero_img_srcset': hero_img.get('srcset'),
+              'preload_imagesrcset': preload_srcset,
+              'hero_img_srcset': image_srcset,
+              'srcsets_match': bool(preload_srcset and preload_srcset == image_srcset),
+              'uses_responsive_v2': '/responsive-v2/' in preload_srcset and '/responsive-v2/' in image_srcset,
               'html_bytes': len(html.encode('utf-8')),
           }
 
-          req=urllib.request.Request(os.environ['R2_HERO'],method='HEAD',headers={'User-Agent':'edge-live-probe'})
-          with urllib.request.urlopen(req,timeout=20) as r:
-              h={k.lower():v for k,v in r.headers.items()}
-              out['r2_hero']={
-                  'status':r.status,
-                  'cache_control':h.get('cache-control'),
-                  'content_length':h.get('content-length'),
-                  'content_type':h.get('content-type'),
-                  'etag':h.get('etag'),
-              }
+          out['r2_hero']=head(os.environ['R2_HERO'])
+          out['r2_hero_variant']=head(os.environ['R2_HERO_VARIANT'])
 
           with open('ops/probes/wordpress-edge-live.latest.json','w',encoding='utf-8') as f:
               json.dump(out,f,ensure_ascii=False,indent=2)
               f.write('\n')
           print(json.dumps(out,separators=(',',':')))
+          PY
+
+      - name: Require live v2 image path
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('ops/probes/wordpress-edge-live.latest.json'))
+          assert d['homepage']['status_ok'] and d['homepage']['snapshot_hit_count']==12, d
+          assert d['article']['status_ok'] and d['article']['snapshot_hit_count']==12, d
+          r=d['render_path']
+          assert r['responsive_sizes_match'] and r['srcsets_match'] and r['uses_responsive_v2'], r
+          assert d['r2_hero_variant']['status']==200, d['r2_hero_variant']
+          print(json.dumps({'status':'pass','uses_responsive_v2':True,'variant_bytes':d['r2_hero_variant']['content_length']},indent=2))
           PY
 
       - name: Persist latest result
@@ -131,5 +154,3 @@ jobs:
           git commit -m "test: update WordPress edge live probe" || exit 0
           git pull --rebase
           git push
-
-# rerun marker: post-hero-preload-fix
