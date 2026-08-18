@@ -37,6 +37,7 @@ const safe = {
   pageErrors: [],
   consoleWarnings: [],
   detail: null,
+  adminDiagnostic: null,
   updatedAt: new Date().toISOString(),
 };
 
@@ -80,7 +81,6 @@ async function enterAdmin(ctx, page) {
   await page.waitForTimeout(1200);
   const admin = page.getByText(/WordPress Admin/i).first();
   if (!(await admin.count())) throw new Error('wordpress_admin_control_missing');
-
   const href = await admin.getAttribute('href').catch(() => null);
   if (href) {
     const wp = await ctx.newPage();
@@ -89,7 +89,6 @@ async function enterAdmin(ctx, page) {
     if (isNativeAdmin(wp.url())) return wp;
     await wp.close().catch(() => {});
   }
-
   const before = new Set(ctx.pages());
   const popupPromise = ctx.waitForEvent('page', { timeout: 10000 }).catch(() => null);
   await admin.click().catch(() => {});
@@ -100,32 +99,28 @@ async function enterAdmin(ctx, page) {
   throw new Error('magic_admin_failed');
 }
 
-async function gotoLocatorHref(page, locator, origin) {
-  if (!(await locator.count())) return false;
-  const href = await locator.getAttribute('href').catch(() => null);
+async function gotoHref(page, href, origin) {
   if (!href) return false;
   await page.goto(new URL(href, origin + '/').href, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(900);
   return true;
 }
 
+async function locatePluginRow(wp) {
+  let row = wp.locator('tr[data-slug="runner3-r2-responsive"]').first();
+  if (await row.count()) return row;
+  row = wp.locator('tr').filter({ hasText: /Runner3 R2 Responsive Images/i }).first();
+  if (await row.count()) return row;
+  return null;
+}
+
 async function ensurePlugin(wp) {
   const origin = new URL(wp.url()).origin;
   await wp.goto(`${origin}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await wp.waitForTimeout(600);
+  let row = await locatePluginRow(wp);
 
-  let row = wp.locator('tr[data-slug="runner3-r2-responsive"]').first();
-  if (await row.count()) {
-    safe.installed = true;
-    const cls = String(await row.getAttribute('class').catch(() => ''));
-    if (/\bactive\b/.test(cls)) {
-      safe.activated = true;
-      save();
-      return;
-    }
-    const activate = row.getByRole('link', { name: /^activate$/i }).first();
-    if (!(await gotoLocatorHref(wp, activate, origin))) throw new Error('plugin_activate_link_missing');
-  } else {
+  if (!row) {
     await wp.goto(`${origin}/wp-admin/plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const input = wp.locator('input[type=file][name=pluginzip],input[type=file]').first();
     await input.waitFor({ state: 'attached', timeout: 15000 });
@@ -137,32 +132,57 @@ async function ensurePlugin(wp) {
     await wp.waitForTimeout(1200);
 
     const replace = wp.getByRole('link', { name: /replace current with uploaded/i }).first();
-    const replaceButton = wp.locator('input[type=submit][value*="Replace current" i],button').filter({ hasText: /replace current with uploaded/i }).first();
-    if (!(await gotoLocatorHref(wp, replace, origin)) && await replaceButton.count()) {
-      await replaceButton.click();
-      await wp.waitForLoadState('domcontentloaded').catch(() => {});
-      await wp.waitForTimeout(1000);
+    if (await replace.count()) {
+      const href = await replace.getAttribute('href').catch(() => null);
+      if (href) await gotoHref(wp, href, origin);
+    } else {
+      const replaceButton = wp.locator('input[type=submit][value*="Replace current" i],button').filter({ hasText: /replace current with uploaded/i }).first();
+      if (await replaceButton.count()) {
+        await replaceButton.click();
+        await wp.waitForLoadState('domcontentloaded').catch(() => {});
+        await wp.waitForTimeout(1000);
+      }
     }
 
     const txt = await bodyText(wp);
     if (/installation failed|could not be installed|fatal error/i.test(txt)) {
       throw new Error(`plugin_install_failed:${txt.slice(0, 500)}`);
     }
-
-    const activate = wp.getByRole('link', { name: /activate plugin/i }).first();
-    const activateButton = wp.locator('a.button-primary').filter({ hasText: /activate/i }).first();
-    if (!(await gotoLocatorHref(wp, activate, origin))) {
-      if (!(await gotoLocatorHref(wp, activateButton, origin))) throw new Error('plugin_activate_link_missing_after_install');
-    }
   }
 
   await wp.goto(`${origin}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  row = wp.locator('tr[data-slug="runner3-r2-responsive"]').first();
-  if (!(await row.count())) throw new Error('plugin_not_present_after_install');
+  await wp.waitForTimeout(600);
+  row = await locatePluginRow(wp);
+  if (!row) {
+    safe.adminDiagnostic = (await bodyText(wp)).slice(0, 1200);
+    save();
+    throw new Error('plugin_not_present_after_upload');
+  }
+
   safe.installed = true;
-  const cls = String(await row.getAttribute('class').catch(() => ''));
+  let cls = String(await row.getAttribute('class').catch(() => ''));
+  if (!/\bactive\b/.test(cls)) {
+    const activate = row.locator('a[href*="action=activate"]').first();
+    if (!(await activate.count())) {
+      safe.adminDiagnostic = (await row.innerText().catch(() => '')).slice(0, 800);
+      save();
+      throw new Error('plugin_activation_action_missing');
+    }
+    const href = await activate.getAttribute('href').catch(() => null);
+    if (!(await gotoHref(wp, href, origin))) throw new Error('plugin_activation_href_missing');
+    await wp.goto(`${origin}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await wp.waitForTimeout(600);
+    row = await locatePluginRow(wp);
+    if (!row) throw new Error('plugin_missing_after_activation');
+    cls = String(await row.getAttribute('class').catch(() => ''));
+  }
+
   safe.activated = /\bactive\b/.test(cls);
-  if (!safe.activated) throw new Error('plugin_not_active_after_install');
+  if (!safe.activated) {
+    safe.adminDiagnostic = (await row.innerText().catch(() => '')).slice(0, 800);
+    save();
+    throw new Error('plugin_not_active_after_activation');
+  }
   save();
 }
 
@@ -183,8 +203,8 @@ async function verifyFrontend(browser) {
   safe.responsiveV2 = responsiveTags.length >= 1;
   safe.r2Preconnect = /<link\b[^>]*rel=["']preconnect["'][^>]*pub-f6e5190178814cd5be8f1eb531f1a164\.r2\.dev/i.test(html)
     || /<link\b[^>]*pub-f6e5190178814cd5be8f1eb531f1a164\.r2\.dev[^>]*rel=["']preconnect["']/i.test(html);
-
-  const preload = (html.match(/<link\b[^>]*rel=["']preload["'][^>]*as=["']image["'][^>]*>/i) || [])[0] || '';
+  const preloads = html.match(/<link\b[^>]*rel=["']preload["'][^>]*as=["']image["'][^>]*>/gi) || [];
+  const preload = preloads.find(tag => /offset-demo-01\.webp/i.test(firstAttr(tag, 'href'))) || '';
   const hero = imageTags.find(tag => /offset-demo-01\.webp/i.test(firstAttr(tag, 'src'))) || '';
   const preloadSrcset = firstAttr(preload, 'imagesrcset');
   const heroSrcset = firstAttr(hero, 'srcset');
@@ -193,11 +213,7 @@ async function verifyFrontend(browser) {
   safe.preloadMatchesHero = Boolean(preloadSrcset && heroSrcset && preloadSrcset === heroSrcset && preloadSizes && heroSizes && preloadSizes === heroSizes);
   await requestContext.close();
 
-  const ctx = await browser.newContext({
-    ignoreHTTPSErrors: true,
-    viewport: { width: 393, height: 852 },
-    deviceScaleFactor: 2,
-  });
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 393, height: 852 }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   page.on('console', msg => {
     const item = { type: msg.type(), text: msg.text(), location: msg.location() };
@@ -212,8 +228,6 @@ async function verifyFrontend(browser) {
     currentSrc: img.currentSrc,
     renderedWidth: Math.round(img.getBoundingClientRect().width),
     naturalWidth: img.naturalWidth,
-    srcset: img.srcset,
-    sizes: img.sizes,
   })).catch(() => null);
   if (heroRuntime) {
     safe.heroCurrentSrc = heroRuntime.currentSrc;
@@ -229,12 +243,7 @@ async function verifyFrontend(browser) {
   if (safe.consoleErrors.length || safe.pageErrors.length) throw new Error('frontend_javascript_error_detected');
 }
 
-const browser = await chromium.launch({
-  headless: true,
-  executablePath: '/usr/bin/google-chrome',
-  args: ['--no-sandbox'],
-});
-
+const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
 const page = await ctx.newPage();
 try {
