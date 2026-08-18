@@ -1,0 +1,58 @@
+name: Runner5 Wasmer CDN
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-wasmer-cdn.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-wasmer-cdn
+  cancel-in-progress: true
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_APP_OWNER: runner3wp0b90f6b4ab
+      WASMER_APP_SLUG: runner5-restore-lab-1
+      WP_SITE_SLUG: runner5-restore-lab-1
+      WP_SITE_URL: https://runner5-restore-lab-1.wasmer.app/
+      EDGE_SPEED_OUT: /tmp/runner5-wasmer-edge-speed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Restore Wasmer browser session
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Enable Wasmer App CDN cache and verify
+        run: node scripts/wasmer-edge-speed.mjs
+      - name: Persist Runner5 Wasmer CDN result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-wasmer-edge-speed.json || printf '{"status":"failed","detail":"missing_result"}\n' >/tmp/runner5-wasmer-edge-speed.json
+          cp /tmp/runner5-wasmer-edge-speed.json /tmp/runner5-wasmer-edge-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wasmer-edge-speed/results/runs; cp /tmp/runner5-wasmer-edge-safe.json ops/wasmer-edge-speed/results/runner5-restore-lab-1.latest.json; cp /tmp/runner5-wasmer-edge-safe.json "ops/wasmer-edge-speed/results/runs/runner5-restore-lab-1.${GITHUB_RUN_ID}.json"; git add ops/wasmer-edge-speed/results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner5 Wasmer CDN: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
