@@ -1,0 +1,93 @@
+name: WordPress Restore
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_path:
+        description: 'Path to restore request JSON, e.g. restore/requests/example.json'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'restore/requests/*.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-restore-${{ github.event.inputs.request_path || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY || secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve restore request
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            request='${{ github.event.inputs.request_path }}'
+          else
+            before='${{ github.event.before }}'
+            current='${{ github.sha }}'
+            request="$(git diff --name-only "$before" "$current" -- 'restore/requests/*.json' | tail -n 1)"
+          fi
+          test -n "$request"
+          test -s "$request"
+          case "$request" in restore/requests/*.json) ;; *) echo 'invalid request path' >&2; exit 4;; esac
+          echo "RESTORE_REQUEST_PATH=$request" >> "$GITHUB_ENV"
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Missing WASMER_AUTOMATION_KEY (legacy fallback: CLOUDFLARE_API_TOKEN)' >&2; exit 3; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Restore WordPress backup
+        run: node scripts/wordpress-restore-ai1wm.mjs
+
+      - name: Persist safe restore status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=/tmp/wordpress-restore-status.json
+          if [ ! -s "$status" ]; then
+            printf '{"status":"RUNNER_ERROR","detail":"restore_status_missing"}\n' > "$status"
+          fi
+          request_id="$(node -e "const r=require('./' + process.env.RESTORE_REQUEST_PATH); process.stdout.write(String(r.request_id||''))")"
+          test -n "$request_id"
+          case "$request_id" in *[!A-Za-z0-9._-]*|'') echo 'invalid request_id' >&2; exit 4;; esac
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-restore
+            cp "$status" "ops/wordpress-restore/$request_id.json"
+            git add "ops/wordpress-restore/$request_id.json"
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist WordPress restore status: $request_id"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+          done
+          exit 5
