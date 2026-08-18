@@ -1,0 +1,42 @@
+name: Source Ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Config JSON path
+        required: true
+        default: configs/chainsaw-reze-v18d.json
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-ingest-${{ inputs.config_path }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify runtime
+        run: |
+          python --version
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version | head -1
+
+      - name: Ingest and normalize sources
+        run: python scripts/ingest.py "${{ inputs.config_path }}" work/source
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ github.run_id }}
+          path: work/source
+          retention-days: 1
+          if-no-files-found: error
