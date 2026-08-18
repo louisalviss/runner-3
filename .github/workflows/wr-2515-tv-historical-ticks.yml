@@ -1,0 +1,77 @@
+name: WR 2.5.15 TradingView Historical Tick Resolve
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-tv-historical-ticks.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - name: Resolve exact historical BINANCE perpetual tickers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          python3 - <<'PY'
+          import json,requests,time
+          from pathlib import Path
+          base=json.load(open('/tmp/base/summary.json'));cur=json.load(open('/tmp/base/tv_tick_map.json'))
+          missing=sorted(x['symbol'] for x in base if x['symbol'] not in cur)
+          sess=requests.Session();sess.headers.update({'content-type':'application/json','origin':'https://www.tradingview.com','referer':'https://www.tradingview.com/','user-agent':'Mozilla/5.0'})
+          cols=['name','exchange','description','type','subtype','pricescale','minmov','fractional','minmove2']
+          resolved={};raw_rows=[]
+          for k in range(0,len(missing),40):
+            chunk=missing[k:k+40];tickers=[f'BINANCE:{s}.P' for s in chunk]
+            body={'symbols':{'tickers':tickers,'query':{'types':[]}},'columns':cols,'range':[0,len(tickers)]}
+            r=sess.post('https://scanner.tradingview.com/crypto/scan',json=body,timeout=45);r.raise_for_status();j=r.json();raw_rows+=j.get('data',[])
+            for row in j.get('data',[]):
+              d=row.get('d') or []
+              if len(d)<9:continue
+              name,exchange,desc,typ,subtype,pricescale,minmov,fractional,minmove2=d[:9]
+              try:tick=float(minmov)/float(pricescale)
+              except Exception:continue
+              core=str(name or '')
+              if core.endswith('.P'):core=core[:-2]
+              if core in missing:
+                resolved[core]={'tv_name':name,'tick':tick,'pricescale':pricescale,'minmov':minmov,'type':typ,'subtype':subtype,'description':desc}
+            time.sleep(.2)
+          unresolved=[s for s in missing if s not in resolved]
+          # Secondary exact symbol-search probe for unresolved names: metadata only, to distinguish absent vs renamed/searchable.
+          search_hits={}
+          for s in unresolved:
+            try:
+              u='https://symbol-search.tradingview.com/symbol_search/v3/'
+              q={'text':s,'hl':'1','exchange':'BINANCE','lang':'en','search_type':'undefined','domain':'production'}
+              rr=sess.get(u,params=q,timeout=20)
+              if rr.ok:
+                jj=rr.json();items=jj.get('symbols',jj if isinstance(jj,list) else [])
+                hits=[]
+                for x in items[:10] if isinstance(items,list) else []:
+                  txt=json.dumps(x)
+                  if s in txt:hits.append(x)
+                if hits:search_hits[s]=hits
+            except Exception:pass
+          report={'missing_input':len(missing),'resolved_exact_scanner':len(resolved),'unresolved':len(unresolved),'resolved':resolved,'unresolved_symbols':unresolved,'search_hits':search_hits,'raw_row_count':len(raw_rows)}
+          Path('/tmp/out/report.json').write_text(json.dumps(report,indent=2))
+          Path('/tmp/out/resolved_ticks.json').write_text(json.dumps(resolved,indent=2))
+          print(json.dumps({k:report[k] for k in ['missing_input','resolved_exact_scanner','unresolved','raw_row_count']},indent=2))
+          print('RESOLVED',json.dumps(resolved,indent=2))
+          print('SEARCHABLE_UNRESOLVED',len(search_hits),sorted(search_hits)[:50])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-tv-historical-ticks
+          path: /tmp/out
+          retention-days: 14
