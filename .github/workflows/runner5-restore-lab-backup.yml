@@ -18,7 +18,7 @@ concurrency:
 jobs:
   restore-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -41,7 +41,7 @@ jobs:
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Destructive restore verification
+      - name: Watch existing import recovery
         run: node scripts/wait-existing-ai1wm-export.mjs
 
       - name: Persist restore verification status
@@ -63,7 +63,7 @@ jobs:
             cp "$status" ops/restore-lab/runner5-restore-lab-1.restore.json
             git add ops/restore-lab/runner5-restore-lab-1.restore.json
             if git diff --cached --quiet; then exit 0; fi
-            git commit -m 'Persist Runner5 destructive restore verification'
+            git commit -m 'Persist Runner5 restore verification'
             if git push origin HEAD:main; then exit 0; fi
             sleep 3
           done
