@@ -20,20 +20,17 @@ jobs:
     timeout-minutes: 12
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      WP_SITE_SLUG: runner5-restore-lab-1
-      WP_PLUGIN_SLUG: runner5-edge-optimizer
-      WP_PLUGIN_ZIP: /tmp/runner5-edge-optimizer.zip
       SITE_URL: https://runner5-restore-lab-1.wasmer.app/
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Restore Wasmer state
+      - name: Restore Wasmer browser session
         shell: bash
         run: |
           set -euo pipefail
           echo "::add-mask::$AUTOMATION_KEY"
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
       - name: Build optimizer plugin
         shell: bash
         run: |
@@ -43,13 +40,13 @@ jobs:
           test -s /tmp/runner5-edge-optimizer.zip
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
-      - name: Deploy and activate optimizer
+      - name: Deploy and activate optimizer with stored Wasmer session
         id: deploy
         continue-on-error: true
         shell: bash
         run: |
           set +e
-          node scripts/deploy-wordpress-plugin.mjs > /tmp/runner5-origin-deploy.log 2>&1
+          node scripts/deploy-runner5-edge-optimizer.mjs > /tmp/runner5-origin-deploy.log 2>&1
           code=$?
           set -e
           cat /tmp/runner5-origin-deploy.log
@@ -75,11 +72,10 @@ jobs:
               except Exception as e: err=str(e)
               time.sleep(2)
           result['detail']=None if result['status']=='READY' else err
-          open('/tmp/runner5-origin-verify.json','w').write(json.dumps(result,indent=2)+'\n')
-          print(json.dumps(result,indent=2))
+          open('/tmp/runner5-origin-verify.json','w').write(json.dumps(result,indent=2)+'\n'); print(json.dumps(result,indent=2))
           if result['status']!='READY': raise SystemExit(2)
           PY
-      - name: Build safe diagnostic status
+      - name: Build safe deploy status
         if: always()
         shell: bash
         env:
@@ -94,14 +90,17 @@ jobs:
           if p.exists():
               try: verify=json.loads(p.read_text())
               except: verify={}
+          dep={}
+          p2=pathlib.Path('/tmp/runner5-optimizer-deploy.json')
+          if p2.exists():
+              try: dep=json.loads(p2.read_text())
+              except: dep={}
           log=pathlib.Path('/tmp/runner5-origin-deploy.log').read_text(errors='ignore') if pathlib.Path('/tmp/runner5-origin-deploy.log').exists() else ''
           log=re.sub(r'(?i)(password|token|secret|authorization|cookie)[=: ]+[^\s]+',r'\1=[redacted]',log)
-          log=re.sub(r'https?://[^\s]*?(?:magiclogin|token|secret|auth|signature)=[^\s&]+', '[redacted-url]', log, flags=re.I)
+          log=re.sub(r'https?://[^\s]*?(?:magiclogin|token|secret|auth|signature)=[^\s&]+','[redacted-url]',log,flags=re.I)
           ok=os.environ.get('DEPLOY_OUTCOME')=='success' and os.environ.get('VERIFY_OUTCOME')=='success' and verify.get('status')=='READY'
-          out=dict(verify)
-          out.update({'status':'READY' if ok else 'FAILED','deployOutcome':os.environ.get('DEPLOY_OUTCOME'),'deployExit':os.environ.get('DEPLOY_EXIT'),'verifyOutcome':os.environ.get('VERIFY_OUTCOME'),'deployLogTail':log[-5000:],'updatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
-          pathlib.Path('/tmp/runner5-origin-optimize.json').write_text(json.dumps(out,indent=2)+'\n')
-          print(json.dumps(out,indent=2))
+          out=dict(verify); out.update({'status':'READY' if ok else 'FAILED','deployOutcome':os.environ.get('DEPLOY_OUTCOME'),'deployExit':os.environ.get('DEPLOY_EXIT'),'verifyOutcome':os.environ.get('VERIFY_OUTCOME'),'deployStage':dep.get('stage'),'deployDetail':dep.get('detail'),'deployLogTail':log[-5000:],'updatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
+          pathlib.Path('/tmp/runner5-origin-optimize.json').write_text(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
           PY
       - name: Persist origin optimization status
         if: always()
