@@ -1,5 +1,5 @@
 {
-  "status": "starting",
+  "status": "FAILED",
   "siteSlug": "runner5-restore-lab-1",
   "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
   "mode": "rest-api-seed-v4",
@@ -12,9 +12,8 @@
   "mediaUpload": "deferred_after_origin_500",
   "homepageHttp": null,
   "steps": [
-    "wasmer_login",
-    "wordpress_admin"
+    "wasmer_login"
   ],
-  "detail": null,
-  "updatedAt": "2026-08-18T05:34:59.006Z"
+  "detail": "locator.waitFor: Timeout 12000ms exceeded.\nCall log:\n  - waiting for locator('input[type=password]').first() to be visible\n",
+  "updatedAt": "2026-08-18T05:35:29.693Z"
 }
