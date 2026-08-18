@@ -1,20 +1,13 @@
-name: M88 AI Odds Public Mirror
+name: M88 AI Odds Manual Fallback
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/m88-ai-odds-public-mirror.yml'
-      - 'build_m88_ai_database.py'
 
 permissions:
   contents: write
 
 concurrency:
-  group: m88-ai-odds-public-mirror
+  group: m88-ai-odds-manual-fallback
   cancel-in-progress: true
 
 jobs:
@@ -60,9 +53,9 @@ jobs:
           [ -z "$AUTH_HEADER" ] || git -C /tmp/m88-ai-pub config http.https://github.com/.extraheader "$AUTH_HEADER"
           git -C /tmp/m88-ai-pub checkout --orphan m88-ai-data >/dev/null 2>&1
           cp out/ai-odds.json out/health.json /tmp/m88-ai-pub/
-          printf '%s\n' '# M88 AI Odds Database' 'Auto-generated. ai-odds.json is the canonical current one-file M88 database.' > /tmp/m88-ai-pub/README.md
+          printf '%s\n' '# M88 AI Odds Database' 'Manual fallback publisher. Normal production source is M88 Unified AI Database v2.' > /tmp/m88-ai-pub/README.md
           git -C /tmp/m88-ai-pub add .
-          git -C /tmp/m88-ai-pub commit -q -m "M88 AI database $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          git -C /tmp/m88-ai-pub commit -q -m "M88 AI manual fallback $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           git -C /tmp/m88-ai-pub push -q --force origin HEAD:m88-ai-data
 
       - name: Publish stable release endpoint
@@ -79,6 +72,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: m88-ai-database-${{ github.run_id }}
+          name: m88-ai-manual-fallback-${{ github.run_id }}
           path: out/
           retention-days: 2
