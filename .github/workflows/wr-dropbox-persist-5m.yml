@@ -41,6 +41,7 @@ jobs:
           url=os.environ['DROPBOX_REQUEST_URL']
           f='/tmp/wr2515-5m-tv-tick-final.zip'
           email=os.environ['UPLOADER_EMAIL']
+          filename=os.path.basename(f)
           o=Options();o.add_argument('--headless=new');o.add_argument('--no-sandbox');o.add_argument('--disable-dev-shm-usage');o.add_argument('--window-size=1440,1200')
           d=webdriver.Chrome(options=o)
           try:
@@ -48,53 +49,111 @@ jobs:
               WebDriverWait(d,40).until(lambda x: x.execute_script('return document.readyState')=='complete')
               time.sleep(4)
               print('TITLE',d.title)
-              fis=d.find_elements(By.CSS_SELECTOR,'input[type=file]')
-              if not fis:
-                  for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
+
+              def dump_inputs(tag):
+                  fis=d.find_elements(By.CSS_SELECTOR,'input[type=file]')
+                  print(tag,'FILE_INPUT_COUNT',len(fis))
+                  for i,el in enumerate(fis):
+                      try:
+                          print(tag,'INPUT',i,'displayed',el.is_displayed(),'enabled',el.is_enabled(),'outer',el.get_attribute('outerHTML')[:1000])
+                      except Exception as e: print(tag,'INPUT_ERR',i,repr(e))
+                  return fis
+
+              dump_inputs('INITIAL')
+
+              # Drive the visible Dropbox flow first. Some builds expose a menu item after Add files.
+              add=None
+              for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
+                  try:
+                      txt=(b.text or '').strip().lower()
+                      if b.is_displayed() and ('add files' in txt or txt=='add file'):
+                          add=b;print('ADD_BUTTON',repr(txt));break
+                  except Exception: pass
+              if add is not None:
+                  try:d.execute_script('arguments[0].click()',add)
+                  except Exception:add.click()
+                  time.sleep(2)
+                  print('BODY_AFTER_ADD',d.find_element(By.TAG_NAME,'body').text[-1500:])
+                  for b in d.find_elements(By.XPATH,"//button|//*[@role='button']|//*[@role='menuitem']"):
                       try:
                           txt=(b.text or '').strip().lower()
-                          if 'add files' in txt or txt in {'add file','choose files','select files'}:
-                              b.click();time.sleep(2);break
+                          if b.is_displayed() and any(x in txt for x in ['files from computer','choose files','select files','computer']):
+                              print('COMPUTER_ITEM',repr(txt))
+                              try:d.execute_script('arguments[0].click()',b)
+                              except Exception:b.click()
+                              time.sleep(1);break
                       except Exception: pass
-                  fis=d.find_elements(By.CSS_SELECTOR,'input[type=file]')
-              if not fis:
-                  raise RuntimeError('No file input found. page='+d.page_source[:4000])
-              fis[0].send_keys(f)
-              time.sleep(4)
+
+              fis=dump_inputs('AFTER_ADD')
+              if not fis: raise RuntimeError('No file input after Add files flow')
+
+              selected=False
+              # Try newest/last input first, then every remaining candidate. Validate via FileList or rendered filename.
+              order=list(range(len(fis)-1,-1,-1))
+              for i in order:
+                  el=fis[i]
+                  try:
+                      d.execute_script("arguments[0].removeAttribute('webkitdirectory'); arguments[0].style.display='block'; arguments[0].style.visibility='visible';",el)
+                      el.send_keys(f)
+                      time.sleep(3)
+                      cnt=d.execute_script('return arguments[0].files ? arguments[0].files.length : -1',el)
+                      names=d.execute_script('return arguments[0].files ? Array.from(arguments[0].files).map(x=>x.name) : []',el)
+                      body=d.find_element(By.TAG_NAME,'body').text
+                      print('TRY_INPUT',i,'FILE_COUNT',cnt,'NAMES',names,'BODY_HAS_FILENAME',filename in body)
+                      if cnt and cnt>0:
+                          selected=True;break
+                  except Exception as e:
+                      print('SENDKEY_ERR',i,repr(e))
+              if not selected: raise RuntimeError('Could not attach ZIP to any Dropbox file input')
+
+              # Give React time to render post-selection fields/buttons.
+              for _ in range(20):
+                  body=d.find_element(By.TAG_NAME,'body').text
+                  if filename in body: break
+                  time.sleep(1)
+              print('BODY_AFTER_SELECT',d.find_element(By.TAG_NAME,'body').text[-2500:])
+
+              # Fill uploader identity if requested.
               for el in d.find_elements(By.CSS_SELECTOR,'input'):
                   try:
                       if not el.is_displayed() or el.get_attribute('type')=='file': continue
-                      typ=(el.get_attribute('type') or '').lower(); name=((el.get_attribute('name') or '')+' '+(el.get_attribute('placeholder') or '')+' '+(el.get_attribute('aria-label') or '')).lower()
-                      if typ=='email' or 'email' in name:
+                      typ=(el.get_attribute('type') or '').lower()
+                      desc=((el.get_attribute('name') or '')+' '+(el.get_attribute('placeholder') or '')+' '+(el.get_attribute('aria-label') or '')).lower()
+                      if typ=='email' or 'email' in desc:
                           if not el.get_attribute('value'): el.send_keys(email)
-                      elif typ in ('text','') and any(k in name for k in ['name','your name','full name']):
+                      elif typ in ('text','') and any(k in desc for k in ['name','your name','full name']):
                           if not el.get_attribute('value'): el.send_keys('alviss louis')
-                  except Exception: pass
+                  except Exception as e: print('IDENTITY_ERR',repr(e))
+
+              # Print and click the explicit final submit/upload control.
               clicked=False
-              for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
-                  try:
-                      if not b.is_displayed() or not b.is_enabled(): continue
-                      txt=(b.text or '').strip().lower()
-                      if txt in {'upload','submit','send'} or txt.startswith('upload '):
-                          b.click();clicked=True;print('CLICKED',txt);break
-                  except Exception: pass
-              if not clicked: print('NO_EXPLICIT_UPLOAD_BUTTON')
+              for _ in range(20):
+                  buttons=[]
+                  for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
+                      try:
+                          if b.is_displayed(): buttons.append(((b.text or '').strip(),b.is_enabled(),b))
+                      except Exception: pass
+                  print('BUTTONS',[(t,en) for t,en,_ in buttons])
+                  for txt,en,b in buttons:
+                      low=txt.lower()
+                      if en and (low in {'upload','submit','send'} or low.startswith('upload ') or low.startswith('submit ')):
+                          print('CLICK_FINAL',repr(txt))
+                          try:d.execute_script('arguments[0].click()',b)
+                          except Exception:b.click()
+                          clicked=True;break
+                  if clicked: break
+                  time.sleep(1)
+              if not clicked: raise RuntimeError('ZIP attached but no enabled final Upload/Submit control appeared')
+
               ok=False
               for _ in range(90):
                   body=d.find_element(By.TAG_NAME,'body').text.lower()
-                  if any(x in body for x in ['upload complete','uploaded successfully','files uploaded','thanks for uploading','finished uploading','successfully uploaded']):
+                  if any(x in body for x in ['upload complete','uploaded successfully','files uploaded','thanks for uploading','finished uploading','successfully uploaded','upload another file']):
                       ok=True;print('SUCCESS_TEXT');break
-                  if not clicked:
-                      for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
-                          try:
-                              txt=(b.text or '').strip().lower()
-                              if b.is_displayed() and b.is_enabled() and (txt=='upload' or txt.startswith('upload ')):
-                                  b.click();clicked=True;print('LATE_CLICK',txt);break
-                          except Exception: pass
                   time.sleep(2)
               print('FINAL_URL',d.current_url)
               print('FINAL_BODY',d.find_element(By.TAG_NAME,'body').text[-3000:])
-              if not ok: raise RuntimeError('Dropbox upload success not detected')
+              if not ok: raise RuntimeError('Dropbox upload success not detected after submit')
           finally:
               d.quit()
           PY
