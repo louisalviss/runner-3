@@ -1,6 +1,6 @@
 name: Runner5 Lighthouse
 
-# Triggered for a fresh Runner5 restore measurement on 2026-08-18.
+# Fresh A/B measurement: target the optimized Cloudflare edge URL after the origin baseline.
 on:
   push:
     branches: [main]
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      TARGET_URL: https://runner5-restore-lab-1.wasmer.app/
+      TARGET_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
     steps:
       - uses: actions/checkout@v4
         with:
