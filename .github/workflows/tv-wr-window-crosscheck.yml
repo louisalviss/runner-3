@@ -1,0 +1,75 @@
+name: TV WR Window Crosscheck
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  crosscheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore session and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wr-window-report.pine.aes -out /tmp/wr.pine
+          test "$(sha256sum /tmp/wr.pine | awk '{print $1}')" = "9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026"
+          python3 - <<'PY'
+          p=open('/tmp/wr.pine').read()
+          p=p.replace('1785171600000','1785888000000',1).replace('1786813200000','1786320000000',1)
+          open('/tmp/wr-ema-on.pine','w').write(p)
+          q=p.replace('exitOnEMAReversal=input.bool(true,"Exit on EMA + regime reversal"','exitOnEMAReversal=input.bool(false,"Exit on EMA + regime reversal"',1)
+          open('/tmp/wr-ema-off.pine','w').write(q)
+          PY
+      - name: Run TradingView cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          const out=[]; const log=x=>{out.push(x);console.log(x)};
+          (async()=>{
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync);
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            async function run(symbol,src,label,file){
+              const page=await context.newPage();
+              await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent('BINANCE:'+symbol)+'&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+              await page.waitForTimeout(12000);
+              let body=await page.locator('body').innerText().catch(()=> '');
+              log(label+'_AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'FAIL'));
+              const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(6500);
+              const ta=page.locator('.monaco-editor textarea').last();
+              const source=fs.readFileSync(src,'utf8');
+              await page.evaluate(s=>navigator.clipboard.writeText(s),source); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+V'); await page.waitForTimeout(1800);
+              const add=page.getByRole('button',{name:/Add to chart/i}); if(await add.count()) await add.first().click({force:true}); else {await ta.click({force:true});await page.keyboard.press('Control+Enter');}
+              await page.waitForTimeout(22000);
+              body=await page.locator('body').innerText().catch(()=> ''); log(label+'_COMPILE='+(/Compilation error|Syntax error|Error at/i.test(body)?'FAIL':'PASS'));
+              const closes=page.locator('button[aria-label="Close"]'); for(let i=0;i<await closes.count();i++){const el=closes.nth(i); if(!await el.isVisible().catch(()=>false)) continue; const b=await el.boundingBox().catch(()=>null); if(b&&b.x>1500&&b.y<100){await el.click({force:true});break;}}
+              await page.waitForTimeout(5000); await page.screenshot({path:file,fullPage:false}); await page.close();
+            }
+            await run('BNBUSDT.P','/tmp/wr-ema-on.pine','BNB_EMA_ON','/tmp/bnb-on.png');
+            await run('BNBUSDT.P','/tmp/wr-ema-off.pine','BNB_EMA_OFF','/tmp/bnb-off.png');
+            await run('TRXUSDT.P','/tmp/wr-ema-on.pine','TRX_EMA_ON','/tmp/trx-on.png');
+            fs.writeFileSync('/tmp/result.txt',out.join('\n')+'\n'); await browser.close();
+          })().catch(e=>{log('ERROR='+e.stack);fs.writeFileSync('/tmp/result.txt',out.join('\n')+'\n');process.exit(7)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tv-wr-window-crosscheck
+          path: |
+            /tmp/bnb-on.png
+            /tmp/bnb-off.png
+            /tmp/trx-on.png
+            /tmp/result.txt
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr*.pine
