@@ -7,18 +7,13 @@ on:
       - 'ops/wasmer-edge-speed/requests/*.json'
       - 'scripts/wasmer-edge-speed.mjs'
       - '.github/workflows/wasmer-edge-speed.yml'
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'ops/wasmer-edge-speed/requests/*.json'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: runner3-wasmer-edge-speed-${{ github.event.pull_request.number || github.ref }}
+  group: runner3-wasmer-edge-speed-live
   cancel-in-progress: true
 
 jobs:
@@ -35,6 +30,8 @@ jobs:
       FUNCTIONAL_OUT: /tmp/wp-functional-regression.json
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Restore Wasmer state and browser session
         shell: bash
@@ -58,36 +55,44 @@ jobs:
       - name: Deploy optimized theme to live WordPress
         run: node scripts/deploy-wordpress-theme-v2.mjs
 
-      - name: Enable Wasmer CDN cache and measure TTFB
+      - name: Enable Wasmer CDN cache and verify edge reuse
         run: node scripts/wasmer-edge-speed.mjs
 
       - name: Run functional regression gate
         run: node scripts/test-wordpress-functional.mjs
 
       - name: Persist safe edge/deploy/regression results
-        if: always()
+        if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
-          test -f /tmp/wasmer-edge-speed.json || echo '{"status":"runner_error","detail":"edge_speed_result_missing"}' >/tmp/wasmer-edge-speed.json
-          test -f /tmp/wp-functional-regression.json || echo '{"status":"failed","detail":"functional_result_missing"}' >/tmp/wp-functional-regression.json
-          test -f /tmp/wp-theme-deploy-runner3-factory-smoke-2.json || echo '{"status":"runner_error","detail":"theme_status_missing"}' >/tmp/wp-theme-deploy-runner3-factory-smoke-2.json
-          cp /tmp/wasmer-edge-speed.json /tmp/edge-speed-safe.json
-          cp /tmp/wp-functional-regression.json /tmp/regression-safe.json
-          cp /tmp/wp-theme-deploy-runner3-factory-smoke-2.json /tmp/deploy-safe.json
+          slug="${WP_SITE_SLUG}"
+          run_id="${GITHUB_RUN_ID}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           pushed=false
           for attempt in 1 2 3 4; do
             git fetch origin main
             git reset --hard origin/main
-            mkdir -p ops/wasmer-edge-speed/results ops/wp-functional-regression/results ops/wp-theme-deploy/results
-            cp /tmp/edge-speed-safe.json ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json
-            cp /tmp/regression-safe.json ops/wp-functional-regression/results/runner3-factory-smoke-2.latest.json
-            cp /tmp/deploy-safe.json ops/wp-theme-deploy/results/runner3-factory-smoke-2.latest.json
-            git add ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json ops/wp-functional-regression/results/runner3-factory-smoke-2.latest.json ops/wp-theme-deploy/results/runner3-factory-smoke-2.latest.json
+            mkdir -p ops/wasmer-edge-speed/results/runs ops/wp-functional-regression/results/runs ops/wp-theme-deploy/results/runs
+
+            if [ -s /tmp/wasmer-edge-speed.json ]; then
+              cp /tmp/wasmer-edge-speed.json "ops/wasmer-edge-speed/results/${slug}.latest.json"
+              cp /tmp/wasmer-edge-speed.json "ops/wasmer-edge-speed/results/runs/${slug}.${run_id}.json"
+            fi
+            if [ -s /tmp/wp-functional-regression.json ]; then
+              cp /tmp/wp-functional-regression.json "ops/wp-functional-regression/results/${slug}.latest.json"
+              cp /tmp/wp-functional-regression.json "ops/wp-functional-regression/results/runs/${slug}.${run_id}.json"
+            fi
+            deploy="/tmp/wp-theme-deploy-${slug}.json"
+            if [ -s "$deploy" ]; then
+              cp "$deploy" "ops/wp-theme-deploy/results/${slug}.latest.json"
+              cp "$deploy" "ops/wp-theme-deploy/results/runs/${slug}.${run_id}.json"
+            fi
+
+            git add ops/wasmer-edge-speed/results ops/wp-functional-regression/results ops/wp-theme-deploy/results
             if git diff --cached --quiet; then pushed=true; break; fi
-            git commit -m 'Persist optimized WordPress edge delivery results'
+            git commit -m "Persist verified WordPress edge results: ${slug} run ${run_id}"
             if git push origin HEAD:main; then pushed=true; break; fi
             sleep 3
           done
