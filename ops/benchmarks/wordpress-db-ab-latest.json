@@ -1,0 +1,99 @@
+{
+  "status": "BASELINE_COMPLETE_TIDB_AUTH_MISSING",
+  "safe": true,
+  "production_db_changed": false,
+  "site": "https://runner3-factory-smoke-2.wasmer.app/",
+  "measured_at": "2026-08-18T16:27:57Z",
+  "tidb_cloud_api_auth_present": false,
+  "groups": [
+    {
+      "name": "home_same_url_warm",
+      "samples": 30,
+      "success": 30,
+      "codes": {
+        "200": 30
+      },
+      "cache_headers": {
+        "None": 30
+      },
+      "ttfb_ms": {
+        "p50": 522.95,
+        "p95": 543.31,
+        "min": 499.18,
+        "max": 579.35
+      },
+      "total_ms": {
+        "p50": 747.05,
+        "p95": 753.0
+      },
+      "errors": []
+    },
+    {
+      "name": "home_cache_busted",
+      "samples": 30,
+      "success": 30,
+      "codes": {
+        "200": 30
+      },
+      "cache_headers": {
+        "None": 30
+      },
+      "ttfb_ms": {
+        "p50": 514.66,
+        "p95": 530.05,
+        "min": 498.43,
+        "max": 553.55
+      },
+      "total_ms": {
+        "p50": 742.93,
+        "p95": 752.85
+      },
+      "errors": []
+    },
+    {
+      "name": "rest_posts_cache_busted",
+      "samples": 30,
+      "success": 30,
+      "codes": {
+        "200": 30
+      },
+      "cache_headers": {
+        "None": 30
+      },
+      "ttfb_ms": {
+        "p50": 500.81,
+        "p95": 526.23,
+        "min": 481.16,
+        "max": 541.81
+      },
+      "total_ms": {
+        "p50": 500.93,
+        "p95": 526.34
+      },
+      "errors": []
+    },
+    {
+      "name": "wp_login",
+      "samples": 20,
+      "success": 20,
+      "codes": {
+        "200": 20
+      },
+      "cache_headers": {
+        "None": 20
+      },
+      "ttfb_ms": {
+        "p50": 492.79,
+        "p95": 516.73,
+        "min": 477.07,
+        "max": 517.92
+      },
+      "total_ms": {
+        "p50": 492.91,
+        "p95": 517.22
+      },
+      "errors": []
+    }
+  ],
+  "note": "HTTP baseline only; direct SQL timing requires database/runtime access. No production mutation performed."
+}
