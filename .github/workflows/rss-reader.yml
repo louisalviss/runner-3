@@ -41,7 +41,7 @@ jobs:
       - name: Collect 10 core Runner3 RSS sources
         run: python scripts/rss_reader_collect.py
 
-      - name: Collect Võ Hoàng Hạc RSS source
+      - name: Collect Võ Hoàng Hạc Articles + Substack Notes
         run: python scripts/rss_substack_collect_v2.py
 
       - name: Upload per-run health
@@ -63,7 +63,7 @@ jobs:
           git config user.email "runner3-rss-bot@users.noreply.github.com"
           git add data/rss-reader/sources/
           if git diff --cached --quiet; then
-            echo "No RSS content changes"
+            echo "No source content changes"
             exit 0
           fi
           git commit -m "Update Runner3 RSS source mirrors"
