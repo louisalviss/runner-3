@@ -9,6 +9,36 @@ function runner3_editorial_setup() {
 }
 add_action('after_setup_theme', 'runner3_editorial_setup');
 
+/**
+ * Mark only anonymous, public HTML as shared-cacheable.
+ *
+ * Wasmer CDN Cache is app-wide, so the response must opt in safely. Authenticated,
+ * admin, REST, search, feed, preview and error responses remain dynamic/bypassed.
+ * Browser freshness stays at zero while the shared edge may retain HTML briefly.
+ */
+function runner3_public_edge_cache_eligible() {
+    $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+    if (!in_array($method, ['GET', 'HEAD'], true)) return false;
+    if (is_admin() || is_user_logged_in()) return false;
+    if (defined('REST_REQUEST') && REST_REQUEST) return false;
+    if (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST) return false;
+    if (is_preview() || is_search() || is_feed() || is_trackback() || is_404()) return false;
+    if (isset($_GET['preview']) || isset($_GET['preview_id']) || isset($_GET['rest_route']) || isset($_GET['s'])) return false;
+    return true;
+}
+
+function runner3_public_edge_cache_headers() {
+    if (!runner3_public_edge_cache_eligible()) return;
+
+    // Shared edge cache: 5 minutes. Browsers revalidate normally, so editorial
+    // updates do not get trapped in a long local cache on the visitor's device.
+    header_remove('Pragma');
+    header_remove('Expires');
+    header('Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=60, stale-if-error=600', true);
+    header('X-Runner3-Edge-Cache: public', true);
+}
+add_action('template_redirect', 'runner3_public_edge_cache_headers', 999);
+
 function runner3_front_cleanup() {
     // OFFSET does not use emoji rendering or embeds on the homepage. Removing these
     // WordPress compatibility assets cuts parser/main-thread work without changing UI.
