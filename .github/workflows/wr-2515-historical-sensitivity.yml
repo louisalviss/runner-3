@@ -1,0 +1,138 @@
+name: WR 2.5.15 Historical Stage2 Sensitivity
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-historical-sensitivity.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr2515-stage12-run3-shard-*
+          path: /tmp/current
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32161175718
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-stage1-missing134-final
+          path: /tmp/historical
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32162109514
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - name: Compare current-only vs historical-sensitive Top5
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          python3 - <<'PY'
+          import glob,json,math
+          from bisect import bisect_left
+          from collections import Counter,defaultdict
+          from datetime import date,datetime,timedelta,timezone
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          START=datetime(2025,1,1,tzinfo=timezone.utc);END=datetime(2026,8,15,tzinfo=timezone.utc)
+          START_MS=int(START.timestamp()*1000);END_MS=int(END.timestamp()*1000);LOOK=14*86400_000;READY_MS=int(datetime(2025,1,15,8,30,tzinfo=timezone.utc).timestamp()*1000)
+          VN=ZoneInfo('Asia/Ho_Chi_Minh');NY=ZoneInfo('America/New_York')
+          EXCLUDE={'BZUSDT','CLUSDT','DRAMUSDT','EWYUSDT','KORUUSDT','MSTRUSDT','MUUSDT','SKHYNIXUSDT','SKHYUSDT','SNDKUSDT','SNXXUSDT','SOXLUSDT','SOXSUSDT','SPCXUSDT','XAGUSDT','INTCUSDT','MRVLUSDT','SAMSUNGUSDT'}
+          def cps():
+            z=[];d=date(2024,12,31)
+            while d<=date(2026,8,15):
+              cp=datetime(d.year,d.month,d.day,15,30,tzinfo=VN);ms=int(cp.timestamp()*1000)
+              if START_MS<=ms<END_MS:z.append((ms,(cp-timedelta(hours=6)).date().isoformat(),'VN1530'))
+              d+=timedelta(days=1)
+            d=date(2024,12,31)
+            while d<=date(2026,8,15):
+              if d.weekday()<5:
+                for h,m,l in ((10,0,'ET1000'),(12,45,'ET1245'),(15,45,'ET1545')):
+                  cp=datetime(d.year,d.month,d.day,h,m,tzinfo=NY);ms=int(cp.timestamp()*1000)
+                  if START_MS<=ms<END_MS:
+                    v=cp.astimezone(VN);z.append((ms,(v-timedelta(hours=6)).date().isoformat(),l))
+              d+=timedelta(days=1)
+            return sorted({x[0]:x for x in z}.values())
+          CPS=cps()
+          def pct(vals,q):
+            a=sorted(vals);n=len(a);p=q*(n-1);lo=int(math.floor(p));hi=int(math.ceil(p))
+            return a[lo] if lo==hi else a[lo]+(p-lo)*(a[hi]-a[lo])
+          def sigms(x):
+            s=x['signal_time'];return int(datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000) if isinstance(s,str) else int(s)
+
+          curpasses=[]
+          for p in glob.glob('/tmp/current/passes-*.json'):curpasses+=json.load(open(p))
+          histpasses=json.load(open('/tmp/historical/passes.json'))
+          hist_syms=sorted({x['symbol'] for x in histpasses})
+          base=json.load(open('/tmp/base/summary.json'));tv=json.load(open('/tmp/base/tv_tick_map.json'));have={x['symbol'] for x in base};current=set(tv)&have
+          # Filled-trade structural ledger. Historical-only rows use the archived baseline tick and are sensitivity-only, not parity-certified.
+          sample=defaultdict(list)
+          with open('/tmp/base/trades.jsonl') as f:
+            for line in f:
+              if not line.strip():continue
+              x=json.loads(line);s=x['symbol']
+              if s in EXCLUDE:continue
+              if s not in current and s not in hist_syms:continue
+              if x.get('required_x') is None:continue
+              ms=sigms(x)
+              if START_MS<=ms<END_MS:sample[s].append((ms,float(x['required_x'])))
+          times={}
+          for s in sample:sample[s].sort();times[s]=[x[0] for x in sample[s]]
+
+          cur_by=defaultdict(set);all_by=defaultdict(set)
+          for x in curpasses:
+            s=x['symbol']
+            if s not in EXCLUDE:cur_by[int(x['checkpoint'])].add(s);all_by[int(x['checkpoint'])].add(s)
+          for x in histpasses:all_by[int(x['checkpoint'])].add(x['symbol'])
+
+          def build(pass_by):
+            union=set();prev=None;out=[]
+            for cp,sd,mode in CPS:
+              now=pass_by.get(cp,set())
+              if sd!=prev:union=set(now);prev=sd
+              else:union|=now
+              ranked=[]
+              if cp>=READY_MS:
+                lo=cp-LOOK
+                for s in union:
+                  arr=sample.get(s,[]);tt=times.get(s,[]);a=bisect_left(tt,lo);b=bisect_left(tt,cp);vals=[v for _,v in arr[a:b]]
+                  if len(vals)>=5:ranked.append((pct(vals,.9),pct(vals,.5),s,len(vals)))
+              ranked.sort(key=lambda x:(x[0],x[1],x[2]));sel=ranked[:5]
+              out.append((cp,sd,mode,tuple(x[2] for x in sel),sel))
+            return out
+          A=build(cur_by);B=build(all_by)
+          changed=[];hist_count=Counter();hist_rank_rows=[]
+          for a,b in zip(A,B):
+            if a[3]!=b[3]:changed.append({'checkpoint':a[0],'session_date':a[1],'mode':a[2],'current_only':list(a[3]),'with_historical':list(b[3])})
+            for q90,q50,s,n in b[4]:
+              if s in hist_syms:
+                hist_count[s]+=1;hist_rank_rows.append({'checkpoint':b[0],'session_date':b[1],'mode':b[2],'symbol':s,'p90':q90,'p50':q50,'n':n})
+          report={
+            'status':'SURVIVORSHIP_IMPACT' if changed else 'NO_TOP5_IMPACT_UNDER_PROVISIONAL_LEDGER',
+            'historical_stage1_symbols':len(hist_syms),'historical_symbols':hist_syms,
+            'historical_top5_symbols':len(hist_count),'historical_top5_counts':dict(hist_count.most_common()),
+            'checkpoints_compared':sum(cp>=READY_MS for cp,_,_ in CPS),'changed_top5_checkpoints':len(changed),
+            'changed_fraction':len(changed)/max(1,sum(cp>=READY_MS for cp,_,_ in CPS)),
+            'warning':'Historical-only Required-X comes from the archived baseline tick model, which is not TradingView-parity-certified after delisting. This test can prove that survivorship matters when historical names enter Top5, but cannot certify their exact historical rank or PnL.',
+            'changed_examples':changed[:100]
+          }
+          Path('/tmp/out/report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False));Path('/tmp/out/historical_top5_rows.json').write_text(json.dumps(hist_rank_rows,indent=2,ensure_ascii=False))
+          print(json.dumps({k:report[k] for k in ['status','historical_stage1_symbols','historical_top5_symbols','historical_top5_counts','checkpoints_compared','changed_top5_checkpoints','changed_fraction','warning']},indent=2,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-historical-sensitivity
+          path: /tmp/out
+          retention-days: 14
