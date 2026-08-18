@@ -1,0 +1,104 @@
+name: WR 2.5.15 TradingView Tick Map
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-tv-tick-map.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  tickmap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download current 5m baseline artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-currenttick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32137487264
+      - name: Fetch TradingView BINANCE perpetual symbol metadata and diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tv
+          cat >/tmp/query.json <<'JSON'
+          {
+            "filter":[{"left":"exchange","operation":"equal","right":"BINANCE"}],
+            "options":{"lang":"en"},
+            "symbols":{"query":{"types":[]}},
+            "columns":["name","exchange","description","type","subtype","pricescale","minmov","fractional","minmove2"],
+            "range":[0,10000]
+          }
+          JSON
+          curl -fsS --retry 3 --retry-delay 2 \
+            -H 'content-type: application/json' \
+            -H 'origin: https://www.tradingview.com' \
+            -H 'referer: https://www.tradingview.com/' \
+            -H 'user-agent: Mozilla/5.0' \
+            --data-binary @/tmp/query.json \
+            'https://scanner.tradingview.com/crypto/scan' > /tmp/tv/raw.json
+          python3 - <<'PY'
+          import csv,json,math,re
+          from pathlib import Path
+          raw=json.load(open('/tmp/tv/raw.json'))
+          rows=raw.get('data',[])
+          tv={}; samples=[]
+          for r in rows:
+            d=r.get('d') or []
+            if len(d)<9: continue
+            name,exchange,desc,typ,subtype,pricescale,minmov,fractional,minmove2=d[:9]
+            name=str(name or '')
+            if exchange!='BINANCE': continue
+            # TradingView Binance perpetuals are exposed as SYMBOL.P.
+            if not name.endswith('.P'): continue
+            core=name[:-2]
+            if not core.endswith('USDT'): continue
+            try:
+              ps=float(pricescale); mm=float(minmov)
+              if ps<=0 or mm<=0: continue
+              tick=mm/ps
+            except Exception:
+              continue
+            tv[core]={'tv_name':name,'tick':tick,'pricescale':pricescale,'minmov':minmov,'fractional':fractional,'minmove2':minmove2,'type':typ,'subtype':subtype,'description':desc}
+            if len(samples)<20:samples.append(tv[core])
+          base=json.load(open('/tmp/base/summary.json'))
+          diffs=[];missing=[];matches=[]
+          for b in base:
+            sym=b['symbol']; old=float(b['tick']); x=tv.get(sym)
+            if not x:
+              missing.append({'symbol':sym,'baseline_tick':old});continue
+            new=float(x['tick']); rel=abs(new-old)/max(abs(new),abs(old),1e-30)
+            rec={'symbol':sym,'baseline_tick':old,'tv_tick':new,'pricescale':x['pricescale'],'minmov':x['minmov'],'n':b['n'],'total_r':b['total_r'],'net_r_6bps':b['net_r_6bps']}
+            if rel>1e-12: diffs.append(rec)
+            else: matches.append(rec)
+          report={
+            'scanner_total_rows':len(rows),
+            'tv_binance_usdt_perpetuals':len(tv),
+            'baseline_symbols':len(base),
+            'matched_symbols':len(matches)+len(diffs),
+            'tick_matches':len(matches),
+            'tick_diffs':len(diffs),
+            'missing_from_tv':len(missing),
+            'control':{s:tv.get(s) for s in ['BNBUSDT','TRXUSDT','SLERFUSDT','C98USDT','PYTHUSDT','FORTHUSDT']},
+            'diffs':sorted(diffs,key=lambda x:(-x['n'],x['symbol'])),
+            'missing':missing[:200],
+            'samples':samples
+          }
+          Path('/tmp/tv/tv_tick_map.json').write_text(json.dumps(tv,indent=2))
+          Path('/tmp/tv/tick_diff.json').write_text(json.dumps(report,indent=2))
+          with open('/tmp/tv/tick_diff.csv','w',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=['symbol','baseline_tick','tv_tick','pricescale','minmov','n','total_r','net_r_6bps']);w.writeheader();w.writerows(report['diffs'])
+          print(json.dumps({k:report[k] for k in ['scanner_total_rows','tv_binance_usdt_perpetuals','baseline_symbols','matched_symbols','tick_matches','tick_diffs','missing_from_tv']},indent=2))
+          print('CONTROL',json.dumps(report['control'],indent=2))
+          print('TOP_DIFFS',json.dumps(report['diffs'][:30],indent=2))
+          if len(tv)<100: raise SystemExit('too few TradingView perpetual symbols; scanner query invalid')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-tv-tick-map
+          path: /tmp/tv
+          retention-days: 7
