@@ -3,7 +3,21 @@
   "name": "wordpress-edge-proxy",
   "main": "src/entry.js",
   "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["enable_ctx_exports"],
   "workers_dev": true,
+  "cache": {
+    "enabled": true
+  },
+  "exports": {
+    "default": {
+      "type": "worker",
+      "cache": { "enabled": false }
+    },
+    "PublicHtml": {
+      "type": "worker",
+      "cache": { "enabled": true }
+    }
+  },
   "vars": {
     "ORIGIN": "https://runner3-factory-smoke-2.wasmer.app"
   }
