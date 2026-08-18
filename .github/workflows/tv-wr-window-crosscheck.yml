@@ -26,7 +26,7 @@ jobs:
               if p.count(old)<n: raise SystemExit('PATCH_MISSING: '+old[:120])
               p=p.replace(old,new,n)
           rep('strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT", shorttitle="WR 2.5.13 WIN"','strategy("Wave Rider Strategy v2.5.13 DETERMINISTIC TEST", shorttitle="WR 2.5.13 DET"')
-          rep('groupWindow="10. Window Report"\nstartTime=input.time(1785171600000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)\nvalidWindow=endTime>startTime\nsignalInReportWindow=validWindow and time_close>=startTime and time_close<endTime', '''groupWindow="10. Deterministic Window"\nstateStartTime=input.time(1785171600000,"State Start (VN, deterministic)",group=groupWindow)\nstartTime=input.time(1785862800000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786294800000,"End (VN, exclusive)",group=groupWindow)\nvar int firstDatasetTime=na\nif barstate.isfirst\n    firstDatasetTime:=time\nstateAnchorLoaded=not na(firstDatasetTime) and firstDatasetTime<=stateStartTime\nstateActive=stateAnchorLoaded and time>=stateStartTime\nvalidWindow=endTime>startTime\nsignalInReportWindow=stateActive and validWindow and time_close>=startTime and time_close<endTime\ndetClose=stateActive?close:na\ndetHigh=stateActive?high:na\ndetLow=stateActive?low:na\ndetTR=stateActive?(na(detClose[1])?high-low:math.max(high-low,math.abs(high-detClose[1]),math.abs(low-detClose[1]))):na''')
+          rep('groupWindow="10. Window Report"\nstartTime=input.time(1785171600000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)\nvalidWindow=endTime>startTime\nsignalInReportWindow=validWindow and time_close>=startTime and time_close<endTime', '''groupWindow="10. Deterministic Window"\nstateStartTime=input.time(1785171600000,"State Start (VN, deterministic)",group=groupWindow)\nstartTime=input.time(1786294800000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)\nvar int firstDatasetTime=na\nif barstate.isfirst\n    firstDatasetTime:=time\nstateAnchorLoaded=not na(firstDatasetTime) and firstDatasetTime<=stateStartTime\nstateActive=stateAnchorLoaded and time>=stateStartTime\nvalidWindow=endTime>startTime\nsignalInReportWindow=stateActive and validWindow and time_close>=startTime and time_close<endTime\ndetClose=stateActive?close:na\ndetHigh=stateActive?high:na\ndetLow=stateActive?low:na\ndetTR=stateActive?(na(detClose[1])?high-low:math.max(high-low,math.abs(high-detClose[1]),math.abs(low-detClose[1]))):na''')
           rep('showAuditPanel=input.bool(false,"Show Engine Audit (debug)",group=groupStats)','showAuditPanel=input.bool(true,"Show Engine Audit (debug)",group=groupStats)')
           rep('ema21=ta.ema(close,emaLength)','ema21=ta.ema(detClose,emaLength)')
           rep('ph=ta.pivothigh(high,leftBars,rightBars)[1]','ph=ta.pivothigh(detHigh,leftBars,rightBars)[1]')
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tv-wr-deterministic-anchor-v2
+          name: tv-wr-deterministic-second-window
           path: |
             /tmp/bnb.png
             /tmp/trx.png
