@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 25
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      VERIFIER_URL: "https://uc7719a9567c506fe5c8f24f197a.dl.dropboxusercontent.com/cd/0/get/DGadyf9p4Br3JtxdprEh0ezwg5HAsFcRMvhOyU7wuJXKiiJSGkN2VpI95ORQkRiypltWvNKcfVR5uhRNnQCYOKVAzcRYB43vkAM1eSZ9culwJpK-ynWN2yDgt58nRQ5O3Zxg_v5D1m4gsVATvfpsHt2lZAv9BgNdcTG6TaUtQlFUAg/file?c_luid=3c63ed66"
+      VERIFIER_URL: "https://uc721939f90ac36f304e45600a1f.dl.dropboxusercontent.com/cd/0/get/DGbyD4ssoAJJ1KEWiB9X-gdaYZ23N8fBNY7y71zno_e6EVe4JLvoDZR9H6H68jUHcghYsnvQNY-DUe_hE01F5YRXO92sLDvKlo-JcIzHkN20VJKtzwUGHMEGrDhomeg-bRz-fhD1aLsqZ-EHGuVn3svixe5lj5uyZVk6vhl15krysA/file?c_luid=3c63ed66"
     steps:
       - uses: actions/checkout@v4
       - name: Run v2.5.15 synchronization
@@ -19,7 +19,7 @@ jobs:
         if: always()
         run: |
           mkdir -p /tmp/pkg
-          cp '/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md' /tmp/reference_verify_v2.5.15.py /tmp/build.log /tmp/python-summary.txt /tmp/tv.log /tmp/pyproof/*.json /tmp/*.png /tmp/pkg/ 2>/dev/null || true
+          cp '/tmp/Wave Rider Strategy v2.5.15 DETERMINISTIC.md' /tmp/reference_verify_v2.5.15.py /tmp/build.log /tmp/python-summary.txt /tmp/pyproof/* /tmp/pkg/ 2>/dev/null || true
           sha256sum /tmp/wr2515.pine /tmp/reference_verify_v2.5.15.py >/tmp/pkg/SHA256SUMS.txt 2>/dev/null || true
           echo RUN_ID=${{ github.run_id }} >/tmp/pkg/RUN.txt
       - uses: actions/upload-artifact@v4
@@ -29,4 +29,4 @@ jobs:
           path: /tmp/pkg
           retention-days: 1
       - if: always()
-        run: rm -rf /tmp/wr*.pine /tmp/reference_verify*.py '/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md' /tmp/tv-state.json /tmp/pkg /tmp/pyproof
+        run: rm -rf /tmp/wr*.pine /tmp/reference_verify*.py '/tmp/Wave Rider Strategy v2.5.15 DETERMINISTIC.md' /tmp/pkg /tmp/pyproof
