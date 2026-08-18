@@ -118,7 +118,11 @@ async function publicVerify(ctx){
   if(!safe.articleVerified) throw new Error(`article_verify_failed:${article.status()}`);
 }
 
-const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+const launchOptions={headless:true,args:['--no-sandbox','--disable-dev-shm-usage']};
+const chromeCandidates=[process.env.CHROME_PATH,'/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium','/usr/bin/chromium-browser'].filter(Boolean);
+const systemChrome=chromeCandidates.find(p=>fs.existsSync(p));
+if(systemChrome) launchOptions.executablePath=systemChrome;
+const browser=await chromium.launch(launchOptions);
 const ctx=await browser.newContext({ignoreHTTPSErrors:true});
 const page=await ctx.newPage();
 try{
