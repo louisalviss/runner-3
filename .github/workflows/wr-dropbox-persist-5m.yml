@@ -1,7 +1,8 @@
 name: Persist WR 2.5.15 5m to Dropbox
 on:
-  push:
-    branches: [wr-dropbox-persist-5m]
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-dropbox-persist-5m.yml']
 permissions:
   contents: read
   actions: read
@@ -31,11 +32,10 @@ jobs:
           python3 -m pip install -q selenium
           google-chrome --version
           cat > /tmp/upload.py <<'PY'
-          import os,time,json
+          import os,time
           from selenium import webdriver
           from selenium.webdriver.common.by import By
           from selenium.webdriver.support.ui import WebDriverWait
-          from selenium.webdriver.support import expected_conditions as EC
           from selenium.webdriver.chrome.options import Options
 
           url=os.environ['DROPBOX_REQUEST_URL']
@@ -48,7 +48,6 @@ jobs:
               WebDriverWait(d,40).until(lambda x: x.execute_script('return document.readyState')=='complete')
               time.sleep(4)
               print('TITLE',d.title)
-              # Set the file directly on any file input. If Dropbox exposes it only after Add files, click likely buttons first.
               fis=d.find_elements(By.CSS_SELECTOR,'input[type=file]')
               if not fis:
                   for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
@@ -62,7 +61,6 @@ jobs:
                   raise RuntimeError('No file input found. page='+d.page_source[:4000])
               fis[0].send_keys(f)
               time.sleep(4)
-              # Fill any visible uploader identity fields.
               for el in d.find_elements(By.CSS_SELECTOR,'input'):
                   try:
                       if not el.is_displayed() or el.get_attribute('type')=='file': continue
@@ -72,26 +70,20 @@ jobs:
                       elif typ in ('text','') and any(k in name for k in ['name','your name','full name']):
                           if not el.get_attribute('value'): el.send_keys('alviss louis')
                   except Exception: pass
-              time.sleep(1)
-              # Click the final upload/submit control. Prefer exact upload text and avoid Add files.
               clicked=False
-              candidates=d.find_elements(By.XPATH,"//button|//*[@role='button']")
-              for b in candidates:
+              for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
                   try:
                       if not b.is_displayed() or not b.is_enabled(): continue
                       txt=(b.text or '').strip().lower()
                       if txt in {'upload','submit','send'} or txt.startswith('upload '):
                           b.click();clicked=True;print('CLICKED',txt);break
                   except Exception: pass
-              if not clicked:
-                  # Some Dropbox versions auto-start after file selection; wait and inspect success text.
-                  print('NO_EXPLICIT_UPLOAD_BUTTON')
+              if not clicked: print('NO_EXPLICIT_UPLOAD_BUTTON')
               ok=False
               for _ in range(90):
                   body=d.find_element(By.TAG_NAME,'body').text.lower()
                   if any(x in body for x in ['upload complete','uploaded successfully','files uploaded','thanks for uploading','finished uploading','successfully uploaded']):
                       ok=True;print('SUCCESS_TEXT');break
-                  # If a newly enabled upload button appears late, click it once.
                   if not clicked:
                       for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
                           try:
@@ -102,8 +94,7 @@ jobs:
                   time.sleep(2)
               print('FINAL_URL',d.current_url)
               print('FINAL_BODY',d.find_element(By.TAG_NAME,'body').text[-3000:])
-              if not ok:
-                  raise RuntimeError('Dropbox upload success not detected')
+              if not ok: raise RuntimeError('Dropbox upload success not detected')
           finally:
               d.quit()
           PY
