@@ -1,5 +1,6 @@
 {
-  "action": "deploy_verify",
+  "action": "deploy_verify_snapshot",
   "worker": "wordpress-edge-proxy",
-  "checks": ["homepage_hit", "article_hit", "cookie_no_store", "rest_no_store"]
+  "checks": ["homepage_snapshot", "article_snapshot", "cold_first_ttfb", "cookie_no_store", "rest_no_store"],
+  "refresh": 5
 }
