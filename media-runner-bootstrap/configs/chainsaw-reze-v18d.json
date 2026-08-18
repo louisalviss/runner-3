@@ -1,0 +1,59 @@
+{
+  "job": "chainsaw-reze-v18d",
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "iphone_safe_width": 886,
+    "foreground_width": 1000
+  },
+  "fps": 30,
+  "bpm": 172,
+  "duration_beats": 36,
+  "music": {
+    "provider": "itunes_preview",
+    "search_term": "MONTAGEM XONADA MXZI Dj Samir DJ Javi26",
+    "track_name": "MONTAGEM XONADA",
+    "artist_contains": "mxzi",
+    "start_seconds": 11.065
+  },
+  "sources": [
+    {
+      "id": "fight",
+      "kind": "direct",
+      "url": "https://media1.tenor.com/m/lrPq8cKmfIUAAAAd/explosive-attack-bomb-girl.gif"
+    },
+    {
+      "id": "incoming",
+      "kind": "direct",
+      "url": "https://media1.tenor.com/m/V8W5uC8kGB0AAAAd/incoming-attack-chainsaw-man---the-movie-reze-arc.gif"
+    },
+    {
+      "id": "bomb",
+      "kind": "direct",
+      "url": "https://media1.tenor.com/m/p_rlJAIhcjIAAAAd/explosive-attack-bomb-girl.gif"
+    },
+    {
+      "id": "massive",
+      "kind": "direct",
+      "url": "https://media1.tenor.com/m/eZNU7uVMe9QAAAAd/massive-explosion-chainsaw-man---the-movie-reze-arc.gif"
+    }
+  ],
+  "sequence": [
+    {"source":"incoming","start":0.00,"end":0.25,"beats":0.5,"style":"hit"},
+    {"source":"bomb","start":0.00,"end":0.25,"beats":0.5,"style":"hit"},
+    {"source":"fight","start":0.00,"end":0.25,"beats":0.5,"style":"hit"},
+    {"source":"massive","start":0.00,"end":0.25,"beats":0.5,"style":"hit"},
+    {"source":"fight","start":0.10,"end":1.20,"beats":2,"style":"fight"},
+    {"source":"bomb","start":0.15,"end":1.25,"beats":2,"style":"bomb"},
+    {"source":"incoming","start":0.20,"end":1.55,"beats":2,"style":"incoming"},
+    {"source":"massive","start":0.10,"end":1.55,"beats":2,"style":"massive"},
+    {"source":"fight","start":0.80,"end":2.20,"beats":2,"style":"fight"},
+    {"source":"bomb","start":0.70,"end":2.10,"beats":2,"style":"bomb"},
+    {"source":"incoming","start":1.50,"end":3.20,"beats":4,"style":"incoming"},
+    {"source":"fight","start":1.40,"end":2.75,"beats":4,"style":"fight"},
+    {"source":"bomb","start":1.20,"end":2.70,"beats":4,"style":"bomb"},
+    {"source":"massive","start":0.60,"end":2.60,"beats":4,"style":"massive"},
+    {"source":"fight","start":0.20,"end":2.60,"beats":4,"style":"fight"},
+    {"source":"bomb","start":0.30,"end":2.70,"beats":4,"style":"bomb"}
+  ]
+}
