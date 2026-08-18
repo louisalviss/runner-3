@@ -1,0 +1,207 @@
+name: WordPress Custom Domain Noindex
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-custom-domain-noindex.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-custom-domain-noindex
+  cancel-in-progress: false
+
+jobs:
+  noindex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TARGET_HOST: runner3wp.pntr.dev
+      TARGET_URL: https://runner3wp.pntr.dev/
+      OUT: /tmp/runner3wp-noindex.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Add host-only X-Robots-Tag at Cloudflare edge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, time, urllib.request, urllib.error, subprocess
+          from datetime import datetime, timezone
+
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          host=os.environ['TARGET_HOST']
+          target=os.environ['TARGET_URL']
+          out_path=os.environ['OUT']
+          base='https://api.cloudflare.com/client/v4'
+          phase='http_response_headers_transform'
+          rule_ref='runner3wp_noindex'
+          header_value='noindex, nofollow, noarchive, nosnippet'
+
+          def api(method, path, body=None):
+              data=None if body is None else json.dumps(body).encode()
+              req=urllib.request.Request(
+                  base+path,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization':'Bearer '+token,
+                      'Content-Type':'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      payload=json.loads(r.read().decode())
+                      if not payload.get('success'):
+                          raise RuntimeError(f'Cloudflare API unsuccessful: {payload.get("errors")}')
+                      return r.status,payload
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode('utf-8','replace')
+                  try: payload=json.loads(raw)
+                  except Exception: payload={'raw':raw[:1000]}
+                  raise RuntimeError(f'Cloudflare API {method} {path} -> HTTP {e.code}: {payload.get("errors") or payload}')
+
+          _, zdata=api('GET','/zones?per_page=50')
+          zones=[]
+          for z in zdata.get('result') or []:
+              name=(z.get('name') or '').lower().rstrip('.')
+              if host == name or host.endswith('.'+name):
+                  zones.append((len(name),z))
+          if not zones:
+              raise RuntimeError(f'No accessible Cloudflare zone covers {host}')
+          zones.sort(key=lambda x:x[0],reverse=True)
+          zone=zones[0][1]
+          zid=zone['id']
+          zname=zone['name']
+
+          _, rsdata=api('GET',f'/zones/{zid}/rulesets')
+          phase_sets=[r for r in (rsdata.get('result') or []) if r.get('phase')==phase and r.get('kind')=='zone']
+
+          rule={
+              'ref': rule_ref,
+              'description': 'Noindex runner3wp staging custom domain without changing origin or HTML',
+              'expression': f'(http.host eq "{host}")',
+              'action': 'rewrite',
+              'action_parameters': {
+                  'headers': {
+                      'x-robots-tag': {
+                          'operation': 'set',
+                          'value': header_value,
+                      }
+                  }
+              },
+              'enabled': True,
+          }
+
+          action_taken='unchanged'
+          ruleset_id=None
+          rule_id=None
+          if phase_sets:
+              ruleset_id=phase_sets[0]['id']
+              _, detail=api('GET',f'/zones/{zid}/rulesets/{ruleset_id}')
+              existing=None
+              for r in (detail.get('result') or {}).get('rules') or []:
+                  if r.get('ref')==rule_ref or r.get('description')==rule['description']:
+                      existing=r; break
+              if existing:
+                  rule_id=existing.get('id')
+                  # PATCH makes the desired rule definition explicit while preserving all other rules.
+                  _, changed=api('PATCH',f'/zones/{zid}/rulesets/{ruleset_id}/rules/{rule_id}',rule)
+                  action_taken='updated'
+                  for r in (changed.get('result') or {}).get('rules') or []:
+                      if r.get('ref')==rule_ref:
+                          rule_id=r.get('id') or rule_id
+                          break
+              else:
+                  _, changed=api('POST',f'/zones/{zid}/rulesets/{ruleset_id}/rules',rule)
+                  action_taken='added'
+                  for r in (changed.get('result') or {}).get('rules') or []:
+                      if r.get('ref')==rule_ref:
+                          rule_id=r.get('id')
+                          break
+          else:
+              payload={
+                  'name':'Zone-level Response Headers Transform Ruleset',
+                  'description':'Response header transforms managed for Runner3 staging',
+                  'kind':'zone',
+                  'phase':phase,
+                  'rules':[rule],
+              }
+              _, created=api('POST',f'/zones/{zid}/rulesets',payload)
+              result=created.get('result') or {}
+              ruleset_id=result.get('id')
+              action_taken='created_ruleset'
+              for r in result.get('rules') or []:
+                  if r.get('ref')==rule_ref:
+                      rule_id=r.get('id')
+                      break
+
+          verification=None
+          for attempt in range(1,11):
+              subprocess.run(['curl','-sS','-L','-o','/tmp/noindex-body','-D','/tmp/noindex-headers',target],check=True)
+              raw=open('/tmp/noindex-headers',encoding='latin1').read()
+              headers={}
+              for line in raw.splitlines():
+                  if ':' in line:
+                      k,v=line.split(':',1); headers[k.strip().lower()]=v.strip()
+              body=open('/tmp/noindex-body','rb').read()
+              verification={
+                  'attempt':attempt,
+                  'status': subprocess.run(['curl','-sS','-L','-o','/dev/null','-w','%{http_code}',target],capture_output=True,text=True,check=True).stdout.strip(),
+                  'xRobotsTag':headers.get('x-robots-tag'),
+                  'xEdgeSnapshot':headers.get('x-edge-snapshot'),
+                  'xEdgeMode':headers.get('x-edge-mode'),
+                  'cfCacheStatus':headers.get('cf-cache-status'),
+                  'htmlBytes':len(body),
+                  'usesResponsiveV2':b'/responsive-v2/' in body,
+                  'hasR2Preconnect':b'r2.dev' in body and b'preconnect' in body.lower(),
+              }
+              if 'noindex' in (headers.get('x-robots-tag') or '').lower():
+                  break
+              time.sleep(3)
+
+          result={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'target':target,
+              'zoneName':zname,
+              'phase':phase,
+              'ruleRef':rule_ref,
+              'actionTaken':action_taken,
+              'verification':verification,
+          }
+          open(out_path,'w').write(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          assert verification and verification.get('status')=='200', result
+          assert 'noindex' in (verification.get('xRobotsTag') or '').lower(), result
+          assert verification.get('xEdgeSnapshot') is None, 'Custom domain was unexpectedly routed through snapshot Worker: '+json.dumps(result)
+          PY
+
+      - name: Persist verification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$OUT" || echo '{"status":"failed","detail":"verification_missing"}' > "$OUT"
+          cp "$OUT" /tmp/runner3wp-noindex-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/custom-domain/noindex
+            cp /tmp/runner3wp-noindex-safe.json ops/custom-domain/noindex/runner3wp.noindex.latest.json
+            git add ops/custom-domain/noindex/runner3wp.noindex.latest.json
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Persist runner3wp noindex verification: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true
