@@ -11,7 +11,7 @@ function safe(v){return String(v??'').replace(/https?:\/\/[^\s]*?(?:token|magicl
 if(!fs.existsSync('/tmp/wasmer-browser-state.json')) throw new Error('browser state missing');
 if(!fs.existsSync(zip)) throw new Error('plugin zip missing');
 
-async function pollAdmin(ctx,ms=22000){
+async function pollAdmin(ctx,ms=60000){
   const end=Date.now()+ms;
   while(Date.now()<end){
     for(const p of ctx.pages()){
@@ -47,13 +47,14 @@ async function enterAdmin(ctx,p){
       const href=await c.getAttribute('href').catch(()=>null);
       if(href){
         const wp=await ctx.newPage();
-        await wp.goto(new URL(href,'https://wasmer.io').href,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
-        const f=await pollAdmin(ctx,15000);if(f)return f;await wp.close().catch(()=>{});
+        await wp.goto(new URL(href,'https://wasmer.io').href,{waitUntil:'domcontentloaded',timeout:90000}).catch(()=>null);
+        const f=await pollAdmin(ctx,60000);if(f)return f;
       }
       await c.click({noWaitAfter:true}).catch(()=>{});
-      const f=await pollAdmin(ctx,18000);if(f)return f;
+      const f=await pollAdmin(ctx,60000);if(f)return f;
     }
   }
+  result.openPages=ctx.pages().map(x=>x.url().replace(/([?&](?:token|magiclogin|key|code|secret|auth|signature)=)[^&]+/ig,'$1[redacted]')).slice(0,10);
   result.dashboardText=(await p.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim().slice(0,3000);
   throw new Error('magic_admin_failed');
 }
@@ -64,7 +65,7 @@ try{
   const page=await ctx.newPage();result.stage='dashboard';save();
   const wp=await enterAdmin(ctx,page);
   result.wpAdminUrl=wp.url(); result.stage='upload'; save();
-  await wp.goto(`${base}/wp-admin/plugin-install.php?tab=upload`,{waitUntil:'domcontentloaded',timeout:60000}); await wp.waitForTimeout(1000);
+  await wp.goto(`${base}/wp-admin/plugin-install.php?tab=upload`,{waitUntil:'domcontentloaded',timeout:90000}); await wp.waitForTimeout(1000);
   let file=wp.locator('input[type=file][name=pluginzip],input[type=file]').first();
   if(!(await file.count())){
     const toggle=wp.getByRole('button',{name:/upload plugin/i}).first();
@@ -76,17 +77,17 @@ try{
   if(!(await submit.count())) throw new Error('plugin_install_submit_missing');
   await submit.click(); await wp.waitForLoadState('domcontentloaded').catch(()=>{}); await wp.waitForTimeout(1800);
   const replace=wp.locator('a').filter({hasText:/replace (current|installed).*uploaded/i}).first();
-  if(await replace.count()){const rh=await replace.getAttribute('href');if(rh){await wp.goto(new URL(rh,base).href,{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(1500);}}
+  if(await replace.count()){const rh=await replace.getAttribute('href');if(rh){await wp.goto(new URL(rh,base).href,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(1500);}}
   result.stage='activate'; save();
-  await wp.goto(`${base}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000}); await wp.waitForTimeout(800);
+  await wp.goto(`${base}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:90000}); await wp.waitForTimeout(800);
   let row=wp.locator('tr[data-slug="runner5-edge-optimizer"]').first();
   if(!(await row.count())) throw new Error('plugin_row_missing_after_upload');
   let cls=await row.getAttribute('class')||'';
   if(!/\bactive\b/.test(cls)){
     const activate=row.locator('a').filter({hasText:/^activate$/i}).first();if(!(await activate.count())) throw new Error('plugin_activate_link_missing');
     const ah=await activate.getAttribute('href');if(!ah)throw new Error('plugin_activate_href_missing');
-    await wp.goto(new URL(ah,`${base}/wp-admin/`).href,{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(1000);
-    await wp.goto(`${base}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});row=wp.locator('tr[data-slug="runner5-edge-optimizer"]').first();cls=await row.getAttribute('class')||'';
+    await wp.goto(new URL(ah,`${base}/wp-admin/`).href,{waitUntil:'domcontentloaded',timeout:90000});await wp.waitForTimeout(1000);
+    await wp.goto(`${base}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:90000});row=wp.locator('tr[data-slug="runner5-edge-optimizer"]').first();cls=await row.getAttribute('class')||'';
   }
   if(!/\bactive\b/.test(cls)) throw new Error('plugin_not_active');
   result.status='READY';result.stage='complete';result.active=true;result.detail=null;save();console.log(JSON.stringify(result,null,2));
