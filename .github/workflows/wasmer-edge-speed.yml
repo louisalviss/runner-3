@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: runner3-live-wordpress-theme
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   optimize:
