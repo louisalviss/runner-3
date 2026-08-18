@@ -1,0 +1,41 @@
+name: Chainsaw Reze V18 Probe
+on:
+  push:
+    paths: ['.github/workflows/chainsaw-reze-v18-probe.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe target run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          python <<'PY'
+          import json,os,time,urllib.request
+          sha='67eca9c39ba03dbb42ab110435f0a36f1cf30796'
+          base='https://api.github.com/repos/louisalviss/runner-3/actions/runs?head_sha='+sha+'&per_page=20'
+          hdr={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'}
+          r={}
+          for _ in range(30):
+            req=urllib.request.Request(base,headers=hdr)
+            data=json.load(urllib.request.urlopen(req))
+            runs=[x for x in data.get('workflow_runs',[]) if x.get('path')=='.github/workflows/chainsaw-reze-v18-tenor.yml']
+            if runs:
+              r=runs[0]
+              if r.get('status')=='completed': break
+            time.sleep(5)
+          os.makedirs('audit/chainsaw-reze-v18',exist_ok=True)
+          open('audit/chainsaw-reze-v18/status.txt','w').write(f"run_id={r.get('id','')}\nstatus={r.get('status','')}\nconclusion={r.get('conclusion','')}\n")
+          print(r)
+          PY
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add audit/chainsaw-reze-v18/status.txt
+          git commit -m 'Persist Chainsaw Reze V18 status' || exit 0
+          git pull --rebase origin main || true
+          git push || true
