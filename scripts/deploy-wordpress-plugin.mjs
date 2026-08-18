@@ -3,6 +3,7 @@ import fs from 'fs';
 
 const slug = process.env.WP_SITE_SLUG || 'runner3-factory-smoke-2';
 const pluginSlug = process.env.WP_PLUGIN_SLUG || 'runner3-r2-media';
+const expectedVersion = String(process.env.WP_PLUGIN_EXPECT_VERSION || '').trim();
 const zipPath = process.env.WP_PLUGIN_ZIP || `/tmp/${pluginSlug}.zip`;
 const stateFile = `ops/site-factory/${slug}.json`;
 if (!fs.existsSync(stateFile)) throw new Error(`site factory state missing: ${stateFile}`);
@@ -12,6 +13,7 @@ if (!fs.existsSync(zipPath)) throw new Error(`plugin zip missing: ${zipPath}`);
 const site = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
 const account = JSON.parse(fs.readFileSync('/tmp/wasmer-account.json', 'utf8'));
 const base = String(site.siteUrl || '').replace(/\/$/, '');
+const adminBase = `${base}/wp-admin/`;
 const dashboard = site.dashboardUrl || `https://wasmer.io/apps/${encodeURIComponent(site.owner)}/${encodeURIComponent(site.appName)}`;
 if (!base || !account.username || !account.password) throw new Error('site or Wasmer credentials incomplete');
 
@@ -71,10 +73,11 @@ async function installPlugin(wp) {
   const replace = wp.locator('a').filter({ hasText: /replace (current|installed).*uploaded/i }).first();
   if (await replace.count()) {
     const href = await replace.getAttribute('href');
-    if (href) {
-      await wp.goto(new URL(href, base).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await wp.waitForTimeout(1500);
-    }
+    if (!href) throw new Error('plugin_replace_href_missing');
+    await wp.goto(new URL(href, adminBase).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await wp.waitForTimeout(1800);
+    const replaceError = await wp.locator('.notice-error,.error').first().innerText().catch(() => '');
+    if (replaceError && /failed|error|could not/i.test(replaceError)) throw new Error(`plugin_replace_failed:${replaceError.slice(0,160)}`);
   }
 
   await wp.goto(`${base}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -87,13 +90,20 @@ async function installPlugin(wp) {
     if (!(await activate.count())) throw new Error('plugin_activate_link_missing');
     const href = await activate.getAttribute('href');
     if (!href) throw new Error('plugin_activate_href_missing');
-    await wp.goto(new URL(href, `${base}/wp-admin/`).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await wp.goto(new URL(href, adminBase).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await wp.waitForTimeout(900);
     await wp.goto(`${base}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     row = wp.locator(`tr[data-slug="${pluginSlug}"]`).first();
     cls = await row.getAttribute('class') || '';
   }
   if (!/\bactive\b/.test(cls)) throw new Error('plugin_not_active');
+  if (expectedVersion) {
+    const text = await row.innerText();
+    const escaped = expectedVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`Version\\s+${escaped}(?:\\s|$)`, 'i').test(text)) {
+      throw new Error(`plugin_version_mismatch_expected_${expectedVersion}`);
+    }
+  }
 }
 
 const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -103,7 +113,7 @@ try {
   await loginWasmer(page);
   const wp = await enterAdmin(ctx, page);
   await installPlugin(wp);
-  console.log(`WP_PLUGIN_DEPLOY_OK slug=${pluginSlug}`);
+  console.log(`WP_PLUGIN_DEPLOY_OK slug=${pluginSlug}${expectedVersion ? ` version=${expectedVersion}` : ''}`);
 } finally {
   await browser.close().catch(() => {});
 }
