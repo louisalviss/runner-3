@@ -43,11 +43,20 @@ jobs:
           ref: main
           fetch-depth: 2
 
+      - name: Generate deployment purge credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "RUNNER3_PURGE_SECRET=$secret" >> "$GITHUB_ENV"
+
       - name: Validate edge and WordPress controller
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare account id unavailable'; exit 3; }
+          test -n "${RUNNER3_PURGE_SECRET:-}" || { echo 'Purge credential unavailable'; exit 3; }
           php -l wordpress/plugins/runner3-edge-cache-purge/runner3-edge-cache-purge.php
           node --check edge/wordpress-edge-proxy/src/index.js
           node --check edge/wordpress-edge-proxy/src/entry.js
@@ -91,7 +100,7 @@ jobs:
         continue-on-error: true
         run: node scripts/deploy-wordpress-plugin.mjs
 
-      - name: Configure signed purge and verify manual purge
+      - name: Configure HMAC purge and verify manual purge
         id: configure
         if: always()
         continue-on-error: true
@@ -166,7 +175,7 @@ jobs:
           p=edge['probe']
           for key in ('publicReady','policyReady','cacheHit','signedPurgeRequired','loginSafe','cookieSafe','responsiveReady','noindexReady'):
               assert p.get(key) is True, key+' failed: '+json.dumps(edge,indent=2)
-          assert wp.get('status') == 'ok' and wp.get('manualPurgeOk') is True and wp.get('signingKeyReady') is True, json.dumps(wp,indent=2)
+          assert wp.get('status') == 'ok' and wp.get('manualPurgeOk') is True and wp.get('authReady') is True, json.dumps(wp,indent=2)
           assert warm.get('status') == 'ok' and warm.get('policyReady') is True, json.dumps(warm,indent=2)
           print(json.dumps({
             'status':'completed',
@@ -175,7 +184,7 @@ jobs:
             'cacheHit':p['cacheHit'],
             'signedPurgeRequired':p['signedPurgeRequired'],
             'manualPurgeOk':wp['manualPurgeOk'],
-            'signingKeyReady':wp['signingKeyReady'],
+            'authReady':wp['authReady'],
             'externalCacheSeen':warm.get('cacheSeen'),
           },indent=2))
           PY
