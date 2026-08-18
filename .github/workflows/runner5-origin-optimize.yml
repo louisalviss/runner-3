@@ -1,0 +1,84 @@
+name: Runner5 Origin Optimize
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-origin-optimize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-origin-optimize
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WP_SITE_SLUG: runner5-restore-lab-1
+      WP_PLUGIN_SLUG: runner5-edge-optimizer
+      WP_PLUGIN_ZIP: /tmp/runner5-edge-optimizer.zip
+      SITE_URL: https://runner5-restore-lab-1.wasmer.app/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Restore Wasmer state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+      - name: Build optimizer plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wordpress/plugins
+          zip -qr /tmp/runner5-edge-optimizer.zip runner5-edge-optimizer
+          test -s /tmp/runner5-edge-optimizer.zip
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Deploy and activate optimizer
+        run: node scripts/deploy-wordpress-plugin.mjs
+      - name: Verify public cache eligibility and deferred scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,time,urllib.request,re,json
+          url=os.environ['SITE_URL']; result={'status':'FAILED','url':url,'http':None,'cacheEligible':False,'cacheControl':None,'contentLength':None,'jqueryDeferred':False,'originStamp':None,'detail':None}
+          err=None
+          for _ in range(12):
+              try:
+                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      body=r.read(1000000).decode('utf-8','ignore'); result['http']=r.status; result['cacheEligible']=r.headers.get('x-runner5-cache-eligible')=='1'; result['cacheControl']=r.headers.get('cache-control'); result['contentLength']=r.headers.get('content-length'); result['originStamp']=r.headers.get('x-runner5-origin-stamp'); result['jqueryDeferred']=bool(re.search(r'<script[^>]+jquery\.min\.js[^>]+defer|<script[^>]+defer[^>]+jquery\.min\.js',body,re.I))
+                  if result['http']==200 and result['cacheEligible'] and result['contentLength'] and result['jqueryDeferred']:
+                      result['status']='READY'; break
+              except Exception as e: err=str(e)
+              time.sleep(3)
+          result['detail']=None if result['status']=='READY' else err; result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          open('/tmp/runner5-origin-optimize.json','w').write(json.dumps(result,indent=2)+'\n'); print(json.dumps(result,indent=2))
+          if result['status']!='READY': raise SystemExit(2)
+          PY
+      - name: Persist origin optimization status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-origin-optimize.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$SITE_URL" >/tmp/runner5-origin-optimize.json
+          cp /tmp/runner5-origin-optimize.json /tmp/origin-opt-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/origin-opt-safe.json ops/wordpress-access/runner5-origin-optimize.json; git add ops/wordpress-access/runner5-origin-optimize.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 origin optimization status'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
