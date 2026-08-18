@@ -1,0 +1,91 @@
+name: WordPress Edge Live Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-edge-live-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HOME_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
+      ARTICLE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/
+      R2_HERO: https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp
+    steps:
+      - name: Probe live edge, headers and render path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re, statistics, subprocess, urllib.request
+
+          def curl_probe(url, n=12):
+              rows=[]
+              for _ in range(n):
+                  p=subprocess.run([
+                      'curl','-sS','-o','/tmp/body','-D','/tmp/headers',
+                      '-w','%{http_code} %{time_starttransfer} %{time_total}',url
+                  ],capture_output=True,text=True,check=True)
+                  code,ttfb,total=p.stdout.strip().split()
+                  raw=open('/tmp/headers',encoding='latin1').read()
+                  headers={}
+                  for line in raw.splitlines():
+                      if ':' in line:
+                          k,v=line.split(':',1); headers[k.strip().lower()]=v.strip()
+                  rows.append({
+                      'status':int(code),
+                      'ttfb_ms':round(float(ttfb)*1000,2),
+                      'total_ms':round(float(total)*1000,2),
+                      'x_edge_snapshot':headers.get('x-edge-snapshot'),
+                      'cf_cache_status':headers.get('cf-cache-status'),
+                      'cache_control':headers.get('cache-control'),
+                      'server_timing':headers.get('server-timing'),
+                  })
+              return {
+                  'requests':n,
+                  'status_ok':all(r['status']==200 for r in rows),
+                  'snapshot_values':sorted(set(str(r['x_edge_snapshot']) for r in rows)),
+                  'snapshot_hit_count':sum(str(r['x_edge_snapshot']).upper()=='HIT' for r in rows),
+                  'median_ttfb_ms':round(statistics.median(r['ttfb_ms'] for r in rows),2),
+                  'p95_ttfb_ms':round(sorted(r['ttfb_ms'] for r in rows)[max(0,int(n*0.95)-1)],2),
+                  'median_total_ms':round(statistics.median(r['total_ms'] for r in rows),2),
+                  'sample_headers':rows[-1],
+              }
+
+          def fetch_text(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 edge-live-probe'})
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  return r.read().decode('utf-8','replace'), dict(r.headers.items())
+
+          out={}
+          out['homepage']=curl_probe(os.environ['HOME_URL'])
+          out['article']=curl_probe(os.environ['ARTICLE_URL'])
+
+          html,_=fetch_text(os.environ['HOME_URL'])
+          out['render_path']={
+              'has_preconnect_r2': bool(re.search(r'<link[^>]+rel=["\']preconnect["\'][^>]+r2\.dev|<link[^>]+r2\.dev[^>]+rel=["\']preconnect["\']',html,re.I)),
+              'has_image_preload': bool(re.search(r'<link[^>]+rel=["\']preload["\'][^>]+as=["\']image["\']|<link[^>]+as=["\']image["\'][^>]+rel=["\']preload["\']',html,re.I)),
+              'has_fetchpriority_high': bool(re.search(r'fetchpriority=["\']high["\']',html,re.I)),
+              'html_bytes': len(html.encode('utf-8')),
+          }
+
+          req=urllib.request.Request(os.environ['R2_HERO'],method='HEAD',headers={'User-Agent':'edge-live-probe'})
+          with urllib.request.urlopen(req,timeout=20) as r:
+              h={k.lower():v for k,v in r.headers.items()}
+              out['r2_hero']={
+                  'status':r.status,
+                  'cache_control':h.get('cache-control'),
+                  'content_length':h.get('content-length'),
+                  'content_type':h.get('content-type'),
+                  'etag':h.get('etag'),
+              }
+
+          print('EDGE_LIVE_PROBE_JSON='+json.dumps(out,separators=(',',':')))
+          PY
