@@ -6,6 +6,7 @@ const R2_ORIGIN = 'https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const PURGE_PATH = '/__runner3/cache/purge';
 const HTML_CACHE_TAG = 'runner3-html';
+const KEY_PATH = '/wp-json/runner3/v1/edge-key';
 
 class HeadResourceHints {
   element(element) {
@@ -14,21 +15,6 @@ class HeadResourceHints {
       { html: true },
     );
   }
-}
-
-function safeEqual(a, b) {
-  const left = String(a || '');
-  const right = String(b || '');
-  if (!left || left.length !== right.length) return false;
-  let diff = 0;
-  for (let i = 0; i < left.length; i += 1) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
-  return diff === 0;
-}
-
-function bearerToken(request) {
-  const value = request.headers.get('Authorization') || '';
-  const match = value.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : '';
 }
 
 function jsonResponse(body, status = 200) {
@@ -88,7 +74,6 @@ async function publicHtmlResponse(request, env, ctx) {
     headers.delete('Cache-Tag');
     headers.set('X-Edge-Cache-Policy', 'bypass');
   } else {
-    // Browser keeps a short copy; Workers Caching keeps the reusable HTML at edge.
     headers.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=30, stale-if-error=600');
     headers.set('Cloudflare-CDN-Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600, stale-if-error=604800');
     headers.set('Cache-Tag', HTML_CACHE_TAG);
@@ -113,6 +98,66 @@ export class PublicHtml extends WorkerEntrypoint {
   }
 }
 
+function pemToDer(pem) {
+  const base64 = String(pem || '')
+    .replace(/-----BEGIN PUBLIC KEY-----/g, '')
+    .replace(/-----END PUBLIC KEY-----/g, '')
+    .replace(/\s+/g, '');
+  if (!base64) throw new Error('public_key_empty');
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function base64Bytes(value) {
+  const binary = atob(String(value || ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function fetchSigningKey(env) {
+  const origin = new URL(env.ORIGIN || 'https://runner3-factory-smoke-2.wasmer.app');
+  const keyUrl = new URL(KEY_PATH, origin);
+  const response = await fetch(keyUrl, {
+    headers: { Accept: 'application/json' },
+    cf: { cacheEverything: true, cacheTtl: 86400 },
+  });
+  if (!response.ok) throw new Error(`signing_key_http_${response.status}`);
+  const data = await response.json();
+  if (!data || !data.public_key || !data.key_id) throw new Error('signing_key_invalid');
+  return data;
+}
+
+async function verifyPurgeSignature(request, env, rawBody) {
+  const timestampText = request.headers.get('X-Runner3-Timestamp') || '';
+  const signatureText = request.headers.get('X-Runner3-Signature') || '';
+  const keyId = request.headers.get('X-Runner3-Key-Id') || '';
+  const timestamp = Number(timestampText);
+  if (!Number.isInteger(timestamp) || Math.abs(Math.floor(Date.now() / 1000) - timestamp) > 300) {
+    return { ok: false, error: 'timestamp_invalid' };
+  }
+  if (!signatureText || !keyId || rawBody.length > 32768) return { ok: false, error: 'signature_missing' };
+
+  try {
+    const keyData = await fetchSigningKey(env);
+    if (String(keyData.key_id) !== keyId) return { ok: false, error: 'key_id_mismatch' };
+    const key = await crypto.subtle.importKey(
+      'spki',
+      pemToDer(keyData.public_key),
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const message = new TextEncoder().encode(`${timestampText}\n${rawBody}`);
+    const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, base64Bytes(signatureText), message);
+    return valid ? { ok: true } : { ok: false, error: 'signature_invalid' };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || 'signature_verify_failed').slice(0, 120) };
+  }
+}
+
 function normalizedPrewarmPaths(value) {
   const raw = Array.isArray(value) ? value : [];
   const paths = ['/'];
@@ -131,15 +176,15 @@ function normalizedPrewarmPaths(value) {
 
 async function handlePurge(request, env, ctx) {
   if (request.method.toUpperCase() !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
-  const expected = String(env.RUNNER3_CACHE_PURGE_SECRET || '');
-  if (!expected) return jsonResponse({ ok: false, error: 'purge_secret_unconfigured' }, 503);
-  if (!safeEqual(bearerToken(request), expected)) return jsonResponse({ ok: false, error: 'unauthorized' }, 401);
+  const rawBody = await request.text();
+  const auth = await verifyPurgeSignature(request, env, rawBody);
+  if (!auth.ok) return jsonResponse({ ok: false, error: auth.error || 'unauthorized' }, 401);
 
   let body = {};
   try {
-    body = await request.json();
+    body = rawBody ? JSON.parse(rawBody) : {};
   } catch (_) {
-    body = {};
+    return jsonResponse({ ok: false, error: 'invalid_json' }, 400);
   }
 
   const purge = await ctx.exports.PublicHtml.purgeHtml();
