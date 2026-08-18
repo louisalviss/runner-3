@@ -1,10 +1,10 @@
 {
   "status": "engine_failed",
-  "generated_at": "2026-08-18T00:00:10.084050Z",
+  "generated_at": "2026-08-18T02:34:33.943076Z",
   "provider": "cloudflare-workers-ai-binding-proxy",
   "model": "@cf/openai/gpt-oss-120b",
   "quality_gate": "strict-multipass",
-  "error_tail": "Traceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/autocontent_strict_runner.py\", line 306, in <module>\n    engine.main()\n  File \"/home/runner/work/runner-3/runner-3/scripts/autocontent_engine.py\", line 389, in main\n    validate(result)\n  File \"/home/runner/work/runner-3/runner-3/scripts/autocontent_engine.py\", line 339, in validate\n    raise RuntimeError(\"Generated article is unexpectedly short\")\nRuntimeError: Generated article is unexpectedly short\n",
+  "error_tail": "Traceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/autocontent_strict_runner.py\", line 306, in <module>\n    engine.main()\n  File \"/home/runner/work/runner-3/runner-3/scripts/autocontent_engine.py\", line 388, in main\n    result = call_model(enriched, args.focus, args.model)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/autocontent_quality_runner.py\", line 258, in quality_call_model\n    raise RuntimeError(\"Strict editorial gate failed: \" + \" | \".join(issues[:20]))\nRuntimeError: Strict editorial gate failed: Numeric token appears in article without a matching claim_check: 11 years | Numeric token appears in article without a matching claim_check: 16 years | Numeric token appears in article without a matching claim_check: 2 years | Numeric token appears in article without a matching claim_check: 2025 | Numeric token is absent from raw selected source text: 16 year | Numeric token is absent from raw selected source text: 16 years | Numeric token is absent from raw selected source text: 2 year | Numeric token is absent from raw selected source text: 2 years\n",
   "wordpress": {
     "requested_status": "draft",
     "result": null
