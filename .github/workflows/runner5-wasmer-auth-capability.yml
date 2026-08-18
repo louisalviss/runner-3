@@ -1,0 +1,49 @@
+name: Runner5 Wasmer Auth Capability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-wasmer-auth-capability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Inspect safe auth metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/account.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/browser.json
+          python - <<'PY'
+          import json,time,pathlib
+          a=json.load(open('/tmp/account.json')); b=json.load(open('/tmp/browser.json'))
+          cookies=b.get('cookies') or []
+          out={'status':'READY','accountKeys':sorted(a.keys()),'accountHasTokenLike':any(any(x in k.lower() for x in ('token','key','secret','session')) for k in a),'browserCookieMetadata':[{'name':c.get('name'),'domain':c.get('domain'),'expires':c.get('expires')} for c in cookies],'originHosts':[x.get('origin') for x in (b.get('origins') or [])],'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          pathlib.Path('/tmp/auth-cap.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))
+          PY
+      - name: Persist safe capability result
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/auth-cap.json /tmp/auth-safe.json
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3;do
+            git fetch origin main;git reset --hard origin/main;mkdir -p ops/wordpress-access;cp /tmp/auth-safe.json ops/wordpress-access/runner5-wasmer-auth-capability.json;git add ops/wordpress-access/runner5-wasmer-auth-capability.json
+            if git diff --cached --quiet;then exit 0;fi
+            git commit -m 'Persist Runner5 Wasmer auth capability'
+            if git push origin HEAD:main;then exit 0;fi
+            sleep 2
+          done
+          exit 2
