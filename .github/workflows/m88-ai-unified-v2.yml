@@ -2,6 +2,9 @@ name: M88 Unified AI Database v2
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ['M88 AI Odds Publisher']
+    types: [completed]
   schedule:
     - cron: '*/5 * * * *'
   push:
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   publish:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -37,7 +41,7 @@ jobs:
           test -s input/match-odds.json
           test -s input/m88-outrights-all.json
 
-      - name: Build unified AI database
+      - name: Build and validate unified AI database
         run: |
           set -euo pipefail
           python3 build_m88_ai_database.py \
@@ -46,6 +50,26 @@ jobs:
             --output out/ai-odds.json \
             --health out/health.json
           test -s out/ai-odds.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('out/ai-odds.json'))
+          assert d.get('schema_version') == 3
+          assert d.get('operator') == 'M88'
+          assert d.get('canonical') is True
+          idx=d.get('index') or {}
+          assert int(idx.get('match_count') or 0) >= 50
+          assert int(idx.get('outright_market_count') or 0) >= 40
+          f=d.get('freshness') or {}
+          assert ((f.get('outrights') or {}).get('capture_ratio') or 0) >= 0.90
+          print(json.dumps({
+            'schema_version':d.get('schema_version'),
+            'status':d.get('status'),
+            'match_count':idx.get('match_count'),
+            'outright_market_count':idx.get('outright_market_count'),
+            'outright_failed_market_count':idx.get('outright_failed_market_count'),
+            'freshness':f,
+          },ensure_ascii=False))
+          PY
 
       - name: Publish dedicated stable data branch
         shell: bash
@@ -60,7 +84,12 @@ jobs:
           [ -z "$AUTH_HEADER" ] || git -C /tmp/m88-ai-pub config http.https://github.com/.extraheader "$AUTH_HEADER"
           git -C /tmp/m88-ai-pub checkout --orphan m88-ai-data >/dev/null 2>&1
           cp out/ai-odds.json out/health.json /tmp/m88-ai-pub/
-          printf '%s\n' '# M88 AI Odds Database' 'Auto-generated. ai-odds.json is the canonical one-file database.' > /tmp/m88-ai-pub/README.md
+          printf '%s\n' \
+            '# M88 AI Odds Database' \
+            'Auto-generated canonical one-file database.' \
+            'Raw: https://raw.githubusercontent.com/louisalviss/runner-3/m88-ai-data/ai-odds.json' \
+            'Stable release: https://github.com/louisalviss/runner-3/releases/download/m88-ai-current/ai-odds.json' \
+            > /tmp/m88-ai-pub/README.md
           git -C /tmp/m88-ai-pub add .
           git -C /tmp/m88-ai-pub commit -q -m "M88 AI database $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           git -C /tmp/m88-ai-pub push -q --force origin HEAD:m88-ai-data
@@ -75,6 +104,7 @@ jobs:
             gh release create m88-ai-current --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'M88 AI Current Database' --notes 'One-file current M88 odds database for AI consumption.'
           fi
           gh release upload m88-ai-current --repo "$GITHUB_REPOSITORY" out/ai-odds.json out/health.json --clobber
+          echo 'CANONICAL_RELEASE=https://github.com/louisalviss/runner-3/releases/download/m88-ai-current/ai-odds.json'
 
       - uses: actions/upload-artifact@v4
         if: always()
