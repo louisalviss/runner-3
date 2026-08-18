@@ -1,4 +1,4 @@
-name: WR 2.5.15 TradingView Tick Correct 11
+name: WR 2.5.15 Stage1 Stage2 5m
 on:
   pull_request:
     branches: [main]
@@ -7,126 +7,126 @@ permissions:
   contents: read
   actions: read
 jobs:
-  correct:
+  shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
     steps:
-      - name: Download completed 5m baseline
+      - name: Download TV-tick-clean 5m baseline
         uses: actions/download-artifact@v4
         with:
-          name: wr2515-5m-currenttick-final
+          name: wr2515-5m-tv-tick-final
           path: /tmp/base
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: louisalviss/runner-3
-          run-id: 32137487264
-      - name: Download TradingView tick map
-        uses: actions/download-artifact@v4
-        with:
-          name: wr2515-tv-tick-map
-          path: /tmp/tv
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: louisalviss/runner-3
-          run-id: 32158263977
-      - name: Rerun only symbols whose TradingView mintick differs
+          run-id: 32158961561
+      - name: Fetch Stage1 Stage2 harness and exact parity reference
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/correct /tmp/final /tmp/wr
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-rebuild-5m-s3.yml' -o /tmp/source.yml
+          mkdir -p /tmp/code
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-stage12-5m/wave-rider-verify/wr2515_stage12_5m.py' -o /tmp/code/stage12.py
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
           python3 - <<'PY'
           from pathlib import Path
-          import textwrap
-          s=Path('/tmp/source.yml').read_text(); marker="          cat >/tmp/full5.py <<'PY'\n"
-          a=s.index(marker)+len(marker); b=s.index("\n          PY\n",a)
-          code=textwrap.dedent(s[a:b])
-          old="symbols=sorted(set(symbols));symbols=[s for i,s in enumerate(symbols) if i%SHARDS==SHARD]"
-          new="TV=json.load(open('/tmp/tv/tv_tick_map.json'));TD=json.load(open('/tmp/tv/tick_diff.json'));symbols=[x['symbol'] for x in TD['diffs']]"
-          if code.count(old)!=1: raise SystemExit('symbol override anchor missing')
-          code=code.replace(old,new,1)
-          old2="bars,tick=load(sym);row,t=bt(sym,tick,bars)"
-          new2="bars,_=load(sym);tick=float(TV[sym]['tick']);row,t=bt(sym,tick,bars)"
-          if code.count(old2)!=1: raise SystemExit('tick override anchor missing')
-          code=code.replace(old2,new2,1)
-          Path('/tmp/full5.py').write_text(code)
+          p=Path('/tmp/code/stage12.py');s=p.read_text()
+          old='        if x.ct<START_MS or x.ct>=END_MS:continue';new='        if x.ct>=END_MS:continue'
+          if s.count(old)!=1:raise SystemExit('state gate patch anchor missing')
+          s=s.replace(old,new,1)
+          old2="                    if stop_pct and stop_pct>0:\n                        setups.append({'symbol':sym,'signal_time':x.ct,'stop_pct':stop_pct,'required_x':1.0/stop_pct})"
+          new2="                    if stop_pct and stop_pct>0 and x.ct>=START_MS-S2_LOOKBACK_MS:\n                        setups.append({'symbol':sym,'signal_time':x.ct,'stop_pct':stop_pct,'required_x':1.0/stop_pct})"
+          if s.count(old2)!=1:raise SystemExit('setup lookback patch anchor missing')
+          s=s.replace(old2,new2,1)
+          fast=r'''
+def stage1_passes_fast(rows,sym):
+    ots=[r[0] for r in rows];cts=[r[6] for r in rows]
+    pref=[0.0]
+    for r in rows:pref.append(pref[-1]+r[7])
+    full={}
+    for r in rows:
+        k=datetime.fromtimestamp(r[0]/1000,tz=timezone.utc).date().isoformat();x=full.get(k)
+        if x is None:full[k]=[r[1],r[2],r[3],r[4],r[5]]
+        else:x[1]=max(x[1],r[2]);x[2]=min(x[2],r[3]);x[3]=r[4];x[4]+=r[5]
+    dkeys=sorted(full);passes=[]
+    for cp,session_date,label in CHECKPOINTS:
+        j=bisect_left(cts,cp)
+        if j<=0:continue
+        a=bisect_left(cts,cp-86400_000);qv24=pref[j]-pref[a]
+        cur=datetime.fromtimestamp(cp/1000,tz=timezone.utc).date();curkey=cur.isoformat();di=bisect_left(dkeys,curkey)
+        prev=[full[k] for k in dkeys[max(0,di-14):di]]
+        day0=int(datetime(cur.year,cur.month,cur.day,tzinfo=timezone.utc).timestamp()*1000);q=bisect_left(ots,day0);rr=rows[q:j]
+        if rr:
+            part=[rr[0][1],max(x[2] for x in rr),min(x[3] for x in rr),rr[-1][4],sum(x[5] for x in rr)];ds=(prev+[part])[-14:]
+        else:ds=prev[-14:]
+        if len(ds)<14:continue
+        last10=ds[-10:];last7=ds[-7:];last14=ds[-14:]
+        avg10=sum(x[3]*x[4] for x in last10)/10.0
+        if any(x[2]==0 for x in last7):continue
+        vol7=sum((x[1]-x[2])/abs(x[2]) for x in last7)/7.0;curclose=last14[-1][3]
+        if not curclose:continue
+        adr14=((sum(x[1] for x in last14)/14.0)-(sum(x[2] for x in last14)/14.0))/abs(curclose)
+        if qv24>=S1_QV24 and avg10>=S1_AVG10 and vol7>S1_VOL7 and adr14>=S1_ADR14:
+            passes.append({'symbol':sym,'checkpoint':cp,'session_date':session_date,'mode':label,'qv24':qv24,'avg10':avg10,'vol7':vol7,'adr14':adr14})
+    return passes
+'''
+          marker='def run_symbol(sym,tick,rows):'
+          if s.count(marker)!=1:raise SystemExit('run marker missing')
+          s=s.replace(marker,fast+'\n'+marker,1)
+          a=s.index('    passes=[]\n    for cp,session_date,label in CHECKPOINTS:',s.index(marker))
+          ret="    return setups,passes,{'symbol':sym,'bars':len(rows),'setups':len(setups),'passes':len(passes)}";b=s.index(ret,a)+len(ret)
+          s=s[:a]+"    passes=stage1_passes_fast(rows,sym)\n"+ret+s[b:];p.write_text(s)
           PY
-          SHARD=0 SHARDS=1 python3 /tmp/full5.py
-          cp /tmp/wr/summary-0.json /tmp/correct/summary-corrected.json
-          cp /tmp/wr/trades-0.jsonl /tmp/correct/trades-corrected.jsonl
-          cp /tmp/wr/errors-0.json /tmp/correct/errors-corrected.json
-      - name: Merge corrected symbols into baseline and QA
+      - name: Run shard
         shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 8
+          BASE_DIR: /tmp/base
+          OUT_DIR: /tmp/stage12
+          REFERENCE_VERIFY: /tmp/reference_verify.py
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import csv,json,math
-          from pathlib import Path
-          base=json.load(open('/tmp/base/summary.json'))
-          corr=json.load(open('/tmp/correct/summary-corrected.json'))
-          errs=json.load(open('/tmp/correct/errors-corrected.json'))
-          td=json.load(open('/tmp/tv/tick_diff.json')); tv=json.load(open('/tmp/tv/tv_tick_map.json'))
-          changed={r['symbol'] for r in corr}; expected={x['symbol'] for x in td['diffs']}
-          if changed!=expected: raise SystemExit(f'corrected symbol set mismatch expected={sorted(expected)} got={sorted(changed)} errors={errs}')
-          cmap={r['symbol']:r for r in corr}
-          merged=[cmap.get(r['symbol'],r) for r in base]
-          merged.sort(key=lambda x:(-(x.get('net_r_6bps') if x.get('net_r_6bps') is not None else -1e99),x['symbol']))
-          with open('/tmp/final/trades.jsonl','w') as out:
-            with open('/tmp/base/trades.jsonl') as f:
-              for line in f:
-                if not line.strip(): continue
-                r=json.loads(line)
-                if r.get('symbol') not in changed: out.write(json.dumps(r,separators=(',',':'))+'\n')
-            with open('/tmp/correct/trades-corrected.jsonl') as f:
-              for line in f:
-                if line.strip(): out.write(line if line.endswith('\n') else line+'\n')
-          matched=0; mismatch=[]; missing=[]
-          for r in merged:
-            x=tv.get(r['symbol'])
-            if not x:
-              missing.append(r['symbol']); continue
-            matched+=1
-            if not math.isclose(float(r['tick']),float(x['tick']),rel_tol=0,abs_tol=max(1e-15,abs(float(x['tick']))*1e-12)):
-              mismatch.append({'symbol':r['symbol'],'baseline_tick':r['tick'],'tv_tick':x['tick']})
-          if mismatch: raise SystemExit('remaining TradingView tick mismatches '+json.dumps(mismatch[:30]))
-          controls={}
-          for s in ['BNBUSDT','TRXUSDT','SLERFUSDT','C98USDT','PYTHUSDT','FORTHUSDT']:
-            row=next((x for x in merged if x['symbol']==s),None); meta=tv.get(s)
-            controls[s]={'baseline_tick':None if row is None else row['tick'],'tv_tick':None if meta is None else meta['tick'],'tv_present':meta is not None}
-          elig=[x for x in merged if x['n']>=100]
-          live=[x for x in elig if x['symbol'] in tv]
-          report={
-            'status':'TV_TICK_QA_PASS',
-            'tick_source':'TradingView scanner BINANCE perpetuals; mintick=minmov/pricescale',
-            'baseline_symbols':len(merged),
-            'tv_symbols':len(tv),
-            'matched_current_tv':matched,
-            'historical_or_missing_tv':len(missing),
-            'corrected_symbols':len(changed),
-            'corrected_list':sorted(changed),
-            'remaining_tick_mismatches':0,
-            'controls':controls,
-            'cells_n_ge_100':len(elig),
-            'gross_positive_n_ge_100':sum((x['avg_r'] or 0)>0 for x in elig),
-            'net6_positive_n_ge_100':sum(x['net_r_6bps']>0 for x in elig),
-            'live_tv_cells_n_ge_100':len(live),
-            'live_tv_net6_positive_n_ge_100':sum(x['net_r_6bps']>0 for x in live),
-            'top20_net6':merged[:20],
-            'corrected_rows':sorted(corr,key=lambda x:x['symbol'])
-          }
-          Path('/tmp/final/summary.json').write_text(json.dumps(merged,indent=2))
-          Path('/tmp/final/errors.json').write_text(json.dumps(errs,indent=2))
-          Path('/tmp/final/report.json').write_text(json.dumps(report,indent=2))
-          Path('/tmp/final/tv_tick_map.json').write_text(json.dumps(tv,indent=2))
-          fields=['symbol','tf','bars','tick','n','total_r','avg_r','win_rate','pf','net_r_4bps','net_r_6bps','net_r_8bps','net_r_10bps']
-          with open('/tmp/final/summary.csv','w',newline='') as f:
-            w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows({k:r.get(k) for k in fields} for r in merged)
-          print(json.dumps({k:report[k] for k in ['status','baseline_symbols','tv_symbols','matched_current_tv','historical_or_missing_tv','corrected_symbols','remaining_tick_mismatches','cells_n_ge_100','gross_positive_n_ge_100','net6_positive_n_ge_100','live_tv_cells_n_ge_100','live_tv_net6_positive_n_ge_100']},indent=2))
-          print('CONTROLS',json.dumps(controls,indent=2))
-          print('CORRECTED',json.dumps(report['corrected_rows'],indent=2))
-          PY
+          python3 /tmp/code/stage12.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: wr2515-stage12-shard-${{ matrix.shard }}
+          path: /tmp/stage12
+          retention-days: 7
+  merge:
+    needs: shard
+    if: always() && needs.shard.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr2515-stage12-shard-*
+          path: /tmp/all
+          merge-multiple: true
+      - name: Download TV-tick-clean 5m baseline
+        uses: actions/download-artifact@v4
+        with:
           name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - name: Merge frozen selectors
+        shell: bash
+        env:
+          BASE_DIR: /tmp/base
+          IN_DIR: /tmp/all
+          OUT_DIR: /tmp/final
+        run: |
+          set -euo pipefail
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-stage12-5m/wave-rider-verify/wr2515_stage12_merge.py' -o /tmp/merge.py
+          python3 /tmp/merge.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-stage12-5m-final
           path: /tmp/final
           retention-days: 14
