@@ -1,8 +1,8 @@
-import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT } from './snapshot.generated.js';
+import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_SNAPSHOTS } from './snapshot.generated.js';
 
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
-const CACHE_VERSION = 'runner5-opt-v1';
+const CACHE_VERSION = 'runner5-opt-v2';
 
 function isAdminPath(pathname) {
   return pathname === '/wp-login.php' ||
@@ -49,9 +49,7 @@ async function proxyOrigin(request, incoming) {
   const upstreamResponse = await fetch(target.toString(), init);
   const outHeaders = new Headers(upstreamResponse.headers);
   const location = outHeaders.get('location');
-  if (location) {
-    outHeaders.set('location', rewriteOrigin(location, incoming.origin));
-  }
+  if (location) outHeaders.set('location', rewriteOrigin(location, incoming.origin));
 
   const contentType = (outHeaders.get('content-type') || '').toLowerCase();
   const rewriteable = contentType.includes('text/html') ||
@@ -92,12 +90,31 @@ function snapshotResponse(request, incoming) {
   return new Response(request.method === 'HEAD' ? null : html, { status: 200, headers });
 }
 
+function styleSnapshotResponse(request, incoming, css) {
+  const body = rewriteOrigin(css, incoming.origin);
+  const headers = new Headers({
+    'content-type': 'text/css; charset=UTF-8',
+    'cache-control': 'public, max-age=86400, stale-while-revalidate=604800',
+    'x-edge-mode': 'snapshot-asset',
+    'x-edge-cache': 'SNAPSHOT',
+    'x-edge-snapshot-built-at': SNAPSHOT_BUILT_AT || 'unknown',
+    'x-content-type-options': 'nosniff',
+  });
+  return new Response(request.method === 'HEAD' ? null : body, { status: 200, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
 
     if (canUsePublicEdge(request, incoming) && incoming.pathname === '/' && !incoming.search && HOME_SNAPSHOT) {
       return snapshotResponse(request, incoming);
+    }
+
+    const styleKey = incoming.pathname + incoming.search;
+    const snapCss = STYLE_SNAPSHOTS?.[styleKey];
+    if (canUsePublicEdge(request, incoming) && typeof snapCss === 'string') {
+      return styleSnapshotResponse(request, incoming, snapCss);
     }
 
     if (!canUsePublicEdge(request, incoming)) {
