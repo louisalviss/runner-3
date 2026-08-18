@@ -1,4 +1,5 @@
 import worker from './index.js';
+import { StaticResponsiveImageRewriter, StaticImagePreloadRewriter } from './responsive-images.js';
 
 const R2_ORIGIN = 'https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
@@ -33,7 +34,11 @@ export default {
         headers,
       });
       if (request.method.toUpperCase() !== 'HEAD') {
-        htmlResponse = new HTMLRewriter().on('head', new HeadResourceHints()).transform(htmlResponse);
+        htmlResponse = new HTMLRewriter()
+          .on('head', new HeadResourceHints())
+          .on('img[src]', new StaticResponsiveImageRewriter())
+          .on('link[rel="preload"][as="image"]', new StaticImagePreloadRewriter())
+          .transform(htmlResponse);
       }
       return htmlResponse;
     }
