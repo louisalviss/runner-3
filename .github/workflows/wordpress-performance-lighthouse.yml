@@ -1,0 +1,88 @@
+name: WordPress Performance Lighthouse
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-performance-lighthouse.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-performance-lighthouse
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TARGET_URL: https://runner3wp.pntr.dev/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Run three mobile and desktop Lighthouse audits
+        shell: bash
+        run: |
+          set -euo pipefail
+          google-chrome --version || google-chrome-stable --version
+          for n in 1 2 3; do
+            npx --yes lighthouse@13.4.1 "$TARGET_URL" \
+              --output=json --output-path="/tmp/lh-mobile-${n}.json" \
+              --only-categories=performance,accessibility,best-practices,seo \
+              --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+            npx --yes lighthouse@13.4.1 "$TARGET_URL" --preset=desktop \
+              --output=json --output-path="/tmp/lh-desktop-${n}.json" \
+              --only-categories=performance,accessibility,best-practices,seo \
+              --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          done
+          python3 - <<'PY'
+          import json, glob, os, time, statistics
+          target=os.environ['TARGET_URL']
+          interesting={'image-delivery-insight','offscreen-images','unused-javascript','unminified-javascript','render-blocking-insight','lcp-discovery-insight','largest-contentful-paint-element','total-byte-weight','network-requests','document-latency-insight'}
+          def load(path):
+              d=json.load(open(path)); c=d['categories']; a=d['audits']
+              def score(k):
+                  v=c[k].get('score'); return None if v is None else round(v*100)
+              def metric(k):
+                  x=a.get(k) or {}; return {'displayValue':x.get('displayValue'),'numericValue':x.get('numericValue')}
+              diagnostics=[]
+              for aid in interesting:
+                  x=a.get(aid) or {}
+                  det=x.get('details') or {}
+                  diagnostics.append({'id':aid,'score':x.get('score'),'displayValue':x.get('displayValue'),'numericValue':x.get('numericValue'),'overallSavingsBytes':det.get('overallSavingsBytes'),'overallSavingsMs':det.get('overallSavingsMs')})
+              return {'scores':{'performance':score('performance'),'accessibility':score('accessibility'),'bestPractices':score('best-practices'),'seo':score('seo')},'metrics':{'fcp':metric('first-contentful-paint'),'lcp':metric('largest-contentful-paint'),'tbt':metric('total-blocking-time'),'cls':metric('cumulative-layout-shift'),'speedIndex':metric('speed-index'),'serverResponseTime':metric('server-response-time')},'diagnostics':diagnostics,'fetchTime':d.get('fetchTime'),'lighthouseVersion':d.get('lighthouseVersion')}
+          def group(pattern):
+              runs=[load(p) for p in sorted(glob.glob(pattern))]
+              ordered=sorted(runs,key=lambda r:r['scores']['performance'])
+              median=ordered[len(ordered)//2]
+              return {'runCount':len(runs),'performanceScores':[r['scores']['performance'] for r in runs],'median':median,'runs':runs}
+          out={'status':'ready','target':target,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'mobile':group('/tmp/lh-mobile-*.json'),'desktop':group('/tmp/lh-desktop-*.json')}
+          open('/tmp/wordpress-performance-lighthouse.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps({'mobile':out['mobile']['performanceScores'],'mobileMedian':out['mobile']['median']['metrics'],'desktop':out['desktop']['performanceScores'],'desktopMedian':out['desktop']['median']['metrics']},indent=2))
+          PY
+      - name: Persist Lighthouse result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/wordpress-performance-lighthouse.json || printf '{"status":"failed","target":"%s","detail":"lighthouse_result_missing"}\n' "$TARGET_URL" >/tmp/wordpress-performance-lighthouse.json
+          cp /tmp/wordpress-performance-lighthouse.json /tmp/lh-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/custom-domain/performance-controller/lighthouse-runs
+            cp /tmp/lh-safe.json ops/custom-domain/performance-controller/lighthouse.latest.json
+            cp /tmp/lh-safe.json "ops/custom-domain/performance-controller/lighthouse-runs/${GITHUB_RUN_ID}.json"
+            git add ops/custom-domain/performance-controller/lighthouse.latest.json ops/custom-domain/performance-controller/lighthouse-runs
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist WordPress performance Lighthouse: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
