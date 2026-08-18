@@ -1,0 +1,223 @@
+name: Runner5 Static Wasmer Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-static-wasmer.yml'
+      - 'scripts/wasmer-cli-browser-login.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-static-wasmer
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      SOURCE_URL: https://runner5-restore-lab-1.wasmer.app/
+      WASMER_DIR: /tmp/wasmer-cli
+      STATIC_APP_OWNER: runner3wp0b90f6b4ab
+      STATIC_APP_NAME: runner5-restore-fast
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Restore Wasmer browser session
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+      - name: Install browser automation and Wasmer CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2
+          curl https://get.wasmer.io -sSfL | sh
+          echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+          "$HOME/.wasmer/bin/wasmer" --version
+      - name: Authenticate Wasmer CLI through stored browser session
+        shell: bash
+        env:
+          WASMER_BROWSER_STATE: /tmp/wasmer-browser-state.json
+        run: |
+          set -euo pipefail
+          node scripts/wasmer-cli-browser-login.mjs
+          "$HOME/.wasmer/bin/wasmer" whoami --wasmer-dir "$WASMER_DIR"
+      - name: Build static mirror from optimized WordPress origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/runner5-static
+          mkdir -p /tmp/runner5-static/public
+          python - <<'PY'
+          import os,re,time,urllib.parse,urllib.request,pathlib,json,html as htmlmod
+          source=os.environ['SOURCE_URL'].rstrip('/')
+          host=urllib.parse.urlparse(source).netloc
+          root=pathlib.Path('/tmp/runner5-static/public')
+          ua='Mozilla/5.0 Runner5StaticWasmer/1.0'
+          errors=[]; pages=set(['/']); assets=set(); sitemaps=[]
+          def req(url,limit=8_000_000):
+              r=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*'})
+              with urllib.request.urlopen(r,timeout=45) as x:
+                  b=x.read(limit); return b,x.headers.get('content-type',''),x.geturl()
+          def same_path(raw,base=source+'/'):
+              raw=htmlmod.unescape(str(raw or '').strip())
+              if not raw or raw.startswith(('#','mailto:','tel:','javascript:','data:','blob:')):return None
+              try:u=urllib.parse.urlparse(urllib.parse.urljoin(base,raw))
+              except:return None
+              if u.netloc!=host:return None
+              return u.path + (('?' + u.query) if u.query else '')
+          def disk(path,is_html=False):
+              p=urllib.parse.urlparse(path).path
+              if is_html:
+                  if p=='/':return root/'index.html'
+                  if p.endswith('/'):return root/p.lstrip('/')/'index.html'
+                  if '.' not in pathlib.PurePosixPath(p).name:return root/p.lstrip('/')/'index.html'
+              return root/p.lstrip('/')
+          def rewrite(text):
+              return text.replace(source,'').replace(source.replace('https://','http://'),'')
+          # Discover all public WordPress content via sitemap hierarchy.
+          q=[source+'/wp-sitemap.xml']; seen_sm=set()
+          while q and len(seen_sm)<20:
+              u=q.pop(0)
+              if u in seen_sm:continue
+              seen_sm.add(u)
+              try:b,ct,final=req(u,2_000_000);t=b.decode('utf-8','ignore')
+              except Exception as e:errors.append({'sitemap':u,'error':str(e)[:180]});continue
+              for loc in re.findall(r'<loc>\s*([^<]+?)\s*</loc>',t,re.I):
+                  loc=htmlmod.unescape(loc.strip())
+                  try:x=urllib.parse.urlparse(loc)
+                  except:continue
+                  if x.netloc!=host:continue
+                  if x.path.endswith('.xml'):q.append(loc)
+                  else:pages.add(x.path if x.path else '/')
+          attr_re=re.compile(r'(?:href|src)\s*=\s*["\']([^"\']+)["\']',re.I)
+          srcset_re=re.compile(r'srcset\s*=\s*["\']([^"\']+)["\']',re.I)
+          static_re=re.compile(r'\.(?:css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|woff2?|woff|ttf|otf|eot|mp4|webm|pdf)(?:$|\?)',re.I)
+          skip=('/wp-admin','/wp-login.php','/wp-json','/xmlrpc.php','/wp-cron.php')
+          # Snapshot HTML pages and collect assets.
+          for path in list(sorted(pages))[:80]:
+              if any(path.startswith(x) for x in skip):continue
+              url=source+path
+              try:b,ct,final=req(url);text=b.decode('utf-8','ignore')
+              except Exception as e:errors.append({'page':path,'error':str(e)[:180]});continue
+              if 'text/html' not in ct.lower() and '<html' not in text[:3000].lower():continue
+              for raw in attr_re.findall(text):
+                  p=same_path(raw,url)
+                  if p and static_re.search(p):assets.add(p)
+              for group in srcset_re.findall(text):
+                  for part in group.split(','):
+                      p=same_path(part.strip().split()[0],url)
+                      if p:assets.add(p)
+              # Preserve conservative defer from the origin plugin; strip WordPress admin bar hints if any.
+              text=rewrite(text)
+              dest=disk(path,is_html=True);dest.parent.mkdir(parents=True,exist_ok=True);dest.write_text(text,encoding='utf-8')
+          assets.update(['/favicon.ico'])
+          # Download assets recursively, discovering font/image dependencies in CSS.
+          css_url_re=re.compile(r'url\(\s*["\']?([^"\')]+)',re.I); import_re=re.compile(r'@import\s+(?:url\()?\s*["\']?([^"\')\s;]+)',re.I)
+          queue=list(assets);done=set()
+          while queue and len(done)<600:
+              p=queue.pop(0)
+              key=urllib.parse.urlparse(p).path
+              if key in done:continue
+              done.add(key)
+              try:b,ct,final=req(source+p)
+              except Exception as e:errors.append({'asset':p,'error':str(e)[:180]});continue
+              d=disk(p);d.parent.mkdir(parents=True,exist_ok=True)
+              if 'text/css' in ct.lower() or key.lower().endswith('.css'):
+                  text=b.decode('utf-8','ignore')
+                  for raw in css_url_re.findall(text)+import_re.findall(text):
+                      child=same_path(raw,source+key)
+                      if child and urllib.parse.urlparse(child).path not in done:queue.append(child)
+                  d.write_text(rewrite(text),encoding='utf-8')
+              elif ('javascript' in ct.lower() or key.lower().endswith(('.js','.mjs'))):d.write_text(rewrite(b.decode('utf-8','ignore')),encoding='utf-8')
+              else:d.write_bytes(b)
+          # Useful public metadata.
+          for p in ['/robots.txt','/wp-sitemap.xml']:
+              try:b,ct,final=req(source+p,2_000_000);d=disk(p);d.parent.mkdir(parents=True,exist_ok=True);d.write_bytes(rewrite(b.decode('utf-8','ignore')).encode() if b else b)
+              except:pass
+          out={'status':'BUILT','pages':len(list(root.rglob('index.html'))),'assets':len(done),'bytes':sum(x.stat().st_size for x in root.rglob('*') if x.is_file()),'errors':errors[:30],'builtAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          pathlib.Path('/tmp/runner5-static-build.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))
+          if not (root/'index.html').exists():raise SystemExit('static homepage missing')
+          PY
+      - name: Write Wasmer static app manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/runner5-static/app.yaml <<YAML
+          kind: wasmer.io/App.v0
+          name: ${STATIC_APP_NAME}
+          owner: ${STATIC_APP_OWNER}
+          package: .
+          YAML
+          cat > /tmp/runner5-static/wasmer.toml <<'TOML'
+          [dependencies]
+          "wasmer/static-web-server" = "1"
+
+          [fs]
+          "/public" = "public"
+
+          [[command]]
+          name = "script"
+          module = "wasmer/static-web-server:webserver"
+          runner = "https://webc.org/runner/wasi"
+          TOML
+      - name: Deploy static Wasmer app
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/runner5-static
+          help="$($HOME/.wasmer/bin/wasmer deploy --help 2>&1)"
+          args=(deploy --wasmer-dir "$WASMER_DIR")
+          grep -q -- '--non-interactive' <<<"$help" && args+=(--non-interactive)
+          grep -q -- '--bump' <<<"$help" && args+=(--bump)
+          "$HOME/.wasmer/bin/wasmer" "${args[@]}" 2>&1 | tee /tmp/runner5-static-deploy.log
+          "$HOME/.wasmer/bin/wasmer" app info "${STATIC_APP_OWNER}/${STATIC_APP_NAME}" --wasmer-dir "$WASMER_DIR" 2>&1 | tee /tmp/runner5-static-info.log || true
+      - name: Resolve and verify static app URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,re,time,urllib.request,json,pathlib
+          logs=(pathlib.Path('/tmp/runner5-static-deploy.log').read_text(errors='ignore')+'\n'+pathlib.Path('/tmp/runner5-static-info.log').read_text(errors='ignore'))
+          urls=re.findall(r'https://[a-zA-Z0-9.-]+\.wasmer\.app',logs)
+          # Prefer named app URL over unique id URL.
+          urls=sorted(set(urls),key=lambda u:('.id.wasmer.app' in u,len(u)))
+          result={'status':'FAILED','url':urls[0]+'/' if urls else None,'http':None,'titleMarker':False,'firstMs':None,'warmMs':None,'detail':None,'build':json.load(open('/tmp/runner5-static-build.json'))}
+          err=None;times=[]
+          if result['url']:
+              for _ in range(25):
+                  try:
+                      t=time.perf_counter();req=urllib.request.Request(result['url'],headers={'User-Agent':'Mozilla/5.0'})
+                      with urllib.request.urlopen(req,timeout=30) as r:body=r.read(1000000).decode('utf-8','ignore');times.append(round((time.perf_counter()-t)*1000,1));result['http']=r.status;result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
+                      if result['http']==200 and result['titleMarker'] and len(times)>=2:result['status']='READY';break
+                  except Exception as e:err=str(e)
+                  time.sleep(4)
+          result['firstMs']=times[0] if times else None;result['warmMs']=times[-1] if len(times)>1 else None;result['detail']=None if result['status']=='READY' else (err or 'url_not_resolved');result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          pathlib.Path('/tmp/runner5-static-status.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
+          if result['status']!='READY':raise SystemExit(2)
+          PY
+      - name: Persist static frontend status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-static-status.json || printf '{"status":"FAILED","detail":"missing_status"}\n' >/tmp/runner5-static-status.json
+          cp /tmp/runner5-static-status.json /tmp/static-safe.json
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3;do
+            git fetch origin main;git reset --hard origin/main;mkdir -p ops/wordpress-access;cp /tmp/static-safe.json ops/wordpress-access/runner5-static-wasmer.json;git add ops/wordpress-access/runner5-static-wasmer.json
+            if git diff --cached --quiet;then exit 0;fi
+            git commit -m "Persist Runner5 static Wasmer: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main;then exit 0;fi
+            sleep 2
+          done
+          exit 2
