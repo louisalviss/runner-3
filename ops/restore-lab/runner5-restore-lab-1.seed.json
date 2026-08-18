@@ -1,24 +1,35 @@
 {
-  "status": "starting",
+  "status": "FAILED",
   "siteSlug": "runner5-restore-lab-1",
   "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
-  "theme": "Inspiro",
-  "starterPlugin": "Inspiro Starter Sites",
-  "themeActive": true,
-  "starterPluginActive": true,
-  "importAttempted": true,
-  "importComplete": false,
+  "mode": "rest-api-seed",
+  "applicationPassword": true,
+  "backupPlugin": {
+    "plugin": "all-in-one-wp-migration/all-in-one-wp-migration",
+    "status": "active",
+    "version": "7.109"
+  },
+  "activeTheme": {
+    "stylesheet": "inspiro",
+    "name": "Inspiro",
+    "version": "2.2.3"
+  },
   "pages": 0,
   "posts": 0,
   "media": 0,
+  "categories": 3,
   "homepageHttp": null,
   "steps": [
     "wasmer_login",
     "wordpress_admin",
-    "install_inspiro_theme",
-    "install_inspiro_starter_sites",
-    "open_demo_importer"
+    "application_password",
+    "verify_api",
+    "plugin_all-in-one-wp-migration",
+    "theme_snapshot",
+    "site_settings",
+    "categories",
+    "media"
   ],
-  "detail": null,
-  "updatedAt": "2026-08-18T05:15:18.011Z"
+  "detail": "api_POST_/wp/v2/media:500:\n<html>\n  <head>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\" />\n\n    <style>\n      @font-face {\n        font-family: \"Gilroy\";\n        src: url(data:font/truetype;charset=utf-8;base64,AAEAAAAPAIAAAwBwRkZUTXzvt5kAATs8AAAAHEdERUYKHwvkAADFuAAAAEJHUE9TjqiaLwAAzsQAAGx2R1NVQimi1gkAAMX8AAA",
+  "updatedAt": "2026-08-18T05:27:13.448Z"
 }
