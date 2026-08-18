@@ -25,6 +25,8 @@ jobs:
       R2_BUCKET_NAME: runner3-wp-media
       R2_PUBLIC_HOST: pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev
       SITE_SLUG: runner3-factory-smoke-2
+      VARIANT_DIR: responsive-v2
+      WEBP_QUALITY: '74'
       RESULT_PATH: /tmp/r2-responsive-result.json
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +50,8 @@ jobs:
           bucket_name=os.environ['R2_BUCKET_NAME']
           public_host=os.environ['R2_PUBLIC_HOST']
           slug=os.environ['SITE_SLUG']
+          variant_dir=os.environ['VARIANT_DIR']
+          quality=int(os.environ['WEBP_QUALITY'])
           result_path=os.environ['RESULT_PATH']
           widths=(360,480,640)
           source_dir=Path('media')/slug
@@ -65,15 +69,15 @@ jobs:
                       height=max(1,round(oh*width/ow))
                       resized=im.resize((width,height),Image.Resampling.LANCZOS)
                       local=out_dir/f'{src.stem}-w{width}.webp'
-                      resized.save(local,'WEBP',quality=82,method=6)
-                      key=f'sites/{slug}/responsive/{src.stem}-w{width}.webp'
+                      resized.save(local,'WEBP',quality=quality,method=6)
+                      key=f'sites/{slug}/{variant_dir}/{src.stem}-w{width}.webp'
                       cmd=['npx','--yes','wrangler@4.123.0','r2','object','put',f'{bucket_name}/{key}','--file',str(local),'--remote','--content-type','image/webp','--cache-control','public, max-age=31536000, immutable']
                       p=subprocess.run(cmd,env=os.environ,capture_output=True,text=True,timeout=120)
                       if p.returncode!=0:
                           Path(result_path).write_text(json.dumps({'status':'failed','stage':'upload','bucketName':bucket_name,'key':key,'detail':(p.stderr or p.stdout)[-1200:]},indent=2))
                           raise RuntimeError(f'upload_failed:{key}')
                       url=f'https://{public_host}/{key}'
-                      get=urllib.request.Request(url,headers={'User-Agent':'Runner3StaticResponsiveVerify/1.0','Cache-Control':'no-cache'})
+                      get=urllib.request.Request(url,headers={'User-Agent':'Runner3StaticResponsiveVerify/2.0','Cache-Control':'no-cache'})
                       with urllib.request.urlopen(get,timeout=30) as r:
                           data=r.read(); status=r.status; ctype=r.headers.get('content-type','')
                       if status!=200 or not data: raise RuntimeError(f'get_failed:{url}:{status}:{len(data)}')
@@ -84,9 +88,9 @@ jobs:
                       variants.append(item); uploaded.append(item)
               entries[original_url]={'originalWidth':ow,'originalHeight':oh,'variants':variants}
 
-          result={'status':'pass','siteSlug':slug,'accountId':account_id,'bucketName':bucket_name,'publicHost':public_host,'originals':len(entries),'variants':len(uploaded),'entries':entries}
+          result={'status':'pass','siteSlug':slug,'accountId':account_id,'bucketName':bucket_name,'publicHost':public_host,'variantDir':variant_dir,'quality':quality,'originals':len(entries),'variants':len(uploaded),'totalVariantBytes':sum(v['bytes'] for v in uploaded),'entries':entries}
           Path(result_path).write_text(json.dumps(result,indent=2))
-          print(json.dumps({'status':'pass','bucketName':bucket_name,'originals':len(entries),'variants':len(uploaded)},indent=2))
+          print(json.dumps({'status':'pass','bucketName':bucket_name,'variantDir':variant_dir,'quality':quality,'originals':len(entries),'variants':len(uploaded),'totalVariantBytes':result['totalVariantBytes']},indent=2))
           PY
 
       - name: Persist verified manifest result
@@ -120,9 +124,11 @@ jobs:
           import json, os
           d=json.load(open(os.environ['RESULT_PATH']))
           assert d.get('status')=='pass', json.dumps(d,indent=2)
+          assert d.get('variantDir')=='responsive-v2', json.dumps(d,indent=2)
+          assert d.get('quality')==74, json.dumps(d,indent=2)
           assert d.get('originals')==8 and d.get('variants')==24, json.dumps(d,indent=2)
           for original,entry in d['entries'].items():
               assert [v['width'] for v in entry['variants']]==[360,480,640], original
               assert all(v['bytes']>0 for v in entry['variants']), original
-          print(json.dumps({'status':'pass','bucketName':d['bucketName'],'variants':d['variants']},indent=2))
+          print(json.dumps({'status':'pass','bucketName':d['bucketName'],'variantDir':d['variantDir'],'quality':d['quality'],'variants':d['variants'],'totalVariantBytes':d['totalVariantBytes']},indent=2))
           PY
