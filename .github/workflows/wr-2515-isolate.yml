@@ -1,0 +1,107 @@
+name: WR 2.5.15 Isolate Divergence
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-isolate.yml']
+permissions:
+  contents: read
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Compare old, patched, stateful and tick variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wriso
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          cat >/tmp/isolate.py <<'PY'
+          import csv,io,json,math,sys,time,types,zipfile
+          from datetime import datetime,timezone
+          from pathlib import Path
+          import requests
+
+          BASE=Path('/tmp/reference_verify.py').read_text()
+          SPECS={
+            'SLERFUSDT':{'old_tick':1e-5,'new_tick':1e-4,'old_n':148,'old_r':55.788957645014975,'new_n':148,'new_r':0.5961279237219194},
+            'C98USDT':{'old_tick':1e-7,'new_tick':1e-4,'old_n':162,'old_r':50.68245831364481,'new_n':149,'new_r':-24.230646711748662},
+            'FORTHUSDT':{'old_tick':1e-3,'new_tick':1e-3,'old_n':171,'old_r':-44.90094766344758,'new_n':186,'new_r':-81.59185675435667},
+            'PYTHUSDT':{'old_tick':1e-5,'new_tick':1e-5,'old_n':407,'old_r':45.21150030143396,'new_n':418,'new_r':15.472628620126118},
+            'BNBUSDT':{'old_tick':1e-2,'new_tick':1e-2,'old_n':400,'old_r':145.3855617670513,'new_n':401,'new_r':138.40485619454267},
+            'TRXUSDT':{'old_tick':1e-5,'new_tick':1e-5,'old_n':448,'old_r':136.3301134058635,'new_n':465,'new_r':132.12595528328404},
+          }
+          STATE=int(datetime(2024,12,1,tzinfo=timezone.utc).timestamp()*1000)
+          START=int(datetime(2025,1,1,tzinfo=timezone.utc).timestamp()*1000)
+          END=int(datetime(2026,8,15,tzinfo=timezone.utc).timestamp()*1000)-1
+          sess=requests.Session();sess.headers['User-Agent']='runner3-wr-isolate/1.0'
+
+          def module(patched):
+            src=BASE
+            if patched:
+              src=src.replace('sra<=SIGNAL_RANGE_MAX','sra<SIGNAL_RANGE_MAX')
+              old="""        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+              new="""        if v[c]==ext:\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n"""
+              if src.count(old)!=1: raise RuntimeError('pivot patch anchor')
+              src=src.replace(old,new,1)
+              src=src.replace("fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)","fill=(pending.d==1 and round(x.h/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.l/tick)<=round(pending.e/tick))")
+              oldfill="""            if fill:\n                active=pending; pending=None; entry_t=x.ot; diag['pending_filled']+=1\n                r,px=next_bracket(active,x,active.e)\n"""
+              newfill="""            if fill:\n                gap=(pending.d==1 and round(x.o/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.o/tick)<=round(pending.e/tick))\n                active=pending; pending=None; entry_t=x.ot; diag['pending_filled']+=1\n                r,px=next_bracket(active,x,None if gap else active.e)\n"""
+              if src.count(oldfill)!=1: raise RuntimeError('fill patch anchor')
+              src=src.replace(oldfill,newfill,1)
+              src=src.replace('allowed,sexit=session_flags(x.ct,chart_ms)','allowed,sexit=session_flags(x.ct+1,chart_ms)')
+            m=types.ModuleType('wrp' if patched else 'wro');m.__file__='reference_verify.py';exec(compile(src,m.__file__,'exec'),m.__dict__);return m
+
+          OLD=module(False);PATCH=module(True)
+          months=[(2024,12)]+[(2025,m) for m in range(1,13)]+[(2026,m) for m in range(1,8)]
+          def fetchzip(url):
+            for k in range(3):
+              try:
+                r=sess.get(url,timeout=45)
+                if r.status_code==404:return None
+                r.raise_for_status();return r.content
+              except Exception:
+                if k==2:raise
+                time.sleep(k+1)
+          def decode(data,Bar):
+            out=[]
+            if not data:return out
+            with zipfile.ZipFile(io.BytesIO(data)) as z: txt=z.read(z.namelist()[0]).decode()
+            for row in csv.reader(io.StringIO(txt)):
+              if row and row[0].isdigit():out.append(Bar(int(row[0]),int(row[6]),*map(float,row[1:5])))
+            return out
+          def load(sym):
+            out=[]
+            for y,m in months:
+              fn=f'{sym}-5m-{y:04d}-{m:02d}.zip';u=f'https://data.binance.vision/data/futures/um/monthly/klines/{sym}/5m/{fn}'
+              try:out+=decode(fetchzip(u),OLD.Bar)
+              except Exception as e:print('FETCH_ERR',sym,fn,repr(e),flush=True)
+            for d in range(1,16):
+              fn=f'{sym}-5m-2026-08-{d:02d}.zip';u=f'https://data.binance.vision/data/futures/um/daily/klines/{sym}/5m/{fn}'
+              try:out+=decode(fetchzip(u),OLD.Bar)
+              except Exception as e:print('FETCH_ERR',sym,fn,repr(e),flush=True)
+            ded={b.ot:b for b in out};return [ded[k] for k in sorted(ded) if STATE<=k<=END]
+          def stat(trades):
+            return {'n':len(trades),'R':sum(t.canon_r for t in trades)}
+          def signal_ms(t):
+            return int(datetime.fromisoformat(t.signal_time.replace('Z','+00:00')).timestamp()*1000)
+          rows=[]
+          for sym,s in SPECS.items():
+            bars=load(sym);print('LOADED',sym,len(bars),flush=True)
+            OLD.SYMBOL=sym;PATCH.SYMBOL=sym
+            ta,_=OLD.run(5,bars,s['old_tick'],START,END)
+            tb,_=PATCH.run(5,bars,s['old_tick'],START,END)
+            tc0,_=PATCH.run(5,bars,s['old_tick'],STATE,END);tc=[t for t in tc0 if START<=signal_ms(t)<=END]
+            td0,_=PATCH.run(5,bars,s['new_tick'],STATE,END);td=[t for t in td0 if START<=signal_ms(t)<=END]
+            row={'symbol':sym,'old_expected':{'n':s['old_n'],'R':s['old_r']},'new_expected':{'n':s['new_n'],'R':s['new_r']},'A_old_engine_old_tick':stat(ta),'B_pine_patch_eval_gated_old_tick':stat(tb),'C_pine_patch_stateful_old_tick':stat(tc),'D_pine_patch_stateful_new_tick':stat(td)}
+            rows.append(row);print(json.dumps(row),flush=True)
+          Path('/tmp/wriso/result.json').write_text(json.dumps(rows,indent=2))
+          print('ISOLATE_DONE')
+          PY
+          python3 /tmp/isolate.py | tee /tmp/wriso/run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-isolate
+          path: /tmp/wriso
+          retention-days: 3
