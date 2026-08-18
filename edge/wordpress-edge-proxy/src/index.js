@@ -1,3 +1,5 @@
+import { SNAPSHOTS, SNAPSHOT_BUILT_AT } from './snapshot.generated.js';
+
 const DEFAULT_ORIGIN = 'https://runner3-factory-smoke-2.wasmer.app';
 
 const STATIC_ASSET_RE = /\.(?:css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|mp4|webm|pdf)(?:$|\?)/i;
@@ -14,6 +16,12 @@ function isDynamicPath(pathname) {
 
 function isStaticAsset(url) {
   return STATIC_ASSET_RE.test(url.pathname) || url.pathname.startsWith('/wp-content/') || url.pathname.startsWith('/wp-includes/');
+}
+
+function normalizeSnapshotPath(pathname) {
+  const path = pathname || '/';
+  if (path === '/' || path.endsWith('/') || /\.[^/]+$/.test(path)) return path;
+  return `${path}/`;
 }
 
 function rewriteInternal(value, origin, publicOrigin) {
@@ -42,6 +50,24 @@ function rewriteLocation(headers, origin, publicOrigin) {
   const location = headers.get('Location');
   if (!location) return;
   headers.set('Location', rewriteInternal(location, origin, publicOrigin));
+}
+
+function snapshotResponse(method, pathname) {
+  const key = normalizeSnapshotPath(pathname);
+  const body = SNAPSHOTS[key] ?? SNAPSHOTS[pathname];
+  if (typeof body !== 'string') return null;
+  return new Response(method === 'HEAD' ? null : body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=UTF-8',
+      'Cache-Control': 'public, max-age=60, s-maxage=86400, stale-while-revalidate=3600, stale-if-error=604800',
+      'X-Edge-Proxy': 'cloudflare-worker',
+      'X-Edge-Mode': 'snapshot',
+      'X-Edge-Snapshot': 'HIT',
+      'X-Upstream-CF-Cache-Status': 'SNAPSHOT',
+      ...(SNAPSHOT_BUILT_AT ? { 'X-Edge-Snapshot-Built-At': SNAPSHOT_BUILT_AT } : {}),
+    },
+  });
 }
 
 export default {
@@ -83,46 +109,65 @@ export default {
     const staticAsset = isStaticAsset(incoming);
     const ttl = staticAsset ? 86400 : 300;
 
-    const headers = new Headers(request.headers);
-    headers.delete('Host');
-    headers.set('X-Forwarded-Host', incoming.host);
-    headers.set('X-Forwarded-Proto', 'https');
+    // Public HTML snapshots are bundled into the deployed Worker. A cold visitor
+    // therefore never waits for Wasmer/WordPress when the requested path exists
+    // in the snapshot. Dynamic/authenticated traffic still bypasses snapshots.
+    const snapshot = !bypass && !staticAsset ? snapshotResponse(method, incoming.pathname) : null;
 
-    const upstreamRequest = new Request(target.toString(), {
-      method,
-      headers,
-      redirect: 'manual',
-    });
+    let upstream;
+    let snapshotHit = false;
+    if (snapshot) {
+      upstream = snapshot;
+      snapshotHit = true;
+    } else {
+      const headers = new Headers(request.headers);
+      headers.delete('Host');
+      headers.set('X-Forwarded-Host', incoming.host);
+      headers.set('X-Forwarded-Proto', 'https');
 
-    const upstream = bypass
-      ? await fetch(upstreamRequest, { cache: 'no-store' })
-      : await fetch(upstreamRequest, {
-          cf: {
-            cacheEverything: true,
-            cacheTtl: ttl,
-            cacheTtlByStatus: {
-              '200-299': ttl,
-              '301-302': 300,
-              '404': 5,
-              '500-599': 0,
+      const upstreamRequest = new Request(target.toString(), {
+        method,
+        headers,
+        redirect: 'manual',
+      });
+
+      upstream = bypass
+        ? await fetch(upstreamRequest, { cache: 'no-store' })
+        : await fetch(upstreamRequest, {
+            cf: {
+              cacheEverything: true,
+              cacheTtl: ttl,
+              cacheTtlByStatus: {
+                '200-299': ttl,
+                '301-302': 300,
+                '404': 5,
+                '500-599': 0,
+              },
             },
-          },
-        });
+          });
+    }
 
     const outHeaders = new Headers(upstream.headers);
     rewriteLocation(outHeaders, origin, incoming.origin);
     outHeaders.set('X-Edge-Proxy', 'cloudflare-worker');
-    outHeaders.set('X-Edge-Mode', bypass ? 'bypass' : (staticAsset ? 'static-cache' : 'html-cache'));
-    outHeaders.set('X-Upstream-CF-Cache-Status', upstream.headers.get('CF-Cache-Status') || 'NONE');
-    const stamp = upstream.headers.get('X-Edge-Origin-Stamp');
-    if (stamp) outHeaders.set('X-Upstream-Origin-Stamp', stamp);
+    outHeaders.set('X-Edge-Mode', snapshotHit ? 'snapshot' : (bypass ? 'bypass' : (staticAsset ? 'static-cache' : 'html-cache')));
+    outHeaders.set('X-Upstream-CF-Cache-Status', snapshotHit ? 'SNAPSHOT' : (upstream.headers.get('CF-Cache-Status') || 'NONE'));
+    if (snapshotHit) {
+      outHeaders.set('X-Edge-Snapshot', 'HIT');
+      if (SNAPSHOT_BUILT_AT) outHeaders.set('X-Edge-Snapshot-Built-At', SNAPSHOT_BUILT_AT);
+    } else {
+      const stamp = upstream.headers.get('X-Edge-Origin-Stamp');
+      if (stamp) outHeaders.set('X-Upstream-Origin-Stamp', stamp);
+    }
 
     if (!bypass) {
       outHeaders.set(
         'Cache-Control',
-        staticAsset
-          ? 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=300'
-          : 'public, max-age=60, s-maxage=300, stale-while-revalidate=60, stale-if-error=600',
+        snapshotHit
+          ? 'public, max-age=60, s-maxage=86400, stale-while-revalidate=3600, stale-if-error=604800'
+          : staticAsset
+            ? 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=300'
+            : 'public, max-age=60, s-maxage=300, stale-while-revalidate=60, stale-if-error=600',
       );
     }
 
