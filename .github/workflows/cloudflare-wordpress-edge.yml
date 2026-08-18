@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_WORKER_NAME: wordpress-edge-proxy
       CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.jsonc
@@ -46,6 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare account id unavailable'; exit 3; }
           php -l wordpress/plugins/runner3-edge-cache-purge/runner3-edge-cache-purge.php
           node --check edge/wordpress-edge-proxy/src/index.js
           node --check edge/wordpress-edge-proxy/src/entry.js
@@ -101,7 +103,8 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          node - <<'NODE'
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
           const u='https://wordpress-edge-proxy.ducduy2411.workers.dev/';
           const rows=[];
           for(let i=0;i<3;i++){
@@ -112,7 +115,7 @@ jobs:
             await new Promise(x=>setTimeout(x,350));
           }
           const ok=rows.every(x=>x.http===200&&x.policy==='workers-caching') && rows.some(x=>String(x.cache).toUpperCase()==='HIT'||x.age!==null);
-          require('fs').writeFileSync('/tmp/runner3-edge-cache-warm.json',JSON.stringify({status:ok?'ok':'failed',rows,checkedAt:new Date().toISOString()},null,2)+'\n');
+          fs.writeFileSync('/tmp/runner3-edge-cache-warm.json',JSON.stringify({status:ok?'ok':'failed',rows,checkedAt:new Date().toISOString()},null,2)+'\n');
           console.log(JSON.stringify({ok,rows},null,2));
           if(!ok) process.exit(7);
           NODE
