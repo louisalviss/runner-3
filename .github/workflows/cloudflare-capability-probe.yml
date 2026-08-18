@@ -8,7 +8,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: cloudflare-capability-probe
+  cancel-in-progress: true
 
 jobs:
   probe:
@@ -19,14 +23,20 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Probe non-destructive Cloudflare capabilities
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, urllib.request, urllib.error
-          token=os.environ['CLOUDFLARE_API_TOKEN']
-          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          import json, os, urllib.request, urllib.error, datetime
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          if not token or not account:
+              raise SystemExit('cloudflare_credentials_missing')
           base='https://api.cloudflare.com/client/v4'
           def get(path):
               req=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+token})
@@ -38,26 +48,46 @@ jobs:
                   except Exception: data={}
                   return e.code,data
           code,data=get('/zones?per_page=50')
-          print('ZONE_LIST_HTTP='+str(code))
-          print('ZONE_LIST_SUCCESS='+str(bool(data.get('success'))).lower())
           zones=data.get('result') or [] if data.get('success') else []
-          print('ZONE_COUNT='+str(len(zones)))
-          ready=unconfigured=unreadable=0
-          for z in zones:
-              zid=z.get('id')
-              c,d=get(f'/zones/{zid}/email/routing')
-              if c==200 and d.get('success'):
-                  status=(d.get('result') or {}).get('status','unknown')
-                  enabled=(d.get('result') or {}).get('enabled',False)
-                  if status=='ready' and enabled: ready+=1
-                  else: unconfigured+=1
-              else:
-                  unreadable+=1
-          print('EMAIL_ROUTING_READY_ZONES='+str(ready))
-          print('EMAIL_ROUTING_OTHER_ZONES='+str(unconfigured))
-          print('EMAIL_ROUTING_UNREADABLE_ZONES='+str(unreadable))
-          # Account-level workers/scripts list: read-only capability probe.
+          names=sorted(str(z.get('name') or '') for z in zones if z.get('name'))
+          pntr=[z for z in zones if str(z.get('name') or '').lower()=='pntr.dev']
           c,d=get(f'/accounts/{account}/workers/scripts')
-          print('WORKERS_LIST_HTTP='+str(c))
-          print('WORKERS_LIST_SUCCESS='+str(bool(d.get('success'))).lower())
+          scripts=d.get('result') or [] if d.get('success') else []
+          worker_names=sorted(str(x.get('id') or x.get('name') or '') for x in scripts if (x.get('id') or x.get('name')))
+          out={
+            'status':'ok' if code==200 and data.get('success') and c==200 and d.get('success') else 'partial',
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+            'zonesHttp':code,
+            'zonesReadable':bool(data.get('success')),
+            'zoneNames':names,
+            'pntrZoneVisible':bool(pntr),
+            'workersHttp':c,
+            'workersReadable':bool(d.get('success')),
+            'wordpressEdgeProxyVisible':'wordpress-edge-proxy' in worker_names,
+          }
+          os.makedirs('/tmp/cloudflare-capability',exist_ok=True)
+          open('/tmp/cloudflare-capability/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps({k:out[k] for k in ('status','zonesReadable','zoneNames','pntrZoneVisible','workersReadable','wordpressEdgeProxyVisible')},indent=2))
           PY
+
+      - name: Persist safe capability result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/cloudflare-capability/latest.json || printf '{"status":"failed","detail":"capability_result_missing"}\n' >/tmp/cloudflare-capability/latest.json
+          cp /tmp/cloudflare-capability/latest.json /tmp/cloudflare-capability-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/cloudflare-capability
+            cp /tmp/cloudflare-capability-safe.json ops/cloudflare-capability/latest.json
+            git add ops/cloudflare-capability/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Cloudflare capability: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
