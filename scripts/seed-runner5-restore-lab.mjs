@@ -32,25 +32,83 @@ async function loginWasmer(page){
   if(/\/login(?:[/?#]|$)/i.test(page.url())) throw new Error('wasmer_login_failed');
 }
 
-async function enterAdmin(ctx,page){
-  step('wordpress_admin');
-  await page.goto(dashboard,{waitUntil:'domcontentloaded',timeout:60000});
-  await page.waitForTimeout(1200);
-  const admin=page.getByText(/WordPress Admin/i).first();
-  if(!(await admin.count())) throw new Error('wordpress_admin_control_missing');
+async function findAdminControl(page){
+  const textNode=page.getByText(/WordPress Admin/i).first();
+  if(await textNode.count() && await textNode.isVisible().catch(()=>false)){
+    const ancestor=textNode.locator('xpath=ancestor-or-self::a[@href] | ancestor-or-self::button').first();
+    if(await ancestor.count()) return ancestor;
+    return textNode;
+  }
+  return null;
+}
+
+async function pollWpAdmin(ctx, preferred=null, timeoutMs=30000){
+  const deadline=Date.now()+timeoutMs;
+  while(Date.now()<deadline){
+    const pages=[preferred,...ctx.pages()].filter(Boolean);
+    for(const p of pages){
+      const u=p.url();
+      if(u.startsWith(base) && /\/wp-admin(?:\/|\?|$)/i.test(u)) return p;
+    }
+    await new Promise(r=>setTimeout(r,600));
+  }
+  return null;
+}
+
+async function tryAdminFromCurrent(ctx,page){
+  const admin=await findAdminControl(page);
+  if(!admin) return null;
   const href=await admin.getAttribute('href').catch(()=>null);
   if(href){
+    const magic=new URL(href,'https://wasmer.io').href;
     const wp=await ctx.newPage();
-    await wp.goto(new URL(href,'https://wasmer.io').href,{waitUntil:'domcontentloaded',timeout:60000});
-    await wp.waitForTimeout(2500);
-    if(wp.url().startsWith(base)&&/wp-admin/i.test(wp.url())) return wp;
+    await wp.goto(magic,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
+    const found=await pollWpAdmin(ctx,wp,20000);
+    if(found) return found;
     await wp.close().catch(()=>{});
   }
   const before=new Set(ctx.pages());
-  const popupPromise=ctx.waitForEvent('page',{timeout:10000}).catch(()=>null);
+  const popupPromise=ctx.waitForEvent('page',{timeout:12000}).catch(()=>null);
   await admin.click().catch(()=>{});
-  const popup=await popupPromise; await page.waitForTimeout(3200);
-  for(const p of [...ctx.pages().filter(p=>!before.has(p)),popup,page].filter(Boolean)) if(p.url().startsWith(base)&&/wp-admin/i.test(p.url())) return p;
+  const popup=await popupPromise;
+  const candidate=await pollWpAdmin(ctx,popup||page,25000);
+  if(candidate) return candidate;
+  for(const p of ctx.pages().filter(p=>!before.has(p))) await p.close().catch(()=>{});
+  return null;
+}
+
+async function enterAdmin(ctx,page){
+  step('wordpress_admin');
+  for(let attempt=1;attempt<=3;attempt++){
+    console.log(`admin attempt ${attempt}`);
+    await page.goto(dashboard,{waitUntil:'domcontentloaded',timeout:60000});
+    await page.waitForTimeout(1600);
+    let found=await tryAdminFromCurrent(ctx,page);
+    if(found) return found;
+
+    // Wasmer may expose the control under Settings -> WordPress instead of Overview.
+    const settings=page.getByText(/^Settings$/i).first();
+    if(await settings.count() && await settings.isVisible().catch(()=>false)){
+      await settings.click().catch(()=>{});
+      await page.waitForTimeout(1200);
+      const wordpress=page.getByText(/^WordPress$/i).first();
+      if(await wordpress.count() && await wordpress.isVisible().catch(()=>false)){
+        await wordpress.click().catch(()=>{});
+        await page.waitForTimeout(1400);
+      }
+      found=await tryAdminFromCurrent(ctx,page);
+      if(found) return found;
+    }
+
+    // A magic-login click can set auth cookies even when navigation is slow; verify directly.
+    const direct=await ctx.newPage();
+    await direct.goto(`${base}/wp-admin/`,{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null);
+    if(direct.url().startsWith(base) && /\/wp-admin(?:\/|\?|$)/i.test(direct.url()) && !/wp-login\.php/i.test(direct.url())) return direct;
+    await direct.close().catch(()=>{});
+    await page.waitForTimeout(1200);
+  }
+  const excerpt=(await body(page)).slice(0,700);
+  console.log('dashboard excerpt',excerpt);
   throw new Error('magic_admin_failed');
 }
 
@@ -105,7 +163,6 @@ async function importDemo(wp){
     const remove=wp.locator('button,a').filter({hasText:/Remove|Delete.*Starter Content/i}).first();
     if(await remove.count()&&await remove.isVisible().catch(()=>false)){await remove.click().catch(()=>{});await wp.waitForTimeout(1200);}
   }
-  // Prefer the first Business / Portfolio demo, then Block Editor if builder choice appears.
   let card=wp.locator('[class*=demo],[class*=import],[class*=theme]').filter({hasText:/Business\s*\/\s*Portfolio/i}).first();
   if(!(await card.count())) card=wp.getByText(/Business\s*\/\s*Portfolio/i).first();
   if(!(await card.count())) throw new Error(`business_portfolio_demo_missing:${(await body(wp)).slice(0,600)}`);
