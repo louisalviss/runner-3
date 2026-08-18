@@ -3,6 +3,10 @@
 // with a concrete Content-Length. Admin/login/REST/feed do not render this template.
 if (function_exists('runner3_public_edge_cache_eligible') && runner3_public_edge_cache_eligible()) {
     @ini_set('zlib.output_compression', '0');
+    // Keep a short positive browser TTL as well as the longer shared-cache TTL.
+    // This avoids beta CDN implementations treating max-age=0 as an unconditional bypass
+    // before applying s-maxage, while keeping editorial changes reasonably fresh.
+    header('Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=60, stale-if-error=600', true);
     header('X-Edge-Origin-Stamp: ' . sprintf('%.6f', microtime(true)), true);
     ob_start(static function ($html) {
         if (!headers_sent()) {
