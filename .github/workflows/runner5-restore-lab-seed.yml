@@ -1,19 +1,7 @@
 name: Runner5 Restore Lab Seed
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
-      - '.github/workflows/runner5-restore-lab-seed.yml'
-      - 'scripts/seed-runner5-restore-lab-v4.mjs'
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
-      - '.github/workflows/runner5-restore-lab-seed.yml'
-      - 'scripts/seed-runner5-restore-lab-v4.mjs'
+  workflow_dispatch:
 
 permissions:
   contents: write
