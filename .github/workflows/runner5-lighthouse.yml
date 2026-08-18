@@ -1,6 +1,6 @@
 name: Runner5 Lighthouse
 
-# Round 2 A/B measurement: edge homepage snapshot + separate stylesheet snapshots.
+# Final optimization diagnostics and verification for the Runner5 edge site.
 on:
   push:
     branches: [main]
@@ -45,20 +45,53 @@ jobs:
           python - <<'PY'
           import json, os, time
           target=os.environ['TARGET_URL']
+          interesting={
+            'render-blocking-insight','render-blocking-resources','unused-css-rules','unused-javascript',
+            'font-display','lcp-lazy-loaded','largest-contentful-paint-element','lcp-discovery-insight',
+            'image-delivery-insight','network-dependency-tree-insight','critical-request-chains',
+            'total-byte-weight','uses-long-cache-ttl','third-party-summary','network-requests',
+            'layout-shifts','cls-culprits-insight','document-latency-insight'
+          }
+          def compact_details(audit_id, audit):
+              details=audit.get('details') or {}
+              items=details.get('items') or []
+              out=[]
+              for item in items[:25]:
+                  if not isinstance(item,dict): continue
+                  row={}
+                  for k in ('url','wastedMs','wastedBytes','totalBytes','transferSize','resourceSize','duration','startTime','endTime','cacheLifetimeMs','entity','phase','subpart','node','source'):
+                      v=item.get(k)
+                      if isinstance(v,(str,int,float,bool)) or v is None:
+                          if v is not None: row[k]=v
+                      elif k=='node' and isinstance(v,dict):
+                          row[k]={x:v.get(x) for x in ('nodeLabel','snippet','selector') if v.get(x)}
+                  if row: out.append(row)
+              return out
           def parse(path):
-              d=json.load(open(path))
-              c=d['categories']; a=d['audits']
+              d=json.load(open(path)); c=d['categories']; a=d['audits']
               def s(k):
                   v=c[k].get('score'); return None if v is None else round(v*100)
               def dv(k): return (a.get(k) or {}).get('displayValue')
+              diagnostics=[]
+              for aid,audit in a.items():
+                  score=audit.get('score')
+                  mode=audit.get('scoreDisplayMode')
+                  include=aid in interesting or (isinstance(score,(int,float)) and score < 1 and mode not in ('notApplicable','manual'))
+                  if not include: continue
+                  row={'id':aid,'title':audit.get('title'),'score':score,'displayValue':audit.get('displayValue'),'numericValue':audit.get('numericValue'),'numericUnit':audit.get('numericUnit')}
+                  details=compact_details(aid,audit)
+                  if details: row['items']=details
+                  diagnostics.append(row)
+              diagnostics.sort(key=lambda x: (0 if x['id'] in interesting else 1, x.get('score') if isinstance(x.get('score'),(int,float)) else 2))
               return {
                 'scores': {'performance':s('performance'),'accessibility':s('accessibility'),'bestPractices':s('best-practices'),'seo':s('seo')},
                 'metrics': {'fcp':dv('first-contentful-paint'),'lcp':dv('largest-contentful-paint'),'tbt':dv('total-blocking-time'),'cls':dv('cumulative-layout-shift'),'speedIndex':dv('speed-index'),'serverResponseTime':dv('server-response-time')},
+                'diagnostics': diagnostics[:45],
                 'fetchTime':d.get('fetchTime'),'finalUrl':d.get('finalUrl'),'lighthouseVersion':d.get('lighthouseVersion')
               }
           out={'status':'ready','target':target,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'mobile':parse('/tmp/lh-mobile.json'),'desktop':parse('/tmp/lh-desktop.json')}
           open('/tmp/runner5-lighthouse.json','w').write(json.dumps(out,indent=2)+'\n')
-          print(json.dumps(out,indent=2))
+          print(json.dumps({'status':out['status'],'target':target,'mobile':out['mobile']['scores'],'mobileMetrics':out['mobile']['metrics'],'desktop':out['desktop']['scores'],'desktopMetrics':out['desktop']['metrics']},indent=2))
           PY
 
       - name: Persist Lighthouse result
