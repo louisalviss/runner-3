@@ -26,11 +26,10 @@ for f in sorted(glob.glob('/tmp/pyproof/*.json')):
 print('\nW2_TRX_TRADES')
 print(open('/tmp/pyproof/W2_TRXUSDT_trades.csv').read())
 PY
-# Diagnostic snapshots around the two known TradingView W2 TRX entries.
 WR_SYMBOL=TRXUSDT WR_TF=5 WR_QTY_STEP=1 WR_STATE_START='2026-07-28T00:00:00+07:00' WR_REPORT_START='2026-08-10T00:00:00+07:00' WR_REPORT_END='2026-08-16T00:00:00+07:00' python3 - <<'PY' > /tmp/pyproof/W2_TRX_condition_diag.json
-import importlib.util,json
-from datetime import datetime,timezone
-spec=importlib.util.spec_from_file_location('wr','/tmp/reference_verify_v2.5.15.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+import importlib.util,json,sys
+from datetime import datetime
+spec=importlib.util.spec_from_file_location('wr','/tmp/reference_verify_v2.5.15.py');m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
 one,tick,missing=m.fetch_1m(); bars=m.agg(one,5)
 state_ms=int(datetime.fromisoformat(m.STATE_START).timestamp()*1000); bars=[x for x in bars if x.ot>=state_ms]
 ind,_,_=m.calc_ind(bars)
@@ -48,4 +47,3 @@ for tag,a,b in windows:
   out.append(dict(tag=tag,ot=m.iso(x.ot),ct=m.iso(x.ct),o=x.o,h=x.h,l=x.l,c=x.c,ema=z['ema'],ha=z['ha'],hb=z['hb'],ag=z['ag'],ar=z['ar'],chop_ok=z['chop_ok'],sra_ok=z['sra_ok'],res=z['res'],sup=z['sup'],allowed=allowed,sexit=sexit,nl=nl,ns=ns))
 print(json.dumps(out,indent=2))
 PY
-# No TradingView re-run needed here: the existing oracle for W2 TRX is 2 trades / -2R.
