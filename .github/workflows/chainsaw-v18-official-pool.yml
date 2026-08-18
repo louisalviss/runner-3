@@ -1,0 +1,81 @@
+name: Chainsaw V18 Official Pool
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/chainsaw-v18-official-pool.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg curl
+          python -m pip install -q -U yt-dlp
+      - name: Discover official Chainsaw Man videos
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 'https://www.chainsawman.dog/movie/' -o movie.html
+          python <<'PY'
+          import re
+          s=open('movie.html',encoding='utf-8',errors='ignore').read()
+          pats=[
+            r'youtube\.com/embed/([A-Za-z0-9_-]{11})',
+            r'youtu\.be/([A-Za-z0-9_-]{11})',
+            r'watch\?v=([A-Za-z0-9_-]{11})',
+            r'"youtubeId"\s*:\s*"([A-Za-z0-9_-]{11})"',
+            r'"youtube_id"\s*:\s*"([A-Za-z0-9_-]{11})"',
+          ]
+          ids=[]
+          for p in pats:
+            for x in re.findall(p,s):
+              if x not in ids: ids.append(x)
+          if not ids:
+            raise SystemExit('NO_YOUTUBE_IDS_FOUND')
+          open('ids.txt','w').write('\n'.join(ids[:12]))
+          print('DISCOVERED',ids[:12])
+          PY
+      - name: Download public official PV pool
+        shell: bash
+        run: |
+          set -u
+          mkdir -p pool meta
+          n=0
+          while read -r id; do
+            [ -n "$id" ] || continue
+            url="https://www.youtube.com/watch?v=$id"
+            echo "--- $url"
+            yt-dlp --no-playlist --skip-download --print '%(id)s|%(title)s|%(channel)s|%(duration_string)s' "$url" 2>/dev/null | tee -a meta/videos.txt || true
+            if yt-dlp --no-playlist --retries 1 --fragment-retries 1 --socket-timeout 20 -f 'best[height<=720][ext=mp4]/best[height<=720]/best' -o "pool/${n}.%(ext)s" "$url"; then
+              n=$((n+1))
+            fi
+            [ "$n" -ge 5 ] && break
+          done < ids.txt
+          echo "DOWNLOADED=$n"
+          [ "$n" -ge 2 ] || exit 22
+      - name: Normalize and make contact sheets
+        run: |
+          set -euo pipefail
+          mkdir -p norm qa
+          i=0
+          for f in pool/*; do
+            ffmpeg -hide_banner -loglevel error -y -i "$f" -vf 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p' -an -c:v libx264 -preset veryfast -crf 20 "norm/$i.mp4"
+            ffmpeg -hide_banner -loglevel error -y -i "norm/$i.mp4" -vf 'fps=1/3,scale=240:-2,tile=5x4:padding=3:margin=3' -frames:v 1 "qa/source_$i.jpg" || true
+            i=$((i+1))
+          done
+          printf "file '%s'\n" norm/*.mp4 | sed "s#file 'norm/#file '#" > /dev/null
+      - name: Upload official pool
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainsaw-v18-official-pool
+          path: |
+            norm/*.mp4
+            qa/*.jpg
+            meta/videos.txt
+            ids.txt
+          retention-days: 3
