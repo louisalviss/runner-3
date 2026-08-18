@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wordpress-edge-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-18",
+  "workers_dev": true,
+  "vars": {
+    "ORIGIN": "https://runner3-factory-smoke-2.wasmer.app"
+  }
+}
