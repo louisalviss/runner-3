@@ -73,9 +73,11 @@ export default {
       redirect: 'manual',
     });
 
-    const fetchOptions = bypass
-      ? { cf: { cacheEverything: false, cacheTtl: 0 } }
-      : {
+    // `cache: no-store` is the hard bypass path for authenticated/dynamic traffic.
+    // Do not merely set cacheTtl=0: an existing cached object may still be reused.
+    const upstream = bypass
+      ? await fetch(upstreamRequest, { cache: 'no-store' })
+      : await fetch(upstreamRequest, {
           cf: {
             cacheEverything: true,
             cacheTtl: ttl,
@@ -86,9 +88,8 @@ export default {
               '500-599': 0,
             },
           },
-        };
+        });
 
-    const upstream = await fetch(upstreamRequest, fetchOptions);
     const outHeaders = new Headers(upstream.headers);
     rewriteLocation(outHeaders, origin, incoming.origin);
     outHeaders.set('X-Edge-Proxy', 'cloudflare-worker');
