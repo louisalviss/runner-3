@@ -21,10 +21,13 @@ jobs:
           test "$(sha256sum /tmp/wr.pine | awk '{print $1}')" = "9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026"
           python3 - <<'PY'
           p=open('/tmp/wr.pine').read()
+          # User-entered TradingView times are Vietnam local midnight (UTC+7):
+          # 2026-08-05 00:00 VN = 1785862800000
+          # 2026-08-10 00:00 VN = 1786294800000 (exclusive)
           p=p.replace('1785171600000','1785862800000',1).replace('1786813200000','1786294800000',1)
           open('/tmp/wr-live.pine','w').write(p)
           PY
-      - name: Run exact user symbols
+      - name: Run exact USDT perpetual symbols
         shell: bash
         run: |
           set -euo pipefail
@@ -43,7 +46,7 @@ jobs:
               await page.waitForTimeout(12000);
               let body=await page.locator('body').innerText().catch(()=> '');
               log(label+'_AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'FAIL'));
-              log(label+'_SYMBOL_TEXT='+(body.includes(symbol.replace('.P',''))?'PASS':'CHECK'));
+              log(label+'_URL='+page.url());
               const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(6500);
               const ta=page.locator('.monaco-editor textarea').last();
               const source=fs.readFileSync('/tmp/wr-live.pine','utf8');
@@ -54,18 +57,18 @@ jobs:
               const closes=page.locator('button[aria-label="Close"]'); for(let i=0;i<await closes.count();i++){const el=closes.nth(i); if(!await el.isVisible().catch(()=>false)) continue; const b=await el.boundingBox().catch(()=>null); if(b&&b.x>1500&&b.y<100){await el.click({force:true});break;}}
               await page.waitForTimeout(5000); await page.screenshot({path:file,fullPage:false}); await page.close();
             }
-            await run('BNBUSD.P','BNBUSD','/tmp/bnbusd.png');
-            await run('TRXUSD.P','TRXUSD','/tmp/trxusd.png');
+            await run('BNBUSDT.P','BNBUSDT','/tmp/bnbusdt.png');
+            await run('TRXUSDT.P','TRXUSDT','/tmp/trxusdt.png');
             fs.writeFileSync('/tmp/result.txt',out.join('\n')+'\n'); await browser.close();
           })().catch(e=>{log('ERROR='+e.stack);fs.writeFileSync('/tmp/result.txt',out.join('\n')+'\n');process.exit(7)});
           NODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tv-wr-usd-symbol-crosscheck
+          name: tv-wr-vn-window-usdt-crosscheck
           path: |
-            /tmp/bnbusd.png
-            /tmp/trxusd.png
+            /tmp/bnbusdt.png
+            /tmp/trxusdt.png
             /tmp/result.txt
           retention-days: 1
       - if: always()
