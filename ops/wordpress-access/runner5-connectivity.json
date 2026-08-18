@@ -1,0 +1,60 @@
+{
+  "status": "READY",
+  "targets": [
+    {
+      "url": "https://runner5-restore-lab-1.wasmer.app/",
+      "host": "runner5-restore-lab-1.wasmer.app",
+      "dns": [
+        "2001:41d0:20a:800::fa3",
+        "51.178.223.162"
+      ],
+      "tls": {
+        "version": "TLSv1.3",
+        "subject": [
+          [
+            [
+              "commonName",
+              "*.wasmer.app"
+            ]
+          ]
+        ],
+        "notAfter": "Nov 12 13:07:40 2026 GMT"
+      },
+      "http_error": "TimeoutError('The read operation timed out')",
+      "browser": {
+        "error": "page.goto: Timeout 45000ms exceeded.\nCall log:\n  - navigating to \"https://runner5-restore-lab-1.wasmer.app/\", waiting until \"domcontentloaded\"\n",
+        "final_url": "https://runner5-restore-lab-1.wasmer.app/"
+      }
+    },
+    {
+      "url": "https://runner5-restore-proxy.ducduy2411.workers.dev/",
+      "host": "runner5-restore-proxy.ducduy2411.workers.dev",
+      "dns": [
+        "104.21.92.178",
+        "172.67.197.19",
+        "2606:4700:3032::ac43:c513",
+        "2606:4700:3037::6815:5cb2"
+      ],
+      "tls": {
+        "version": "TLSv1.3",
+        "subject": [
+          [
+            [
+              "commonName",
+              "ducduy2411.workers.dev"
+            ]
+          ]
+        ],
+        "notAfter": "Oct  7 20:58:40 2026 GMT"
+      },
+      "http_error": "TimeoutError('The read operation timed out')",
+      "browser": {
+        "status": 200,
+        "final_url": "https://runner5-restore-proxy.ducduy2411.workers.dev/",
+        "title": "Runner5 Restore Lab Demo – Controlled backup and restore verification site",
+        "body_marker": true
+      }
+    }
+  ],
+  "updatedAt": "2026-08-18T12:32:31.687Z"
+}
