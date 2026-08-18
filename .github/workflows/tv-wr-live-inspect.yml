@@ -1,14 +1,12 @@
 name: TV WR Live Inspect
 
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/tv-wr-live-inspect.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   inspect:
@@ -40,7 +38,6 @@ jobs:
           const crypto=require('crypto');
           const {chromium}=require('playwright-core');
           (async()=>{
-            const out=[]; const add=(k,v)=>{out.push(`${k}=${v}`); console.log(`${k}=${v}`)};
             const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
             const executablePath=exes.find(p=>fs.existsSync(p));
             if(!executablePath) throw new Error('Chrome/Chromium missing');
@@ -53,19 +50,19 @@ jobs:
             const body0=await page.locator('body').innerText().catch(()=> '');
             const cookies=await context.cookies();
             const hasAuthCookie=cookies.some(c=>/(^|\.)tradingview\.com$/i.test(c.domain.replace(/^\./,'')) && /session/i.test(c.name) && c.value);
-            add('AUTH_COOKIE',hasAuthCookie?'PASS':'FAIL');
-            add('HAS_SIGNIN',/\bSign in\b/i.test(body0)?'YES':'NO');
-            add('CHART_HAS_BNB',body0.includes('BNBUSDT')?'YES':'NO');
+            console.log('AUTH_COOKIE='+(hasAuthCookie?'PASS':'FAIL'));
+            console.log('HAS_SIGNIN='+(/\bSign in\b/i.test(body0)?'YES':'NO'));
+            console.log('CHART_HAS_BNB='+(body0.includes('BNBUSDT')?'YES':'NO'));
             const pineCandidates=page.getByText('Pine Editor',{exact:true});
-            add('PINE_EDITOR_COUNT',await pineCandidates.count());
+            console.log('PINE_EDITOR_COUNT='+await pineCandidates.count());
             if(await pineCandidates.count()){
               await pineCandidates.first().click().catch(()=>{});
               await page.waitForTimeout(6000);
             }
             const body=await page.locator('body').innerText().catch(()=> '');
-            add('HAS_WR_WINDOW_TITLE',body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO');
-            add('HAS_WR_SHORTTITLE',body.includes('WR 2.5.13 WIN')?'YES':'NO');
-            add('HAS_STRATEGY_TESTER',body.includes('Strategy Tester')?'YES':'NO');
+            console.log('HAS_WR_WINDOW_TITLE='+(body.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'));
+            console.log('HAS_WR_SHORTTITLE='+(body.includes('WR 2.5.13 WIN')?'YES':'NO'));
+            console.log('HAS_STRATEGY_TESTER='+(body.includes('Strategy Tester')?'YES':'NO'));
             let code='';
             const ta=page.locator('.monaco-editor textarea').first();
             if(await ta.count()){
@@ -75,28 +72,17 @@ jobs:
               await page.waitForTimeout(500);
               code=await page.evaluate(()=>navigator.clipboard.readText()).catch(()=> '');
             }
-            add('EDITOR_CODE_LEN',code.length);
-            add('EDITOR_SHA256',code?crypto.createHash('sha256').update(code).digest('hex'):'NONE');
-            add('EDITOR_HAS_WINDOW',code.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO');
+            console.log('EDITOR_CODE_LEN='+code.length);
+            console.log('EDITOR_SHA256='+(code?crypto.createHash('sha256').update(code).digest('hex'):'NONE'));
+            console.log('EDITOR_HAS_WINDOW='+(code.includes('Wave Rider Strategy v2.5.13 WINDOW REPORT')?'YES':'NO'));
             const lines=body.split('\n').map(x=>x.trim()).filter(Boolean);
-            const hits=lines.filter(x=>/Wave Rider|WR 2\.5\.13|Pine Editor|Strategy Tester|BNBUSDT/i.test(x)).slice(0,80);
-            fs.writeFileSync('/tmp/tv-result.txt',out.concat(['TEXT_HITS_BEGIN',...hits,'TEXT_HITS_END']).join('\n')+'\n');
+            console.log('TEXT_HITS_BEGIN');
+            console.log(lines.filter(x=>/Wave Rider|WR 2\.5\.13|Pine Editor|Strategy Tester|BNBUSDT/i.test(x)).slice(0,80).join('\n'));
+            console.log('TEXT_HITS_END');
             await page.screenshot({path:'/tmp/tv-inspect.png',fullPage:false});
             await browser.close();
-          })().catch(e=>{fs.writeFileSync('/tmp/tv-result.txt','ERROR='+e.stack+'\n');console.error(e);process.exit(7)});
+          })().catch(e=>{console.error('TV_INSPECT_ERROR='+e.stack);process.exit(7)});
           NODE
-      - name: Persist inspector result
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ops/tradingview
-          cp /tmp/tv-result.txt ops/tradingview/tv-wr-live-inspect-result.txt
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add ops/tradingview/tv-wr-live-inspect-result.txt
-          git commit -m 'chore: record temporary TradingView inspector result' || true
-          git push origin HEAD:main
       - uses: actions/upload-artifact@v4
         if: always()
         with:
