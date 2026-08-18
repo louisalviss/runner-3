@@ -20,7 +20,6 @@ jobs:
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/louisalviss/runner-3/actions/artifacts/9332939735/zip" \
             -o /tmp/wr2515-5m-tv-tick-final.zip
-          ls -lh /tmp/wr2515-5m-tv-tick-final.zip
           sha256sum /tmp/wr2515-5m-tv-tick-final.zip
       - name: Upload ZIP to Dropbox File Request
         shell: bash
@@ -30,7 +29,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install -q selenium
-          google-chrome --version
           cat > /tmp/upload.py <<'PY'
           import os,time
           from selenium import webdriver
@@ -50,70 +48,36 @@ jobs:
               time.sleep(4)
               print('TITLE',d.title)
 
-              def dump_inputs(tag):
-                  fis=d.find_elements(By.CSS_SELECTOR,'input[type=file]')
-                  print(tag,'FILE_INPUT_COUNT',len(fis))
-                  for i,el in enumerate(fis):
-                      try:
-                          print(tag,'INPUT',i,'displayed',el.is_displayed(),'enabled',el.is_enabled(),'outer',el.get_attribute('outerHTML')[:1000])
-                      except Exception as e: print(tag,'INPUT_ERR',i,repr(e))
-                  return fis
+              # Activate Dropbox's normal Add files -> Files from computer flow first.
+              add=WebDriverWait(d,20).until(lambda x: next((b for b in x.find_elements(By.XPATH,"//button|//*[@role='button']") if b.is_displayed() and 'add files' in (b.text or '').strip().lower()),None))
+              d.execute_script('arguments[0].click()',add)
+              time.sleep(1)
+              comp=WebDriverWait(d,20).until(lambda x: next((b for b in x.find_elements(By.XPATH,"//button|//*[@role='button']|//*[@role='menuitem']") if b.is_displayed() and 'files from computer' in (b.text or '').strip().lower()),None))
+              d.execute_script('arguments[0].click()',comp)
+              time.sleep(1)
 
-              dump_inputs('INITIAL')
+              # IMPORTANT: use the file input, never uploader-folder-field.
+              inp=WebDriverWait(d,20).until(lambda x: x.find_element(By.ID,'uploader-file-field'))
+              print('FILE_INPUT',inp.get_attribute('outerHTML'))
+              inp.send_keys(f)
+              time.sleep(3)
+              cnt=d.execute_script('return arguments[0].files.length',inp)
+              names=d.execute_script('return Array.from(arguments[0].files).map(x=>x.name)',inp)
+              print('FILELIST',cnt,names)
+              if cnt!=1 or filename not in names: raise RuntimeError('Correct file input did not retain ZIP')
 
-              # Drive the visible Dropbox flow first. Some builds expose a menu item after Add files.
-              add=None
-              for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
-                  try:
-                      txt=(b.text or '').strip().lower()
-                      if b.is_displayed() and ('add files' in txt or txt=='add file'):
-                          add=b;print('ADD_BUTTON',repr(txt));break
-                  except Exception: pass
-              if add is not None:
-                  try:d.execute_script('arguments[0].click()',add)
-                  except Exception:add.click()
-                  time.sleep(2)
-                  print('BODY_AFTER_ADD',d.find_element(By.TAG_NAME,'body').text[-1500:])
-                  for b in d.find_elements(By.XPATH,"//button|//*[@role='button']|//*[@role='menuitem']"):
-                      try:
-                          txt=(b.text or '').strip().lower()
-                          if b.is_displayed() and any(x in txt for x in ['files from computer','choose files','select files','computer']):
-                              print('COMPUTER_ITEM',repr(txt))
-                              try:d.execute_script('arguments[0].click()',b)
-                              except Exception:b.click()
-                              time.sleep(1);break
-                      except Exception: pass
-
-              fis=dump_inputs('AFTER_ADD')
-              if not fis: raise RuntimeError('No file input after Add files flow')
-
-              selected=False
-              # Try newest/last input first, then every remaining candidate. Validate via FileList or rendered filename.
-              order=list(range(len(fis)-1,-1,-1))
-              for i in order:
-                  el=fis[i]
-                  try:
-                      d.execute_script("arguments[0].removeAttribute('webkitdirectory'); arguments[0].style.display='block'; arguments[0].style.visibility='visible';",el)
-                      el.send_keys(f)
-                      time.sleep(3)
-                      cnt=d.execute_script('return arguments[0].files ? arguments[0].files.length : -1',el)
-                      names=d.execute_script('return arguments[0].files ? Array.from(arguments[0].files).map(x=>x.name) : []',el)
-                      body=d.find_element(By.TAG_NAME,'body').text
-                      print('TRY_INPUT',i,'FILE_COUNT',cnt,'NAMES',names,'BODY_HAS_FILENAME',filename in body)
-                      if cnt and cnt>0:
-                          selected=True;break
-                  except Exception as e:
-                      print('SENDKEY_ERR',i,repr(e))
-              if not selected: raise RuntimeError('Could not attach ZIP to any Dropbox file input')
-
-              # Give React time to render post-selection fields/buttons.
-              for _ in range(20):
+              # Wait until Dropbox UI has acknowledged the selected filename.
+              acknowledged=False
+              for _ in range(30):
                   body=d.find_element(By.TAG_NAME,'body').text
-                  if filename in body: break
+                  if filename in body:
+                      acknowledged=True;break
                   time.sleep(1)
-              print('BODY_AFTER_SELECT',d.find_element(By.TAG_NAME,'body').text[-2500:])
+              print('ACK_FILENAME',acknowledged)
+              print('BODY_AFTER_SELECT',d.find_element(By.TAG_NAME,'body').text[-3000:])
+              if not acknowledged: raise RuntimeError('Dropbox did not render selected filename')
 
-              # Fill uploader identity if requested.
+              # Fill anonymous uploader identity if Dropbox asks for it.
               for el in d.find_elements(By.CSS_SELECTOR,'input'):
                   try:
                       if not el.is_displayed() or el.get_attribute('type')=='file': continue
@@ -125,9 +89,9 @@ jobs:
                           if not el.get_attribute('value'): el.send_keys('alviss louis')
                   except Exception as e: print('IDENTITY_ERR',repr(e))
 
-              # Print and click the explicit final submit/upload control.
+              # Dropbox may label the final action Upload, Submit, or Upload 1 file.
               clicked=False
-              for _ in range(20):
+              for _ in range(30):
                   buttons=[]
                   for b in d.find_elements(By.XPATH,"//button|//*[@role='button']"):
                       try:
@@ -138,22 +102,20 @@ jobs:
                       low=txt.lower()
                       if en and (low in {'upload','submit','send'} or low.startswith('upload ') or low.startswith('submit ')):
                           print('CLICK_FINAL',repr(txt))
-                          try:d.execute_script('arguments[0].click()',b)
-                          except Exception:b.click()
+                          d.execute_script('arguments[0].click()',b)
                           clicked=True;break
-                  if clicked: break
+                  if clicked:break
                   time.sleep(1)
-              if not clicked: raise RuntimeError('ZIP attached but no enabled final Upload/Submit control appeared')
+              if not clicked: raise RuntimeError('No enabled final upload control')
 
               ok=False
-              for _ in range(90):
+              for _ in range(120):
                   body=d.find_element(By.TAG_NAME,'body').text.lower()
                   if any(x in body for x in ['upload complete','uploaded successfully','files uploaded','thanks for uploading','finished uploading','successfully uploaded','upload another file']):
                       ok=True;print('SUCCESS_TEXT');break
                   time.sleep(2)
-              print('FINAL_URL',d.current_url)
               print('FINAL_BODY',d.find_element(By.TAG_NAME,'body').text[-3000:])
-              if not ok: raise RuntimeError('Dropbox upload success not detected after submit')
+              if not ok: raise RuntimeError('Upload submit did not reach success state')
           finally:
               d.quit()
           PY
