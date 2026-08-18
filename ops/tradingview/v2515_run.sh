@@ -1,54 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cp ops/tradingview/reference_verify_v2515_tmp.py /tmp/reference_verify_v2.5.15.py
-export WR_SYMBOL=TRXUSDT WR_TF=5 WR_QTY_STEP=1 WR_STATE_START='2026-07-28T00:00:00+07:00' WR_REPORT_START='2026-08-10T00:00:00+07:00' WR_REPORT_END='2026-08-16T00:00:00+07:00'
-mkdir -p /tmp/pyproof
-python3 - <<'PY' | tee /tmp/python-summary.txt
-import importlib.util,sys,json,math
-from datetime import datetime
-spec=importlib.util.spec_from_file_location('wrdiag','/tmp/reference_verify_v2.5.15.py'); m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
-one,tick,missing=m.fetch_1m(); bars=m.agg(one,5)
-state_ms=int(datetime.fromisoformat(m.STATE_START).timestamp()*1000); bars=[x for x in bars if x.ot>=state_ms]; ind,_,_=m.calc_ind(bars)
-start_trace=int(datetime.fromisoformat('2026-08-12T00:00:00+00:00').timestamp()*1000)
-end_trace=int(datetime.fromisoformat('2026-08-15T00:00:00+00:00').timestamp()*1000)
-target_lo=int(datetime.fromisoformat('2026-08-14T19:00:00+00:00').timestamp()*1000); target_hi=int(datetime.fromisoformat('2026-08-14T19:35:00+00:00').timestamp()*1000)
-eq=m.INIT; pending=active=None; entry_t=None; events=[]
-def ev(kind,i,**kw):
-    x=bars[i]
-    rec=dict(kind=kind,ot=m.iso(x.ot),ct=m.iso(x.ct),**kw); events.append(rec)
-    if x.ct>=start_trace: print('EVENT',json.dumps(rec,sort_keys=True))
-def close(i,reason,px):
-    global active,entry_t,eq
-    cr=m.TP_R if reason=='TP' else (-1.0 if reason=='SL' else ((px-active.e)*(1 if active.d==1 else -1)*active.qty/active.risk))
-    ev('EXIT',i,reason=reason,side='LONG' if active.d==1 else 'SHORT',signal=m.iso(active.sig_t),entry=m.iso(entry_t),px=px,r=cr)
-    eq+=cr*active.risk; active=None;entry_t=None
-for i,x in enumerate(bars):
-    closed=False
-    if active is not None:
-        r,px=m.next_bracket(active,x,None)
-        if r: close(i,r,px);closed=True
-    if active is None and pending is not None and i==pending.sig_i+1 and not closed:
-        fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)
-        if fill:
-            active=pending;pending=None;entry_t=x.ot;ev('FILL',i,side='LONG' if active.d==1 else 'SHORT',signal=m.iso(active.sig_t),entry_px=active.e,stop=active.s,target=active.t)
-            r,px=m.next_bracket(active,x,active.e)
-            if r: close(i,r,px);closed=True
-    allowed,sexit=m.session_flags(x.ct,5*60000)
-    if active is not None and not closed:
-        z=ind[i]; le=active.d==1 and x.c<z['ema'] and not z['ha'] and not z['ema_up']; se=active.d==-1 and x.c>z['ema'] and not z['hb'] and bool(z['ema_up'])
-        if sexit: close(i,'SESSION',x.c);closed=True
-        elif le or se: close(i,'EMA',x.c);closed=True
-    if pending is not None and i>=pending.sig_i+1 and active is None:
-        ev('PENDING_EXPIRE',i,side='LONG' if pending.d==1 else 'SHORT',signal=m.iso(pending.sig_t));pending=None
-    z=ind[i]; lr=z['ha'] and x.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None; sr=z['hb'] and x.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
-    nl=allowed and z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=allowed and z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']
-    if target_lo<=x.ct<=target_hi:
-        print('TARGETSTATE',json.dumps(dict(ct=m.iso(x.ct),nl=nl,ns=ns,closed=closed,active=None if active is None else dict(side='L' if active.d==1 else 'S',signal=m.iso(active.sig_t),e=active.e,s=active.s,t=active.t),pending=None if pending is None else dict(side='L' if pending.d==1 else 'S',signal=m.iso(pending.sig_t),e=pending.e)),sort_keys=True))
-    if active is None and pending is None and not closed and (nl or ns):
-        if nl: d=1;e=x.h+tick;s=x.l-tick;t=e+m.TP_R*(e-s)
-        else: d=-1;e=x.l-tick;s=x.h+tick;t=e-m.TP_R*(s-e)
-        raw=(eq*m.RISK_PCT/100)/abs(e-s);q=math.floor(raw/m.QTY_STEP)*m.QTY_STEP;risk=abs(e-s)*q
-        if q>0 and risk>0:
-            pending=m.Plan(d,e,s,t,risk,q,i,x.ct,x.h,x.l);ev('SIGNAL',i,side='LONG' if d==1 else 'SHORT',e=e,s=s,t=t)
-open('/tmp/pyproof/W2_TRX_state_events.json','w').write(json.dumps(events,indent=2))
+python3 - <<'PY'
+from pathlib import Path
+import hashlib
+p=Path('/tmp/reference_verify_v2.5.15.py').read_text()
+old="fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)"
+new="eps=tick*1e-6; fill=(pending.d==1 and x.h+eps>=pending.e) or (pending.d==-1 and x.l-eps<=pending.e)"
+assert p.count(old)==1
+p=p.replace(old,new,1)
+Path('/tmp/reference_verify_v2.5.15.py').write_text(p)
+print('VERIFIER_TICK_TOL_SHA256='+hashlib.sha256(p.encode()).hexdigest())
 PY
+mkdir -p /tmp/pyproof
+case1(){ sym="$1"; s="$2"; e="$3"; tag="$4"; step=1; [ "$sym" = BNBUSDT ] && step=0.01; rm -rf wave-rider-verify/output; WR_SYMBOL="$sym" WR_TF=5 WR_QTY_STEP="$step" WR_STATE_START='2026-07-28T00:00:00+07:00' WR_REPORT_START="$s" WR_REPORT_END="$e" python3 /tmp/reference_verify_v2.5.15.py >"/tmp/pyproof/${tag}_${sym}.json"; cp "wave-rider-verify/output/${sym}_5m_trades.csv" "/tmp/pyproof/${tag}_${sym}_trades.csv"; }
+case1 BNBUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1
+case1 TRXUSDT 2026-08-05T00:00:00+07:00 2026-08-10T00:00:00+07:00 W1
+case1 BNBUSDT 2026-08-10T00:00:00+07:00 2026-08-16T00:00:00+07:00 W2
+case1 TRXUSDT 2026-08-10T00:00:00+07:00 2026-08-16T00:00:00+07:00 W2
+python3 - <<'PY' | tee /tmp/python-summary.txt
+import glob,json,os,math
+expect={
+'W1_BNBUSDT.json':(5,3.420895522388211),
+'W1_TRXUSDT.json':(4,2.6),
+'W2_BNBUSDT.json':(3,6.9),
+'W2_TRXUSDT.json':(2,-2.0),
+}
+allpass=True
+for f in sorted(glob.glob('/tmp/pyproof/*.json')):
+ d=json.load(open(f));q=d['summary'][0]; name=os.path.basename(f); exp=expect[name]; ok=q['trades']==exp[0] and math.isclose(q['total_r'],exp[1],abs_tol=1e-9); allpass &= ok
+ print(name,f"TRADES={q['trades']}",f"TOTAL_R={q['total_r']}",f"EXPECTED={exp}",f"PASS={ok}")
+print('PARITY_4_WINDOWS='+('PASS' if allpass else 'FAIL'))
+print('\nW2_TRX_TRADES')
+print(open('/tmp/pyproof/W2_TRXUSDT_trades.csv').read())
+if not allpass: raise SystemExit(9)
+PY
+sha256sum /tmp/reference_verify_v2.5.15.py > /tmp/pyproof/SHA256.txt
