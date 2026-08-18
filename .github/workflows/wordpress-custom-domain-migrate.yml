@@ -1,0 +1,97 @@
+name: WordPress Custom Domain Migrate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-custom-domain-migrate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-custom-domain-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_OWNER: runner3wp0b90f6b4ab
+      SOURCE_APP: runner3-wp-a94b8fd2
+      TARGET_APP: runner3-factory-smoke-2
+      TARGET_ORIGIN: https://runner3-factory-smoke-2.wasmer.app
+      TARGET_DOMAIN: runner3wp.pntr.dev
+      OUT: /tmp/runner3wp-domain-migration.json
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Move custom domain to canonical app
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/wasmer-migrate-custom-domain.mjs
+
+      - name: Persist migration verification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$OUT" || echo '{"status":"failed","detail":"migration_status_missing"}' > "$OUT"
+          cp "$OUT" /tmp/runner3wp-domain-migration-safe.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/custom-domain/migration/runs
+            cp /tmp/runner3wp-domain-migration-safe.json ops/custom-domain/migration/runner3wp.latest.json
+            cp /tmp/runner3wp-domain-migration-safe.json "ops/custom-domain/migration/runs/runner3wp.${GITHUB_RUN_ID}.json"
+            git add ops/custom-domain/migration
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist runner3wp domain migration: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 5
+
+      - name: Require successful merge
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          p=json.load(open(os.environ['OUT']))
+          assert p.get('status') == 'ok', p
+          assert p.get('detached') is True, p
+          assert p.get('attached') is True and p.get('targetValid') is True, p
+          assert p.get('publicHttp') == 200, p
+          assert p.get('publicHasExpectedContent') is True, p
+          assert p.get('publicHasNoindex') is True, p
+          assert p.get('xEdgeSnapshot') is None, p
+          print(json.dumps(p,indent=2))
+          PY
