@@ -1,9 +1,9 @@
 name: Lengziyu Market Probe
 
 on:
-  push:
+  pull_request:
     paths:
-      - '.github/workflows/lengziyu-market-probe.yml'
+      - '.probe-trigger'
   workflow_dispatch:
 
 permissions:
@@ -11,138 +11,49 @@ permissions:
 
 jobs:
   probe:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
-      - name: Prepare
+      - name: Fetch official Lengziyu catalog API
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf probe/lengziyu-current
-          mkdir -p probe/lengziyu-current/assets
-          python -m pip install --quiet requests beautifulsoup4
-
-      - name: Static fetch and asset discovery
-        shell: bash
-        run: |
-          set -euo pipefail
+          mkdir -p probe/lengziyu-current
           python - <<'PY'
-          import json,re,os,urllib.parse,requests
-          from bs4 import BeautifulSoup
-          outdir='probe/lengziyu-current'
-          base='https://card.lengziyu.cn'
-          s=requests.Session()
-          s.headers.update({'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'})
-          out={}
-          for path in ['/','/market','/ranking','/robots.txt','/sitemap.xml']:
-              url=base+path
-              try:
-                  r=s.get(url,timeout=30,allow_redirects=True)
-                  key=path.strip('/').replace('/','_') or 'root'
-                  open(f'{outdir}/{key}.html','wb').write(r.content)
-                  out[path]={'status':r.status_code,'url':r.url,'content_type':r.headers.get('content-type'),'length':len(r.content),'headers':dict(r.headers)}
-                  if 'text/html' in r.headers.get('content-type',''):
-                      soup=BeautifulSoup(r.text,'html.parser')
-                      for tag,attr in [('script','src'),('link','href')]:
-                          for el in soup.find_all(tag):
-                              v=el.get(attr)
-                              if not v: continue
-                              u=urllib.parse.urljoin(r.url,v)
-                              if u.startswith(base) and any(x in u for x in ['.js','.css']):
-                                  try:
-                                      a=s.get(u,timeout=30)
-                                      fn=re.sub(r'[^A-Za-z0-9._-]+','_',urllib.parse.urlparse(u).path.strip('/'))[-180:] or 'asset'
-                                      open(f'{outdir}/assets/'+fn,'wb').write(a.content)
-                                  except Exception:
-                                      pass
-              except Exception as e:
-                  out[path]={'error':repr(e)}
-          open(f'{outdir}/static_summary.json','w').write(json.dumps(out,ensure_ascii=False,indent=2))
+          import json, requests, datetime
+          url='https://card.lengziyu.cn/api/cards'
+          r=requests.get(url, params={'offset':0,'limit':500}, timeout=60, headers={'User-Agent':'Mozilla/5.0'})
+          r.raise_for_status()
+          data=r.json()
+          open('probe/lengziyu-current/cards.json','w',encoding='utf-8').write(json.dumps(data,ensure_ascii=False,indent=2))
+          items=data.get('items',[]) if isinstance(data,dict) else []
+          compact=[]
+          for x in items:
+              if not isinstance(x,dict): continue
+              compact.append({k:x.get(k) for k in ['id','name','issuer','category','suffix','meta','sourceUrl','kycDocuments','launchTimestamp','createdAt','catalogKind','productKind']})
+          summary={'fetchedAtUtc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'status':r.status_code,'count':len(items),'total':data.get('total') if isinstance(data,dict) else None,'items':compact}
+          open('probe/lengziyu-current/catalog-summary.json','w',encoding='utf-8').write(json.dumps(summary,ensure_ascii=False,indent=2))
+          print(json.dumps({'status':r.status_code,'count':len(items),'total':summary['total']},ensure_ascii=False))
           PY
 
-      - name: Browser network probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd /tmp
-          npm init -y >/dev/null 2>&1
-          npm install playwright-core@latest >/dev/null 2>&1
-          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
-          test -n "$CHROME"
-          cat > probe.mjs <<'JS'
-          import { chromium } from 'playwright-core';
-          import fs from 'fs';
-          const chrome=process.env.CHROME;
-          const out='/home/runner/work/runner-3/runner-3/probe/lengziyu-current';
-          const browser=await chromium.launch({headless:true, executablePath:chrome, args:['--no-sandbox']});
-          const context=await browser.newContext({userAgent:'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'});
-          const page=await context.newPage();
-          const rows=[];
-          page.on('response', async r=>{
-            const u=r.url();
-            const ct=(r.headers()['content-type']||'');
-            const rec={url:u,status:r.status(),contentType:ct,method:r.request().method(),resourceType:r.request().resourceType()};
-            if (/json|javascript|text\//i.test(ct) || /api|card|market|supabase|firebase/i.test(u)) {
-              try {
-                const b=await r.body();
-                if(b.length<5_000_000) rec.body=b.toString('utf8');
-                else rec.bodyLength=b.length;
-              } catch{}
-            }
-            rows.push(rec);
-          });
-          let result={};
-          try {
-            const resp=await page.goto('https://card.lengziyu.cn/market',{waitUntil:'networkidle',timeout:90000});
-            await page.waitForTimeout(5000);
-            result={status:resp?.status(),url:page.url(),title:await page.title(),html:await page.content(),text:(await page.locator('body').innerText()).slice(0,700000)};
-            result.links=await page.locator('a').evaluateAll(as=>as.map(a=>({href:a.href,text:(a.innerText||'').trim()})).filter(x=>x.href));
-          } catch(e) { result.error=String(e); }
-          fs.writeFileSync(out+'/browser_page.json',JSON.stringify(result,null,2));
-          fs.writeFileSync(out+'/network.json',JSON.stringify(rows,null,2));
-          await browser.close();
-          JS
-          CHROME="$CHROME" node probe.mjs
-
-      - name: Extract card slugs endpoints and names
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json,re,glob,os
-          out='probe/lengziyu-current'
-          texts=[]
-          for f in glob.glob(out+'/**/*',recursive=True):
-              if os.path.isfile(f):
-                  try: texts.append(open(f,encoding='utf-8',errors='ignore').read())
-                  except: pass
-          t='\n'.join(texts)
-          slugs=sorted(set(re.findall(r'/card/([A-Za-z0-9._~-]+)',t)))
-          urls=sorted(set(re.findall(r'https?://[^\"\'<>\\s]+',t)))
-          endpoints=sorted(set(re.findall(r'(?:(?:https?://[^\"\'<>\\s]+)|(?:/[A-Za-z0-9._~!$&()*+,;=:@%/-]+))(?:api|graphql|supabase|firebase|cards?|market)[A-Za-z0-9._~!$&()*+,;=:@%/?#=-]*',t,re.I)))
-          open(out+'/card_slugs.txt','w').write('\n'.join(slugs))
-          open(out+'/discovered_urls.txt','w').write('\n'.join(urls))
-          open(out+'/endpoints.txt','w').write('\n'.join(endpoints))
-          open(out+'/probe_counts.json','w').write(json.dumps({'card_slugs':len(slugs),'urls':len(urls),'endpoints':len(endpoints)},indent=2))
-          print('slugs',len(slugs),'urls',len(urls),'endpoints',len(endpoints))
-          PY
-
-      - name: Publish probe results to repo
+      - name: Publish snapshot to PR branch
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add probe/lengziyu-current
-          if git diff --cached --quiet; then
-            echo 'No changes'
-            exit 0
-          fi
-          git commit -m 'Update Lengziyu market probe snapshot'
-          git push
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Update Lengziyu catalog snapshot'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
 
-      - name: Upload probe artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: lengziyu-market-probe
