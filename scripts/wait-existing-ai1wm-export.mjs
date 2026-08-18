@@ -1,9 +1,12 @@
 import { chromium } from 'playwright-core';
 import fs from 'fs';
+import crypto from 'crypto';
 
 const slug='runner5-restore-lab-1';
 const site=JSON.parse(fs.readFileSync(`ops/site-factory/${slug}.json`,'utf8'));
 const backup=JSON.parse(fs.readFileSync(`ops/restore-lab/${slug}.backup.json`,'utf8'));
+let priorRestore={};
+try{priorRestore=JSON.parse(fs.readFileSync(`ops/restore-lab/${slug}.restore.json`,'utf8'));}catch{}
 const account=JSON.parse(fs.readFileSync('/tmp/wasmer-account.json','utf8'));
 const base=String(site.siteUrl||`https://${slug}.wasmer.app/`).replace(/\/$/,'');
 const dashboard=site.dashboardUrl||`https://wasmer.io/apps/${encodeURIComponent(site.owner)}/${encodeURIComponent(site.appName||slug)}`;
@@ -11,12 +14,17 @@ const out='/tmp/runner5-restore-lab-restore.json';
 const backupName=String(backup.backupName||'').trim();
 if(backup.status!=='BACKUP_READY'||!backupName) throw new Error('verified_backup_missing');
 
+const baseline={
+  title:priorRestore?.baseline?.title||'Runner5 Restore Lab Demo',
+  postSlug:priorRestore?.baseline?.postSlug||'restore-lab-article-1',
+  pageSlug:priorRestore?.baseline?.pageSlug||'restore-lab-case-study'
+};
 const safe={
   status:'starting',siteSlug:slug,siteUrl:base+'/',backupName,backupSha256:backup.sha256||null,
   stage:'init',authMode:'wp-admin-cookie-nonce',restNonce:false,
-  baseline:{title:null,postSlug:'restore-lab-article-1',pageSlug:'restore-lab-case-study',postId:null,pageId:null},
-  mutation:{title:null,titleChanged:false,postDeleted:false,pageDeleted:false,verified:false},
-  restore:{requestStatus:null,responseSummary:null,verified:false,elapsedSeconds:null},
+  baseline,
+  preRecovery:null,
+  recovery:{backupDownloaded:false,backupBytes:0,backupSha256:null,importJobId:null,secretKey:false,uploadStatus:null,confirmStatus:null,verified:false,elapsedSeconds:null},
   detail:null,updatedAt:new Date().toISOString()
 };
 const save=()=>{safe.updatedAt=new Date().toISOString();fs.writeFileSync(out,JSON.stringify(safe,null,2));};
@@ -66,58 +74,84 @@ async function api(ctx,nonce,path,{method='GET',json=null,soft=false,timeout=600
   const headers={'X-WP-Nonce':nonce,Accept:'application/json'};let data;if(json!==null){headers['Content-Type']='application/json';data=JSON.stringify(json);}
   const r=await ctx.request.fetch(`${base}/wp-json${path}`,{method,headers,data,timeout,failOnStatusCode:false});
   const t=await r.text();let d;try{d=JSON.parse(t);}catch{d=t;}
-  if(!r.ok()){if(soft)return{ok:false,status:r.status(),data:d};throw new Error(`api_${method}_${path}:${r.status()}:${String(t).slice(0,240)}`);}return soft?{ok:true,status:r.status(),data:d}:d;
+  if(!r.ok()){if(soft)return{ok:false,status:r.status(),data:d};throw new Error(`api_${method}_${path}:${r.status()}:${String(t).slice(0,260)}`);}return soft?{ok:true,status:r.status(),data:d}:d;
 }
 async function publicJson(path,timeout=45000){
   const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),timeout);
   try{const r=await fetch(`${base}${path}`,{headers:{Accept:'application/json','Cache-Control':'no-cache'},redirect:'follow',signal:ctrl.signal});const t=await r.text();let d;try{d=JSON.parse(t);}catch{d=t;}return{ok:r.ok,status:r.status,data:d};}catch(e){return{ok:false,status:0,data:String(e.message||e)};}finally{clearTimeout(timer);}
 }
-function arrFirst(v){return Array.isArray(v)&&v.length?v[0]:null;}
-function summary(v){try{return JSON.stringify(v).slice(0,500);}catch{return String(v).slice(0,500);}}
+function stringsDeep(v,out=[]){if(typeof v==='string')out.push(v);else if(Array.isArray(v))for(const x of v)stringsDeep(x,out);else if(v&&typeof v==='object')for(const x of Object.values(v))stringsDeep(x,out);return out;}
+function findJobId(v){if(!v||typeof v!=='object')return null;for(const k of ['job_id','jobId','id']){const x=v[k];if(typeof x==='string'&&/^[a-f0-9]{13,40}$/i.test(x))return x;}for(const x of Object.values(v)){const y=findJobId(x);if(y)return y;}return null;}
+function findSecret(v){if(!v||typeof v!=='object')return null;for(const k of ['secret_key','secretKey','secret'])if(typeof v[k]==='string'&&v[k])return v[k];for(const x of Object.values(v)){const y=findSecret(x);if(y)return y;}return null;}
+function summary(v){try{return JSON.stringify(v).slice(0,700);}catch{return String(v).slice(0,700);}}
+
+async function downloadBackup(ctx,nonce){
+  stage('download_verified_backup');
+  let r=await ctx.request.get(`${base}/wp-json/ai1wm/v1/backups/${encodeURIComponent(backupName)}/download`,{headers:{'X-WP-Nonce':nonce,Accept:'application/octet-stream'},timeout:180000,failOnStatusCode:false});
+  if(!r.ok())throw new Error(`backup_download_http_${r.status()}:${(await r.text()).slice(0,220)}`);
+  let buf=await r.body();const ct=(r.headers()['content-type']||'').toLowerCase();
+  if(ct.includes('application/json')){let d;try{d=JSON.parse(buf.toString('utf8'));}catch{}const url=d&&stringsDeep(d).find(s=>/^https?:\/\//i.test(s));if(!url)throw new Error('backup_download_json_without_url');r=await ctx.request.get(url,{timeout:180000,failOnStatusCode:false});if(!r.ok())throw new Error(`backup_url_http_${r.status()}`);buf=await r.body();}
+  if(buf.length<1024)throw new Error(`backup_too_small:${buf.length}`);
+  const sha=crypto.createHash('sha256').update(buf).digest('hex');
+  safe.recovery.backupDownloaded=true;safe.recovery.backupBytes=buf.length;safe.recovery.backupSha256=sha;save();
+  if(backup.sha256&&sha!==backup.sha256)throw new Error(`backup_sha_mismatch:${sha}`);
+  console.log(`BACKUP_DOWNLOADED bytes=${buf.length} sha256=${sha}`);return buf;
+}
+
+async function uploadImport(ctx,nonce,jobId,buf){
+  stage('upload_import_file');
+  const r=await ctx.request.post(`${base}/wp-json/ai1wm/v1/imports/${encodeURIComponent(jobId)}/file?auto_confirm=true`,{
+    headers:{'X-WP-Nonce':nonce,Accept:'application/json'},
+    multipart:{file:{name:backupName,mimeType:'application/octet-stream',buffer:buf}},
+    timeout:10*60*1000,failOnStatusCode:false
+  });
+  const text=await r.text();safe.recovery.uploadStatus=r.status();save();
+  console.log(`IMPORT_UPLOAD status=${r.status()} body=${text.slice(0,500)}`);
+  if(!r.ok())throw new Error(`import_upload_http_${r.status()}:${text.slice(0,300)}`);
+  let d;try{d=JSON.parse(text);}catch{d=text;}return d;
+}
 
 const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const ctx=await browser.newContext({ignoreHTTPSErrors:true});const p=await ctx.newPage();
 try{
   save();await loginWasmer(p);const wp=await enterAdmin(ctx,p);const nonce=await getNonce(wp);
 
-  stage('capture_baseline');
-  const settings=await api(ctx,nonce,'/wp/v2/settings');
-  const posts=await api(ctx,nonce,`/wp/v2/posts?slug=${encodeURIComponent(safe.baseline.postSlug)}&status=any&context=edit`);
-  const pages=await api(ctx,nonce,`/wp/v2/pages?slug=${encodeURIComponent(safe.baseline.pageSlug)}&status=any&context=edit`);
-  const post=arrFirst(posts),page=arrFirst(pages);
-  if(!post||!page)throw new Error(`baseline_marker_missing:post=${!!post}:page=${!!page}`);
-  safe.baseline.title=settings.title;safe.baseline.postId=post.id;safe.baseline.pageId=page.id;save();
-  console.log(`BASELINE title=${safe.baseline.title} postId=${post.id} pageId=${page.id}`);
-
-  stage('destructive_mutation');
-  const broken=`BROKEN Restore Lab ${Date.now()}`;safe.mutation.title=broken;
-  await api(ctx,nonce,'/wp/v2/settings',{method:'POST',json:{title:broken}});safe.mutation.titleChanged=true;save();
-  await api(ctx,nonce,`/wp/v2/posts/${post.id}?force=true`,{method:'DELETE'});safe.mutation.postDeleted=true;save();
-  await api(ctx,nonce,`/wp/v2/pages/${page.id}?force=true`,{method:'DELETE'});safe.mutation.pageDeleted=true;save();
-
-  stage('verify_mutation');
-  const [rootBroken,postBroken,pageBroken]=await Promise.all([
-    publicJson('/wp-json/'),publicJson(`/wp-json/wp/v2/posts?slug=${safe.baseline.postSlug}&_=${Date.now()}`),publicJson(`/wp-json/wp/v2/pages?slug=${safe.baseline.pageSlug}&_=${Date.now()}`)
+  stage('verify_broken_state');
+  const [root0,post0,page0]=await Promise.all([
+    publicJson('/wp-json/'),publicJson(`/wp-json/wp/v2/posts?slug=${baseline.postSlug}&_=${Date.now()}`),publicJson(`/wp-json/wp/v2/pages?slug=${baseline.pageSlug}&_=${Date.now()}`)
   ]);
-  const mutationOk=rootBroken.ok&&rootBroken.data?.name===broken&&Array.isArray(postBroken.data)&&postBroken.data.length===0&&Array.isArray(pageBroken.data)&&pageBroken.data.length===0;
-  safe.mutation.verified=mutationOk;save();
-  if(!mutationOk)throw new Error(`mutation_verify_failed:${summary({root:rootBroken.data,post:postBroken.data,page:pageBroken.data})}`);
-  console.log('MUTATION_VERIFIED');
+  safe.preRecovery={rootStatus:root0.status,title:root0.data?.name||null,postCount:Array.isArray(post0.data)?post0.data.length:null,pageCount:Array.isArray(page0.data)?page0.data.length:null};save();
+  if(root0.ok&&root0.data?.name===baseline.title&&Array.isArray(post0.data)&&post0.data.length>=1&&Array.isArray(page0.data)&&page0.data.length>=1){safe.recovery.verified=true;safe.status='RESTORE_VERIFIED';safe.stage='complete';save();console.log('ALREADY_RESTORED');process.exit(0);}
+  console.log(`BROKEN_STATE ${summary(safe.preRecovery)}`);
 
-  stage('restore_request');
-  const restore=await api(ctx,nonce,`/ai1wm/v1/backups/${encodeURIComponent(backupName)}/restore`,{method:'POST',soft:true,timeout:120000});
-  safe.restore.requestStatus=restore.status;safe.restore.responseSummary=summary(restore.data);save();
-  console.log(`RESTORE_REQUEST status=${restore.status} body=${safe.restore.responseSummary}`);
+  const buf=await downloadBackup(ctx,nonce);
 
-  stage('poll_restored_public_state');
-  const started=Date.now();const end=started+20*60*1000;let last={};
+  stage('create_import_job');
+  const started=await api(ctx,nonce,'/ai1wm/v1/imports',{method:'POST',json:{}});
+  const jobId=findJobId(started),secret=findSecret(started);
+  if(!jobId)throw new Error(`import_job_id_missing:${summary(started)}`);
+  safe.recovery.importJobId=jobId;safe.recovery.secretKey=!!secret;save();
+  console.log(`IMPORT_JOB ${jobId} secret=${!!secret}`);
+
+  const uploaded=await uploadImport(ctx,nonce,jobId,buf);
+  const uploadSecret=findSecret(uploaded);const pollSecret=secret||uploadSecret;
+  if(uploadSecret&&!safe.recovery.secretKey){safe.recovery.secretKey=true;save();}
+
+  stage('confirm_import_if_needed');
+  const confirm=await api(ctx,nonce,`/ai1wm/v1/imports/${encodeURIComponent(jobId)}/confirm`,{method:'POST',json:{proceed:true},soft:true,timeout:120000}).catch(e=>({ok:false,status:0,data:String(e.message||e)}));
+  safe.recovery.confirmStatus=confirm.status;save();
+  console.log(`IMPORT_CONFIRM status=${confirm.status} body=${summary(confirm.data)}`);
+
+  stage('poll_import_and_public_state');
+  const startedAt=Date.now(),end=startedAt+22*60*1000;let last={};let lastLog=0;
   while(Date.now()<end){
     const [root,postNow,pageNow]=await Promise.all([
-      publicJson('/wp-json/'),publicJson(`/wp-json/wp/v2/posts?slug=${safe.baseline.postSlug}&_=${Date.now()}`),publicJson(`/wp-json/wp/v2/pages?slug=${safe.baseline.pageSlug}&_=${Date.now()}`)
+      publicJson('/wp-json/'),publicJson(`/wp-json/wp/v2/posts?slug=${baseline.postSlug}&_=${Date.now()}`),publicJson(`/wp-json/wp/v2/pages?slug=${baseline.pageSlug}&_=${Date.now()}`)
     ]);
     last={rootStatus:root.status,title:root.data?.name||null,postCount:Array.isArray(postNow.data)?postNow.data.length:null,pageCount:Array.isArray(pageNow.data)?pageNow.data.length:null};
-    if(root.ok&&root.data?.name===safe.baseline.title&&Array.isArray(postNow.data)&&postNow.data.length>=1&&Array.isArray(pageNow.data)&&pageNow.data.length>=1){safe.restore.verified=true;safe.restore.elapsedSeconds=Math.round((Date.now()-started)/1000);safe.status='RESTORE_VERIFIED';safe.stage='complete';save();console.log(`RESTORE_VERIFIED seconds=${safe.restore.elapsedSeconds}`);break;}
-    console.log(`RESTORE_WAIT ${summary(last)}`);await new Promise(r=>setTimeout(r,10000));
+    if(root.ok&&root.data?.name===baseline.title&&Array.isArray(postNow.data)&&postNow.data.length>=1&&Array.isArray(pageNow.data)&&pageNow.data.length>=1){safe.recovery.verified=true;safe.recovery.elapsedSeconds=Math.round((Date.now()-startedAt)/1000);safe.status='RESTORE_VERIFIED';safe.stage='complete';save();console.log(`RESTORE_VERIFIED seconds=${safe.recovery.elapsedSeconds}`);break;}
+    if(Date.now()-lastLog>30000){let jobState='';if(pollSecret){try{const jr=await fetch(`${base}/wp-json/ai1wm/v1/imports/${encodeURIComponent(jobId)}?secret_key=${encodeURIComponent(pollSecret)}`,{headers:{Accept:'application/json'},redirect:'follow'});jobState=(await jr.text()).slice(0,500);}catch{}}console.log(`IMPORT_WAIT public=${summary(last)} job=${jobState}`);lastLog=Date.now();}
+    await new Promise(r=>setTimeout(r,8000));
   }
-  if(!safe.restore.verified)throw new Error(`restore_verify_timeout:${summary(last)}`);
+  if(!safe.recovery.verified)throw new Error(`import_restore_verify_timeout:${summary(last)}`);
 }catch(e){safe.status='FAILED';safe.detail=String(e?.message||e);save();console.error(e);process.exitCode=1;}finally{await browser.close().catch(()=>{});}
