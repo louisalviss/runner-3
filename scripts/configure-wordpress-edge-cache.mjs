@@ -84,9 +84,22 @@ try {
   await wp.goto(settingsUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const savedEndpoint = await wp.locator('input[name="runner3_edge_cache_purge[endpoint]"]').first().inputValue();
   const savedEnabled = await wp.locator('input[name="runner3_edge_cache_purge[enabled]"]').first().isChecked();
-  const bodyBefore = await wp.locator('body').innerText();
-  const signingKeyReady = /Signing key/i.test(bodyBefore) && !/UNAVAILABLE/i.test(bodyBefore);
-  if (savedEndpoint !== endpoint || !savedEnabled || !signingKeyReady) throw new Error('edge_cache_settings_not_persisted');
+  const signingRow = wp.locator('tr').filter({ has: wp.locator('th', { hasText: /^Signing key$/i }) }).first();
+  const signingText = await signingRow.count() ? (await signingRow.locator('td').innerText()).trim() : '';
+  const signingKeyReady = Boolean(signingText) && !/^UNAVAILABLE$/i.test(signingText) && /[0-9a-f]{8}/i.test(signingText);
+
+  const diagnostics = {
+    savedEndpointMatches: savedEndpoint === endpoint,
+    savedEnabled,
+    signingKeyReady,
+    signingKeyRowFound: Boolean(await signingRow.count()),
+    signingKeyMarker: signingText ? signingText.slice(0, 24) : null,
+  };
+  if (!diagnostics.savedEndpointMatches || !savedEnabled || !signingKeyReady) {
+    safeWrite({ status: 'failed', siteSlug: slug, endpoint, detail: 'edge_cache_settings_not_persisted', diagnostics, updatedAt: new Date().toISOString() });
+    console.log(JSON.stringify(diagnostics, null, 2));
+    throw new Error('edge_cache_settings_not_persisted');
+  }
 
   const manual = wp.locator('a').filter({ hasText: /Purge public HTML cache now/i }).first();
   if (!(await manual.count())) throw new Error('manual_purge_control_missing');
@@ -105,13 +118,14 @@ try {
     configured: true,
     signingKeyReady,
     manualPurgeOk,
+    diagnostics,
     updatedAt: new Date().toISOString(),
   };
   safeWrite(result);
   console.log(JSON.stringify(result, null, 2));
   if (!manualPurgeOk) process.exitCode = 8;
 } catch (error) {
-  safeWrite({ status: 'failed', siteSlug: slug, endpoint, detail: String(error?.message || error), updatedAt: new Date().toISOString() });
+  if (!fs.existsSync(outFile)) safeWrite({ status: 'failed', siteSlug: slug, endpoint, detail: String(error?.message || error), updatedAt: new Date().toISOString() });
   throw error;
 } finally {
   await browser.close().catch(() => {});
