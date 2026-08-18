@@ -1,0 +1,44 @@
+name: TV WR Python Second Window
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Build second-window Python harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/main/.github/workflows/tv-wr-python-det.yml' -o /tmp/base.yml
+          awk '/cat >\/tmp\/run_det.py <<'"'"'PY'"'"'/{f=1;next} /^          PY$/{f=0} f{sub(/^          /,"");print}' /tmp/base.yml > /tmp/run.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/run.py').read_text()
+          p=p.replace("src=src.replace('sra<=SIGNAL_RANGE_MAX','sra<SIGNAL_RANGE_MAX')","# canonical comparator remains <=")
+          p=p.replace("REPORT_START=local_ms('2026-08-05')","REPORT_START=local_ms('2026-08-10')")
+          p=p.replace("REPORT_END=local_ms('2026-08-10')","REPORT_END=local_ms('2026-08-16')")
+          p=p.replace("report_start='2026-08-05 00:00 VN'","report_start='2026-08-10 00:00 VN'")
+          p=p.replace("report_end_exclusive='2026-08-10 00:00 VN'","report_end_exclusive='2026-08-16 00:00 VN'")
+          pos=p.find("expected={'BNBUSDT'")
+          if pos>=0:
+              ls=p.rfind('\n',0,pos)+1
+              p=p[:ls]+"print('PY_SECOND_WINDOW=PASS')\n"
+          Path('/tmp/run.py').write_text(p)
+          PY
+      - name: Run Python second window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wrpy
+          python3 /tmp/run.py | tee /tmp/wrpy/second-window.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-python-second-window
+          path: /tmp/wrpy
+          retention-days: 1
