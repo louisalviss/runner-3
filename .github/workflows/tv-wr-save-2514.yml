@@ -70,28 +70,32 @@ jobs:
             await page.evaluate(s=>navigator.clipboard.writeText(s),source); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+V'); await page.waitForTimeout(1800);
             body=await page.locator('body').innerText().catch(()=> '');
             if(/Compilation error|Syntax error|Error at/i.test(body)) throw new Error('source error before save');
-            // Save As only. Never Ctrl+S: that could overwrite the currently opened 2.5.13 document.
-            await ta.click({force:true}); await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(2500);
-            const dialogs=page.getByRole('dialog');
-            let dlg=null;
-            for(let i=0;i<await dialogs.count();i++){const d=dialogs.nth(i);if(await d.isVisible().catch(()=>false)){dlg=d;break;}}
-            if(!dlg){
-              body=await page.locator('body').innerText().catch(()=> '');
-              console.log('SAVE_AS_DIALOG=FAIL');
-              console.log(body.split('\n').filter(x=>/save|script|pine/i.test(x)).slice(0,80).join('\n'));
-              throw new Error('Save As dialog not found; refusing to overwrite existing script');
+            // Safety gate: save only if Pine explicitly says this is an Untitled script.
+            const untitled=page.getByText('Untitled script',{exact:true});
+            let titleEl=null;
+            for(let i=0;i<await untitled.count();i++){const e=untitled.nth(i);if(await e.isVisible().catch(()=>false)){titleEl=e;break;}}
+            if(!titleEl) throw new Error('Pine document is not Untitled; refusing to save/overwrite');
+            const tb=await titleEl.boundingBox();
+            if(!tb) throw new Error('Untitled script bounding box missing');
+            const saves=page.getByText('Save',{exact:true});
+            let editorSave=null;
+            for(let i=0;i<await saves.count();i++){
+              const e=saves.nth(i); if(!await e.isVisible().catch(()=>false)) continue;
+              const b=await e.boundingBox().catch(()=>null); if(!b) continue;
+              if(Math.abs(b.y-tb.y)<120){editorSave=e; console.log('EDITOR_SAVE_Y='+b.y); break;}
             }
-            console.log('SAVE_AS_DIALOG=PASS');
-            const boxes=dlg.getByRole('textbox');
-            if(!(await boxes.count())) throw new Error('Save As name field missing');
-            const name='Wave Rider Strategy v2.5.14 DETERMINISTIC';
-            await boxes.first().fill(name);
-            const save=dlg.getByRole('button',{name:/save/i});
-            if(!(await save.count())) throw new Error('Save As button missing');
+            if(!editorSave) throw new Error('Pine Editor Save control not found near Untitled title');
+            await editorSave.click({force:true}); await page.waitForTimeout(2500);
+            const dialogs=page.getByRole('dialog'); let dlg=null;
+            for(let i=0;i<await dialogs.count();i++){const d=dialogs.nth(i);if(await d.isVisible().catch(()=>false)){dlg=d;break;}}
+            if(!dlg) throw new Error('Save-name dialog not found after Pine Save click');
+            console.log('SAVE_NAME_DIALOG=PASS');
+            const boxes=dlg.getByRole('textbox'); if(!(await boxes.count())) throw new Error('Save name field missing');
+            const name='Wave Rider Strategy v2.5.14 DETERMINISTIC'; await boxes.first().fill(name);
+            const save=dlg.getByRole('button',{name:/save/i}); if(!(await save.count())) throw new Error('Save dialog button missing');
             await save.last().click({force:true}); await page.waitForTimeout(5000);
             body=await page.locator('body').innerText().catch(()=> '');
             console.log('SAVED_NAME_PRESENT='+(body.includes(name)||body.includes('WR 2.5.14 DET')?'PASS':'CHECK'));
-            // Compile/add only after Save As succeeded.
             const add=page.getByRole('button',{name:/Add to chart/i}); if(await add.count()) await add.first().click({force:true}); else {await ta.click({force:true});await page.keyboard.press('Control+Enter');}
             await page.waitForTimeout(22000);
             body=await page.locator('body').innerText().catch(()=> '');
