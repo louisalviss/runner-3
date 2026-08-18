@@ -54,7 +54,7 @@ jobs:
           const domain='runner3wp.pntr.dev';
           const apps=['runner3-wp-a94b8fd2','runner3-factory-smoke-2'];
           const out={checkedAt:new Date().toISOString(),domain,apps:{},status:'starting'};
-          const clean=s=>String(s||'').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'EMAIL_REDACTED').replace(/da_[A-Za-z0-9_-]+/g,'TOKEN_REDACTED').slice(0,10000);
+          const clean=s=>String(s||'').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'EMAIL_REDACTED').replace(/da_[A-Za-z0-9_-]+/g,'TOKEN_REDACTED');
           const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
           const ctx=await browser.newContext({ignoreHTTPSErrors:true});
           const page=await ctx.newPage();
@@ -65,7 +65,8 @@ jobs:
             await ident.fill(account.username||account.email);
             const next=page.locator('button').filter({hasText:/continue|next|log in|sign in/i}).first();
             if(await next.count()&&await next.isVisible().catch(()=>false)) await next.click(); else await ident.press('Enter');
-            const pass=page.locator('input[type=password]').first(); await pass.waitFor({state:'visible',timeout:12000}); await pass.fill(account.password);
+            const pass=page.locator('input[type=password]').first();
+            await pass.waitFor({state:'visible',timeout:12000}); await pass.fill(account.password);
             const submit=page.locator('input[type=submit],button').filter({hasText:/log in|sign in|continue/i}).first();
             if(await submit.count()&&await submit.isVisible().catch(()=>false)) await submit.click(); else await pass.press('Enter');
             await page.waitForTimeout(3500);
@@ -77,17 +78,16 @@ jobs:
               const url=`https://wasmer.io/apps/${owner}/${app}/settings/domains`;
               await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000}); await page.waitForTimeout(1600);
               const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
-              const controls=await page.locator('button,a,input').evaluateAll(xs=>xs.map((x,i)=>({i,tag:x.tagName.toLowerCase(),text:(x.innerText||x.textContent||'').replace(/\s+/g,' ').trim().slice(0,120),type:x.getAttribute('type'),name:x.getAttribute('name'),value:x.tagName==='INPUT'&&x.getAttribute('type')!=='password'?x.value:null,href:x.tagName==='A'?x.getAttribute('href'):null,aria:x.getAttribute('aria-label'),title:x.getAttribute('title')})).filter(x=>x.text||x.name||x.value||x.aria||x.title));
               const idx=body.toLowerCase().indexOf(domain);
-              let near=idx>=0?body.slice(Math.max(0,idx-500),idx+1800):body.slice(0,1800);
-              // Inspect ancestor text/HTML around the exact domain node, if any.
-              const domainNode=page.getByText(domain,{exact:true}).first();
+              const globalControls=await page.locator('button,input').evaluateAll(xs=>xs.map(x=>({tag:x.tagName.toLowerCase(),text:(x.innerText||x.textContent||'').replace(/\s+/g,' ').trim().slice(0,100),type:x.getAttribute('type'),name:x.getAttribute('name'),value:x.tagName==='INPUT'&&x.getAttribute('type')!=='password'?x.value:null,aria:x.getAttribute('aria-label'),title:x.getAttribute('title')})).filter(x=>x.text||x.name||x.value||x.aria||x.title).slice(0,60));
+              const node=page.getByText(domain,{exact:true}).first();
               let ancestors=[];
-              if(await domainNode.count()) ancestors=await domainNode.evaluate(el=>{const a=[];let n=el;for(let i=0;i<6&&n;i++,n=n.parentElement)a.push({level:i,tag:n.tagName,cls:n.className||'',text:(n.innerText||'').replace(/\s+/g,' ').trim().slice(0,1200),html:n.outerHTML.slice(0,5000)});return a;}).catch(()=>[]);
-              out.apps[app]={url:page.url(),hasDomain:body.toLowerCase().includes(domain),near:clean(near),controls:JSON.parse(clean(JSON.stringify(controls))),ancestors:JSON.parse(clean(JSON.stringify(ancestors)))};
+              if(await node.count()) ancestors=await node.evaluate(el=>{const rows=[];let n=el;for(let level=0;level<7&&n;level++,n=n.parentElement){rows.push({level,tag:n.tagName,cls:String(n.className||'').slice(0,240),text:(n.innerText||'').replace(/\s+/g,' ').trim().slice(0,1200),controls:[...n.querySelectorAll('button,a,input')].map(x=>({tag:x.tagName.toLowerCase(),text:(x.innerText||x.textContent||'').replace(/\s+/g,' ').trim().slice(0,100),type:x.getAttribute('type'),name:x.getAttribute('name'),value:x.tagName==='INPUT'&&x.getAttribute('type')!=='password'?x.value:null,aria:x.getAttribute('aria-label'),title:x.getAttribute('title')})).filter(x=>x.text||x.name||x.value||x.aria||x.title).slice(0,30)});}return rows;}).catch(()=>[]);
+              const sanitize=o=>JSON.parse(JSON.stringify(o,(k,v)=>typeof v==='string'?clean(v):v));
+              out.apps[app]={url:page.url(),hasDomain:body.toLowerCase().includes(domain),near:clean(idx>=0?body.slice(Math.max(0,idx-400),idx+1500):body.slice(0,1500)),globalControls:sanitize(globalControls),ancestors:sanitize(ancestors)};
             }
             out.status='ok';
-          }catch(e){out.status='failed';out.detail=clean(e?.stack||e?.message||e);}
+          }catch(e){out.status='failed';out.detail=clean(e?.stack||e?.message||e).slice(0,3000);}
           finally{await browser.close().catch(()=>{});fs.writeFileSync(process.env.OUT,JSON.stringify(out,null,2)+'\n');}
           if(out.status!=='ok') process.exit(1);
           NODE
