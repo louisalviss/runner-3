@@ -3,20 +3,45 @@ import fs from 'fs';
 
 const slug = process.env.WP_SITE_SLUG || 'runner3-factory-smoke-2';
 const statusFile = `ops/site-factory/${slug}.json`;
-if (!fs.existsSync(statusFile)) throw new Error(`site factory state missing: ${statusFile}`);
+const siteUrlOverride = String(process.env.WP_SITE_URL || '').trim();
+const dashboardOverride = String(process.env.WP_DASHBOARD_URL || '').trim();
+const adminBaseOverride = String(process.env.WP_ADMIN_BASE || '').trim();
+const verifyPath = String(process.env.WP_VERIFY_PATH || '/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/').trim() || '/';
+
+let site = {};
+if (fs.existsSync(statusFile)) {
+  site = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+} else if (!siteUrlOverride || !dashboardOverride) {
+  throw new Error(`site factory state missing: ${statusFile}`);
+}
 if (!fs.existsSync('/tmp/wasmer-account.json')) throw new Error('decrypted Wasmer account state missing');
 
-const site = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
 const account = JSON.parse(fs.readFileSync('/tmp/wasmer-account.json', 'utf8'));
-const base = String(site.siteUrl || '').replace(/\/$/, '');
-const dashboard = site.dashboardUrl || `https://wasmer.io/apps/${encodeURIComponent(site.owner)}/${encodeURIComponent(site.appName)}`;
-const verifyPath = '/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/';
+const base = String(siteUrlOverride || site.siteUrl || '').replace(/\/$/, '');
+if (!base) throw new Error('site_url_missing');
+const dashboard = dashboardOverride || site.dashboardUrl || `https://wasmer.io/apps/${encodeURIComponent(site.owner)}/${encodeURIComponent(site.appName)}`;
+const adminBase = String(adminBaseOverride || base).replace(/\/$/, '');
 const out = '/tmp/wp-noindex-result.json';
+
+const allowedAdminHosts = new Set();
+for (const candidate of [base, adminBase]) {
+  try { allowedAdminHosts.add(new URL(candidate).host); } catch {}
+}
+function isAllowedAdminUrl(raw) {
+  try {
+    const u = new URL(raw);
+    return allowedAdminHosts.has(u.host) && /\/wp-admin(?:[/?#]|$)/i.test(u.pathname + u.search + u.hash);
+  } catch {
+    return false;
+  }
+}
 
 const safe = {
   status: 'starting',
   siteSlug: slug,
   siteUrl: base + '/',
+  dashboardUrl: dashboard,
+  adminBase,
   readingPageReached: false,
   settingChanged: false,
   saved: false,
@@ -57,7 +82,7 @@ async function enterAdmin(ctx, page) {
     const wp = await ctx.newPage();
     await wp.goto(new URL(href, 'https://wasmer.io').href, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await wp.waitForTimeout(2500);
-    if (wp.url().startsWith(base) && /wp-admin/i.test(wp.url())) return wp;
+    if (isAllowedAdminUrl(wp.url())) return wp;
     await wp.close().catch(() => {});
   }
   const before = new Set(ctx.pages());
@@ -66,7 +91,7 @@ async function enterAdmin(ctx, page) {
   const popup = await popupPromise;
   await page.waitForTimeout(3000);
   const candidates = [...ctx.pages().filter(p => !before.has(p)), popup, page].filter(Boolean);
-  for (const p of candidates) if (p.url().startsWith(base) && /wp-admin/i.test(p.url())) return p;
+  for (const p of candidates) if (isAllowedAdminUrl(p.url())) return p;
   throw new Error('magic_admin_failed');
 }
 
@@ -92,20 +117,23 @@ try {
   save();
   await loginWasmer(page);
   const wp = await enterAdmin(ctx, page);
-  await wp.goto(`${base}/wp-admin/options-reading.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const wpAdminOrigin = new URL(wp.url()).origin;
+  safe.adminOriginUsed = wpAdminOrigin;
+  save();
+
+  await wp.goto(`${wpAdminOrigin}/wp-admin/options-reading.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await wp.waitForTimeout(1000);
   safe.readingPageReached = true; save();
 
-  // WordPress has used either a checkbox or radio UI for this setting across versions.
-  let off = wp.locator('input[name="blog_public"][value="0"]').first();
+  // WordPress uses blog_public=0 for the "Discourage search engines" control.
+  const off = wp.locator('input[name="blog_public"][value="0"]').first();
   if (await off.count()) {
-    if (!(await off.isChecked().catch(() => false))) await off.check({ force: true });
-    safe.settingChanged = true;
+    if (!(await off.isChecked().catch(() => false))) {
+      await off.check({ force: true });
+      safe.settingChanged = true;
+    }
   } else {
-    const label = wp.getByText(/Discourage search engines from indexing this site/i).first();
-    if (!(await label.count())) throw new Error('search_engine_visibility_control_missing');
-    await label.click();
-    safe.settingChanged = true;
+    throw new Error('search_engine_visibility_control_missing');
   }
   save();
 
@@ -119,19 +147,21 @@ try {
   await wp.waitForTimeout(1500);
   const txt = await bodyText(wp);
   if (!/settings saved|saved/i.test(txt)) {
-    // Still verify the resulting option/frontend; some hosts customize the admin notice.
+    // Hosts can customize the admin notice; persistence and frontend checks below are authoritative.
   }
   safe.saved = true; save();
 
   // Verify the option survived a reload.
-  await wp.goto(`${base}/wp-admin/options-reading.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await wp.goto(`${wpAdminOrigin}/wp-admin/options-reading.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const offAfter = wp.locator('input[name="blog_public"][value="0"]').first();
-  if (await offAfter.count() && !(await offAfter.isChecked().catch(() => false))) {
+  if (!(await offAfter.count()) || !(await offAfter.isChecked().catch(() => false))) {
     throw new Error('blog_public_off_not_persisted');
   }
 
   // Verify the actual public HTML, not only the admin setting.
-  const response = await ctx.request.get(base + verifyPath, { headers: { Accept: 'text/html' } });
+  const verifyUrl = new URL(verifyPath, base + '/').href;
+  safe.verifyUrl = verifyUrl;
+  const response = await ctx.request.get(verifyUrl, { headers: { Accept: 'text/html' } });
   safe.frontendHttp = response.status();
   const html = await response.text();
   Object.assign(safe, inspectRobots(html));
