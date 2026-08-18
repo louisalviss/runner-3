@@ -1,0 +1,79 @@
+name: Provision WordPress v1.5 Bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site-factory-v15/requests/*.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: provision-wordpress-v15
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve request
+        shell: bash
+        run: |
+          set -euo pipefail
+          request="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^site-factory-v15/requests/.*\.json$' | tail -1 || true)"
+          test -n "$request" && test -f "$request"
+          slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+          echo "SITE_FACTORY_REQUEST=$request" >> "$GITHUB_ENV"
+          echo "SITE_FACTORY_SLUG=$slug" >> "$GITHUB_ENV"
+
+      - name: Restore existing Wasmer account credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Existing Runner-3 automation key missing'; exit 20; }
+          test -f ops/wasmer/state.automation.aes || { echo 'Encrypted Wasmer account state missing'; exit 21; }
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Provision only
+        run: node scripts/provision-wordpress-site-v15.mjs
+
+      - name: Persist safe state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="${SITE_FACTORY_SLUG:-unknown}"
+          src="/tmp/site-factory-v15-${slug}.json"
+          if [ ! -f "$src" ]; then
+            printf '{"status":"FAILED","siteSlug":"%s","detail":"v15_status_missing"}\n' "$slug" > "$src"
+          fi
+          cat "$src"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/site-factory-v15
+            cp "$src" "ops/site-factory-v15/${slug}.json"
+            git add "ops/site-factory-v15/${slug}.json"
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist WordPress v1.5 provisioning: ${slug}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+          done
+          exit 5
