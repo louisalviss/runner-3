@@ -1,0 +1,116 @@
+name: WordPress Custom Domain Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-custom-domain-inspect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-custom-domain-inspect
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      OUT: /tmp/runner3wp-domain-inspect.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Inspect source and target domain controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { chromium } = await import('playwright-core');
+          const fs = await import('fs');
+          const account=JSON.parse(fs.readFileSync('/tmp/wasmer-account.json','utf8'));
+          const owner='runner3wp0b90f6b4ab';
+          const domain='runner3wp.pntr.dev';
+          const apps=['runner3-wp-a94b8fd2','runner3-factory-smoke-2'];
+          const out={checkedAt:new Date().toISOString(),domain,apps:{},status:'starting'};
+          const clean=s=>String(s||'').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'EMAIL_REDACTED').replace(/da_[A-Za-z0-9_-]+/g,'TOKEN_REDACTED').slice(0,10000);
+          const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const ctx=await browser.newContext({ignoreHTTPSErrors:true});
+          const page=await ctx.newPage();
+          async function login(){
+            await page.goto('https://wasmer.io/login',{waitUntil:'domcontentloaded',timeout:60000});
+            const ident=page.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();
+            await ident.waitFor({state:'visible',timeout:12000});
+            await ident.fill(account.username||account.email);
+            const next=page.locator('button').filter({hasText:/continue|next|log in|sign in/i}).first();
+            if(await next.count()&&await next.isVisible().catch(()=>false)) await next.click(); else await ident.press('Enter');
+            const pass=page.locator('input[type=password]').first(); await pass.waitFor({state:'visible',timeout:12000}); await pass.fill(account.password);
+            const submit=page.locator('input[type=submit],button').filter({hasText:/log in|sign in|continue/i}).first();
+            if(await submit.count()&&await submit.isVisible().catch(()=>false)) await submit.click(); else await pass.press('Enter');
+            await page.waitForTimeout(3500);
+            if(/\/login(?:[/?#]|$)/i.test(page.url())) throw new Error('wasmer_login_failed');
+          }
+          try{
+            await login();
+            for(const app of apps){
+              const url=`https://wasmer.io/apps/${owner}/${app}/settings/domains`;
+              await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000}); await page.waitForTimeout(1600);
+              const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+              const controls=await page.locator('button,a,input').evaluateAll(xs=>xs.map((x,i)=>({i,tag:x.tagName.toLowerCase(),text:(x.innerText||x.textContent||'').replace(/\s+/g,' ').trim().slice(0,120),type:x.getAttribute('type'),name:x.getAttribute('name'),value:x.tagName==='INPUT'&&x.getAttribute('type')!=='password'?x.value:null,href:x.tagName==='A'?x.getAttribute('href'):null,aria:x.getAttribute('aria-label'),title:x.getAttribute('title')})).filter(x=>x.text||x.name||x.value||x.aria||x.title));
+              const idx=body.toLowerCase().indexOf(domain);
+              let near=idx>=0?body.slice(Math.max(0,idx-500),idx+1800):body.slice(0,1800);
+              // Inspect ancestor text/HTML around the exact domain node, if any.
+              const domainNode=page.getByText(domain,{exact:true}).first();
+              let ancestors=[];
+              if(await domainNode.count()) ancestors=await domainNode.evaluate(el=>{const a=[];let n=el;for(let i=0;i<6&&n;i++,n=n.parentElement)a.push({level:i,tag:n.tagName,cls:n.className||'',text:(n.innerText||'').replace(/\s+/g,' ').trim().slice(0,1200),html:n.outerHTML.slice(0,5000)});return a;}).catch(()=>[]);
+              out.apps[app]={url:page.url(),hasDomain:body.toLowerCase().includes(domain),near:clean(near),controls:JSON.parse(clean(JSON.stringify(controls))),ancestors:JSON.parse(clean(JSON.stringify(ancestors)))};
+            }
+            out.status='ok';
+          }catch(e){out.status='failed';out.detail=clean(e?.stack||e?.message||e);}
+          finally{await browser.close().catch(()=>{});fs.writeFileSync(process.env.OUT,JSON.stringify(out,null,2)+'\n');}
+          if(out.status!=='ok') process.exit(1);
+          NODE
+
+      - name: Persist inspection
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$OUT" || echo '{"status":"failed","detail":"inspection_missing"}' > "$OUT"
+          cp "$OUT" /tmp/runner3wp-domain-inspect-safe.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/custom-domain/migration
+            cp /tmp/runner3wp-domain-inspect-safe.json ops/custom-domain/migration/inspect.latest.json
+            git add ops/custom-domain/migration/inspect.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Wasmer domain control inspection: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 5
