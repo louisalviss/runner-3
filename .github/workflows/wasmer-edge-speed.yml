@@ -14,48 +14,75 @@ permissions:
 
 concurrency:
   group: runner3-wasmer-edge-speed
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   optimize:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       WASMER_APP_OWNER: runner3wp0b90f6b4ab
       WASMER_APP_SLUG: runner3-factory-smoke-2
+      WP_SITE_SLUG: runner3-factory-smoke-2
       WP_SITE_URL: https://runner3-factory-smoke-2.wasmer.app/
       EDGE_SPEED_OUT: /tmp/wasmer-edge-speed.json
+      FUNCTIONAL_OUT: /tmp/wp-functional-regression.json
     steps:
       - uses: actions/checkout@v4
-      - name: Restore Wasmer browser session
+
+      - name: Restore Wasmer state and browser session
         shell: bash
         run: |
           set -euo pipefail
           echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/browser-state.aes -out /tmp/wasmer-browser-state.json
+
+      - name: Build current optimized theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wordpress-site/wp-content/themes
+          zip -qr /tmp/runner3-starter.zip runner3-starter
+          test -s /tmp/runner3-starter.zip
+
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
-      - name: Optimize Wasmer edge delivery and measure
+
+      - name: Deploy optimized theme to live WordPress
+        run: node scripts/deploy-wordpress-theme-v2.mjs
+
+      - name: Enable Wasmer CDN cache and measure TTFB
         run: node scripts/wasmer-edge-speed.mjs
-      - name: Persist safe result
+
+      - name: Run functional regression gate
+        run: node scripts/test-wordpress-functional.mjs
+
+      - name: Persist safe edge/deploy/regression results
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           test -f /tmp/wasmer-edge-speed.json || echo '{"status":"runner_error","detail":"edge_speed_result_missing"}' >/tmp/wasmer-edge-speed.json
+          test -f /tmp/wp-functional-regression.json || echo '{"status":"failed","detail":"functional_result_missing"}' >/tmp/wp-functional-regression.json
+          test -f /tmp/wp-theme-deploy-runner3-factory-smoke-2.json || echo '{"status":"runner_error","detail":"theme_status_missing"}' >/tmp/wp-theme-deploy-runner3-factory-smoke-2.json
           cp /tmp/wasmer-edge-speed.json /tmp/edge-speed-safe.json
+          cp /tmp/wp-functional-regression.json /tmp/regression-safe.json
+          cp /tmp/wp-theme-deploy-runner3-factory-smoke-2.json /tmp/deploy-safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           pushed=false
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4; do
             git fetch origin main
             git reset --hard origin/main
-            mkdir -p ops/wasmer-edge-speed/results
+            mkdir -p ops/wasmer-edge-speed/results ops/wp-functional-regression/results ops/wp-theme-deploy/results
             cp /tmp/edge-speed-safe.json ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json
-            git add ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json
+            cp /tmp/regression-safe.json ops/wp-functional-regression/results/runner3-factory-smoke-2.latest.json
+            cp /tmp/deploy-safe.json ops/wp-theme-deploy/results/runner3-factory-smoke-2.latest.json
+            git add ops/wasmer-edge-speed/results/runner3-factory-smoke-2.latest.json ops/wp-functional-regression/results/runner3-factory-smoke-2.latest.json ops/wp-theme-deploy/results/runner3-factory-smoke-2.latest.json
             if git diff --cached --quiet; then pushed=true; break; fi
-            git commit -m 'Persist Wasmer edge speed result'
+            git commit -m 'Persist optimized WordPress edge delivery results'
             if git push origin HEAD:main; then pushed=true; break; fi
             sleep 3
           done
