@@ -2,12 +2,10 @@ import { chromium } from 'playwright-core';
 import fs from 'fs';
 
 const slug = process.env.WP_SITE_SLUG || 'runner3-factory-smoke-2';
-const secret = String(process.env.RUNNER3_PURGE_SECRET || '');
 const endpoint = String(process.env.RUNNER3_PURGE_ENDPOINT || 'https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge');
 const stateFile = `ops/site-factory/${slug}.json`;
 const outFile = process.env.RUNNER3_EDGE_WP_OUT || '/tmp/runner3-edge-cache-wordpress.json';
 
-if (!secret) throw new Error('RUNNER3_PURGE_SECRET missing');
 if (!endpoint.startsWith('https://')) throw new Error('RUNNER3_PURGE_ENDPOINT must use https');
 if (!fs.existsSync(stateFile)) throw new Error(`site factory state missing: ${stateFile}`);
 if (!fs.existsSync('/tmp/wasmer-account.json')) throw new Error('decrypted Wasmer account state missing');
@@ -74,12 +72,10 @@ try {
 
   const enabled = wp.locator('input[name="runner3_edge_cache_purge[enabled]"]').first();
   const endpointInput = wp.locator('input[name="runner3_edge_cache_purge[endpoint]"]').first();
-  const secretInput = wp.locator('input[name="runner3_edge_cache_purge[secret]"]').first();
-  if (!(await enabled.count()) || !(await endpointInput.count()) || !(await secretInput.count())) throw new Error('edge_cache_settings_controls_missing');
+  if (!(await enabled.count()) || !(await endpointInput.count())) throw new Error('edge_cache_settings_controls_missing');
 
   if (!(await enabled.isChecked())) await enabled.check();
   await endpointInput.fill(endpoint);
-  await secretInput.fill(secret);
   const save = wp.locator('input[type=submit][value*="Save" i],button[type=submit]').first();
   await save.click();
   await wp.waitForLoadState('domcontentloaded').catch(() => {});
@@ -88,7 +84,9 @@ try {
   await wp.goto(settingsUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const savedEndpoint = await wp.locator('input[name="runner3_edge_cache_purge[endpoint]"]').first().inputValue();
   const savedEnabled = await wp.locator('input[name="runner3_edge_cache_purge[enabled]"]').first().isChecked();
-  if (savedEndpoint !== endpoint || !savedEnabled) throw new Error('edge_cache_settings_not_persisted');
+  const bodyBefore = await wp.locator('body').innerText();
+  const signingKeyReady = /Signing key/i.test(bodyBefore) && !/UNAVAILABLE/i.test(bodyBefore);
+  if (savedEndpoint !== endpoint || !savedEnabled || !signingKeyReady) throw new Error('edge_cache_settings_not_persisted');
 
   const manual = wp.locator('a').filter({ hasText: /Purge public HTML cache now/i }).first();
   if (!(await manual.count())) throw new Error('manual_purge_control_missing');
@@ -105,7 +103,7 @@ try {
     endpoint,
     enabled: savedEnabled,
     configured: true,
-    secretConfigured: true,
+    signingKeyReady,
     manualPurgeOk,
     updatedAt: new Date().toISOString(),
   };
