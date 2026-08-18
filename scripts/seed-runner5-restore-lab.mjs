@@ -100,6 +100,20 @@ async function exposeUpload(wp,label){
   return file;
 }
 
+async function clickInstallAndContinue(wp,install,label){
+  let clicked=false;
+  try{
+    await install.click({noWaitAfter:true,timeout:10000});
+    clicked=true;
+  }catch(e){
+    const msg=String(e?.message||e);
+    console.log(`${label} click warning`,msg.slice(0,240));
+    clicked=true;
+  }
+  if(!clicked) throw new Error(`${label}_click_failed`);
+  await wp.waitForTimeout(7000);
+}
+
 async function uploadTheme(wp){
   step('install_inspiro_theme');
   await wp.goto(`${base}/wp-admin/theme-install.php?upload`,{waitUntil:'domcontentloaded',timeout:60000});
@@ -111,7 +125,7 @@ async function uploadTheme(wp){
   let install=wp.locator('#install-theme-submit:visible').first();
   if(!(await install.count())) install=wp.locator('input[type=submit]:visible,button:visible').filter({hasText:/Install Now/i}).first();
   if(!(await install.count())||!(await install.isVisible().catch(()=>false))) throw new Error('theme_install_button_missing');
-  await install.click(); await wp.waitForTimeout(6500);
+  await clickInstallAndContinue(wp,install,'theme_install');
   console.log('theme install', (await body(wp)).slice(0,500));
   await wp.goto(`${base}/wp-admin/themes.php`,{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(1000);
   const cards=wp.locator('.theme'); let target=null;
@@ -121,7 +135,7 @@ async function uploadTheme(wp){
   if(!/Active:/i.test(txt)&&!/Customize/i.test(txt)){
     const a=target.locator('a,button').filter({hasText:/^Activate$/i}).first();
     if(!(await a.count())) throw new Error('inspiro_activate_missing');
-    await a.click(); await wp.waitForTimeout(2500);
+    await a.click({noWaitAfter:true}).catch(()=>{}); await wp.waitForTimeout(2500);
   }
   await wp.goto(`${base}/wp-admin/themes.php`,{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(800);
   safe.themeActive=/Inspiro/i.test(await wp.locator('.theme.active').first().innerText().catch(()=>''));save();
@@ -137,9 +151,9 @@ async function uploadPlugin(wp,zip,needle){
   let install=wp.locator('#install-plugin-submit:visible').first();
   if(!(await install.count())) install=wp.locator('input[type=submit]:visible,button:visible').filter({hasText:/Install Now/i}).first();
   if(!(await install.count())) throw new Error(`plugin_install_missing:${needle}`);
-  await install.click(); await wp.waitForTimeout(6500);
+  await clickInstallAndContinue(wp,install,'plugin_install');
   const activate=wp.locator('a,button').filter({hasText:/Activate Plugin/i}).first();
-  if(await activate.count()&&await activate.isVisible().catch(()=>false)){await activate.click();await wp.waitForTimeout(2500);}
+  if(await activate.count()&&await activate.isVisible().catch(()=>false)){await activate.click({noWaitAfter:true}).catch(()=>{});await wp.waitForTimeout(2500);}
   await wp.goto(`${base}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(800);
   const rows=wp.locator('tr.active');
   for(let i=0;i<await rows.count();i++) if(new RegExp(needle,'i').test(await rows.nth(i).innerText().catch(()=>''))) return true;
@@ -158,7 +172,7 @@ async function importDemo(wp){
   if(!(await card.count())) card=wp.getByText(/Business\s*\/\s*Portfolio/i).first();
   if(!(await card.count())) throw new Error(`business_portfolio_demo_missing:${(await body(wp)).slice(0,500)}`);
   const pick=card.locator('button,a').filter({hasText:/Select|Import Demo|Import|Choose/i}).first();
-  if(await pick.count()&&await pick.isVisible().catch(()=>false)) await pick.click(); else await card.click();
+  if(await pick.count()&&await pick.isVisible().catch(()=>false)) await pick.click({noWaitAfter:true}); else await card.click({noWaitAfter:true});
   await wp.waitForTimeout(1500);
   for(let round=0;round<50;round++){
     txt=await body(wp);
@@ -167,7 +181,7 @@ async function importDemo(wp){
     let clicked=false;
     for(const re of patterns){
       const b=wp.locator('button,a,input[type=submit]').filter({hasText:re}).first();
-      if(await b.count()&&await b.isVisible().catch(()=>false)&&await b.isEnabled().catch(()=>true)){console.log('click',re.toString(),(await b.innerText().catch(()=>'' )).slice(0,100));await b.click().catch(()=>{});clicked=true;await wp.waitForTimeout(2500);break;}
+      if(await b.count()&&await b.isVisible().catch(()=>false)&&await b.isEnabled().catch(()=>true)){console.log('click',re.toString(),(await b.innerText().catch(()=>'' )).slice(0,100));await b.click({noWaitAfter:true}).catch(()=>{});clicked=true;await wp.waitForTimeout(2500);break;}
     }
     if(!clicked) await wp.waitForTimeout(1600);
   }
