@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process';
 const config = process.env.CF_WORKER_CONFIG || 'edge/wordpress-edge-proxy/wrangler.jsonc';
 const workerUrl = process.env.CF_EDGE_URL || 'https://wordpress-edge-proxy.ducduy2411.workers.dev';
 const outFile = process.env.CF_EDGE_OUT || '/tmp/cloudflare-wordpress-edge.json';
-const wrangler = 'wrangler@4.107.0';
+const wrangler = 'wrangler@4.124.0';
 
 if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error('CLOUDFLARE_API_TOKEN missing');
 
