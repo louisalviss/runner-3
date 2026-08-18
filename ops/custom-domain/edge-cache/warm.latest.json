@@ -1,27 +1,29 @@
 {
   "status": "ok",
+  "policyReady": true,
+  "cacheSeen": true,
   "rows": [
     {
       "http": 200,
-      "ms": 1036.3,
-      "cache": "MISS",
-      "age": null,
+      "ms": 123.9,
+      "cache": "HIT",
+      "age": "37",
       "policy": "workers-caching"
     },
     {
       "http": 200,
-      "ms": 19.6,
+      "ms": 27.1,
       "cache": "HIT",
-      "age": "0",
+      "age": "37",
       "policy": "workers-caching"
     },
     {
       "http": 200,
-      "ms": 18.8,
+      "ms": 44.2,
       "cache": "HIT",
-      "age": "0",
+      "age": "38",
       "policy": "workers-caching"
     }
   ],
-  "checkedAt": "2026-08-18T17:54:34.513Z"
+  "checkedAt": "2026-08-18T17:55:39.657Z"
 }
