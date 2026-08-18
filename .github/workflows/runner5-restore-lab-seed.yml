@@ -6,6 +6,11 @@ on:
     paths:
       - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-seed.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
 
 permissions:
   contents: write
