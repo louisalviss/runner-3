@@ -7,19 +7,19 @@ on:
     paths:
       - 'restore-lab/requests/backup-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-backup.yml'
-      - 'scripts/probe-ai1wm-rest-routes.mjs'
+      - 'scripts/recover-runner5-restore-lab-backup.mjs'
 
 permissions:
   contents: write
 
 concurrency:
-  group: runner5-restore-lab-backup-${{ github.run_id }}
-  cancel-in-progress: false
+  group: runner5-restore-lab-backup-runner5-restore-lab-1
+  cancel-in-progress: true
 
 jobs:
   backup:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -42,19 +42,28 @@ jobs:
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Probe AI1WM REST routes
-        run: node scripts/probe-ai1wm-rest-routes.mjs
+      - name: Export WPress snapshot through REST API
+        run: node scripts/recover-runner5-restore-lab-backup.mjs
 
-      - name: Persist safe REST route status
+      - name: Upload WPress snapshot artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner5-restore-lab-before-wpress
+          path: /tmp/runner5-restore-lab-before.wpress
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Persist safe backup status
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           status=/tmp/runner5-restore-lab-backup.json
           if [ ! -s "$status" ]; then
-            printf '{"status":"RUNNER_ERROR","siteSlug":"runner5-restore-lab-1","detail":"rest_probe_status_missing"}\n' > "$status"
+            printf '{"status":"RUNNER_ERROR","siteSlug":"runner5-restore-lab-1","detail":"backup_status_missing"}\n' > "$status"
           fi
-          rm -f /tmp/wasmer-account.json
+          rm -f /tmp/wasmer-account.json /tmp/runner5-restore-lab-before.wpress
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
@@ -64,7 +73,7 @@ jobs:
             cp "$status" ops/restore-lab/runner5-restore-lab-1.backup.json
             git add ops/restore-lab/runner5-restore-lab-1.backup.json
             if git diff --cached --quiet; then exit 0; fi
-            git commit -m 'Persist Runner5 AI1WM REST route status'
+            git commit -m 'Persist Runner5 restore lab backup status'
             if git push origin HEAD:main; then exit 0; fi
             sleep 3
           done
