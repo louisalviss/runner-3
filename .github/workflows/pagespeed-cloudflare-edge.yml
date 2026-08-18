@@ -1,0 +1,111 @@
+name: Cloudflare Edge PageSpeed
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'ops/pagespeed/edge-requests/*.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pagespeed-cloudflare-edge.yml'
+      - 'ops/pagespeed/edge-requests/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-edge-pagespeed
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PSI_TARGET: https://wordpress-edge-proxy.ducduy2411.workers.dev/
+      PSI_OUT: /tmp/pagespeed-cloudflare-edge.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Run Google PageSpeed API mobile and desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, time, urllib.parse, urllib.request
+          target=os.environ['PSI_TARGET']
+          out={'status':'starting','target':target,'checkedAt':None,'mobile':None,'desktop':None,'detail':None}
+          cats=['performance','accessibility','best-practices','seo']
+          def run(strategy):
+              params=[('url',target),('strategy',strategy)] + [('category',c) for c in cats]
+              url='https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed?'+urllib.parse.urlencode(params)
+              req=urllib.request.Request(url,headers={'User-Agent':'runner3-pagespeed-audit/1.0'})
+              with urllib.request.urlopen(req,timeout=240) as r:
+                  data=json.load(r)
+              lr=data.get('lighthouseResult') or {}
+              categories=lr.get('categories') or {}
+              audits=lr.get('audits') or {}
+              def score(k):
+                  v=(categories.get(k) or {}).get('score')
+                  return None if v is None else round(v*100)
+              def metric(k):
+                  a=audits.get(k) or {}
+                  return {'displayValue':a.get('displayValue'),'numericValue':a.get('numericValue'),'score':a.get('score')}
+              return {
+                'scores':{
+                  'performance':score('performance'),
+                  'accessibility':score('accessibility'),
+                  'bestPractices':score('best-practices'),
+                  'seo':score('seo'),
+                },
+                'metrics':{
+                  'fcp':metric('first-contentful-paint'),
+                  'lcp':metric('largest-contentful-paint'),
+                  'tbt':metric('total-blocking-time'),
+                  'cls':metric('cumulative-layout-shift'),
+                  'speedIndex':metric('speed-index'),
+                  'serverResponseTime':metric('server-response-time'),
+                },
+                'finalUrl':lr.get('finalUrl'),
+                'fetchTime':lr.get('fetchTime'),
+              }
+          try:
+              out['mobile']=run('mobile')
+              time.sleep(2)
+              out['desktop']=run('desktop')
+              out['status']='ready'
+          except Exception as e:
+              out['status']='failed'; out['detail']=repr(e)
+          out['checkedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          open(os.environ['PSI_OUT'],'w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          if out['status']!='ready': raise SystemExit(1)
+          PY
+
+      - name: Persist immutable PageSpeed result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$PSI_OUT" || printf '{"status":"failed","detail":"missing result"}\n' > "$PSI_OUT"
+          cp "$PSI_OUT" /tmp/psi-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/edge-results/runs
+            cp /tmp/psi-safe.json ops/pagespeed/edge-results/cloudflare-edge.latest.json
+            cp /tmp/psi-safe.json "ops/pagespeed/edge-results/runs/cloudflare-edge.${GITHUB_RUN_ID}.json"
+            git add ops/pagespeed/edge-results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Cloudflare edge PageSpeed: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
