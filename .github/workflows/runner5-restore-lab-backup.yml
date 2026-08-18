@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: runner5-restore-lab-backup-runner5-restore-lab-1
-  cancel-in-progress: true
+  group: runner5-restore-lab-backup-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   backup:
