@@ -5,13 +5,17 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/wordpress-db-ab-benchmark.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/benchmarks/trigger-wordpress-db-ab.txt'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: wordpress-db-ab-benchmark
+  group: wordpress-db-ab-benchmark-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +37,7 @@ jobs:
           set -euo pipefail
           mkdir -p ops/benchmarks
           python3 - <<'PY'
-          import json, os, statistics, subprocess, tempfile, time, urllib.parse
+          import json, os, subprocess, tempfile, time
           base=os.environ['BASE_URL'].rstrip('/')
 
           def one(url):
@@ -64,8 +68,7 @@ jobs:
                   rows.append(one(maker(i)))
                   time.sleep(.12)
               good=[r for r in rows if r.get('ok')]
-              t=[r['ttfb_ms'] for r in good]
-              tot=[r['total_ms'] for r in good]
+              t=[r['ttfb_ms'] for r in good]; tot=[r['total_ms'] for r in good]
               codes={str(c):sum(1 for r in good if r.get('code')==c) for c in sorted(set(r.get('code') for r in good))}
               caches={str(c):sum(1 for r in good if r.get('cache')==c) for c in sorted(set(r.get('cache') for r in good),key=lambda x:str(x))}
               return {'name':name,'samples':n,'success':len(good),'codes':codes,'cache_headers':caches,
@@ -74,11 +77,12 @@ jobs:
                       'errors':[r.get('error') for r in rows if not r.get('ok')][:3]}
 
           stamp=str(int(time.time()*1000))
-          results=[]
-          results.append(run_group('home_same_url_warm',lambda i: base+'/',30,warm=3))
-          results.append(run_group('home_cache_busted',lambda i: base+'/?runner3_dbbench='+stamp+'-'+str(i),30))
-          results.append(run_group('rest_posts_cache_busted',lambda i: base+'/wp-json/wp/v2/posts?per_page=1&_fields=id&runner3_dbbench='+stamp+'-'+str(i),30))
-          results.append(run_group('wp_login',lambda i: base+'/wp-login.php?runner3_dbbench='+stamp+'-'+str(i),20))
+          results=[
+            run_group('home_same_url_warm',lambda i: base+'/',30,warm=3),
+            run_group('home_cache_busted',lambda i: base+'/?runner3_dbbench='+stamp+'-'+str(i),30),
+            run_group('rest_posts_cache_busted',lambda i: base+'/wp-json/wp/v2/posts?per_page=1&_fields=id&runner3_dbbench='+stamp+'-'+str(i),30),
+            run_group('wp_login',lambda i: base+'/wp-login.php?runner3_dbbench='+stamp+'-'+str(i),20)
+          ]
           auth=bool(os.environ.get('TIDB_CLOUD_PUBLIC_KEY')) and bool(os.environ.get('TIDB_CLOUD_PRIVATE_KEY'))
           out={'status':'READY_FOR_TIDB_PROVISION' if auth else 'BASELINE_COMPLETE_TIDB_AUTH_MISSING',
                'safe':True,'production_db_changed':False,'site':base+'/', 'measured_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
@@ -88,7 +92,17 @@ jobs:
           print(json.dumps(out,indent=2))
           PY
 
+      - name: Upload safe benchmark result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordpress-db-ab-baseline
+          path: ops/benchmarks/wordpress-db-ab-latest.json
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Persist safe benchmark result
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
