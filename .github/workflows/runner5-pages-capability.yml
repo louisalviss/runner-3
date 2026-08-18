@@ -1,0 +1,76 @@
+name: Runner5 Pages Capability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-pages-capability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Probe Pages API via Wrangler
+        shell: bash
+        run: |
+          set +e
+          npx --yes wrangler@4 pages project list --json >/tmp/pages-list.out 2>/tmp/pages-list.err
+          code=$?
+          set -e
+          python - <<'PY'
+          import json,time,pathlib,os
+          code=int(os.environ['PROBE_CODE'])
+          stdout=pathlib.Path('/tmp/pages-list.out').read_text(errors='ignore')[:10000]
+          stderr=pathlib.Path('/tmp/pages-list.err').read_text(errors='ignore')[:10000]
+          projects=None
+          if code==0:
+              try:
+                  data=json.loads(stdout); projects=[{'name':x.get('name'),'subdomain':x.get('subdomain'),'production_branch':x.get('production_branch')} for x in data]
+              except Exception: projects=[]
+          out={'status':'READY' if code==0 else 'FAILED','exitCode':code,'projects':projects,'stdout':stdout if code!=0 else None,'stderr':stderr if code!=0 else None,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          pathlib.Path('/tmp/pages-capability.json').write_text(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
+          PY
+        env:
+          PROBE_CODE: ${{ env.PROBE_CODE }}
+      - name: Persist capability result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Re-run compactly because shell-local exit code is not available across steps.
+          set +e
+          npx --yes wrangler@4 pages project list --json >/tmp/pages-list2.out 2>/tmp/pages-list2.err
+          code=$?
+          set -e
+          python - "$code" <<'PY'
+          import json,time,pathlib,sys
+          code=int(sys.argv[1]); stdout=pathlib.Path('/tmp/pages-list2.out').read_text(errors='ignore')[:10000]; stderr=pathlib.Path('/tmp/pages-list2.err').read_text(errors='ignore')[:10000]
+          projects=None
+          if code==0:
+              try:
+                  data=json.loads(stdout); projects=[{'name':x.get('name'),'subdomain':x.get('subdomain'),'production_branch':x.get('production_branch')} for x in data]
+              except Exception: projects=[]
+          out={'status':'READY' if code==0 else 'FAILED','exitCode':code,'projects':projects,'stdout':stdout if code!=0 else None,'stderr':stderr if code!=0 else None,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          pathlib.Path('/tmp/pages-capability.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          cp /tmp/pages-capability.json /tmp/pages-cap-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/pages-cap-safe.json ops/wordpress-access/runner5-pages-capability.json; git add ops/wordpress-access/runner5-pages-capability.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Pages capability probe'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
