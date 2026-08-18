@@ -44,8 +44,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/ablation
+          mkdir -p /tmp/ablation /tmp/wrpy
           for v in canon_all no_pivot no_qty no_tick no_session; do
+            rm -f /tmp/wrpy/*
             echo "===== $v =====" | tee -a /tmp/ablation/summary.txt
             set +e
             python3 /tmp/$v.py > /tmp/ablation/$v.log 2>&1
