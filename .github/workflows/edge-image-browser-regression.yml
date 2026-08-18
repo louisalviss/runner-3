@@ -1,0 +1,83 @@
+name: Edge Image Browser Regression
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'ops/pagespeed/edge-image-browser-requests/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edge-image-browser-regression
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    env:
+      EDGE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
+      EDGE_IMAGE_BROWSER_OUT: /tmp/edge-image-browser.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install browser runtime
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Verify every image in a real mobile browser
+        id: verify
+        continue-on-error: true
+        run: node scripts/verify-edge-images-browser.mjs
+
+      - name: Persist immutable browser image result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$EDGE_IMAGE_BROWSER_OUT" || printf '{"status":"error","detail":"missing browser image result"}\n' > "$EDGE_IMAGE_BROWSER_OUT"
+          cp "$EDGE_IMAGE_BROWSER_OUT" /tmp/edge-image-browser-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/edge-image-browser-results/runs
+            cp /tmp/edge-image-browser-safe.json ops/pagespeed/edge-image-browser-results/latest.json
+            cp /tmp/edge-image-browser-safe.json "ops/pagespeed/edge-image-browser-results/runs/${GITHUB_RUN_ID}.json"
+            git add ops/pagespeed/edge-image-browser-results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist edge browser image regression: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
+
+      - name: Require all images decoded
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          d=json.load(open(os.environ['EDGE_IMAGE_BROWSER_OUT']))
+          assert d.get('status') == 'pass', json.dumps(d, indent=2)
+          assert d.get('brokenCount') == 0, json.dumps(d, indent=2)
+          assert d.get('transformedCount') == 0, json.dumps(d, indent=2)
+          print(json.dumps({
+            'status': d['status'],
+            'imageCount': d['imageCount'],
+            'r2ImageCount': d['r2ImageCount'],
+            'brokenCount': d['brokenCount'],
+            'transformedCount': d['transformedCount'],
+            'requestFailures': d['requestFailures'],
+          }, indent=2))
+          PY
