@@ -1,0 +1,84 @@
+name: Runner3WP PageSpeed UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-pagespeed-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-pagespeed-ui
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PSI_URL: https://runner3wp.pntr.dev/
+      PSI_UI_OUT: /tmp/pagespeed-runner3wp-ui.json
+      PSI_UI_SCREENSHOT: /tmp/pagespeed-runner3wp-mobile.png
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Run Google PageSpeed web UI on runner3wp
+        id: psi
+        continue-on-error: true
+        run: node scripts/pagespeed-ui-audit.mjs
+
+      - name: Persist fresh runner3wp PageSpeed result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/pagespeed-runner3wp-ui.json || printf '{"status":"failed","target":"%s","detail":"missing UI result"}\n' "$PSI_URL" >/tmp/pagespeed-runner3wp-ui.json
+          cp /tmp/pagespeed-runner3wp-ui.json /tmp/psi-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/runner3wp-ui-results/runs
+            cp /tmp/psi-safe.json ops/pagespeed/runner3wp-ui-results/latest.json
+            cp /tmp/psi-safe.json "ops/pagespeed/runner3wp-ui-results/runs/runner3wp.${GITHUB_RUN_ID}.json"
+            git add ops/pagespeed/runner3wp-ui-results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist runner3wp PageSpeed UI: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
+
+      - name: Require fresh PageSpeed result
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/pagespeed-runner3wp-ui.json'))
+          assert d.get('status') == 'ready', json.dumps(d,indent=2)
+          print(json.dumps({
+            'target': d.get('target'),
+            'resultUrl': d.get('resultUrl'),
+            'mobile': d.get('mobile',{}).get('scores'),
+            'mobileMetrics': d.get('mobile',{}).get('metrics'),
+            'mobileSavings': d.get('mobile',{}).get('savings'),
+            'desktop': d.get('desktop',{}).get('scores'),
+            'desktopMetrics': d.get('desktop',{}).get('metrics'),
+            'desktopSavings': d.get('desktop',{}).get('savings'),
+          },indent=2))
+          PY
