@@ -1,0 +1,53 @@
+name: WR 2.5.15 Frozen Stage2 Crypto Only
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-2515-stage12-crypto-only.yml'
+      - 'wave-rider-verify/wr2515_stage12_crypto_only.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr2515-stage12-run3-shard-*
+          path: /tmp/all
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32161175718
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - name: Apply frozen Stage2 after TradFi exclusion
+        shell: bash
+        env:
+          BASE_DIR: /tmp/base
+          IN_DIR: /tmp/all
+          OUT_DIR: /tmp/final
+        run: |
+          set -euo pipefail
+          python3 wave-rider-verify/wr2515_stage12_crypto_only.py
+          python3 - <<'PY'
+          import json
+          r=json.load(open('/tmp/final/report.json'))
+          bad=set(r.get('selected_symbols',[])) & set(r.get('tradfi_excluded',[]))
+          print('SELECTED_COUNT',len(r.get('selected_symbols',[])))
+          print('TRADFI_REMAIN_FROM_EXPLICIT_SET',sorted(bad))
+          if bad: raise SystemExit(7)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-stage12-crypto-only-final
+          path: /tmp/final
+          retention-days: 14
