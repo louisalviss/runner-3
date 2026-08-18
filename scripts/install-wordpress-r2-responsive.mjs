@@ -100,6 +100,15 @@ async function enterAdmin(ctx, page) {
   throw new Error('magic_admin_failed');
 }
 
+async function gotoLocatorHref(page, locator, origin) {
+  if (!(await locator.count())) return false;
+  const href = await locator.getAttribute('href').catch(() => null);
+  if (!href) return false;
+  await page.goto(new URL(href, origin + '/').href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(900);
+  return true;
+}
+
 async function ensurePlugin(wp) {
   const origin = new URL(wp.url()).origin;
   await wp.goto(`${origin}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -115,11 +124,7 @@ async function ensurePlugin(wp) {
       return;
     }
     const activate = row.getByRole('link', { name: /^activate$/i }).first();
-    if (await activate.count()) {
-      await activate.click();
-      await wp.waitForLoadState('domcontentloaded').catch(() => {});
-      await wp.waitForTimeout(800);
-    }
+    if (!(await gotoLocatorHref(wp, activate, origin))) throw new Error('plugin_activate_link_missing');
   } else {
     await wp.goto(`${origin}/wp-admin/plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const input = wp.locator('input[type=file][name=pluginzip],input[type=file]').first();
@@ -133,11 +138,7 @@ async function ensurePlugin(wp) {
 
     const replace = wp.getByRole('link', { name: /replace current with uploaded/i }).first();
     const replaceButton = wp.locator('input[type=submit][value*="Replace current" i],button').filter({ hasText: /replace current with uploaded/i }).first();
-    if (await replace.count()) {
-      await replace.click();
-      await wp.waitForLoadState('domcontentloaded').catch(() => {});
-      await wp.waitForTimeout(1000);
-    } else if (await replaceButton.count()) {
+    if (!(await gotoLocatorHref(wp, replace, origin)) && await replaceButton.count()) {
       await replaceButton.click();
       await wp.waitForLoadState('domcontentloaded').catch(() => {});
       await wp.waitForTimeout(1000);
@@ -150,14 +151,8 @@ async function ensurePlugin(wp) {
 
     const activate = wp.getByRole('link', { name: /activate plugin/i }).first();
     const activateButton = wp.locator('a.button-primary').filter({ hasText: /activate/i }).first();
-    if (await activate.count()) {
-      await activate.click();
-      await wp.waitForLoadState('domcontentloaded').catch(() => {});
-      await wp.waitForTimeout(800);
-    } else if (await activateButton.count()) {
-      await activateButton.click();
-      await wp.waitForLoadState('domcontentloaded').catch(() => {});
-      await wp.waitForTimeout(800);
+    if (!(await gotoLocatorHref(wp, activate, origin))) {
+      if (!(await gotoLocatorHref(wp, activateButton, origin))) throw new Error('plugin_activate_link_missing_after_install');
     }
   }
 
