@@ -27,7 +27,16 @@ jobs:
           old="m=types.ModuleType('wrp' if patched else 'wro');m.__file__='reference_verify.py';exec(compile(src,m.__file__,'exec'),m.__dict__);return m"
           new="name='wrp' if patched else 'wro';m=types.ModuleType(name);m.__file__='reference_verify.py';sys.modules[name]=m;exec(compile(src,m.__file__,'exec'),m.__dict__);return m"
           if code.count(old)!=1: raise SystemExit('module patch anchor missing')
-          Path('/tmp/isolate.py').write_text(code.replace(old,new,1))
+          code=code.replace(old,new,1)
+          old2="td0,_=PATCH.run(5,bars,s['new_tick'],STATE,END);td=[t for t in td0 if START<=signal_ms(t)<=END]"
+          new2="vals=[]\n  for bb in bars[-2016:]: vals.extend([str(bb.o),str(bb.h),str(bb.l),str(bb.c)])\n  latest_tick=PATCH.infer_tick(vals)\n  td0,_=PATCH.run(5,bars,latest_tick,STATE,END);td=[t for t in td0 if START<=signal_ms(t)<=END]"
+          if code.count(old2)!=1: raise SystemExit('recent tick patch anchor missing')
+          code=code.replace(old2,new2,1)
+          old3="'D_pine_patch_stateful_new_tick':stat(td)}"
+          new3="'D_pine_patch_stateful_new_tick':stat(td),'recent_tick':latest_tick}"
+          if code.count(old3)!=1: raise SystemExit('row patch anchor missing')
+          code=code.replace(old3,new3,1)
+          Path('/tmp/isolate.py').write_text(code)
           PY
           python3 /tmp/isolate.py | tee /tmp/wriso/run.log
       - uses: actions/upload-artifact@v4
