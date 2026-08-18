@@ -3,18 +3,34 @@
   "siteSlug": "runner5-restore-lab-1",
   "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
   "mode": "rest-api-seed-v4",
-  "applicationPassword": false,
-  "backupPlugin": null,
-  "activeTheme": null,
-  "pages": 0,
+  "applicationPassword": true,
+  "backupPlugin": {
+    "plugin": "all-in-one-wp-migration/all-in-one-wp-migration",
+    "status": "active",
+    "version": "7.109"
+  },
+  "activeTheme": {
+    "stylesheet": "inspiro",
+    "name": "Inspiro",
+    "version": "2.2.3"
+  },
+  "pages": 5,
   "posts": 0,
-  "categories": 0,
+  "categories": 3,
   "mediaUpload": "deferred_after_origin_500",
   "homepageHttp": null,
   "steps": [
     "wasmer_login",
-    "wordpress_admin"
+    "wordpress_admin",
+    "application_password",
+    "verify_api",
+    "plugin_all-in-one-wp-migration",
+    "theme_snapshot",
+    "settings",
+    "categories",
+    "pages",
+    "posts"
   ],
   "detail": null,
-  "updatedAt": "2026-08-18T05:48:19.944Z"
+  "updatedAt": "2026-08-18T05:49:27.046Z"
 }
