@@ -1,0 +1,52 @@
+name: Runner5 Final Lighthouse V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-final-lighthouse-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TARGET_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Run Lighthouse 13.4.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes lighthouse@13.4.1 "$TARGET_URL" --output=json --output-path=/tmp/mobile.json --only-categories=performance,accessibility,best-practices,seo --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          npx --yes lighthouse@13.4.1 "$TARGET_URL" --preset=desktop --output=json --output-path=/tmp/desktop.json --only-categories=performance,accessibility,best-practices,seo --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          python - <<'PY'
+          import json,os,time
+          def p(path):
+              d=json.load(open(path));c=d['categories'];a=d['audits'];s=lambda k:round(c[k]['score']*100);v=lambda k:(a.get(k)or{}).get('displayValue')
+              return {'scores':{'performance':s('performance'),'accessibility':s('accessibility'),'bestPractices':s('best-practices'),'seo':s('seo')},'metrics':{'fcp':v('first-contentful-paint'),'lcp':v('largest-contentful-paint'),'tbt':v('total-blocking-time'),'cls':v('cumulative-layout-shift'),'speedIndex':v('speed-index'),'serverResponseTime':v('server-response-time')},'fetchTime':d.get('fetchTime')}
+          out={'status':'ready','target':os.environ['TARGET_URL'],'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'mobile':p('/tmp/mobile.json'),'desktop':p('/tmp/desktop.json')}
+          open('/tmp/final-lh.json','w').write(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))
+          PY
+      - name: Persist final Lighthouse
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/final-lh.json || printf '{"status":"failed","detail":"missing_result"}\n' >/tmp/final-lh.json
+          cp /tmp/final-lh.json /tmp/final-lh-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main;git reset --hard origin/main;mkdir -p ops/pagespeed/runner5-final-lighthouse;cp /tmp/final-lh-safe.json ops/pagespeed/runner5-final-lighthouse/latest.json;git add ops/pagespeed/runner5-final-lighthouse/latest.json
+            if git diff --cached --quiet;then exit 0;fi
+            git commit -m "Persist Runner5 final Lighthouse: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main;then exit 0;fi
+            sleep 2
+          done
+          exit 2
