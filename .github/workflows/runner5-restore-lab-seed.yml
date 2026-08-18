@@ -6,14 +6,14 @@ on:
     paths:
       - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-seed.yml'
-      - 'scripts/seed-runner5-restore-lab-v2.mjs'
+      - 'scripts/seed-runner5-restore-lab-v3.mjs'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
       - '.github/workflows/runner5-restore-lab-seed.yml'
-      - 'scripts/seed-runner5-restore-lab-v2.mjs'
+      - 'scripts/seed-runner5-restore-lab-v3.mjs'
 
 permissions:
   contents: write
@@ -25,7 +25,7 @@ concurrency:
 jobs:
   seed:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -48,8 +48,8 @@ jobs:
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
 
-      - name: Seed demo site
-        run: node scripts/seed-runner5-restore-lab-v2.mjs
+      - name: Seed demo site through REST API
+        run: node scripts/seed-runner5-restore-lab-v3.mjs
 
       - name: Persist safe seed status
         if: always()
