@@ -25,11 +25,9 @@ jobs:
               global p
               if p.count(old)<n: raise SystemExit('PATCH_MISSING: '+old[:120])
               p=p.replace(old,new,n)
-          rep('strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT", shorttitle="WR 2.5.13 WIN"',
-              'strategy("Wave Rider Strategy v2.5.14 DETERMINISTIC", shorttitle="WR 2.5.14 DET"')
+          rep('strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT", shorttitle="WR 2.5.13 WIN"','strategy("Wave Rider Strategy v2.5.14 DETERMINISTIC", shorttitle="WR 2.5.14 DET"')
           rep('groupWindow="10. Window Report"\nstartTime=input.time(1785171600000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)\nvalidWindow=endTime>startTime\nsignalInReportWindow=validWindow and time_close>=startTime and time_close<endTime', '''groupWindow="10. Deterministic Window"\nstateStartTime=input.time(1785171600000,"State Start (VN, exact bar required)",group=groupWindow)\nstartTime=input.time(1785862800000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786294800000,"End (VN, exclusive)",group=groupWindow)\nvar bool stateAnchorSeen=false\nif time==stateStartTime\n    stateAnchorSeen:=true\nstateActive=stateAnchorSeen\nvalidWindow=endTime>startTime\nsignalInReportWindow=stateActive and validWindow and time_close>=startTime and time_close<endTime\ndetClose=stateActive?close:na\ndetHigh=stateActive?high:na\ndetLow=stateActive?low:na\ndetTR=stateActive?(na(detClose[1])?high-low:math.max(high-low,math.abs(high-detClose[1]),math.abs(low-detClose[1]))):na''')
-          rep('showAuditPanel=input.bool(false,"Show Engine Audit (debug)",group=groupStats)',
-              'showAuditPanel=input.bool(true,"Show Engine Audit (debug)",group=groupStats)')
+          rep('showAuditPanel=input.bool(false,"Show Engine Audit (debug)",group=groupStats)','showAuditPanel=input.bool(true,"Show Engine Audit (debug)",group=groupStats)')
           rep('ema21=ta.ema(close,emaLength)','ema21=ta.ema(detClose,emaLength)')
           rep('ph=ta.pivothigh(high,leftBars,rightBars)[1]','ph=ta.pivothigh(detHigh,leftBars,rightBars)[1]')
           rep('pl=ta.pivotlow(low,leftBars,rightBars)[1]','pl=ta.pivotlow(detLow,leftBars,rightBars)[1]')
@@ -39,15 +37,11 @@ jobs:
           rep('trSum=math.sum(ta.atr(1),chopLength)','trSum=math.sum(detTR,chopLength)')
           rep('priceRange=ta.highest(high,chopLength)-ta.lowest(low,chopLength)','priceRange=ta.highest(detHigh,chopLength)-ta.lowest(detLow,chopLength)')
           rep('signalATR=ta.atr(signalAtrLength)','signalATR=ta.rma(detTR,signalAtrLength)')
-          rep('bool engineOK=canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK',
-              'bool engineOK=stateAnchorSeen and canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK')
-          rep('string engineText=engineOK?"✓ CLEAN":"! CHECK"',
-              'string engineText=not stateAnchorSeen?"! ANCHOR":engineOK?"✓ CLEAN":"! CHECK"')
+          rep('bool engineOK=canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK','bool engineOK=stateAnchorSeen and canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK')
+          rep('string engineText=engineOK?"✓ CLEAN":"! CHECK"','string engineText=not stateAnchorSeen?"! ANCHOR":engineOK?"✓ CLEAN":"! CHECK"')
           open('/tmp/wr2514.pine','w').write(p)
-          import hashlib
-          print('WR2514_SHA256='+hashlib.sha256(p.encode()).hexdigest())
           PY
-      - name: Save as new TradingView script
+      - name: Inspect Pine Save popup
         shell: bash
         run: |
           set -euo pipefail
@@ -60,56 +54,31 @@ jobs:
             const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
             const context=await browser.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
             const page=await context.newPage();
-            await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
-            await page.waitForTimeout(12000);
-            let body=await page.locator('body').innerText().catch(()=> '');
-            console.log('AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'FAIL'));
+            await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await page.waitForTimeout(12000);
             const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(6500);
-            const ta=page.locator('.monaco-editor textarea').last();
-            const source=fs.readFileSync('/tmp/wr2514.pine','utf8');
+            const ta=page.locator('.monaco-editor textarea').last(); const source=fs.readFileSync('/tmp/wr2514.pine','utf8');
             await page.evaluate(s=>navigator.clipboard.writeText(s),source); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+V'); await page.waitForTimeout(1800);
-            body=await page.locator('body').innerText().catch(()=> '');
-            if(/Compilation error|Syntax error|Error at/i.test(body)) throw new Error('source error before save');
-            // Safety gate: save only if Pine explicitly says this is an Untitled script.
-            const untitled=page.getByText('Untitled script',{exact:true});
-            let titleEl=null;
-            for(let i=0;i<await untitled.count();i++){const e=untitled.nth(i);if(await e.isVisible().catch(()=>false)){titleEl=e;break;}}
-            if(!titleEl) throw new Error('Pine document is not Untitled; refusing to save/overwrite');
-            const tb=await titleEl.boundingBox();
-            if(!tb) throw new Error('Untitled script bounding box missing');
-            const saves=page.getByText('Save',{exact:true});
-            let editorSave=null;
-            for(let i=0;i<await saves.count();i++){
-              const e=saves.nth(i); if(!await e.isVisible().catch(()=>false)) continue;
-              const b=await e.boundingBox().catch(()=>null); if(!b) continue;
-              if(Math.abs(b.y-tb.y)<120){editorSave=e; console.log('EDITOR_SAVE_Y='+b.y); break;}
-            }
-            if(!editorSave) throw new Error('Pine Editor Save control not found near Untitled title');
-            await editorSave.click({force:true}); await page.waitForTimeout(2500);
-            const dialogs=page.getByRole('dialog'); let dlg=null;
-            for(let i=0;i<await dialogs.count();i++){const d=dialogs.nth(i);if(await d.isVisible().catch(()=>false)){dlg=d;break;}}
-            if(!dlg) throw new Error('Save-name dialog not found after Pine Save click');
-            console.log('SAVE_NAME_DIALOG=PASS');
-            const boxes=dlg.getByRole('textbox'); if(!(await boxes.count())) throw new Error('Save name field missing');
-            const name='Wave Rider Strategy v2.5.14 DETERMINISTIC'; await boxes.first().fill(name);
-            const save=dlg.getByRole('button',{name:/save/i}); if(!(await save.count())) throw new Error('Save dialog button missing');
-            await save.last().click({force:true}); await page.waitForTimeout(5000);
-            body=await page.locator('body').innerText().catch(()=> '');
-            console.log('SAVED_NAME_PRESENT='+(body.includes(name)||body.includes('WR 2.5.14 DET')?'PASS':'CHECK'));
-            const add=page.getByRole('button',{name:/Add to chart/i}); if(await add.count()) await add.first().click({force:true}); else {await ta.click({force:true});await page.keyboard.press('Control+Enter');}
-            await page.waitForTimeout(22000);
-            body=await page.locator('body').innerText().catch(()=> '');
-            console.log('COMPILE='+(/Compilation error|Syntax error|Error at/i.test(body)?'FAIL':'PASS'));
-            console.log('WR2514_PRESENT='+(body.includes('WR 2.5.14 DET')?'PASS':'CHECK'));
-            await page.screenshot({path:'/tmp/wr2514-saved.png',fullPage:false});
-            await browser.close();
-          })().catch(e=>{console.error('SAVE2514_ERROR='+e.stack);process.exit(7)});
+            const untitled=page.getByText('Untitled script',{exact:true}); let titleEl=null;
+            for(let i=0;i<await untitled.count();i++){let e=untitled.nth(i);if(await e.isVisible().catch(()=>false)){titleEl=e;break;}}
+            if(!titleEl) throw new Error('not Untitled; refusing save'); const tb=await titleEl.boundingBox();
+            const saves=page.getByText('Save',{exact:true}); let editorSave=null;
+            for(let i=0;i<await saves.count();i++){let e=saves.nth(i);if(!await e.isVisible().catch(()=>false))continue;let b=await e.boundingBox().catch(()=>null);if(b&&Math.abs(b.y-tb.y)<120){editorSave=e;break;}}
+            if(!editorSave) throw new Error('editor Save missing'); await editorSave.click({force:true}); await page.waitForTimeout(2500);
+            const body=await page.locator('body').innerText().catch(()=> '');
+            console.log('AFTER_SAVE_TEXT_BEGIN'); console.log(body.split('\n').filter(x=>/save|script|name|title|untitled|cancel/i.test(x)).slice(0,160).join('\n')); console.log('AFTER_SAVE_TEXT_END');
+            const inputs=page.locator('input'); console.log('INPUT_COUNT='+await inputs.count());
+            for(let i=0;i<await inputs.count();i++){const e=inputs.nth(i);if(!await e.isVisible().catch(()=>false))continue; console.log('INPUT_'+i+'='+JSON.stringify({type:await e.getAttribute('type'),placeholder:await e.getAttribute('placeholder'),value:await e.inputValue().catch(()=>''),aria:await e.getAttribute('aria-label'),name:await e.getAttribute('name')}));}
+            const textareas=page.locator('textarea'); console.log('TEXTAREA_COUNT='+await textareas.count());
+            const buttons=page.getByRole('button'); console.log('BUTTON_COUNT='+await buttons.count());
+            for(let i=0;i<await buttons.count();i++){const e=buttons.nth(i);if(!await e.isVisible().catch(()=>false))continue; const txt=(await e.innerText().catch(()=>'' )).trim(); const aria=await e.getAttribute('aria-label'); if(/save|cancel|create|ok|script/i.test(txt+' '+(aria||''))) console.log('BTN_'+i+'='+JSON.stringify({txt,aria}));}
+            await page.screenshot({path:'/tmp/save-popup.png',fullPage:false}); await browser.close();
+          })().catch(e=>{console.error('INSPECT_SAVE_ERROR='+e.stack);process.exit(7)});
           NODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tv-wr-2514-save-proof
-          path: /tmp/wr2514-saved.png
+          name: tv-wr-save-popup-inspect
+          path: /tmp/save-popup.png
           retention-days: 1
       - if: always()
         run: rm -f /tmp/tv-state.json /tmp/wr*.pine /tmp/wr2514.pine
