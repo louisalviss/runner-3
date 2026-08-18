@@ -2,6 +2,7 @@ const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const SITE_PREFIX = '/sites/runner3-factory-smoke-2/';
 const VERIFIED_IMAGE_RE = /^offset-demo-(0[1-8])\.webp$/i;
 const WIDTHS = [360, 480, 640];
+const RESPONSIVE_SIZES = '(max-width: 767px) 92vw, 1100px';
 
 function responsiveInfo(value) {
   if (!value) return null;
@@ -28,7 +29,7 @@ export class StaticResponsiveImageRewriter {
     if (!info) return;
     element.setAttribute('srcset', info.srcset);
     if (!element.getAttribute('sizes')) {
-      element.setAttribute('sizes', '(max-width: 767px) 92vw, 1100px');
+      element.setAttribute('sizes', RESPONSIVE_SIZES);
     }
     // If a static variant is ever removed later, immediately drop srcset so the
     // browser re-evaluates the untouched original src instead of leaving a hole.
@@ -43,8 +44,9 @@ export class StaticImagePreloadRewriter {
     const info = responsiveInfo(element.getAttribute('href'));
     if (!info) return;
     // href stays as the original fallback; responsive-capable browsers select a
-    // verified static variant before the hero request starts.
+    // verified static variant before the hero request starts. Keep imagesizes
+    // identical to the rendered img sizes so preload and render choose one file.
     element.setAttribute('imagesrcset', info.srcset);
-    element.setAttribute('imagesizes', '(max-width: 767px) 68vw, 580px');
+    element.setAttribute('imagesizes', RESPONSIVE_SIZES);
   }
 }
