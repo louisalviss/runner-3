@@ -1,0 +1,56 @@
+name: Runner5 Cloudflare Zone Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-cloudflare-zone-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Read available zones
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request, time
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          out={'status':'FAILED','zones':[],'detail':None,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          try:
+              req=urllib.request.Request('https://api.cloudflare.com/client/v4/zones?per_page=50',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+              with urllib.request.urlopen(req,timeout=30) as r: data=json.load(r)
+              if not data.get('success'): raise RuntimeError(str(data.get('errors')))
+              out['zones']=[{'id':z.get('id'),'name':z.get('name'),'status':z.get('status')} for z in data.get('result',[])]
+              out['status']='READY'
+          except Exception as e: out['detail']=str(e)[:500]
+          open('/tmp/runner5-zones.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps({'status':out['status'],'zones':[{'name':z['name'],'status':z['status']} for z in out['zones']],'detail':out['detail']},indent=2))
+          PY
+      - name: Persist zone probe
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-zones.json || printf '{"status":"FAILED","detail":"missing_result"}\n' >/tmp/runner5-zones.json
+          cp /tmp/runner5-zones.json /tmp/zones-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/zones-safe.json ops/wordpress-access/runner5-cloudflare-zones.json; git add ops/wordpress-access/runner5-cloudflare-zones.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Cloudflare zone probe'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
