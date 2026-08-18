@@ -1,0 +1,111 @@
+name: WR 2.5.15 AggTrade Tick Validation
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-aggtrade-ticks.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  infer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - name: Validate aggTrade grid on known TV tick changes and infer historical-only Stage1 symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          python3 - <<'PY'
+          import csv,io,json,math,requests,time,zipfile,xml.etree.ElementTree as ET
+          from decimal import Decimal
+          from pathlib import Path
+
+          base=json.load(open('/tmp/base/summary.json')); bmap={x['symbol']:x for x in base}
+          tv=json.load(open('/tmp/base/tv_tick_map.json'))
+          controls=['OPUSDT','COTIUSDT','MOVRUSDT','DOTUSDT','TSTUSDT','KGENUSDT','STABLEUSDT','LABUSDT','AKEUSDT','ATUSDT','ONUSDT']
+          historical=['1000XUSDT','AERGOUSDT','AI16ZUSDT','ALPACAUSDT','ATAUSDT','BAKEUSDT','BNXUSDT','DEGOUSDT','EOSUSDT','FUNUSDT','HFTUSDT','HIFIUSDT','IPUSDT','MEMEFIUSDT','MKRUSDT','MLNUSDT','OMNIUSDT','OMUSDT','TONUSDT','TROYUSDT','UXLINKUSDT','VANRYUSDT','VICUSDT','VINEUSDT','VOXELUSDT','ZKJUSDT','币安人生USDT']
+          sess=requests.Session();sess.headers['User-Agent']='runner3-wr2515-tick-infer/1.0'
+          endpoint='https://s3-ap-northeast-1.amazonaws.com/data.binance.vision'
+          ns={'s':'http://s3.amazonaws.com/doc/2006-03-01/'}
+
+          def list_latest(sym,n=3):
+            prefix=f'data/futures/um/daily/aggTrades/{sym}/'
+            params={'list-type':'2','prefix':prefix,'max-keys':'1000'};keys=[]
+            token=None
+            while True:
+              if token: params['continuation-token']=token
+              r=sess.get(endpoint,params=params,timeout=45);r.raise_for_status();root=ET.fromstring(r.content)
+              keys += [x.text for x in root.findall('s:Contents/s:Key',ns) if x.text and x.text.endswith('.zip')]
+              trunc=root.findtext('s:IsTruncated',default='false',namespaces=ns)=='true';token=root.findtext('s:NextContinuationToken',default='',namespaces=ns)
+              if not trunc or not token:break
+            return sorted(keys)[-n:]
+
+          def get(url):
+            for k in range(3):
+              try:
+                r=sess.get(url,timeout=60);r.raise_for_status();return r.content
+              except Exception:
+                if k==2:raise
+                time.sleep(k+1)
+
+          def decimals_and_int(s):
+            d=Decimal(s); tup=d.as_tuple(); dec=max(0,-tup.exponent); return dec,int(d*(Decimal(10)**dec))
+
+          def infer_from_keys(keys):
+            prices=[];raw_count=0
+            for key in keys:
+              data=get('https://data.binance.vision/'+key)
+              with zipfile.ZipFile(io.BytesIO(data)) as z:txt=z.read(z.namelist()[0]).decode()
+              for row in csv.reader(io.StringIO(txt)):
+                if not row:continue
+                # Header may be present; price is column 1.
+                try: Decimal(row[1])
+                except Exception: continue
+                prices.append(row[1]);raw_count+=1
+            if len(prices)<2:return None,raw_count,0
+            maxdec=max(decimals_and_int(p)[0] for p in prices)
+            scale=10**maxdec
+            vals=[]
+            for p in prices:
+              d=Decimal(p);vals.append(int(d*scale))
+            u=sorted(set(vals));g=0
+            # GCD adjacent observed price-level gaps. Full trade flow makes one-tick gaps highly likely.
+            for a,b in zip(u,u[1:]):
+              if b>a:
+                g=math.gcd(g,b-a)
+                if g==1:break
+            return (g/scale if g else None),raw_count,len(u)
+
+          def run(sym):
+            keys=list_latest(sym,3);tick,n,u=infer_from_keys(keys)
+            return {'symbol':sym,'keys':keys,'aggtrade_rows':n,'unique_prices':u,'inferred_tick':tick,'baseline_tick':bmap.get(sym,{}).get('tick'),'tv_tick':tv.get(sym,{}).get('tick')}
+
+          control_rows=[]
+          for s in controls:
+            x=run(s);want=float(x['tv_tick']);got=x['inferred_tick'];x['pass']=got is not None and math.isclose(float(got),want,rel_tol=0,abs_tol=max(1e-15,want*1e-12));control_rows.append(x);print('CONTROL',json.dumps(x,ensure_ascii=False),flush=True)
+          pass_n=sum(x['pass'] for x in control_rows)
+          inferred=[]
+          for s in historical:
+            try:x=run(s)
+            except Exception as e:x={'symbol':s,'error':repr(e),'inferred_tick':None,'baseline_tick':bmap.get(s,{}).get('tick')}
+            inferred.append(x);print('HIST',json.dumps(x,ensure_ascii=False),flush=True)
+          report={'method':'GCD of exact observed aggTrade price grid across final 3 available daily archives','control_count':len(control_rows),'control_pass':pass_n,'control_all_pass':pass_n==len(control_rows),'controls':control_rows,'historical_count':len(inferred),'historical_inferred':sum(x.get('inferred_tick') is not None for x in inferred),'historical':inferred}
+          Path('/tmp/out/report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
+          Path('/tmp/out/historical_ticks.json').write_text(json.dumps({x['symbol']:x['inferred_tick'] for x in inferred if x.get('inferred_tick') is not None},indent=2,ensure_ascii=False))
+          print(json.dumps({k:report[k] for k in ['control_count','control_pass','control_all_pass','historical_count','historical_inferred']},indent=2))
+          if not report['control_all_pass']:raise SystemExit(7)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-aggtrade-ticks
+          path: /tmp/out
+          retention-days: 14
