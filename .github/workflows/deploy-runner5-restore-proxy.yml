@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/runner5-restore-proxy/worker.js'
+      - 'cloudflare/runner5-restore-proxy/wrangler.jsonc'
       - '.github/workflows/deploy-runner5-restore-proxy.yml'
   workflow_dispatch:
 
@@ -23,6 +24,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PROXY_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
+      CUSTOM_URL: https://runner5-restore.pntr.dev/
       ORIGIN_URL: https://runner5-restore-lab-1.wasmer.app/
     steps:
       - uses: actions/checkout@v4
@@ -94,51 +96,58 @@ jobs:
           print(json.dumps({'htmlBytes':len(html.encode()),'styleCount':len(styles),'styles':style_meta,'builtAt':built},indent=2))
           PY
 
-      - name: Deploy isolated optimized Worker proxy
+      - name: Deploy optimized Worker with custom domain
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes wrangler@4 deploy cloudflare/runner5-restore-proxy/worker.js \
-            --name runner5-restore-proxy \
-            --compatibility-date 2026-08-18
+          npx --yes wrangler@4 deploy --config cloudflare/runner5-restore-proxy/wrangler.jsonc
 
-      - name: Verify optimized proxy
+      - name: Verify optimized proxy and custom domain
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, time, urllib.request
-          url=os.environ['PROXY_URL']
-          result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'firstMs':None,'warmMs':None,'detail':None}
-          last=None
-          timings=[]
-          for attempt in range(12):
-              try:
-                  t=time.perf_counter()
-                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
-                  with urllib.request.urlopen(req,timeout=25) as r:
-                      body=r.read(1000000).decode('utf-8','ignore')
-                      ms=(time.perf_counter()-t)*1000
-                      timings.append(round(ms,1))
-                      result['http']=r.status
-                      result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
-                      result['edgeMode']=r.headers.get('x-edge-mode')
-                      result['edgeCache']=r.headers.get('x-edge-cache')
-                      if r.status==200 and result['titleMarker']:
-                          if len(timings) < 2:
-                              continue
-                          result['status']='READY'
-                          break
-              except Exception as e:
-                  last=str(e)
-              time.sleep(3)
-          result['firstMs']=timings[0] if timings else None
-          result['warmMs']=timings[-1] if len(timings)>1 else None
-          result['detail']=last if result['status']!='READY' else None
+          urls=[os.environ['PROXY_URL'], os.environ['CUSTOM_URL']]
+          result={'status':'FAILED','url':urls[0],'customUrl':urls[1],'checks':{},'detail':None}
+          last=[]
+          for url in urls:
+              check={'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'firstMs':None,'warmMs':None,'ready':False}
+              timings=[]
+              err=None
+              for attempt in range(20):
+                  try:
+                      t=time.perf_counter()
+                      req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                      with urllib.request.urlopen(req,timeout=25) as r:
+                          body=r.read(1000000).decode('utf-8','ignore')
+                          ms=(time.perf_counter()-t)*1000
+                          timings.append(round(ms,1))
+                          check['http']=r.status
+                          check['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
+                          check['edgeMode']=r.headers.get('x-edge-mode')
+                          check['edgeCache']=r.headers.get('x-edge-cache')
+                          if r.status==200 and check['titleMarker'] and check['edgeMode']=='snapshot':
+                              if len(timings) < 2:
+                                  continue
+                              check['ready']=True
+                              break
+                  except Exception as e:
+                      err=str(e)
+                  time.sleep(4)
+              check['firstMs']=timings[0] if timings else None
+              check['warmMs']=timings[-1] if len(timings)>1 else None
+              check['detail']=None if check['ready'] else err
+              result['checks'][url]=check
+              if not check['ready']:
+                  last.append(f'{url}: {err or "not_ready"}')
+          if all(v['ready'] for v in result['checks'].values()):
+              result['status']='READY'
+          result['detail']='; '.join(last) if last else None
           result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
           open('/tmp/runner5-proxy.json','w').write(json.dumps(result,indent=2))
           print(json.dumps(result,indent=2))
-          if result['status']!='READY' or result['edgeMode']!='snapshot': raise SystemExit(2)
+          if result['status']!='READY': raise SystemExit(2)
           PY
 
       - name: Persist proxy status
@@ -146,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s /tmp/runner5-proxy.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PROXY_URL" > /tmp/runner5-proxy.json
+          test -s /tmp/runner5-proxy.json || printf '{"status":"FAILED","url":"%s","customUrl":"%s","detail":"missing_status"}\n' "$PROXY_URL" "$CUSTOM_URL" > /tmp/runner5-proxy.json
           cp /tmp/runner5-proxy.json /tmp/runner5-proxy-safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
