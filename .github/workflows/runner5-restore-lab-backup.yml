@@ -43,7 +43,11 @@ jobs:
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Export WPress snapshot
-        run: node scripts/export-runner5-restore-lab-v2.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/await file.click({noWaitAfter:true})/await file.click({force:true,noWaitAfter:true})/' scripts/export-runner5-restore-lab-v2.mjs
+          node scripts/export-runner5-restore-lab-v2.mjs
 
       - name: Upload WPress snapshot artifact
         if: success()
