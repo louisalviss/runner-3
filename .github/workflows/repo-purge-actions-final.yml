@@ -1,0 +1,88 @@
+name: Purge cleanup final
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  finalize:
+    if: github.repository == 'louisalviss/runner-3'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Best-effort ref and Actions cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set +e
+
+          # Branch refs: remove only explicit Wave Rider namespaces.
+          gh api --paginate "repos/$REPO/git/matching-refs/heads/" --jq '.[].ref' 2>/dev/null | while IFS= read -r ref; do
+            name="${ref#refs/heads/}"
+            lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            if [[ "$lower" =~ (^|/)(tv-wr-|wr-|wave-rider|wave_rider) ]]; then
+              echo "Deleting branch ref: $name"
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$name" || true
+            fi
+          done
+
+          # Tag refs: same explicit namespaces.
+          gh api --paginate "repos/$REPO/git/matching-refs/tags/" --jq '.[].ref' 2>/dev/null | while IFS= read -r ref; do
+            name="${ref#refs/tags/}"
+            lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            if [[ "$lower" =~ (^|/)(tv-wr-|wr-|wave-rider|wave_rider) ]]; then
+              echo "Deleting tag ref: $name"
+              gh api -X DELETE "repos/$REPO/git/refs/tags/$name" || true
+            fi
+          done
+
+          # Explicit known Wave Rider run/artifact IDs from the archived verification record.
+          for id in 32052714862; do
+            if [[ "$id" != "$THIS_RUN" ]]; then gh api -X DELETE "repos/$REPO/actions/runs/$id" || true; fi
+          done
+          for id in 9307032819; do
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" || true
+          done
+
+          # Remove other clearly Wave Rider-specific Actions runs. Never delete this cleanup run.
+          gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | [.id, (.name // ""), (.path // ""), (.head_branch // ""), (.display_title // "")] | @tsv' 2>/dev/null | while IFS=$'\t' read -r id name path branch title; do
+            [[ "$id" == "$THIS_RUN" ]] && continue
+            lower="$(printf '%s %s %s %s' "$name" "$path" "$branch" "$title" | tr '[:upper:]' '[:lower:]')"
+            [[ "$lower" == *"repo-purge"* ]] && continue
+            if [[ "$lower" =~ wave-rider|wave_rider|wave\ rider|tv-wr-|(^|[[:space:]/])wr-|wr-day|wr-parity|reference_verify|tradingview-bnb|window-report|window\ report ]]; then
+              echo "Deleting Actions run: $id :: $name :: $branch"
+              gh api -X DELETE "repos/$REPO/actions/runs/$id" || true
+            fi
+          done
+
+          # Remove clearly Wave Rider-specific artifacts.
+          gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" --jq '.artifacts[] | [.id, (.name // "")] | @tsv' 2>/dev/null | while IFS=$'\t' read -r id name; do
+            lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            if [[ "$lower" =~ wave-rider|wave_rider|wave\ rider|tv-wr-|(^|[[:space:]/])wr-|wr-day|wr-parity|reference_verify|tradingview-bnb|window-report|window\ report ]]; then
+              echo "Deleting artifact: $id :: $name"
+              gh api -X DELETE "repos/$REPO/actions/artifacts/$id" || true
+            fi
+          done
+
+          exit 0
+
+      - name: Remove purge workflows from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/repo-purge-finalize.yml .github/workflows/repo-purge-actions-final.yml
+          git commit -m "Remove purge cleanup workflows"
+          git push origin HEAD:main
