@@ -1,0 +1,135 @@
+name: WR 2.5.15 TradingView Tick Correct 11
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-tv-rerun-11.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  correct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Download completed 5m baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-currenttick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32137487264
+      - name: Download TradingView tick map
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-tv-tick-map
+          path: /tmp/tv
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158263977
+      - name: Rerun only symbols whose TradingView mintick differs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/correct /tmp/final
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-2515-rebuild-5m/.github/workflows/wr-2515-rebuild-5m-s3.yml' -o /tmp/source.yml
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          s=Path('/tmp/source.yml').read_text(); marker="          cat >/tmp/full5.py <<'PY'\n"
+          a=s.index(marker)+len(marker); b=s.index("\n          PY\n",a)
+          code=textwrap.dedent(s[a:b])
+          old="symbols=sorted(set(symbols));symbols=[s for i,s in enumerate(symbols) if i%SHARDS==SHARD]"
+          new="TV=json.load(open('/tmp/tv/tv_tick_map.json'));TD=json.load(open('/tmp/tv/tick_diff.json'));symbols=[x['symbol'] for x in TD['diffs']]"
+          if code.count(old)!=1: raise SystemExit('symbol override anchor missing')
+          code=code.replace(old,new,1)
+          old2="bars,tick=load(sym);row,t=bt(sym,tick,bars)"
+          new2="bars,_=load(sym);tick=float(TV[sym]['tick']);row,t=bt(sym,tick,bars)"
+          if code.count(old2)!=1: raise SystemExit('tick override anchor missing')
+          code=code.replace(old2,new2,1)
+          Path('/tmp/full5.py').write_text(code)
+          PY
+          SHARD=0 SHARDS=1 python3 /tmp/full5.py
+          cp /tmp/wr/summary-0.json /tmp/correct/summary-corrected.json
+          cp /tmp/wr/trades-0.jsonl /tmp/correct/trades-corrected.jsonl
+          cp /tmp/wr/errors-0.json /tmp/correct/errors-corrected.json
+      - name: Merge corrected symbols into baseline and QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv,json,math
+          from pathlib import Path
+          base=json.load(open('/tmp/base/summary.json'))
+          corr=json.load(open('/tmp/correct/summary-corrected.json'))
+          errs=json.load(open('/tmp/correct/errors-corrected.json'))
+          td=json.load(open('/tmp/tv/tick_diff.json')); tv=json.load(open('/tmp/tv/tv_tick_map.json'))
+          changed={r['symbol'] for r in corr}; expected={x['symbol'] for x in td['diffs']}
+          if changed!=expected: raise SystemExit(f'corrected symbol set mismatch expected={sorted(expected)} got={sorted(changed)} errors={errs}')
+          cmap={r['symbol']:r for r in corr}
+          merged=[cmap.get(r['symbol'],r) for r in base]
+          merged.sort(key=lambda x:(-(x.get('net_r_6bps') if x.get('net_r_6bps') is not None else -1e99),x['symbol']))
+          # Replace trade ledger rows only for corrected symbols.
+          with open('/tmp/final/trades.jsonl','w') as out:
+            with open('/tmp/base/trades.jsonl') as f:
+              for line in f:
+                if not line.strip(): continue
+                r=json.loads(line)
+                if r.get('symbol') not in changed: out.write(json.dumps(r,separators=(',',':'))+'\n')
+            with open('/tmp/correct/trades-corrected.jsonl') as f:
+              for line in f:
+                if line.strip(): out.write(line if line.endswith('\n') else line+'\n')
+          # Tick QA against TradingView for all currently matched contracts.
+          matched=0; mismatch=[]; missing=[]
+          for r in merged:
+            x=tv.get(r['symbol'])
+            if not x:
+              missing.append(r['symbol']); continue
+            matched+=1
+            if not math.isclose(float(r['tick']),float(x['tick']),rel_tol=0,abs_tol=max(1e-15,abs(float(x['tick']))*1e-12)):
+              mismatch.append({'symbol':r['symbol'],'baseline_tick':r['tick'],'tv_tick':x['tick']})
+          if mismatch: raise SystemExit('remaining TradingView tick mismatches '+json.dumps(mismatch[:30]))
+          # Explicit control QA. SLERF/FORTH are allowed to be missing because TradingView no longer exposes them.
+          controls={}
+          for s in ['BNBUSDT','TRXUSDT','SLERFUSDT','C98USDT','PYTHUSDT','FORTHUSDT']:
+            row=next((x for x in merged if x['symbol']==s),None); meta=tv.get(s)
+            controls[s]={'baseline_tick':None if row is None else row['tick'],'tv_tick':None if meta is None else meta['tick'],'tv_present':meta is not None}
+          elig=[x for x in merged if x['n']>=100]
+          live=[x for x in elig if x['symbol'] in tv]
+          report={
+            'status':'TV_TICK_QA_PASS',
+            'tick_source':'TradingView scanner BINANCE perpetuals; mintick=minmov/pricescale',
+            'baseline_symbols':len(merged),
+            'tv_symbols':len(tv),
+            'matched_current_tv':matched,
+            'historical_or_missing_tv':len(missing),
+            'corrected_symbols':len(changed),
+            'corrected_list':sorted(changed),
+            'remaining_tick_mismatches':0,
+            'controls':controls,
+            'cells_n_ge_100':len(elig),
+            'gross_positive_n_ge_100':sum((x['avg_r'] or 0)>0 for x in elig),
+            'net6_positive_n_ge_100':sum(x['net_r_6bps']>0 for x in elig),
+            'live_tv_cells_n_ge_100':len(live),
+            'live_tv_net6_positive_n_ge_100':sum(x['net_r_6bps']>0 for x in live),
+            'top20_net6':merged[:20],
+            'corrected_rows':sorted(corr,key=lambda x:x['symbol'])
+          }
+          Path('/tmp/final/summary.json').write_text(json.dumps(merged,indent=2))
+          Path('/tmp/final/errors.json').write_text(json.dumps(errs,indent=2))
+          Path('/tmp/final/report.json').write_text(json.dumps(report,indent=2))
+          Path('/tmp/final/tv_tick_map.json').write_text(json.dumps(tv,indent=2))
+          fields=['symbol','tf','bars','tick','n','total_r','avg_r','win_rate','pf','net_r_4bps','net_r_6bps','net_r_8bps','net_r_10bps']
+          with open('/tmp/final/summary.csv','w',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows({k:r.get(k) for k in fields} for r in merged)
+          print(json.dumps({k:report[k] for k in ['status','baseline_symbols','tv_symbols','matched_current_tv','historical_or_missing_tv','corrected_symbols','remaining_tick_mismatches','cells_n_ge_100','gross_positive_n_ge_100','net6_positive_n_ge_100','live_tv_cells_n_ge_100','live_tv_net6_positive_n_ge_100']},indent=2))
+          print('CONTROLS',json.dumps(controls,indent=2))
+          print('CORRECTED',json.dumps(report['corrected_rows'],indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/final
+          retention-days: 14
