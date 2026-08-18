@@ -66,8 +66,6 @@ jobs:
           url="${WP_PUBLIC_URL}/?runner3_perf_probe=${GITHUB_RUN_ID}"
           code="$(curl -LsS -o /tmp/perf.html -w '%{http_code}' "$url")"
           test "$code" = "200"
-          grep -qi 'name=["'"']robots["'"'][^>]*noindex\|noindex[^>]*name=["'"']robots' /tmp/perf.html
-          grep -qi 'offset-demo-01\.webp' /tmp/perf.html
           python3 - <<'PY'
           import json,re
           h=open('/tmp/perf.html',encoding='utf-8').read()
@@ -77,20 +75,29 @@ jobs:
               return m.group(1) if m else None
           hero=next((t for t in imgs if 'offset-demo-01.webp' in (a(t,'src') or '')),None)
           lazy=sum(1 for t in imgs if (a(t,'loading') or '').lower()=='lazy')
+          async_decode=sum(1 for t in imgs if (a(t,'decoding') or '').lower()=='async')
           responsive=sum(1 for t in imgs if 'responsive-v2/offset-demo-' in (a(t,'srcset') or ''))
+          robots=re.findall(r'<meta\b[^>]*>',h,re.I)
+          noindex=any((a(t,'name') or '').lower()=='robots' and 'noindex' in (a(t,'content') or '').lower() for t in robots)
           result={
             'status':'ok', 'frontendHttp':200, 'imageCount':len(imgs),
-            'lazyImageCount':lazy, 'responsiveV2Count':responsive,
+            'lazyImageCount':lazy, 'asyncDecodeCount':async_decode,
+            'responsiveV2Count':responsive, 'noindex':noindex,
             'heroFound':bool(hero), 'heroFetchPriority':a(hero,'fetchpriority') if hero else None,
             'heroLoading':a(hero,'loading') if hero else None,
           }
-          if not hero: raise SystemExit('hero_missing')
-          if (a(hero,'fetchpriority') or '').lower()!='high': raise SystemExit('hero_not_high_priority')
-          if (a(hero,'loading') or '').lower()=='lazy': raise SystemExit('hero_is_lazy')
-          if len(imgs)>=3 and lazy<1: raise SystemExit('lazy_loading_missing')
-          if responsive<1: raise SystemExit('responsive_v2_regressed')
+          errors=[]
+          if not hero: errors.append('hero_missing')
+          if hero and (a(hero,'fetchpriority') or '').lower()!='high': errors.append('hero_not_high_priority')
+          if hero and (a(hero,'loading') or '').lower()=='lazy': errors.append('hero_is_lazy')
+          if len(imgs)>=3 and lazy<1: errors.append('lazy_loading_missing')
+          if responsive<1: errors.append('responsive_v2_regressed')
+          if not noindex: errors.append('noindex_regressed')
+          if errors:
+              result['status']='failed'; result['detail']=';'.join(errors)
           open('/tmp/performance-controller-result.json','w').write(json.dumps(result,indent=2))
           print(json.dumps(result))
+          if errors: raise SystemExit(result['detail'])
           PY
 
       - name: Persist result
