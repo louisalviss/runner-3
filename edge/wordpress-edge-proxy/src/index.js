@@ -4,18 +4,46 @@ const DEFAULT_ORIGIN = 'https://runner3-factory-smoke-2.wasmer.app';
 
 const STATIC_ASSET_RE = /\.(?:css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|mp4|webm|pdf)(?:$|\?)/i;
 const DYNAMIC_PREFIXES = ['/wp-json/', '/xmlrpc.php', '/feed/', '/comments/feed/'];
+const PRIVATE_COOKIE_RE = /(?:^|;\s*)(?:wordpress_logged_in_|wordpress_sec_|wp-postpass_|comment_author_)/i;
 
 function hasDynamicQuery(url) {
-  return ['preview', 'preview_id', 'rest_route', 's'].some((key) => url.searchParams.has(key));
+  return [
+    'preview',
+    'preview_id',
+    'preview_nonce',
+    'rest_route',
+    's',
+    'customize_changeset_uuid',
+    'customize_theme',
+    'post_type',
+    'paged',
+    'author',
+  ].some((key) => url.searchParams.has(key));
 }
 
 function isDynamicPath(pathname) {
   if (pathname === '/wp-login.php' || pathname.startsWith('/wp-admin/')) return true;
+  if (pathname === '/wp-cron.php' || pathname === '/wp-comments-post.php') return true;
   return DYNAMIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
 function isStaticAsset(url) {
   return STATIC_ASSET_RE.test(url.pathname) || url.pathname.startsWith('/wp-content/') || url.pathname.startsWith('/wp-includes/');
+}
+
+function hasPrivateCookie(request) {
+  const cookie = request.headers.get('Cookie') || '';
+  return PRIVATE_COOKIE_RE.test(cookie);
+}
+
+export function isPublicHtmlCacheCandidate(request) {
+  const incoming = new URL(request.url);
+  const method = request.method.toUpperCase();
+  if (!['GET', 'HEAD'].includes(method)) return false;
+  if (incoming.pathname === '/robots.txt' || isStaticAsset(incoming)) return false;
+  if (isDynamicPath(incoming.pathname) || hasDynamicQuery(incoming)) return false;
+  if (hasPrivateCookie(request)) return false;
+  return true;
 }
 
 function normalizeSnapshotPath(pathname) {
@@ -60,12 +88,41 @@ function snapshotResponse(method, pathname) {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=UTF-8',
-      'Cache-Control': 'public, max-age=60, s-maxage=86400, stale-while-revalidate=3600, stale-if-error=604800',
+      'Cache-Control': 'no-store',
       'X-Edge-Proxy': 'cloudflare-worker',
-      'X-Edge-Mode': 'snapshot',
-      'X-Edge-Snapshot': 'HIT',
+      'X-Edge-Mode': 'snapshot-fallback',
+      'X-Edge-Snapshot': 'FALLBACK',
       'X-Upstream-CF-Cache-Status': 'SNAPSHOT',
       ...(SNAPSHOT_BUILT_AT ? { 'X-Edge-Snapshot-Built-At': SNAPSHOT_BUILT_AT } : {}),
+    },
+  });
+}
+
+async function fetchOrigin(request, target, incoming, method, bypass, staticAsset) {
+  const headers = new Headers(request.headers);
+  headers.delete('Host');
+  headers.set('X-Forwarded-Host', incoming.host);
+  headers.set('X-Forwarded-Proto', 'https');
+
+  const upstreamRequest = new Request(target.toString(), {
+    method,
+    headers,
+    redirect: 'manual',
+  });
+
+  if (bypass) return fetch(upstreamRequest, { cache: 'no-store' });
+  if (!staticAsset) return fetch(upstreamRequest, { cache: 'no-store' });
+
+  return fetch(upstreamRequest, {
+    cf: {
+      cacheEverything: true,
+      cacheTtl: 86400,
+      cacheTtlByStatus: {
+        '200-299': 86400,
+        '301-302': 300,
+        '404': 5,
+        '500-599': 0,
+      },
     },
   });
 }
@@ -77,8 +134,6 @@ export default {
     const target = new URL(incoming.pathname + incoming.search, origin);
     const method = request.method.toUpperCase();
 
-    // Keep robots crawlable so crawlers can observe the X-Robots-Tag noindex
-    // directive applied by the entry wrapper on public HTML.
     if (incoming.pathname === '/robots.txt' && ['GET', 'HEAD'].includes(method)) {
       const body = [
         'User-agent: *',
@@ -99,76 +154,50 @@ export default {
       });
     }
 
-    // Keep WordPress authentication/admin control on the native origin.
     if (incoming.pathname === '/wp-login.php' || incoming.pathname.startsWith('/wp-admin/')) {
       return Response.redirect(target.toString(), 307);
     }
 
-    const cookiePresent = request.headers.has('Cookie');
-    const bypass = !['GET', 'HEAD'].includes(method) || cookiePresent || isDynamicPath(incoming.pathname) || hasDynamicQuery(incoming);
+    const bypass = !['GET', 'HEAD'].includes(method) || hasPrivateCookie(request) || isDynamicPath(incoming.pathname) || hasDynamicQuery(incoming);
     const staticAsset = isStaticAsset(incoming);
-    const ttl = staticAsset ? 86400 : 300;
-
-    // Public HTML snapshots are bundled into the deployed Worker. A cold visitor
-    // therefore never waits for Wasmer/WordPress when the requested path exists
-    // in the snapshot. Dynamic/authenticated traffic still bypasses snapshots.
-    const snapshot = !bypass && !staticAsset ? snapshotResponse(method, incoming.pathname) : null;
 
     let upstream;
-    let snapshotHit = false;
-    if (snapshot) {
-      upstream = snapshot;
-      snapshotHit = true;
-    } else {
-      const headers = new Headers(request.headers);
-      headers.delete('Host');
-      headers.set('X-Forwarded-Host', incoming.host);
-      headers.set('X-Forwarded-Proto', 'https');
-
-      const upstreamRequest = new Request(target.toString(), {
-        method,
-        headers,
-        redirect: 'manual',
-      });
-
-      upstream = bypass
-        ? await fetch(upstreamRequest, { cache: 'no-store' })
-        : await fetch(upstreamRequest, {
-            cf: {
-              cacheEverything: true,
-              cacheTtl: ttl,
-              cacheTtlByStatus: {
-                '200-299': ttl,
-                '301-302': 300,
-                '404': 5,
-                '500-599': 0,
-              },
-            },
-          });
+    let snapshotFallback = false;
+    try {
+      upstream = await fetchOrigin(request, target, incoming, method, bypass, staticAsset);
+      if (!bypass && !staticAsset && upstream.status >= 500) {
+        const fallback = snapshotResponse(method, incoming.pathname);
+        if (fallback) {
+          upstream = fallback;
+          snapshotFallback = true;
+        }
+      }
+    } catch (error) {
+      const fallback = !bypass && !staticAsset ? snapshotResponse(method, incoming.pathname) : null;
+      if (!fallback) throw error;
+      upstream = fallback;
+      snapshotFallback = true;
     }
 
     const outHeaders = new Headers(upstream.headers);
     rewriteLocation(outHeaders, origin, incoming.origin);
     outHeaders.set('X-Edge-Proxy', 'cloudflare-worker');
-    outHeaders.set('X-Edge-Mode', snapshotHit ? 'snapshot' : (bypass ? 'bypass' : (staticAsset ? 'static-cache' : 'html-cache')));
-    outHeaders.set('X-Upstream-CF-Cache-Status', snapshotHit ? 'SNAPSHOT' : (upstream.headers.get('CF-Cache-Status') || 'NONE'));
-    if (snapshotHit) {
-      outHeaders.set('X-Edge-Snapshot', 'HIT');
-      if (SNAPSHOT_BUILT_AT) outHeaders.set('X-Edge-Snapshot-Built-At', SNAPSHOT_BUILT_AT);
-    } else {
-      const stamp = upstream.headers.get('X-Edge-Origin-Stamp');
-      if (stamp) outHeaders.set('X-Upstream-Origin-Stamp', stamp);
-    }
+    outHeaders.set('X-Edge-Mode', snapshotFallback ? 'snapshot-fallback' : (bypass ? 'bypass' : (staticAsset ? 'static-cache' : 'html-origin')));
+    outHeaders.set('X-Upstream-CF-Cache-Status', snapshotFallback ? 'SNAPSHOT' : (upstream.headers.get('CF-Cache-Status') || 'NONE'));
 
-    if (!bypass) {
+    if (snapshotFallback) {
+      outHeaders.set('Cache-Control', 'no-store');
+      outHeaders.set('X-Edge-Snapshot', 'FALLBACK');
+      if (SNAPSHOT_BUILT_AT) outHeaders.set('X-Edge-Snapshot-Built-At', SNAPSHOT_BUILT_AT);
+    } else if (!bypass) {
       outHeaders.set(
         'Cache-Control',
-        snapshotHit
-          ? 'public, max-age=60, s-maxage=86400, stale-while-revalidate=3600, stale-if-error=604800'
-          : staticAsset
-            ? 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=300'
-            : 'public, max-age=60, s-maxage=300, stale-while-revalidate=60, stale-if-error=600',
+        staticAsset
+          ? 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=300'
+          : 'public, max-age=60, stale-while-revalidate=30, stale-if-error=600',
       );
+    } else {
+      outHeaders.set('Cache-Control', 'private, no-store');
     }
 
     let response = new Response(upstream.body, {
