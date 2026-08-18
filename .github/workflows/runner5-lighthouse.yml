@@ -1,0 +1,84 @@
+name: Runner5 Lighthouse
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-lighthouse.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-lighthouse
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TARGET_URL: https://runner5-restore-lab-1.wasmer.app/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Run Lighthouse mobile and desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          google-chrome --version || google-chrome-stable --version
+          npx --yes lighthouse@13.4.1 "$TARGET_URL" \
+            --output=json --output-path=/tmp/lh-mobile.json \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+            --quiet
+          npx --yes lighthouse@13.4.1 "$TARGET_URL" \
+            --preset=desktop \
+            --output=json --output-path=/tmp/lh-desktop.json \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+            --quiet
+          python - <<'PY'
+          import json, os, time
+          target=os.environ['TARGET_URL']
+          def parse(path):
+              d=json.load(open(path))
+              c=d['categories']; a=d['audits']
+              def s(k):
+                  v=c[k].get('score'); return None if v is None else round(v*100)
+              def dv(k): return (a.get(k) or {}).get('displayValue')
+              return {
+                'scores': {'performance':s('performance'),'accessibility':s('accessibility'),'bestPractices':s('best-practices'),'seo':s('seo')},
+                'metrics': {'fcp':dv('first-contentful-paint'),'lcp':dv('largest-contentful-paint'),'tbt':dv('total-blocking-time'),'cls':dv('cumulative-layout-shift'),'speedIndex':dv('speed-index'),'serverResponseTime':dv('server-response-time')},
+                'fetchTime':d.get('fetchTime'),'finalUrl':d.get('finalUrl'),'lighthouseVersion':d.get('lighthouseVersion')
+              }
+          out={'status':'ready','target':target,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'mobile':parse('/tmp/lh-mobile.json'),'desktop':parse('/tmp/lh-desktop.json')}
+          open('/tmp/runner5-lighthouse.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Persist Lighthouse result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-lighthouse.json || printf '{"status":"failed","target":"%s","detail":"lighthouse_result_missing"}\n' "$TARGET_URL" >/tmp/runner5-lighthouse.json
+          cp /tmp/runner5-lighthouse.json /tmp/runner5-lighthouse-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/runner5-lighthouse-results/runs
+            cp /tmp/runner5-lighthouse-safe.json ops/pagespeed/runner5-lighthouse-results/latest.json
+            cp /tmp/runner5-lighthouse-safe.json "ops/pagespeed/runner5-lighthouse-results/runs/${GITHUB_RUN_ID}.json"
+            git add ops/pagespeed/runner5-lighthouse-results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner5 Lighthouse: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
