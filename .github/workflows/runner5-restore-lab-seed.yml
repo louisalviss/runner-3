@@ -11,12 +11,13 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'restore-lab/requests/seed-runner5-restore-lab-1.json'
+      - '.github/workflows/runner5-restore-lab-seed.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: runner5-restore-lab-seed-runner5-restore-lab-1
+  group: runner5-restore-lab-seed-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
