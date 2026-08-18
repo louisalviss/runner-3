@@ -175,15 +175,15 @@ jobs:
           warm=json.load(open('/tmp/runner3-edge-cache-warm.json'))
           assert edge.get('status') == 'completed', json.dumps(edge,indent=2)
           p=edge['probe']
-          for key in ('publicReady','policyReady','cacheHit','signedPurgeRequired','loginSafe','cookieSafe','responsiveReady','noindexReady'):
+          for key in ('publicReady','policyReady','signedPurgeRequired','loginSafe','cookieSafe','responsiveReady','noindexReady'):
               assert p.get(key) is True, key+' failed: '+json.dumps(edge,indent=2)
           assert wp.get('status') == 'ok' and wp.get('manualPurgeOk') is True and wp.get('authReady') is True, json.dumps(wp,indent=2)
-          assert warm.get('status') == 'ok' and warm.get('policyReady') is True, json.dumps(warm,indent=2)
+          assert warm.get('status') == 'ok' and warm.get('policyReady') is True and warm.get('cacheSeen') is True, json.dumps(warm,indent=2)
           print(json.dumps({
             'status':'completed',
             'edgeUrl':edge['edgeUrl'],
             'architecture':edge.get('architecture'),
-            'cacheHit':p['cacheHit'],
+            'initialCacheHit':p.get('cacheHit'),
             'signedPurgeRequired':p['signedPurgeRequired'],
             'manualPurgeOk':wp['manualPurgeOk'],
             'authReady':wp['authReady'],
