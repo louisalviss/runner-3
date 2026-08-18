@@ -7,7 +7,7 @@ permissions:
 jobs:
   save:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -40,8 +40,10 @@ jobs:
           rep('bool engineOK=canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK','bool engineOK=stateAnchorSeen and canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK')
           rep('string engineText=engineOK?"✓ CLEAN":"! CHECK"','string engineText=not stateAnchorSeen?"! ANCHOR":engineOK?"✓ CLEAN":"! CHECK"')
           open('/tmp/wr2514.pine','w').write(p)
+          import hashlib
+          print('WR2514_SHA256='+hashlib.sha256(p.encode()).hexdigest())
           PY
-      - name: Save exact popup and inspect response
+      - name: Save and server-side verify
         shell: bash
         run: |
           set -euo pipefail
@@ -54,31 +56,35 @@ jobs:
             const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
             const context=await browser.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
             const page=await context.newPage(); await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await page.waitForTimeout(12000);
-            const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(6500);
+            let body=await page.locator('body').innerText().catch(()=> ''); console.log('AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'FAIL'));
+            const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(5500);
             const ta=page.locator('.monaco-editor textarea').last(); const source=fs.readFileSync('/tmp/wr2514.pine','utf8');
             await page.evaluate(s=>navigator.clipboard.writeText(s),source); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+V'); await page.waitForTimeout(1800);
             const untitled=page.getByText('Untitled script',{exact:true}); let titleEl=null; for(let i=0;i<await untitled.count();i++){let e=untitled.nth(i);if(await e.isVisible().catch(()=>false)){titleEl=e;break;}}
             if(!titleEl) throw new Error('not Untitled; refusing overwrite'); const tb=await titleEl.boundingBox();
             const saves=page.getByText('Save',{exact:true}); let editorSave=null; for(let i=0;i<await saves.count();i++){let e=saves.nth(i);if(!await e.isVisible().catch(()=>false))continue;let b=await e.boundingBox().catch(()=>null);if(b&&Math.abs(b.y-tb.y)<120){editorSave=e;break;}}
-            if(!editorSave) throw new Error('editor Save missing'); await editorSave.click({force:true}); await page.waitForTimeout(1800);
-            let input=null; const inputs=page.locator('input'); for(let i=0;i<await inputs.count();i++){let e=inputs.nth(i);if(!await e.isVisible().catch(()=>false))continue;if((await e.inputValue().catch(()=>''))===NAME){input=e;break;}}
-            if(!input) throw new Error('New script name input missing');
-            const popup=input.locator('xpath=ancestor::*[.//button[normalize-space(.)="Save"] and .//button[normalize-space(.)="Cancel"]][1]');
-            console.log('POPUP_COUNT='+await popup.count()); if(await popup.count()!=1) throw new Error('save popup container not unique');
-            const popupText=(await popup.innerText().catch(()=>'')); console.log('POPUP_TEXT='+popupText.replace(/\n/g,' | '));
-            const pSave=popup.getByRole('button',{name:'Save',exact:true}); console.log('POPUP_SAVE_COUNT='+await pSave.count()); if(await pSave.count()!=1) throw new Error('popup Save not unique');
-            await pSave.click({force:true}); await page.waitForTimeout(6500);
-            const body=await page.locator('body').innerText().catch(()=> '');
-            console.log('POST_SAVE_TEXT_BEGIN'); console.log(body.split('\n').filter(x=>/save|script|name|exist|error|limit|untitled|deterministic/i.test(x)).slice(0,120).join('\n')); console.log('POST_SAVE_TEXT_END');
-            console.log('POPUP_STILL_VISIBLE='+(await popup.isVisible().catch(()=>false)?'YES':'NO'));
-            const names=page.getByText(NAME,{exact:true}); let vis=0; for(let i=0;i<await names.count();i++)if(await names.nth(i).isVisible().catch(()=>false))vis++; console.log('EXACT_NAME_VISIBLE_COUNT='+vis);
+            if(!editorSave) throw new Error('editor Save missing'); await editorSave.click({force:true});
+            const label=page.getByText('New script name',{exact:true}); await label.waitFor({state:'visible',timeout:8000}); console.log('SAVE_POPUP=PASS');
+            const popup=label.locator('xpath=ancestor::*[.//button[normalize-space(.)="Save"] and .//button[normalize-space(.)="Cancel"]][1]'); if(await popup.count()!=1) throw new Error('save popup not unique');
+            const input=popup.locator('input').first(); if(!(await input.count())) throw new Error('name input missing'); if((await input.inputValue())!==NAME) await input.fill(NAME); console.log('SAVE_NAME='+await input.inputValue());
+            const pSave=popup.getByRole('button',{name:'Save',exact:true}); if(await pSave.count()!=1) throw new Error('popup Save not unique'); await pSave.click({force:true});
+            await label.waitFor({state:'hidden',timeout:10000}).catch(()=>{}); await page.waitForTimeout(4500);
+            console.log('SAVE_POPUP_CLOSED='+(!(await label.isVisible().catch(()=>false))?'PASS':'FAIL'));
+            body=await page.locator('body').innerText().catch(()=> ''); console.log('POST_SAVE_HITS='+body.split('\n').filter(x=>/Wave Rider|2\.5\.14|save|exist|error|limit/i.test(x)).slice(0,50).join(' | '));
             await page.screenshot({path:'/tmp/post-save.png',fullPage:false});
-            // If popup closed, attempt compile/add; saving is otherwise treated as failed.
-            if(await popup.isVisible().catch(()=>false)) throw new Error('save popup remained open');
+            if(await label.isVisible().catch(()=>false)) throw new Error('save popup remained open');
+            // Compile/add saved source.
             const add=page.getByRole('button',{name:/Add to chart/i}); if(await add.count()) await add.first().click({force:true}); else {await ta.click({force:true});await page.keyboard.press('Control+Enter');}
-            await page.waitForTimeout(22000); const b2=await page.locator('body').innerText().catch(()=> '');
-            console.log('COMPILE='+(/Compilation error|Syntax error|Error at/i.test(b2)?'FAIL':'PASS')); console.log('WR2514_PRESENT='+(b2.includes('WR 2.5.14 DET')?'PASS':'CHECK'));
-            await page.screenshot({path:'/tmp/wr2514-after-add.png',fullPage:false}); await browser.close();
+            await page.waitForTimeout(22000); body=await page.locator('body').innerText().catch(()=> ''); const compile=/Compilation error|Syntax error|Error at/i.test(body)?'FAIL':'PASS'; console.log('COMPILE='+compile); if(compile==='FAIL') throw new Error('compile failed');
+            console.log('CHART_WR2514='+(body.includes('WR 2.5.14 DET')?'PASS':'CHECK')); await page.screenshot({path:'/tmp/after-add.png',fullPage:false});
+            // Fresh page: open Pine script chooser and verify the server-side saved name.
+            const verify=await context.newPage(); await verify.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000}); await verify.waitForTimeout(10000);
+            const pine2=verify.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine2.first().click({force:true}); await verify.waitForTimeout(4500);
+            const unt2=verify.getByText('Untitled script',{exact:true}); let t2=null; for(let i=0;i<await unt2.count();i++){let e=unt2.nth(i);if(await e.isVisible().catch(()=>false)){t2=e;break;}} if(t2) await t2.click({force:true}); await verify.waitForTimeout(1800);
+            const open=verify.getByText('Open script…',{exact:true}); if(await open.count()) await open.last().click({force:true}); await verify.waitForTimeout(4500);
+            const vbody=await verify.locator('body').innerText().catch(()=> ''); console.log('SERVER_SIDE_NAME='+(vbody.includes(NAME)?'PASS':'FAIL')); console.log('VERIFY_HITS='+vbody.split('\n').filter(x=>/Wave Rider|2\.5\.14|2\.5\.13/i.test(x)).slice(0,80).join(' | ')); await verify.screenshot({path:'/tmp/server-verify.png',fullPage:false});
+            if(!vbody.includes(NAME)) throw new Error('server-side saved script not found');
+            await browser.close();
           })().catch(e=>{console.error('SAVE2514_ERROR='+e.stack);process.exit(7)});
           NODE
       - uses: actions/upload-artifact@v4
@@ -87,7 +93,8 @@ jobs:
           name: tv-wr-2514-save-proof
           path: |
             /tmp/post-save.png
-            /tmp/wr2514-after-add.png
+            /tmp/after-add.png
+            /tmp/server-verify.png
           retention-days: 1
       - if: always()
         run: rm -f /tmp/tv-state.json /tmp/wr*.pine /tmp/wr2514.pine
