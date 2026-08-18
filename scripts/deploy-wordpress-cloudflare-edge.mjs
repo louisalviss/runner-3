@@ -108,8 +108,8 @@ async function runProbe(edgeUrl) {
   const cookieBypass = await request(`${edgeUrl}/`, { headers: { Cookie: 'edge_probe=1' } });
 
   const loginSafe = login.status === 307 && String(login.location || '').startsWith(`${wasmerOrigin}/wp-login.php`);
-  const restSafe = rest.status === 200 && rest.edgeMode === 'bypass';
-  const cookieSafe = cookieBypass.status === 200 && cookieBypass.edgeMode === 'bypass';
+  const restSafe = rest.status === 200 && rest.edgeMode === 'bypass' && String(rest.upstreamCache || '').toUpperCase() !== 'HIT';
+  const cookieSafe = cookieBypass.status === 200 && cookieBypass.edgeMode === 'bypass' && String(cookieBypass.upstreamCache || '').toUpperCase() !== 'HIT';
   const homeHealthy = homepageRuns.every((x) => x.status === 200 && x.edgeProxy === 'cloudflare-worker');
   const cacheVerified = explicitHit || repeatedOriginStamp;
 
