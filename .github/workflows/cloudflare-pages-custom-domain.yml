@@ -1,0 +1,141 @@
+name: Cloudflare Pages Custom Domain
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-pages-custom-domain.yml'
+      - 'ops/triggers/cloudflare-pages-custom-domain.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-pages-custom-domain
+  cancel-in-progress: true
+
+jobs:
+  associate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: runner3wp-pages-gateway
+      CUSTOM_DOMAIN: runner3wp.pntr.dev
+      PAGES_CNAME_TARGET: runner3wp-pages-gateway.pages.dev
+      ROLLBACK_CNAME_TARGET: lnh8iwtjmk3x.id.wasmer.app
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Associate custom domain with Pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os, urllib.error, urllib.parse, urllib.request
+
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          project=os.environ['CF_PAGES_PROJECT']
+          domain=os.environ['CUSTOM_DOMAIN']
+          pages_target=os.environ['PAGES_CNAME_TARGET']
+          rollback_target=os.environ['ROLLBACK_CNAME_TARGET']
+          if not token or not account:
+              raise SystemExit('cloudflare_credentials_missing')
+
+          base='https://api.cloudflare.com/client/v4'
+          headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          endpoint=f'{base}/accounts/{account}/pages/projects/{project}/domains'
+
+          def request(url, method='GET', body=None):
+              data=None if body is None else json.dumps(body).encode()
+              req=urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try: payload=json.loads(raw)
+                  except Exception: payload={'success':False,'errors':[{'message':raw[:1000]}]}
+                  return e.code, payload
+
+          list_http, listing=request(endpoint)
+          if list_http != 200 or not listing.get('success'):
+              print(json.dumps(listing)[:2000])
+              raise SystemExit(f'pages_domain_list_failed_http_{list_http}')
+
+          found=next((x for x in listing.get('result',[]) if x.get('name')==domain), None)
+          created=False
+          create_http=None
+          if not found:
+              create_http, created_payload=request(endpoint, 'POST', {'name':domain})
+              if create_http not in (200,201) or not created_payload.get('success'):
+                  print(json.dumps(created_payload)[:2000])
+                  raise SystemExit(f'pages_domain_create_failed_http_{create_http}')
+              found=created_payload.get('result') or {}
+              created=True
+
+          # Refetch canonical status after create/existing lookup.
+          get_url=endpoint+'/'+urllib.parse.quote(domain, safe='')
+          get_http, got=request(get_url)
+          if get_http == 200 and got.get('success') and got.get('result'):
+              found=got['result']
+
+          status=(found or {}).get('status')
+          validation=(found or {}).get('validation_data') or {}
+          verification=(found or {}).get('verification_data') or {}
+          out={
+            'status':'ok' if (found or {}).get('name')==domain else 'failed',
+            'project':project,
+            'domain':domain,
+            'associated':(found or {}).get('name')==domain,
+            'created':created,
+            'domainStatus':status,
+            'validationMethod':validation.get('method'),
+            'validationStatus':validation.get('status'),
+            'validationError':validation.get('error_message'),
+            'verificationStatus':verification.get('status'),
+            'verificationError':verification.get('error_message'),
+            'pagesCnameTarget':pages_target,
+            'rollbackCnameTarget':rollback_target,
+            'dnsChanged':False,
+            'nextStep':'change_external_dns_cname_only_after_association',
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+            'runId':os.environ.get('GITHUB_RUN_ID')
+          }
+          os.makedirs('/tmp/pages-custom-domain',exist_ok=True)
+          open('/tmp/pages-custom-domain/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          if out['status'] != 'ok':
+              raise SystemExit('pages_domain_association_not_confirmed')
+          PY
+
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/pages-custom-domain/latest.json ]; then
+            mkdir -p /tmp/pages-custom-domain
+            printf '{"status":"failed","detail":"association_failed_before_result","runId":"%s"}\n' "$GITHUB_RUN_ID" >/tmp/pages-custom-domain/latest.json
+          fi
+          cp /tmp/pages-custom-domain/latest.json /tmp/pages-custom-domain-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/cloudflare-pages-gateway
+            cp /tmp/pages-custom-domain-safe.json ops/cloudflare-pages-gateway/custom-domain.latest.json
+            git add ops/cloudflare-pages-gateway/custom-domain.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Pages custom domain: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
