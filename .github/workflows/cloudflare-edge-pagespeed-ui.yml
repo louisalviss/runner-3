@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 12
     env:
       PSI_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
@@ -28,8 +28,13 @@ jobs:
         with:
           ref: main
 
-      - name: Install Playwright runtime
-        run: npm install --no-save playwright-core@1.58.2
+      - name: Install ARM64 PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
 
       - name: Run Google PageSpeed web UI on Cloudflare edge
         id: psi
