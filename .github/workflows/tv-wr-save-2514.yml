@@ -1,0 +1,111 @@
+name: TV Save WR 2.5.14 Deterministic
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build v2.5.14 deterministic source
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/session-state.json.aes -out /tmp/tv-state.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/tradingview/wr-window-report.pine.aes -out /tmp/wr.pine
+          test "$(sha256sum /tmp/wr.pine | awk '{print $1}')" = "9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026"
+          python3 - <<'PY'
+          p=open('/tmp/wr.pine').read()
+          def rep(old,new,n=1):
+              global p
+              if p.count(old)<n: raise SystemExit('PATCH_MISSING: '+old[:120])
+              p=p.replace(old,new,n)
+          rep('strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT", shorttitle="WR 2.5.13 WIN"',
+              'strategy("Wave Rider Strategy v2.5.14 DETERMINISTIC", shorttitle="WR 2.5.14 DET"')
+          rep('groupWindow="10. Window Report"\nstartTime=input.time(1785171600000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786813200000,"End (VN, exclusive)",group=groupWindow)\nvalidWindow=endTime>startTime\nsignalInReportWindow=validWindow and time_close>=startTime and time_close<endTime', '''groupWindow="10. Deterministic Window"\nstateStartTime=input.time(1785171600000,"State Start (VN, exact bar required)",group=groupWindow)\nstartTime=input.time(1785862800000,"Start (VN)",group=groupWindow)\nendTime=input.time(1786294800000,"End (VN, exclusive)",group=groupWindow)\nvar bool stateAnchorSeen=false\nif time==stateStartTime\n    stateAnchorSeen:=true\nstateActive=stateAnchorSeen\nvalidWindow=endTime>startTime\nsignalInReportWindow=stateActive and validWindow and time_close>=startTime and time_close<endTime\ndetClose=stateActive?close:na\ndetHigh=stateActive?high:na\ndetLow=stateActive?low:na\ndetTR=stateActive?(na(detClose[1])?high-low:math.max(high-low,math.abs(high-detClose[1]),math.abs(low-detClose[1]))):na''')
+          rep('showAuditPanel=input.bool(false,"Show Engine Audit (debug)",group=groupStats)',
+              'showAuditPanel=input.bool(true,"Show Engine Audit (debug)",group=groupStats)')
+          rep('ema21=ta.ema(close,emaLength)','ema21=ta.ema(detClose,emaLength)')
+          rep('ph=ta.pivothigh(high,leftBars,rightBars)[1]','ph=ta.pivothigh(detHigh,leftBars,rightBars)[1]')
+          rep('pl=ta.pivotlow(low,leftBars,rightBars)[1]','pl=ta.pivotlow(detLow,leftBars,rightBars)[1]')
+          rep('belowCount:=close<ema21?nz(belowCount[1])+1:0','belowCount:=stateActive and not na(ema21) and close<ema21?nz(belowCount[1])+1:0')
+          rep('aboveCount:=close>ema21?nz(aboveCount[1])+1:0','aboveCount:=stateActive and not na(ema21) and close>ema21?nz(aboveCount[1])+1:0')
+          rep('atrAngle=ta.atr(atrPeriod)','atrAngle=ta.rma(detTR,atrPeriod)')
+          rep('trSum=math.sum(ta.atr(1),chopLength)','trSum=math.sum(detTR,chopLength)')
+          rep('priceRange=ta.highest(high,chopLength)-ta.lowest(low,chopLength)','priceRange=ta.highest(detHigh,chopLength)-ta.lowest(detLow,chopLength)')
+          rep('signalATR=ta.atr(signalAtrLength)','signalATR=ta.rma(detTR,signalAtrLength)')
+          rep('bool engineOK=canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK',
+              'bool engineOK=stateAnchorSeen and canonOutcomeOK and canonExitOK and skippedNativeToCanon==0 and tpLockOK')
+          rep('string engineText=engineOK?"✓ CLEAN":"! CHECK"',
+              'string engineText=not stateAnchorSeen?"! ANCHOR":engineOK?"✓ CLEAN":"! CHECK"')
+          open('/tmp/wr2514.pine','w').write(p)
+          import hashlib
+          print('WR2514_SHA256='+hashlib.sha256(p.encode()).hexdigest())
+          PY
+      - name: Save as new TradingView script
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          node <<'NODE'
+          const fs=require('fs'); const {chromium}=require('playwright-core');
+          (async()=>{
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync);
+            const state=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+            const context=await browser.newContext({storageState:state,viewport:{width:1920,height:1080},permissions:['clipboard-read','clipboard-write']});
+            const page=await context.newPage();
+            await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABNBUSDT.P&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
+            await page.waitForTimeout(12000);
+            let body=await page.locator('body').innerText().catch(()=> '');
+            console.log('AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'FAIL'));
+            const pine=page.locator('[data-name="pine-dialog-button"],button[aria-label="Pine"]'); await pine.first().click({force:true}); await page.waitForTimeout(6500);
+            const ta=page.locator('.monaco-editor textarea').last();
+            const source=fs.readFileSync('/tmp/wr2514.pine','utf8');
+            await page.evaluate(s=>navigator.clipboard.writeText(s),source); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+V'); await page.waitForTimeout(1800);
+            body=await page.locator('body').innerText().catch(()=> '');
+            if(/Compilation error|Syntax error|Error at/i.test(body)) throw new Error('source error before save');
+            // Save As only. Never Ctrl+S: that could overwrite the currently opened 2.5.13 document.
+            await ta.click({force:true}); await page.keyboard.press('Control+Shift+S'); await page.waitForTimeout(2500);
+            const dialogs=page.getByRole('dialog');
+            let dlg=null;
+            for(let i=0;i<await dialogs.count();i++){const d=dialogs.nth(i);if(await d.isVisible().catch(()=>false)){dlg=d;break;}}
+            if(!dlg){
+              body=await page.locator('body').innerText().catch(()=> '');
+              console.log('SAVE_AS_DIALOG=FAIL');
+              console.log(body.split('\n').filter(x=>/save|script|pine/i.test(x)).slice(0,80).join('\n'));
+              throw new Error('Save As dialog not found; refusing to overwrite existing script');
+            }
+            console.log('SAVE_AS_DIALOG=PASS');
+            const boxes=dlg.getByRole('textbox');
+            if(!(await boxes.count())) throw new Error('Save As name field missing');
+            const name='Wave Rider Strategy v2.5.14 DETERMINISTIC';
+            await boxes.first().fill(name);
+            const save=dlg.getByRole('button',{name:/save/i});
+            if(!(await save.count())) throw new Error('Save As button missing');
+            await save.last().click({force:true}); await page.waitForTimeout(5000);
+            body=await page.locator('body').innerText().catch(()=> '');
+            console.log('SAVED_NAME_PRESENT='+(body.includes(name)||body.includes('WR 2.5.14 DET')?'PASS':'CHECK'));
+            // Compile/add only after Save As succeeded.
+            const add=page.getByRole('button',{name:/Add to chart/i}); if(await add.count()) await add.first().click({force:true}); else {await ta.click({force:true});await page.keyboard.press('Control+Enter');}
+            await page.waitForTimeout(22000);
+            body=await page.locator('body').innerText().catch(()=> '');
+            console.log('COMPILE='+(/Compilation error|Syntax error|Error at/i.test(body)?'FAIL':'PASS'));
+            console.log('WR2514_PRESENT='+(body.includes('WR 2.5.14 DET')?'PASS':'CHECK'));
+            await page.screenshot({path:'/tmp/wr2514-saved.png',fullPage:false});
+            await browser.close();
+          })().catch(e=>{console.error('SAVE2514_ERROR='+e.stack);process.exit(7)});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tv-wr-2514-save-proof
+          path: /tmp/wr2514-saved.png
+          retention-days: 1
+      - if: always()
+        run: rm -f /tmp/tv-state.json /tmp/wr*.pine /tmp/wr2514.pine
