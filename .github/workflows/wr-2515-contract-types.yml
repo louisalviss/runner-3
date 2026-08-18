@@ -1,0 +1,46 @@
+name: WR 2.5.15 Binance Contract Types
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-contract-types.yml']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Snapshot Binance USD-M contract types via configured mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          python3 - <<'PY'
+          import json,requests
+          from pathlib import Path
+          urls=['https://api.pipai.org/fapi/v1/exchangeInfo','https://fapi.binance.com/fapi/v1/exchangeInfo']
+          data=None;used=None;errs=[]
+          for u in urls:
+            try:
+              r=requests.get(u,timeout=30,headers={'User-Agent':'runner3-wr2515-contract-types/1.0'});r.raise_for_status();j=r.json()
+              if isinstance(j,dict) and isinstance(j.get('symbols'),list):data=j;used=u;break
+              errs.append([u,'invalid_payload'])
+            except Exception as e:errs.append([u,repr(e)])
+          if data is None:raise SystemExit('exchangeInfo unavailable '+json.dumps(errs))
+          rows=[];types={}
+          for x in data['symbols']:
+            s=x.get('symbol');ct=x.get('contractType');status=x.get('status');quote=x.get('quoteAsset')
+            if not s or quote!='USDT':continue
+            rows.append({'symbol':s,'contractType':ct,'status':status,'pair':x.get('pair')})
+            types.setdefault(str(ct),[]).append(s)
+          for k in types:types[k]=sorted(types[k])
+          report={'source':used,'symbols_usdt':len(rows),'types':{k:len(v) for k,v in types.items()},'tradifi_symbols':types.get('TRADIFI_PERPETUAL',[]),'perpetual_symbols':types.get('PERPETUAL',[]),'errors_before_success':errs}
+          Path('/tmp/out/report.json').write_text(json.dumps(report,indent=2))
+          Path('/tmp/out/contract_types.json').write_text(json.dumps({x['symbol']:x for x in rows},indent=2))
+          print(json.dumps({'source':used,'symbols_usdt':len(rows),'types':report['types'],'tradifi_count':len(report['tradifi_symbols']),'tradifi_symbols':report['tradifi_symbols']},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-contract-types
+          path: /tmp/out
+          retention-days: 14
