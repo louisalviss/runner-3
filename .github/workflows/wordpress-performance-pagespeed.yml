@@ -1,0 +1,98 @@
+name: WordPress Performance PageSpeed
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wordpress-performance-pagespeed.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-performance-pagespeed
+  cancel-in-progress: false
+
+jobs:
+  pagespeed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_URL: https://runner3wp.pntr.dev/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Run PageSpeed Insights API
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
+          encoded="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["TARGET_URL"], safe=""))')"
+          for strategy in mobile desktop; do
+            url="${base}?url=${encoded}&strategy=${strategy}&category=performance&category=accessibility&category=best-practices&category=seo"
+            ok=0
+            for attempt in 1 2 3; do
+              code="$(curl -LsS --max-time 180 -o "/tmp/psi-${strategy}.json" -w '%{http_code}' "$url" || true)"
+              if [ "$code" = 200 ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert "lighthouseResult" in d' "/tmp/psi-${strategy}.json"; then
+                ok=1; break
+              fi
+              echo "PSI ${strategy} attempt ${attempt} HTTP=${code}" >&2
+              sleep $((attempt * 5))
+            done
+            test "$ok" = 1
+          done
+
+      - name: Summarize PageSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, datetime
+          def parse(path):
+              d=json.load(open(path))
+              lr=d['lighthouseResult']; c=lr['categories']; a=lr['audits']
+              def score(k):
+                  x=c.get(k,{}).get('score')
+                  return None if x is None else round(x*100)
+              def metric(k):
+                  x=a.get(k,{})
+                  return {'displayValue':x.get('displayValue'),'numericValue':x.get('numericValue')}
+              def saving(k):
+                  x=a.get(k,{})
+                  det=x.get('details') or {}
+                  return {'displayValue':x.get('displayValue'),'overallSavingsBytes':det.get('overallSavingsBytes'),'overallSavingsMs':det.get('overallSavingsMs')}
+              return {
+                'scores': {'performance':score('performance'),'accessibility':score('accessibility'),'bestPractices':score('best-practices'),'seo':score('seo')},
+                'metrics': {'fcp':metric('first-contentful-paint'),'lcp':metric('largest-contentful-paint'),'tbt':metric('total-blocking-time'),'cls':metric('cumulative-layout-shift'),'speedIndex':metric('speed-index')},
+                'savings': {'imageDelivery':saving('image-delivery-insight'),'modernImageFormats':saving('modern-image-formats'),'usesOptimizedImages':saving('uses-optimized-images'),'offscreenImages':saving('offscreen-images'),'unusedJavascript':saving('unused-javascript'),'unminifiedJavascript':saving('unminified-javascript')},
+                'fetchTime': lr.get('fetchTime'),
+                'lighthouseVersion': lr.get('lighthouseVersion'),
+              }
+          out={
+            'status':'ok','target':os.environ['TARGET_URL'],
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'mobile':parse('/tmp/psi-mobile.json'),
+            'desktop':parse('/tmp/psi-desktop.json')
+          }
+          os.makedirs('ops/custom-domain/performance-controller',exist_ok=True)
+          json.dump(out,open('ops/custom-domain/performance-controller/pagespeed.latest.json','w'),indent=2)
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Persist benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/custom-domain/performance-controller/pagespeed.latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist WordPress performance PageSpeed result: ${GITHUB_RUN_ID}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            sleep $((attempt * 2)); git pull --rebase origin main
+          done
+          exit 5
