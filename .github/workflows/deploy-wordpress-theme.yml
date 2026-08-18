@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: runner3-wordpress-theme-deploy
+  group: runner3-live-wordpress-theme
   cancel-in-progress: false
 
 jobs:
@@ -29,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 2
 
       - name: Resolve site slug
@@ -42,8 +43,15 @@ jobs:
             slug="$INPUT_SITE_SLUG"
           else
             request="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^ops/wp-theme-deploy/requests/.*\.json$' | tail -1 || true)"
-            test -n "$request" || { echo 'Theme deployment request missing'; exit 2; }
-            slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+            if [ -n "$request" ] && [ -f "$request" ]; then
+              slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+            else
+              # The trigger commit can be behind main because unrelated automation writes
+              # concurrently. Resolve the newest request from current main instead.
+              request="$(find ops/wp-theme-deploy/requests -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+              test -n "$request" || { echo 'Theme deployment request missing'; exit 2; }
+              slug="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_slug"])' "$request")"
+            fi
           fi
           echo "WP_SITE_SLUG=$slug" >> "$GITHUB_ENV"
           echo "WP_SITE_URL=https://${slug}.wasmer.app/" >> "$GITHUB_ENV"
@@ -79,33 +87,32 @@ jobs:
         run: node scripts/test-wordpress-functional.mjs
 
       - name: Persist safe deployment and regression status
-        if: always()
+        if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           slug="${WP_SITE_SLUG}"
           status="/tmp/wp-theme-deploy-${slug}.json"
           regression="/tmp/wp-functional-regression.json"
-          if [ ! -f "$status" ]; then
-            printf '{"status":"runner_error","siteSlug":"%s","detail":"theme_status_missing"}\n' "$slug" > "$status"
-          fi
-          if [ ! -f "$regression" ]; then
-            printf '{"status":"failed","site":"%s","detail":"functional_regression_result_missing"}\n' "$WP_SITE_URL" > "$regression"
-          fi
-          cp "$status" /tmp/wp-theme-deploy-status.json
-          cp "$regression" /tmp/wp-functional-regression-result.json
+          run_id="${GITHUB_RUN_ID}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           pushed=false
           for attempt in 1 2 3; do
             git fetch origin main
             git reset --hard origin/main
-            mkdir -p ops/wp-theme-deploy/results ops/wp-functional-regression/results
-            cp /tmp/wp-theme-deploy-status.json "ops/wp-theme-deploy/results/${slug}.latest.json"
-            cp /tmp/wp-functional-regression-result.json "ops/wp-functional-regression/results/${slug}.latest.json"
-            git add "ops/wp-theme-deploy/results/${slug}.latest.json" "ops/wp-functional-regression/results/${slug}.latest.json"
+            mkdir -p ops/wp-theme-deploy/results/runs ops/wp-functional-regression/results/runs
+            if [ -s "$status" ]; then
+              cp "$status" "ops/wp-theme-deploy/results/${slug}.latest.json"
+              cp "$status" "ops/wp-theme-deploy/results/runs/${slug}.${run_id}.json"
+            fi
+            if [ -s "$regression" ]; then
+              cp "$regression" "ops/wp-functional-regression/results/${slug}.latest.json"
+              cp "$regression" "ops/wp-functional-regression/results/runs/${slug}.${run_id}.json"
+            fi
+            git add ops/wp-theme-deploy/results ops/wp-functional-regression/results
             if git diff --cached --quiet; then pushed=true; break; fi
-            git commit -m "Persist WordPress deploy and regression status: ${slug}"
+            git commit -m "Persist WordPress deploy and regression status: ${slug} run ${run_id}"
             if git push origin HEAD:main; then pushed=true; break; fi
             sleep 3
           done
