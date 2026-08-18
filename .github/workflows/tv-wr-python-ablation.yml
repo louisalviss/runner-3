@@ -13,6 +13,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          test -s /tmp/reference_verify.py
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/main/.github/workflows/tv-wr-python-det.yml' -o /tmp/base.yml
           awk '/cat >\/tmp\/run_det.py <<'"'"'PY'"'"'/{f=1;next} /^          PY$/{f=0} f{sub(/^          /,"");print}' /tmp/base.yml > /tmp/base.py
           test -s /tmp/base.py
@@ -20,32 +22,22 @@ jobs:
           from pathlib import Path
           import re
           base=Path('/tmp/base.py').read_text()
-          # Canonical Pine uses <= maxSignalRangeATR. Remove the temporary < patch first.
           canonical=base.replace("src=src.replace('sra<=SIGNAL_RANGE_MAX','sra<SIGNAL_RANGE_MAX')","# canonical comparator remains <=")
           def strip_gate(s):
-              # Do not stop at the old expected block; each variant must print its own measured output.
-              p=s.find("          expected={'BNBUSDT'")
-              if p<0: p=s.find("expected={'BNBUSDT'")
+              p=s.find("expected={'BNBUSDT'")
               if p>=0:
-                  indent=s[s.rfind('\n',0,p)+1:p]
-                  s=s[:p]+indent+"print('VARIANT_RUN_DONE')\n"
+                  line_start=s.rfind('\n',0,p)+1
+                  indent=s[line_start:p]
+                  s=s[:line_start]+indent+"print('VARIANT_RUN_DONE')\n"
               return s
           canonical=strip_gate(canonical)
           Path('/tmp/canon_all.py').write_text(canonical)
-
-          # Remove only the pivot-tie correction.
           no_pivot=re.sub(r"\npivot_old=\"\"\".*?src=src\.replace\(pivot_old,pivot_new,1\)\n","\n# pivot tie correction removed\n",canonical,flags=re.S)
           Path('/tmp/no_pivot.py').write_text(no_pivot)
-
-          # Revert syminfo.mincontract parity to old integer sizing.
           Path('/tmp/no_qty.py').write_text(canonical.replace("qty_step=0.01 if symbol=='BNBUSDT' else 1.0","qty_step=1.0"))
-
-          # Revert tick-normalized pending comparisons to raw floating comparisons.
           no_tick=canonical.replace("fill=(pending.d==1 and round(x.h/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.l/tick)<=round(pending.e/tick))","fill=(pending.d==1 and x.h>=pending.e) or (pending.d==-1 and x.l<=pending.e)")
           no_tick=no_tick.replace("gap=(pending.d==1 and round(x.o/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(x.o/tick)<=round(pending.e/tick))","gap=(pending.d==1 and x.o>=pending.e) or (pending.d==-1 and x.o<=pending.e)")
           Path('/tmp/no_tick.py').write_text(no_tick)
-
-          # Revert time_close boundary correction.
           Path('/tmp/no_session.py').write_text(canonical.replace("session_flags(x.ct+1,5*60000)","session_flags(x.ct,5*60000)"))
           PY
       - name: Run ablation variants
