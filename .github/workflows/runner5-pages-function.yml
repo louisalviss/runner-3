@@ -1,0 +1,105 @@
+name: Runner5 Optimized Pages Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-pages-function.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-pages-function
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SOURCE_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
+      PROJECT_NAME: runner5-restore-fast-louis
+      PAGES_URL: https://runner5-restore-fast-louis.pages.dev/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build advanced-mode Pages frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/runner5-pages-fast
+          python - <<'PY'
+          import os,urllib.request,json,pathlib,time
+          source=os.environ['SOURCE_URL'].rstrip('/')
+          def fetch(path):
+              req=urllib.request.Request(source+path,headers={'User-Agent':'Mozilla/5.0 Runner5PagesBuilder/1.0','Cache-Control':'no-cache'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  return r.read(),dict(r.headers),r.status
+          html,hdr,status=fetch('/')
+          css,chdr,cstatus=fetch('/__edge/runner5.css')
+          ht=html.decode('utf-8','ignore'); ct=css.decode('utf-8','ignore')
+          if status!=200 or hdr.get('x-edge-mode')!='snapshot' or 'Runner5 Restore Lab Demo' not in ht: raise SystemExit('source homepage not ready')
+          if cstatus!=200 or chdr.get('x-edge-mode')!='snapshot-asset' or len(ct)<1000: raise SystemExit('source CSS not ready')
+          # Keep all browser requests on pages.dev; the function proxies non-snapshot resources upstream.
+          ht=ht.replace(source,'')
+          worker=f'''const UPSTREAM={json.dumps(source)};\nconst HOME={json.dumps(ht)};\nconst CSS={json.dumps(ct)};\n\nfunction rewrite(text, origin) {{ return String(text).replaceAll(UPSTREAM, origin); }}\nasync function proxy(request, incoming) {{\n  const target=new URL(incoming.pathname+incoming.search, UPSTREAM);\n  const headers=new Headers(request.headers); headers.delete('host');\n  const init={{method:request.method,headers,redirect:'manual'}};\n  if(!['GET','HEAD'].includes(request.method)) init.body=request.body;\n  const r=await fetch(target.toString(),init); const h=new Headers(r.headers);\n  const loc=h.get('location'); if(loc) h.set('location',rewrite(loc,incoming.origin));\n  const type=(h.get('content-type')||'').toLowerCase();\n  const texty=type.includes('text/')||type.includes('javascript')||type.includes('json')||type.includes('xml');\n  if(texty && request.method!=='HEAD') {{ const body=rewrite(await r.text(),incoming.origin); h.delete('content-length'); h.delete('content-encoding'); return new Response(body,{{status:r.status,statusText:r.statusText,headers:h}}); }}\n  return new Response(r.body,{{status:r.status,statusText:r.statusText,headers:h}});\n}}\nexport default {{ async fetch(request,env,ctx) {{\n  const u=new URL(request.url);\n  if(['GET','HEAD'].includes(request.method) && u.pathname==='/' && !u.search) return new Response(request.method==='HEAD'?null:HOME,{{headers:{{'content-type':'text/html; charset=UTF-8','cache-control':'public,max-age=300','x-runner5-pages-mode':'snapshot'}}}});\n  if(['GET','HEAD'].includes(request.method) && u.pathname==='/__edge/runner5.css') return new Response(request.method==='HEAD'?null:CSS,{{headers:{{'content-type':'text/css; charset=UTF-8','cache-control':'public,max-age=86400','x-runner5-pages-mode':'snapshot-css'}}}});\n  return proxy(request,u);\n}} }};\n'''
+          p=pathlib.Path('/tmp/runner5-pages-fast'); (p/'_worker.js').write_text(worker,encoding='utf-8'); (p/'index.html').write_text('<!doctype html><title>Runner5</title>',encoding='utf-8')
+          print(json.dumps({'htmlBytes':len(html),'cssBytes':len(css),'workerBytes':len(worker.encode()),'builtAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())},indent=2))
+          PY
+
+      - name: Create Pages project if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages project create "$PROJECT_NAME" --production-branch main >/tmp/pages-create.log 2>&1 || true
+          cat /tmp/pages-create.log
+
+      - name: Deploy Pages frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages deploy /tmp/runner5-pages-fast --project-name "$PROJECT_NAME" --branch main --commit-hash "$GITHUB_SHA" --commit-message 'Runner5 optimized Pages frontend' | tee /tmp/pages-deploy.log
+
+      - name: Verify Pages frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,time,urllib.request,json
+          url=os.environ['PAGES_URL']; result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'mode':None,'cssMode':None,'firstMs':None,'warmMs':None,'detail':None}; timings=[]; err=None
+          for _ in range(25):
+              try:
+                  t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      body=r.read(1000000).decode('utf-8','ignore'); timings.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body; result['mode']=r.headers.get('x-runner5-pages-mode')
+                  with urllib.request.urlopen(urllib.request.Request(url.rstrip('/')+'/__edge/runner5.css',headers={'User-Agent':'Mozilla/5.0'}),timeout=25) as r: result['cssMode']=r.headers.get('x-runner5-pages-mode'); css=r.read(1000000)
+                  if result['http']==200 and result['titleMarker'] and result['mode']=='snapshot' and result['cssMode']=='snapshot-css' and len(css)>1000 and len(timings)>=2: result['status']='READY'; break
+              except Exception as e: err=str(e)
+              time.sleep(4)
+          result['firstMs']=timings[0] if timings else None; result['warmMs']=timings[-1] if len(timings)>1 else None; result['detail']=None if result['status']=='READY' else err; result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          open('/tmp/runner5-pages-fast-status.json','w').write(json.dumps(result,indent=2)+'\n'); print(json.dumps(result,indent=2))
+          if result['status']!='READY': raise SystemExit(2)
+          PY
+
+      - name: Persist Pages frontend status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-pages-fast-status.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PAGES_URL" >/tmp/runner5-pages-fast-status.json
+          cp /tmp/runner5-pages-fast-status.json /tmp/pages-fast-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/pages-fast-safe.json ops/wordpress-access/runner5-pages-fast.json; git add ops/wordpress-access/runner5-pages-fast.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Pages frontend status'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
