@@ -1,5 +1,6 @@
 import { chromium } from 'playwright-core';
 import fs from 'fs';
+// This inspection step also acts as the stable trigger for the live edge-speed workflow.
 const state=JSON.parse(fs.readFileSync('/tmp/wasmer-result.json','utf8'));
 const out={status:'starting',dashboard:false,adminControl:null,wordpressSettings:false,controls:[],detail:null,updatedAt:new Date().toISOString()};
 const redact=s=>String(s||'')
