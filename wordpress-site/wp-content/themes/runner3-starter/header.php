@@ -1,3 +1,17 @@
+<?php
+// Wasmer CDN Cache is app-wide, but storage is opt-in per response. Cache only
+// anonymous public editorial pages; admin/login/REST never load this template,
+// and personalized cookie requests are bypassed by Wasmer Edge automatically.
+if (
+    !is_user_logged_in() &&
+    !is_preview() &&
+    !is_search() &&
+    !is_404() &&
+    (is_front_page() || is_home() || is_singular() || is_archive())
+) {
+    header('Cache-Control: public, max-age=30, s-maxage=120, stale-while-revalidate=30, stale-if-error=600', true);
+}
+?>
 <!doctype html>
 <html <?php language_attributes(); ?>>
 <head>
