@@ -1,0 +1,59 @@
+name: QA Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Config JSON path
+        required: true
+        default: configs/chainsaw-reze-v18d.json
+        type: string
+      render_run_id:
+        description: Successful Render Video run ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: media-qa-${{ inputs.render_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify runtime
+        run: |
+          python --version
+          command -v ffmpeg
+          command -v ffprobe
+
+      - name: Download render artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.render_run_id }}
+          pattern: render-*
+          path: out
+          merge-multiple: true
+
+      - name: Validate final and simulate iPhone viewport
+        run: python scripts/qa.py "${{ inputs.config_path }}" out/final.mp4 qa
+
+      - name: Upload QA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-${{ github.run_id }}
+          path: |
+            qa/master_contact.jpg
+            qa/iphone_19_5_contact.jpg
+            qa/safe_zone_overlay.jpg
+            qa/qa_report.json
+          retention-days: 3
+          if-no-files-found: error
