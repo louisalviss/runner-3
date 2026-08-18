@@ -8,6 +8,11 @@ on:
       - 'scripts/deploy-wordpress-cloudflare-edge.mjs'
       - '.github/workflows/cloudflare-wordpress-edge.yml'
       - 'ops/cloudflare-edge/requests/*.json'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'ops/cloudflare-edge/requests/*.json'
   workflow_dispatch:
 
 permissions:
