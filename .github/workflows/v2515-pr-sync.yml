@@ -1,0 +1,32 @@
+name: WR v2.5.15 PR Sync
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      VERIFIER_URL: "https://ucbf52ad8250e10684a97ece0b38.dl.dropboxusercontent.com/cd/0/get/DGZDuGPfQFKw9sweT2KS8-G8KpatcFwedz9AqJAzPSgkMW4Df_Mr0UFBdV4xdAel9Q3jwgTOoHB0DVmEfHK2C1XnqJqDoJNl1X16ImaNHfjq_4oU2Jf70-yaTzGQwUwjAm5YpFEPwMDFTeQKrdKtxPB3nOxnt-boWzhLmNHaRBfjwQ/file?c_luid=3c63ed66"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run v2.5.15 synchronization
+        run: bash ops/tradingview/v2515_run.sh
+      - name: Package proof
+        if: always()
+        run: |
+          mkdir -p /tmp/pkg
+          cp '/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md' /tmp/reference_verify_v2.5.15.py /tmp/build.log /tmp/python-summary.txt /tmp/tv.log /tmp/pyproof/*.json /tmp/*.png /tmp/pkg/ 2>/dev/null || true
+          sha256sum /tmp/wr2515.pine /tmp/reference_verify_v2.5.15.py >/tmp/pkg/SHA256SUMS.txt 2>/dev/null || true
+          echo RUN_ID=${{ github.run_id }} >/tmp/pkg/RUN.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-v2515-pr-sync
+          path: /tmp/pkg
+          retention-days: 1
+      - if: always()
+        run: rm -rf /tmp/wr*.pine /tmp/reference_verify*.py '/tmp/Wave Rider Strategy v2.5.15 WINDOW DETERMINISTIC.md' /tmp/tv-state.json /tmp/pkg /tmp/pyproof
