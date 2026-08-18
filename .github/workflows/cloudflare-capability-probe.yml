@@ -51,11 +51,21 @@ jobs:
           zones=data.get('result') or [] if data.get('success') else []
           names=sorted(str(z.get('name') or '') for z in zones if z.get('name'))
           pntr=[z for z in zones if str(z.get('name') or '').lower()=='pntr.dev']
+
           c,d=get(f'/accounts/{account}/workers/scripts')
           scripts=d.get('result') or [] if d.get('success') else []
           worker_names=sorted(str(x.get('id') or x.get('name') or '') for x in scripts if (x.get('id') or x.get('name')))
+
+          p,pd=get(f'/accounts/{account}/pages/projects?per_page=50')
+          projects=pd.get('result') or [] if pd.get('success') else []
+          project_names=sorted(str(x.get('name') or x.get('id') or '') for x in projects if (x.get('name') or x.get('id')))
+          page_errors=[]
+          for e in (pd.get('errors') or []):
+              if isinstance(e,dict):
+                  page_errors.append({'code':e.get('code'),'message':str(e.get('message') or '')[:300]})
+
           out={
-            'status':'ok' if code==200 and data.get('success') and c==200 and d.get('success') else 'partial',
+            'status':'ok' if code==200 and data.get('success') and c==200 and d.get('success') and p==200 and pd.get('success') else 'partial',
             'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
             'zonesHttp':code,
             'zonesReadable':bool(data.get('success')),
@@ -64,10 +74,14 @@ jobs:
             'workersHttp':c,
             'workersReadable':bool(d.get('success')),
             'wordpressEdgeProxyVisible':'wordpress-edge-proxy' in worker_names,
+            'pagesHttp':p,
+            'pagesReadable':bool(pd.get('success')),
+            'pagesProjectNames':project_names,
+            'pagesErrors':page_errors,
           }
           os.makedirs('/tmp/cloudflare-capability',exist_ok=True)
           open('/tmp/cloudflare-capability/latest.json','w').write(json.dumps(out,indent=2)+'\n')
-          print(json.dumps({k:out[k] for k in ('status','zonesReadable','zoneNames','pntrZoneVisible','workersReadable','wordpressEdgeProxyVisible')},indent=2))
+          print(json.dumps({k:out[k] for k in ('status','zonesReadable','zoneNames','pntrZoneVisible','workersReadable','wordpressEdgeProxyVisible','pagesHttp','pagesReadable','pagesProjectNames','pagesErrors')},indent=2))
           PY
 
       - name: Persist safe capability result
