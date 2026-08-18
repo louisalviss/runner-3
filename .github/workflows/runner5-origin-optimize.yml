@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner5-origin-optimize.yml'
+      - 'scripts/deploy-runner5-edge-optimizer.mjs'
+      - 'wordpress/plugins/runner5-edge-optimizer/**'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +19,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       SITE_URL: https://runner5-restore-lab-1.wasmer.app/
@@ -40,19 +42,19 @@ jobs:
           test -s /tmp/runner5-edge-optimizer.zip
       - name: Install browser automation
         run: npm install --no-save playwright-core@1.58.2
-      - name: Deploy and activate optimizer with stored Wasmer session
+      - name: Deploy and activate optimizer
         id: deploy
         continue-on-error: true
         shell: bash
         run: |
           set +e
-          node scripts/deploy-runner5-edge-optimizer.mjs > /tmp/runner5-origin-deploy.log 2>&1
+          node scripts/deploy-runner5-edge-optimizer.mjs >/tmp/runner5-origin-deploy.log 2>&1
           code=$?
           set -e
           cat /tmp/runner5-origin-deploy.log
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
-      - name: Verify public cache eligibility and deferred scripts
+      - name: Verify optimized origin
         id: verify
         continue-on-error: true
         shell: bash
@@ -60,22 +62,20 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import os,time,urllib.request,re,json
-          url=os.environ['SITE_URL']; result={'status':'FAILED','url':url,'http':None,'cacheEligible':False,'cacheControl':None,'contentLength':None,'jqueryDeferred':False,'originStamp':None,'detail':None}
-          err=None
-          for _ in range(8):
+          url=os.environ['SITE_URL']; d={'status':'FAILED','url':url,'http':None,'cacheEligible':False,'cacheControl':None,'contentLength':None,'jqueryDeferred':False,'originStamp':None,'detail':None}; err=None
+          for _ in range(10):
               try:
                   req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-cache'})
                   with urllib.request.urlopen(req,timeout=30) as r:
-                      body=r.read(1000000).decode('utf-8','ignore'); result['http']=r.status; result['cacheEligible']=r.headers.get('x-runner5-cache-eligible')=='1'; result['cacheControl']=r.headers.get('cache-control'); result['contentLength']=r.headers.get('content-length'); result['originStamp']=r.headers.get('x-runner5-origin-stamp'); result['jqueryDeferred']=bool(re.search(r'<script[^>]+jquery\.min\.js[^>]+defer|<script[^>]+defer[^>]+jquery\.min\.js',body,re.I))
-                  if result['http']==200 and result['cacheEligible'] and result['contentLength'] and result['jqueryDeferred']:
-                      result['status']='READY'; break
+                      body=r.read(1000000).decode('utf-8','ignore'); d['http']=r.status; d['cacheEligible']=r.headers.get('x-runner5-cache-eligible')=='1'; d['cacheControl']=r.headers.get('cache-control'); d['contentLength']=r.headers.get('content-length'); d['originStamp']=r.headers.get('x-runner5-origin-stamp'); d['jqueryDeferred']=bool(re.search(r'<script[^>]+jquery\.min\.js[^>]+defer|<script[^>]+defer[^>]+jquery\.min\.js',body,re.I))
+                  if d['http']==200 and d['cacheEligible'] and d['contentLength'] and d['jqueryDeferred']: d['status']='READY'; break
               except Exception as e: err=str(e)
               time.sleep(2)
-          result['detail']=None if result['status']=='READY' else err
-          open('/tmp/runner5-origin-verify.json','w').write(json.dumps(result,indent=2)+'\n'); print(json.dumps(result,indent=2))
-          if result['status']!='READY': raise SystemExit(2)
+          d['detail']=None if d['status']=='READY' else err
+          open('/tmp/runner5-origin-verify.json','w').write(json.dumps(d,indent=2)+'\n'); print(json.dumps(d,indent=2))
+          if d['status']!='READY': raise SystemExit(2)
           PY
-      - name: Build safe deploy status
+      - name: Build safe status
         if: always()
         shell: bash
         env:
@@ -85,44 +85,32 @@ jobs:
         run: |
           python - <<'PY'
           import json,os,re,time,pathlib
-          verify={}
-          p=pathlib.Path('/tmp/runner5-origin-verify.json')
-          if p.exists():
-              try: verify=json.loads(p.read_text())
-              except: verify={}
-          dep={}
-          p2=pathlib.Path('/tmp/runner5-optimizer-deploy.json')
-          if p2.exists():
-              try: dep=json.loads(p2.read_text())
-              except: dep={}
-          log=pathlib.Path('/tmp/runner5-origin-deploy.log').read_text(errors='ignore') if pathlib.Path('/tmp/runner5-origin-deploy.log').exists() else ''
+          def load(p):
+              try:return json.loads(pathlib.Path(p).read_text())
+              except:return {}
+          v=load('/tmp/runner5-origin-verify.json'); dep=load('/tmp/runner5-optimizer-deploy.json'); log=pathlib.Path('/tmp/runner5-origin-deploy.log').read_text(errors='ignore') if pathlib.Path('/tmp/runner5-origin-deploy.log').exists() else ''
           log=re.sub(r'(?i)(password|token|secret|authorization|cookie)[=: ]+[^\s]+',r'\1=[redacted]',log)
           log=re.sub(r'https?://[^\s]*?(?:magiclogin|token|secret|auth|signature)=[^\s&]+','[redacted-url]',log,flags=re.I)
-          ok=os.environ.get('DEPLOY_OUTCOME')=='success' and os.environ.get('VERIFY_OUTCOME')=='success' and verify.get('status')=='READY'
-          out=dict(verify); out.update({'status':'READY' if ok else 'FAILED','deployOutcome':os.environ.get('DEPLOY_OUTCOME'),'deployExit':os.environ.get('DEPLOY_EXIT'),'verifyOutcome':os.environ.get('VERIFY_OUTCOME'),'deployStage':dep.get('stage'),'deployDetail':dep.get('detail'),'deployLogTail':log[-5000:],'updatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
-          pathlib.Path('/tmp/runner5-origin-optimize.json').write_text(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
+          ok=os.environ.get('DEPLOY_OUTCOME')=='success' and os.environ.get('VERIFY_OUTCOME')=='success' and v.get('status')=='READY'
+          out=dict(v); out.update({'status':'READY' if ok else 'FAILED','deployOutcome':os.environ.get('DEPLOY_OUTCOME'),'deployExit':os.environ.get('DEPLOY_EXIT'),'verifyOutcome':os.environ.get('VERIFY_OUTCOME'),'deployStage':dep.get('stage'),'deployDetail':dep.get('detail'),'deployLogTail':log[-5000:],'updatedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
+          pathlib.Path('/tmp/runner5-origin-optimize.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
           PY
       - name: Persist origin optimization status
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          cp /tmp/runner5-origin-optimize.json /tmp/origin-opt-safe.json
+          cp /tmp/runner5-origin-optimize.json /tmp/origin-safe.json
           git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3; do
-            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/origin-opt-safe.json ops/wordpress-access/runner5-origin-optimize.json; git add ops/wordpress-access/runner5-origin-optimize.json
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/origin-safe.json ops/wordpress-access/runner5-origin-optimize.json; git add ops/wordpress-access/runner5-origin-optimize.json
             if git diff --cached --quiet; then exit 0; fi
             git commit -m 'Persist Runner5 origin optimization status'
             if git push origin HEAD:main; then exit 0; fi
             sleep 2
           done
           exit 2
-      - name: Require verified origin optimization
+      - name: Require verified optimization
         if: always()
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          d=json.load(open('/tmp/runner5-origin-optimize.json'))
-          assert d.get('status')=='READY', json.dumps(d,indent=2)
-          PY
+        run: python -c "import json; d=json.load(open('/tmp/runner5-origin-optimize.json')); assert d.get('status')=='READY', json.dumps(d,indent=2)"
