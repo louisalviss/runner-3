@@ -1,0 +1,81 @@
+name: Deploy Runner5 Restore Proxy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/runner5-restore-proxy/worker.js'
+      - '.github/workflows/deploy-runner5-restore-proxy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PROXY_URL: https://runner5-restore-proxy.ducduy2411.workers.dev/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy isolated Worker proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy cloudflare/runner5-restore-proxy/worker.js \
+            --name runner5-restore-proxy \
+            --compatibility-date 2026-08-18
+
+      - name: Verify proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          url=os.environ['PROXY_URL']
+          result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'detail':None}
+          last=None
+          for _ in range(12):
+              try:
+                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      body=r.read(500000).decode('utf-8','ignore')
+                      result['http']=r.status
+                      result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body
+                      if r.status==200:
+                          result['status']='READY'
+                          break
+              except Exception as e:
+                  last=str(e)
+              time.sleep(5)
+          result['detail']=last if result['status']!='READY' else None
+          result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          open('/tmp/runner5-proxy.json','w').write(json.dumps(result,indent=2))
+          print(json.dumps(result,indent=2))
+          if result['status']!='READY': raise SystemExit(2)
+          PY
+
+      - name: Persist proxy status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-proxy.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PROXY_URL" > /tmp/runner5-proxy.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/runner5-proxy.json ops/wordpress-access/runner5-restore-proxy.json
+            git add ops/wordpress-access/runner5-restore-proxy.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 restore proxy status'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
