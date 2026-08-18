@@ -35,10 +35,15 @@ async function loginWasmer(page){
 }
 
 async function enterAdmin(ctx,page){
-  await page.goto(dashboard,{waitUntil:'domcontentloaded',timeout:60000});
-  await page.waitForTimeout(1200);
-  const admin=page.getByText(/WordPress Admin/i).first();
-  if(!(await admin.count())) throw new Error('wordpress_admin_control_missing');
+  const locations=[dashboard, `${dashboard}/settings/wordpress`];
+  let admin=null;
+  for(const url of locations){
+    await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
+    await page.waitForTimeout(1200);
+    admin=await firstVisible(page.locator('a,button').filter({hasText:/WordPress Admin/i}));
+    if(admin) break;
+  }
+  if(!admin) throw new Error('wordpress_admin_control_missing');
   const href=await admin.getAttribute('href').catch(()=>null);
   if(href){
     const wp=await ctx.newPage();
