@@ -43,7 +43,11 @@ jobs:
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Recover WPress snapshot
-        run: node scripts/recover-runner5-restore-lab-backup.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/if(await saveResponse(r))return;/if(await saveResponse(r))process.exit(0);/g' scripts/recover-runner5-restore-lab-backup.mjs
+          node scripts/recover-runner5-restore-lab-backup.mjs
 
       - name: Upload WPress snapshot artifact
         if: success()
