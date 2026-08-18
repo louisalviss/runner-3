@@ -2,8 +2,9 @@ import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
-const wasmer=process.env.WASMER_BIN || `${process.env.HOME}/.wasmer/bin/wasmer`;
+// Triggered after correcting the Wasmer installer path used by the static deploy workflow.
 const dir=process.env.WASMER_DIR || '/tmp/wasmer-cli';
+const wasmer=process.env.WASMER_BIN || `${dir}/bin/wasmer`;
 const state=process.env.WASMER_BROWSER_STATE || '/tmp/wasmer-browser-state.json';
 if(!fs.existsSync(wasmer)) throw new Error(`wasmer_binary_missing:${wasmer}`);
 if(!fs.existsSync(state)) throw new Error(`browser_state_missing:${state}`);
