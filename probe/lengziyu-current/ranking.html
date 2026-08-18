@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#0a121d" />
+    <meta name="description" content="集卡，帮你整理卡片组合、收藏与排行。" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="集卡" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="集卡" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="集卡" />
+    <meta property="og:description" content="帮你整理卡片组合、收藏与排行。" />
+    <meta property="og:url" content="https://card.lengziyu.cn/" />
+    <meta property="og:image" content="https://card.lengziyu.cn/fengmian.webp" />
+    <meta property="og:image:type" content="image/webp" />
+    <meta property="og:image:width" content="1387" />
+    <meta property="og:image:height" content="842" />
+    <meta property="og:image:alt" content="集卡分享封面图" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="集卡" />
+    <meta name="twitter:description" content="帮你整理卡片组合、收藏与排行。" />
+    <meta name="twitter:image" content="https://card.lengziyu.cn/fengmian.webp" />
+    <meta name="twitter:image:alt" content="集卡分享封面图" />
+    <link rel="canonical" href="https://card.lengziyu.cn/" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+    <title>集卡</title>
+    <script>
+      (() => {
+        try {
+          const savedTheme = window.localStorage.getItem('card-h5-theme-v1')
+          const theme = savedTheme === 'light' ? 'light' : 'dark'
+          document.documentElement.dataset.theme = theme
+          document.documentElement.style.colorScheme = theme
+          document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0a121d' : '#f7f9ff'
+        } catch {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.style.colorScheme = 'dark'
+        }
+      })()
+    </script>
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="e59a2ece-dee2-49d4-8dbc-814aaa416ecb"></script>
+    <script type="module" crossorigin src="/assets/index-neIF1zLo.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vue-vendor-Dj0pK4Aj.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DNF8yD_H.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
