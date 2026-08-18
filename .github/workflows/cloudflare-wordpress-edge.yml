@@ -13,6 +13,8 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'ops/cloudflare-edge/requests/*.json'
+  schedule:
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -36,7 +38,7 @@ jobs:
         with:
           ref: main
 
-      - name: Deploy Worker and verify real edge cache
+      - name: Deploy Worker and verify persistent HTML snapshots
         id: edge
         continue-on-error: true
         run: node scripts/deploy-wordpress-cloudflare-edge.mjs
@@ -65,7 +67,7 @@ jobs:
           done
           test "$pushed" = true
 
-      - name: Require verified Cloudflare cache HIT
+      - name: Require verified Cloudflare snapshot
         if: always()
         shell: bash
         run: |
@@ -74,10 +76,14 @@ jobs:
           d=json.load(open('/tmp/cloudflare-wordpress-edge.json'))
           assert d.get('status') == 'completed', json.dumps(d,indent=2)
           p=d['probe']
+          assert p.get('snapshotVerified') is True, json.dumps(d,indent=2)
+          assert p.get('coldFast') is True, json.dumps(d,indent=2)
           print(json.dumps({
             'status':d['status'],
             'edgeUrl':d['edgeUrl'],
-            'cacheVerified':p['cacheVerified'],
+            'snapshot':d.get('snapshot'),
+            'snapshotVerified':p['snapshotVerified'],
+            'coldFast':p['coldFast'],
             'proof':p['proof'],
             'firstTtfbMs':p['firstTtfbMs'],
             'warmMedianTtfbMs':p['warmMedianTtfbMs'],
