@@ -1,0 +1,15 @@
+name: Chainsaw V18C PR Trigger
+on:
+  pull_request:
+    paths: ['trigger-chainsaw-v18c.txt']
+permissions:
+  actions: write
+  contents: read
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch V18C workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run chainsaw-v18c-direct.yml --repo louisalviss/runner-3 --ref main
