@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
@@ -19,12 +19,16 @@ jobs:
       ARTICLE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/
       R2_HERO: https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp
     steps:
+      - uses: actions/checkout@v4
+
       - name: Probe live edge, headers and render path
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p ops/probes
           python - <<'PY'
           import json, os, re, statistics, subprocess, urllib.request
+          from datetime import datetime, timezone
 
           def curl_probe(url, n=12):
               rows=[]
@@ -48,13 +52,14 @@ jobs:
                       'cache_control':headers.get('cache-control'),
                       'server_timing':headers.get('server-timing'),
                   })
+              ordered=sorted(r['ttfb_ms'] for r in rows)
               return {
                   'requests':n,
                   'status_ok':all(r['status']==200 for r in rows),
                   'snapshot_values':sorted(set(str(r['x_edge_snapshot']) for r in rows)),
                   'snapshot_hit_count':sum(str(r['x_edge_snapshot']).upper()=='HIT' for r in rows),
-                  'median_ttfb_ms':round(statistics.median(r['ttfb_ms'] for r in rows),2),
-                  'p95_ttfb_ms':round(sorted(r['ttfb_ms'] for r in rows)[max(0,int(n*0.95)-1)],2),
+                  'median_ttfb_ms':round(statistics.median(ordered),2),
+                  'p95_ttfb_ms':round(ordered[max(0,int(n*0.95)-1)],2),
                   'median_total_ms':round(statistics.median(r['total_ms'] for r in rows),2),
                   'sample_headers':rows[-1],
               }
@@ -62,13 +67,13 @@ jobs:
           def fetch_text(url):
               req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 edge-live-probe'})
               with urllib.request.urlopen(req,timeout=20) as r:
-                  return r.read().decode('utf-8','replace'), dict(r.headers.items())
+                  return r.read().decode('utf-8','replace')
 
-          out={}
+          out={'checked_at':datetime.now(timezone.utc).isoformat()}
           out['homepage']=curl_probe(os.environ['HOME_URL'])
           out['article']=curl_probe(os.environ['ARTICLE_URL'])
 
-          html,_=fetch_text(os.environ['HOME_URL'])
+          html=fetch_text(os.environ['HOME_URL'])
           out['render_path']={
               'has_preconnect_r2': bool(re.search(r'<link[^>]+rel=["\']preconnect["\'][^>]+r2\.dev|<link[^>]+r2\.dev[^>]+rel=["\']preconnect["\']',html,re.I)),
               'has_image_preload': bool(re.search(r'<link[^>]+rel=["\']preload["\'][^>]+as=["\']image["\']|<link[^>]+as=["\']image["\'][^>]+rel=["\']preload["\']',html,re.I)),
@@ -87,5 +92,18 @@ jobs:
                   'etag':h.get('etag'),
               }
 
-          print('EDGE_LIVE_PROBE_JSON='+json.dumps(out,separators=(',',':')))
+          with open('ops/probes/wordpress-edge-live.latest.json','w',encoding='utf-8') as f:
+              json.dump(out,f,ensure_ascii=False,indent=2)
+              f.write('\n')
+          print(json.dumps(out,separators=(',',':')))
           PY
+
+      - name: Persist latest result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ops/probes/wordpress-edge-live.latest.json
+          git commit -m "test: update WordPress edge live probe" || exit 0
+          git push
