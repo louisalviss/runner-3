@@ -1,0 +1,84 @@
+name: Cloudflare WordPress Edge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'edge/wordpress-edge-proxy/**'
+      - 'scripts/deploy-wordpress-cloudflare-edge.mjs'
+      - '.github/workflows/cloudflare-wordpress-edge.yml'
+      - 'ops/cloudflare-edge/requests/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-cloudflare-edge
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_WORKER_NAME: wordpress-edge-proxy
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.jsonc
+      CF_EDGE_OUT: /tmp/cloudflare-wordpress-edge.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Deploy Worker and verify real edge cache
+        id: edge
+        continue-on-error: true
+        run: node scripts/deploy-wordpress-cloudflare-edge.mjs
+
+      - name: Persist immutable edge result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/cloudflare-wordpress-edge.json || echo '{"status":"runner_error","detail":"cloudflare_edge_result_missing"}' >/tmp/cloudflare-wordpress-edge.json
+          cp /tmp/cloudflare-wordpress-edge.json /tmp/cloudflare-edge-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pushed=false
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/cloudflare-edge/results/runs
+            cp /tmp/cloudflare-edge-safe.json "ops/cloudflare-edge/results/wordpress-edge-proxy.latest.json"
+            cp /tmp/cloudflare-edge-safe.json "ops/cloudflare-edge/results/runs/wordpress-edge-proxy.${GITHUB_RUN_ID}.json"
+            git add ops/cloudflare-edge/results
+            if git diff --cached --quiet; then pushed=true; break; fi
+            git commit -m "Persist Cloudflare WordPress edge result: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then pushed=true; break; fi
+            sleep 2
+          done
+          test "$pushed" = true
+
+      - name: Require verified Cloudflare cache HIT
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/cloudflare-wordpress-edge.json'))
+          assert d.get('status') == 'completed', json.dumps(d,indent=2)
+          p=d['probe']
+          print(json.dumps({
+            'status':d['status'],
+            'edgeUrl':d['edgeUrl'],
+            'cacheVerified':p['cacheVerified'],
+            'proof':p['proof'],
+            'firstTtfbMs':p['firstTtfbMs'],
+            'warmMedianTtfbMs':p['warmMedianTtfbMs'],
+            'internalLinkRewritten':p['internalLinkRewritten'],
+            'loginSafe':p['loginSafe'],
+            'restSafe':p['restSafe'],
+            'cookieSafe':p['cookieSafe'],
+          },indent=2))
+          PY
