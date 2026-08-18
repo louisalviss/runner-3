@@ -1,15 +1,16 @@
 <?php
-// Wasmer CDN Cache is app-wide, but storage is opt-in per response. Cache only
-// anonymous public editorial pages; admin/login/REST never load this template,
-// and personalized cookie requests are bypassed by Wasmer Edge automatically.
-if (
-    !is_user_logged_in() &&
-    !is_preview() &&
-    !is_search() &&
-    !is_404() &&
-    (is_front_page() || is_home() || is_singular() || is_archive())
-) {
-    header('Cache-Control: public, max-age=30, s-maxage=120, stale-while-revalidate=30, stale-if-error=600', true);
+// Finalize anonymous public HTML into one response body so Wasmer CDN can store it
+// with a concrete Content-Length. Admin/login/REST/feed do not render this template.
+if (function_exists('runner3_public_edge_cache_eligible') && runner3_public_edge_cache_eligible()) {
+    @ini_set('zlib.output_compression', '0');
+    header('X-Edge-Origin-Stamp: ' . sprintf('%.6f', microtime(true)), true);
+    ob_start(static function ($html) {
+        if (!headers_sent()) {
+            header_remove('Transfer-Encoding');
+            header('Content-Length: ' . strlen($html), true);
+        }
+        return $html;
+    });
 }
 ?>
 <!doctype html>
