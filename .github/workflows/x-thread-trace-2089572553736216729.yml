@@ -8,118 +8,103 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   trace:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Fetch X conversation through public mirrors
+      - uses: actions/checkout@v4
+      - name: Fetch and reconstruct X conversation
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence
+          mkdir -p evidence x-trace
           python3 - <<'PY'
-          import json, urllib.request, urllib.error, pathlib, time
+          import json, urllib.request, urllib.parse, pathlib
+          ID='2089572553736216729'; HANDLE='mtrainier2020'
+          UA='runner-3-x-thread-trace/1.1 (+https://github.com/louisalviss/runner-3)'
 
-          tweet_id='2089572553736216729'
-          handle='mtrainier2020'
-          ua='runner-3-x-thread-trace/1.0 (+https://github.com/louisalviss/runner-3)'
-          urls={
-            'fxt_v2_conversation': f'https://api.fxtwitter.com/2/conversation/{tweet_id}',
-            'fxt_legacy_status': f'https://api.fxtwitter.com/{handle}/status/{tweet_id}',
-            'vx_status': f'https://api.vxtwitter.com/{handle}/status/{tweet_id}',
-            'syndication': f'https://cdn.syndication.twimg.com/tweet-result?id={tweet_id}&lang=en',
-          }
-
-          def get(url):
-            req=urllib.request.Request(url, headers={'User-Agent':ua,'Accept':'application/json,text/plain,*/*'})
+          def fetch(url):
             try:
-              with urllib.request.urlopen(req, timeout=25) as r:
-                body=r.read()
-                return {'ok':True,'status':r.status,'url':r.geturl(),'content_type':r.headers.get('content-type'),'body':body.decode('utf-8','replace')}
+              q=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'application/json,*/*'})
+              with urllib.request.urlopen(q,timeout=30) as r:
+                return {'ok':True,'status':r.status,'url':r.geturl(),'body':r.read().decode('utf-8','replace')}
             except Exception as e:
-              return {'ok':False,'error':f'{type(e).__name__}: {e}','url':url}
+              return {'ok':False,'url':url,'error':f'{type(e).__name__}: {e}'}
 
-          results={}
-          for name,url in urls.items():
-            r=get(url); results[name]=r
-            pathlib.Path(f'evidence/{name}.json').write_text(r.get('body') or json.dumps(r,indent=2),encoding='utf-8')
-            print('FETCH',name,'ok=',r.get('ok'),'status=',r.get('status'),'len=',len(r.get('body','')),'err=',r.get('error'))
+          endpoints={
+            'conversation':f'https://api.fxtwitter.com/2/conversation/{ID}',
+            'legacy':f'https://api.fxtwitter.com/{HANDLE}/status/{ID}',
+            'vx':f'https://api.vxtwitter.com/{HANDLE}/status/{ID}',
+            'syndication':f'https://cdn.syndication.twimg.com/tweet-result?id={ID}&lang=en'
+          }
+          raw={k:fetch(v) for k,v in endpoints.items()}
+          for k,v in raw.items():
+            pathlib.Path(f'evidence/{k}.json').write_text(v.get('body') or json.dumps(v,indent=2),encoding='utf-8')
+            print('FETCH',k,v.get('ok'),v.get('status'),v.get('error',''),len(v.get('body','')))
 
-          # Parse v2 conversation and produce a compact ordered reconstruction.
-          conv=None
-          raw=results['fxt_v2_conversation'].get('body')
-          if raw:
-            try: conv=json.loads(raw)
-            except Exception as e: print('PARSE_V2_ERROR',repr(e))
+          def js(name):
+            try:return json.loads(raw[name].get('body') or '')
+            except:return None
+          conv=js('conversation')
 
-          def compact(t):
+          def c(t):
             if not isinstance(t,dict): return None
-            a=t.get('author') or {}
-            replying=t.get('replying_to') or {}
-            q=t.get('quote') or None
-            media=t.get('media') or {}
+            a=t.get('author') or {}; media=t.get('media') or {}
             return {
-              'id':str(t.get('id') or ''),
-              'created_at':t.get('created_at'),
+              'id':str(t.get('id') or ''), 'created_at':t.get('created_at'),
               'author':a.get('screen_name') or a.get('username') or a.get('name'),
-              'text':t.get('text'),
-              'url':t.get('url'),
-              'replying_to':replying,
-              'likes':t.get('likes'), 'reposts':t.get('reposts'), 'quotes':t.get('quotes'), 'replies':t.get('replies'), 'views':t.get('views'),
-              'quote': compact(q) if isinstance(q,dict) and q.get('id') else q,
+              'text':t.get('text'), 'url':t.get('url'), 'replying_to':t.get('replying_to'),
+              'likes':t.get('likes'),'reposts':t.get('reposts'),'quotes':t.get('quotes'),'replies':t.get('replies'),'views':t.get('views'),
+              'quote':c(t.get('quote')) if isinstance(t.get('quote'),dict) and t.get('quote',{}).get('id') else t.get('quote'),
               'photos':[x.get('url') for x in (media.get('photos') or []) if isinstance(x,dict)],
-              'videos':[x.get('url') for x in (media.get('videos') or []) if isinstance(x,dict)],
+              'videos':[x.get('url') for x in (media.get('videos') or []) if isinstance(x,dict)]
             }
 
-          report={'target_id':tweet_id,'target_handle':handle,'source_status':{k:{x:v.get(x) for x in ('ok','status','url','content_type','error')} for k,v in results.items()}}
+          report={'target_id':ID,'target_handle':HANDLE,
+                  'sources':{k:{z:v.get(z) for z in ('ok','status','url','error')} for k,v in raw.items()}}
           if isinstance(conv,dict):
-            report['code']=conv.get('code')
-            report['status']=compact(conv.get('status'))
-            report['author']=conv.get('author')
-            report['thread']=[compact(x) for x in (conv.get('thread') or []) if isinstance(x,dict)]
-            report['replies']=[compact(x) for x in (conv.get('replies') or []) if isinstance(x,dict)]
+            report['code']=conv.get('code'); report['status']=c(conv.get('status')); report['author']=conv.get('author')
+            report['thread']=[c(x) for x in (conv.get('thread') or []) if isinstance(x,dict)]
+            report['replies']=[c(x) for x in (conv.get('replies') or []) if isinstance(x,dict)]
             report['cursor']=conv.get('cursor')
-
-            # Same-author continuation candidates, de-duplicated and ordered.
-            candidates=[]
-            for x in [conv.get('status')] + list(conv.get('thread') or []) + list(conv.get('replies') or []):
-              if not isinstance(x,dict): continue
-              a=x.get('author') or {}; sn=(a.get('screen_name') or a.get('username') or '').lower()
-              if sn==handle.lower(): candidates.append(compact(x))
-            seen=set(); unique=[]
-            for x in candidates:
-              if not x or x['id'] in seen: continue
-              seen.add(x['id']); unique.append(x)
-            report['same_author_candidates']=unique
-
-            # Try cursor page 2 if FxTwitter exposes one.
-            cur=conv.get('cursor') or {}
-            bottom=cur.get('bottom') if isinstance(cur,dict) else None
+            allx=[conv.get('status')]+list(conv.get('thread') or [])+list(conv.get('replies') or [])
+            same=[]; seen=set()
+            for x in allx:
+              if not isinstance(x,dict):continue
+              a=x.get('author') or {}; h=(a.get('screen_name') or a.get('username') or '').lower()
+              if h==HANDLE.lower() and str(x.get('id') or '') not in seen:
+                seen.add(str(x.get('id') or '')); same.append(c(x))
+            report['same_author_candidates']=same
+            cur=conv.get('cursor') or {}; bottom=cur.get('bottom') if isinstance(cur,dict) else None
             if bottom:
-              import urllib.parse
-              p2=get(f'https://api.fxtwitter.com/2/conversation/{tweet_id}?cursor='+urllib.parse.quote(bottom,safe=''))
-              report['page2_status']={x:p2.get(x) for x in ('ok','status','url','error')}
-              pathlib.Path('evidence/fxt_v2_conversation_page2.json').write_text(p2.get('body') or json.dumps(p2,indent=2),encoding='utf-8')
-              if p2.get('body'):
-                try:
-                  j=json.loads(p2['body']); report['page2_same_author']=[compact(x) for x in (j.get('replies') or []) if isinstance(x,dict) and ((x.get('author') or {}).get('screen_name') or (x.get('author') or {}).get('username') or '').lower()==handle.lower()]
-                except Exception as e: report['page2_parse_error']=repr(e)
-
-          # Legacy fallback parsing.
-          for src in ('fxt_legacy_status','vx_status'):
-            b=results[src].get('body')
-            if b:
-              try: report[src]=json.loads(b)
-              except: report[src+'_prefix']=b[:3000]
-
-          pathlib.Path('evidence/report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
-          print('===REPORT_JSON===')
-          print(json.dumps(report,ensure_ascii=False))
-          print('===END_REPORT===')
+              p2=fetch(f'https://api.fxtwitter.com/2/conversation/{ID}?cursor='+urllib.parse.quote(bottom,safe=''))
+              report['page2_source']={z:p2.get(z) for z in ('ok','status','url','error')}
+              pathlib.Path('evidence/conversation-page2.json').write_text(p2.get('body') or json.dumps(p2,indent=2),encoding='utf-8')
+              try:
+                j=json.loads(p2.get('body') or ''); report['page2_replies']=[c(x) for x in (j.get('replies') or []) if isinstance(x,dict)]
+              except: pass
+          for k in ('legacy','vx','syndication'):
+            j=js(k)
+            if j is not None: report[k]=j
+          out=json.dumps(report,indent=2,ensure_ascii=False)
+          pathlib.Path('evidence/report.json').write_text(out,encoding='utf-8')
+          pathlib.Path(f'x-trace/{ID}.json').write_text(out,encoding='utf-8')
+          print('===REPORT==='); print(json.dumps(report,ensure_ascii=False)); print('===END===')
           PY
+      - name: Publish result to repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add x-trace/2089572553736216729.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'store X thread trace 2089572553736216729'
+            git push
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
