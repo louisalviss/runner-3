@@ -25,12 +25,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install M88 collector dependencies
+      - name: Install only missing M88 collector dependencies
+        shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq openvpn iproute2 iptables curl jq
-          python3 -m pip install -q 'playwright>=1.46,<2'
+          if ! command -v openvpn >/dev/null 2>&1; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends openvpn
+          fi
+          command -v ip >/dev/null
+          command -v iptables >/dev/null
+          command -v curl >/dev/null
+          command -v jq >/dev/null
+          python3 - <<'PY' || python3 -m pip install -q 'playwright>=1.46,<2'
+          import playwright
+          print('playwright already available')
+          PY
           mkdir -p evidence /tmp/relays
 
       - name: Select M88-compatible Asia relay
