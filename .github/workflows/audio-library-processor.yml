@@ -1,0 +1,46 @@
+name: Audio Library Processor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-audio-library-processor
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUDIO_LIBRARY_BUCKET: runner3-wp-media
+      AUDIO_LIBRARY_VOICE: vi-VN-NamMinhNeural
+      AUDIO_LIBRARY_VOICE_RATE: +3%
+      AUDIO_LIBRARY_MAX_JOBS: '2'
+      AUDIO_LIBRARY_MAX_CHARS: '14000'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install audio and extraction tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q -U requests beautifulsoup4 edge-tts deep-translator langdetect yt-dlp pypdf
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - name: Process pending links
+        run: python scripts/audio_library_processor.py

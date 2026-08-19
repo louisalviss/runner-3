@@ -1,0 +1,102 @@
+name: Audio Library Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/audio-library/**'
+      - '.runner-audio-library-deploy-trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-audio-library-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          export NO_COLOR=1
+          npx -y wrangler@4.123.0 deploy --config apps/audio-library/wrangler.jsonc | tee /tmp/audio-library-deploy.log
+          url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/audio-library-deploy.log | tail -n 1 || true)"
+          test -n "$url"
+          echo "LIBRARY_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Set private Runner token
+        shell: bash
+        run: |
+          set -euo pipefail
+          shared="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | awk '{print $1}')"
+          printf '%s' "$shared" | npx -y wrangler@4.123.0 secret put RUNNER_SHARED_TOKEN --config apps/audio-library/wrangler.jsonc
+
+      - name: Seed existing Reddit episode once
+        shell: bash
+        run: |
+          set -euo pipefail
+          key='audio-library/items/00000000-0000-4000-8000-000000000001.json'
+          if ! npx -y wrangler@4.123.0 r2 object get "runner3-wp-media/$key" --file=/tmp/existing-item.json --remote >/dev/null 2>&1; then
+            now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            expires="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)"
+            base="$(python -c "import json; print(json.load(open('ops/r2-media/status.json'))['baseUrl'])")"
+            python - "$now" "$expires" "$base" <<'PY'
+          import json,sys
+          now,expires,base=sys.argv[1:]
+          item={
+            'id':'00000000-0000-4000-8000-000000000001',
+            'sourceUrl':'https://www.reddit.com/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/',
+            'sourceLabel':'Reddit',
+            'title':'Những bí ẩn chưa giải đáp ám ảnh nhất',
+            'status':'ready','createdAt':now,'updatedAt':now,'expiresAt':expires,'pinned':False,
+            'durationSeconds':660.689,'progressSeconds':0,
+            'audioUrl':base+'/listen/reddit-creepiest-unsolved-v1/episode.mp3',
+            'transcriptUrl':base+'/listen/reddit-creepiest-unsolved-v1/transcript.txt',
+            'mediaPrefix':'listen/reddit-creepiest-unsolved-v1/','error':None,'truncated':False
+          }
+          open('/tmp/seed-item.json','w').write(json.dumps(item,ensure_ascii=False))
+          PY
+            npx -y wrangler@4.123.0 r2 object put "runner3-wp-media/$key" --file=/tmp/seed-item.json --content-type='application/json; charset=utf-8' --remote
+          fi
+
+      - name: Verify and persist status
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in 1 2 3 4 5; do
+            code="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$LIBRARY_URL/health" || true)"
+            if [ "$code" = 200 ] && grep -q 'runner3-audio-library' /tmp/health.json; then break; fi
+            sleep 2
+          done
+          test "$code" = 200
+          mkdir -p ops/audio-library
+          python - "$LIBRARY_URL" <<'PY'
+          import datetime,json,sys
+          out={'status':'ready','url':sys.argv[1],'retentionDays':30,'voice':'vi-VN-NamMinhNeural','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          open('ops/audio-library/status.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/status.json
+          git commit -m 'Publish Audio Library deploy status' || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
