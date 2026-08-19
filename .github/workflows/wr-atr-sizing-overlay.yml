@@ -1,0 +1,37 @@
+name: WR ATR Sizing Overlay
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/wr_atr_sizing_overlay.py'
+      - '.github/workflows/wr-atr-sizing-overlay.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2024-frozen-rolling-oos-final
+          path: /tmp/a24
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32253319968
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase2-zonec10-final
+          path: /tmp/a25
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32233507091
+      - name: Run ATR sizing overlay
+        run: python3 wave-rider-verify/wr_atr_sizing_overlay.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-atr-sizing-overlay-final
+          path: /tmp/final6
+          retention-days: 14
