@@ -1,0 +1,54 @@
+name: Audio Library Chat Intake
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/audio-library/chat-intake/**.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-audio-library-chat-intake
+  cancel-in-progress: false
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUDIO_LIBRARY_BUCKET: runner3-wp-media
+      AUDIO_LIBRARY_RETENTION_DAYS: '30'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Find new chat intake requests
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chat-intake/*.json')
+          printf '%s\n' "${files[@]}" | sed '/^$/d' > /tmp/audio-chat-intake-files.txt
+          echo "count=$(wc -l < /tmp/audio-chat-intake-files.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Enqueue URLs into shared Audio Library queue
+        if: steps.changed.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < /tmp/audio-chat-intake-files.txt
+          python scripts/audio_library_chat_intake.py "${files[@]}"
