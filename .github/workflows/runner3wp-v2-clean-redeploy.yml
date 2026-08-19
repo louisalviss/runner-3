@@ -41,7 +41,7 @@ jobs:
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
-          function attr(tag,name){const m=tag.match(new RegExp('\\b'+name+'\\s*=\\s*(["\\'])(.*?)\\1','i'));return m?m[2]:null;}
+          function attr(tag,name){const m=tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`,'i'));return m?m[1]:null;}
           function summarize(html){
             const visible=html.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<!--([\s\S]*?)-->/g,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
             const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1]?.replace(/<[^>]+>/g,'').trim()||'';
@@ -50,7 +50,7 @@ jobs:
             const images=[...html.matchAll(/<img\b[^>]*>/gi)].map(m=>attr(m[0],'src')||'').map(x=>x.replace(/^https?:\/\/[^/]+/,''));
             return {visible,title,h1,links,images};
           }
-          async function read(url){const t=performance.now();const r=await fetch(url,{headers:{'user-agent':'Runner3V2CleanVerifier/2.0'}});const html=await r.text();return {http:r.status,ms:Math.round((performance.now()-t)*10)/10,html,headers:Object.fromEntries(r.headers.entries())};}
+          async function read(url){const t=performance.now();const r=await fetch(url,{headers:{'user-agent':'Runner3V2CleanVerifier/3.0'}});const html=await r.text();return {http:r.status,ms:Math.round((performance.now()-t)*10)/10,html,headers:Object.fromEntries(r.headers.entries())};}
           const [v1,v2]=await Promise.all([read('https://runner3wp.pntr.dev/'),read('https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/')]);
           const a=summarize(v1.html),b=summarize(v2.html);
           const snapshot=v2.headers['x-edge-mode']==='snapshot'&&String(v2.headers['x-edge-snapshot']||'').toUpperCase()==='HIT';
