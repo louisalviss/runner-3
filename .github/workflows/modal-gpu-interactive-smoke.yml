@@ -8,15 +8,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     env:
       PYTHONUNBUFFERED: '1'
       TERM: xterm-256color
+      NO_COLOR: '1'
 
     steps:
       - name: Checkout
@@ -36,5 +37,60 @@ jobs:
           python -m modal token new --verify
           echo 'MODAL_LOGIN_OK'
 
-      - name: Run T4 GPU smoke test
-        run: python -m modal run modal_gpu_smoke.py
+      - name: Deploy persistent T4 endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m modal deploy modal_gpu_smoke.py 2>&1 | tee /tmp/modal-deploy.log
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' /tmp/modal-deploy.log > /tmp/modal-deploy-clean.log
+          URL="$(grep -Eo 'https://[^[:space:]]+\.modal\.run' /tmp/modal-deploy-clean.log | tail -n1)"
+          test -n "$URL"
+          echo "MODAL_ENDPOINT=$URL" | tee -a "$GITHUB_ENV" "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify T4 endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --max-time 180 "$MODAL_ENDPOINT" -o /tmp/modal-gpu.json; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" = 1
+          cat /tmp/modal-gpu.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/modal-gpu.json').read_text())
+          if data.get('ok') is not True or not data.get('gpu'):
+              raise SystemExit(f'Bad GPU response: {data!r}')
+          print('GPU_SMOKE_OK=' + data['gpu'])
+          PY
+
+      - name: Publish smoke result to repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          gpu = json.loads(Path('/tmp/modal-gpu.json').read_text())
+          result = {
+              'ok': True,
+              'checked_at': datetime.now(timezone.utc).isoformat(),
+              'endpoint': os.environ['MODAL_ENDPOINT'],
+              'gpu': gpu['gpu'],
+          }
+          Path('modal-gpu-smoke-result.json').write_text(json.dumps(result, indent=2) + '\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add modal-gpu-smoke-result.json
+          git diff --cached --quiet || git commit -m 'test: record Modal GPU smoke result'
+          git push
