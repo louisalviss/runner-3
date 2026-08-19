@@ -31,7 +31,8 @@ function criticalSelector(prelude) {
   const p = prelude.replace(/\/\*[\s\S]*?\*\//g, '').trim();
   if (!p) return false;
   if (/^:root\b/.test(p) || /^(?:\*|html\b|body\b|a\b|img\b)/.test(p)) return true;
-  return /\.(?:wrap|kicker|site-header|header-row|brand(?:-dot)?|nav|header-meta|home|signal-stage(?:__[\w-]+)?|signal-title(?:__[\w-]+)?|signal-orbit(?:__[\w-]+)?)(?![\w-])/.test(p);
+  if (p === '.home') return true;
+  return /\.(?:wrap|kicker|site-header|header-row|brand(?:-dot)?|nav|header-meta|signal-stage(?:__[\w-]+)?|signal-title(?:__[\w-]+)?|signal-orbit(?:__[\w-]+)?)(?![\w-])/.test(p);
 }
 
 function filterCriticalCss(css) {
@@ -86,4 +87,4 @@ if (!s.includes(oldDeferred)) throw new Error('R1 deferred block missing');
 s = s.replace(oldDeferred, newDeferred);
 
 fs.writeFileSync(path, s);
-console.log(JSON.stringify({ status: 'patched-r2', path }, null, 2));
+console.log(JSON.stringify({ status: 'patched-r2c', path }, null, 2));
