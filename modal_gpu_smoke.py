@@ -3,10 +3,17 @@ import subprocess
 import modal
 
 app = modal.App("runner3-modal-gpu-smoke")
+image = modal.Image.debian_slim(python_version="3.11").pip_install("fastapi[standard]")
 
 
-@app.function(gpu="T4", timeout=120)
-def gpu_smoke() -> str:
+@app.function(
+    gpu="T4",
+    image=image,
+    timeout=120,
+    scaledown_window=60,
+)
+@modal.fastapi_endpoint(method="GET")
+def gpu_check() -> dict:
     result = subprocess.run(
         [
             "nvidia-smi",
@@ -19,10 +26,4 @@ def gpu_smoke() -> str:
     )
     info = result.stdout.strip()
     print(f"MODAL_GPU={info}")
-    return info
-
-
-@app.local_entrypoint()
-def main():
-    info = gpu_smoke.remote()
-    print(f"GPU_SMOKE_OK={info}")
+    return {"ok": True, "gpu": info}
