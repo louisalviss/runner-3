@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: runner3-audio-library-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -27,11 +27,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Mark deploy running
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          mkdir -p ops/audio-library
+          python - <<'PY'
+          import datetime,json
+          out={'status':'running','url':'','retentionDays':30,'voice':'vi-VN-NamMinhNeural','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          open('ops/audio-library/status.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git add ops/audio-library/status.json
+          git commit -m 'Mark Audio Library deploy started' || true
+          git push origin HEAD:main || true
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Deploy Worker
+        id: deploy_worker
         shell: bash
         run: |
           set -euo pipefail
@@ -44,6 +62,7 @@ jobs:
           echo "LIBRARY_URL=$url" >> "$GITHUB_ENV"
 
       - name: Set private Runner token
+        id: runner_secret
         shell: bash
         run: |
           set -euo pipefail
@@ -51,6 +70,7 @@ jobs:
           printf '%s' "$shared" | npx -y wrangler@4.123.0 secret put RUNNER_SHARED_TOKEN --config apps/audio-library/wrangler.jsonc
 
       - name: Seed existing Reddit episode once
+        id: seed
         shell: bash
         run: |
           set -euo pipefail
@@ -78,7 +98,8 @@ jobs:
             npx -y wrangler@4.123.0 r2 object put "runner3-wp-media/$key" --file=/tmp/seed-item.json --content-type='application/json; charset=utf-8' --remote
           fi
 
-      - name: Verify and persist status
+      - name: Verify Worker
+        id: verify
         shell: bash
         run: |
           set -euo pipefail
@@ -88,15 +109,42 @@ jobs:
             sleep 2
           done
           test "$code" = 200
+
+      - name: Persist ready status
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --rebase origin main || true
           mkdir -p ops/audio-library
           python - "$LIBRARY_URL" <<'PY'
           import datetime,json,sys
           out={'status':'ready','url':sys.argv[1],'retentionDays':30,'voice':'vi-VN-NamMinhNeural','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           open('ops/audio-library/status.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
           PY
+          git add ops/audio-library/status.json
+          git commit -m 'Publish Audio Library deploy status' || exit 0
+          git push origin HEAD:main || true
+
+      - name: Persist failure status
+        if: failure()
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy_worker.outcome }}
+          SECRET_OUTCOME: ${{ steps.runner_secret.outcome }}
+          SEED_OUTCOME: ${{ steps.seed.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        shell: bash
+        run: |
+          git pull --rebase origin main || true
+          mkdir -p ops/audio-library
+          python - <<'PY'
+          import datetime,json,os
+          outcomes={k:os.getenv(k) for k in ('DEPLOY_OUTCOME','SECRET_OUTCOME','SEED_OUTCOME','VERIFY_OUTCOME')}
+          out={'status':'failed','url':os.getenv('LIBRARY_URL',''),'retentionDays':30,'voice':'vi-VN-NamMinhNeural','steps':outcomes,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          open('ops/audio-library/status.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/audio-library/status.json
-          git commit -m 'Publish Audio Library deploy status' || exit 0
-          git pull --rebase origin main || true
+          git commit -m 'Persist Audio Library deploy failure' || exit 0
           git push origin HEAD:main || true
