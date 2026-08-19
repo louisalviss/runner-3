@@ -4,9 +4,28 @@ import fs from 'fs';
 const slug = process.env.WP_SITE_SLUG || 'runner3-factory-smoke-2';
 const endpoint = String(process.env.RUNNER3_PURGE_ENDPOINT || 'https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge');
 const secret = String(process.env.RUNNER3_PURGE_SECRET || '');
+const rotatePurgeSecret = process.env.CF_ROTATE_PURGE_SECRET === '1';
 const stateFile = `ops/site-factory/${slug}.json`;
 const outFile = process.env.RUNNER3_EDGE_WP_OUT || '/tmp/runner3-edge-cache-wordpress.json';
 if (!endpoint.startsWith('https://')) throw new Error('RUNNER3_PURGE_ENDPOINT must use https');
+
+// Routine Worker/snapshot deployments must never silently replace the credential
+// already paired between WordPress and the Worker. Rotation is a separate explicit
+// maintenance action.
+if (!rotatePurgeSecret) {
+  const result = {
+    status: 'preserved',
+    siteSlug: slug,
+    endpoint,
+    credentialMutation: false,
+    detail: 'existing WordPress/Worker HMAC pairing preserved',
+    updatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(outFile, `${JSON.stringify(result, null, 2)}\n`);
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(0);
+}
+
 if (!secret || secret.length < 32) throw new Error('RUNNER3_PURGE_SECRET missing or too short');
 if (!fs.existsSync(stateFile)) throw new Error(`site factory state missing: ${stateFile}`);
 if (!fs.existsSync('/tmp/wasmer-account.json')) throw new Error('decrypted Wasmer account state missing');
@@ -47,5 +66,5 @@ try{
   const manual=wp.locator('a').filter({hasText:/Purge public HTML cache now/i}).first();if(!(await manual.count()))throw new Error('manual_purge_control_missing');const href=await manual.getAttribute('href');if(!href)throw new Error('manual_purge_href_missing');
   await wp.goto(new URL(href,`${base}/wp-admin/`).href,{waitUntil:'domcontentloaded',timeout:60000});await wp.waitForTimeout(1200);const bodyText=await wp.locator('body').innerText();
   const manualPurgeOk=/Last result:\s*OK/i.test(bodyText)&&/HTTP\s+2\d\d/i.test(bodyText)&&/purged_prewarmed_cache_verified/i.test(bodyText);
-  const result={status:manualPurgeOk?'ok':'failed',siteSlug:slug,endpoint,enabled:savedEnabled,configured:true,authReady,manualPurgeOk,diagnostics,updatedAt:new Date().toISOString()};safeWrite(result);console.log(JSON.stringify(result,null,2));if(!manualPurgeOk)process.exitCode=8;
+  const result={status:manualPurgeOk?'ok':'failed',siteSlug:slug,endpoint,enabled:savedEnabled,configured:true,authReady,manualPurgeOk,diagnostics,credentialMutation:true,updatedAt:new Date().toISOString()};safeWrite(result);console.log(JSON.stringify(result,null,2));if(!manualPurgeOk)process.exitCode=8;
 }catch(error){if(!fs.existsSync(outFile))safeWrite({status:'failed',siteSlug:slug,endpoint,detail:String(error?.message||error),updatedAt:new Date().toISOString()});throw error;}finally{await browser.close().catch(()=>{});}
