@@ -1,0 +1,31 @@
+name: Runner3WP R2 Local Build Diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-r2-local-build-diag.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      RUNNER3_FCP_V2: '1'
+      CF_SNAPSHOT_OUT: /tmp/r2-build.json
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: bfaca6aca4cfb8173ebd91f330376e64120332db, fetch-depth: 0}
+      - name: Patch and build locally
+        run: |
+          set -euo pipefail
+          node scripts/apply-runner3wp-critical-shell-r2.mjs
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          node scripts/build-wordpress-edge-snapshot.mjs
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const src=fs.readFileSync('edge/wordpress-edge-proxy/src/snapshot.generated.js','utf8');const marker='export const SNAPSHOTS = Object.freeze(';const a=src.indexOf(marker)+marker.length;const b=src.lastIndexOf(');');const data=JSON.parse(src.slice(a,b));const h=data['/'];const head=(h.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';const m=head.match(/<style\b[^>]*data-runner3-v2-critical="r2"[^>]*>([\s\S]*?)<\/style>/i);const out={status:'ready',headBytes:Buffer.byteLength(head),criticalCssBytes:m?Buffer.byteLength(m[1]):null,marker:!!m,template:h.includes('runner3-v2-deferred-css'),loader:h.includes('data-runner3-v2-css-loader="r2"'),build:JSON.parse(fs.readFileSync('/tmp/r2-build.json','utf8')),checkedAt:new Date().toISOString()};fs.writeFileSync('/tmp/local.json',JSON.stringify(out,null,2));console.log(JSON.stringify({...out,build:{...out.build,paths:undefined,errors:out.build.errors}},null,2));
+          NODE
+      - name: Persist
+        if: always()
+        run: |
+          git reset --hard;git fetch origin runner3wp-v2-fcp-test;git checkout -B runner3wp-v2-fcp-test origin/runner3wp-v2-fcp-test;mkdir -p ops/perf/ab;cp /tmp/local.json ops/perf/ab/runner3wp-r2-local-build.latest.json 2>/dev/null || echo '{"status":"failed"}' > ops/perf/ab/runner3wp-r2-local-build.latest.json;git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add ops/perf/ab/runner3wp-r2-local-build.latest.json;git commit -m 'diag: persist Runner3WP R2 local build result' || exit 0;git push origin HEAD:runner3wp-v2-fcp-test
