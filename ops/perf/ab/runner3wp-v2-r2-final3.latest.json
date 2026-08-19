@@ -1,0 +1,93 @@
+{
+  "status": "ready",
+  "experiment": "r2-final3-race-safe",
+  "patcherSha": "bfaca6aca4cfb8173ebd91f330376e64120332db",
+  "verdict": "REJECT_ROLLBACK",
+  "targetReached": false,
+  "completeSamples": true,
+  "guard": {
+    "http": 200,
+    "snapshot": "HIT",
+    "noindex": "noindex, nofollow, noarchive, nosnippet",
+    "headBytes": 10656,
+    "criticalCssBytes": 9012,
+    "marker": true,
+    "template": true,
+    "loader": true,
+    "ok": true
+  },
+  "v1": {
+    "samples": [
+      {
+        "label": "v1-1",
+        "status": "ready",
+        "performance": 100,
+        "fcp": 0.9,
+        "lcp": 1.8,
+        "tbt": "0ms",
+        "cls": "0S",
+        "resultUrl": "https://pagespeed.web.dev/analysis/https-runner3wp-pntr-dev/fat77u5zc7?hl=en&form_factor=mobile"
+      },
+      {
+        "label": "v1-2",
+        "status": "ready",
+        "performance": 100,
+        "fcp": 0.8,
+        "lcp": 1.7,
+        "tbt": "0ms",
+        "cls": "0S",
+        "resultUrl": "https://pagespeed.web.dev/analysis/https-runner3wp-pntr-dev/5lrr4kr89w?hl=en&form_factor=mobile"
+      },
+      {
+        "label": "v1-3",
+        "status": "ready",
+        "performance": 100,
+        "fcp": 0.9,
+        "lcp": 1.8,
+        "tbt": "0ms",
+        "cls": "0S",
+        "resultUrl": "https://pagespeed.web.dev/analysis/https-runner3wp-pntr-dev/ofwke6subz?hl=en&form_factor=mobile"
+      }
+    ],
+    "medianFcpSeconds": 0.9,
+    "medianLcpSeconds": 1.8
+  },
+  "v2": {
+    "samples": [
+      {
+        "label": "v2-1",
+        "status": "ready",
+        "performance": 99,
+        "fcp": 0.9,
+        "lcp": 2.0,
+        "tbt": "0ms",
+        "cls": "0S",
+        "resultUrl": "https://pagespeed.web.dev/analysis/https-wordpress-edge-proxy-v2-ducduy2411-workers-dev/hufj6yh5qo?hl=en&form_factor=mobile"
+      },
+      {
+        "label": "v2-2",
+        "status": "ready",
+        "performance": 99,
+        "fcp": 0.9,
+        "lcp": 2.0,
+        "tbt": "0ms",
+        "cls": "0S",
+        "resultUrl": "https://pagespeed.web.dev/analysis/https-wordpress-edge-proxy-v2-ducduy2411-workers-dev/22pfgd6dgu?hl=en&form_factor=mobile"
+      },
+      {
+        "label": "v2-3",
+        "status": "ready",
+        "performance": 99,
+        "fcp": 0.9,
+        "lcp": 2.0,
+        "tbt": "0ms",
+        "cls": "0S",
+        "resultUrl": "https://pagespeed.web.dev/analysis/https-wordpress-edge-proxy-v2-ducduy2411-workers-dev/egfo7rg14x?hl=en&form_factor=mobile"
+      }
+    ],
+    "medianFcpSeconds": 0.9,
+    "medianLcpSeconds": 2.0
+  },
+  "fcpImprovementSeconds": 0.0,
+  "checkedAt": "2026-08-19T21:48:17.487646+00:00"
+}
