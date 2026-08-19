@@ -40,7 +40,7 @@ jobs:
           runs=[]
           for r in d.get('workflow_runs',[]):
               runs.append({k:r.get(k) for k in ('id','name','display_title','head_sha','event','status','conclusion','created_at','updated_at','html_url','run_attempt')})
-          target_sha='ec5e08231dca245050b484893bc1ee2b4310dfe3'
+          target_sha='ad9a550f3718e511860e366966374194da35db1c'
           target=next((r for r in runs if r.get('head_sha')==target_sha), None)
           probe=Path('/tmp/probe.txt').read_text().strip().splitlines()
           health_body=Path('/tmp/health.body').read_text(errors='replace')[:1000] if Path('/tmp/health.body').exists() else ''
