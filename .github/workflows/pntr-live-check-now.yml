@@ -19,12 +19,12 @@ jobs:
         with:
           ref: main
 
-      - name: Check DNS, HTTPS and Pages gateway
+      - name: Check DNS, HTTPS, Pages gateway and indexability
         shell: bash
         run: |
           set -uo pipefail
           python - <<'PY'
-          import datetime, json, subprocess, urllib.error, urllib.request
+          import datetime, json, re, subprocess, urllib.error, urllib.request
 
           domain='runner3wp.pntr.dev'
           expected='runner3wp-pages-gateway.pages.dev.'
@@ -38,13 +38,13 @@ jobs:
                   return []
 
           def fetch(path):
-              req=urllib.request.Request(base+path,headers={'User-Agent':'Runner3PntrLiveCheck/2.0'})
+              req=urllib.request.Request(base+path,headers={'User-Agent':'Runner3PntrLiveCheck/2.1'})
               try:
                   with urllib.request.urlopen(req,timeout=25) as r:
-                      body=r.read(65536).decode('utf-8','replace')
+                      body=r.read(262144).decode('utf-8','replace')
                       return r.status,dict(r.headers),body,r.geturl()
               except urllib.error.HTTPError as e:
-                  return e.code,dict(e.headers),e.read(65536).decode('utf-8','replace'),e.geturl()
+                  return e.code,dict(e.headers),e.read(262144).decode('utf-8','replace'),e.geturl()
               except Exception as e:
                   return 0,{},type(e).__name__+': '+str(e),base+path
 
@@ -53,12 +53,20 @@ jobs:
           aaaa=dig('AAAA')
           home_http,home_headers,home_body,home_final=fetch('/')
           health_http,health_headers,health_body,health_final=fetch('/__runner3/pages-gateway/health')
+          robots_http,robots_headers,robots_body,robots_final=fetch('/robots.txt')
+          sitemap_http,sitemap_headers,sitemap_body,sitemap_final=fetch('/wp-sitemap.xml')
 
           gateway_ok=(health_http==200 and 'runner3wp-pages-gateway' in health_body)
           edge_proxy=home_headers.get('X-Edge-Proxy') or home_headers.get('x-edge-proxy')
           edge_mode=home_headers.get('X-Edge-Mode') or home_headers.get('x-edge-mode')
           cf_ray=home_headers.get('Cf-Ray') or home_headers.get('CF-RAY') or home_headers.get('cf-ray')
           server=home_headers.get('Server') or home_headers.get('server')
+          robots_tag=home_headers.get('X-Robots-Tag') or home_headers.get('x-robots-tag') or ''
+          meta_robots=[m.group(1).strip() for m in re.finditer(r'<meta[^>]+name=["\']robots["\'][^>]+content=["\']([^"\']+)',home_body,re.I)]
+          body_noindex=any('noindex' in x.lower() for x in meta_robots)
+          header_noindex='noindex' in robots_tag.lower()
+          robots_blocks_all=bool(re.search(r'(?is)user-agent:\s*\*.*?disallow:\s*/\s*(?:\r?\n|$)',robots_body))
+          sitemap_ok=(sitemap_http==200 and ('sitemap' in sitemap_body.lower() or '<?xml' in sitemap_body.lower()))
 
           out={
             'status':'live_on_pages_gateway' if home_http==200 and gateway_ok else 'failed',
@@ -77,6 +85,15 @@ jobs:
             'edgeMode':edge_mode,
             'cfRayPresent':bool(cf_ray),
             'server':server,
+            'xRobotsTag':robots_tag or None,
+            'metaRobots':meta_robots,
+            'headerNoindex':header_noindex,
+            'bodyNoindex':body_noindex,
+            'indexableByRobotsSignals':not header_noindex and not body_noindex and not robots_blocks_all,
+            'robotsHttp':robots_http,
+            'robotsBlocksAll':robots_blocks_all,
+            'sitemapHttp':sitemap_http,
+            'sitemapOk':sitemap_ok,
             'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
           }
           print(json.dumps(out,indent=2))
