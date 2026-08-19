@@ -1,0 +1,48 @@
+{
+  "version": 3,
+  "collector": "runner-3",
+  "scope": "1-substack-hybrid",
+  "runStartedAt": "2026-08-19T17:54:49Z",
+  "sources": {
+    "vohoanghac": {
+      "ok": false,
+      "transport": "hybrid-rss+substack-profile",
+      "checkedAt": "2026-08-19T17:54:49Z",
+      "preservedExistingMirror": true,
+      "contentChanged": false,
+      "components": {
+        "articles": {
+          "ok": true,
+          "transport": "rss",
+          "feedUrl": "https://vohoanghac.com/feed",
+          "finalFeedUrl": "https://vohoanghac.com/feed",
+          "freshItemCount": 20,
+          "newestPublishedAt": "2026-08-07T07:12:11Z",
+          "contentHashChangeCount": 1
+        },
+        "notes": {
+          "ok": false,
+          "transport": "substack-public-profile",
+          "profileUrl": "https://substack.com/@vohoanghac",
+          "error": "RuntimeError: unable to resolve verified Substack profile user id; https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self | legacy profile discovery: RuntimeError: unable to resolve Substack profile user id; profile HTML: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/@vohoanghac | https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self"
+        }
+      },
+      "contentHashChangeCount": 1,
+      "contentHashChanges": [
+        {
+          "key": "url:f60db9d5ac577ee39216",
+          "canonicalUrl": "https://vohoanghac.com/p/hanh-trinh-2026",
+          "title": "Hành trình 2026",
+          "publishedAt": "2026-02-05T06:59:17Z",
+          "oldContentHash": "sha256:16352b2f3da5a38dec06b6308a223f8baf52c5c5776bba39c057cafd80cebd74",
+          "newContentHash": "sha256:9917c953b0db392780aa576f187a4f6bc5370462957e3f0a5e1a3575ffe088a2"
+        }
+      ],
+      "newestPublishedAt": "2026-08-07T07:12:11Z"
+    }
+  },
+  "runFinishedAt": "2026-08-19T17:54:49Z",
+  "okCount": 0,
+  "failedCount": 1,
+  "status": "failed"
+}
