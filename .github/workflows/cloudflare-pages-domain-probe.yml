@@ -1,0 +1,152 @@
+name: Cloudflare Pages Domain Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/triggers/cloudflare-pages-domain-probe.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-pages-domain-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: runner3wp-pages-gateway
+      CUSTOM_DOMAIN: runner3wp.pntr.dev
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Associate custom domain without changing DNS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os, urllib.error, urllib.parse, urllib.request
+
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          project=os.environ['CF_PAGES_PROJECT']
+          domain=os.environ['CUSTOM_DOMAIN']
+          if not token or not account:
+              raise SystemExit('cloudflare_credentials_missing')
+
+          base='https://api.cloudflare.com/client/v4'
+          headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          endpoint=f'{base}/accounts/{account}/pages/projects/{project}/domains'
+
+          def req(url, method='GET', body=None):
+              data=None if body is None else json.dumps(body).encode()
+              r=urllib.request.Request(url,data=data,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(r,timeout=30) as resp:
+                      return resp.status,json.loads(resp.read().decode())
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try: payload=json.loads(raw)
+                  except Exception: payload={'raw':raw[:1000]}
+                  return e.code,payload
+
+          http,payload=req(endpoint)
+          if http != 200 or not payload.get('success'):
+              raise SystemExit(f'pages_domain_list_failed_http_{http}')
+          domains=payload.get('result') or []
+          current=next((x for x in domains if x.get('name')==domain),None)
+          action='existing'
+          if current is None:
+              http,payload=req(endpoint,'POST',{'name':domain})
+              if http not in (200,201) or not payload.get('success'):
+                  out={
+                    'status':'failed',
+                    'stage':'associate',
+                    'http':http,
+                    'errors':payload.get('errors'),
+                    'messages':payload.get('messages'),
+                    'project':project,
+                    'domain':domain,
+                    'dnsChanged':False,
+                    'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+                  }
+                  os.makedirs('/tmp/pages-domain-probe',exist_ok=True)
+                  open('/tmp/pages-domain-probe/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+                  print(json.dumps(out,indent=2))
+                  raise SystemExit('pages_domain_association_failed')
+              current=payload.get('result') or {}
+              action='created'
+
+          # Refresh once to capture canonical status/validation payload.
+          encoded=urllib.parse.quote(domain,safe='')
+          http,payload=req(endpoint+'/'+encoded)
+          if http == 200 and payload.get('success'):
+              current=payload.get('result') or current
+
+          def slim_validation(v):
+              if not isinstance(v,dict): return None
+              return {
+                'method':v.get('method'),
+                'status':v.get('status'),
+                'errorMessage':v.get('error_message'),
+                'txtName':v.get('txt_name'),
+                'txtValuePresent':bool(v.get('txt_value')),
+              }
+
+          verification=current.get('verification_data') if isinstance(current,dict) else None
+          out={
+            'status':'ok',
+            'stage':'associated_no_dns_change',
+            'action':action,
+            'project':project,
+            'pagesTarget':project+'.pages.dev',
+            'domain':domain,
+            'domainStatus':current.get('status') if isinstance(current,dict) else None,
+            'validation':slim_validation(current.get('validation_data') if isinstance(current,dict) else None),
+            'verification':{
+              'status': verification.get('status'),
+              'errorMessage': verification.get('error_message'),
+            } if isinstance(verification,dict) else None,
+            'zoneTagPresent':bool(current.get('zone_tag')) if isinstance(current,dict) else False,
+            'dnsChanged':False,
+            'liveDomainUntouched':True,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+          }
+          os.makedirs('/tmp/pages-domain-probe',exist_ok=True)
+          open('/tmp/pages-domain-probe/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/pages-domain-probe/latest.json ]; then
+            mkdir -p /tmp/pages-domain-probe
+            printf '{"status":"failed","detail":"probe_failed_before_result","dnsChanged":false,"runId":"%s"}\n' "$GITHUB_RUN_ID" >/tmp/pages-domain-probe/latest.json
+          fi
+          cp /tmp/pages-domain-probe/latest.json /tmp/pages-domain-probe-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/cloudflare-pages-domain-probe
+            cp /tmp/pages-domain-probe-safe.json ops/cloudflare-pages-domain-probe/latest.json
+            git add ops/cloudflare-pages-domain-probe/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Cloudflare Pages domain probe: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
