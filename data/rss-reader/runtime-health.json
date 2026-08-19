@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "collector": "runner-3",
+  "scope": "ai-rss-reader-ingestion",
+  "runStartedAt": "2026-08-19T18:15:46Z",
+  "runFinishedAt": "2026-08-19T18:16:00Z",
+  "logicalSourceCount": 13,
+  "runner3LogicalSources": 11,
+  "chatgptDirectSources": [
+    "hoquoctuan",
+    "vnhacker"
+  ],
+  "status": "healthy",
+  "ingestionOk": true,
+  "gate": {
+    "core10": {
+      "ok": true,
+      "problems": []
+    },
+    "vohoanghacHybrid": {
+      "ok": true,
+      "problems": []
+    },
+    "readerStateShape": {
+      "ok": true,
+      "problems": []
+    }
+  },
+  "collectorRuns": {
+    "core": {
+      "script": "rss_reader_collect_v2.py",
+      "exitCode": 0,
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"10-runner3-sources\", \"status\": \"healthy\", \"ok\": 10, \"failed\": 0, \"health\": \"data/rss-reader/health.json\"}",
+      "stderr": ""
+    },
+    "vohoanghac": {
+      "script": "rss_substack_collect_v2.py",
+      "exitCode": 0,
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"1-substack-hybrid\", \"status\": \"healthy\", \"articles_ok\": true, \"notes_ok\": true, \"fresh_articles\": 20, \"fresh_notes\": 33, \"notes_error\": null}",
+      "stderr": ""
+    }
+  },
+  "readerStateAdvanced": false
+}
