@@ -1,5 +1,5 @@
 name: Deploy Gwen-TTS on Modal
-run-name: Gwen L4-BF16 deploy — FINAL-1944
+run-name: Gwen L4-BF16 deploy — AUTH-FIX-1957
 
 on:
   push:
@@ -23,8 +23,10 @@ jobs:
     env:
       PYTHONUNBUFFERED: '1'
       NO_COLOR: '1'
-      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      # Deliberately use CI_* aliases so empty GitHub secrets cannot override
+      # Modal's ~/.modal.toml credentials created by interactive login.
+      CI_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      CI_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
     steps:
       - name: Checkout
@@ -38,13 +40,18 @@ jobs:
       - name: Install Modal SDK
         run: python -m pip install --upgrade 'modal==1.5.3'
 
-      - name: Authenticate Modal interactively when secrets are absent
-        if: ${{ env.MODAL_TOKEN_ID == '' || env.MODAL_TOKEN_SECRET == '' }}
-        env:
-          MODAL_TOKEN_ID: ''
-          MODAL_TOKEN_SECRET: ''
+      - name: Load Modal credentials from GitHub Secrets when present
+        if: ${{ env.CI_MODAL_TOKEN_ID != '' && env.CI_MODAL_TOKEN_SECRET != '' }}
+        shell: bash
         run: |
-          echo 'TARGET_RUN=Gwen L4-BF16 deploy FINAL-1944'
+          echo "MODAL_TOKEN_ID=$CI_MODAL_TOKEN_ID" >> "$GITHUB_ENV"
+          echo "MODAL_TOKEN_SECRET=$CI_MODAL_TOKEN_SECRET" >> "$GITHUB_ENV"
+
+      - name: Authenticate Modal interactively when secrets are absent
+        if: ${{ env.CI_MODAL_TOKEN_ID == '' || env.CI_MODAL_TOKEN_SECRET == '' }}
+        shell: bash
+        run: |
+          echo 'TARGET_RUN=Gwen L4-BF16 deploy AUTH-FIX-1957'
           echo 'MODAL_LOGIN_START'
           python -m modal token new --verify
           echo 'MODAL_LOGIN_OK'
@@ -84,12 +91,12 @@ jobs:
           curl -fSL --max-time 900 "$GWEN_ENDPOINT/demo" -o /tmp/gwen-demo.wav
           test -s /tmp/gwen-demo.wav
           python - <<'PY'
-          import wave
+          import wave, os
           p='/tmp/gwen-demo.wav'
           with wave.open(p,'rb') as w:
               frames=w.getnframes(); rate=w.getframerate(); channels=w.getnchannels()
               duration=frames/rate
-          print(f'WAV_OK rate={rate} channels={channels} duration={duration:.2f}s bytes={__import__("os").path.getsize(p)}')
+          print(f'WAV_OK rate={rate} channels={channels} duration={duration:.2f}s bytes={os.path.getsize(p)}')
           assert rate > 10000
           assert channels in (1,2)
           assert duration > 1.0
