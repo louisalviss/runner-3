@@ -25,7 +25,7 @@ commit_status() {
 write_status() {
   local status="$1" install="$2" fetch="$3" render="$4" publish="$5"
   STATUS_VALUE="$status" INSTALL_VALUE="$install" FETCH_VALUE="$fetch" RENDER_VALUE="$render" PUBLISH_VALUE="$publish" \
-  PREFIX="$PREFIX" OUTDIR="$OUTDIR" python - <<'PY'
+  PREFIX="$PREFIX" OUTDIR="$OUTDIR" WORKDIR="$WORKDIR" CURRENT_STAGE_VALUE="$CURRENT_STAGE" python - <<'PY'
 import datetime,json,os
 from pathlib import Path
 p=Path('ops/reddit-narrator/latest.json')
@@ -36,6 +36,7 @@ except Exception:
     pass
 prefix=os.environ['PREFIX']
 outdir=Path(os.environ['OUTDIR'])
+workdir=Path(os.environ['WORKDIR'])
 status=os.environ['STATUS_VALUE']
 steps={
   'install':os.environ['INSTALL_VALUE'],
@@ -63,6 +64,18 @@ obj={
   'caseCount':case_count,
   'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
+if status == 'failed':
+    stage=os.environ.get('CURRENT_STAGE_VALUE','unknown')
+    obj['failedStage']=stage
+    log_map={
+      'redditFetch': workdir/'fetch.log',
+      'render': outdir/'render-summary.txt',
+      'publish': workdir/'publish.log',
+    }
+    lp=log_map.get(stage)
+    if lp and lp.exists():
+        txt=lp.read_text(encoding='utf-8',errors='ignore')
+        obj['errorTail']=txt[-6000:]
 p.parent.mkdir(parents=True,exist_ok=True)
 p.write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 print(json.dumps(obj,ensure_ascii=False))
@@ -97,13 +110,13 @@ write_status running success pending pending pending
 commit_status 'Reddit narrator install complete'
 
 CURRENT_STAGE="redditFetch"
-bash scripts/reddit_fetch_runner.sh
+bash scripts/reddit_fetch_runner.sh 2>&1 | tee "$WORKDIR/fetch.log"
 write_status running success success pending pending
 commit_status 'Reddit narrator fetch complete'
 
 CURRENT_STAGE="render"
 python -m py_compile scripts/reddit_unsolved_narrator.py
-python scripts/reddit_unsolved_narrator.py | tee "$OUTDIR/render-summary.txt"
+python scripts/reddit_unsolved_narrator.py 2>&1 | tee "$OUTDIR/render-summary.txt"
 test -s "$OUTDIR/episode.mp3"
 test -s "$OUTDIR/index.html"
 ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUTDIR/episode.mp3"
@@ -111,32 +124,34 @@ write_status running success success success pending
 commit_status 'Reddit narrator render complete'
 
 CURRENT_STAGE="publish"
-test -n "${CLOUDFLARE_API_TOKEN:-}"
-test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
-echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
-echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
-base="$(python -c "import json; print(json.load(open('ops/r2-media/status.json'))['baseUrl'])")"
-put() {
-  npx -y wrangler@4.123.0 r2 object put "$BUCKET/$2" --file="$1" --content-type="$3" --cache-control="$4" --remote
-}
-put "$OUTDIR/episode.mp3" "$PREFIX/episode.mp3" 'audio/mpeg' 'public, max-age=300'
-put "$OUTDIR/index.html" "$PREFIX/index.html" 'text/html; charset=utf-8' 'public, max-age=60'
-put "$OUTDIR/chapters.json" "$PREFIX/chapters.json" 'application/json; charset=utf-8' 'public, max-age=60'
-put "$OUTDIR/top-comments.json" "$PREFIX/top-comments.json" 'application/json; charset=utf-8' 'public, max-age=60'
-put "$OUTDIR/transcript.txt" "$PREFIX/transcript.txt" 'text/plain; charset=utf-8' 'public, max-age=60'
-player="$base/$PREFIX/index.html"
-audio="$base/$PREFIX/episode.mp3"
-for _ in 1 2 3 4 5; do
-  code_html="$(curl -sS -o /tmp/player.html -w '%{http_code}' "$player" || true)"
-  code_audio="$(curl -sS -I -o /tmp/audio-head.txt -w '%{http_code}' "$audio" || true)"
-  if [ "$code_html" = 200 ] && [ "$code_audio" = 200 ] && grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html; then
-    break
-  fi
-  sleep 2
-done
-test "$code_html" = 200
-test "$code_audio" = 200
-grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html
+{
+  test -n "${CLOUDFLARE_API_TOKEN:-}"
+  test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+  echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
+  echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
+  base="$(python -c "import json; print(json.load(open('ops/r2-media/status.json'))['baseUrl'])")"
+  put() {
+    npx -y wrangler@4.123.0 r2 object put "$BUCKET/$2" --file="$1" --content-type="$3" --cache-control="$4" --remote
+  }
+  put "$OUTDIR/episode.mp3" "$PREFIX/episode.mp3" 'audio/mpeg' 'public, max-age=300'
+  put "$OUTDIR/index.html" "$PREFIX/index.html" 'text/html; charset=utf-8' 'public, max-age=60'
+  put "$OUTDIR/chapters.json" "$PREFIX/chapters.json" 'application/json; charset=utf-8' 'public, max-age=60'
+  put "$OUTDIR/top-comments.json" "$PREFIX/top-comments.json" 'application/json; charset=utf-8' 'public, max-age=60'
+  put "$OUTDIR/transcript.txt" "$PREFIX/transcript.txt" 'text/plain; charset=utf-8' 'public, max-age=60'
+  player="$base/$PREFIX/index.html"
+  audio="$base/$PREFIX/episode.mp3"
+  for _ in 1 2 3 4 5; do
+    code_html="$(curl -sS -o /tmp/player.html -w '%{http_code}' "$player" || true)"
+    code_audio="$(curl -sS -I -o /tmp/audio-head.txt -w '%{http_code}' "$audio" || true)"
+    if [ "$code_html" = 200 ] && [ "$code_audio" = 200 ] && grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html; then
+      break
+    fi
+    sleep 2
+  done
+  test "$code_html" = 200
+  test "$code_audio" = 200
+  grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html
+} 2>&1 | tee "$WORKDIR/publish.log"
 
 write_status ready success success success success
 commit_status 'Publish Reddit narrator ready'
