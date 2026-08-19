@@ -30,7 +30,7 @@ jobs:
           runs=[]
           for r in d.get('workflow_runs',[]):
               runs.append({k:r.get(k) for k in ('id','name','display_title','head_sha','event','status','conclusion','created_at','updated_at','html_url','run_attempt')})
-          target_sha='df6902f8ef31a0465d3af3eb044eeb38362dc8fb'
+          target_sha='a410cb6758a1c53c5400fc7a060bb4b8d9ddc89c'
           target=next((r for r in runs if r.get('head_sha')==target_sha), None)
           Path('modal-gwen-run-status.json').write_text(json.dumps({'target':target,'recent_runs':runs},indent=2)+'\n')
           print(json.dumps({'target':target},indent=2))
