@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 import json
-import re
 import sys
 from pathlib import Path
 
-CANONICAL = "https://www.reddit.com/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/"
 TITLE = "What is the creepiest unsolved mystery in your opinion?"
+THREAD_PATH = "/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/"
 
 TARGETS = [
     ("Fallon leukemia cluster", ["fallon", "churchill county", "leukemia cluster"]),
@@ -19,8 +18,16 @@ TARGETS = [
 ]
 
 
-def norm(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "")).strip()
+def inspect_text(text):
+    low = text.lower()
+    identity = ("creepiest unsolved mystery" in low) or ("askreddit" in low and "unsolved" in low)
+    hits = []
+    for label, patterns in TARGETS:
+        positions = [low.find(p.lower()) for p in patterns if low.find(p.lower()) >= 0]
+        if positions:
+            hits.append((min(positions), label, patterns[0]))
+    hits.sort(key=lambda x: x[0])
+    return identity, hits
 
 
 def main():
@@ -32,63 +39,64 @@ def main():
     if not manifest_path.exists():
         raise SystemExit("crawler manifest missing")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if int(manifest.get("ok_count", 0)) < 1:
-        raise SystemExit(f"runner browser crawl failed: {json.dumps(manifest.get('results', []), ensure_ascii=False)[:2000]}")
 
-    txt_files = sorted(crawl.glob("*/page.txt"))
-    if not txt_files:
-        raise SystemExit("crawler page.txt missing")
-    text = txt_files[0].read_text(encoding="utf-8", errors="ignore")
-    low = text.lower()
+    candidates = []
+    for result in manifest.get("results", []):
+        outdir = result.get("output_dir")
+        if not outdir:
+            continue
+        txt = crawl / outdir / "page.txt"
+        if not txt.exists():
+            continue
+        text = txt.read_text(encoding="utf-8", errors="ignore")
+        identity, hits = inspect_text(text)
+        score = (1000 if result.get("ok") else 0) + (500 if identity else 0) + len(hits) * 50 + min(len(text), 100000) / 100000
+        candidates.append((score, result, text, identity, hits))
+
+    if not candidates:
+        raise SystemExit(f"runner browser crawl produced no readable page text: {json.dumps(manifest.get('results', []), ensure_ascii=False)[:2500]}")
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    _, chosen, text, identity, hits = candidates[0]
+
+    if not chosen.get("ok"):
+        raise SystemExit(f"runner browser crawl blocked/failed: {json.dumps(chosen, ensure_ascii=False)[:2500]}")
     if len(text) < 2500:
         raise SystemExit(f"crawler page too thin: {len(text)} chars")
-
-    # Require evidence that this is the requested thread, not a Reddit interstitial/homepage.
-    identity_terms = ["creepiest unsolved mystery", "askreddit"]
-    if not any(term in low for term in identity_terms):
+    if not identity:
         raise SystemExit("crawler returned a page, but not the requested AskReddit thread")
-
-    hits = []
-    for label, patterns in TARGETS:
-        positions = [low.find(p.lower()) for p in patterns if low.find(p.lower()) >= 0]
-        if positions:
-            hits.append((min(positions), label, patterns[0]))
-    hits.sort(key=lambda x: x[0])
     if len(hits) < 5:
         raise SystemExit("browser crawl loaded thread but found only %d verified target cases: %s" % (len(hits), ", ".join(h[1] for h in hits)))
 
-    # Build a minimal Reddit-like payload expected by reddit_unsolved_narrator.py.
-    # Order comes from first appearance on the Best-sorted rendered page. We deliberately
-    # do not persist raw comments here; narration uses independently verified summaries.
     comments = []
     for idx, (pos, label, match_term) in enumerate(hits, 1):
         comments.append({
             "kind": "t1",
             "data": {
                 "id": f"browser-hit-{idx}",
-                "author": "browser-crawl",
+                "author": "runner-browser-crawl",
                 "score": None,
                 "body": label + " " + match_term,
-                "permalink": f"/r/AskReddit/comments/1vrfpzb/browser-hit-{idx}/",
+                "permalink": f"{THREAD_PATH}browser-hit-{idx}/",
                 "stickied": False,
                 "runner_render_position": pos,
             },
         })
 
     payload = [
-        {"data": {"children": [{"data": {"title": TITLE, "permalink": "/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/"}}]}},
+        {"data": {"children": [{"data": {"title": TITLE, "permalink": THREAD_PATH}}]}},
         {"data": {"children": comments}},
     ]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     summary = {
-        "engine": (manifest.get("results") or [{}])[0].get("engine"),
-        "final_url": (manifest.get("results") or [{}])[0].get("final_url"),
+        "engine": chosen.get("engine"),
+        "status": chosen.get("status"),
+        "final_url": chosen.get("final_url"),
         "text_chars": len(text),
         "matched_cases": [h[1] for h in hits],
         "match_count": len(hits),
-        "ordering": "first appearance on Runner browser-rendered Best page",
+        "ordering": "first appearance on Runner-rendered Best page among verified target cases",
     }
     print(json.dumps(summary, ensure_ascii=False))
 
