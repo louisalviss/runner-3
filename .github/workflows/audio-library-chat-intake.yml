@@ -4,11 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'ops/audio-library/chat-intake/**.json'
+      - 'ops/audio-library/chat-intake/**/*.json'
+      - 'ops/audio-library/chat-intake/*.json'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: runner3-audio-library-chat-intake
@@ -46,9 +47,59 @@ jobs:
           echo "count=$(wc -l < /tmp/audio-chat-intake-files.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
       - name: Enqueue URLs into shared Audio Library queue
+        id: enqueue
         if: steps.changed.outputs.count != '0'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t files < /tmp/audio-chat-intake-files.txt
-          python scripts/audio_library_chat_intake.py "${files[@]}"
+          python scripts/audio_library_chat_intake.py "${files[@]}" | tee /tmp/audio-chat-intake-result.json
+
+      - name: Publish chat intake checkpoint
+        if: always() && steps.changed.outputs.count != '0'
+        env:
+          ENQUEUE_OUTCOME: ${{ steps.enqueue.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+          result_path = Path('/tmp/audio-chat-intake-result.json')
+          results = []
+          if result_path.exists():
+              try:
+                  results = json.loads(result_path.read_text(encoding='utf-8')).get('results', [])
+              except Exception:
+                  results = []
+          counts = {}
+          ids = []
+          for row in results:
+              status = str(row.get('status') or 'unknown')
+              counts[status] = counts.get(status, 0) + 1
+              if row.get('id'):
+                  ids.append(row['id'])
+          out = {
+              'status': 'ready' if os.environ.get('ENQUEUE_OUTCOME') == 'success' else 'error',
+              'workflowOutcome': os.environ.get('ENQUEUE_OUTCOME', 'unknown'),
+              'sourceCommit': os.environ.get('GITHUB_SHA', ''),
+              'processed': len(results),
+              'counts': counts,
+              'itemIds': ids[:20],
+              'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/audio-library/chat-intake-status.json').write_text(
+              json.dumps(out, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/chat-intake-status.json
+          git commit -m 'Publish Audio Library chat intake status' || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
+
+      - name: Fail when enqueue failed
+        if: steps.enqueue.outcome == 'failure'
+        run: exit 1
