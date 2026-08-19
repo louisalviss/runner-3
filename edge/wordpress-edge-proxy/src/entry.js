@@ -1,23 +1,52 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import worker, { isPublicHtmlCacheCandidate } from './index.js';
 import { StaticResponsiveImageRewriter, StaticImagePreloadRewriter } from './responsive-images.js';
+import { INLINE_STYLES, INLINE_CSS_BUILT_AT } from './inline-css.generated.js';
 
 const R2_ORIGIN = 'https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const PURGE_PATH = '/__runner3/cache/purge';
 const HTML_CACHE_TAG = 'runner3-html';
+const INLINE_CSS_COUNT = Object.keys(INLINE_STYLES).length;
 
 class HeadResourceHints {
   element(element) {
     element.prepend(`<link rel="dns-prefetch" href="//${R2_HOST}"><link rel="preconnect" href="${R2_ORIGIN}" crossorigin>`, { html: true });
   }
 }
+
+class BundledStylesheetInliner {
+  constructor(requestUrl) {
+    this.requestUrl = requestUrl;
+    this.publicOrigin = new URL(requestUrl).origin;
+  }
+  element(element) {
+    const href = element.getAttribute('href');
+    if (!href) return;
+    let key;
+    try {
+      const url = new URL(href, this.requestUrl);
+      key = url.origin === this.publicOrigin ? `${url.pathname}${url.search}` : url.toString();
+    } catch {
+      return;
+    }
+    const record = INLINE_STYLES[key];
+    if (!record || typeof record.css !== 'string' || !record.css) return;
+    const css = record.css.replace(/<\/style/gi, '<\\/style');
+    const media = element.getAttribute('media') || record.media || 'all';
+    const mediaAttr = media && media !== 'all' ? ` media="${String(media).replace(/"/g, '&quot;')}"` : '';
+    element.replace(`<style data-runner3-v2-inline-css="1"${mediaAttr}>${css}</style>`, { html: true });
+  }
+}
+
 function jsonResponse(body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Edge-Proxy': 'cloudflare-worker' } }); }
 async function decorateFrontend(request, response) {
   const contentType = response.headers.get('Content-Type') || ''; if (!/text\/html/i.test(contentType)) return response;
   const headers = new Headers(response.headers); headers.delete('Content-Length'); headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet'); headers.append('Link', `<${R2_ORIGIN}>; rel=preconnect; crossorigin`);
+  headers.set('X-Runner3-V2-Inline-CSS', String(INLINE_CSS_COUNT));
+  if (INLINE_CSS_BUILT_AT) headers.set('X-Runner3-V2-Inline-CSS-Built-At', INLINE_CSS_BUILT_AT);
   let htmlResponse = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-  if (request.method.toUpperCase() !== 'HEAD') htmlResponse = new HTMLRewriter().on('head', new HeadResourceHints()).on('img[src]', new StaticResponsiveImageRewriter()).on('link[rel="preload"][as="image"]', new StaticImagePreloadRewriter()).transform(htmlResponse);
+  if (request.method.toUpperCase() !== 'HEAD') htmlResponse = new HTMLRewriter().on('head', new HeadResourceHints()).on('link[rel="stylesheet"]', new BundledStylesheetInliner(request.url)).on('img[src]', new StaticResponsiveImageRewriter()).on('link[rel="preload"][as="image"]', new StaticImagePreloadRewriter()).transform(htmlResponse);
   return htmlResponse;
 }
 function cacheableHtmlResponse(response) {
