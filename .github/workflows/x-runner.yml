@@ -76,17 +76,56 @@ jobs:
       - name: Inspect tweet
         run: python x_runner.py "$JOB_FILE" --output-root x-results
 
-      - name: Identify anime scene
+      - name: Identify anime scene across all frames
         if: always()
         run: |
-          FRAME="$(find x-results -type f \( -name 'frame_*.jpg' -o -name 'preview.jpg' \) | sort | head -n 1 || true)"
-          if [ -z "$FRAME" ]; then
-            exit 0
-          fi
-          DIR="$(dirname "$FRAME")"
-          if ! curl -sS --fail --max-time 45 -F "image=@${FRAME}" "https://api.trace.moe/search?anilistInfo" -o "$DIR/trace.json"; then
-            printf '%s\n' '{"error":"trace.moe lookup failed"}' > "$DIR/trace.json"
-          fi
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          for outdir in [p for p in Path('x-results').glob('*') if p.is_dir()]:
+              frames = sorted(outdir.glob('preview.jpg')) + sorted(outdir.glob('frame_*.jpg'))
+              probes = []
+              best = None
+              for frame in frames:
+                  target = outdir / f"trace-{frame.stem}.json"
+                  cmd = [
+                      'curl', '-sS', '--fail', '--max-time', '45',
+                      '-F', f'image=@{frame}',
+                      'https://api.trace.moe/search?anilistInfo',
+                      '-o', str(target),
+                  ]
+                  proc = subprocess.run(cmd)
+                  if proc.returncode != 0:
+                      probes.append({'frame': frame.name, 'error': 'trace.moe lookup failed'})
+                      continue
+                  try:
+                      data = json.loads(target.read_text(encoding='utf-8'))
+                  except Exception as exc:
+                      probes.append({'frame': frame.name, 'error': f'invalid trace response: {exc}'})
+                      continue
+                  results = data.get('result') or []
+                  top = results[0] if results else None
+                  probe = {'frame': frame.name, 'top': top}
+                  probes.append(probe)
+                  if top is not None:
+                      score = float(top.get('similarity') or 0)
+                      if best is None or score > best['similarity']:
+                          best = {'frame': frame.name, 'similarity': score, 'match': top}
+
+              summary = {
+                  'best': best,
+                  'probes': probes,
+                  'confidence': (
+                      'high' if best and best['similarity'] >= 0.90 else
+                      'medium' if best and best['similarity'] >= 0.82 else
+                      'low'
+                  ),
+              }
+              (outdir / 'trace.json').write_text(
+                  json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8'
+              )
+          PY
 
       - name: Upload result artifact
         if: always()
