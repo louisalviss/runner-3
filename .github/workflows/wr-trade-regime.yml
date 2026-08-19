@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/wr-trade-regime.yml'
       - 'wave-rider-verify/wr_trade_regime_analysis.py'
+      - 'wave-rider-verify/wr_frozen_down_high_robustness.py'
 
 permissions:
   contents: read
@@ -37,4 +38,11 @@ jobs:
         with:
           name: wr-trade-regime-final
           path: /tmp/final2
+          retention-days: 14
+      - name: Run frozen DOWN HIGH robustness
+        run: python3 wave-rider-verify/wr_frozen_down_high_robustness.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-frozen-down-high-robustness-final
+          path: /tmp/final3
           retention-days: 14
