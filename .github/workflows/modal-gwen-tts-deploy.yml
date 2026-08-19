@@ -1,4 +1,5 @@
 name: Deploy Gwen-TTS on Modal
+run-name: Gwen L4-BF16 deploy — FINAL-1944
 
 on:
   push:
@@ -43,6 +44,7 @@ jobs:
           MODAL_TOKEN_ID: ''
           MODAL_TOKEN_SECRET: ''
         run: |
+          echo 'TARGET_RUN=Gwen L4-BF16 deploy FINAL-1944'
           echo 'MODAL_LOGIN_START'
           python -m modal token new --verify
           echo 'MODAL_LOGIN_OK'
@@ -130,6 +132,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add modal-gwen-tts-result.json
           git diff --cached --quiet || git commit -m 'test: record Gwen-TTS Modal result'
+          git pull --rebase origin main || true
           git push
-
-# retrigger: 2026-08-19T19:22+07:00
