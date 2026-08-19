@@ -60,7 +60,7 @@ const oldCritical = [
 ].join('\n');
 const newCritical = [
   '  const criticalSubset = filterCriticalCss(criticalCss);',
-  '  if (!criticalSubset || Buffer.byteLength(criticalSubset) > 30000) {',
+  '  if (!criticalSubset || Buffer.byteLength(criticalSubset) > 9200) {',
   '    return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };',
   '  }',
   '  const criticalCopy = `<style id="runner3-v2-critical-css" data-runner3-v2-critical="r2">\\n${criticalSubset}\\n</style>`;',
@@ -87,4 +87,4 @@ if (!s.includes(oldDeferred)) throw new Error('R1 deferred block missing');
 s = s.replace(oldDeferred, newDeferred);
 
 fs.writeFileSync(path, s);
-console.log(JSON.stringify({ status: 'patched-r2-measure', path }, null, 2));
+console.log(JSON.stringify({ status: 'patched-r2-final', path }, null, 2));
