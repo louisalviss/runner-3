@@ -30,7 +30,7 @@ env:
 jobs:
   r3:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -47,13 +47,24 @@ jobs:
           node scripts/apply-runner3wp-r3-stream-shell.mjs | tee /tmp/r3-patch.json
           node --check edge/wordpress-edge-proxy/src/entry.js
           grep -q "R3_STREAM_PATH" edge/wordpress-edge-proxy/src/entry.js
-          grep -q "data-runner3-r3=\"first-paint\"" edge/wordpress-edge-proxy/src/entry.js
+          grep -q "R3_FIRST_CHUNK" edge/wordpress-edge-proxy/src/entry.js
 
       - name: Deploy candidate to V2 only
         id: deploy_candidate
+        continue-on-error: true
+        run: |
+          set +e
+          node scripts/deploy-wordpress-workers-cache.mjs 2>&1 | tee /tmp/r3-deploy.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Verify R3 runtime guard
+        id: runtime_guard
+        if: steps.deploy_candidate.outcome == 'success'
+        continue-on-error: true
         run: |
           set -euo pipefail
-          node scripts/deploy-wordpress-workers-cache.mjs
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const r = await fetch(process.env.R3_URL, { headers: { 'user-agent': 'Runner3-R3-Guard/1.0' } });
@@ -74,7 +85,7 @@ jobs:
           NODE
 
       - name: Prepare Lighthouse
-        if: steps.deploy_candidate.outcome == 'success'
+        if: steps.deploy_candidate.outcome == 'success' && steps.runtime_guard.outcome == 'success'
         run: |
           set -euo pipefail
           C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
@@ -83,7 +94,7 @@ jobs:
           npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
 
       - name: Lighthouse mobile simulated 3x
-        if: steps.deploy_candidate.outcome == 'success'
+        if: steps.deploy_candidate.outcome == 'success' && steps.runtime_guard.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p /tmp/r3-lh
@@ -134,6 +145,11 @@ jobs:
           except: guard=None
           try: patch=json.load(open('/tmp/r3-patch.json'))
           except: patch=None
+          def tail(path,limit=4000):
+              p=pathlib.Path(path)
+              if not p.exists(): return None
+              text=p.read_text(errors='replace')
+              return text[-limit:]
           out={
             'status':'ready' if complete else 'incomplete',
             'experiment':'r3-stream-first-paint-shell',
@@ -143,6 +159,7 @@ jobs:
             'baselineSha':'794a98069227d20ead5a073b062b14e3597a75f2',
             'guard':guard,
             'patch':patch,
+            'deployLogTail':tail('/tmp/r3-deploy.log'),
             'v2Home':{'runs':home,'medianFcpMs':home_fcp,'medianLcpMs':home_lcp},
             'r3Stream':{'runs':r3,'medianFcpMs':r3_fcp,'medianLcpMs':r3_lcp},
             'fcpImprovementMs':(home_fcp-r3_fcp) if complete else None,
@@ -155,17 +172,30 @@ jobs:
 
       - name: Always restore V2 baseline
         if: always()
+        id: rollback
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set +e
           git reset --hard
           git checkout --detach "$BASELINE_SHA"
-          node scripts/deploy-wordpress-workers-cache.mjs
+          ok=0
+          : > /tmp/r3-rollback-deploy.log
+          for n in 1 2 3; do
+            echo "rollback attempt $n" | tee -a /tmp/r3-rollback-deploy.log
+            node scripts/deploy-wordpress-workers-cache.mjs 2>&1 | tee -a /tmp/r3-rollback-deploy.log
+            rc=${PIPESTATUS[0]}
+            if [ "$rc" = 0 ]; then ok=1; break; fi
+            sleep 4
+          done
+          export ROLLBACK_DEPLOY_OK="$ok"
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const home = await fetch(process.env.V2_URL, { headers: { 'user-agent': 'Runner3-R3-Rollback-Guard/1.0' } });
           const r3 = await fetch(process.env.R3_URL, { headers: { 'user-agent': 'Runner3-R3-Rollback-Guard/1.0' } });
+          const deployOk = process.env.ROLLBACK_DEPLOY_OK === '1';
           const o = {
-            ok: home.status === 200 && String(home.headers.get('x-edge-snapshot') || '').toUpperCase() === 'HIT' && !r3.headers.get('x-runner3-r3'),
+            ok: deployOk && home.status === 200 && String(home.headers.get('x-edge-snapshot') || '').toUpperCase() === 'HIT' && !r3.headers.get('x-runner3-r3'),
+            deployOk,
             homeHttp: home.status,
             homeSnapshot: home.headers.get('x-edge-snapshot'),
             r3Http: r3.status,
@@ -187,8 +217,9 @@ jobs:
           mkdir -p ops/perf/ab
           cp /tmp/r3-result.json ops/perf/ab/runner3wp-v2-r3-stream.latest.json
           cp /tmp/r3-rollback.json ops/perf/ab/runner3wp-v2-r3-stream.rollback.latest.json 2>/dev/null || true
+          cp /tmp/r3-rollback-deploy.log ops/perf/ab/runner3wp-v2-r3-stream.rollback.log 2>/dev/null || true
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/perf/ab/runner3wp-v2-r3-stream*.json
+          git add ops/perf/ab/runner3wp-v2-r3-stream*
           git commit -m 'test: persist Runner3WP R3 streaming shell result' || exit 0
           git push origin HEAD:"$CANDIDATE_BRANCH"
