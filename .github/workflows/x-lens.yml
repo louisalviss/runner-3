@@ -16,96 +16,86 @@ concurrency:
 jobs:
   lens:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Reverse search image
+      - name: Install Chromium runner
         run: |
-          python -m pip install -q requests beautifulsoup4
+          python -m pip install -q playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Reverse search with rendered Google Lens
+        run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          from urllib.parse import parse_qs, urlparse
-          import requests
-          from bs4 import BeautifulSoup
+          from urllib.parse import quote, urlparse
+          from playwright.sync_api import sync_playwright
 
           job = json.loads(Path('x-lens-job.json').read_text(encoding='utf-8'))
           image_url = job['image_url']
           tweet_id = str(job.get('tweet_id') or 'unknown')
           outdir = Path('x-lens-results') / tweet_id
           outdir.mkdir(parents=True, exist_ok=True)
-
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-              'Accept-Language': 'en-US,en;q=0.9',
-          }
+          target = 'https://lens.google.com/uploadbyurl?hl=en&gl=US&url=' + quote(image_url, safe='')
           result = {'image_url': image_url, 'ok': False, 'links': []}
-          try:
-              r = requests.get(
-                  'https://lens.google.com/uploadbyurl',
-                  params={'url': image_url, 'hl': 'en', 'gl': 'US'},
-                  headers=headers,
-                  timeout=60,
-                  allow_redirects=True,
-              )
-              result['status'] = r.status_code
-              result['final_url'] = r.url
-              soup = BeautifulSoup(r.text, 'html.parser')
-              result['page_title'] = soup.title.get_text(' ', strip=True) if soup.title else ''
-              visible = ' '.join(soup.stripped_strings)
-              result['visible_text'] = visible[:50000]
 
-              seen = set()
-              links = []
-              for a in soup.find_all('a', href=True):
-                  href = a.get('href', '').strip()
-                  text = a.get_text(' ', strip=True)
-                  if href.startswith('/url?'):
-                      href = parse_qs(urlparse(href).query).get('q', [''])[0]
-                  if not href.startswith('http'):
-                      continue
-                  host = urlparse(href).netloc.lower()
-                  if not host:
-                      continue
-                  if host.endswith('google.com') or host.endswith('googleusercontent.com') or host.endswith('gstatic.com'):
-                      continue
-                  key = (href, text)
-                  if key in seen:
-                      continue
-                  seen.add(key)
-                  links.append({'text': text[:500], 'url': href})
-              result['links'] = links[:150]
-              result['ok'] = r.ok
+          try:
+              with sync_playwright() as p:
+                  browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+                  page = browser.new_page(
+                      viewport={'width': 1440, 'height': 1200},
+                      user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+                      locale='en-US',
+                  )
+                  page.goto(target, wait_until='domcontentloaded', timeout=90000)
+                  page.wait_for_timeout(10000)
+                  result['final_url'] = page.url
+                  result['page_title'] = page.title()
+                  result['visible_text'] = page.locator('body').inner_text(timeout=30000)[:70000]
+                  page.screenshot(path=str(outdir / 'lens-page.png'), full_page=True)
+
+                  seen = set()
+                  links = []
+                  for a in page.locator('a').all():
+                      try:
+                          href = a.get_attribute('href') or ''
+                          text = (a.inner_text(timeout=1000) or '').strip()
+                      except Exception:
+                          continue
+                      if href.startswith('/'):
+                          href = 'https://www.google.com' + href
+                      if not href.startswith('http'):
+                          continue
+                      host = urlparse(href).netloc.lower()
+                      if host.endswith('google.com') or host.endswith('googleusercontent.com') or host.endswith('gstatic.com'):
+                          continue
+                      key = (href, text)
+                      if key in seen:
+                          continue
+                      seen.add(key)
+                      links.append({'text': text[:500], 'url': href})
+                  result['links'] = links[:200]
+                  result['ok'] = True
+                  browser.close()
           except Exception as exc:
               result['error'] = repr(exc)
 
-          (outdir / 'lens.json').write_text(
-              json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
-          )
-          print(json.dumps({
-              'ok': result.get('ok'),
-              'status': result.get('status'),
-              'final_url': result.get('final_url'),
-              'page_title': result.get('page_title'),
-              'links': len(result.get('links') or []),
-          }, ensure_ascii=False))
+          (outdir / 'lens.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps({'ok': result.get('ok'), 'title': result.get('page_title'), 'links': len(result.get('links') or []), 'error': result.get('error')}, ensure_ascii=False))
           PY
 
       - name: Publish Lens result
         if: always()
         run: |
-          if [ ! -d x-lens-results ]; then
-            exit 0
-          fi
+          if [ ! -d x-lens-results ]; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add x-lens-results
-          if git diff --cached --quiet; then
-            exit 0
-          fi
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "x lens result ${{ github.run_id }}"
           git pull --rebase origin main
           git push origin HEAD:main
