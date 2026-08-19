@@ -1,0 +1,71 @@
+name: Runner3WP V2 Rollback Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-v2-rollback-now.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-v2-rollback-now
+  cancel-in-progress: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy-v2
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+      CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+      RUNNER3_FCP_V2: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-fcp-test
+          fetch-depth: 2
+      - name: Validate clean baseline source
+        run: |
+          set -euo pipefail
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          if grep -q 'optimizeFcpHtml\|runner3-v2-original-css-order' scripts/build-wordpress-edge-snapshot.mjs; then
+            echo 'V2 builder is not baseline' >&2
+            exit 2
+          fi
+      - name: Deploy baseline V2
+        run: node scripts/deploy-wordpress-workers-cache.mjs
+      - name: Verify rollback runtime and persist state
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const r=await fetch('https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/',{headers:{'user-agent':'Runner3WP-Forced-Rollback/1.0'}});
+          const h=await r.text();
+          const out={
+            status:'ready',
+            rollbackRuntimePass:r.status===200&&r.headers.get('x-edge-mode')==='snapshot'&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&!h.includes('runner3-v2-original-css-order')&&!h.includes('runner3-v2-critical-css'),
+            http:r.status,edgeMode:r.headers.get('x-edge-mode'),edgeSnapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),
+            hasExperimentMarker:h.includes('runner3-v2-original-css-order')||h.includes('runner3-v2-critical-css'),
+            htmlBytes:Buffer.byteLength(h),checkedAt:new Date().toISOString(),reason:'PSI A-B harness did not persist a valid result within its guard window; candidate rejected conservatively.'
+          };
+          fs.mkdirSync('ops/perf/ab',{recursive:true});
+          fs.writeFileSync('ops/perf/ab/runner3wp-v2-rollback.latest.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          if(!out.rollbackRuntimePass)process.exit(3);
+          NODE
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-v2-rollback.latest.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist forced V2 rollback: ${GITHUB_RUN_ID}"
+          git pull --rebase origin runner3wp-v2-fcp-test
+          git push origin HEAD:runner3wp-v2-fcp-test
