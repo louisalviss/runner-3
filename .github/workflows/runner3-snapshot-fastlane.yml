@@ -1,0 +1,106 @@
+name: Runner3 Snapshot Fastlane
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-snapshot-fastlane.yml'
+      - 'ops/triggers/runner3-snapshot-fastlane.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-snapshot-fastlane
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/cloudflare-wordpress-edge.json
+      CF_SNAPSHOT_OUT: /tmp/runner3-edge-snapshot.json
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Validate current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check edge/wordpress-edge-proxy/src/index.js
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          node --check scripts/deploy-wordpress-workers-cache.mjs
+
+      - name: Build fresh snapshot and deploy
+        run: node scripts/deploy-wordpress-workers-cache.mjs
+
+      - name: Probe production hostname
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const target='https://runner3wp.pntr.dev/';
+          const rows=[];
+          for(let i=0;i<6;i++){
+            const t=performance.now();
+            const r=await fetch(target,{redirect:'manual',headers:{'user-agent':'Runner3SnapshotFastlane/1.0'}});
+            const body=await r.text();
+            rows.push({
+              run:i+1,http:r.status,ms:Math.round((performance.now()-t)*10)/10,
+              edgeMode:r.headers.get('x-edge-mode'),
+              edgeSnapshot:r.headers.get('x-edge-snapshot'),
+              snapshotBuiltAt:r.headers.get('x-edge-snapshot-built-at'),
+              cfCacheStatus:r.headers.get('cf-cache-status'),age:r.headers.get('age'),
+              edgePolicy:r.headers.get('x-edge-cache-policy'),
+              noindex:/noindex/i.test(r.headers.get('x-robots-tag')||''),
+              responsive:/responsive-v2\/offset-demo-01-w(?:360|480|640)\.webp/i.test(body)&&/srcset=/i.test(body),
+            });
+            await new Promise(x=>setTimeout(x,250));
+          }
+          const snapshotRows=rows.filter(x=>x.http===200&&x.edgeMode==='snapshot'&&String(x.edgeSnapshot||'').toUpperCase()==='HIT');
+          const times=snapshotRows.map(x=>x.ms).sort((a,b)=>a-b);
+          const medianMs=times.length?times[Math.floor(times.length/2)]:null;
+          const pass=rows.every(x=>x.http===200)&&snapshotRows.length>=5&&rows.every(x=>x.noindex)&&rows.at(-1)?.responsive&&Number.isFinite(medianMs)&&medianMs<300;
+          const out={status:pass?'ok':'failed',target,architecture:'pages-gateway->snapshot-first-worker',snapshotReady:snapshotRows.length>=5,noindexReady:rows.every(x=>x.noindex),responsiveReady:rows.at(-1)?.responsive===true,medianMs,rows,checkedAt:new Date().toISOString()};
+          fs.writeFileSync('/tmp/snapshot-fastlane.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          if(!pass) process.exit(7);
+          NODE
+
+      - name: Persist production result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/snapshot-fastlane.json || echo '{"status":"failed","detail":"production_probe_missing"}' >/tmp/snapshot-fastlane.json
+          cp /tmp/snapshot-fastlane.json /tmp/snapshot-fastlane-safe.json
+          cp /tmp/cloudflare-wordpress-edge.json /tmp/edge-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/perf ops/cloudflare-edge/results/runs
+            cp /tmp/snapshot-fastlane-safe.json ops/perf/snapshot-first.latest.json
+            cp /tmp/edge-safe.json ops/cloudflare-edge/results/wordpress-edge-proxy.latest.json
+            cp /tmp/edge-safe.json "ops/cloudflare-edge/results/runs/wordpress-edge-proxy.fastlane-${GITHUB_RUN_ID}.json"
+            git add ops/perf/snapshot-first.latest.json ops/cloudflare-edge/results
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist snapshot-first fastlane: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
