@@ -29,38 +29,26 @@ jobs:
       OUTDIR: artifacts/reddit-unsolved
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Mark narrator run started
-        shell: bash
+      - name: Configure status commits
         run: |
-          set -euo pipefail
-          mkdir -p ops/reddit-narrator
-          python3 - <<'PY'
-          import json,datetime
-          out={
-            'status':'running',
-            'episodeId':'reddit-creepiest-unsolved-v1',
-            'voice':'vi-VN-NamMinhNeural',
-            'resume':'localStorage/same-browser',
-            'steps':{'install':'pending','redditFetch':'pending','render':'pending','publish':'pending'},
-            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
-          }
-          open('ops/reddit-narrator/latest.json','w').write(json.dumps(out,indent=2)+'\n')
-          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Mark run started
+        run: |
+          python scripts/reddit_stage_status.py publish pending running
           git add ops/reddit-narrator/latest.json
           git commit -m 'Mark Reddit narrator run started' || true
           git push origin HEAD:main || true
 
-      - name: Install lightweight crawler and audio tools
+      - name: Install lightweight tools
         id: install
-        shell: bash
         run: |
-          set -euo pipefail
           python -m pip install -q -U requests beautifulsoup4 playwright edge-tts
           if ! command -v ffmpeg >/dev/null; then
             sudo apt-get update -qq
@@ -70,101 +58,29 @@ jobs:
 
       - name: Checkpoint install
         if: steps.install.outcome == 'success'
-        shell: bash
         run: |
-          set -euo pipefail
           git pull --rebase origin main || true
-          python3 - <<'PY'
-          import json,datetime,pathlib
-          p=pathlib.Path('ops/reddit-narrator/latest.json')
-          d=json.loads(p.read_text())
-          d['steps']['install']='success'
-          d['updatedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          p.write_text(json.dumps(d,indent=2)+'\n')
-          PY
+          python scripts/reddit_stage_status.py install success running
           git add ops/reddit-narrator/latest.json
           git commit -m 'Reddit narrator install complete' || true
           git push origin HEAD:main || true
 
-      - name: Fetch Reddit Best page with Runner
+      - name: Fetch Reddit with Runner
         id: fetch_reddit
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$WORKDIR/reddit-job-http.json" <<'JSON'
-          {
-            "name": "reddit-creepiest-unsolved-best-http",
-            "source_visibility": "public",
-            "artifact_policy": "raw",
-            "mode": "http",
-            "timeout_seconds": 45,
-            "wait_after_load_ms": 0,
-            "urls": [
-              "https://www.reddit.com/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/?sort=best",
-              "https://old.reddit.com/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/?sort=best"
-            ]
-          }
-          JSON
+        run: bash scripts/reddit_fetch_runner.sh
 
-          rm -rf "$WORKDIR/crawl"
-          http_ok=0
-          if python crawler.py "$WORKDIR/reddit-job-http.json" --output "$WORKDIR/crawl"; then
-            cat "$WORKDIR/crawl/manifest.json" || true
-            if python scripts/reddit_crawl_adapter.py "$WORKDIR/crawl" "$WORKDIR/reddit.json" | tee "$WORKDIR/reddit-http-summary.json"; then
-              http_ok=1
-            fi
-          fi
-
-          if [ "$http_ok" -ne 1 ]; then
-            echo 'HTTP path did not expose enough Best-thread content; installing Chromium fallback.'
-            python -m playwright install --with-deps chromium
-            cat > "$WORKDIR/reddit-job-browser.json" <<'JSON'
-          {
-            "name": "reddit-creepiest-unsolved-best-browser",
-            "source_visibility": "public",
-            "artifact_policy": "raw",
-            "mode": "browser",
-            "timeout_seconds": 60,
-            "wait_after_load_ms": 6000,
-            "urls": [
-              "https://www.reddit.com/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/?sort=best",
-              "https://old.reddit.com/r/AskReddit/comments/1vrfpzb/what_is_the_creepiest_unsolved_mystery_in_your/?sort=best"
-            ]
-          }
-          JSON
-            rm -rf "$WORKDIR/crawl"
-            python crawler.py "$WORKDIR/reddit-job-browser.json" --output "$WORKDIR/crawl"
-            cat "$WORKDIR/crawl/manifest.json"
-            python scripts/reddit_crawl_adapter.py "$WORKDIR/crawl" "$WORKDIR/reddit.json" | tee "$WORKDIR/reddit-browser-summary.json"
-          fi
-
-          jq -e 'type=="array" and length>=2 and ((.[1].data.children|length)>=5)' "$WORKDIR/reddit.json" >/dev/null
-          echo "MATCHED_VERIFIED_CASES=$(jq '.[1].data.children|length' "$WORKDIR/reddit.json")"
-
-      - name: Checkpoint Reddit fetch
+      - name: Checkpoint fetch
         if: steps.fetch_reddit.outcome == 'success'
-        shell: bash
         run: |
-          set -euo pipefail
           git pull --rebase origin main || true
-          python3 - <<'PY'
-          import json,datetime,pathlib
-          p=pathlib.Path('ops/reddit-narrator/latest.json')
-          d=json.loads(p.read_text())
-          d['steps']['install']='success'
-          d['steps']['redditFetch']='success'
-          d['updatedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          p.write_text(json.dumps(d,indent=2)+'\n')
-          PY
+          python scripts/reddit_stage_status.py redditFetch success running
           git add ops/reddit-narrator/latest.json
           git commit -m 'Reddit narrator fetch complete' || true
           git push origin HEAD:main || true
 
-      - name: Render verified Vietnamese episode
+      - name: Render Nam Minh MP3 and resume player
         id: render
-        shell: bash
         run: |
-          set -euo pipefail
           python -m py_compile scripts/reddit_unsolved_narrator.py
           python scripts/reddit_unsolved_narrator.py | tee "$OUTDIR/render-summary.txt"
           test -s "$OUTDIR/episode.mp3"
@@ -173,40 +89,23 @@ jobs:
 
       - name: Checkpoint render
         if: steps.render.outcome == 'success'
-        shell: bash
         run: |
-          set -euo pipefail
           git pull --rebase origin main || true
-          duration="$(jq -r '.duration_seconds // empty' "$OUTDIR/chapters.json" 2>/dev/null || true)"
-          cases="$(jq -r '.selected_cases|length' "$OUTDIR/chapters.json" 2>/dev/null || true)"
-          python3 - "$duration" "$cases" <<'PY'
-          import json,datetime,pathlib,sys
-          p=pathlib.Path('ops/reddit-narrator/latest.json')
-          d=json.loads(p.read_text())
-          d['steps']['install']='success'; d['steps']['redditFetch']='success'; d['steps']['render']='success'
-          if sys.argv[1]: d['durationSeconds']=float(sys.argv[1])
-          if sys.argv[2]: d['caseCount']=int(sys.argv[2])
-          d['updatedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          p.write_text(json.dumps(d,indent=2)+'\n')
-          PY
+          python scripts/reddit_stage_status.py render success running
           git add ops/reddit-narrator/latest.json
           git commit -m 'Reddit narrator render complete' || true
           git push origin HEAD:main || true
 
-      - name: Upload audio player to R2
+      - name: Publish to R2
         id: publish
-        shell: bash
         run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Cloudflare API token unavailable'; exit 2; }
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare Account ID unavailable'; exit 2; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
           echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
-          base="$(jq -r '.baseUrl // empty' ops/r2-media/status.json)"
-          test -n "$base" || { echo 'R2 public base URL missing'; exit 3; }
+          base="$(python -c "import json; print(json.load(open('ops/r2-media/status.json'))['baseUrl'])")"
           put() {
-            local file="$1" key="$2" type="$3" cache="$4"
-            npx -y wrangler@4.123.0 r2 object put "$BUCKET/$key" --file="$file" --content-type="$type" --cache-control="$cache" --remote
+            npx -y wrangler@4.123.0 r2 object put "$BUCKET/$2" --file="$1" --content-type="$3" --cache-control="$4" --remote
           }
           put "$OUTDIR/episode.mp3" "$PREFIX/episode.mp3" 'audio/mpeg' 'public, max-age=300'
           put "$OUTDIR/index.html" "$PREFIX/index.html" 'text/html; charset=utf-8' 'public, max-age=60'
@@ -215,61 +114,24 @@ jobs:
           put "$OUTDIR/transcript.txt" "$PREFIX/transcript.txt" 'text/plain; charset=utf-8' 'public, max-age=60'
           player="$base/$PREFIX/index.html"
           audio="$base/$PREFIX/episode.mp3"
-          for attempt in 1 2 3 4 5; do
-            code_html="$(curl -sS -o /tmp/player.html -w '%{http_code}' "$player" || true)"
-            code_audio="$(curl -sS -I -o /tmp/audio-head.txt -w '%{http_code}' "$audio" || true)"
-            if [ "$code_html" = 200 ] && [ "$code_audio" = 200 ] && grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html; then break; fi
-            sleep 2
-          done
+          code_html="$(curl -sS -o /tmp/player.html -w '%{http_code}' "$player")"
+          code_audio="$(curl -sS -I -o /tmp/audio-head.txt -w '%{http_code}' "$audio")"
           test "$code_html" = 200
           test "$code_audio" = 200
           grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html
           echo "PLAYER_URL=$player"
           echo "AUDIO_URL=$audio"
 
-      - name: Persist narrator result or failure stage
+      - name: Persist final status
         if: always()
-        shell: bash
         env:
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           FETCH_OUTCOME: ${{ steps.fetch_reddit.outcome }}
           RENDER_OUTCOME: ${{ steps.render.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
         run: |
-          set -euo pipefail
           git pull --rebase origin main || true
-          mkdir -p ops/reddit-narrator
-          base="$(jq -r '.baseUrl // empty' ops/r2-media/status.json 2>/dev/null || true)"
-          player="${base:+$base/$PREFIX/index.html}"
-          audio="${base:+$base/$PREFIX/episode.mp3}"
-          duration=''; cases=''
-          [ -s "$OUTDIR/chapters.json" ] && duration="$(jq -r '.duration_seconds // empty' "$OUTDIR/chapters.json")"
-          [ -s "$OUTDIR/chapters.json" ] && cases="$(jq -r '.selected_cases|length' "$OUTDIR/chapters.json")"
-          python3 - "$INSTALL_OUTCOME" "$FETCH_OUTCOME" "$RENDER_OUTCOME" "$PUBLISH_OUTCOME" "$player" "$audio" "$duration" "$cases" <<'PY'
-          import json,sys,datetime
-          install,fetch,render,publish,player,audio,duration,cases=sys.argv[1:]
-          ready=publish=='success'
-          out={
-            'status':'ready' if ready else 'failed',
-            'episodeId':'reddit-creepiest-unsolved-v1',
-            'playerUrl':player if ready else '',
-            'audioUrl':audio if ready else '',
-            'voice':'vi-VN-NamMinhNeural',
-            'resume':'localStorage/same-browser',
-            'steps':{'install':install,'redditFetch':fetch,'render':render,'publish':publish},
-            'durationSeconds':float(duration) if duration else None,
-            'caseCount':int(cases) if cases else None,
-            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
-          }
-          open('ops/reddit-narrator/latest.json','w').write(json.dumps(out,indent=2)+'\n')
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python scripts/reddit_finalize_status.py
           git add ops/reddit-narrator/latest.json
           git commit -m 'Persist Reddit narrator run status' || exit 0
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then exit 0; fi
-            git pull --rebase origin main
-            sleep 2
-          done
-          exit 5
+          git push origin HEAD:main || true
