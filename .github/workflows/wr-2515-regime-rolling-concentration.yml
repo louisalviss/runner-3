@@ -1,0 +1,42 @@
+name: WR 2.5.15 Regime Rolling Concentration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-regime-rolling-concentration.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download full 10m ledger
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase1-10m-final
+          path: /tmp/base10
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32227901385
+      - name: Download robust-40 cohort
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase3-cohort-final
+          path: /tmp/cohort
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32237685368
+      - name: Run regime, rolling OOS and concentration tests
+        env:
+          LEDGER: /tmp/base10/trades.jsonl
+          ROBUST: /tmp/cohort/robust_both_years.json
+          OUT: /tmp/out
+        run: python3 wave-rider-verify/wr2515_regime_rolling_concentration.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-regime-rolling-concentration-final
+          path: /tmp/out
+          retention-days: 14
