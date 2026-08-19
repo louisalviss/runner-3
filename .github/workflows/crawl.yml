@@ -85,6 +85,20 @@ jobs:
         id: crawl
         run: python crawler.py '${{ steps.job.outputs.job_file }}' --output crawl_output
 
+      - name: Run Reddit narrator pipeline
+        if: steps.crawl.outcome == 'success' && steps.job.outputs.job_file == 'jobs/reddit-unsolved-narrator.json'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BUCKET: runner3-wp-media
+          PREFIX: listen/reddit-creepiest-unsolved-v1
+          VOICE: vi-VN-NamMinhNeural
+          VOICE_RATE: +3%
+          WORKDIR: work/reddit-unsolved
+          OUTDIR: artifacts/reddit-unsolved
+        run: bash scripts/reddit_narrator_run.sh
+
       - name: Upload approved public artifact
         if: always() && steps.config.outcome == 'success' && steps.config.outputs.artifact_policy != 'none'
         uses: actions/upload-artifact@v4
