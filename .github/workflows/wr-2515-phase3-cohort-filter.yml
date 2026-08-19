@@ -1,0 +1,103 @@
+name: WR 2.5.15 Phase3 Cohort Structural Filter
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-phase3-cohort-filter.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download completed 10m ledger
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase1-10m-final
+          path: /tmp/base10
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32227901385
+      - name: Mine winner cohort and freeze 2025-only structural filters
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/out
+          python3 - <<'PY'
+          import json,math,itertools,statistics
+          from collections import defaultdict,Counter
+          from datetime import datetime,timezone,timedelta
+          from pathlib import Path
+
+          rows=[json.loads(x) for x in open('/tmp/base10/trades.jsonl') if x.strip()]
+          VN=timezone(timedelta(hours=7))
+          def ts(ms):return datetime.fromtimestamp(ms/1000,tz=timezone.utc)
+          for r in rows:
+            r['net6']=r['R']-(r['entry']/abs(r['entry']-r['stop']))*.0006
+            d=ts(r['signal_time']);r['year']=d.year;r['hour_vn']=d.astimezone(VN).hour;r['dow_vn']=d.astimezone(VN).weekday()
+
+          def q(v,p):
+            if not v:return None
+            a=sorted(v);i=(len(a)-1)*p;lo=int(math.floor(i));hi=int(math.ceil(i))
+            if lo==hi:return a[lo]
+            return a[lo]*(hi-i)+a[hi]*(i-lo)
+          def feats(rs):
+            if not rs:return None
+            stops=[x['stop_pct'] for x in rs];n=len(rs)
+            return {'n':n,'gross':sum(x['R'] for x in rs),'net6':sum(x['net6'] for x in rs),'avg_net6':sum(x['net6'] for x in rs)/n,
+                    'median_stop':q(stops,.5),'p10_stop':q(stops,.1),'p90_stop':q(stops,.9),
+                    'long_share':sum(x['side']=='LONG' for x in rs)/n,'weekend_share':sum(x['dow_vn']>=5 for x in rs)/n}
+          by=defaultdict(list)
+          for r in rows:by[r['symbol']].append(r)
+          allf={s:feats(v) for s,v in by.items()};f25={s:feats([x for x in v if x['year']==2025]) for s,v in by.items()};f26={s:feats([x for x in v if x['year']==2026]) for s,v in by.items()}
+          elig=[s for s in by if allf[s] and allf[s]['n']>=100]
+          winners=[s for s in elig if allf[s]['net6']>0];losers=[s for s in elig if allf[s]['net6']<=0]
+          robust=[s for s in by if f25.get(s) and f26.get(s) and f25[s]['n']>=50 and f26[s]['n']>=30 and f25[s]['net6']>0 and f26[s]['net6']>0]
+          desc={}
+          for k in ('n','median_stop','p10_stop','p90_stop','long_share','weekend_share'):
+            desc[k]={'winner_median':statistics.median(allf[s][k] for s in winners),'loser_median':statistics.median(allf[s][k] for s in losers),
+                     'winner_mean':statistics.mean(allf[s][k] for s in winners),'loser_mean':statistics.mean(allf[s][k] for s in losers)}
+
+          base=[s for s in by if f25.get(s) and f26.get(s) and f25[s]['n']>=50 and f26[s]['n']>=20]
+          specs=[]
+          for v in (.45,.50,.55,.60,.65,.70,.75):specs.append((f'median_stop>={v}',lambda f,v=v:f['median_stop']>=v))
+          for v in (.20,.25,.30,.35,.40):specs.append((f'p10_stop>={v}',lambda f,v=v:f['p10_stop']>=v))
+          for v in (.40,.45,.50):specs.append((f'long_share<={v}',lambda f,v=v:f['long_share']<=v))
+          for lo,hi in ((50,80),(50,100),(70,120),(80,130),(90,140),(100,150)):specs.append((f'{lo}<=n25<={hi}',lambda f,lo=lo,hi=hi:lo<=f['n']<=hi))
+          cand=[]
+          # singles + pairs only; conditions are frozen from 2025 features and ranked by 2025 only.
+          groups=[(name,fn) for name,fn in specs]
+          combos=[(x,) for x in groups]+list(itertools.combinations(groups,2))
+          seen=set()
+          for combo in combos:
+            name=' & '.join(x[0] for x in combo)
+            selected=[s for s in base if all(fn(f25[s]) for _,fn in combo)]
+            key=tuple(selected)
+            if key in seen or len(selected)<30:continue
+            seen.add(key)
+            tr25=[r for s in selected for r in by[s] if r['year']==2025];tr26=[r for s in selected for r in by[s] if r['year']==2026]
+            if len(tr25)<2000 or len(tr26)<1000:continue
+            n25=len(tr25);n26=len(tr26);net25=sum(x['net6'] for x in tr25);net26=sum(x['net6'] for x in tr26)
+            cand.append({'filter':name,'symbols':len(selected),'train_2025_trades':n25,'train_2025_net6':net25,'train_2025_avg_net6':net25/n25,
+                         'test_2026_trades':n26,'test_2026_net6':net26,'test_2026_avg_net6':net26/n26,'symbols_list':selected})
+          cand.sort(key=lambda x:(x['train_2025_avg_net6'],x['train_2025_net6']),reverse=True)
+          top=cand[:10]
+          control25=[r for s in base for r in by[s] if r['year']==2025];control26=[r for s in base for r in by[s] if r['year']==2026]
+          control={'symbols':len(base),'train_2025_trades':len(control25),'train_2025_net6':sum(x['net6'] for x in control25),
+                   'train_2025_avg_net6':sum(x['net6'] for x in control25)/len(control25),'test_2026_trades':len(control26),'test_2026_net6':sum(x['net6'] for x in control26),
+                   'test_2026_avg_net6':sum(x['net6'] for x in control26)/len(control26)}
+          best=top[0] if top else None
+          verdict='NO_STRUCTURAL_OOS_EDGE' if not best or best['test_2026_net6']<=0 else 'STRUCTURAL_CANDIDATE_SURVIVES_2026_DIAGNOSTIC'
+          report={'status':'PHASE3_COHORT_COMPLETE','method':'2025-only non-PnL structural features -> freeze filter -> 2026 diagnostic; no 2026-based selection',
+                  'fullsample_n_ge_100':len(elig),'fullsample_net6_winners':len(winners),'robust_positive_both_years':len(robust),
+                  'winner_vs_loser_features':desc,'control_2025_to_2026':control,'top10_selected_by_2025_only':top,'best_filter':best,'verdict':verdict}
+          Path('/tmp/out/cohort_report.json').write_text(json.dumps(report,indent=2))
+          Path('/tmp/out/winners_fullsample.json').write_text(json.dumps(winners,indent=2));Path('/tmp/out/robust_both_years.json').write_text(json.dumps(robust,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-phase3-cohort-final
+          path: /tmp/out
+          retention-days: 14
