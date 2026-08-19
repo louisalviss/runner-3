@@ -61,19 +61,27 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Persist healthy source mirrors even when another collector fails
+      - name: Persist source mirrors and latest health snapshots
         if: always() && steps.checkout.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "runner3-rss-bot"
           git config user.email "runner3-rss-bot@users.noreply.github.com"
+
+          # Mirrors are content archives. Health snapshots are deliberately
+          # persisted too so ChatGPT can verify the latest 10/10 + hybrid gate
+          # without relying on a short-lived Actions artifact.
           git add data/rss-reader/sources/
+          [[ -f data/rss-reader/health.json ]] && git add data/rss-reader/health.json
+          [[ -f data/rss-reader/substack-health.json ]] && git add data/rss-reader/substack-health.json
+
           if git diff --cached --quiet; then
-            echo "No source content changes"
+            echo "No RSS mirror or health changes"
             exit 0
           fi
-          git commit -m "Update Runner3 RSS source mirrors"
+
+          git commit -m "Update Runner3 RSS mirrors and health [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
 
