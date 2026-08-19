@@ -1,0 +1,74 @@
+name: Runner3WP V2 Clean Redeploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-v2-clean-redeploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy-v2
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/v2-edge.json
+      CF_SNAPSHOT_OUT: /tmp/v2-snapshot.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-fcp-test
+          fetch-depth: 2
+      - name: Require runtime source identical to V1 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin runner3wp-v1-baseline-20260820
+          test "$(git show origin/runner3wp-v1-baseline-20260820:edge/wordpress-edge-proxy/src/entry.js | sha256sum | cut -d' ' -f1)" = "$(sha256sum edge/wordpress-edge-proxy/src/entry.js | cut -d' ' -f1)"
+          test "$(git show origin/runner3wp-v1-baseline-20260820:scripts/build-wordpress-edge-snapshot.mjs | sha256sum | cut -d' ' -f1)" = "$(sha256sum scripts/build-wordpress-edge-snapshot.mjs | cut -d' ' -f1)"
+      - name: Deploy clean V2 baseline
+        run: node scripts/deploy-wordpress-workers-cache.mjs
+      - name: Verify V2 runtime parity
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          async function read(url){const t=performance.now();const r=await fetch(url,{headers:{'user-agent':'Runner3V2CleanVerifier/1.0'}});const html=await r.text();return {http:r.status,ms:Math.round((performance.now()-t)*10)/10,html,headers:Object.fromEntries(r.headers.entries())};}
+          const [v1,v2]=await Promise.all([read('https://runner3wp.pntr.dev/'),read('https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/')]);
+          const text=x=>x.replace(/https?:\/\/[^/"']+/g,'HOST').replace(/\s+/g,' ').trim();
+          const sameText=text(v1.html)===text(v2.html);
+          const snapshot=v2.headers['x-edge-mode']==='snapshot'&&String(v2.headers['x-edge-snapshot']||'').toUpperCase()==='HIT';
+          const noindex=/noindex/i.test(v2.headers['x-robots-tag']||'');
+          const pass=v1.http===200&&v2.http===200&&sameText&&snapshot&&noindex;
+          const out={status:pass?'ok':'failed',v1:{url:'https://runner3wp.pntr.dev/',http:v1.http},v2:{url:'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/',http:v2.http,ms:v2.ms,edgeMode:v2.headers['x-edge-mode']||null,edgeSnapshot:v2.headers['x-edge-snapshot']||null,noindex},sameText,checkedAt:new Date().toISOString()};
+          fs.writeFileSync('/tmp/v2-clean.json',JSON.stringify(out,null,2)+'\n');console.log(JSON.stringify(out,null,2));if(!pass)process.exit(7);
+          NODE
+      - name: Persist clean rollback verification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/v2-clean.json || echo '{"status":"failed","detail":"verification_missing"}' >/tmp/v2-clean.json
+          cp /tmp/v2-clean.json /tmp/v2-clean-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin runner3wp-v2-fcp-test
+            git reset --hard origin/runner3wp-v2-fcp-test
+            mkdir -p ops/perf/ab
+            cp /tmp/v2-clean-safe.json ops/perf/ab/runner3wp-v2-clean.latest.json
+            git add ops/perf/ab/runner3wp-v2-clean.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist runner3wp V2 clean rollback: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:runner3wp-v2-fcp-test; then exit 0; fi
+            sleep 2
+          done
+          exit 2
