@@ -1,0 +1,90 @@
+name: PageSpeed Sub-0.5 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pagespeed-sub05-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser
+        run: |
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+      - name: Probe ultra-light edge pages via PageSpeed UI
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p ops/pagespeed/benchmark
+          node --input-type=module - <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          const targets=[
+            ['berkshire','https://www.berkshirehathaway.com/'],
+            ['cloudflare-trace','https://www.cloudflare.com/cdn-cgi/trace'],
+            ['cloudflare-robots','https://www.cloudflare.com/robots.txt'],
+            ['google-robots','https://www.google.com/robots.txt'],
+            ['raw-github','https://raw.githubusercontent.com/github/gitignore/main/README.md'],
+          ];
+          function parseMetric(text,label){
+            const esc=label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+            for(const re of [new RegExp(`${esc}\\s*\\n\\s*([0-9.]+)\\s*(ms|s)?`,'i'),new RegExp(`${esc}[^0-9]{0,100}([0-9.]+)\\s*(ms|s)`,'i')]){const m=text.match(re);if(m)return `${m[1]}${m[2]||''}`;}
+            return null;
+          }
+          const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']});
+          const rows=[];
+          for(const [name,target] of targets){
+            const page=await browser.newPage({viewport:{width:1440,height:1200}});
+            const row={name,target,status:'starting',checkedAt:new Date().toISOString()};
+            try{
+              await page.goto('https://pagespeed.web.dev/?hl=en',{waitUntil:'domcontentloaded',timeout:60000});
+              const input=page.locator('input').first();
+              await input.waitFor({state:'visible',timeout:30000});
+              await input.fill(target);
+              await page.getByRole('button',{name:/analy[sz]e/i}).first().click();
+              await page.waitForURL(/pagespeed\.web\.dev\/analysis\//,{timeout:90000}).catch(()=>{});
+              await page.waitForFunction(()=>{const t=document.body.innerText||'';return /First Contentful Paint/i.test(t)&&/Largest Contentful Paint/i.test(t)&&/\bPerformance\b/i.test(t);},null,{timeout:180000});
+              let body='',fcp=null,lcp=null;
+              const started=Date.now();
+              while(Date.now()-started<45000){body=await page.locator('body').innerText();fcp=parseMetric(body,'First Contentful Paint');lcp=parseMetric(body,'Largest Contentful Paint');if(fcp)break;await page.waitForTimeout(1000);}
+              row.status=fcp?'ready':'failed';row.fcp=fcp;row.lcp=lcp;row.resultUrl=page.url();
+              row.environment=(body.match(/Emulated[^\n]*/i)||[])[0]||null;row.network=(body.match(/Slow\s+4G/i)||[])[0]||null;row.lighthouse=(body.match(/Lighthouse\s+[0-9.]+/i)||[])[0]||null;
+            }catch(e){row.status='failed';row.error=String(e?.message||e);row.resultUrl=page.url();}
+            rows.push(row);await page.close();
+          }
+          await browser.close();
+          const parseSeconds=v=>{if(!v)return null;const m=String(v).match(/([0-9.]+)\s*(ms|s)?/);if(!m)return null;const x=Number(m[1]);return m[2]==='ms'?x/1000:x;};
+          const ready=rows.filter(r=>r.status==='ready');
+          const out={status:ready.length?'ready':'failed',checkedAt:new Date().toISOString(),rows,minFcpSeconds:ready.length?Math.min(...ready.map(r=>parseSeconds(r.fcp)).filter(Number.isFinite)):null,atOrBelow05:ready.some(r=>{const x=parseSeconds(r.fcp);return Number.isFinite(x)&&x<=0.5;})};
+          fs.writeFileSync('ops/pagespeed/benchmark/sub05.latest.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          NODE
+      - name: Persist result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ops/pagespeed/benchmark/sub05.latest.json
+          cp ops/pagespeed/benchmark/sub05.latest.json /tmp/sub05.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/benchmark
+            cp /tmp/sub05.json ops/pagespeed/benchmark/sub05.latest.json
+            git add ops/pagespeed/benchmark/sub05.latest.json
+            git commit -m "Persist PageSpeed sub-0.5 probe: ${GITHUB_RUN_ID}" || exit 0
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 2
