@@ -38,7 +38,6 @@ async function request(path, init = {}) {
 }
 
 try {
-  // Build a fresh anonymous HTML snapshot from WordPress immediately before upload.
   execFileSync('node', ['scripts/build-wordpress-edge-snapshot.mjs'], {
     cwd: process.cwd(), env: process.env, stdio: 'inherit',
   });
@@ -47,8 +46,6 @@ try {
     throw new Error(`fresh snapshot unavailable: ${JSON.stringify(snapshot).slice(0, 1200)}`);
   }
 
-  // Normal code/snapshot refreshes preserve the already paired Worker/WordPress
-  // HMAC credential. Rotation is an explicit maintenance action only.
   run(['deploy', '--config', config]);
   if (rotatePurgeSecret) {
     run(['secret', 'put', 'RUNNER3_CACHE_PURGE_SECRET', '--config', config], `${purgeSecret}\n`);
@@ -71,7 +68,7 @@ try {
   });
 
   const publicReady = homeRuns.every((r) => r.status === 200);
-  const policyReady = homeRuns.every((r) => r.headers['x-edge-cache-policy'] === 'workers-caching');
+  const policyReady = homeRuns.every((r) => ['snapshot-direct', 'workers-caching'].includes(r.headers['x-edge-cache-policy']));
   const snapshotRuns = homeRuns.filter((r) => r.headers['x-edge-mode'] === 'snapshot' && String(r.headers['x-edge-snapshot'] || '').toUpperCase() === 'HIT');
   const snapshotReady = snapshotRuns.length >= 3;
   const snapshotTimes = snapshotRuns.map((r) => r.ms).sort((a, b) => a - b);
@@ -88,7 +85,7 @@ try {
   const result = {
     status: completed ? 'completed' : 'failed',
     edgeUrl: workerUrl,
-    architecture: 'snapshot-first-workers-caching',
+    architecture: 'snapshot-direct',
     purgeEndpoint: `${workerUrl}/__runner3/cache/purge`,
     auth: rotatePurgeSecret ? 'HMAC-SHA256-rotated' : 'HMAC-SHA256-preserved',
     checkedAt: new Date().toISOString(),
@@ -113,6 +110,7 @@ try {
         age: r.headers.age || null,
         edgeMode: r.headers['x-edge-mode'] || null,
         edgeSnapshot: r.headers['x-edge-snapshot'] || null,
+        edgePolicy: r.headers['x-edge-cache-policy'] || null,
         snapshotBuiltAt: r.headers['x-edge-snapshot-built-at'] || null,
       })),
       first: {
@@ -122,6 +120,7 @@ try {
         age: first.headers.age || null,
         edgeMode: first.headers['x-edge-mode'] || null,
         edgeSnapshot: first.headers['x-edge-snapshot'] || null,
+        edgePolicy: first.headers['x-edge-cache-policy'] || null,
       },
       second: {
         http: second.status,
@@ -130,6 +129,7 @@ try {
         age: second.headers.age || null,
         edgeMode: second.headers['x-edge-mode'] || null,
         edgeSnapshot: second.headers['x-edge-snapshot'] || null,
+        edgePolicy: second.headers['x-edge-cache-policy'] || null,
       },
       authBypass: {
         http: authBypass.status,
@@ -145,7 +145,7 @@ try {
   const result = {
     status: 'failed',
     edgeUrl: workerUrl,
-    architecture: 'snapshot-first-workers-caching',
+    architecture: 'snapshot-direct',
     detail: String(error?.message || error),
     checkedAt: new Date().toISOString(),
   };
