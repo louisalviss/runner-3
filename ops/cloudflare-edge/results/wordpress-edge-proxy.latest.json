@@ -1,13 +1,64 @@
 {
-  "status": "completed",
+  "status": "failed",
   "edgeUrl": "https://wordpress-edge-proxy.ducduy2411.workers.dev",
-  "architecture": "workers-caching-live-origin",
+  "architecture": "snapshot-first-workers-caching",
   "purgeEndpoint": "https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge",
-  "auth": "HMAC-SHA256",
-  "checkedAt": "2026-08-18T18:07:44.254Z",
+  "auth": "HMAC-SHA256-preserved",
+  "checkedAt": "2026-08-19T09:55:06.008Z",
+  "snapshot": {
+    "status": "ready",
+    "origin": "https://runner3-factory-smoke-2.wasmer.app",
+    "builtAt": "2026-08-19T09:54:40.913Z",
+    "pages": 16,
+    "bytes": 367037,
+    "paths": [
+      "/",
+      "/2026/08/17/a-field-guide-to-useful-friction/",
+      "/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/",
+      "/2026/08/17/designing-for-people-who-skip-the-tutorial/",
+      "/2026/08/17/small-models-big-consequences/",
+      "/2026/08/17/the-new-geography-of-digital-work/",
+      "/2026/08/17/the-quiet-machines-running-the-city/",
+      "/2026/08/17/the-return-of-personal-software/",
+      "/2026/08/17/why-interfaces-are-becoming-invisible/",
+      "/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/",
+      "/about/",
+      "/category/culture/",
+      "/category/field-notes/",
+      "/category/systems/",
+      "/category/technology/",
+      "/contact/"
+    ],
+    "errors": [
+      {
+        "path": "/category/technology/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      },
+      {
+        "path": "/category/culture/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      },
+      {
+        "path": "/category/systems/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      },
+      {
+        "path": "/category/field-notes/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      }
+    ],
+    "modulePath": "edge/wordpress-edge-proxy/src/snapshot.generated.js"
+  },
   "probe": {
     "publicReady": true,
     "policyReady": true,
+    "snapshotReady": false,
+    "coldFast": false,
+    "medianSnapshotMs": null,
     "cacheHit": true,
     "signedPurgeRequired": true,
     "loginSafe": true,
@@ -15,19 +66,59 @@
     "responsiveReady": true,
     "noindexReady": true,
     "unsignedPurgeHttp": 401,
+    "homeRuns": [
+      {
+        "http": 200,
+        "ms": 1368.8,
+        "cfCacheStatus": "MISS",
+        "age": null,
+        "edgeMode": "html-origin",
+        "edgeSnapshot": null,
+        "snapshotBuiltAt": null
+      },
+      {
+        "http": 200,
+        "ms": 19.5,
+        "cfCacheStatus": "HIT",
+        "age": "0",
+        "edgeMode": "html-origin",
+        "edgeSnapshot": null,
+        "snapshotBuiltAt": null
+      },
+      {
+        "http": 200,
+        "ms": 18.9,
+        "cfCacheStatus": "HIT",
+        "age": "0",
+        "edgeMode": "html-origin",
+        "edgeSnapshot": null,
+        "snapshotBuiltAt": null
+      },
+      {
+        "http": 200,
+        "ms": 22,
+        "cfCacheStatus": "HIT",
+        "age": "1",
+        "edgeMode": "html-origin",
+        "edgeSnapshot": null,
+        "snapshotBuiltAt": null
+      }
+    ],
     "first": {
       "http": 200,
-      "ms": 739.4,
+      "ms": 1368.8,
       "cfCacheStatus": "MISS",
       "age": null,
-      "edgeMode": "html-origin"
+      "edgeMode": "html-origin",
+      "edgeSnapshot": null
     },
     "second": {
       "http": 200,
-      "ms": 25.7,
+      "ms": 22,
       "cfCacheStatus": "HIT",
-      "age": "0",
-      "edgeMode": "html-origin"
+      "age": "1",
+      "edgeMode": "html-origin",
+      "edgeSnapshot": null
     },
     "authBypass": {
       "http": 200,
