@@ -1,0 +1,133 @@
+name: Runner3WP V2 Critical R1 Fail-Safe A-B
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-v2-critical-r1-singlejob.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-v2-critical-r1-singlejob
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: 206a94111e52272e591ed34b038db27e5ddf266d
+  V1_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CF_WORKER_NAME: wordpress-edge-proxy-v2
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - name: Use system Chrome
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0
+          CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME_PATH"
+          echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
+      - name: Deploy and guard R1 on V2 only
+        id: candidate
+        env:
+          RUNNER3_FCP_V2: '1'
+        run: |
+          set -euo pipefail
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          node scripts/deploy-wordpress-workers-cache.mjs
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-R1-Single-Guard/1.0'}});const h=await r.text();
+          const head=(h.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';
+          const out={http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),headBytes:Buffer.byteLength(head),marker:head.includes('data-runner3-v2-critical="r1"'),tail:h.includes('runner3-v2-original-css-order')};
+          out.ok=out.http===200&&String(out.snapshot||'').toUpperCase()==='HIT'&&/noindex/i.test(out.noindex||'')&&out.marker&&out.tail&&out.headBytes<20000;
+          fs.writeFileSync('/tmp/r1-guard.json',JSON.stringify(out,null,2));console.log(JSON.stringify(out,null,2));if(!out.ok)process.exit(7);
+          NODE
+      - name: Run 3x3 Mobile PSI in parallel
+        if: steps.candidate.outcome == 'success'
+        run: |
+          set +e
+          run_one() { label="$1"; url="$2"; PSI_URL="$url" PSI_UI_OUT="/tmp/${label}.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs; }
+          run_one v1-1 "$V1_URL" & p1=$!
+          run_one v1-2 "$V1_URL" & p2=$!
+          run_one v1-3 "$V1_URL" & p3=$!
+          run_one v2-1 "$V2_URL" & p4=$!
+          run_one v2-2 "$V2_URL" & p5=$!
+          run_one v2-3 "$V2_URL" & p6=$!
+          for p in $p1 $p2 $p3 $p4 $p5 $p6; do wait "$p" || true; done
+          exit 0
+      - name: Judge R1
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,glob,re,statistics,datetime,os
+          def sec(v):
+            if not isinstance(v,str):return None
+            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',v.strip())
+            if not m:return None
+            x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
+          rows=[]
+          for p in sorted(glob.glob('/tmp/v[12]-*.json')):
+            try:d=json.load(open(p))
+            except:continue
+            label=os.path.basename(p).replace('.json','')
+            rows.append({'label':label,'status':d.get('status'),'performance':d.get('performance'),'fcp':sec(d.get('fcp')),'lcp':sec(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')})
+          v1=[r for r in rows if r['label'].startswith('v1-')];v2=[r for r in rows if r['label'].startswith('v2-')]
+          good=lambda r:r['status']=='ready' and r['fcp'] is not None and r['lcp'] is not None
+          complete=len(v1)==3 and len(v2)==3 and all(good(r) for r in rows)
+          m1=statistics.median([r['fcp'] for r in v1]) if complete else None;m2=statistics.median([r['fcp'] for r in v2]) if complete else None
+          l1=statistics.median([r['lcp'] for r in v1]) if complete else None;l2=statistics.median([r['lcp'] for r in v2]) if complete else None
+          target=bool(complete and all(r['performance']==100 for r in v2) and m2<=0.5 and l2<=l1+0.2)
+          guard=None
+          try:guard=json.load(open('/tmp/r1-guard.json'))
+          except:pass
+          out={'status':'ready','experiment':'critical-shell-r1-failsafe','candidateSha':os.environ['CANDIDATE_SHA'],'verdict':'TARGET_PASS' if target else 'REJECT_ROLLBACK','targetReached':target,'completeSamples':complete,'guard':guard,'v1':{'samples':v1,'medianFcpSeconds':m1,'medianLcpSeconds':l1},'v2':{'samples':v2,'medianFcpSeconds':m2,'medianLcpSeconds':l2},'fcpImprovementSeconds':(m1-m2 if complete else None),'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          json.dump(out,open('/tmp/r1-result.json','w'),indent=2);print(json.dumps(out,indent=2))
+          PY
+      - name: Enforce final runtime decision
+        if: always()
+        run: |
+          set -euo pipefail
+          verdict=$(python -c "import json;print(json.load(open('/tmp/r1-result.json'))['verdict'])" 2>/dev/null || echo REJECT_ROLLBACK)
+          if [ "$verdict" = TARGET_PASS ]; then
+            RUNNER3_FCP_V2=1 node scripts/deploy-wordpress-workers-cache.mjs
+          else
+            RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs
+          fi
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          let verdict='REJECT_ROLLBACK';try{verdict=JSON.parse(fs.readFileSync('/tmp/r1-result.json','utf8')).verdict}catch{}
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-R1-Single-Final/1.0'}});const h=await r.text();const marker=h.includes('data-runner3-v2-critical="r1"');const want=verdict==='TARGET_PASS';
+          const out={ok:r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&marker===want,verdict,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),marker,checkedAt:new Date().toISOString()};
+          fs.writeFileSync('/tmp/r1-final.json',JSON.stringify(out,null,2));console.log(JSON.stringify(out,null,2));if(!out.ok)process.exit(12);
+          NODE
+      - name: Persist result on V2 baseline branch
+        if: always()
+        run: |
+          set -euo pipefail
+          git fetch origin runner3wp-v2-fcp-test
+          git checkout -B runner3wp-v2-fcp-test origin/runner3wp-v2-fcp-test
+          mkdir -p ops/perf/ab
+          cp /tmp/r1-result.json ops/perf/ab/runner3wp-v2-critical-r1.latest.json 2>/dev/null || echo '{"status":"failed","verdict":"REJECT_ROLLBACK"}' > ops/perf/ab/runner3wp-v2-critical-r1.latest.json
+          cp /tmp/r1-final.json ops/perf/ab/runner3wp-v2-critical-r1-final.latest.json 2>/dev/null || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-v2-critical-r1*.json
+          git commit -m 'test: persist fail-safe Runner3WP critical R1 result' || exit 0
+          git push origin HEAD:runner3wp-v2-fcp-test
