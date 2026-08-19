@@ -1,0 +1,38 @@
+name: Runner3WP V2 Safety Restore
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-v2-safety-restore.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+concurrency: {group: runner3wp-v2-safety-restore, cancel-in-progress: false}
+env:
+  BASELINE_SHA: bfaca6aca4cfb8173ebd91f330376e64120332db
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+  CANDIDATE_BRANCH: runner3wp-v2-lcp-hero-20260820
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: bfaca6aca4cfb8173ebd91f330376e64120332db, fetch-depth: 0}
+      - name: Restore proven baseline
+        run: node scripts/deploy-wordpress-workers-cache.mjs
+      - name: Verify baseline runtime
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from'node:fs';const r=await fetch(process.env.V2_URL,{headers:{'cache-control':'no-cache'}});const h=await r.text();const probe=await fetch(new URL('/__runner3/lcp/offset-demo-01-w640.webp',process.env.V2_URL));const o={ok:r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&!h.includes('/__runner3/lcp/offset-demo-01-w640.webp')&&probe.status===404,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),marker:h.includes('/__runner3/lcp/offset-demo-01-w640.webp'),probeHttp:probe.status,checkedAt:new Date().toISOString()};fs.writeFileSync('/tmp/safety.json',JSON.stringify(o,null,2));console.log(JSON.stringify(o,null,2));if(!o.ok)process.exit(12);
+          NODE
+      - name: Persist safety evidence
+        if: always()
+        run: |
+          set -euo pipefail;test -s /tmp/safety.json||echo '{"ok":false,"detail":"missing safety evidence"}' >/tmp/safety.json;git fetch origin "$CANDIDATE_BRANCH";git checkout -B "$CANDIDATE_BRANCH" "origin/$CANDIDATE_BRANCH";mkdir -p ops/perf/ab;cp /tmp/safety.json ops/perf/ab/runner3wp-v2-safety-restore.latest.json;git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add ops/perf/ab/runner3wp-v2-safety-restore.latest.json;git commit -m 'safety: persist V2 baseline restore'||exit 0;git push origin HEAD:"$CANDIDATE_BRANCH"
