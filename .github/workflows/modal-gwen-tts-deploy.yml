@@ -1,5 +1,5 @@
 name: Deploy Gwen-TTS on Modal
-run-name: Gwen L4-BF16 deploy — AUTH-FIX-1957
+run-name: Gwen iPhone demo UI — IPHONE-DEMO
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
         if: ${{ env.CI_MODAL_TOKEN_ID == '' || env.CI_MODAL_TOKEN_SECRET == '' }}
         shell: bash
         run: |
-          echo 'TARGET_RUN=Gwen L4-BF16 deploy AUTH-FIX-1957'
+          echo 'TARGET_RUN=Gwen iPhone demo UI IPHONE-DEMO'
           echo 'MODAL_LOGIN_START'
           python -m modal token new --verify
           echo 'MODAL_LOGIN_OK'
