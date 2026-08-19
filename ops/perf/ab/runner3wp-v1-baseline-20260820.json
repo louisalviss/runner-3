@@ -1,0 +1,45 @@
+{
+  "status": "frozen",
+  "savedAt": "2026-08-20T00:48:00+07:00",
+  "productionUrl": "https://runner3wp.pntr.dev/",
+  "baselineCommit": "cb397659aacbad3549e691571344ceac01068558",
+  "rollbackBranch": "runner3wp-v1-baseline-20260820",
+  "architecture": "pages-gateway->snapshot-first-worker",
+  "indexing": "noindex",
+  "productionProbe": {
+    "snapshotReady": true,
+    "medianMs": 53.9,
+    "firstObservedMs": 231.4,
+    "edgeMode": "snapshot",
+    "edgeSnapshot": "HIT"
+  },
+  "pagespeedMobile": {
+    "performance": 100,
+    "accessibility": 100,
+    "bestPractices": 100,
+    "seo": 66,
+    "fcp": "0.8s",
+    "lcp": "1.7s",
+    "tbt": "0ms",
+    "cls": "0",
+    "speedIndex": "1.0s"
+  },
+  "pagespeedDesktop": {
+    "performance": 100,
+    "accessibility": 100,
+    "bestPractices": 100,
+    "seo": 66,
+    "fcp": "0.3s",
+    "lcp": "0.4s",
+    "tbt": "0ms",
+    "cls": "0",
+    "speedIndex": "0.3s"
+  },
+  "abPolicy": {
+    "productionV1Untouched": true,
+    "v2Branch": "runner3wp-v2-fcp-test",
+    "targetMobileFcp": "0.5s",
+    "rollbackIfRegression": true,
+    "promoteOnlyIfStable": true
+  }
+}
