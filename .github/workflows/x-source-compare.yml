@@ -23,6 +23,11 @@ jobs:
         run: pip install requests beautifulsoup4
       - name: Run comparison
         run: python x_source_compare.py x-source-compare-job.json
+      - name: Upload comparison artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-source-compare-${{ github.run_id }}
+          path: x-source-compare-results/
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
@@ -30,5 +35,10 @@ jobs:
           git add x-source-compare-results
           if ! git diff --cached --quiet; then
             git commit -m "x source compare result $GITHUB_RUN_ID"
-            git push
+            for i in 1 2 3; do
+              git pull --rebase origin main || true
+              if git push; then exit 0; fi
+              sleep 3
+            done
+            exit 1
           fi
