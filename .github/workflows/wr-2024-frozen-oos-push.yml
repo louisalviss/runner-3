@@ -1,0 +1,17 @@
+name: WR 2024 Frozen OOS Push
+
+on:
+  push:
+    branches: [wr-2024-frozen-oos]
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate WR assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find . -maxdepth 5 -type f | grep -Ei 'wave|wr2515|zonec|backtest|binance' | sort | head -1000
