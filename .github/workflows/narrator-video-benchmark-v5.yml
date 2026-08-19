@@ -12,49 +12,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      BUCKET: runner3-wp-media
-      PREFIX: listen/reddit-creepiest-unsolved-v1
-      VOICE: vi-VN-NamMinhNeural
-      VOICE_RATE: +3%
-      WORKDIR: work/reddit-unsolved
-      OUTDIR: artifacts/reddit-unsolved
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect trigger mode
-        id: mode
-        shell: bash
-        run: |
-          if grep -q '^mode=reddit-unsolved$' .runner-narrator-v5-trigger; then
-            echo 'reddit=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'reddit=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Run Reddit narrator pipeline
-        if: steps.mode.outputs.reddit == 'true'
-        shell: bash
-        run: bash scripts/reddit_narrator_run.sh
-
-      - name: Install benchmark tools
-        if: steps.mode.outputs.reddit != 'true'
+      - name: Install tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg curl fonts-noto-core espeak-ng
           python -m pip install -q -U edge-tts gTTS
 
       - name: Render benchmark
-        if: steps.mode.outputs.reddit != 'true'
         run: bash scripts/narrator_benchmark_v5.sh
 
-      - name: Publish benchmark output and diagnostics
-        if: always() && steps.mode.outputs.reddit != 'true'
+      - name: Publish output and diagnostics
+        if: always()
         shell: bash
         run: |
           set -euxo pipefail
