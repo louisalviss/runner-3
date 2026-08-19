@@ -1,5 +1,5 @@
 name: Deploy Gwen-TTS on Modal
-run-name: Gwen stable voice clone UI — UI-FIX
+run-name: Gwen stable voice clone UI — UI-FIX2
 
 on:
   push:
@@ -23,6 +23,7 @@ jobs:
     env:
       PYTHONUNBUFFERED: '1'
       NO_COLOR: '1'
+      LIVE_ENDPOINT: 'https://louisalviss--runner3-gwen-tts-web.modal.run'
       CI_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       CI_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
@@ -30,32 +31,64 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Probe existing live deployment
+        shell: bash
+        run: |
+          set +e
+          healthy=0
+          for i in 1 2 3; do
+            hcode="$(curl -sS -L --max-time 90 -o /tmp/pre-health.json -w '%{http_code}' "$LIVE_ENDPOINT/health")"
+            rcode="$(curl -sS -L --max-time 90 -o /tmp/pre-ui.html -w '%{http_code}' "$LIVE_ENDPOINT/")"
+            echo "preprobe attempt=$i health=$hcode root=$rcode"
+            if [ "$hcode" = '200' ] && [ "$rcode" = '200' ] \
+               && grep -q 'voice-clone-stable' /tmp/pre-health.json \
+               && grep -q '"version":"0.6"' /tmp/pre-health.json \
+               && grep -Fq 'id="cloneForm"' /tmp/pre-ui.html \
+               && grep -Fq "fetch('/tts-upload'" /tmp/pre-ui.html; then
+              healthy=1
+              break
+            fi
+            sleep 10
+          done
+          if [ "$healthy" = '1' ]; then
+            echo 'SKIP_DEPLOY=true' >> "$GITHUB_ENV"
+            echo "GWEN_ENDPOINT=$LIVE_ENDPOINT" >> "$GITHUB_ENV"
+            echo 'Existing deployment is already healthy; skipping Modal auth/deploy.'
+          else
+            echo 'SKIP_DEPLOY=false' >> "$GITHUB_ENV"
+            echo 'Existing deployment not healthy; a Modal redeploy is required.'
+          fi
+          exit 0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Modal SDK
+        if: ${{ env.SKIP_DEPLOY != 'true' }}
         run: python -m pip install --upgrade 'modal==1.5.3'
 
       - name: Load Modal credentials from GitHub Secrets when present
-        if: ${{ env.CI_MODAL_TOKEN_ID != '' && env.CI_MODAL_TOKEN_SECRET != '' }}
+        if: ${{ env.SKIP_DEPLOY != 'true' && env.CI_MODAL_TOKEN_ID != '' && env.CI_MODAL_TOKEN_SECRET != '' }}
         shell: bash
         run: |
           echo "MODAL_TOKEN_ID=$CI_MODAL_TOKEN_ID" >> "$GITHUB_ENV"
           echo "MODAL_TOKEN_SECRET=$CI_MODAL_TOKEN_SECRET" >> "$GITHUB_ENV"
 
       - name: Authenticate Modal interactively when secrets are absent
-        if: ${{ env.CI_MODAL_TOKEN_ID == '' || env.CI_MODAL_TOKEN_SECRET == '' }}
+        if: ${{ env.SKIP_DEPLOY != 'true' && (env.CI_MODAL_TOKEN_ID == '' || env.CI_MODAL_TOKEN_SECRET == '') }}
         shell: bash
         run: |
-          echo 'TARGET_RUN=Gwen stable voice clone UI UI-FIX'
+          echo 'TARGET_RUN=Gwen stable voice clone UI UI-FIX2'
           python -m modal token new --verify
 
       - name: Verify Modal authentication
+        if: ${{ env.SKIP_DEPLOY != 'true' }}
         run: python -m modal token info
 
       - name: Deploy Gwen-TTS service
+        if: ${{ env.SKIP_DEPLOY != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -65,13 +98,16 @@ jobs:
           test -n "$URL"
           echo "GWEN_ENDPOINT=$URL" | tee -a "$GITHUB_ENV" "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify health
+      - name: Verify health with propagation retry
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL --max-time 180 "$GWEN_ENDPOINT/health" -o /tmp/gwen-health.json
-          cat /tmp/gwen-health.json
-          python - <<'PY'
+          ok=0
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS -L --max-time 180 -o /tmp/gwen-health.json -w '%{http_code}' "$GWEN_ENDPOINT/health" || true)"
+            echo "health attempt=$i http=$code"
+            if [ "$code" = '200' ]; then
+              if python - <<'PY'
           import json
           d=json.load(open('/tmp/gwen-health.json'))
           assert d['ok'] is True
@@ -81,23 +117,39 @@ jobs:
           assert d['ui'] == 'voice-clone-stable'
           assert d['version'] == '0.6'
           PY
+              then ok=1; break; fi
+            fi
+            sleep 10
+          done
+          test "$ok" = '1'
+          cat /tmp/gwen-health.json
 
-      - name: Verify UI renders
+      - name: Verify UI renders with propagation retry
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL --max-time 180 "$GWEN_ENDPOINT/" -o /tmp/gwen-ui.html
-          grep -F 'id="cloneForm"' /tmp/gwen-ui.html
-          grep -F 'id="refAudio"' /tmp/gwen-ui.html
-          grep -F "fetch('/tts-upload'" /tmp/gwen-ui.html
-          grep -F 'Tạo giọng của tôi' /tmp/gwen-ui.html
+          ok=0
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS -L --max-time 180 -o /tmp/gwen-ui.html -w '%{http_code}' "$GWEN_ENDPOINT/" || true)"
+            echo "ui attempt=$i http=$code"
+            if [ "$code" = '200' ] \
+               && grep -Fq 'id="cloneForm"' /tmp/gwen-ui.html \
+               && grep -Fq 'id="refAudio"' /tmp/gwen-ui.html \
+               && grep -Fq "fetch('/tts-upload'" /tmp/gwen-ui.html \
+               && grep -Fq 'Tạo giọng của tôi' /tmp/gwen-ui.html; then
+              ok=1
+              break
+            fi
+            sleep 10
+          done
+          test "$ok" = '1'
           echo 'UI_SMOKE_OK'
 
       - name: Run Vietnamese synthesis demo
         shell: bash
         run: |
           set -euo pipefail
-          curl -fSL --max-time 900 "$GWEN_ENDPOINT/demo" -o /tmp/gwen-demo.wav
+          curl -fSL --retry 4 --retry-delay 5 --retry-all-errors --max-time 900 "$GWEN_ENDPOINT/demo" -o /tmp/gwen-demo.wav
           test -s /tmp/gwen-demo.wav
           python - <<'PY'
           import wave, os
