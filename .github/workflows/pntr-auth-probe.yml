@@ -1,0 +1,125 @@
+name: PNTR Auth Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/triggers/pntr-auth-probe.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pntr-auth-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PNTR_TOKEN: ${{ secrets.PNTR_TOKEN }}
+      PNTR_API_TOKEN: ${{ secrets.PNTR_API_TOKEN }}
+      PNTR_ACCESS_TOKEN: ${{ secrets.PNTR_ACCESS_TOKEN }}
+      TARGET_DOMAIN: runner3wp.pntr.dev
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Probe PNTR credentials read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os, urllib.error, urllib.request
+
+          candidates=[
+            ('PNTR_TOKEN',os.environ.get('PNTR_TOKEN','')),
+            ('PNTR_API_TOKEN',os.environ.get('PNTR_API_TOKEN','')),
+            ('PNTR_ACCESS_TOKEN',os.environ.get('PNTR_ACCESS_TOKEN','')),
+          ]
+          chosen=next(((n,v) for n,v in candidates if v),None)
+          out={
+            'status':'starting',
+            'target':'runner3wp.pntr.dev',
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+            'mutationPerformed':False,
+            'secretPresent':bool(chosen),
+            'secretName':chosen[0] if chosen else None,
+          }
+          if not chosen:
+              out.update({'status':'auth_missing','authenticated':False,'targetFound':False})
+          else:
+              token=chosen[1]
+              req=urllib.request.Request('https://api.pntr.dev/api/subdomains',headers={'Authorization':'Bearer '+token,'User-Agent':'Runner3PntrProbe/1.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      payload=json.loads(r.read().decode())
+                  if isinstance(payload,list): items=payload
+                  elif isinstance(payload,dict):
+                      items=payload.get('subdomains') or payload.get('data') or payload.get('result') or []
+                      if isinstance(items,dict): items=items.get('items') or items.get('subdomains') or []
+                  else: items=[]
+                  target=None
+                  for item in items if isinstance(items,list) else []:
+                      if not isinstance(item,dict): continue
+                      vals=[item.get('fqdn'),item.get('hostname'),item.get('domain'),item.get('name')]
+                      vals=[str(v).lower() for v in vals if v]
+                      if 'runner3wp.pntr.dev' in vals or 'runner3wp' in vals:
+                          target=item; break
+                  records=[]
+                  if isinstance(target,dict):
+                      raw=target.get('records') or target.get('dns_records') or []
+                      if isinstance(raw,list):
+                          for rec in raw:
+                              if not isinstance(rec,dict): continue
+                              records.append({
+                                'idPresent':bool(rec.get('id') or rec.get('record_id')),
+                                'type':rec.get('record_type') or rec.get('type'),
+                                'value':rec.get('record_value') or rec.get('value') or rec.get('content'),
+                              })
+                  out.update({
+                    'status':'ok',
+                    'authenticated':True,
+                    'subdomainCount':len(items) if isinstance(items,list) else None,
+                    'targetFound':bool(target),
+                    'targetIdPresent':bool(target and (target.get('id') or target.get('subdomain_id'))),
+                    'records':records,
+                  })
+              except urllib.error.HTTPError as e:
+                  out.update({'status':'auth_failed','authenticated':False,'http':e.code,'targetFound':False})
+              except Exception as e:
+                  out.update({'status':'probe_failed','authenticated':False,'detail':type(e).__name__,'targetFound':False})
+
+          os.makedirs('/tmp/pntr-auth-probe',exist_ok=True)
+          open('/tmp/pntr-auth-probe/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Persist safe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/pntr-auth-probe/latest.json ]; then
+            mkdir -p /tmp/pntr-auth-probe
+            printf '{"status":"failed","mutationPerformed":false,"runId":"%s"}\n' "$GITHUB_RUN_ID" >/tmp/pntr-auth-probe/latest.json
+          fi
+          cp /tmp/pntr-auth-probe/latest.json /tmp/pntr-auth-probe-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pntr-auth-probe
+            cp /tmp/pntr-auth-probe-safe.json ops/pntr-auth-probe/latest.json
+            git add ops/pntr-auth-probe/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist PNTR auth probe: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
