@@ -1,0 +1,90 @@
+name: Runner3WP Fresh PageSpeed A-B View
+
+on:
+  push:
+    branches: [diag-runner3wp-pagespeed-ab-20260820]
+    paths: ['.github/workflows/runner3wp-pagespeed-ab-view.yml']
+  workflow_dispatch:
+
+permissions: {contents: write}
+concurrency: {group: runner3wp-pagespeed-ab-view, cancel-in-progress: true}
+
+env:
+  BRANCH: diag-runner3wp-pagespeed-ab-20260820
+  V1_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+
+jobs:
+  psi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag-runner3wp-pagespeed-ab-20260820
+          fetch-depth: 0
+
+      - name: Install PageSpeed browser runtime
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Run fresh PageSpeed Mobile 3x each
+        run: |
+          set +e
+          mkdir -p /tmp/psi-ab
+          one(){ PSI_URL="$2" PSI_UI_OUT="/tmp/psi-ab/$1.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs; }
+          one v1-1 "$V1_URL" & a=$!
+          one v1-2 "$V1_URL" & b=$!
+          one v1-3 "$V1_URL" & c=$!
+          one v2-1 "$V2_URL" & d=$!
+          one v2-2 "$V2_URL" & e=$!
+          one v2-3 "$V2_URL" & f=$!
+          for p in $a $b $c $d $e $f; do wait "$p" || true; done
+          exit 0
+
+      - name: Aggregate A-B and links
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, statistics, re, datetime
+          root=pathlib.Path('/tmp/psi-ab')
+          def sec(v):
+              if v is None:return None
+              m=re.match(r'^([0-9.]+)\s*(ms|s)?$',str(v).strip())
+              if not m:return None
+              x=float(m.group(1)); return x/1000 if m.group(2)=='ms' else x
+          def load(label):
+              p=root/f'{label}.json'
+              if not p.exists(): return {'label':label,'status':'missing'}
+              d=json.loads(p.read_text())
+              return {'label':label,'status':d.get('status'),'performance':d.get('performance'),'fcp':sec(d.get('fcp')),'lcp':sec(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl'),'checkedAt':d.get('checkedAt'),'detail':d.get('detail')}
+          def side(prefix):
+              rows=[load(f'{prefix}-{i}') for i in (1,2,3)]
+              good=[r for r in rows if r.get('status')=='ready' and r.get('performance') is not None and r.get('fcp') is not None and r.get('lcp') is not None and r.get('resultUrl')]
+              med=lambda k: statistics.median([r[k] for r in good]) if good else None
+              # choose the successful run whose FCP is closest to the side median as representative link
+              rep=min(good,key=lambda r:abs(r['fcp']-med('fcp'))) if good else None
+              return {'runs':rows,'successfulRuns':len(good),'medianPerformance':med('performance'),'medianFcpSeconds':med('fcp'),'medianLcpSeconds':med('lcp'),'representativeResultUrl':rep.get('resultUrl') if rep else None}
+          v1=side('v1'); v2=side('v2')
+          o={'status':'ready' if v1['successfulRuns']>=2 and v2['successfulRuns']>=2 else 'partial','experiment':'fresh-pagespeed-ui-mobile-v1-v2','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'v1Url':'https://runner3wp.pntr.dev/','v2Url':'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/','v1':v1,'v2':v2,'delta':{'performance':(v2['medianPerformance']-v1['medianPerformance']) if v1['medianPerformance'] is not None and v2['medianPerformance'] is not None else None,'fcpSeconds':(v2['medianFcpSeconds']-v1['medianFcpSeconds']) if v1['medianFcpSeconds'] is not None and v2['medianFcpSeconds'] is not None else None,'lcpSeconds':(v2['medianLcpSeconds']-v1['medianLcpSeconds']) if v1['medianLcpSeconds'] is not None and v2['medianLcpSeconds'] is not None else None}}
+          pathlib.Path('/tmp/psi-ab-result.json').write_text(json.dumps(o,indent=2))
+          print(json.dumps(o,indent=2))
+          PY
+
+      - name: Persist result
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s /tmp/psi-ab-result.json || printf '{"status":"failed","experiment":"fresh-pagespeed-ui-mobile-v1-v2"}\n' >/tmp/psi-ab-result.json
+          git fetch origin "$BRANCH"
+          git checkout -B "$BRANCH" "origin/$BRANCH"
+          mkdir -p ops/perf/ab
+          cp /tmp/psi-ab-result.json ops/perf/ab/runner3wp-pagespeed-ab-view.latest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-pagespeed-ab-view.latest.json
+          git commit -m 'diag: persist fresh Runner3WP PageSpeed A-B links' || exit 0
+          git push origin HEAD:"$BRANCH"
