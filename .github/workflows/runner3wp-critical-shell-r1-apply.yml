@@ -1,0 +1,56 @@
+name: Runner3WP Critical Shell R1 Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-critical-shell-r1-apply.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-critical-shell-r1-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-critical-shell-r1
+          fetch-depth: 0
+      - name: Apply R1 to isolated candidate
+        run: |
+          set -euo pipefail
+          node scripts/apply-runner3wp-critical-shell-r1.mjs
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build-wordpress-edge-snapshot.mjs
+          git commit -m 'test: apply Runner3WP critical shell R1'
+          git push origin HEAD:runner3wp-v2-critical-shell-r1
+          echo "CANDIDATE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Point guarded A-B at R1
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B main origin/main
+          python - <<'PY'
+          import os,re,pathlib
+          p=pathlib.Path('.github/workflows/runner3wp-v2-parallel-ab.yml')
+          s=p.read_text()
+          sha=os.environ['CANDIDATE_SHA']
+          s,n=re.subn(r'CANDIDATE_SHA: [0-9a-f]{40}',f'CANDIDATE_SHA: {sha}',s,count=1)
+          if n!=1: raise SystemExit('candidate SHA replacement failed')
+          old="h.includes('runner3-v2-original-css-order')&&/runner3-v2-critical-css/.test(head)&&Buffer.byteLength(head)<30000"
+          new="h.includes('runner3-v2-original-css-order')&&head.includes('data-runner3-v2-critical=\\\"r1\\\"')&&Buffer.byteLength(head)<20000"
+          if old not in s: raise SystemExit('guard replacement target not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git add .github/workflows/runner3wp-v2-parallel-ab.yml
+          git commit -m "test: benchmark Runner3WP critical shell R1 ${CANDIDATE_SHA}"
+          git push origin HEAD:main
