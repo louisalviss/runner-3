@@ -66,13 +66,32 @@ function extractSavings(text) {
   return rows;
 }
 
+async function waitForLabResult(page, timeoutMs = 180_000) {
+  await page.waitForFunction(() => {
+    const text = document.body.innerText || '';
+    return /Largest Contentful Paint/i.test(text) && /First Contentful Paint/i.test(text) && /\bPerformance\b/i.test(text) && /\bSEO\b/i.test(text);
+  }, { timeout: timeoutMs });
+  // PSI can expose the metric headings just before the numeric score settles.
+  const started = Date.now();
+  while (Date.now() - started < 60_000) {
+    const text = await page.locator('body').innerText();
+    const scores = parseScores(text);
+    const lcp = parseMetric(text, 'Largest Contentful Paint');
+    const fcp = parseMetric(text, 'First Contentful Paint');
+    if (scores.performance !== null && lcp !== null && fcp !== null) return;
+    await page.waitForTimeout(1_500);
+  }
+  throw new Error('PageSpeed lab result headings appeared but numeric scores did not settle');
+}
+
 async function collect(page, strategy) {
   if (strategy === 'desktop') {
     const desktop = page.getByText(/Desktop|Máy tính/i, { exact: true }).first();
     await desktop.waitFor({ state: 'visible', timeout: 30_000 });
     await desktop.click();
-    await page.waitForURL(/form_factor=desktop/, { timeout: 30_000 }).catch(() => {});
-    await page.waitForTimeout(4_000);
+    await page.waitForURL(/form_factor=desktop/, { timeout: 30_000 });
+    await waitForLabResult(page, 180_000);
+    await page.waitForTimeout(1_500);
   }
 
   const body = await page.locator('body').innerText();
@@ -108,11 +127,8 @@ try {
   await input.fill(target);
   await page.getByRole('button', { name: /analy[sz]e/i }).first().click();
   await page.waitForURL(/pagespeed\.web\.dev\/analysis\//, { timeout: 90_000 }).catch(() => {});
-  await page.waitForFunction(() => {
-    const text = document.body.innerText || '';
-    return /Largest Contentful Paint/i.test(text) && /\bPerformance\b/i.test(text) && /\bSEO\b/i.test(text);
-  }, { timeout: 180_000 });
-  await page.waitForTimeout(3_000);
+  await waitForLabResult(page, 180_000);
+  await page.waitForTimeout(1_500);
 
   const body = await page.locator('body').innerText();
   if (/quota exceeded/i.test(body)) throw new Error('Google PageSpeed UI reported quota exceeded');
