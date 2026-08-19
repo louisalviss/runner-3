@@ -1,0 +1,59 @@
+name: X Single Post Probe 2090133773081854263
+
+on:
+  push:
+    branches:
+      - probe/x-2090133773081854263
+    paths:
+      - .github/workflows/x-single-post-2090133773081854263.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Build one-off crawl job
+        run: |
+          cat > /tmp/x-post.json <<'JSON'
+          {
+            "name": "x-single-post-2090133773081854263",
+            "source_visibility": "public",
+            "artifact_policy": "text",
+            "mode": "auto",
+            "timeout_seconds": 60,
+            "wait_after_load_ms": 8000,
+            "urls": [
+              "https://x.com/alexmasoncrypto/status/2090133773081854263?s=12"
+            ]
+          }
+          JSON
+
+      - name: Crawl X post
+        run: python crawler.py /tmp/x-post.json --output crawl_output
+
+      - name: Upload crawl output
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-post-2090133773081854263
+          path: crawl_output/
+          if-no-files-found: error
+          retention-days: 1
