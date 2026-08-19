@@ -1,0 +1,40 @@
+name: WR Per-Trade Regime Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-trade-regime.yml'
+      - 'wave-rider-verify/wr_trade_regime_analysis.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2024-frozen-rolling-oos-final
+          path: /tmp/a24
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32253319968
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase2-zonec10-final
+          path: /tmp/a25
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32233507091
+      - name: Run per-trade BTC regime diagnostic
+        run: python3 wave-rider-verify/wr_trade_regime_analysis.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-trade-regime-final
+          path: /tmp/final2
+          retention-days: 14
