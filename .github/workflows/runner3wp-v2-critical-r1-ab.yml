@@ -1,0 +1,172 @@
+name: Runner3WP V2 Critical Shell R1 A-B
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-v2-critical-r1-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-v2-critical-r1-ab
+  cancel-in-progress: false
+
+env:
+  V1_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CANDIDATE_SHA: 206a94111e52272e591ed34b038db27e5ddf266d
+
+jobs:
+  deploy-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy-v2
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+      CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+      RUNNER3_FCP_V2: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 1
+      - name: Deploy R1 only to V2
+        run: |
+          set -euo pipefail
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          node scripts/deploy-wordpress-workers-cache.mjs
+      - name: Guard R1 runtime
+        run: |
+          node --input-type=module - <<'NODE'
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-R1-Guard/1.0'}});const h=await r.text();
+          const head=(h.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';
+          const ok=r.status===200&&r.headers.get('x-edge-mode')==='snapshot'&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&h.includes('runner3-v2-original-css-order')&&head.includes('data-runner3-v2-critical="r1"')&&Buffer.byteLength(head)<20000;
+          console.log(JSON.stringify({ok,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),headBytes:Buffer.byteLength(head),marker:head.includes('data-runner3-v2-critical="r1"')},null,2));
+          if(!ok)process.exit(7);
+          NODE
+
+  psi:
+    needs: deploy-candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: v1-1, url: 'https://runner3wp.pntr.dev/'}
+          - {label: v1-2, url: 'https://runner3wp.pntr.dev/'}
+          - {label: v1-3, url: 'https://runner3wp.pntr.dev/'}
+          - {label: v2-1, url: 'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/'}
+          - {label: v2-2, url: 'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/'}
+          - {label: v2-3, url: 'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/'}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 1
+      - name: Use system Chrome
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0
+          CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME_PATH"
+          echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
+      - name: Run Mobile PSI sample
+        env:
+          PSI_URL: ${{ matrix.url }}
+          PSI_UI_OUT: /tmp/${{ matrix.label }}.json
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2; do
+            if node scripts/pagespeed-ui-mobile-audit.mjs; then ok=1; break; fi
+            sleep $((attempt*8))
+          done
+          test "$ok" = 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r1-${{ matrix.label }}
+          path: /tmp/${{ matrix.label }}.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  judge-and-restore:
+    needs: [deploy-candidate, psi]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy-v2
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+      CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-fcp-test
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r1-*
+          path: /tmp/psi
+          merge-multiple: true
+      - name: Judge R1
+        run: |
+          python - <<'PY'
+          import json,glob,re,statistics,datetime,os
+          def sec(v):
+            if not isinstance(v,str): return None
+            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',v.strip());
+            if not m:return None
+            x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
+          rows=[]
+          for p in sorted(glob.glob('/tmp/psi/*.json')):
+            try:d=json.load(open(p))
+            except:continue
+            label=os.path.basename(p).replace('.json','')
+            rows.append({'label':label,'status':d.get('status'),'performance':d.get('performance'),'fcp':sec(d.get('fcp')),'lcp':sec(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')})
+          v1=[r for r in rows if r['label'].startswith('v1-')];v2=[r for r in rows if r['label'].startswith('v2-')]
+          good=lambda r:r['status']=='ready' and r['fcp'] is not None and r['lcp'] is not None
+          complete=len(v1)==3 and len(v2)==3 and all(good(r) for r in rows)
+          m1=statistics.median([r['fcp'] for r in v1]) if complete else None;m2=statistics.median([r['fcp'] for r in v2]) if complete else None
+          l1=statistics.median([r['lcp'] for r in v1]) if complete else None;l2=statistics.median([r['lcp'] for r in v2]) if complete else None
+          target=bool(complete and all(r['performance']==100 for r in v2) and m2<=0.5 and l2<=l1+0.2)
+          out={'status':'ready','experiment':'critical-shell-r1','candidateSha':os.environ.get('CANDIDATE_SHA','206a94111e52272e591ed34b038db27e5ddf266d'),'verdict':'TARGET_PASS' if target else 'REJECT_ROLLBACK','targetReached':target,'completeSamples':complete,'v1':{'samples':v1,'medianFcpSeconds':m1,'medianLcpSeconds':l1},'v2':{'samples':v2,'medianFcpSeconds':m2,'medianLcpSeconds':l2},'fcpImprovementSeconds':(m1-m2 if complete else None),'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          json.dump(out,open('/tmp/r1.json','w'),indent=2);print(json.dumps(out,indent=2))
+          PY
+      - name: Persist result
+        run: |
+          set -euo pipefail
+          mkdir -p ops/perf/ab
+          cp /tmp/r1.json ops/perf/ab/runner3wp-v2-critical-r1.latest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-v2-critical-r1.latest.json
+          git commit -m "$(python -c \"import json;print(json.load(open('/tmp/r1.json'))['verdict'])\"): Runner3WP critical shell R1" || true
+          git push origin HEAD:runner3wp-v2-fcp-test || true
+      - name: Restore unless target passed
+        run: |
+          set -euo pipefail
+          verdict=$(python -c "import json;print(json.load(open('/tmp/r1.json'))['verdict'])")
+          if [ "$verdict" = TARGET_PASS ]; then
+            git fetch origin 206a94111e52272e591ed34b038db27e5ddf266d
+            git checkout 206a94111e52272e591ed34b038db27e5ddf266d -- scripts/build-wordpress-edge-snapshot.mjs
+            RUNNER3_FCP_V2=1 node scripts/deploy-wordpress-workers-cache.mjs
+          else
+            RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs
+          fi
+          node --input-type=module - <<'NODE'
+          const verdict=JSON.parse((await import('node:fs')).readFileSync('/tmp/r1.json','utf8')).verdict;
+          const r=await fetch(process.env.CF_EDGE_URL,{headers:{'user-agent':'Runner3WP-R1-Final/1.0'}});const h=await r.text();const marker=h.includes('data-runner3-v2-critical="r1"');const want=verdict==='TARGET_PASS';const ok=r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&marker===want;console.log(JSON.stringify({ok,verdict,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),marker},null,2));if(!ok)process.exit(12);
+          NODE
