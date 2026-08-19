@@ -4,7 +4,7 @@ const VERIFIED_IMAGE_RE = /^offset-demo-(0[1-8])\.webp$/i;
 const HERO_IMAGE_RE = /^offset-demo-01\.webp$/i;
 const WIDTHS = [360, 480, 640];
 const VARIANT_DIR = 'responsive-v2';
-const HERO_SAME_ORIGIN_PREFIX = '/__runner3/r2-image/';
+const HERO_STATIC_PREFIX = '/__runner3/lcp-assets/';
 const DEFAULT_IMAGE_SIZES = '(max-width: 767px) 92vw, 1100px';
 const HERO_PRELOAD_SIZES = '(max-width: 767px) 80vw, 580px';
 
@@ -17,7 +17,7 @@ function responsiveInfo(value) {
     if (!VERIFIED_IMAGE_RE.test(filename)) return null;
     const stem = filename.replace(/\.webp$/i, '');
     const base = HERO_IMAGE_RE.test(filename)
-      ? `${HERO_SAME_ORIGIN_PREFIX}${stem}`
+      ? `${HERO_STATIC_PREFIX}${stem}`
       : `https://${R2_HOST}${SITE_PREFIX}${VARIANT_DIR}/${stem}`;
     return {
       srcset: WIDTHS.map((width) => `${base}-w${width}.webp ${width}w`).join(', '),
