@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: runner3wp-v2-parallel-ab
+  cancel-in-progress: false
+
 env:
   V1_URL: https://runner3wp.pntr.dev/
   V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
@@ -73,12 +77,14 @@ jobs:
         with:
           ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 1
-      - name: Install browser
+      - name: Use system Chrome
         run: |
           set -euo pipefail
-          npm install --no-save playwright@1.61.0
-          npx playwright install --with-deps chromium
-          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+          npm install --no-save playwright-core@1.61.0
+          CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME_PATH"
+          "$CHROME_PATH" --version
+          echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
       - name: Run one Mobile PSI sample
         env:
           PSI_URL: ${{ matrix.url }}
