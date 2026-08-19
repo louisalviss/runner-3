@@ -48,33 +48,38 @@ jobs:
       - name: Deploy isolated V2 candidate
         run: node scripts/deploy-wordpress-workers-cache.mjs
 
-      - name: Verify candidate parity and critical-path split
+      - name: Verify exact CSS replay and structural parity
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
-          const ids=['wp-emoji-styles-inline-css','wp-block-library-inline-css','global-styles-inline-css','runner3-critical-css'];
           const normText=s=>s.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
           const title=h=>(h.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1]?.replace(/<[^>]+>/g,'').trim()||'';
           const h1=h=>(h.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)||[])[1]?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()||'';
           const links=h=>[...h.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)].map(m=>m[1].replace(/^https?:\/\/[^/]+/,''));
-          const style=(h,id)=>{const esc=id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return (h.match(new RegExp(`<style\\b[^>]*\\bid=["']${esc}["'][^>]*>([\\s\\S]*?)<\\/style>`,'i'))||[])[1]||null};
-          async function grab(url){const r=await fetch(url,{headers:{'user-agent':'Runner3WP-V2-Guard/2.0'}});const html=await r.text();const head=(html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';return {url,http:r.status,html,head,headers:Object.fromEntries(r.headers.entries())}}
+          const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+          const style=(h,id)=>(h.match(new RegExp(`<style\\b[^>]*\\bid=["']${esc(id)}["'][^>]*>([\\s\\S]*?)<\\/style>`,'i'))||[])[1]??null;
+          const stylePos=(h,id)=>{const m=new RegExp(`<style\\b[^>]*\\bid=["']${esc(id)}["']`,'i').exec(h);return m?m.index:-1};
+          const headStyles=h=>[...h.matchAll(/<style\b[^>]*\bid=(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/style>/gi)].map(m=>({id:m[2],css:m[3]}));
+          async function grab(url){const r=await fetch(url,{headers:{'user-agent':'Runner3WP-V2-Guard/3.0'}});const html=await r.text();const head=(html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';return {http:r.status,html,head,headers:Object.fromEntries(r.headers.entries())}}
           const [a,b]=await Promise.all([grab(process.env.V1_URL),grab(process.env.V2_URL)]);
-          const cssSame=ids.every(id=>style(a.html,id)!==null&&style(a.html,id)===style(b.html,id));
-          const originalPositions=ids.map(id=>b.html.indexOf(`id="${id}"`));
+          const originals=headStyles(a.head);
+          const ids=originals.map(x=>x.id);
+          const cssSame=originals.length>=2&&originals.every(x=>style(b.html,x.id)===x.css);
+          const positions=ids.map(id=>stylePos(b.html,id));
           const bodyStart=b.html.search(/<body\b/i), bodyEnd=b.html.lastIndexOf('</body>');
-          const orderPreserved=originalPositions.every((p,i)=>p>bodyStart&&(i===0||p>originalPositions[i-1]))&&originalPositions.every(p=>p<bodyEnd);
+          const orderPreserved=positions.every((p,i)=>p>bodyStart&&p<bodyEnd&&(i===0||p>positions[i-1]));
+          const originalsRemovedFromHead=ids.every(id=>style(b.head,id)===null);
           const marker=b.html.includes('runner3-v2-original-css-order');
           const criticalHead=/id=["']runner3-v2-critical-css["']/i.test(b.head);
           const noindex=/noindex/i.test(b.headers['x-robots-tag']||'');
           const snapshot=b.headers['x-edge-mode']==='snapshot'&&String(b.headers['x-edge-snapshot']||'').toUpperCase()==='HIT';
           const same={title:title(a.html)===title(b.html),h1:h1(a.html)===h1(b.html),text:normText(a.html)===normText(b.html),images:(a.html.match(/<img\b/gi)||[]).length===(b.html.match(/<img\b/gi)||[]).length,links:links(a.html).slice(0,25).join('|')===links(b.html).slice(0,25).join('|')};
-          const headBytesA=Buffer.byteLength(a.head), headBytesB=Buffer.byteLength(b.head);
-          const bodyOffsetA=Buffer.byteLength(a.html.slice(0,a.html.search(/<body\b/i))), bodyOffsetB=Buffer.byteLength(b.html.slice(0,b.html.search(/<body\b/i)));
-          const pass=a.http===200&&b.http===200&&cssSame&&orderPreserved&&marker&&criticalHead&&noindex&&snapshot&&Object.values(same).every(Boolean)&&headBytesB<headBytesA-8000&&bodyOffsetB<bodyOffsetA-8000;
-          const out={status:pass?'ok':'failed',http:{v1:a.http,v2:b.http},noindex,snapshot,cssSame,orderPreserved,marker,criticalHead,same,headBytes:{v1:headBytesA,v2:headBytesB,saved:headBytesA-headBytesB},bodyByteOffset:{v1:bodyOffsetA,v2:bodyOffsetB,saved:bodyOffsetA-bodyOffsetB},checkedAt:new Date().toISOString()};
+          const headBytesA=Buffer.byteLength(a.head),headBytesB=Buffer.byteLength(b.head);
+          const bodyOffsetA=Buffer.byteLength(a.html.slice(0,a.html.search(/<body\b/i))),bodyOffsetB=Buffer.byteLength(b.html.slice(0,b.html.search(/<body\b/i)));
+          const pass=a.http===200&&b.http===200&&cssSame&&orderPreserved&&originalsRemovedFromHead&&marker&&criticalHead&&noindex&&snapshot&&Object.values(same).every(Boolean)&&headBytesB<headBytesA-8000&&bodyOffsetB<bodyOffsetA-8000;
+          const out={status:pass?'ok':'failed',http:{v1:a.http,v2:b.http},noindex,snapshot,originalStyleIds:ids,cssSame,orderPreserved,originalsRemovedFromHead,marker,criticalHead,same,headBytes:{v1:headBytesA,v2:headBytesB,saved:headBytesA-headBytesB},bodyByteOffset:{v1:bodyOffsetA,v2:bodyOffsetB,saved:bodyOffsetA-bodyOffsetB},checkedAt:new Date().toISOString()};
           fs.writeFileSync('/tmp/runner3wp-v2-parity.json',JSON.stringify(out,null,2)+'\n');
           console.log(JSON.stringify(out,null,2));
           if(!pass) process.exit(8);
@@ -83,11 +88,11 @@ jobs:
       - name: Install PageSpeed browser runtime
         run: |
           set -euo pipefail
-          npm install --no-save playwright-core@1.61.0
-          npx --yes playwright@1.61.0 install --with-deps chromium
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
 
-      - name: Run fresh Mobile A-B samples
+      - name: Run 3 fresh Mobile samples per variant
         shell: bash
         run: |
           set -euo pipefail
@@ -120,16 +125,16 @@ jobs:
           def collect(label):
               rows=[]
               for p in sorted(glob.glob(f'/tmp/runner3wp-ab-samples/{label}-*.json')):
-                  d=json.load(open(p)); rows.append({'file':p,'status':d.get('status'),'performance':d.get('performance'),'fcp':sec(d.get('fcp')),'lcp':sec(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')})
+                  d=json.load(open(p)); rows.append({'status':d.get('status'),'performance':d.get('performance'),'fcp':sec(d.get('fcp')),'lcp':sec(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')})
               return rows
           v1,v2=collect('v1'),collect('v2')
           parity=json.load(open('/tmp/runner3wp-v2-parity.json'))
-          good=lambda r: r['status']=='ready' and r['fcp'] is not None and r['lcp'] is not None
+          good=lambda r:r['status']=='ready' and r['fcp'] is not None and r['lcp'] is not None
           safety=parity.get('status')=='ok' and len(v1)==3 and len(v2)==3 and all(good(r) for r in v1+v2) and all(r['performance']==100 for r in v2)
-          m1=statistics.median([r['fcp'] for r in v1]) if all(good(r) for r in v1) else None
-          m2=statistics.median([r['fcp'] for r in v2]) if all(good(r) for r in v2) else None
-          l1=statistics.median([r['lcp'] for r in v1]) if all(good(r) for r in v1) else None
-          l2=statistics.median([r['lcp'] for r in v2]) if all(good(r) for r in v2) else None
+          m1=statistics.median([r['fcp'] for r in v1]) if len(v1)==3 and all(good(r) for r in v1) else None
+          m2=statistics.median([r['fcp'] for r in v2]) if len(v2)==3 and all(good(r) for r in v2) else None
+          l1=statistics.median([r['lcp'] for r in v1]) if len(v1)==3 and all(good(r) for r in v1) else None
+          l2=statistics.median([r['lcp'] for r in v2]) if len(v2)==3 and all(good(r) for r in v2) else None
           improvement=(m1-m2) if m1 is not None and m2 is not None else None
           target=bool(safety and m2<=0.5)
           keep=bool(safety and improvement is not None and improvement>=0.099 and l2<=l1+0.2)
@@ -160,10 +165,9 @@ jobs:
             git push origin HEAD:runner3wp-v2-fcp-test
           fi
           if [ "$verdict" = "REJECT_ROLLBACK" ]; then
-            echo 'Redeploying clean V2 baseline after rejection...'
             RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs
             node --input-type=module - <<'NODE'
-            const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-Rollback-Verify/1.0'}}); const h=await r.text();
+            const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-Rollback-Verify/2.0'}});const h=await r.text();
             const ok=r.status===200&&r.headers.get('x-edge-mode')==='snapshot'&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&!h.includes('runner3-v2-original-css-order')&&!h.includes('runner3-v2-critical-css');
             console.log(JSON.stringify({rollbackRuntimePass:ok,http:r.status,edgeMode:r.headers.get('x-edge-mode'),snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag')},null,2));
             if(!ok)process.exit(12);
@@ -171,5 +175,27 @@ jobs:
           fi
 
       - name: Final state
+        run: cat /tmp/runner3wp-v2-ab-safe.json
+
+      - name: Emergency rollback on any earlier failure
+        if: failure()
+        shell: bash
         run: |
-          cat /tmp/runner3wp-v2-ab-safe.json
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin runner3wp-v1-baseline-20260820 runner3wp-v2-fcp-test
+          git reset --hard origin/runner3wp-v2-fcp-test
+          git checkout origin/runner3wp-v1-baseline-20260820 -- scripts/build-wordpress-edge-snapshot.mjs
+          git add scripts/build-wordpress-edge-snapshot.mjs
+          if ! git diff --cached --quiet; then
+            git commit -m "ROLLBACK: V2 critical-path guard failure ${GITHUB_RUN_ID}"
+            git push origin HEAD:runner3wp-v2-fcp-test
+          fi
+          RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs
+          node --input-type=module - <<'NODE'
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-Emergency-Rollback/1.0'}});const h=await r.text();
+          const ok=r.status===200&&r.headers.get('x-edge-mode')==='snapshot'&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&!h.includes('runner3-v2-original-css-order')&&!h.includes('runner3-v2-critical-css');
+          console.log(JSON.stringify({emergencyRollbackPass:ok,http:r.status,edgeMode:r.headers.get('x-edge-mode'),snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag')},null,2));
+          if(!ok)process.exit(13);
+          NODE
