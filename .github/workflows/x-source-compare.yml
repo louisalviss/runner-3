@@ -1,0 +1,34 @@
+name: X Source Compare
+
+on:
+  push:
+    paths:
+      - 'x-source-compare-job.json'
+      - 'x_source_compare.py'
+      - '.github/workflows/x-source-compare.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install requests beautifulsoup4
+      - name: Run comparison
+        run: python x_source_compare.py x-source-compare-job.json
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add x-source-compare-results
+          if ! git diff --cached --quiet; then
+            git commit -m "x source compare result $GITHUB_RUN_ID"
+            git push
+          fi
