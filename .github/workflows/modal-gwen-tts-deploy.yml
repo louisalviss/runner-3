@@ -57,8 +57,8 @@ jobs:
           import json
           d=json.load(open('/tmp/gwen-health.json'))
           assert d['ok'] is True
-          assert 'T4' in d['gpu']
-          assert d['dtype'] == 'float16'
+          assert 'L4' in d['gpu']
+          assert d['dtype'] == 'bfloat16'
           assert d['attention'] == 'sdpa'
           PY
 
@@ -101,7 +101,7 @@ jobs:
               'endpoint': os.environ['GWEN_ENDPOINT'],
               'model': 'g-group-ai-lab/gwen-tts-0.6B',
               'gpu': json.load(open('/tmp/gwen-health.json'))['gpu'],
-              'dtype': 'float16',
+              'dtype': 'bfloat16',
               'attention': 'sdpa',
               'demo': {
                   'bytes': wav.stat().st_size,
