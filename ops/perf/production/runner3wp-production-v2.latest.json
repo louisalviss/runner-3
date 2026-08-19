@@ -1,0 +1,22 @@
+{
+  "status": "rolled_back",
+  "productionDomain": "https://runner3wp.pntr.dev",
+  "productionWorkerUrl": "https://wordpress-edge-proxy.ducduy2411.workers.dev",
+  "candidateCommit": "08165956f80fe4bb8505ab93dcdf428faa4b7aab",
+  "rollbackCommit": "bfaca6aca4cfb8173ebd91f330376e64120332db",
+  "architecture": "WordPress snapshot-direct + same-origin hero via Cloudflare R2 binding",
+  "outcomes": {
+    "build": "success",
+    "deploy": "failure",
+    "verify": "skipped",
+    "rollback": "failure"
+  },
+  "productionChecks": {
+    "edgeSnapshot": null,
+    "edgeCachePolicy": null,
+    "heroMarker": null,
+    "heroContentType": null,
+    "heroBytes": null
+  },
+  "checkedAt": "2026-08-19T23:23:08.860235+00:00"
+}
