@@ -52,19 +52,16 @@ function internalPaths(html, baseUrl) {
 function optimizeFcpHtml(html) {
   if (!fcpV2) return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
 
-  const targetIds = new Set([
-    'wp-emoji-styles-inline-css',
-    'wp-block-library-inline-css',
-    'global-styles-inline-css',
-    'runner3-critical-css',
-  ]);
-  const styleRe = /<style\b[^>]*\bid=(["'])([^"']+)\1[^>]*>[\s\S]*?<\/style>\s*/gi;
+  const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
+  if (!headMatch) return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+
+  const headHtml = headMatch[1];
   const deferred = [];
   let criticalOriginal = null;
-  const stripped = html.replace(styleRe, (tag, _quote, id) => {
-    if (!targetIds.has(String(id).toLowerCase())) return tag;
-    deferred.push({ id: String(id).toLowerCase(), tag });
-    if (String(id).toLowerCase() === 'runner3-critical-css') criticalOriginal = tag;
+  const strippedHead = headHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>\s*/gi, (tag) => {
+    const id = (tag.match(/\bid=(["'])([^"']+)\1/i) || [])[2] || '';
+    deferred.push({ id, tag });
+    if (id.toLowerCase() === 'runner3-critical-css') criticalOriginal = tag;
     return '';
   });
 
@@ -75,9 +72,10 @@ function optimizeFcpHtml(html) {
   const criticalCopy = criticalOriginal
     .replace(/\bid=(["'])runner3-critical-css\1/i, 'id="runner3-v2-critical-css" data-runner3-v2-critical="1"')
     .trim();
-  const withCritical = /<\/head>/i.test(stripped)
-    ? stripped.replace(/<\/head>/i, `${criticalCopy}\n</head>`)
-    : stripped;
+  const optimizedHead = `${strippedHead}${criticalCopy}\n`;
+  const headStart = headMatch.index + headMatch[0].indexOf(headMatch[1]);
+  const headEnd = headStart + headMatch[1].length;
+  const withCritical = `${html.slice(0, headStart)}${optimizedHead}${html.slice(headEnd)}`;
 
   const deferredCss = `\n<!-- runner3-v2-original-css-order -->\n${deferred.map(({ tag }) => tag.trim()).join('\n')}\n`;
   const bodyClose = withCritical.lastIndexOf('</body>');
@@ -92,7 +90,7 @@ function optimizeFcpHtml(html) {
     deferredStyleCount: deferred.length,
     deferredStyleBytes,
     criticalCopyBytes,
-    headSavedBytes: Math.max(0, deferredStyleBytes - criticalCopyBytes),
+    headSavedBytes: Math.max(0, Buffer.byteLength(headHtml) - Buffer.byteLength(optimizedHead)),
   };
 }
 
