@@ -1,0 +1,73 @@
+name: Runner3WP FCP Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-fcp-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-fcp-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect V1 and V2 HTML critical path
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const targets={
+            v1:'https://runner3wp.pntr.dev/',
+            v2:'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/'
+          };
+          const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+          async function inspect(url){
+            const r=await fetch(url,{headers:{'user-agent':'Runner3WP-FCP-Diagnostic/1.0','accept':'text/html'}});
+            const html=await r.text();
+            const head=(html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';
+            const bodyIndex=html.search(/<body\b/i);
+            const h1Index=html.search(/<h1\b/i);
+            const firstContentIndex=html.search(/<(?:h1|h2|p|main|article|header)\b/i);
+            const styles=[...head.matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi)].map((m,i)=>({i,attrs:clean(m[1]).slice(0,180),bytes:Buffer.byteLength(m[2]),preview:clean(m[2]).slice(0,100)}));
+            const links=[...head.matchAll(/<link\b([^>]*)>/gi)].map((m,i)=>({i,tag:clean(m[0]).slice(0,300)}));
+            const scripts=[...head.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].map((m,i)=>({i,attrs:clean(m[1]).slice(0,240),inlineBytes:Buffer.byteLength(m[2]),preview:clean(m[2]).slice(0,120)}));
+            const blockingScripts=scripts.filter(x=>!/(?:\basync\b|\bdefer\b|type=["'](?:application\/ld\+json|application\/json)["'])/i.test(x.attrs));
+            const externalCss=links.filter(x=>/rel=["']stylesheet["']/i.test(x.tag));
+            const preloads=links.filter(x=>/rel=["'](?:preload|modulepreload|preconnect)["']/i.test(x.tag));
+            return {
+              url,http:r.status,contentType:r.headers.get('content-type'),contentEncoding:r.headers.get('content-encoding'),
+              edgeMode:r.headers.get('x-edge-mode'),edgeSnapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),
+              htmlBytes:Buffer.byteLength(html),headBytes:Buffer.byteLength(head),bodyByteOffset:bodyIndex<0?null:Buffer.byteLength(html.slice(0,bodyIndex)),
+              h1ByteOffset:h1Index<0?null:Buffer.byteLength(html.slice(0,h1Index)),firstContentByteOffset:firstContentIndex<0?null:Buffer.byteLength(html.slice(0,firstContentIndex)),
+              inlineStyleCount:styles.length,inlineStyleBytes:styles.reduce((a,x)=>a+x.bytes,0),styles,
+              headScriptCount:scripts.length,headScriptInlineBytes:scripts.reduce((a,x)=>a+x.inlineBytes,0),blockingHeadScriptCount:blockingScripts.length,blockingHeadScripts:blockingScripts,
+              externalStylesheetCount:externalCss.length,externalStylesheets:externalCss,preloadCount:preloads.length,preloads,
+              first1200:clean(html.slice(Math.max(0,bodyIndex),Math.max(0,bodyIndex)+5000)).slice(0,1200),
+              checkedAt:new Date().toISOString()
+            };
+          }
+          const out={status:'ready',v1:await inspect(targets.v1),v2:await inspect(targets.v2)};
+          fs.mkdirSync('ops/perf/ab',{recursive:true});
+          fs.writeFileSync('ops/perf/ab/runner3wp-fcp-diagnostic.latest.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          NODE
+      - name: Persist diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-fcp-diagnostic.latest.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist Runner3WP FCP diagnostic: ${GITHUB_RUN_ID}"
+          git pull --rebase origin main
+          git push origin HEAD:main
