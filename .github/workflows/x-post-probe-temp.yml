@@ -1,0 +1,35 @@
+name: temp-x-post-probe
+on:
+  push:
+    paths:
+      - '.github/workflows/x-post-probe-temp.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch X post through public mirrors/APIs
+        shell: bash
+        run: |
+          set +e
+          python - <<'PY'
+          import json, urllib.request
+          urls = [
+            'https://api.fxtwitter.com/status/2089933094010704232',
+            'https://api.vxtwitter.com/Twitter/status/2089933094010704232',
+            'https://x.com/kood520/status/2089933094010704232',
+          ]
+          for u in urls:
+              print('\n===', u, '===')
+              try:
+                  req=urllib.request.Request(u, headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      data=r.read(200000)
+                      print('STATUS', r.status, 'CT', r.headers.get('content-type'))
+                      txt=data.decode('utf-8','replace')
+                      print(txt[:50000])
+              except Exception as e:
+                  print('ERROR', repr(e))
+          PY
