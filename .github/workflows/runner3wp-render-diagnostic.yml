@@ -1,0 +1,64 @@
+name: Runner3WP Render Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-render-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-fcp-test
+          fetch-depth: 2
+
+      - name: Inspect render path
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const targets={v1:'https://runner3wp.pntr.dev/',v2:'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/'};
+          function attr(tag,name){const m=tag.match(new RegExp('\\b'+name+'\\s*=\\s*(["\\'])(.*?)\\1','i'));return m?m[2]:null;}
+          function summarize(html,headers,http,url){
+            const head=(html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';
+            const styles=[...head.matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi)].map((m,i)=>({index:i+1,id:attr(m[1],'id'),bytes:Buffer.byteLength(m[2]),fontFace:(m[2].match(/@font-face/gi)||[]).length,fontFamily:(m[2].match(/font-family/gi)||[]).length}));
+            const links=[...head.matchAll(/<link\b[^>]*>/gi)].map(m=>({rel:attr(m[0],'rel'),href:attr(m[0],'href'),as:attr(m[0],'as'),media:attr(m[0],'media')}));
+            const scripts=[...head.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].map((m,i)=>({index:i+1,src:attr(m[1],'src'),defer:/\bdefer\b/i.test(m[1]),async:/\basync\b/i.test(m[1]),type:attr(m[1],'type'),inlineBytes:Buffer.byteLength(m[2])}));
+            const imgs=[...html.matchAll(/<img\b[^>]*>/gi)].map(m=>({src:attr(m[0],'src'),loading:attr(m[0],'loading'),fetchpriority:attr(m[0],'fetchpriority'),width:attr(m[0],'width'),height:attr(m[0],'height')}));
+            return {url,http,totalHtmlBytes:Buffer.byteLength(html),headBytes:Buffer.byteLength(head),styleTags:styles.length,inlineStyleBytes:styles.reduce((a,x)=>a+x.bytes,0),largestStyles:styles.sort((a,b)=>b.bytes-a.bytes).slice(0,12),links,stylesheetLinks:links.filter(x=>String(x.rel||'').toLowerCase().split(/\s+/).includes('stylesheet')),preloads:links.filter(x=>String(x.rel||'').toLowerCase().split(/\s+/).includes('preload')),preconnects:links.filter(x=>String(x.rel||'').toLowerCase().includes('preconnect')),scriptsCount:scripts.length,externalScripts:scripts.filter(x=>x.src),blockingExternalScripts:scripts.filter(x=>x.src&&!x.defer&&!x.async&&String(x.type||'').toLowerCase()!=='module'),inlineScriptBytes:scripts.reduce((a,x)=>a+x.inlineBytes,0),fontFaceOccurrences:(head.match(/@font-face/gi)||[]).length,woffOccurrences:(head.match(/\.woff2?/gi)||[]).length,images:imgs,response:{server:headers.get('server'),cache:headers.get('cf-cache-status'),edgeMode:headers.get('x-edge-mode'),snapshot:headers.get('x-edge-snapshot'),contentType:headers.get('content-type'),cacheControl:headers.get('cache-control')}};
+          }
+          const out={checkedAt:new Date().toISOString(),targets:{}};
+          for(const [k,url] of Object.entries(targets)){
+            const r=await fetch(url,{headers:{'user-agent':'Runner3RenderDiagnostic/1.0'}});const html=await r.text();out.targets[k]=summarize(html,r.headers,r.status,url);
+          }
+          fs.writeFileSync('/tmp/runner3wp-render-diagnostic.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          NODE
+
+      - name: Persist diagnostic on V2 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/runner3wp-render-diagnostic.json /tmp/diag-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin runner3wp-v2-fcp-test
+            git reset --hard origin/runner3wp-v2-fcp-test
+            mkdir -p ops/perf/ab
+            cp /tmp/diag-safe.json ops/perf/ab/runner3wp-render-diagnostic.latest.json
+            git add ops/perf/ab/runner3wp-render-diagnostic.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist runner3wp render diagnostic: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:runner3wp-v2-fcp-test; then exit 0; fi
+            sleep 2
+          done
+          exit 2
