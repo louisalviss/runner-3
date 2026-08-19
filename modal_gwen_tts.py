@@ -53,6 +53,49 @@ DEMO_REF_URL = "https://raw.githubusercontent.com/ggroup-ai-lab/gwen-tts/main/da
 DEMO_REF_TEXT = "việt nam đang kiêu hãnh bước vào kỷ nguyên vươn mình rực rỡ với khát vọng mãnh liệt, trí tuệ đổi mới, tinh thần đoàn kết."
 DEMO_TEXT = "Xin chào. Đây là bài kiểm tra giọng nói tiếng Việt đang chạy trực tiếp trên GPU NVIDIA L4 của Modal."
 
+DEMO_UI = r'''<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Runner3 Gwen-TTS</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;background:#f6f6f7}
+*{box-sizing:border-box} body{margin:0;padding:24px 18px 48px}.wrap{max-width:680px;margin:0 auto}.card{background:#fff;border-radius:22px;padding:22px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+h1{font-size:28px;margin:0 0 8px}.sub{color:#666;line-height:1.45;margin:0 0 18px}.badge{display:inline-block;background:#eef7ee;border-radius:999px;padding:7px 10px;font-size:13px;margin:0 6px 10px 0}
+button{appearance:none;border:0;border-radius:14px;background:#111;color:#fff;font-size:17px;font-weight:700;padding:14px 18px;width:100%;min-height:50px}button:disabled{opacity:.45}
+#status{min-height:24px;margin:14px 0;color:#555;line-height:1.4}audio{width:100%;margin-top:8px}.links{display:flex;gap:10px;margin-top:18px}.links a{flex:1;text-align:center;text-decoration:none;color:#111;background:#f0f0f2;border-radius:12px;padding:12px;font-size:14px}
+.small{font-size:13px;color:#777;margin-top:16px;line-height:1.4}
+</style>
+</head>
+<body><div class="wrap"><div class="card">
+<h1>Gwen‑TTS Vietnamese</h1>
+<p class="sub">Voice cloning demo chạy trên Modal NVIDIA L4.</p>
+<div><span class="badge">L4</span><span class="badge">BF16</span><span class="badge">24 kHz WAV</span></div>
+<button id="go">▶ Tạo & phát demo</button>
+<div id="status">Nhấn nút để sinh audio. Lần đầu có thể chậm do cold start/model load.</div>
+<audio id="player" controls playsinline preload="none"></audio>
+<div class="links"><a href="/health">Health</a><a href="/demo">WAV thô</a></div>
+<div class="small">Nếu iPhone không tự phát sau khi sinh xong, nhấn Play trên trình phát.</div>
+</div></div>
+<script>
+const btn=document.getElementById('go'), status=document.getElementById('status'), player=document.getElementById('player');
+let currentUrl=null;
+btn.addEventListener('click', async()=>{
+  btn.disabled=true; status.textContent='Đang khởi động GPU / sinh giọng…';
+  try{
+    const r=await fetch('/demo?ts='+Date.now(),{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const b=await r.blob();
+    if(currentUrl) URL.revokeObjectURL(currentUrl);
+    currentUrl=URL.createObjectURL(b); player.src=currentUrl;
+    status.textContent='Xong — audio đã sẵn sàng.';
+    try{await player.play()}catch(e){status.textContent='Xong — nhấn Play để nghe.'}
+  }catch(e){status.textContent='Lỗi: '+e.message+' — thử lại sau vài giây.'}
+  finally{btn.disabled=false}
+});
+</script></body></html>'''
+
 
 def _gpu_info() -> str:
     return subprocess.check_output(
@@ -73,7 +116,6 @@ def _load_model():
     import torch
     from qwen_tts import Qwen3TTSModel
 
-    # L4 supports BF16 reliably; use PyTorch SDPA to avoid FlashAttention build/runtime variance.
     _model = Qwen3TTSModel.from_pretrained(
         MODEL_ID,
         device_map="cuda:0",
@@ -113,11 +155,11 @@ def _synth(text: str, ref_audio_path: str, ref_text: str, language: str = "Vietn
 @modal.asgi_app()
 def web():
     from fastapi import FastAPI, HTTPException
-    from fastapi.responses import Response
+    from fastapi.responses import HTMLResponse, Response
     from pydantic import BaseModel, Field
     import requests
 
-    api = FastAPI(title="Runner3 Gwen-TTS", version="0.2")
+    api = FastAPI(title="Runner3 Gwen-TTS", version="0.3")
 
     class TTSRequest(BaseModel):
         text: str = Field(min_length=1, max_length=5000)
@@ -125,6 +167,11 @@ def web():
         ref_audio_b64: Optional[str] = None
         ref_audio_url: Optional[str] = None
         language: str = "Vietnamese"
+
+    @api.get("/", response_class=HTMLResponse)
+    @api.get("/ui", response_class=HTMLResponse)
+    def ui():
+        return HTMLResponse(DEMO_UI, headers={"Cache-Control": "no-store"})
 
     @api.get("/health")
     def health():
@@ -146,7 +193,14 @@ def web():
             ref_path = f.name
         try:
             audio = _synth(DEMO_TEXT, ref_path, DEMO_REF_TEXT)
-            return Response(content=audio, media_type="audio/wav")
+            return Response(
+                content=audio,
+                media_type="audio/wav",
+                headers={
+                    "Content-Disposition": 'inline; filename="gwen-demo.wav"',
+                    "Cache-Control": "no-store",
+                },
+            )
         finally:
             try:
                 os.unlink(ref_path)
@@ -178,7 +232,11 @@ def web():
             ref_path = f.name
         try:
             audio = _synth(req.text, ref_path, req.ref_text, req.language)
-            return Response(content=audio, media_type="audio/wav")
+            return Response(
+                content=audio,
+                media_type="audio/wav",
+                headers={"Content-Disposition": 'inline; filename="gwen-tts.wav"'},
+            )
         finally:
             try:
                 os.unlink(ref_path)
