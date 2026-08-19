@@ -1,0 +1,194 @@
+name: Runner3WP V2 R3 Streaming Shell A-B
+
+on:
+  push:
+    branches: [runner3wp-v2-r3-fcp-shell-20260820]
+    paths:
+      - '.github/workflows/runner3wp-v2-r3-stream-shell.yml'
+      - 'scripts/apply-runner3wp-r3-stream-shell.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-v2-r3-stream-shell
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_BRANCH: runner3wp-v2-r3-fcp-shell-20260820
+  BASELINE_SHA: 794a98069227d20ead5a073b062b14e3597a75f2
+  V1_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  R3_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/__runner3/r3-stream
+  CF_WORKER_NAME: wordpress-edge-proxy-v2
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+
+jobs:
+  r3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-r3-fcp-shell-20260820
+          fetch-depth: 0
+
+      - name: Build isolated R3 candidate
+        run: |
+          set -euo pipefail
+          node --check scripts/apply-runner3wp-r3-stream-shell.mjs
+          node scripts/apply-runner3wp-r3-stream-shell.mjs | tee /tmp/r3-patch.json
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          grep -q "R3_STREAM_PATH" edge/wordpress-edge-proxy/src/entry.js
+          grep -q "data-runner3-r3=\"first-paint\"" edge/wordpress-edge-proxy/src/entry.js
+
+      - name: Deploy candidate to V2 only
+        id: deploy_candidate
+        run: |
+          set -euo pipefail
+          node scripts/deploy-wordpress-workers-cache.mjs
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const r = await fetch(process.env.R3_URL, { headers: { 'user-agent': 'Runner3-R3-Guard/1.0' } });
+          const h = await r.text();
+          const o = {
+            ok: r.status === 200 && r.headers.get('x-runner3-r3') === 'stream-shell' && /noindex/i.test(r.headers.get('x-robots-tag') || '') && h.includes('data-runner3-r3="first-paint"') && h.includes('data-runner3-r3="deferred"'),
+            http: r.status,
+            marker: r.headers.get('x-runner3-r3'),
+            noindex: r.headers.get('x-robots-tag'),
+            bytes: Buffer.byteLength(h),
+            firstPaintMarker: h.includes('data-runner3-r3="first-paint"'),
+            deferredMarker: h.includes('data-runner3-r3="deferred"'),
+            checkedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync('/tmp/r3-guard.json', JSON.stringify(o, null, 2));
+          console.log(JSON.stringify(o, null, 2));
+          if (!o.ok) process.exit(7);
+          NODE
+
+      - name: Prepare Lighthouse
+        if: steps.deploy_candidate.outcome == 'success'
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
+
+      - name: Lighthouse mobile simulated 3x
+        if: steps.deploy_candidate.outcome == 'success'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/r3-lh
+          runlh(){
+            label="$1"; url="$2"
+            npx lighthouse "$url" \
+              --output=json --output-path="/tmp/r3-lh/${label}.json" \
+              --only-categories=performance \
+              --form-factor=mobile \
+              --throttling-method=simulate \
+              --screenEmulation.mobile=true \
+              --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+              --quiet
+          }
+          for i in 1 2 3; do runlh "v2-home-$i" "$V2_URL"; done
+          for i in 1 2 3; do runlh "r3-$i" "$R3_URL"; done
+
+      - name: Judge R3 target
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, statistics, datetime
+          root=pathlib.Path('/tmp/r3-lh')
+          def read(label):
+              p=root/f'{label}.json'
+              if not p.exists(): return None
+              d=json.loads(p.read_text())
+              a=d.get('audits',{})
+              def n(k): return (a.get(k) or {}).get('numericValue')
+              return {
+                'label':label,
+                'performance':(d.get('categories',{}).get('performance') or {}).get('score'),
+                'fcpMs':n('first-contentful-paint'),
+                'lcpMs':n('largest-contentful-paint'),
+                'tbtMs':n('total-blocking-time'),
+                'serverResponseMs':n('server-response-time'),
+                'speedIndexMs':n('speed-index'),
+              }
+          home=[x for i in (1,2,3) if (x:=read(f'v2-home-{i}'))]
+          r3=[x for i in (1,2,3) if (x:=read(f'r3-{i}'))]
+          complete=len(home)==3 and len(r3)==3 and all(x.get('fcpMs') is not None for x in home+r3)
+          med=lambda rows,key: statistics.median([x[key] for x in rows]) if rows and all(x.get(key) is not None for x in rows) else None
+          home_fcp=med(home,'fcpMs'); r3_fcp=med(r3,'fcpMs')
+          home_lcp=med(home,'lcpMs'); r3_lcp=med(r3,'lcpMs')
+          target=bool(complete and r3_fcp <= 500)
+          try: guard=json.load(open('/tmp/r3-guard.json'))
+          except: guard=None
+          try: patch=json.load(open('/tmp/r3-patch.json'))
+          except: patch=None
+          out={
+            'status':'ready' if complete else 'incomplete',
+            'experiment':'r3-stream-first-paint-shell',
+            'verdict':'TARGET_PASS' if target else ('REJECT_FCP_FLOOR' if complete else 'INCONCLUSIVE'),
+            'targetFcpMs':500,
+            'targetReached':target,
+            'baselineSha':'794a98069227d20ead5a073b062b14e3597a75f2',
+            'guard':guard,
+            'patch':patch,
+            'v2Home':{'runs':home,'medianFcpMs':home_fcp,'medianLcpMs':home_lcp},
+            'r3Stream':{'runs':r3,'medianFcpMs':r3_fcp,'medianLcpMs':r3_lcp},
+            'fcpImprovementMs':(home_fcp-r3_fcp) if complete else None,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'deploymentPolicy':'candidate tested on V2 only; baseline restored after measurement',
+          }
+          pathlib.Path('/tmp/r3-result.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Always restore V2 baseline
+        if: always()
+        run: |
+          set -euo pipefail
+          git reset --hard
+          git checkout --detach "$BASELINE_SHA"
+          node scripts/deploy-wordpress-workers-cache.mjs
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const home = await fetch(process.env.V2_URL, { headers: { 'user-agent': 'Runner3-R3-Rollback-Guard/1.0' } });
+          const r3 = await fetch(process.env.R3_URL, { headers: { 'user-agent': 'Runner3-R3-Rollback-Guard/1.0' } });
+          const o = {
+            ok: home.status === 200 && String(home.headers.get('x-edge-snapshot') || '').toUpperCase() === 'HIT' && !r3.headers.get('x-runner3-r3'),
+            homeHttp: home.status,
+            homeSnapshot: home.headers.get('x-edge-snapshot'),
+            r3Http: r3.status,
+            r3Marker: r3.headers.get('x-runner3-r3'),
+            checkedAt: new Date().toISOString(),
+          };
+          fs.writeFileSync('/tmp/r3-rollback.json', JSON.stringify(o, null, 2));
+          console.log(JSON.stringify(o, null, 2));
+          if (!o.ok) process.exit(12);
+          NODE
+
+      - name: Persist R3 evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s /tmp/r3-result.json || printf '{"status":"failed","experiment":"r3-stream-first-paint-shell","verdict":"INCONCLUSIVE"}\n' >/tmp/r3-result.json
+          git fetch origin "$CANDIDATE_BRANCH"
+          git checkout -B "$CANDIDATE_BRANCH" "origin/$CANDIDATE_BRANCH"
+          mkdir -p ops/perf/ab
+          cp /tmp/r3-result.json ops/perf/ab/runner3wp-v2-r3-stream.latest.json
+          cp /tmp/r3-rollback.json ops/perf/ab/runner3wp-v2-r3-stream.rollback.latest.json 2>/dev/null || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-v2-r3-stream*.json
+          git commit -m 'test: persist Runner3WP R3 streaming shell result' || exit 0
+          git push origin HEAD:"$CANDIDATE_BRANCH"
