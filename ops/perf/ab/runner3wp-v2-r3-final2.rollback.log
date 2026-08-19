@@ -1,0 +1,229 @@
+rollback attempt 1
+{
+  "status": "ready",
+  "origin": "https://runner3-factory-smoke-2.wasmer.app",
+  "builtAt": "2026-08-19T22:17:31.651Z",
+  "pages": 16,
+  "bytes": 367037,
+  "paths": [
+    "/",
+    "/2026/08/17/a-field-guide-to-useful-friction/",
+    "/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/",
+    "/2026/08/17/designing-for-people-who-skip-the-tutorial/",
+    "/2026/08/17/small-models-big-consequences/",
+    "/2026/08/17/the-new-geography-of-digital-work/",
+    "/2026/08/17/the-quiet-machines-running-the-city/",
+    "/2026/08/17/the-return-of-personal-software/",
+    "/2026/08/17/why-interfaces-are-becoming-invisible/",
+    "/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/",
+    "/about/",
+    "/category/culture/",
+    "/category/field-notes/",
+    "/category/systems/",
+    "/category/technology/",
+    "/contact/"
+  ],
+  "errors": [
+    {
+      "path": "/category/technology/feed/",
+      "status": 200,
+      "detail": "content-type=application/rss+xml; charset=UTF-8"
+    },
+    {
+      "path": "/category/culture/feed/",
+      "status": 200,
+      "detail": "content-type=application/rss+xml; charset=UTF-8"
+    },
+    {
+      "path": "/category/systems/feed/",
+      "status": 200,
+      "detail": "content-type=application/rss+xml; charset=UTF-8"
+    },
+    {
+      "path": "/category/field-notes/feed/",
+      "status": 200,
+      "detail": "content-type=application/rss+xml; charset=UTF-8"
+    }
+  ],
+  "modulePath": "edge/wordpress-edge-proxy/src/snapshot.generated.js",
+  "fcpV2": {
+    "enabled": false,
+    "deferredStyleCount": 0,
+    "deferredStyleBytes": 0,
+    "criticalCopyBytes": 0,
+    "headSavedBytes": 0,
+    "homepage": {
+      "enabled": false,
+      "deferredStyleCount": 0,
+      "deferredStyleBytes": 0,
+      "criticalCopyBytes": 0,
+      "headSavedBytes": 0,
+      "beforeBytes": 60920,
+      "afterBytes": 60920
+    }
+  }
+}
+
+ ⛅️ wrangler 4.124.0
+────────────────────
+Total Upload: 379.22 KiB / gzip: 33.03 KiB
+Worker Startup Time: 4 ms
+Your Worker has access to the following bindings:
+Binding                                                      Resource                  
+env.ORIGIN ("https://runner3-factory-smoke-2.wasme...")      Environment Variable      
+
+Uploaded wordpress-edge-proxy-v2 (1.36 sec)
+Deployed wordpress-edge-proxy-v2 triggers (0.50 sec)
+  https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+Current Version ID: 95d45eb5-2e4f-4510-872e-16980b8a0ea6
+{
+  "status": "completed",
+  "edgeUrl": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev",
+  "architecture": "snapshot-direct",
+  "purgeEndpoint": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/__runner3/cache/purge",
+  "auth": "HMAC-SHA256-preserved",
+  "checkedAt": "2026-08-19T22:17:44.055Z",
+  "snapshot": {
+    "status": "ready",
+    "origin": "https://runner3-factory-smoke-2.wasmer.app",
+    "builtAt": "2026-08-19T22:17:31.651Z",
+    "pages": 16,
+    "bytes": 367037,
+    "paths": [
+      "/",
+      "/2026/08/17/a-field-guide-to-useful-friction/",
+      "/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/",
+      "/2026/08/17/designing-for-people-who-skip-the-tutorial/",
+      "/2026/08/17/small-models-big-consequences/",
+      "/2026/08/17/the-new-geography-of-digital-work/",
+      "/2026/08/17/the-quiet-machines-running-the-city/",
+      "/2026/08/17/the-return-of-personal-software/",
+      "/2026/08/17/why-interfaces-are-becoming-invisible/",
+      "/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/",
+      "/about/",
+      "/category/culture/",
+      "/category/field-notes/",
+      "/category/systems/",
+      "/category/technology/",
+      "/contact/"
+    ],
+    "errors": [
+      {
+        "path": "/category/technology/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      },
+      {
+        "path": "/category/culture/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      },
+      {
+        "path": "/category/systems/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      },
+      {
+        "path": "/category/field-notes/feed/",
+        "status": 200,
+        "detail": "content-type=application/rss+xml; charset=UTF-8"
+      }
+    ],
+    "modulePath": "edge/wordpress-edge-proxy/src/snapshot.generated.js",
+    "fcpV2": {
+      "enabled": false,
+      "deferredStyleCount": 0,
+      "deferredStyleBytes": 0,
+      "criticalCopyBytes": 0,
+      "headSavedBytes": 0,
+      "homepage": {
+        "enabled": false,
+        "deferredStyleCount": 0,
+        "deferredStyleBytes": 0,
+        "criticalCopyBytes": 0,
+        "headSavedBytes": 0,
+        "beforeBytes": 60920,
+        "afterBytes": 60920
+      }
+    }
+  },
+  "probe": {
+    "publicReady": true,
+    "policyReady": true,
+    "snapshotReady": true,
+    "coldFast": true,
+    "medianSnapshotMs": 20,
+    "cacheHit": false,
+    "signedPurgeRequired": true,
+    "loginSafe": true,
+    "cookieSafe": true,
+    "responsiveReady": true,
+    "noindexReady": true,
+    "unsignedPurgeHttp": 401,
+    "homeRuns": [
+      {
+        "http": 200,
+        "ms": 87,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T22:17:31.651Z"
+      },
+      {
+        "http": 200,
+        "ms": 16.6,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T22:17:31.651Z"
+      },
+      {
+        "http": 200,
+        "ms": 20,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T22:17:31.651Z"
+      },
+      {
+        "http": 200,
+        "ms": 18.5,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T22:17:31.651Z"
+      }
+    ],
+    "first": {
+      "http": 200,
+      "ms": 87,
+      "cfCacheStatus": null,
+      "age": null,
+      "edgeMode": "snapshot",
+      "edgeSnapshot": "HIT",
+      "edgePolicy": "snapshot-direct"
+    },
+    "second": {
+      "http": 200,
+      "ms": 18.5,
+      "cfCacheStatus": null,
+      "age": null,
+      "edgeMode": "snapshot",
+      "edgeSnapshot": "HIT",
+      "edgePolicy": "snapshot-direct"
+    },
+    "authBypass": {
+      "http": 200,
+      "edgeMode": "bypass",
+      "cacheControl": "private, no-store"
+    }
+  }
+}

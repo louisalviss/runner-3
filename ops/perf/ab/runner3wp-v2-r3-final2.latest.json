@@ -1,0 +1,92 @@
+{
+  "status": "ready",
+  "experiment": "r3-stream-first-paint-shell-final2",
+  "verdict": "REJECT_FCP_FLOOR",
+  "targetFcpMs": 500,
+  "targetReached": false,
+  "guard": {
+    "ok": true,
+    "http": 200,
+    "marker": "stream-shell",
+    "noindex": "noindex, nofollow, noarchive, nosnippet",
+    "bytes": 61491,
+    "checkedAt": "2026-08-19T22:15:36.096Z"
+  },
+  "patch": {
+    "status": "patched",
+    "file": "edge/wordpress-edge-proxy/src/entry.js",
+    "route": "/__runner3/r3-stream",
+    "delayMs": 900,
+    "firstChunkBytes": 739
+  },
+  "deployLogTail": "set=UTF-8\"\n    },\n    {\n      \"path\": \"/category/systems/feed/\",\n      \"status\": 200,\n      \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n    },\n    {\n      \"path\": \"/category/field-notes/feed/\",\n      \"status\": 200,\n      \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n    }\n  ],\n  \"modulePath\": \"edge/wordpress-edge-proxy/src/snapshot.generated.js\"\n}\n\n \u26c5\ufe0f wrangler 4.124.0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nTotal Upload: 382.54 KiB / gzip: 34.13 KiB\nWorker Startup Time: 4 ms\nYour Worker has access to the following bindings:\nBinding                                                      Resource                  \nenv.ORIGIN (\"https://runner3-factory-smoke-2.wasme...\")      Environment Variable      \n\nUploaded wordpress-edge-proxy-v2 (1.67 sec)\nDeployed wordpress-edge-proxy-v2 triggers (0.56 sec)\n  https://wordpress-edge-proxy-v2.ducduy2411.workers.dev\nCurrent Version ID: ea1d18d7-c8c1-4766-9cbc-4bbee835a8ed\n\nCloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md\n{\n  \"status\": \"completed\",\n  \"edgeUrl\": \"https://wordpress-edge-proxy-v2.ducduy2411.workers.dev\",\n  \"architecture\": \"snapshot-direct\",\n  \"purgeEndpoint\": \"https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/__runner3/cache/purge\",\n  \"auth\": \"HMAC-SHA256-preserved\",\n  \"checkedAt\": \"2026-08-19T22:15:35.042Z\",\n  \"snapshot\": {\n    \"status\": \"ready\",\n    \"origin\": \"https://runner3-factory-smoke-2.wasmer.app\",\n    \"builtAt\": \"2026-08-19T22:15:13.081Z\",\n    \"pages\": 16,\n    \"bytes\": 367037,\n    \"paths\": [\n      \"/\",\n      \"/2026/08/17/a-field-guide-to-useful-friction/\",\n      \"/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/\",\n      \"/2026/08/17/designing-for-people-who-skip-the-tutorial/\",\n      \"/2026/08/17/small-models-big-consequences/\",\n      \"/2026/08/17/the-new-geography-of-digital-work/\",\n      \"/2026/08/17/the-quiet-machines-running-the-city/\",\n      \"/2026/08/17/the-return-of-personal-software/\",\n      \"/2026/08/17/why-interfaces-are-becoming-invisible/\",\n      \"/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/\",\n      \"/about/\",\n      \"/category/culture/\",\n      \"/category/field-notes/\",\n      \"/category/systems/\",\n      \"/category/technology/\",\n      \"/contact/\"\n    ],\n    \"errors\": [\n      {\n        \"path\": \"/category/technology/feed/\",\n        \"status\": 200,\n        \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n      },\n      {\n        \"path\": \"/category/culture/feed/\",\n        \"status\": 200,\n        \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n      },\n      {\n        \"path\": \"/category/systems/feed/\",\n        \"status\": 200,\n        \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n      },\n      {\n        \"path\": \"/category/field-notes/feed/\",\n        \"status\": 200,\n        \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n      }\n    ],\n    \"modulePath\": \"edge/wordpress-edge-proxy/src/snapshot.generated.js\"\n  },\n  \"probe\": {\n    \"publicReady\": true,\n    \"policyReady\": true,\n    \"snapshotReady\": true,\n    \"coldFast\": true,\n    \"medianSnapshotMs\": 21.4,\n    \"cacheHit\": false,\n    \"signedPurgeRequired\": true,\n    \"loginSafe\": true,\n    \"cookieSafe\": true,\n    \"responsiveReady\": true,\n    \"noindexReady\": true,\n    \"unsignedPurgeHttp\": 401,\n    \"homeRuns\": [\n      {\n        \"http\": 200,\n        \"ms\": 127.7,\n        \"cfCacheStatus\": null,\n        \"age\": null,\n        \"edgeMode\": \"snapshot\",\n        \"edgeSnapshot\": \"HIT\",\n        \"edgePolicy\": \"snapshot-direct\",\n        \"snapshotBuiltAt\": \"2026-08-19T22:15:13.081Z\"\n      },\n      {\n        \"http\": 200,\n        \"ms\": 18.4,\n        \"cfCacheStatus\": null,\n        \"age\": null,\n        \"edgeMode\": \"snapshot\",\n        \"edgeSnapshot\": \"HIT\",\n        \"edgePolicy\": \"snapshot-direct\",\n        \"snapshotBuiltAt\": \"2026-08-19T22:15:13.081Z\"\n      },\n      {\n        \"http\": 200,\n        \"ms\": 18.8,\n        \"cfCacheStatus\": null,\n        \"age\": null,\n        \"edgeMode\": \"snapshot\",\n        \"edgeSnapshot\": \"HIT\",\n        \"edgePolicy\": \"snapshot-direct\",\n        \"snapshotBuiltAt\": \"2026-08-19T22:15:13.081Z\"\n      },\n      {\n        \"http\": 200,\n        \"ms\": 21.4,\n        \"cfCacheStatus\": null,\n        \"age\": null,\n        \"edgeMode\": \"snapshot\",\n        \"edgeSnapshot\": \"HIT\",\n        \"edgePolicy\": \"snapshot-direct\",\n        \"snapshotBuiltAt\": \"2026-08-19T22:15:13.081Z\"\n      }\n    ],\n    \"first\": {\n      \"http\": 200,\n      \"ms\": 127.7,\n      \"cfCacheStatus\": null,\n      \"age\": null,\n      \"edgeMode\": \"snapshot\",\n      \"edgeSnapshot\": \"HIT\",\n      \"edgePolicy\": \"snapshot-direct\"\n    },\n    \"second\": {\n      \"http\": 200,\n      \"ms\": 21.4,\n      \"cfCacheStatus\": null,\n      \"age\": null,\n      \"edgeMode\": \"snapshot\",\n      \"edgeSnapshot\": \"HIT\",\n      \"edgePolicy\": \"snapshot-direct\"\n    },\n    \"authBypass\": {\n      \"http\": 200,\n      \"edgeMode\": \"bypass\",\n      \"cacheControl\": \"private, no-store\"\n    }\n  }\n}\n",
+  "v2Home": {
+    "runs": [
+      {
+        "label": "home-1",
+        "fcpMs": 1060.145,
+        "lcpMs": 2272.41,
+        "tbtMs": 1879,
+        "serverResponseMs": 12.233000000000004,
+        "speedIndexMs": 1952.516675899154,
+        "performance": 0.71
+      },
+      {
+        "label": "home-2",
+        "fcpMs": 1048.514,
+        "lcpMs": 2297.456,
+        "tbtMs": 0,
+        "serverResponseMs": 46.114000000000004,
+        "speedIndexMs": 1048.514,
+        "performance": 0.98
+      },
+      {
+        "label": "home-3",
+        "fcpMs": 1020.028,
+        "lcpMs": 2258.201,
+        "tbtMs": 0,
+        "serverResponseMs": 18.433,
+        "speedIndexMs": 1020.028,
+        "performance": 0.99
+      }
+    ],
+    "medianFcpMs": 1048.514,
+    "medianLcpMs": 2272.41
+  },
+  "r3Stream": {
+    "runs": [
+      {
+        "label": "r3-1",
+        "fcpMs": 904.6999999999998,
+        "lcpMs": 2151.795,
+        "tbtMs": 0,
+        "serverResponseMs": 939.909,
+        "speedIndexMs": 2930.1698499999793,
+        "performance": 0.98
+      },
+      {
+        "label": "r3-2",
+        "fcpMs": 907.2139999999999,
+        "lcpMs": 2008.998,
+        "tbtMs": 0,
+        "serverResponseMs": 957.1510000000001,
+        "speedIndexMs": 1911.2756460000076,
+        "performance": 0.99
+      },
+      {
+        "label": "r3-3",
+        "fcpMs": 872.288,
+        "lcpMs": 2031.6040000000003,
+        "tbtMs": 0,
+        "serverResponseMs": 938.285,
+        "speedIndexMs": 1868.7231120000129,
+        "performance": 0.99
+      }
+    ],
+    "medianFcpMs": 904.6999999999998,
+    "medianLcpMs": 2031.6040000000003
+  },
+  "fcpImprovementMs": 143.81400000000008,
+  "checkedAt": "2026-08-19T22:17:31.270142+00:00",
+  "deploymentPolicy": "V2-only; rollback to proven bfaca6 baseline"
+}
