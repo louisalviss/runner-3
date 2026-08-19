@@ -3,7 +3,8 @@ name: Reddit Unsolved Narrator Audio
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - '.runner-reddit-unsolved-trigger'
 
@@ -27,111 +28,11 @@ jobs:
       VOICE_RATE: +3%
       WORKDIR: work/reddit-unsolved
       OUTDIR: artifacts/reddit-unsolved
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Configure status commits
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-      - name: Mark run started
-        run: |
-          python scripts/reddit_stage_status.py publish pending running
-          git add ops/reddit-narrator/latest.json
-          git commit -m 'Mark Reddit narrator run started' || true
-          git push origin HEAD:main || true
-
-      - name: Install lightweight tools
-        id: install
-        run: |
-          python -m pip install -q -U requests beautifulsoup4 playwright edge-tts
-          if ! command -v ffmpeg >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ffmpeg
-          fi
-          mkdir -p "$WORKDIR" "$OUTDIR"
-
-      - name: Checkpoint install
-        if: steps.install.outcome == 'success'
-        run: |
-          git pull --rebase origin main || true
-          python scripts/reddit_stage_status.py install success running
-          git add ops/reddit-narrator/latest.json
-          git commit -m 'Reddit narrator install complete' || true
-          git push origin HEAD:main || true
-
-      - name: Fetch Reddit with Runner
-        id: fetch_reddit
-        run: bash scripts/reddit_fetch_runner.sh
-
-      - name: Checkpoint fetch
-        if: steps.fetch_reddit.outcome == 'success'
-        run: |
-          git pull --rebase origin main || true
-          python scripts/reddit_stage_status.py redditFetch success running
-          git add ops/reddit-narrator/latest.json
-          git commit -m 'Reddit narrator fetch complete' || true
-          git push origin HEAD:main || true
-
-      - name: Render Nam Minh MP3 and resume player
-        id: render
-        run: |
-          python -m py_compile scripts/reddit_unsolved_narrator.py
-          python scripts/reddit_unsolved_narrator.py | tee "$OUTDIR/render-summary.txt"
-          test -s "$OUTDIR/episode.mp3"
-          test -s "$OUTDIR/index.html"
-          ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUTDIR/episode.mp3"
-
-      - name: Checkpoint render
-        if: steps.render.outcome == 'success'
-        run: |
-          git pull --rebase origin main || true
-          python scripts/reddit_stage_status.py render success running
-          git add ops/reddit-narrator/latest.json
-          git commit -m 'Reddit narrator render complete' || true
-          git push origin HEAD:main || true
-
-      - name: Publish to R2
-        id: publish
-        run: |
-          test -n "${CLOUDFLARE_API_TOKEN:-}"
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
-          echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
-          echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
-          base="$(python -c "import json; print(json.load(open('ops/r2-media/status.json'))['baseUrl'])")"
-          put() {
-            npx -y wrangler@4.123.0 r2 object put "$BUCKET/$2" --file="$1" --content-type="$3" --cache-control="$4" --remote
-          }
-          put "$OUTDIR/episode.mp3" "$PREFIX/episode.mp3" 'audio/mpeg' 'public, max-age=300'
-          put "$OUTDIR/index.html" "$PREFIX/index.html" 'text/html; charset=utf-8' 'public, max-age=60'
-          put "$OUTDIR/chapters.json" "$PREFIX/chapters.json" 'application/json; charset=utf-8' 'public, max-age=60'
-          put "$OUTDIR/top-comments.json" "$PREFIX/top-comments.json" 'application/json; charset=utf-8' 'public, max-age=60'
-          put "$OUTDIR/transcript.txt" "$PREFIX/transcript.txt" 'text/plain; charset=utf-8' 'public, max-age=60'
-          player="$base/$PREFIX/index.html"
-          audio="$base/$PREFIX/episode.mp3"
-          code_html="$(curl -sS -o /tmp/player.html -w '%{http_code}' "$player")"
-          code_audio="$(curl -sS -I -o /tmp/audio-head.txt -w '%{http_code}' "$audio")"
-          test "$code_html" = 200
-          test "$code_audio" = 200
-          grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html
-          echo "PLAYER_URL=$player"
-          echo "AUDIO_URL=$audio"
-
-      - name: Persist final status
-        if: always()
-        env:
-          INSTALL_OUTCOME: ${{ steps.install.outcome }}
-          FETCH_OUTCOME: ${{ steps.fetch_reddit.outcome }}
-          RENDER_OUTCOME: ${{ steps.render.outcome }}
-          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
-        run: |
-          git pull --rebase origin main || true
-          python scripts/reddit_finalize_status.py
-          git add ops/reddit-narrator/latest.json
-          git commit -m 'Persist Reddit narrator run status' || exit 0
-          git push origin HEAD:main || true
+      - name: Run narrator pipeline
+        shell: bash
+        run: bash scripts/reddit_narrator_run.sh
