@@ -1,0 +1,120 @@
+name: Deploy Gwen-TTS on Modal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modal_gwen_tts.py'
+      - '.github/workflows/modal-gwen-tts-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: '1'
+      NO_COLOR: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Modal SDK
+        run: python -m pip install --upgrade 'modal==1.5.3'
+
+      - name: Authenticate Modal interactively
+        run: |
+          echo 'MODAL_LOGIN_START'
+          python -m modal token new --verify
+          echo 'MODAL_LOGIN_OK'
+
+      - name: Deploy Gwen-TTS service
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m modal deploy modal_gwen_tts.py 2>&1 | tee /tmp/modal-deploy.log
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' /tmp/modal-deploy.log > /tmp/modal-deploy-clean.log
+          URL="$(grep -Eo 'https://[^[:space:]]+\.modal\.run' /tmp/modal-deploy-clean.log | tail -n1)"
+          test -n "$URL"
+          echo "GWEN_ENDPOINT=$URL" | tee -a "$GITHUB_ENV" "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 180 "$GWEN_ENDPOINT/health" -o /tmp/gwen-health.json
+          cat /tmp/gwen-health.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/gwen-health.json'))
+          assert d['ok'] is True
+          assert 'T4' in d['gpu']
+          assert d['dtype'] == 'float16'
+          assert d['attention'] == 'sdpa'
+          PY
+
+      - name: Run Vietnamese synthesis demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fSL --max-time 900 "$GWEN_ENDPOINT/demo" -o /tmp/gwen-demo.wav
+          test -s /tmp/gwen-demo.wav
+          python - <<'PY'
+          import wave
+          p='/tmp/gwen-demo.wav'
+          with wave.open(p,'rb') as w:
+              frames=w.getnframes(); rate=w.getframerate(); channels=w.getnchannels()
+              duration=frames/rate
+          print(f'WAV_OK rate={rate} channels={channels} duration={duration:.2f}s bytes={__import__("os").path.getsize(p)}')
+          assert rate > 10000
+          assert channels in (1,2)
+          assert duration > 1.0
+          PY
+          sha256sum /tmp/gwen-demo.wav | tee /tmp/gwen-demo.sha256
+
+      - name: Publish result to repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, wave
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          wav=Path('/tmp/gwen-demo.wav')
+          with wave.open(str(wav),'rb') as w:
+              duration=w.getnframes()/w.getframerate()
+              rate=w.getframerate()
+              channels=w.getnchannels()
+          result={
+              'ok': True,
+              'checked_at': datetime.now(timezone.utc).isoformat(),
+              'endpoint': os.environ['GWEN_ENDPOINT'],
+              'model': 'g-group-ai-lab/gwen-tts-0.6B',
+              'gpu': json.load(open('/tmp/gwen-health.json'))['gpu'],
+              'dtype': 'float16',
+              'attention': 'sdpa',
+              'demo': {
+                  'bytes': wav.stat().st_size,
+                  'duration_seconds': round(duration,3),
+                  'sample_rate': rate,
+                  'channels': channels,
+                  'sha256': hashlib.sha256(wav.read_bytes()).hexdigest(),
+              },
+          }
+          Path('modal-gwen-tts-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add modal-gwen-tts-result.json
+          git diff --cached --quiet || git commit -m 'test: record Gwen-TTS Modal result'
+          git push
