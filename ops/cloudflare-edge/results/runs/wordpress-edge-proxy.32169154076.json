@@ -1,14 +1,14 @@
 {
-  "status": "failed",
+  "status": "completed",
   "edgeUrl": "https://wordpress-edge-proxy.ducduy2411.workers.dev",
-  "architecture": "snapshot-first-workers-caching",
+  "architecture": "snapshot-direct",
   "purgeEndpoint": "https://wordpress-edge-proxy.ducduy2411.workers.dev/__runner3/cache/purge",
   "auth": "HMAC-SHA256-preserved",
-  "checkedAt": "2026-08-19T09:55:06.008Z",
+  "checkedAt": "2026-08-19T09:59:38.415Z",
   "snapshot": {
     "status": "ready",
     "origin": "https://runner3-factory-smoke-2.wasmer.app",
-    "builtAt": "2026-08-19T09:54:40.913Z",
+    "builtAt": "2026-08-19T09:59:17.649Z",
     "pages": 16,
     "bytes": 367037,
     "paths": [
@@ -56,10 +56,10 @@
   "probe": {
     "publicReady": true,
     "policyReady": true,
-    "snapshotReady": false,
-    "coldFast": false,
-    "medianSnapshotMs": null,
-    "cacheHit": true,
+    "snapshotReady": true,
+    "coldFast": true,
+    "medianSnapshotMs": 26.1,
+    "cacheHit": false,
     "signedPurgeRequired": true,
     "loginSafe": true,
     "cookieSafe": true,
@@ -69,56 +69,62 @@
     "homeRuns": [
       {
         "http": 200,
-        "ms": 1368.8,
-        "cfCacheStatus": "MISS",
+        "ms": 290.6,
+        "cfCacheStatus": null,
         "age": null,
-        "edgeMode": "html-origin",
-        "edgeSnapshot": null,
-        "snapshotBuiltAt": null
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T09:59:17.649Z"
       },
       {
         "http": 200,
-        "ms": 19.5,
-        "cfCacheStatus": "HIT",
-        "age": "0",
-        "edgeMode": "html-origin",
-        "edgeSnapshot": null,
-        "snapshotBuiltAt": null
+        "ms": 26,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T09:59:17.649Z"
       },
       {
         "http": 200,
-        "ms": 18.9,
-        "cfCacheStatus": "HIT",
-        "age": "0",
-        "edgeMode": "html-origin",
-        "edgeSnapshot": null,
-        "snapshotBuiltAt": null
+        "ms": 26.1,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T09:59:17.649Z"
       },
       {
         "http": 200,
-        "ms": 22,
-        "cfCacheStatus": "HIT",
-        "age": "1",
-        "edgeMode": "html-origin",
-        "edgeSnapshot": null,
-        "snapshotBuiltAt": null
+        "ms": 24.6,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct",
+        "snapshotBuiltAt": "2026-08-19T09:59:17.649Z"
       }
     ],
     "first": {
       "http": 200,
-      "ms": 1368.8,
-      "cfCacheStatus": "MISS",
+      "ms": 290.6,
+      "cfCacheStatus": null,
       "age": null,
-      "edgeMode": "html-origin",
-      "edgeSnapshot": null
+      "edgeMode": "snapshot",
+      "edgeSnapshot": "HIT",
+      "edgePolicy": "snapshot-direct"
     },
     "second": {
       "http": 200,
-      "ms": 22,
-      "cfCacheStatus": "HIT",
-      "age": "1",
-      "edgeMode": "html-origin",
-      "edgeSnapshot": null
+      "ms": 24.6,
+      "cfCacheStatus": null,
+      "age": null,
+      "edgeMode": "snapshot",
+      "edgeSnapshot": "HIT",
+      "edgePolicy": "snapshot-direct"
     },
     "authBypass": {
       "http": 200,
