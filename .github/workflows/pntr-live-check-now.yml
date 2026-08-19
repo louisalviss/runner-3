@@ -8,36 +8,101 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check DNS and HTTPS
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check DNS, HTTPS and Pages gateway
         shell: bash
         run: |
           set -uo pipefail
-          DOMAIN='runner3wp.pntr.dev'
-          EXPECTED='lnh8iwtjmk3x.id.wasmer.app.'
-          echo "DOMAIN=$DOMAIN"
-          echo '--- DNS CNAME ---'
-          CNAME="$(dig +short CNAME "$DOMAIN" | head -n1 || true)"
-          echo "CNAME=${CNAME:-NONE}"
-          if [ "$CNAME" = "$EXPECTED" ]; then echo 'DNS_OK=true'; else echo 'DNS_OK=false'; fi
-          echo '--- DNS A/AAAA ---'
-          dig +short A "$DOMAIN" || true
-          dig +short AAAA "$DOMAIN" || true
-          echo '--- HTTPS ---'
-          code="$(curl -L -sS -o /tmp/body -w '%{http_code}' --connect-timeout 10 --max-time 20 "https://$DOMAIN/" || true)"
-          echo "HTTPS_STATUS=${code:-000}"
-          if [ "${code:-000}" = '200' ]; then echo 'HTTPS_OK=true'; else echo 'HTTPS_OK=false'; fi
-          if [ -s /tmp/body ]; then
-            python - <<'PY'
-          import re
-          s=open('/tmp/body','rb').read(4096).decode('utf-8','replace')
-          s=re.sub(r'\s+',' ',s).strip()
-          print('BODY_SNIPPET='+s[:240])
+          python - <<'PY'
+          import datetime, json, subprocess, urllib.error, urllib.request
+
+          domain='runner3wp.pntr.dev'
+          expected='runner3wp-pages-gateway.pages.dev.'
+          base='https://'+domain
+
+          def dig(kind):
+              try:
+                  p=subprocess.run(['dig','+short',kind,domain],capture_output=True,text=True,timeout=15)
+                  return [x.strip() for x in p.stdout.splitlines() if x.strip()]
+              except Exception:
+                  return []
+
+          def fetch(path):
+              req=urllib.request.Request(base+path,headers={'User-Agent':'Runner3PntrLiveCheck/2.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      body=r.read(65536).decode('utf-8','replace')
+                      return r.status,dict(r.headers),body,r.geturl()
+              except urllib.error.HTTPError as e:
+                  return e.code,dict(e.headers),e.read(65536).decode('utf-8','replace'),e.geturl()
+              except Exception as e:
+                  return 0,{},type(e).__name__+': '+str(e),base+path
+
+          cname=dig('CNAME')
+          a=dig('A')
+          aaaa=dig('AAAA')
+          home_http,home_headers,home_body,home_final=fetch('/')
+          health_http,health_headers,health_body,health_final=fetch('/__runner3/pages-gateway/health')
+
+          gateway_ok=(health_http==200 and 'runner3wp-pages-gateway' in health_body)
+          edge_proxy=home_headers.get('X-Edge-Proxy') or home_headers.get('x-edge-proxy')
+          edge_mode=home_headers.get('X-Edge-Mode') or home_headers.get('x-edge-mode')
+          cf_ray=home_headers.get('Cf-Ray') or home_headers.get('CF-RAY') or home_headers.get('cf-ray')
+          server=home_headers.get('Server') or home_headers.get('server')
+
+          out={
+            'status':'live_on_pages_gateway' if home_http==200 and gateway_ok else 'failed',
+            'domain':domain,
+            'expectedCname':expected.rstrip('.'),
+            'cname':cname,
+            'a':a,
+            'aaaa':aaaa,
+            'cnameDirectMatch':expected in cname,
+            'httpCode':home_http,
+            'finalUrl':home_final,
+            'gatewayHealthHttp':health_http,
+            'gatewayHealthOk':gateway_ok,
+            'gatewayHealthFinalUrl':health_final,
+            'edgeProxy':edge_proxy,
+            'edgeMode':edge_mode,
+            'cfRayPresent':bool(cf_ray),
+            'server':server,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
+          }
+          print(json.dumps(out,indent=2))
+          open('/tmp/pntr-live-verify.json','w').write(json.dumps(out,indent=2)+'\n')
+          if out['status']!='live_on_pages_gateway':
+              raise SystemExit('pntr_pages_gateway_verification_failed')
           PY
-          fi
+
+      - name: Persist verification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/pntr-live-verify.json || printf '{"status":"failed","detail":"verification_missing"}\n' >/tmp/pntr-live-verify.json
+          cp /tmp/pntr-live-verify.json /tmp/pntr-live-verify-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pntr
+            cp /tmp/pntr-live-verify-safe.json ops/pntr/live-verify.json
+            git add ops/pntr/live-verify.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist PNTR Pages gateway live verification: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
