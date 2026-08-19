@@ -1,0 +1,112 @@
+name: Runner3 HTML Cache Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-html-cache-probe.yml'
+      - 'ops/triggers/runner3-html-cache-probe.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-html-cache-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Probe production HTML latency and cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, subprocess, tempfile, os
+
+          url='https://runner3wp.pntr.dev/'
+          rows=[]
+          for i in range(1,6):
+              fd, header_path=tempfile.mkstemp(prefix='runner3-headers-',suffix='.txt')
+              os.close(fd)
+              fmt='{"dns":%{time_namelookup},"connect":%{time_connect},"tls":%{time_appconnect},"ttfb":%{time_starttransfer},"total":%{time_total},"http":%{http_code}}'
+              p=subprocess.run([
+                  'curl','-sS','-L','-o','/dev/null','-D',header_path,
+                  '-H','Cache-Control: no-cache' if i==1 else 'Accept: text/html',
+                  '-w',fmt,url
+              ],capture_output=True,text=True,timeout=45)
+              try:
+                  timing=json.loads(p.stdout.strip())
+              except Exception:
+                  timing={'curl_error':(p.stderr or p.stdout).strip()[:300]}
+              headers={}
+              try:
+                  blocks=open(header_path,encoding='utf-8',errors='replace').read().strip().split('\r\n\r\n')
+                  raw=blocks[-1] if blocks else ''
+                  for line in raw.replace('\r','').split('\n')[1:]:
+                      if ':' not in line: continue
+                      k,v=line.split(':',1)
+                      headers[k.strip().lower()]=v.strip()
+              finally:
+                  try: os.unlink(header_path)
+                  except OSError: pass
+              rows.append({
+                  'run':i,
+                  **timing,
+                  'cfCacheStatus':headers.get('cf-cache-status'),
+                  'age':headers.get('age'),
+                  'edgeCachePolicy':headers.get('x-edge-cache-policy'),
+                  'edgeHtmlCache':headers.get('x-edge-html-cache'),
+                  'edgeMode':headers.get('x-edge-mode'),
+                  'upstreamCfCacheStatus':headers.get('x-upstream-cf-cache-status'),
+                  'server':headers.get('server'),
+                  'cfRayPresent':bool(headers.get('cf-ray')),
+              })
+
+          good=[r for r in rows if isinstance(r.get('ttfb'),(int,float)) and r.get('http')==200]
+          out={
+              'status':'ok' if len(good)==5 else 'partial',
+              'target':url,
+              'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+              'runs':rows,
+              'summary':{
+                  'minTtfb':min((r['ttfb'] for r in good),default=None),
+                  'medianTtfb':sorted((r['ttfb'] for r in good))[len(good)//2] if good else None,
+                  'minTotal':min((r['total'] for r in good),default=None),
+                  'cfHits':sum(1 for r in good if str(r.get('cfCacheStatus') or '').upper()=='HIT'),
+                  'explicitHtmlHits':sum(1 for r in good if str(r.get('edgeHtmlCache') or '').upper()=='HIT'),
+              }
+          }
+          os.makedirs('/tmp/runner3-perf',exist_ok=True)
+          open('/tmp/runner3-perf/html-cache.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Persist probe
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner3-perf/html-cache.json || printf '{"status":"failed","detail":"probe_missing"}\n' >/tmp/runner3-perf/html-cache.json
+          cp /tmp/runner3-perf/html-cache.json /tmp/runner3-html-cache-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/perf
+            cp /tmp/runner3-html-cache-safe.json ops/perf/runner3-html-cache.latest.json
+            git add ops/perf/runner3-html-cache.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner3 HTML cache probe: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
