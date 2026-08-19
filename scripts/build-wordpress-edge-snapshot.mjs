@@ -50,29 +50,49 @@ function internalPaths(html, baseUrl) {
 }
 
 function optimizeFcpHtml(html) {
-  if (!fcpV2) return { html, movedStyleCount: 0, movedStyleBytes: 0 };
+  if (!fcpV2) return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
 
-  const moved = [];
-  const headOptimized = html.replace(
-    /<style\b[^>]*\bid=(["'])(wp-emoji-styles-inline-css|wp-block-library-inline-css|global-styles-inline-css)\1[^>]*>[\s\S]*?<\/style>\s*/gi,
-    (tag, _quote, id) => {
-      moved.push({ id, tag });
-      return '';
-    },
-  );
+  const targetIds = new Set([
+    'wp-emoji-styles-inline-css',
+    'wp-block-library-inline-css',
+    'global-styles-inline-css',
+    'runner3-critical-css',
+  ]);
+  const styleRe = /<style\b[^>]*\bid=(["'])([^"']+)\1[^>]*>[\s\S]*?<\/style>\s*/gi;
+  const deferred = [];
+  let criticalOriginal = null;
+  const stripped = html.replace(styleRe, (tag, _quote, id) => {
+    if (!targetIds.has(String(id).toLowerCase())) return tag;
+    deferred.push({ id: String(id).toLowerCase(), tag });
+    if (String(id).toLowerCase() === 'runner3-critical-css') criticalOriginal = tag;
+    return '';
+  });
 
-  if (!moved.length) return { html, movedStyleCount: 0, movedStyleBytes: 0 };
+  if (!criticalOriginal || deferred.length < 2) {
+    return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+  }
 
-  const deferredCss = `\n<!-- runner3-v2-fcp-deferred-css -->\n${moved.map(({ tag }) => tag).join('\n')}\n`;
-  const bodyClose = headOptimized.lastIndexOf('</body>');
+  const criticalCopy = criticalOriginal
+    .replace(/\bid=(["'])runner3-critical-css\1/i, 'id="runner3-v2-critical-css" data-runner3-v2-critical="1"')
+    .trim();
+  const withCritical = /<\/head>/i.test(stripped)
+    ? stripped.replace(/<\/head>/i, `${criticalCopy}\n</head>`)
+    : stripped;
+
+  const deferredCss = `\n<!-- runner3-v2-original-css-order -->\n${deferred.map(({ tag }) => tag.trim()).join('\n')}\n`;
+  const bodyClose = withCritical.lastIndexOf('</body>');
   const optimized = bodyClose >= 0
-    ? `${headOptimized.slice(0, bodyClose)}${deferredCss}${headOptimized.slice(bodyClose)}`
-    : `${headOptimized}${deferredCss}`;
+    ? `${withCritical.slice(0, bodyClose)}${deferredCss}${withCritical.slice(bodyClose)}`
+    : `${withCritical}${deferredCss}`;
 
+  const deferredStyleBytes = deferred.reduce((sum, { tag }) => sum + Buffer.byteLength(tag), 0);
+  const criticalCopyBytes = Buffer.byteLength(criticalCopy);
   return {
     html: optimized,
-    movedStyleCount: moved.length,
-    movedStyleBytes: moved.reduce((sum, { tag }) => sum + Buffer.byteLength(tag), 0),
+    deferredStyleCount: deferred.length,
+    deferredStyleBytes,
+    criticalCopyBytes,
+    headSavedBytes: Math.max(0, deferredStyleBytes - criticalCopyBytes),
   };
 }
 
@@ -123,8 +143,10 @@ for (const path of await sitemapPaths()) {
 const snapshots = {};
 const errors = [];
 let totalBytes = 0;
-let movedStyleCount = 0;
-let movedStyleBytes = 0;
+let deferredStyleCount = 0;
+let deferredStyleBytes = 0;
+let criticalCopyBytes = 0;
+let headSavedBytes = 0;
 let homepageFcp = null;
 
 while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < maxBytes) {
@@ -148,13 +170,17 @@ while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < 
     const sourceHtml = await response.text();
     const fcp = optimizeFcpHtml(sourceHtml);
     const html = fcp.html;
-    movedStyleCount += fcp.movedStyleCount;
-    movedStyleBytes += fcp.movedStyleBytes;
+    deferredStyleCount += fcp.deferredStyleCount;
+    deferredStyleBytes += fcp.deferredStyleBytes;
+    criticalCopyBytes += fcp.criticalCopyBytes;
+    headSavedBytes += fcp.headSavedBytes;
     if (normalizePath(requestedUrl.pathname) === '/') {
       homepageFcp = {
         enabled: fcpV2,
-        movedStyleCount: fcp.movedStyleCount,
-        movedStyleBytes: fcp.movedStyleBytes,
+        deferredStyleCount: fcp.deferredStyleCount,
+        deferredStyleBytes: fcp.deferredStyleBytes,
+        criticalCopyBytes: fcp.criticalCopyBytes,
+        headSavedBytes: fcp.headSavedBytes,
         beforeBytes: Buffer.byteLength(sourceHtml),
         afterBytes: Buffer.byteLength(html),
       };
@@ -212,8 +238,10 @@ const result = {
   modulePath,
   fcpV2: {
     enabled: fcpV2,
-    movedStyleCount,
-    movedStyleBytes,
+    deferredStyleCount,
+    deferredStyleBytes,
+    criticalCopyBytes,
+    headSavedBytes,
     homepage: homepageFcp,
   },
 };
