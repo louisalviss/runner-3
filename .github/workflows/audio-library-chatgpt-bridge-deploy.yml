@@ -26,18 +26,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install crypto dependency
         run: python -m pip install -q 'cryptography>=45,<47'
-
+      - name: Derive private queue credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,os,re
+          p='apps/audio-chatgpt-bridge/wrangler.jsonc'
+          raw=open(p,encoding='utf-8').read()
+          token=hashlib.sha256(b'runner3-chatgpt-queue-v2\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).hexdigest()
+          verifier=hashlib.sha256(token.encode()).hexdigest()
+          raw=re.sub(r'"CHATGPT_QUEUE_SHA256"\s*:\s*"[0-9a-f]+"',f'"CHATGPT_QUEUE_SHA256": "{verifier}"',raw)
+          open('/tmp/wrangler-chatgpt.jsonc','w',encoding='utf-8').write(raw)
+          PY
       - name: Deploy bridge Worker
         shell: bash
         run: |
@@ -45,11 +54,10 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           export NO_COLOR=1
-          npx -y wrangler@4.123.0 deploy --config apps/audio-chatgpt-bridge/wrangler.jsonc | tee /tmp/chatgpt-bridge-deploy.log
+          npx -y wrangler@4.123.0 deploy --config /tmp/wrangler-chatgpt.jsonc | tee /tmp/chatgpt-bridge-deploy.log
           url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/chatgpt-bridge-deploy.log | tail -n 1 || true)"
           test -n "$url"
           echo "BRIDGE_URL=$url" >> "$GITHUB_ENV"
-
       - name: Publish bridge status and public encryption key
         shell: bash
         run: |
@@ -59,18 +67,11 @@ jobs:
           import base64,datetime,hashlib,json,os
           from cryptography.hazmat.primitives import serialization
           from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-
           token=os.environ['CLOUDFLARE_API_TOKEN']
           seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+token.encode()).digest()
           private=X25519PrivateKey.from_private_bytes(seed)
           public=private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-          out={
-            'status':'ready',
-            'url':os.environ['BRIDGE_URL'],
-            'publicKey':base64.b64encode(public).decode(),
-            'crypto':'X25519-HKDF-SHA256-ChaCha20Poly1305',
-            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-          }
+          out={'status':'ready','url':os.environ['BRIDGE_URL'],'publicKey':base64.b64encode(public).decode(),'crypto':'X25519-HKDF-SHA256-ChaCha20Poly1305','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           open('ops/audio-library/chatgpt-bridge-status.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
           PY
           git config user.name 'github-actions[bot]'
