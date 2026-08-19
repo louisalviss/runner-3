@@ -51,7 +51,7 @@ GENERATION_CONFIG = dict(
 
 DEMO_REF_URL = "https://raw.githubusercontent.com/ggroup-ai-lab/gwen-tts/main/data/ref_audio/khanh_toan.wav"
 DEMO_REF_TEXT = "việt nam đang kiêu hãnh bước vào kỷ nguyên vươn mình rực rỡ với khát vọng mãnh liệt, trí tuệ đổi mới, tinh thần đoàn kết."
-DEMO_TEXT = "Xin chào. Đây là bài kiểm tra giọng nói tiếng Việt đang chạy trực tiếp trên GPU Tesla T4 của Modal."
+DEMO_TEXT = "Xin chào. Đây là bài kiểm tra giọng nói tiếng Việt đang chạy trực tiếp trên GPU NVIDIA L4 của Modal."
 
 
 def _gpu_info() -> str:
@@ -73,11 +73,11 @@ def _load_model():
     import torch
     from qwen_tts import Qwen3TTSModel
 
-    # Tesla T4 is Turing: use FP16 + PyTorch SDPA instead of BF16/FlashAttention-2.
+    # L4 supports BF16 reliably; use PyTorch SDPA to avoid FlashAttention build/runtime variance.
     _model = Qwen3TTSModel.from_pretrained(
         MODEL_ID,
         device_map="cuda:0",
-        dtype=torch.float16,
+        dtype=torch.bfloat16,
         attn_implementation="sdpa",
     )
     try:
@@ -104,7 +104,7 @@ def _synth(text: str, ref_audio_path: str, ref_text: str, language: str = "Vietn
 
 
 @app.function(
-    gpu="T4",
+    gpu="L4",
     image=image,
     timeout=900,
     scaledown_window=300,
@@ -117,7 +117,7 @@ def web():
     from pydantic import BaseModel, Field
     import requests
 
-    api = FastAPI(title="Runner3 Gwen-TTS", version="0.1")
+    api = FastAPI(title="Runner3 Gwen-TTS", version="0.2")
 
     class TTSRequest(BaseModel):
         text: str = Field(min_length=1, max_length=5000)
@@ -134,7 +134,7 @@ def web():
             "model_loaded": _model is not None,
             "gpu": _gpu_info(),
             "attention": "sdpa",
-            "dtype": "float16",
+            "dtype": "bfloat16",
         }
 
     @api.get("/demo")
