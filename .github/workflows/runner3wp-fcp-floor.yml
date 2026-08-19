@@ -1,0 +1,84 @@
+name: Runner3WP FCP Floor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-fcp-floor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  floor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy-v2
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+      CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-fcp-test
+          fetch-depth: 2
+
+      - name: Deploy current isolated V2
+        run: node scripts/deploy-wordpress-workers-cache.mjs
+
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Measure minimal FCP floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          PSI_URL="$CF_EDGE_URL/__runner3/fcp-floor" PSI_UI_OUT=/tmp/floor.json PSI_UI_SCREENSHOT=/tmp/floor.png node scripts/pagespeed-ui-audit.mjs
+
+      - name: Measure full V2 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          PSI_URL="$CF_EDGE_URL/" PSI_UI_OUT=/tmp/full.json PSI_UI_SCREENSHOT=/tmp/full.png node scripts/pagespeed-ui-audit.mjs
+
+      - name: Persist floor result
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          floor=json.load(open('/tmp/floor.json'))
+          full=json.load(open('/tmp/full.json'))
+          out={
+            'status':'ready' if floor.get('status')=='ready' and full.get('status')=='ready' else 'failed',
+            'floor':{'url':floor.get('target'),'mobile':(floor.get('mobile') or {}).get('metrics'),'scores':(floor.get('mobile') or {}).get('scores')},
+            'full':{'url':full.get('target'),'mobile':(full.get('mobile') or {}).get('metrics'),'scores':(full.get('mobile') or {}).get('scores')},
+          }
+          json.dump(out,open('/tmp/fcp-floor-result.json','w'),indent=2)
+          print(json.dumps(out,indent=2))
+          PY
+          cp /tmp/fcp-floor-result.json /tmp/floor-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin runner3wp-v2-fcp-test
+            git reset --hard origin/runner3wp-v2-fcp-test
+            mkdir -p ops/perf/ab
+            cp /tmp/floor-safe.json ops/perf/ab/runner3wp-fcp-floor.latest.json
+            git add ops/perf/ab/runner3wp-fcp-floor.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist runner3wp FCP floor: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:runner3wp-v2-fcp-test; then exit 0; fi
+            sleep 2
+          done
+          exit 2
