@@ -1,0 +1,133 @@
+name: Runner3WP V2 Static Asset Hero
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-v2-lcp-assets.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+concurrency: {group: runner3wp-v2-lcp-assets, cancel-in-progress: false}
+env:
+  CANDIDATE_BRANCH: runner3wp-v2-lcp-assets-20260820
+  BASELINE_SHA: 08165956f80fe4bb8505ab93dcdf428faa4b7aab
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+  SITE_SLUG: runner3-factory-smoke-2
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: runner3wp-v2-lcp-assets-20260820, fetch-depth: 0}
+      - name: Prepare runtime and guard current R2-binding baseline
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"; echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
+          python -m pip install --quiet 'Pillow==11.3.0'
+          node --input-type=module - <<'NODE'
+          const r=await fetch(process.env.V2_URL,{headers:{'cache-control':'no-cache'}});const h=await r.text();
+          const u=new URL('/__runner3/r2-image/offset-demo-01-w640.webp',process.env.V2_URL);const p=await fetch(u);
+          const ok=r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&h.includes('/__runner3/r2-image/offset-demo-01-w640.webp')&&!h.includes('/__runner3/lcp-assets/offset-demo-01-w640.webp')&&p.status===200&&p.headers.get('x-runner3-lcp')==='r2-binding-same-origin';
+          if(!ok){console.log(JSON.stringify({http:r.status,snapshot:r.headers.get('x-edge-snapshot'),r2Marker:h.includes('/__runner3/r2-image/offset-demo-01-w640.webp'),assetMarker:h.includes('/__runner3/lcp-assets/offset-demo-01-w640.webp'),probe:p.status,probeMarker:p.headers.get('x-runner3-lcp')},null,2));process.exit(7)}
+          NODE
+      - name: Baseline Lighthouse 3x
+        run: |
+          set -euo pipefail; mkdir -p /tmp/lh
+          for i in 1 2 3; do npx lighthouse "$V2_URL" --output=json --output-path="/tmp/lh/b$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet; done
+      - name: Generate q52 static hero assets
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,shutil
+          from pathlib import Path
+          from PIL import Image
+          src=Path('media')/os.environ['SITE_SLUG']/'offset-demo-01.webp'
+          out=Path('edge/wordpress-edge-proxy/public/__runner3/lcp-assets'); out.mkdir(parents=True,exist_ok=True)
+          rows=[]
+          with Image.open(src) as im:
+            im.load(); im=im.convert('RGB'); ow,oh=im.size
+            for w in (360,480,640):
+              h=max(1,round(oh*w/ow)); p=out/f'offset-demo-01-w{w}.webp'; im.resize((w,h),Image.Resampling.LANCZOS).save(p,'WEBP',quality=52,method=6); rows.append({'width':w,'height':h,'bytes':p.stat().st_size,'path':str(p)})
+          o={'quality':52,'sourceBytes':src.stat().st_size,'variants':rows}; Path('/tmp/assets-build.json').write_text(json.dumps(o,indent=2)); print(json.dumps(o,indent=2))
+          shutil.copytree('edge/wordpress-edge-proxy/public','/tmp/static-public',dirs_exist_ok=True)
+          PY
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          node --check edge/wordpress-edge-proxy/src/responsive-images.js
+          grep -q '"assets"' edge/wordpress-edge-proxy/wrangler.v2.jsonc
+          grep -q '/__runner3/lcp-assets/' edge/wordpress-edge-proxy/src/responsive-images.js
+          node scripts/build-wordpress-edge-snapshot.mjs
+      - name: Direct deploy static-assets candidate V2
+        id: deploy
+        continue-on-error: true
+        run: npx --yes wrangler@4.124.0 deploy --config "$CF_WORKER_CONFIG"
+      - name: Candidate runtime guard
+        id: guard
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
+        run: |
+          sleep 3
+          node --input-type=module - <<'NODE'
+          import fs from'node:fs';
+          const r=await fetch(process.env.V2_URL,{headers:{'cache-control':'no-cache'}});const h=await r.text();
+          const u=new URL('/__runner3/lcp-assets/offset-demo-01-w640.webp',process.env.V2_URL);const a=await fetch(u,{headers:{'cache-control':'no-cache'}});const bytes=(await a.arrayBuffer()).byteLength;
+          const o={ok:r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&h.includes('/__runner3/lcp-assets/offset-demo-01-w640.webp')&&a.status===200&&bytes>0,homeHttp:r.status,snapshot:r.headers.get('x-edge-snapshot'),marker:h.includes('/__runner3/lcp-assets/offset-demo-01-w640.webp'),assetHttp:a.status,assetBytes:bytes,assetCache:a.headers.get('cf-cache-status'),etag:a.headers.get('etag'),cacheControl:a.headers.get('cache-control')};
+          fs.writeFileSync('/tmp/guard.json',JSON.stringify(o,null,2)); console.log(JSON.stringify(o,null,2)); if(!o.ok)process.exit(8);
+          NODE
+      - name: Warm static hero once
+        if: steps.guard.outcome == 'success'
+        run: |
+          set -euo pipefail
+          for w in 360 480 640; do curl -fsS -o /dev/null "$V2_URL/__runner3/lcp-assets/offset-demo-01-w${w}.webp"; done
+      - name: Candidate Lighthouse 3x
+        if: steps.deploy.outcome == 'success' && steps.guard.outcome == 'success'
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do npx lighthouse "$V2_URL" --output=json --output-path="/tmp/lh/c$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet; done
+      - name: Judge
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,pathlib,statistics,datetime
+          def read(p):
+            p=pathlib.Path(p)
+            if not p.exists(): return None
+            d=json.loads(p.read_text());a=d['audits'];g=lambda k:(a.get(k)or{}).get('numericValue')
+            return {'fcp':g('first-contentful-paint'),'lcp':g('largest-contentful-paint'),'tbt':g('total-blocking-time'),'cls':g('cumulative-layout-shift'),'perf':d['categories']['performance']['score']}
+          b=[x for i in(1,2,3) if(x:=read(f'/tmp/lh/b{i}.json'))]; c=[x for i in(1,2,3) if(x:=read(f'/tmp/lh/c{i}.json'))]
+          m=lambda a,k:statistics.median([x[k] for x in a]) if len(a)==3 else None; complete=len(b)==len(c)==3
+          bl,cl=m(b,'lcp'),m(c,'lcp');bf,cf=m(b,'fcp'),m(c,'fcp');bc,cc=m(b,'cls'),m(c,'cls');bt,ct=m(b,'tbt'),m(c,'tbt');gain=bl-cl if complete else None
+          keep=bool(complete and gain>=150 and cf<=bf+75 and cc<=bc+0.01 and ct<=max(50,bt+50))
+          def load(p):
+            try:return json.load(open(p))
+            except:return None
+          o={'status':'ready'if complete else'incomplete','experiment':'cloudflare-static-assets-q52-hero','verdict':'KEEP_V2'if keep else('ROLLBACK_NO_GAIN'if complete else'ROLLBACK_INCONCLUSIVE'),'keepV2':keep,'build':load('/tmp/assets-build.json'),'guard':load('/tmp/guard.json'),'baseline':{'architecture':'same-origin-r2-binding-q74','runs':b,'medianFcpMs':bf,'medianLcpMs':bl,'medianCls':bc,'medianTbtMs':bt},'candidate':{'architecture':'cloudflare-static-assets-q52','runs':c,'medianFcpMs':cf,'medianLcpMs':cl,'medianCls':cc,'medianTbtMs':ct},'lcpImprovementMs':gain,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'policy':'keep only for >=150ms additional median LCP gain over current R2-binding V2 with no material FCP/CLS/TBT regression'}
+          pathlib.Path('/tmp/result.json').write_text(json.dumps(o,indent=2)); print(json.dumps(o,indent=2))
+          PY
+      - name: Enforce V2 decision
+        if: always()
+        run: |
+          set -euo pipefail
+          KEEP=$(python -c "import json;print('1' if json.load(open('/tmp/result.json')).get('keepV2') else '0')" 2>/dev/null || echo 0)
+          if [ "$KEEP" != 1 ]; then
+            git reset --hard; git checkout --detach "$BASELINE_SHA"; node scripts/build-wordpress-edge-snapshot.mjs; npx --yes wrangler@4.124.0 deploy --config "$CF_WORKER_CONFIG"
+          fi
+          export KEEP
+          node --input-type=module - <<'NODE'
+          import fs from'node:fs';const k=process.env.KEEP==='1';const r=await fetch(process.env.V2_URL,{headers:{'cache-control':'no-cache'}});const h=await r.text();const asset=h.includes('/__runner3/lcp-assets/offset-demo-01-w640.webp');const r2=h.includes('/__runner3/r2-image/offset-demo-01-w640.webp');const p=await fetch(new URL(k?'/__runner3/lcp-assets/offset-demo-01-w640.webp':'/__runner3/r2-image/offset-demo-01-w640.webp',process.env.V2_URL));const o={ok:r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&asset===k&&r2===!k&&p.status===200,kept:k,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),assetMarker:asset,r2Marker:r2,probeHttp:p.status,probeMarker:p.headers.get('x-runner3-lcp'),checkedAt:new Date().toISOString()};fs.writeFileSync('/tmp/runtime.json',JSON.stringify(o,null,2));console.log(JSON.stringify(o,null,2));if(!o.ok)process.exit(12);
+          NODE
+      - name: Persist source assets and evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s /tmp/result.json || echo '{"status":"failed","verdict":"ROLLBACK_INCONCLUSIVE","keepV2":false}' >/tmp/result.json
+          git fetch origin "$CANDIDATE_BRANCH"; git checkout -B "$CANDIDATE_BRANCH" "origin/$CANDIDATE_BRANCH"
+          if [ -d /tmp/static-public ]; then rm -rf edge/wordpress-edge-proxy/public; mkdir -p edge/wordpress-edge-proxy; cp -a /tmp/static-public edge/wordpress-edge-proxy/public; fi
+          mkdir -p ops/perf/ab; cp /tmp/result.json ops/perf/ab/runner3wp-v2-lcp-assets.latest.json; cp /tmp/runtime.json ops/perf/ab/runner3wp-v2-lcp-assets.runtime.latest.json 2>/dev/null || true
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add edge/wordpress-edge-proxy/public ops/perf/ab/runner3wp-v2-lcp-assets*;git commit -m 'perf: persist static asset hero result and variants'||exit 0;git push origin HEAD:"$CANDIDATE_BRANCH"
