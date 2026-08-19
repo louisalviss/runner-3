@@ -31,9 +31,38 @@ async function publicHtmlResponse(request, env, ctx) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// Kept only for the legacy purge endpoint while the site is transitioning away
+// from full-page Workers Caching. Public anonymous traffic no longer enters this
+// cached service binding, so an old cached html-origin response cannot shadow a
+// newly deployed snapshot.
 export class PublicHtml extends WorkerEntrypoint {
   async fetch(request) { return publicHtmlResponse(request, this.env, this.ctx); }
   async purgeHtml() { const result = await this.ctx.cache.purge({ tags: [HTML_CACHE_TAG] }); return { ok: true, result }; }
+}
+
+async function directPublicResponse(request, env, ctx) {
+  let response = await worker.fetch(request, env, ctx);
+  response = await decorateFrontend(request, response);
+  const headers = new Headers(response.headers);
+  headers.delete('Content-Length');
+  headers.delete('Cache-Tag');
+  headers.delete('Cloudflare-CDN-Cache-Control');
+  const mode = String(headers.get('X-Edge-Mode') || '');
+  if (mode === 'snapshot') {
+    headers.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=30, stale-if-error=600');
+    headers.set('Cloudflare-CDN-Cache-Control', 'no-store');
+    headers.set('X-Edge-Cache-Policy', 'snapshot-direct');
+  } else if (mode === 'snapshot-fallback') {
+    headers.set('Cache-Control', 'no-store');
+    headers.set('Cloudflare-CDN-Cache-Control', 'no-store');
+    headers.set('X-Edge-Cache-Policy', 'snapshot-fallback');
+  } else {
+    // Unsnapshotted public routes stay correct by using the live origin until the
+    // next snapshot refresh. They are deliberately not inserted into the legacy
+    // PublicHtml cache.
+    headers.set('X-Edge-Cache-Policy', 'origin-direct');
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function base64Bytes(value) { const binary = atob(String(value || '')); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i); return bytes; }
@@ -73,7 +102,7 @@ async function handlePurge(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url); if (incoming.pathname === PURGE_PATH) return handlePurge(request, env, ctx);
-    if (isPublicHtmlCacheCandidate(request)) return ctx.exports.PublicHtml.fetch(request);
+    if (isPublicHtmlCacheCandidate(request)) return directPublicResponse(request, env, ctx);
     const response = await worker.fetch(request, env, ctx); return decorateFrontend(request, response);
   },
 };
