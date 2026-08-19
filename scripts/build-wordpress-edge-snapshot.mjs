@@ -69,9 +69,18 @@ function optimizeFcpHtml(html) {
     return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
   }
 
-  const criticalCopy = criticalOriginal
-    .replace(/\bid=(["'])runner3-critical-css\1/i, 'id="runner3-v2-critical-css" data-runner3-v2-critical="1"')
-    .trim();
+  const criticalMatch = criticalOriginal.match(/<style\b[^>]*>([\s\S]*?)<\/style>/i);
+  const criticalCss = criticalMatch?.[1] || '';
+  const rootStart = criticalCss.indexOf(':root {');
+  const editionStart = criticalCss.indexOf('.edition-hero {', rootStart);
+  const signalStart = criticalCss.indexOf('/* OFFSET / SIGNAL — front-page art direction */', rootStart);
+  if (rootStart < 0 || editionStart <= rootStart || signalStart <= editionStart) {
+    return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+  }
+  const baseCritical = criticalCss.slice(rootStart, editionStart).trim();
+  const signalCritical = criticalCss.slice(signalStart).trim();
+  const criticalSubset = `${baseCritical}\n\n${signalCritical}`;
+  const criticalCopy = `<style id="runner3-v2-critical-css" data-runner3-v2-critical="r1">\n${criticalSubset}\n</style>`;
   const optimizedHead = `${strippedHead}${criticalCopy}\n`;
   const headStart = headMatch.index + headMatch[0].indexOf(headMatch[1]);
   const headEnd = headStart + headMatch[1].length;
