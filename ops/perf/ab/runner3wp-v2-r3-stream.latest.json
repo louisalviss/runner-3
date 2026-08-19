@@ -1,0 +1,29 @@
+{
+  "status": "incomplete",
+  "experiment": "r3-stream-first-paint-shell",
+  "verdict": "INCONCLUSIVE",
+  "targetFcpMs": 500,
+  "targetReached": false,
+  "baselineSha": "794a98069227d20ead5a073b062b14e3597a75f2",
+  "guard": null,
+  "patch": {
+    "status": "patched",
+    "file": "edge/wordpress-edge-proxy/src/entry.js",
+    "route": "/__runner3/r3-stream",
+    "delayMs": 900,
+    "firstChunkBytes": 739
+  },
+  "v2Home": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null
+  },
+  "r3Stream": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null
+  },
+  "fcpImprovementMs": null,
+  "checkedAt": "2026-08-19T22:09:00.977719+00:00",
+  "deploymentPolicy": "candidate tested on V2 only; baseline restored after measurement"
+}
