@@ -80,7 +80,7 @@ function rewriteLocation(headers, origin, publicOrigin) {
   headers.set('Location', rewriteInternal(location, origin, publicOrigin));
 }
 
-function snapshotResponse(method, pathname) {
+function snapshotResponse(method, pathname, fallback = false) {
   const key = normalizeSnapshotPath(pathname);
   const body = SNAPSHOTS[key] ?? SNAPSHOTS[pathname];
   if (typeof body !== 'string') return null;
@@ -88,10 +88,12 @@ function snapshotResponse(method, pathname) {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=UTF-8',
-      'Cache-Control': 'no-store',
+      'Cache-Control': fallback
+        ? 'no-store'
+        : 'public, max-age=60, stale-while-revalidate=30, stale-if-error=600',
       'X-Edge-Proxy': 'cloudflare-worker',
-      'X-Edge-Mode': 'snapshot-fallback',
-      'X-Edge-Snapshot': 'FALLBACK',
+      'X-Edge-Mode': fallback ? 'snapshot-fallback' : 'snapshot',
+      'X-Edge-Snapshot': fallback ? 'FALLBACK' : 'HIT',
       'X-Upstream-CF-Cache-Status': 'SNAPSHOT',
       ...(SNAPSHOT_BUILT_AT ? { 'X-Edge-Snapshot-Built-At': SNAPSHOT_BUILT_AT } : {}),
     },
@@ -161,31 +163,52 @@ export default {
     const bypass = !['GET', 'HEAD'].includes(method) || hasPrivateCookie(request) || isDynamicPath(incoming.pathname) || hasDynamicQuery(incoming);
     const staticAsset = isStaticAsset(incoming);
 
-    let upstream;
+    let upstream = null;
+    let snapshotHit = false;
     let snapshotFallback = false;
-    try {
-      upstream = await fetchOrigin(request, target, incoming, method, bypass, staticAsset);
-      if (!bypass && !staticAsset && upstream.status >= 500) {
-        const fallback = snapshotResponse(method, incoming.pathname);
-        if (fallback) {
-          upstream = fallback;
-          snapshotFallback = true;
-        }
+
+    // Anonymous public HTML is served directly from the snapshot bundled into the
+    // Worker. This removes the WordPress/Wasmer round-trip even on a cold edge PoP.
+    if (!bypass && !staticAsset) {
+      const snapshot = snapshotResponse(method, incoming.pathname);
+      if (snapshot) {
+        upstream = snapshot;
+        snapshotHit = true;
       }
-    } catch (error) {
-      const fallback = !bypass && !staticAsset ? snapshotResponse(method, incoming.pathname) : null;
-      if (!fallback) throw error;
-      upstream = fallback;
-      snapshotFallback = true;
+    }
+
+    if (!upstream) {
+      try {
+        upstream = await fetchOrigin(request, target, incoming, method, bypass, staticAsset);
+        if (!bypass && !staticAsset && upstream.status >= 500) {
+          const fallback = snapshotResponse(method, incoming.pathname, true);
+          if (fallback) {
+            upstream = fallback;
+            snapshotFallback = true;
+          }
+        }
+      } catch (error) {
+        const fallback = !bypass && !staticAsset ? snapshotResponse(method, incoming.pathname, true) : null;
+        if (!fallback) throw error;
+        upstream = fallback;
+        snapshotFallback = true;
+      }
     }
 
     const outHeaders = new Headers(upstream.headers);
     rewriteLocation(outHeaders, origin, incoming.origin);
     outHeaders.set('X-Edge-Proxy', 'cloudflare-worker');
-    outHeaders.set('X-Edge-Mode', snapshotFallback ? 'snapshot-fallback' : (bypass ? 'bypass' : (staticAsset ? 'static-cache' : 'html-origin')));
-    outHeaders.set('X-Upstream-CF-Cache-Status', snapshotFallback ? 'SNAPSHOT' : (upstream.headers.get('CF-Cache-Status') || 'NONE'));
+    outHeaders.set(
+      'X-Edge-Mode',
+      snapshotHit ? 'snapshot' : (snapshotFallback ? 'snapshot-fallback' : (bypass ? 'bypass' : (staticAsset ? 'static-cache' : 'html-origin'))),
+    );
+    outHeaders.set('X-Upstream-CF-Cache-Status', snapshotHit || snapshotFallback ? 'SNAPSHOT' : (upstream.headers.get('CF-Cache-Status') || 'NONE'));
 
-    if (snapshotFallback) {
+    if (snapshotHit) {
+      outHeaders.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=30, stale-if-error=600');
+      outHeaders.set('X-Edge-Snapshot', 'HIT');
+      if (SNAPSHOT_BUILT_AT) outHeaders.set('X-Edge-Snapshot-Built-At', SNAPSHOT_BUILT_AT);
+    } else if (snapshotFallback) {
       outHeaders.set('Cache-Control', 'no-store');
       outHeaders.set('X-Edge-Snapshot', 'FALLBACK');
       if (SNAPSHOT_BUILT_AT) outHeaders.set('X-Edge-Snapshot-Built-At', SNAPSHOT_BUILT_AT);
