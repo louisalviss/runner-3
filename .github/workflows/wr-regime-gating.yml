@@ -1,0 +1,40 @@
+name: WR Regime Gating Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-regime-gating.yml'
+      - 'wave-rider-verify/wr_regime_gate_analysis.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2024-frozen-rolling-oos-final
+          path: /tmp/a24
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32253319968
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase2-zonec10-final
+          path: /tmp/a25
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32233507091
+      - name: Run market/regime gating diagnostic
+        run: python3 wave-rider-verify/wr_regime_gate_analysis.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-regime-gating-final
+          path: /tmp/final
+          retention-days: 14
