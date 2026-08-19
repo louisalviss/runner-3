@@ -2,12 +2,12 @@
   "version": 3,
   "collector": "runner-3",
   "scope": "1-substack-hybrid",
-  "runStartedAt": "2026-08-19T17:54:49Z",
+  "runStartedAt": "2026-08-19T18:06:32Z",
   "sources": {
     "vohoanghac": {
       "ok": false,
       "transport": "hybrid-rss+substack-profile",
-      "checkedAt": "2026-08-19T17:54:49Z",
+      "checkedAt": "2026-08-19T18:06:33Z",
       "preservedExistingMirror": true,
       "contentChanged": false,
       "components": {
@@ -24,7 +24,7 @@
           "ok": false,
           "transport": "substack-public-profile",
           "profileUrl": "https://substack.com/@vohoanghac",
-          "error": "RuntimeError: unable to resolve verified Substack profile user id; https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self | legacy profile discovery: RuntimeError: unable to resolve Substack profile user id; profile HTML: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/@vohoanghac | https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self"
+          "error": "RuntimeError: profile feed request failed; params={'limit': 50}: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/reader/feed/profile/131582197?limit=50 | params={}: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/reader/feed/profile/131582197"
         }
       },
       "contentHashChangeCount": 1,
@@ -41,7 +41,7 @@
       "newestPublishedAt": "2026-08-07T07:12:11Z"
     }
   },
-  "runFinishedAt": "2026-08-19T17:54:49Z",
+  "runFinishedAt": "2026-08-19T18:06:33Z",
   "okCount": 0,
   "failedCount": 1,
   "status": "failed"
