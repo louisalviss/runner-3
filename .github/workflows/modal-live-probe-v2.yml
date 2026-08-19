@@ -1,0 +1,51 @@
+name: Probe live Gwen Modal routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/modal-live-probe-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Probe live routes with retries
+        shell: bash
+        run: |
+          set -u
+          BASE='https://louisalviss--runner3-gwen-tts-web.modal.run'
+          : > /tmp/probe.txt
+          for i in 1 2 3 4 5 6; do
+            ts="$(date -u +%FT%TZ)"
+            hcode="$(curl -sS -L --max-time 60 -o /tmp/health.body -w '%{http_code}' "$BASE/health" || true)"
+            rcode="$(curl -sS -L --max-time 60 -o /tmp/root.body -w '%{http_code}' "$BASE/" || true)"
+            echo "$ts attempt=$i health=$hcode root=$rcode" | tee -a /tmp/probe.txt
+            if [ "$hcode" = '200' ] && [ "$rcode" = '200' ]; then break; fi
+            sleep 10
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          lines=Path('/tmp/probe.txt').read_text().strip().splitlines()
+          health_body=Path('/tmp/health.body').read_text(errors='replace')[:1000] if Path('/tmp/health.body').exists() else ''
+          root_body=Path('/tmp/root.body').read_text(errors='replace')[:1000] if Path('/tmp/root.body').exists() else ''
+          out={'lines':lines,'health_body':health_body,'root_body':root_body}
+          Path('modal-live-probe-v2.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+      - name: Publish probe result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add modal-live-probe-v2.json
+          git diff --cached --quiet || git commit -m 'debug: record live Modal route probe'
+          git pull --rebase origin main || true
+          git push
