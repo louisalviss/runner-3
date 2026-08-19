@@ -1,0 +1,86 @@
+name: WR TF Session T Matrix
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/wr_tf_session_t_matrix.py'
+      - '.github/workflows/wr-tf-session-t-matrix.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tf: 3
+            run_id: 32237685232
+            artifact: wr2515-phase1-3m-final
+          - tf: 5
+            run_id: 32158961561
+            artifact: wr2515-5m-tv-tick-final
+          - tf: 10
+            run_id: 32237685245
+            artifact: wr2515-phase1-10m-final
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download TF trade artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: /tmp/base
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: ${{ matrix.run_id }}
+      - name: Download frozen common 654-symbol universe
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase1-3m-final
+          path: /tmp/universe
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32237685232
+      - name: Analyze TF x session x T with frozen Candidate3
+        env:
+          TF_MIN: ${{ matrix.tf }}
+          BASE_DIR: /tmp/base
+          UNIVERSE_FILE: /tmp/universe/universe.json
+          OUT_DIR: /tmp/out
+        run: python3 wave-rider-verify/wr_tf_session_t_matrix.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-tf-session-t-${{ matrix.tf }}m
+          path: /tmp/out
+          retention-days: 14
+
+  merge:
+    needs: analyze
+    runs-on: ubuntu-24.04
+    if: always() && needs.analyze.result == 'success'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-tf-session-t-*m
+          path: /tmp/all
+          merge-multiple: true
+      - name: Merge matrix
+        run: |
+          mkdir -p /tmp/final
+          python3 - <<'PY'
+          import glob,json,os
+          reports={}
+          for p in glob.glob('/tmp/all/tf*_session_t_matrix.json'):
+              r=json.load(open(p)); reports[str(r['tf'])]=r
+          if set(reports)!={'3','5','10'}: raise SystemExit(f'missing TF reports: {reports.keys()}')
+          out={'status':'WR_TF_SESSION_T_MATRIX_ALL_COMPLETE','timeframes':reports,'warning':'Retrospective fixed matrix; no tuning from this run.'}
+          json.dump(out,open('/tmp/final/wr_tf_session_t_matrix.json','w'),indent=2)
+          print(json.dumps({k:{'trades':v['scope']['trades'],'c3':v['coverage']['candidate3']} for k,v in reports.items()},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-tf-session-t-matrix-final
+          path: /tmp/final
+          retention-days: 14
