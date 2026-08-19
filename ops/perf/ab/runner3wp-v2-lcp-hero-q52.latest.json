@@ -1,0 +1,67 @@
+{
+  "status": "incomplete",
+  "experiment": "hero-webp-q52",
+  "verdict": "ROLLBACK_INCONCLUSIVE",
+  "keepV2": false,
+  "build": {
+    "status": "ready",
+    "quality": 52,
+    "sourceBytes": 81502,
+    "variants": [
+      {
+        "width": 360,
+        "height": 240,
+        "bytes": 11086
+      },
+      {
+        "width": 480,
+        "height": 320,
+        "bytes": 16560
+      },
+      {
+        "width": 640,
+        "height": 427,
+        "bytes": 24782
+      }
+    ]
+  },
+  "guard": null,
+  "baseline": {
+    "runs": [
+      {
+        "fcp": 1191.283,
+        "lcp": 2200.2905,
+        "tbt": 165,
+        "cls": 0,
+        "perf": 0.96
+      },
+      {
+        "fcp": 1065.022,
+        "lcp": 2235.587,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      },
+      {
+        "fcp": 1045.7600000000002,
+        "lcp": 2303.1800000000003,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.98
+      }
+    ],
+    "medianFcpMs": 1065.022,
+    "medianLcpMs": 2235.587,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "candidate": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null,
+    "medianCls": null,
+    "medianTbtMs": null
+  },
+  "lcpImprovementMs": null,
+  "checkedAt": "2026-08-19T22:35:32.077219+00:00"
+}
