@@ -1,0 +1,101 @@
+name: WR 2.5.15 Phase2 ZoneC 10m exact
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/wr-2515-phase2-zonec-10m.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Patch frozen 10m harness for exact Zone C entries
+        shell: bash
+        run: |
+          cp wave-rider-verify/wr2515_tf_phase1.py /tmp/zonec.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/zonec.py'); s=p.read_text()
+          old='        allowed,sexit=sf(x.ct+1,chart_ms)\n'
+          new="        allowed,sexit=sf(x.ct+1,chart_ms)\n        vn_hour=((x.ct+1)//3600000+7)%24\n        if vn_hour not in (23,0): allowed=False\n"
+          if s.count(old)!=1: raise SystemExit('zone patch anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Run exact 10m Zone C shard
+        env:
+          TF_MIN: 10
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 8
+          BASE_DIR: /tmp/base
+          OUT_DIR: /tmp/out
+        run: python3 /tmp/zonec.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr2515-zonec10-shard-${{ matrix.shard }}
+          path: /tmp/out
+          retention-days: 7
+  merge:
+    needs: shard
+    if: always() && needs.shard.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr2515-zonec10-shard-*
+          path: /tmp/all
+          merge-multiple: true
+      - name: Merge exact Zone C results
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob,json,os,statistics
+          from collections import defaultdict
+          from datetime import datetime,timezone
+          os.makedirs('/tmp/final',exist_ok=True)
+          S=[];E=[];T=[]
+          for p in glob.glob('/tmp/all/summary-*.json'): S+=json.load(open(p))
+          for p in glob.glob('/tmp/all/errors-*.json'): E+=json.load(open(p))
+          for p in glob.glob('/tmp/all/trades-*.jsonl'):
+            for line in open(p):
+              if line.strip(): T.append(json.loads(line))
+          def net(a,bps): return a['R']-(a['entry']/abs(a['entry']-a['stop']))*bps/10000
+          def stat(xs):
+            z={'n':len(xs),'gross_r':sum(a['R'] for a in xs)}
+            for b in (4,6,8,10): z[f'net_r_{b}bps']=sum(net(a,b) for a in xs)
+            z['avg_gross_r']=z['gross_r']/z['n'] if z['n'] else None
+            z['avg_net6_r']=z['net_r_6bps']/z['n'] if z['n'] else None
+            if xs: z['median_stop_pct']=statistics.median(a['stop_pct'] for a in xs)
+            return z
+          years=defaultdict(list); qs=defaultdict(list)
+          for a in T:
+            d=datetime.fromtimestamp(a['signal_time']/1000,tz=timezone.utc)
+            years[str(d.year)].append(a); qs[f'{d.year}Q{(d.month-1)//3+1}'].append(a)
+          report={'status':'PHASE2_ZONEC_10M_EXACT_COMPLETE','engine':'WR v2.5.15 deterministic','timeframe':'10m','zone':'23:00-01:00 Asia/Ho_Chi_Minh','scope':'same 654 current-TV crypto symbols','exact_entry_filter':True,'total':stat(T),'by_year':{k:stat(v) for k,v in sorted(years.items())},'by_quarter':{k:stat(v) for k,v in sorted(qs.items())},'symbols_completed':len(S),'symbols_net6_positive_n_ge_30':sum(x['n']>=30 and x['net_r_6bps']>0 for x in S),'errors':E}
+          json.dump(report,open('/tmp/final/zonec_report.json','w'),indent=2); json.dump(S,open('/tmp/final/summary.json','w')); json.dump(E,open('/tmp/final/errors.json','w'),indent=2)
+          with open('/tmp/final/trades.jsonl','w') as f:
+            for a in T:f.write(json.dumps(a,separators=(',',':'))+'\n')
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2515-phase2-zonec10-final
+          path: /tmp/final
+          retention-days: 14
