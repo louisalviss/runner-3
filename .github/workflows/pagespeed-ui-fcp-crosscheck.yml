@@ -71,7 +71,7 @@ jobs:
             await page.waitForFunction(()=>{
               const t=document.body.innerText||'';
               return /First Contentful Paint/i.test(t)&&/Largest Contentful Paint/i.test(t)&&/\bPerformance\b/i.test(t);
-            },{timeout:180000});
+            },null,{timeout:180000});
             let body=''; let fcp=null,lcp=null;
             const started=Date.now();
             while(Date.now()-started<60000){
