@@ -18,11 +18,13 @@ jobs:
           ref: diag-runner3wp-pagespeed-ab-20260820
           fetch-depth: 0
 
-      - name: Prepare browser runtime
+      - name: Prepare browser and video runtime
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.61.0 >/dev/null 2>&1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
           CHROME=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)
           test -n "$CHROME"
           echo "CHROME_PATH=$CHROME" >> "$GITHUB_ENV"
@@ -32,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/visual-ab/v1 /tmp/visual-ab/v2 ops/perf/visual
-          cat > /tmp/visual-ab/capture.mjs <<'NODE'
+          cat > .visual-ab-capture.mjs <<'NODE'
           import { chromium } from 'playwright-core';
           import fs from 'node:fs';
           const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']});
@@ -58,7 +60,8 @@ jobs:
           await a.context.close(); await b.context.close(); await browser.close();
           fs.writeFileSync('/tmp/visual-ab/meta.json',JSON.stringify({status:'ready',v1:a.url,v2:b.url,viewport:'390x844',latencyMs:150,downloadMbps:1.6,uploadKbps:750,cpuSlowdown:4,fps:10,frames,leaderMs:1000,navigationStartedAt:navStartedAt},null,2));
           NODE
-          node /tmp/visual-ab/capture.mjs
+          node ./.visual-ab-capture.mjs
+          rm -f .visual-ab-capture.mjs
 
       - name: Build side-by-side MP4
         shell: bash
@@ -68,6 +71,7 @@ jobs:
             -filter_complex "[0:v]scale=390:844,drawtext=text='V1 current':x=12:y=14:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=8[v1];[1:v]scale=390:844,drawtext=text='V2 optimized':x=12:y=14:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=8[v2];[v1][v2]hstack=inputs=2,drawtext=text='Slow 4G | 150ms RTT | CPU x4 | load starts at 1.0s':x=(w-text_w)/2:y=h-42:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=8[out]" \
             -map "[out]" -an -c:v libx264 -preset medium -crf 24 -pix_fmt yuv420p -movflags +faststart ops/perf/visual/runner3wp-v1-v2-slow4g.mp4
           cp /tmp/visual-ab/meta.json ops/perf/visual/runner3wp-v1-v2-slow4g.json
+          ffprobe -v error -show_entries format=duration,size -of json ops/perf/visual/runner3wp-v1-v2-slow4g.mp4
 
       - name: Persist visual evidence to diagnostic branch
         shell: bash
