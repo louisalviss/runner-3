@@ -1,0 +1,40 @@
+name: Runner3WP Critical Shell R1 Launch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-critical-shell-r1-launch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Point A-B workflow at R1
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib,re
+          p=pathlib.Path('.github/workflows/runner3wp-v2-parallel-ab.yml')
+          s=p.read_text()
+          s,n=re.subn(r'CANDIDATE_SHA: [0-9a-f]{40}','CANDIDATE_SHA: 206a94111e52272e591ed34b038db27e5ddf266d',s,count=1)
+          if n!=1: raise SystemExit('candidate SHA replacement failed')
+          s=s.replace("h.includes('runner3-v2-original-css-order')&&/runner3-v2-critical-css/.test(head)&&Buffer.byteLength(head)<30000", "h.includes('runner3-v2-original-css-order')&&head.includes('data-runner3-v2-critical=\\\"r1\\\"')&&Buffer.byteLength(head)<20000", 1)
+          p.write_text(s)
+          PY
+          grep -q '206a94111e52272e591ed34b038db27e5ddf266d' .github/workflows/runner3wp-v2-parallel-ab.yml
+          grep -q 'Buffer.byteLength(head)<20000' .github/workflows/runner3wp-v2-parallel-ab.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/runner3wp-v2-parallel-ab.yml
+          git commit -m 'test: benchmark Runner3WP critical shell R1'
+          git push origin HEAD:main
