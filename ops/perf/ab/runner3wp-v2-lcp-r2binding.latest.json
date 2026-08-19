@@ -1,0 +1,77 @@
+{
+  "status": "ready",
+  "experiment": "same-origin-r2-binding-hero",
+  "verdict": "KEEP_V2",
+  "keepV2": true,
+  "guard": {
+    "ok": true,
+    "homeHttp": 200,
+    "snapshot": "HIT",
+    "marker": true,
+    "imageHttp": 200,
+    "imageBytes": 31344,
+    "imageMarker": "r2-binding-same-origin",
+    "etag": "\"b2ec7eadc2f1ce7ec88c022382005662\""
+  },
+  "baseline": {
+    "runs": [
+      {
+        "fcp": 1226.693,
+        "lcp": 2284.641,
+        "tbt": 255,
+        "cls": 0,
+        "perf": 0.93
+      },
+      {
+        "fcp": 1062.424,
+        "lcp": 2154.2780000000002,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      },
+      {
+        "fcp": 1046.0640000000003,
+        "lcp": 2129.0600000000004,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      }
+    ],
+    "medianFcpMs": 1062.424,
+    "medianLcpMs": 2154.2780000000002,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "candidate": {
+    "runs": [
+      {
+        "fcp": 1054.415,
+        "lcp": 1471.2839999999999,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1038.8585,
+        "lcp": 1521.7085000000002,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1060.9120000000003,
+        "lcp": 1300.1540000000002,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      }
+    ],
+    "medianFcpMs": 1054.415,
+    "medianLcpMs": 1471.2839999999999,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "lcpImprovementMs": 682.9940000000004,
+  "checkedAt": "2026-08-19T22:47:33.991849+00:00",
+  "policy": "keep V2 only for >=300ms median LCP gain with no material FCP/CLS/TBT regression"
+}
