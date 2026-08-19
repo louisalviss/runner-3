@@ -78,7 +78,7 @@ def first_text(payloads):
         for node in walk(payload):
             for key in preferred:
                 value = node.get(key)
-                if isinstance(value, str) and len(value.strip()) >= 2 and len(value.strip()) <= 10000:
+                if isinstance(value, str) and 2 <= len(value.strip()) <= 10000:
                     return value.strip()
     return ""
 
@@ -143,7 +143,8 @@ def make_frames(video_path, outdir):
     pattern = outdir / "frame_%02d.jpg"
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_path),
-        "-vf", "fps=1/5,scale='min(1280,iw)':-2", "-frames:v", "3", str(pattern),
+        "-vf", "fps=1/5,scale=1280:-2:force_original_aspect_ratio=decrease",
+        "-frames:v", "3", str(pattern),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -167,13 +168,18 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     endpoints = {
-        "conversation": f"https://api.fxtwitter.com/2/conversation/{tweet_id}",
         "legacy": f"https://api.fxtwitter.com/{handle}/status/{tweet_id}",
         "vx": f"https://api.vxtwitter.com/{handle}/status/{tweet_id}",
         "syndication": f"https://cdn.syndication.twimg.com/tweet-result?id={tweet_id}&lang=en",
+        "conversation": f"https://api.fxtwitter.com/2/conversation/{tweet_id}",
     }
     fetched = {name: fetch_json(endpoint) for name, endpoint in endpoints.items()}
-    payloads = [r["data"] for r in fetched.values() if r.get("ok") and r.get("data") is not None]
+    priority = ("legacy", "vx", "syndication", "conversation")
+    payloads = [
+        fetched[name]["data"]
+        for name in priority
+        if fetched.get(name, {}).get("ok") and fetched[name].get("data") is not None
+    ]
 
     if not payloads:
         result = {
