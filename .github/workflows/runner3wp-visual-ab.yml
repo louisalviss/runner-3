@@ -1,0 +1,112 @@
+name: Runner3WP Visual A-B
+
+on:
+  push:
+    branches: [diag-runner3wp-pagespeed-ab-20260820]
+    paths: ['.github/workflows/runner3wp-visual-ab.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-visual-ab
+  cancel-in-progress: true
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag-runner3wp-pagespeed-ab-20260820
+          fetch-depth: 0
+
+      - name: Install browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+
+      - name: Record synchronized cold-load videos
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/visual-ab/v1 /tmp/visual-ab/v2 ops/perf/visual
+          cat > /tmp/visual-ab/record.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+
+          const browser = await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+          async function setup(url, dir) {
+            const context = await browser.newContext({
+              viewport: { width: 390, height: 844 },
+              deviceScaleFactor: 1,
+              isMobile: true,
+              hasTouch: true,
+              recordVideo: { dir, size: { width: 390, height: 844 } },
+            });
+            const page = await context.newPage();
+            const cdp = await context.newCDPSession(page);
+            await cdp.send('Network.enable');
+            await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+            await cdp.send('Network.emulateNetworkConditions', {
+              offline: false,
+              latency: 150,
+              downloadThroughput: 1.6 * 1024 * 1024 / 8,
+              uploadThroughput: 750 * 1024 / 8,
+              connectionType: 'cellular4g',
+            });
+            await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+            await page.goto('about:blank');
+            return { context, page, url };
+          }
+
+          const v1 = await setup('https://runner3wp.pntr.dev/', '/tmp/visual-ab/v1');
+          const v2 = await setup('https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/', '/tmp/visual-ab/v2');
+          await new Promise(r => setTimeout(r, 1000));
+          const startedAt = Date.now();
+          const nav1 = v1.page.goto(v1.url, {waitUntil:'commit', timeout:30000}).catch(e => String(e));
+          const nav2 = v2.page.goto(v2.url, {waitUntil:'commit', timeout:30000}).catch(e => String(e));
+          await Promise.all([nav1, nav2]);
+          await new Promise(r => setTimeout(r, 5000));
+          const v1video = v1.page.video();
+          const v2video = v2.page.video();
+          await v1.context.close();
+          await v2.context.close();
+          const p1 = await v1video.path();
+          const p2 = await v2video.path();
+          fs.copyFileSync(p1, '/tmp/visual-ab/v1.webm');
+          fs.copyFileSync(p2, '/tmp/visual-ab/v2.webm');
+          fs.writeFileSync('/tmp/visual-ab/meta.json', JSON.stringify({
+            status:'ready', startedAt: new Date(startedAt).toISOString(),
+            v1:v1.url, v2:v2.url,
+            viewport:'390x844', latencyMs:150, downloadMbps:1.6, uploadKbps:750, cpuSlowdown:4,
+            leaderMs:1000, captureAfterNavigationMs:5000
+          }, null, 2));
+          await browser.close();
+          NODE
+          node /tmp/visual-ab/record.mjs
+
+      - name: Build side-by-side MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -y -i /tmp/visual-ab/v1.webm -i /tmp/visual-ab/v2.webm \
+            -filter_complex "[0:v]fps=30,scale=390:844,drawtext=text='V1  runner3wp.pntr.dev':x=12:y=14:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=8[v1];[1:v]fps=30,scale=390:844,drawtext=text='V2  optimized':x=12:y=14:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=8[v2];[v1][v2]hstack=inputs=2,drawtext=text='Slow 4G  |  150ms RTT  |  CPU x4':x=(w-text_w)/2:y=h-42:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=8[out]" \
+            -map "[out]" -t 6 -an -c:v libx264 -preset medium -crf 24 -pix_fmt yuv420p -movflags +faststart \
+            ops/perf/visual/runner3wp-v1-v2-slow4g.mp4
+          cp /tmp/visual-ab/meta.json ops/perf/visual/runner3wp-v1-v2-slow4g.json
+          ffprobe -v error -show_entries format=duration,size -of json ops/perf/visual/runner3wp-v1-v2-slow4g.mp4
+
+      - name: Persist visual evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- ops/perf/visual/runner3wp-v1-v2-slow4g.mp4 ops/perf/visual/runner3wp-v1-v2-slow4g.json
+          git commit -m 'diag: persist V1 vs V2 visual A-B' || exit 0
+          git push origin HEAD:diag-runner3wp-pagespeed-ab-20260820
