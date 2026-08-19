@@ -1,0 +1,35 @@
+name: WR Frozen DOWN HIGH Robustness
+on:
+  pull_request:
+    paths:
+      - 'wave-rider-verify/wr_frozen_down_high_robustness.py'
+      - '.github/workflows/wr-frozen-down-high-robustness.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2024-frozen-rolling-oos-final
+          path: /tmp/a24
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32253319968
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase2-zonec10-final
+          path: /tmp/a25
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32233507091
+      - name: Run frozen DOWN HIGH robustness
+        run: python3 wave-rider-verify/wr_frozen_down_high_robustness.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-frozen-down-high-robustness-final
+          path: /tmp/final3
+          retention-days: 14
