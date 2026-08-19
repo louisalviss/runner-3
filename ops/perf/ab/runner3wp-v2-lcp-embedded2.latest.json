@@ -1,0 +1,111 @@
+{
+  "status": "ready",
+  "experiment": "same-origin-embedded-q52-direct",
+  "verdict": "PROBE_PASS",
+  "probePass": true,
+  "build": {
+    "quality": 52,
+    "sourceBytes": 81502,
+    "variants": [
+      {
+        "width": 360,
+        "height": 240,
+        "bytes": 11086
+      },
+      {
+        "width": 480,
+        "height": 320,
+        "bytes": 16560
+      },
+      {
+        "width": 640,
+        "height": 427,
+        "bytes": 24782
+      }
+    ]
+  },
+  "patch": {
+    "status": "patched",
+    "widths": [
+      360,
+      480,
+      640
+    ],
+    "entryPath": "edge/wordpress-edge-proxy/src/entry.js",
+    "responsivePath": "edge/wordpress-edge-proxy/src/responsive-images.js",
+    "encodedBytes": {
+      "360": 14784,
+      "480": 22080,
+      "640": 33044
+    }
+  },
+  "guard": {
+    "ok": true,
+    "homeHttp": 200,
+    "snapshot": "HIT",
+    "marker": true,
+    "imageHttp": 200,
+    "imageBytes": 24782,
+    "imageMarker": "embedded-same-origin"
+  },
+  "baseline": {
+    "runs": [
+      {
+        "fcp": 1935.092,
+        "lcp": 2875.4759999999997,
+        "tbt": 384,
+        "cls": 0,
+        "perf": 0.85
+      },
+      {
+        "fcp": 1104.2069999999999,
+        "lcp": 2206.593,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.98
+      },
+      {
+        "fcp": 1041.797,
+        "lcp": 2045.219,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      }
+    ],
+    "medianFcpMs": 1104.2069999999999,
+    "medianLcpMs": 2206.593,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "candidate": {
+    "runs": [
+      {
+        "fcp": 1042.742,
+        "lcp": 1129.395,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1052.21,
+        "lcp": 1130.096,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1066.696,
+        "lcp": 1157.793,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      }
+    ],
+    "medianFcpMs": 1052.21,
+    "medianLcpMs": 1130.096,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "lcpImprovementMs": 1076.4969999999998,
+  "checkedAt": "2026-08-19T22:41:23.431260+00:00"
+}
