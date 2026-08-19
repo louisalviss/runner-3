@@ -1,0 +1,82 @@
+name: X Runner
+
+on:
+  push:
+    paths:
+      - x-job.json
+  workflow_dispatch:
+    inputs:
+      x_url:
+        description: Public X/Twitter status URL
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: x-runner
+  cancel-in-progress: false
+
+jobs:
+  inspect-x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare job
+        env:
+          DISPATCH_URL: ${{ github.event.inputs.x_url }}
+        run: |
+          if [ -n "$DISPATCH_URL" ]; then
+            python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path("x-job.runtime.json").write_text(
+              json.dumps({"x_url": os.environ["DISPATCH_URL"]}, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          PY
+            echo "JOB_FILE=x-job.runtime.json" >> "$GITHUB_ENV"
+          else
+            test -f x-job.json
+            echo "JOB_FILE=x-job.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure ffmpeg
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+
+      - name: Inspect tweet
+        run: python x_runner.py "$JOB_FILE" --output-root x-results
+
+      - name: Upload result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-runner-${{ github.run_id }}
+          path: x-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish compact result to repository
+        if: always()
+        run: |
+          if [ ! -d x-results ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add x-results
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "x runner result ${{ github.run_id }}"
+          git pull --rebase origin main
+          git push origin HEAD:main
