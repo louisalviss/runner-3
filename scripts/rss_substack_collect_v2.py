@@ -11,6 +11,7 @@ Hồ Quốc Tuấn and vnhacker remain ChatGPT-direct sources at reader runtime.
 """
 
 from collections import Counter
+from urllib.parse import urlparse
 
 import rss_substack_collect as base
 
@@ -41,9 +42,65 @@ def _top_level_profile_id(payload, handle):
     return None
 
 
+def _publication_base_url():
+    parsed = urlparse(base.SOURCE["article_feed"])
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _profile_id_from_publication_archive(handle):
+    """Resolve a verified profile user id from the publication's public archive.
+
+    GitHub-hosted runners can receive 403 from bare substack.com profile routes,
+    while the publication host remains public. Archive post objects expose
+    publishedBylines with both stable numeric user id and handle, allowing us to
+    verify identity without pinning an opaque id in source code.
+    """
+    archive_url = _publication_base_url() + "/api/v1/archive"
+    response = base.SESSION.get(
+        archive_url,
+        params={"sort": "new", "limit": 10},
+        timeout=base.TIMEOUT,
+        allow_redirects=True,
+        headers={"Accept": "application/json, text/plain, */*"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, list):
+        raise RuntimeError("publication archive returned a non-list payload")
+
+    target = handle.lower()
+    verified_ids = set()
+    for post in payload:
+        if not isinstance(post, dict):
+            continue
+        bylines = post.get("publishedBylines") or post.get("published_bylines") or []
+        if not isinstance(bylines, list):
+            continue
+        for byline in bylines:
+            if not isinstance(byline, dict):
+                continue
+            byline_handle = str(byline.get("handle") or byline.get("username") or "").lstrip("@").lower()
+            byline_id = byline.get("id") or byline.get("user_id") or byline.get("userId")
+            if byline_handle == target and str(byline_id).isdigit() and int(byline_id) > 0:
+                verified_ids.add(int(byline_id))
+
+    if len(verified_ids) != 1:
+        raise RuntimeError(
+            f"publication archive did not yield exactly one verified @{handle} user id; "
+            f"found={sorted(verified_ids)}"
+        )
+    return next(iter(verified_ids)), response.url, "publication_archive_byline"
+
+
 def hardened_resolve_profile_user_id(handle):
-    """Prefer the public-profile JSON contract; retain HTML discovery as fallback."""
+    """Prefer publication-host identity, then public-profile JSON/HTML fallbacks."""
     errors = []
+
+    try:
+        return _profile_id_from_publication_archive(handle)
+    except Exception as exc:
+        errors.append(f"publication archive: {type(exc).__name__}: {exc}")
+
     candidates = [
         f"https://substack.com/api/v1/user/{handle}/public_profile",
         f"https://substack.com/api/v1/user/{handle}/public_profile/self",
