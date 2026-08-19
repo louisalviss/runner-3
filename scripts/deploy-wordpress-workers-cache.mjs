@@ -6,10 +6,11 @@ const workerUrl = process.env.CF_EDGE_URL || 'https://wordpress-edge-proxy.ducdu
 const outFile = process.env.CF_EDGE_OUT || '/tmp/cloudflare-wordpress-edge.json';
 const snapshotOut = process.env.CF_SNAPSHOT_OUT || '/tmp/runner3-edge-snapshot.json';
 const purgeSecret = String(process.env.RUNNER3_PURGE_SECRET || '');
+const rotatePurgeSecret = process.env.CF_ROTATE_PURGE_SECRET === '1';
 const wrangler = 'wrangler@4.124.0';
 
 if (!process.env.CLOUDFLARE_API_TOKEN) throw new Error('CLOUDFLARE_API_TOKEN missing');
-if (!purgeSecret || purgeSecret.length < 32) throw new Error('RUNNER3_PURGE_SECRET missing or too short');
+if (rotatePurgeSecret && (!purgeSecret || purgeSecret.length < 32)) throw new Error('RUNNER3_PURGE_SECRET missing or too short');
 
 function run(args, input = null) {
   execFileSync('npx', ['--yes', wrangler, ...args], {
@@ -46,8 +47,12 @@ try {
     throw new Error(`fresh snapshot unavailable: ${JSON.stringify(snapshot).slice(0, 1200)}`);
   }
 
+  // Normal code/snapshot refreshes preserve the already paired Worker/WordPress
+  // HMAC credential. Rotation is an explicit maintenance action only.
   run(['deploy', '--config', config]);
-  run(['secret', 'put', 'RUNNER3_CACHE_PURGE_SECRET', '--config', config], `${purgeSecret}\n`);
+  if (rotatePurgeSecret) {
+    run(['secret', 'put', 'RUNNER3_CACHE_PURGE_SECRET', '--config', config], `${purgeSecret}\n`);
+  }
   await new Promise((resolve) => setTimeout(resolve, 2500));
 
   const homeRuns = [];
@@ -85,7 +90,7 @@ try {
     edgeUrl: workerUrl,
     architecture: 'snapshot-first-workers-caching',
     purgeEndpoint: `${workerUrl}/__runner3/cache/purge`,
-    auth: 'HMAC-SHA256',
+    auth: rotatePurgeSecret ? 'HMAC-SHA256-rotated' : 'HMAC-SHA256-preserved',
     checkedAt: new Date().toISOString(),
     snapshot,
     probe: {
