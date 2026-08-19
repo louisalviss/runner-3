@@ -1,0 +1,188 @@
+name: Runner3WP Promote V2 Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-promote-v2-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-production-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_SHA: 08165956f80fe4bb8505ab93dcdf428faa4b7aab
+      BASELINE_SHA: bfaca6aca4cfb8173ebd91f330376e64120332db
+      PROD_DOMAIN: https://runner3wp.pntr.dev
+      PROD_WORKER_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout tested V2 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - name: Build fresh WordPress snapshot
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-wordpress-edge-snapshot.mjs
+          test -s /tmp/runner3-edge-snapshot.json
+
+      - name: Deploy V2 code to production Worker
+        id: deploy
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          src='edge/wordpress-edge-proxy/wrangler.v2.jsonc'
+          dst='edge/wordpress-edge-proxy/wrangler.prod-v2.jsonc'
+          d=json.load(open(src))
+          d['name']='wordpress-edge-proxy'
+          with open(dst,'w') as f:
+              json.dump(d,f,indent=2)
+              f.write('\n')
+          PY
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-v2.jsonc
+          sleep 4
+
+      - name: Verify production domain and safety invariants
+        id: verify
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -D /tmp/prod-home.h -o /tmp/prod-home.html "$PROD_DOMAIN/"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/prod-home.h
+          grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/prod-home.h
+          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/prod-home.html
+
+          curl -fsS -D /tmp/prod-image.h -o /tmp/prod-image.webp "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w480.webp"
+          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/prod-image.h
+          grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/prod-image.h
+          test "$(wc -c </tmp/prod-image.webp)" -gt 10000
+
+          curl -sS -D /tmp/prod-admin.h -o /dev/null "$PROD_DOMAIN/wp-admin/"
+          grep -Eiq '^HTTP/[^ ]+[[:space:]]+307' /tmp/prod-admin.h
+          grep -Eiq '^location:[[:space:]]*https://runner3-factory-smoke-2\.wasmer\.app' /tmp/prod-admin.h
+
+          curl -fsS -H 'Cookie: wordpress_logged_in_probe=1' -D /tmp/prod-auth.h -o /tmp/prod-auth.html "$PROD_DOMAIN/"
+          grep -Eiq '^x-edge-mode:[[:space:]]*bypass' /tmp/prod-auth.h
+          grep -Eiq '^cache-control:.*(private|no-store)' /tmp/prod-auth.h
+
+          curl -fsS -D /tmp/worker-home.h -o /tmp/worker-home.html "$PROD_WORKER_URL/"
+          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/worker-home.html
+
+      - name: Roll back to proven V1 baseline if promotion fails
+        id: rollback
+        if: always() && (steps.build.outcome != 'success' || steps.deploy.outcome != 'success' || steps.verify.outcome != 'success')
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard "$BASELINE_SHA"
+          CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" \
+            CF_WORKER_CONFIG=edge/wordpress-edge-proxy/wrangler.jsonc \
+            CF_EDGE_URL="$PROD_WORKER_URL" \
+            CF_EDGE_OUT=/tmp/rollback-worker.json \
+            RUNNER3_FCP_V2=0 \
+            node scripts/deploy-wordpress-workers-cache.mjs
+          sleep 4
+          curl -fsS -D /tmp/rollback-domain.h -o /tmp/rollback-domain.html "$PROD_DOMAIN/"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/rollback-domain.h
+
+      - name: Build immutable production result
+        if: always()
+        shell: bash
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os, re, datetime
+          promoted = all(os.environ.get(k)=='success' for k in ('BUILD_OUTCOME','DEPLOY_OUTCOME','VERIFY_OUTCOME'))
+          def headers(path):
+              try:
+                  text=open(path,errors='ignore').read()
+              except Exception:
+                  return {}
+              out={}
+              for line in text.splitlines():
+                  if ':' in line:
+                      k,v=line.split(':',1); out[k.lower().strip()]=v.strip()
+              return out
+          hh=headers('/tmp/prod-home.h')
+          ih=headers('/tmp/prod-image.h')
+          result={
+            'status':'promoted' if promoted else 'rolled_back',
+            'productionDomain':os.environ['PROD_DOMAIN'],
+            'productionWorkerUrl':os.environ['PROD_WORKER_URL'],
+            'candidateCommit':os.environ['CANDIDATE_SHA'],
+            'rollbackCommit':os.environ['BASELINE_SHA'],
+            'architecture':'WordPress snapshot-direct + same-origin hero via Cloudflare R2 binding',
+            'outcomes':{
+              'build':os.environ.get('BUILD_OUTCOME'),
+              'deploy':os.environ.get('DEPLOY_OUTCOME'),
+              'verify':os.environ.get('VERIFY_OUTCOME'),
+              'rollback':os.environ.get('ROLLBACK_OUTCOME'),
+            },
+            'productionChecks':{
+              'edgeSnapshot':hh.get('x-edge-snapshot'),
+              'edgeCachePolicy':hh.get('x-edge-cache-policy'),
+              'heroMarker':ih.get('x-runner3-lcp'),
+              'heroContentType':ih.get('content-type'),
+              'heroBytes':os.path.getsize('/tmp/prod-image.webp') if os.path.exists('/tmp/prod-image.webp') else None,
+            },
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          with open('/tmp/runner3wp-production-v2.json','w') as f: json.dump(result,f,indent=2); f.write('\n')
+          print(json.dumps(result,indent=2))
+          PY
+
+      - name: Persist production state on main
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/runner3wp-production-v2.json /tmp/runner3wp-production-v2.safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/perf/production
+            cp /tmp/runner3wp-production-v2.safe.json ops/perf/production/runner3wp-production-v2.latest.json
+            git add -- ops/perf/production/runner3wp-production-v2.latest.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'ops: persist Runner3WP V2 production state [skip ci]'
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
+
+      - name: Require successful promotion
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/runner3wp-production-v2.json'))
+          assert d['status']=='promoted', json.dumps(d,indent=2)
+          print('Runner3WP V2 is production.')
+          PY
