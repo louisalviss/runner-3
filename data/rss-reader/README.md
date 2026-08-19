@@ -35,7 +35,7 @@ Collectors MUST NOT modify it. State advances only after ChatGPT completes and r
 
 ## Võ Hoàng Hạc
 
-`source/vohoanghac.json` must use `transport = hybrid-rss+substack-profile` and contain both `itemType=article` and `itemType=note`.
+`sources/vohoanghac.json` must use `transport = hybrid-rss+substack-profile` and contain both `itemType=article` and `itemType=note`.
 
 Notes identity rules remain fail-closed:
 
