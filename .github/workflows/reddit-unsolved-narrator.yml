@@ -1,0 +1,179 @@
+name: Reddit Unsolved Narrator Audio
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.runner-reddit-unsolved-trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-reddit-unsolved-narrator
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: runner3-wp-media
+      PREFIX: listen/reddit-creepiest-unsolved-v1
+      VOICE: vi-VN-NamMinhNeural
+      VOICE_RATE: +3%
+      WORKDIR: work/reddit-unsolved
+      OUTDIR: artifacts/reddit-unsolved
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install audio tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg jq openssl curl
+          python -m pip install -q -U edge-tts
+          mkdir -p "$WORKDIR" "$OUTDIR"
+
+      - name: Fetch Reddit thread with Runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$WORKDIR/reddit.json"
+          ok=0
+
+          # Prefer the encrypted Reddit OAuth credential already provisioned in runner-3.
+          if [ -s ops/reddit/credentials.aes ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo 'Using runner-3 Reddit OAuth credential'
+            echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
+            if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -pass env:CLOUDFLARE_API_TOKEN \
+              -in ops/reddit/credentials.aes -out /tmp/reddit-credentials.json 2>/dev/null; then
+              client_id="$(jq -r '.client_id // empty' /tmp/reddit-credentials.json)"
+              refresh_token="$(jq -r '.refresh_token // empty' /tmp/reddit-credentials.json)"
+              if [ -n "$client_id" ] && [ -n "$refresh_token" ]; then
+                echo "::add-mask::$client_id"
+                echo "::add-mask::$refresh_token"
+                token_json="$(curl -fsS --max-time 30 \
+                  -A 'linux:runner3-reddit-reader:v1.0' \
+                  -u "${client_id}:" \
+                  -X POST 'https://www.reddit.com/api/v1/access_token' \
+                  --data-urlencode 'grant_type=refresh_token' \
+                  --data-urlencode "refresh_token=${refresh_token}" || true)"
+                access="$(printf '%s' "$token_json" | jq -r '.access_token // empty' 2>/dev/null || true)"
+                if [ -n "$access" ]; then
+                  echo "::add-mask::$access"
+                  if curl -fsS --max-time 45 --retry 2 \
+                    -A 'linux:runner3-reddit-reader:v1.0' \
+                    -H "Authorization: bearer ${access}" \
+                    'https://oauth.reddit.com/comments/1vrfpzb?sort=best&limit=100&raw_json=1' \
+                    -o "$out"; then ok=1; fi
+                fi
+              fi
+            fi
+          fi
+          rm -f /tmp/reddit-credentials.json
+
+          # Public JSON is a fallback, still fetched from the GitHub runner rather than the chat client.
+          if [ "$ok" -ne 1 ]; then
+            echo 'OAuth path unavailable; trying Reddit public JSON from runner'
+            curl -fsS --max-time 45 --retry 3 \
+              -A 'linux:runner3-reddit-reader:v1.0' \
+              'https://www.reddit.com/comments/1vrfpzb.json?sort=best&limit=100&raw_json=1' \
+              -o "$out"
+          fi
+
+          jq -e 'type=="array" and length>=2 and .[1].data.children|length>0' "$out" >/dev/null
+          echo "REDDIT_BYTES=$(wc -c < "$out")"
+          echo "REDDIT_TOP_LEVEL=$(jq '.[1].data.children|length' "$out")"
+
+      - name: Render verified Vietnamese episode
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/reddit_unsolved_narrator.py | tee "$OUTDIR/render-summary.json"
+          test -s "$OUTDIR/episode.mp3"
+          test -s "$OUTDIR/index.html"
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUTDIR/episode.mp3"
+
+      - name: Upload audio player to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Cloudflare API token unavailable'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare Account ID unavailable'; exit 2; }
+          echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
+          echo '::add-mask::'"$CLOUDFLARE_ACCOUNT_ID"
+          base="$(jq -r '.baseUrl // empty' ops/r2-media/status.json)"
+          test -n "$base" || { echo 'R2 public base URL missing'; exit 3; }
+
+          put() {
+            local file="$1" key="$2" type="$3" cache="$4"
+            npx -y wrangler@4.123.0 r2 object put "$BUCKET/$key" \
+              --file="$file" --content-type="$type" --cache-control="$cache" --remote
+          }
+          put "$OUTDIR/episode.mp3" "$PREFIX/episode.mp3" 'audio/mpeg' 'public, max-age=300'
+          put "$OUTDIR/index.html" "$PREFIX/index.html" 'text/html; charset=utf-8' 'public, max-age=60'
+          put "$OUTDIR/chapters.json" "$PREFIX/chapters.json" 'application/json; charset=utf-8' 'public, max-age=60'
+          put "$OUTDIR/top-comments.json" "$PREFIX/top-comments.json" 'application/json; charset=utf-8' 'public, max-age=60'
+          put "$OUTDIR/transcript.txt" "$PREFIX/transcript.txt" 'text/plain; charset=utf-8' 'public, max-age=60'
+
+          player="$base/$PREFIX/index.html"
+          audio="$base/$PREFIX/episode.mp3"
+          for attempt in 1 2 3 4 5; do
+            code_html="$(curl -sS -o /tmp/player.html -w '%{http_code}' "$player" || true)"
+            code_audio="$(curl -sS -I -o /tmp/audio-head.txt -w '%{http_code}' "$audio" || true)"
+            if [ "$code_html" = 200 ] && [ "$code_audio" = 200 ] && grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html; then break; fi
+            sleep 2
+          done
+          test "$code_html" = 200
+          test "$code_audio" = 200
+          grep -q 'runner3:reddit-creepiest-unsolved-v1:position' /tmp/player.html
+          printf '%s\n' "$player" > /tmp/player-url.txt
+          printf '%s\n' "$audio" > /tmp/audio-url.txt
+          echo "PLAYER_URL=$player"
+          echo "AUDIO_URL=$audio"
+
+      - name: Persist safe episode status
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/reddit-narrator
+          player="$(cat /tmp/player-url.txt)"
+          audio="$(cat /tmp/audio-url.txt)"
+          duration="$(jq -r '.duration_seconds' "$OUTDIR/chapters.json")"
+          cases="$(jq '.selected_cases | length' "$OUTDIR/chapters.json")"
+          python3 - "$player" "$audio" "$duration" "$cases" <<'PY'
+          import json,sys,datetime
+          player,audio,duration,cases=sys.argv[1:]
+          out={
+            'status':'ready',
+            'episodeId':'reddit-creepiest-unsolved-v1',
+            'playerUrl':player,
+            'audioUrl':audio,
+            'voice':'vi-VN-NamMinhNeural',
+            'resume':'localStorage/same-browser',
+            'durationSeconds':float(duration),
+            'caseCount':int(cases),
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          open('ops/reddit-narrator/latest.json','w').write(json.dumps(out,indent=2)+'\n')
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/reddit-narrator/latest.json
+          git commit -m 'Publish Reddit narrator episode status' || exit 0
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+            sleep 2
+          done
+          exit 5
