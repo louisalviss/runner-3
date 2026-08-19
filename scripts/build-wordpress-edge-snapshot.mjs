@@ -5,6 +5,7 @@ const modulePath = process.env.CF_SNAPSHOT_MODULE || 'edge/wordpress-edge-proxy/
 const outPath = process.env.CF_SNAPSHOT_OUT || '/tmp/runner3-edge-snapshot.json';
 const maxPages = Math.max(1, Number(process.env.CF_SNAPSHOT_MAX_PAGES || 40));
 const maxBytes = Math.max(250000, Number(process.env.CF_SNAPSHOT_MAX_BYTES || 2500000));
+const fcpV2 = process.env.RUNNER3_FCP_V2 === '1';
 
 function normalizePath(pathname) {
   const path = pathname || '/';
@@ -46,6 +47,33 @@ function internalPaths(html, baseUrl) {
     }
   }
   return paths;
+}
+
+function optimizeFcpHtml(html) {
+  if (!fcpV2) return { html, movedStyleCount: 0, movedStyleBytes: 0 };
+
+  const moved = [];
+  const headOptimized = html.replace(
+    /<style\b[^>]*\bid=(["'])(wp-emoji-styles-inline-css|wp-block-library-inline-css|global-styles-inline-css)\1[^>]*>[\s\S]*?<\/style>\s*/gi,
+    (tag, _quote, id) => {
+      moved.push({ id, tag });
+      return '';
+    },
+  );
+
+  if (!moved.length) return { html, movedStyleCount: 0, movedStyleBytes: 0 };
+
+  const deferredCss = `\n<!-- runner3-v2-fcp-deferred-css -->\n${moved.map(({ tag }) => tag).join('\n')}\n`;
+  const bodyClose = headOptimized.lastIndexOf('</body>');
+  const optimized = bodyClose >= 0
+    ? `${headOptimized.slice(0, bodyClose)}${deferredCss}${headOptimized.slice(bodyClose)}`
+    : `${headOptimized}${deferredCss}`;
+
+  return {
+    html: optimized,
+    movedStyleCount: moved.length,
+    movedStyleBytes: moved.reduce((sum, { tag }) => sum + Buffer.byteLength(tag), 0),
+  };
 }
 
 async function sitemapPaths() {
@@ -95,6 +123,9 @@ for (const path of await sitemapPaths()) {
 const snapshots = {};
 const errors = [];
 let totalBytes = 0;
+let movedStyleCount = 0;
+let movedStyleBytes = 0;
+let homepageFcp = null;
 
 while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < maxBytes) {
   const requestedPath = queue.shift();
@@ -114,7 +145,21 @@ while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < 
       continue;
     }
 
-    const html = await response.text();
+    const sourceHtml = await response.text();
+    const fcp = optimizeFcpHtml(sourceHtml);
+    const html = fcp.html;
+    movedStyleCount += fcp.movedStyleCount;
+    movedStyleBytes += fcp.movedStyleBytes;
+    if (normalizePath(requestedUrl.pathname) === '/') {
+      homepageFcp = {
+        enabled: fcpV2,
+        movedStyleCount: fcp.movedStyleCount,
+        movedStyleBytes: fcp.movedStyleBytes,
+        beforeBytes: Buffer.byteLength(sourceHtml),
+        afterBytes: Buffer.byteLength(html),
+      };
+    }
+
     const bytes = Buffer.byteLength(html);
     if (bytes < 256) {
       errors.push({ path: requestedPath, status: response.status, detail: `html_too_small=${bytes}` });
@@ -131,7 +176,7 @@ while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < 
     }
     if (finalKey !== requestedKey && !(finalKey in snapshots)) snapshots[finalKey] = html;
 
-    for (const path of internalPaths(html, finalUrl)) {
+    for (const path of internalPaths(sourceHtml, finalUrl)) {
       if (queued.has(path) || Object.keys(snapshots).length + queue.length >= maxPages) continue;
       queued.add(path);
       queue.push(path);
@@ -165,6 +210,12 @@ const result = {
   paths: Object.keys(snapshots).sort(),
   errors: errors.slice(0, 20),
   modulePath,
+  fcpV2: {
+    enabled: fcpV2,
+    movedStyleCount,
+    movedStyleBytes,
+    homepage: homepageFcp,
+  },
 };
 fs.writeFileSync(outPath, `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify(result, null, 2));
