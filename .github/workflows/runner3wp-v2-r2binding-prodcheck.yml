@@ -1,0 +1,184 @@
+name: Runner3WP V2 R2 Binding Production Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-v2-r2binding-prodcheck.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-v2-r2binding-prodcheck
+  cancel-in-progress: false
+
+env:
+  BASELINE_SHA: bfaca6aca4cfb8173ebd91f330376e64120332db
+  CANDIDATE_SHA: 9124f5957e176ffc9aa64444c980f3c5d6642a0d
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          fetch-depth: 0
+
+      - name: Prepare Lighthouse
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
+          mkdir -p /tmp/lh
+
+      - name: Deploy proven baseline to isolated V2
+        run: |
+          set -euo pipefail
+          RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs
+          sleep 3
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/baseline.h -o /tmp/baseline.html "$V2_URL/?__runner3_base=$(date +%s%N)"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/baseline.h
+
+      - name: Baseline Lighthouse 3x
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            npx lighthouse "$V2_URL/?__runner3_lh=b$i" --output=json --output-path="/tmp/lh/b$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          done
+
+      - name: Checkout resilient candidate and build fresh snapshot
+        run: |
+          set -euo pipefail
+          git reset --hard
+          git checkout --detach "$CANDIDATE_SHA"
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          node --check edge/wordpress-edge-proxy/src/responsive-images.js
+          grep -q 'MEDIA_BUCKET' edge/wordpress-edge-proxy/wrangler.v2.jsonc
+          node scripts/build-wordpress-edge-snapshot.mjs
+
+      - name: Deploy candidate to isolated V2
+        id: deploy
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.124.0 deploy --config "$CF_WORKER_CONFIG" 2>&1 | tee /tmp/candidate-deploy.log
+          sleep 3
+
+      - name: Candidate runtime guard and current hero diagnostic
+        id: guard
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          BUST="__runner3_guard=$(date +%s%N)"
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/candidate.h -o /tmp/candidate.html "$V2_URL/?$BUST"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const html=fs.readFileSync('/tmp/candidate.html','utf8');
+          const srcs=[...html.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]).slice(0,30);
+          const preloads=[...html.matchAll(/<link\b[^>]*\brel=["']preload["'][^>]*\bas=["']image["'][^>]*\bhref=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]).slice(0,20);
+          const marker=/\/__runner3\/r2-image\/offset-demo-01-w(?:360|480|640)\.webp/i.test(html);
+          fs.writeFileSync('/tmp/hero-diag.json',JSON.stringify({marker,imgSrcs:srcs,imagePreloads:preloads,offsetDemoMatches:[...new Set((html.match(/[^"'\s<>]*offset-demo-01[^"'\s<>]*/gi)||[]))].slice(0,30)},null,2));
+          console.log(fs.readFileSync('/tmp/hero-diag.json','utf8'));
+          NODE
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/candidate-image.h -o /tmp/candidate-image.webp "$V2_URL/__runner3/r2-image/offset-demo-01-w480.webp?$BUST"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/candidate.h
+          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/candidate.html
+          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/candidate-image.h
+          grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/candidate-image.h
+          test "$(wc -c </tmp/candidate-image.webp)" -gt 10000
+
+      - name: Candidate Lighthouse 3x
+        if: steps.deploy.outcome == 'success' && steps.guard.outcome == 'success'
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            npx lighthouse "$V2_URL/?__runner3_lh=c$i" --output=json --output-path="/tmp/lh/c$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          done
+
+      - name: Judge candidate
+        id: judge
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+        run: |
+          python - <<'PY'
+          import json,pathlib,statistics,datetime,os
+          def read(p):
+              p=pathlib.Path(p)
+              if not p.exists(): return None
+              d=json.loads(p.read_text()); a=d['audits']; g=lambda k:(a.get(k) or {}).get('numericValue')
+              return {'fcp':g('first-contentful-paint'),'lcp':g('largest-contentful-paint'),'tbt':g('total-blocking-time'),'cls':g('cumulative-layout-shift'),'perf':d['categories']['performance']['score']}
+          b=[x for i in (1,2,3) if (x:=read(f'/tmp/lh/b{i}.json'))]
+          c=[x for i in (1,2,3) if (x:=read(f'/tmp/lh/c{i}.json'))]
+          m=lambda rows,k:statistics.median([x[k] for x in rows]) if len(rows)==3 else None
+          complete=len(b)==len(c)==3 and os.environ.get('DEPLOY_OUTCOME')=='success' and os.environ.get('GUARD_OUTCOME')=='success'
+          bf,bl,bt,bc=m(b,'fcp'),m(b,'lcp'),m(b,'tbt'),m(b,'cls')
+          cf,cl,ct,cc=m(c,'fcp'),m(c,'lcp'),m(c,'tbt'),m(c,'cls')
+          gain=bl-cl if complete else None
+          keep=bool(complete and gain>=300 and cf<=bf+75 and cc<=bc+0.01 and ct<=max(50,bt+50))
+          try: diag=json.load(open('/tmp/hero-diag.json'))
+          except: diag=None
+          out={'status':'ready' if complete else 'incomplete','experiment':'same-origin-r2-binding-hero-productionized','candidateSha':os.environ['CANDIDATE_SHA'],'verdict':'KEEP_V2' if keep else 'ROLLBACK','keepV2':keep,'deployOutcome':os.environ.get('DEPLOY_OUTCOME'),'guardOutcome':os.environ.get('GUARD_OUTCOME'),'heroDiagnostic':diag,'baseline':{'runs':b,'medianFcpMs':bf,'medianLcpMs':bl,'medianTbtMs':bt,'medianCls':bc},'candidate':{'runs':c,'medianFcpMs':cf,'medianLcpMs':cl,'medianTbtMs':ct,'medianCls':cc},'lcpImprovementMs':gain,'policy':'keep only for >=300ms median LCP gain; FCP <= baseline+75ms; CLS <= baseline+0.01; TBT <= max(50, baseline+50)','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path('/tmp/prodcheck.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          pathlib.Path('/tmp/KEEP').write_text('1' if keep else '0')
+          PY
+
+      - name: Restore isolated V2 if candidate rejected
+        if: always()
+        run: |
+          set -euo pipefail
+          KEEP="$(cat /tmp/KEEP 2>/dev/null || echo 0)"
+          if [ "$KEEP" = 1 ]; then
+            echo 'Candidate retained on isolated V2.'
+            exit 0
+          fi
+          git reset --hard
+          git checkout --detach "$BASELINE_SHA"
+          RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs
+
+      - name: Persist A/B evidence on main
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s /tmp/prodcheck.json || echo '{"status":"failed","verdict":"ROLLBACK","keepV2":false}' > /tmp/prodcheck.json
+          cp /tmp/prodcheck.json /tmp/prodcheck.safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git checkout -B main origin/main
+            mkdir -p ops/perf/ab
+            cp /tmp/prodcheck.safe.json ops/perf/ab/runner3wp-v2-r2binding-prodcheck.latest.json
+            git add ops/perf/ab/runner3wp-v2-r2binding-prodcheck.latest.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'perf: persist Runner3WP V2 productionized R2 check [skip ci]'
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
+
+      - name: Require accepted candidate
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/prodcheck.json'))
+          assert d.get('keepV2') is True, json.dumps(d,indent=2)
+          PY
