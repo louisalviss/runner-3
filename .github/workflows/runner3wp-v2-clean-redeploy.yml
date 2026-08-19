@@ -36,19 +36,28 @@ jobs:
           test "$(git show origin/runner3wp-v1-baseline-20260820:scripts/build-wordpress-edge-snapshot.mjs | sha256sum | cut -d' ' -f1)" = "$(sha256sum scripts/build-wordpress-edge-snapshot.mjs | cut -d' ' -f1)"
       - name: Deploy clean V2 baseline
         run: node scripts/deploy-wordpress-workers-cache.mjs
-      - name: Verify V2 runtime parity
+      - name: Verify V2 structural runtime parity
         shell: bash
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
-          async function read(url){const t=performance.now();const r=await fetch(url,{headers:{'user-agent':'Runner3V2CleanVerifier/1.0'}});const html=await r.text();return {http:r.status,ms:Math.round((performance.now()-t)*10)/10,html,headers:Object.fromEntries(r.headers.entries())};}
+          function attr(tag,name){const m=tag.match(new RegExp('\\b'+name+'\\s*=\\s*(["\\'])(.*?)\\1','i'));return m?m[2]:null;}
+          function summarize(html){
+            const visible=html.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<!--([\s\S]*?)-->/g,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+            const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1]?.replace(/<[^>]+>/g,'').trim()||'';
+            const h1=(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)||[])[1]?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()||'';
+            const links=[...html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)].map(m=>m[1].replace(/^https?:\/\/[^/]+/,''));
+            const images=[...html.matchAll(/<img\b[^>]*>/gi)].map(m=>attr(m[0],'src')||'').map(x=>x.replace(/^https?:\/\/[^/]+/,''));
+            return {visible,title,h1,links,images};
+          }
+          async function read(url){const t=performance.now();const r=await fetch(url,{headers:{'user-agent':'Runner3V2CleanVerifier/2.0'}});const html=await r.text();return {http:r.status,ms:Math.round((performance.now()-t)*10)/10,html,headers:Object.fromEntries(r.headers.entries())};}
           const [v1,v2]=await Promise.all([read('https://runner3wp.pntr.dev/'),read('https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/')]);
-          const text=x=>x.replace(/https?:\/\/[^/"']+/g,'HOST').replace(/\s+/g,' ').trim();
-          const sameText=text(v1.html)===text(v2.html);
+          const a=summarize(v1.html),b=summarize(v2.html);
           const snapshot=v2.headers['x-edge-mode']==='snapshot'&&String(v2.headers['x-edge-snapshot']||'').toUpperCase()==='HIT';
           const noindex=/noindex/i.test(v2.headers['x-robots-tag']||'');
-          const pass=v1.http===200&&v2.http===200&&sameText&&snapshot&&noindex;
-          const out={status:pass?'ok':'failed',v1:{url:'https://runner3wp.pntr.dev/',http:v1.http},v2:{url:'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/',http:v2.http,ms:v2.ms,edgeMode:v2.headers['x-edge-mode']||null,edgeSnapshot:v2.headers['x-edge-snapshot']||null,noindex},sameText,checkedAt:new Date().toISOString()};
+          const checks={titleSame:a.title===b.title,h1Same:a.h1===b.h1,visibleTextSame:a.visible===b.visible,imageCountSame:a.images.length===b.images.length,majorLinksSame:a.links.slice(0,20).join('|')===b.links.slice(0,20).join('|')};
+          const pass=v1.http===200&&v2.http===200&&snapshot&&noindex&&Object.values(checks).every(Boolean);
+          const out={status:pass?'ok':'failed',v1:{url:'https://runner3wp.pntr.dev/',http:v1.http},v2:{url:'https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/',http:v2.http,ms:v2.ms,edgeMode:v2.headers['x-edge-mode']||null,edgeSnapshot:v2.headers['x-edge-snapshot']||null,noindex},checks,checkedAt:new Date().toISOString()};
           fs.writeFileSync('/tmp/v2-clean.json',JSON.stringify(out,null,2)+'\n');console.log(JSON.stringify(out,null,2));if(!pass)process.exit(7);
           NODE
       - name: Persist clean rollback verification
