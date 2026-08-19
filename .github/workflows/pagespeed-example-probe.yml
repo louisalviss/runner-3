@@ -1,0 +1,53 @@
+name: PageSpeed Example Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pagespeed-example-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe official PSI mobile API
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p ops/pagespeed/benchmark
+          python - <<'PY'
+          import json,time,urllib.parse,urllib.request
+          from pathlib import Path
+          target='https://example.com/'
+          ep='https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
+          out={'target':target,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          try:
+            u=ep+'?'+urllib.parse.urlencode({'url':target,'strategy':'mobile','category':'performance'})
+            with urllib.request.urlopen(u,timeout=180) as r: d=json.load(r)
+            lr=d.get('lighthouseResult') or {}; a=lr.get('audits') or {}; f=a.get('first-contentful-paint') or {}; l=a.get('largest-contentful-paint') or {}
+            out.update({'status':'ready','lighthouseVersion':lr.get('lighthouseVersion'),'performance':round(((lr.get('categories') or {}).get('performance') or {}).get('score',0)*100),'fcpMs':f.get('numericValue'),'fcp':f.get('displayValue'),'lcpMs':l.get('numericValue'),'lcp':l.get('displayValue'),'formFactor':(lr.get('configSettings') or {}).get('formFactor')})
+          except Exception as e:
+            out.update({'status':'failed','error':repr(e)})
+          Path('ops/pagespeed/benchmark/example-mobile.latest.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Persist result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/pagespeed/benchmark/example-mobile.latest.json
+          git commit -m "Persist example.com PSI mobile probe: ${GITHUB_RUN_ID}" || exit 0
+          for i in 1 2 3 4; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 2
