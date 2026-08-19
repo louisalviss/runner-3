@@ -1,0 +1,22 @@
+name: Runner3WP R2 Clean Rerun
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-r2-clean-rerun.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main, fetch-depth: 0}
+      - name: Retrigger only final R2 workflow
+        run: |
+          set -euo pipefail
+          printf '\n# clean-rerun-after-local-proof\n' >> .github/workflows/runner3wp-v2-r2-final.yml
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/runner3wp-v2-r2-final.yml
+          git commit -m 'test: clean rerun Runner3WP R2 final after local proof'
+          git push origin HEAD:main
