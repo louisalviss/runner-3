@@ -1,11 +1,11 @@
 name: Deploy Gwen-TTS on Modal
-run-name: Gwen iPhone demo UI — IPHONE-DEMO
+run-name: Gwen stable voice clone UI — UI-FIX
 
 on:
   push:
     branches: [main]
     paths:
-      - 'modal_gwen_tts.py'
+      - 'modal_gwen_tts_fixed.py'
       - '.github/workflows/modal-gwen-tts-deploy.yml'
   workflow_dispatch:
 
@@ -23,8 +23,6 @@ jobs:
     env:
       PYTHONUNBUFFERED: '1'
       NO_COLOR: '1'
-      # Deliberately use CI_* aliases so empty GitHub secrets cannot override
-      # Modal's ~/.modal.toml credentials created by interactive login.
       CI_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       CI_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
@@ -51,10 +49,8 @@ jobs:
         if: ${{ env.CI_MODAL_TOKEN_ID == '' || env.CI_MODAL_TOKEN_SECRET == '' }}
         shell: bash
         run: |
-          echo 'TARGET_RUN=Gwen iPhone demo UI IPHONE-DEMO'
-          echo 'MODAL_LOGIN_START'
+          echo 'TARGET_RUN=Gwen stable voice clone UI UI-FIX'
           python -m modal token new --verify
-          echo 'MODAL_LOGIN_OK'
 
       - name: Verify Modal authentication
         run: python -m modal token info
@@ -63,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m modal deploy modal_gwen_tts.py 2>&1 | tee /tmp/modal-deploy.log
+          python -m modal deploy modal_gwen_tts_fixed.py 2>&1 | tee /tmp/modal-deploy.log
           sed -r 's/\x1B\[[0-9;]*[mK]//g' /tmp/modal-deploy.log > /tmp/modal-deploy-clean.log
           URL="$(grep -Eo 'https://[^[:space:]]+\.modal\.run' /tmp/modal-deploy-clean.log | tail -n1)"
           test -n "$URL"
@@ -82,7 +78,20 @@ jobs:
           assert 'L4' in d['gpu']
           assert d['dtype'] == 'bfloat16'
           assert d['attention'] == 'sdpa'
+          assert d['ui'] == 'voice-clone-stable'
+          assert d['version'] == '0.6'
           PY
+
+      - name: Verify UI renders
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 180 "$GWEN_ENDPOINT/" -o /tmp/gwen-ui.html
+          grep -F 'id="cloneForm"' /tmp/gwen-ui.html
+          grep -F 'id="refAudio"' /tmp/gwen-ui.html
+          grep -F "fetch('/tts-upload'" /tmp/gwen-ui.html
+          grep -F 'Tạo giọng của tôi' /tmp/gwen-ui.html
+          echo 'UI_SMOKE_OK'
 
       - name: Run Vietnamese synthesis demo
         shell: bash
@@ -101,7 +110,6 @@ jobs:
           assert channels in (1,2)
           assert duration > 1.0
           PY
-          sha256sum /tmp/gwen-demo.wav | tee /tmp/gwen-demo.sha256
 
       - name: Publish result to repo
         shell: bash
@@ -111,20 +119,20 @@ jobs:
           import hashlib, json, os, wave
           from datetime import datetime, timezone
           from pathlib import Path
-
           wav=Path('/tmp/gwen-demo.wav')
           with wave.open(str(wav),'rb') as w:
-              duration=w.getnframes()/w.getframerate()
-              rate=w.getframerate()
-              channels=w.getnchannels()
+              duration=w.getnframes()/w.getframerate(); rate=w.getframerate(); channels=w.getnchannels()
+          health=json.load(open('/tmp/gwen-health.json'))
           result={
               'ok': True,
               'checked_at': datetime.now(timezone.utc).isoformat(),
               'endpoint': os.environ['GWEN_ENDPOINT'],
               'model': 'g-group-ai-lab/gwen-tts-0.6B',
-              'gpu': json.load(open('/tmp/gwen-health.json'))['gpu'],
+              'gpu': health['gpu'],
               'dtype': 'bfloat16',
               'attention': 'sdpa',
+              'ui': health['ui'],
+              'version': health['version'],
               'demo': {
                   'bytes': wav.stat().st_size,
                   'duration_seconds': round(duration,3),
