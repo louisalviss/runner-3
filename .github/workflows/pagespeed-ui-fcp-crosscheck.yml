@@ -1,0 +1,118 @@
+name: PageSpeed UI FCP Crosscheck
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pagespeed-ui-fcp-crosscheck.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: example
+            url: https://example.com/
+          - name: cern
+            url: http://info.cern.ch/
+          - name: mfw
+            url: https://motherfuckingwebsite.com/
+          - name: berkshire
+            url: https://www.berkshirehathaway.com/
+          - name: google-robots
+            url: https://www.google.com/robots.txt
+          - name: runner3wp-prod
+            url: https://runner3wp.pntr.dev/
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TARGET_NAME: ${{ matrix.name }}
+      TARGET_URL: ${{ matrix.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser
+        shell: bash
+        run: |
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+      - name: Run PageSpeed UI mobile-only
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p ops/pagespeed/benchmark
+          node --input-type=module - <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          const name=process.env.TARGET_NAME;
+          const target=process.env.TARGET_URL;
+          const outPath=`ops/pagespeed/benchmark/ui-${name}.latest.json`;
+          const result={name,target,status:'starting',checkedAt:new Date().toISOString()};
+          function parseMetric(text,label){
+            const escaped=label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+            for(const re of [new RegExp(`${escaped}\\s*\\n\\s*([0-9.]+)\\s*(ms|s)?`,'i'),new RegExp(`${escaped}[^0-9]{0,100}([0-9.]+)\\s*(ms|s)`,'i')]){
+              const m=text.match(re); if(m) return `${m[1]}${m[2]||''}`;
+            }
+            return null;
+          }
+          const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']});
+          const page=await browser.newPage({viewport:{width:1440,height:1200}});
+          try{
+            await page.goto('https://pagespeed.web.dev/?hl=en',{waitUntil:'domcontentloaded',timeout:60000});
+            const input=page.locator('input').first();
+            await input.waitFor({state:'visible',timeout:30000});
+            await input.fill(target);
+            await page.getByRole('button',{name:/analy[sz]e/i}).first().click();
+            await page.waitForURL(/pagespeed\.web\.dev\/analysis\//,{timeout:90000}).catch(()=>{});
+            await page.waitForFunction(()=>{
+              const t=document.body.innerText||'';
+              return /First Contentful Paint/i.test(t)&&/Largest Contentful Paint/i.test(t)&&/\bPerformance\b/i.test(t);
+            },{timeout:180000});
+            let body=''; let fcp=null,lcp=null;
+            const started=Date.now();
+            while(Date.now()-started<60000){
+              body=await page.locator('body').innerText();
+              fcp=parseMetric(body,'First Contentful Paint');
+              lcp=parseMetric(body,'Largest Contentful Paint');
+              if(fcp&&lcp) break;
+              await page.waitForTimeout(1200);
+            }
+            result.status=fcp?'ready':'failed';
+            result.resultUrl=page.url();
+            result.mobile={fcp,lcp};
+            result.lighthouseLine=(body.match(/Lighthouse\s+[0-9.]+/i)||[])[0]||null;
+            result.environment=(body.match(/Emulated[^\n]*/i)||[])[0]||null;
+            result.network=(body.match(/Slow\s+4G/i)||[])[0]||null;
+          }catch(e){
+            result.status='failed'; result.error=String(e?.stack||e); result.resultUrl=page.url();
+          }finally{
+            fs.writeFileSync(outPath,JSON.stringify(result,null,2)+'\n');
+            console.log(JSON.stringify(result,null,2));
+            await browser.close();
+          }
+          NODE
+      - name: Persist probe
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="ops/pagespeed/benchmark/ui-${TARGET_NAME}.latest.json"
+          test -s "$file"
+          cp "$file" "/tmp/${TARGET_NAME}.json"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/benchmark
+            cp "/tmp/${TARGET_NAME}.json" "$file"
+            git add "$file"
+            git commit -m "Persist PSI UI FCP probe ${TARGET_NAME}: ${GITHUB_RUN_ID}" || exit 0
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
