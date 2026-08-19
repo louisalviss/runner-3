@@ -9,8 +9,8 @@
   },
   "candidate": {
     "url": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/",
-    "mobileFcpSeconds": 1.0,
-    "mobileLcpSeconds": 1.9,
+    "mobileFcpSeconds": 0.9,
+    "mobileLcpSeconds": 1.8,
     "scores": {
       "performance": 100,
       "accessibility": 100,
@@ -18,11 +18,11 @@
       "seo": 66
     },
     "metrics": {
-      "fcp": "1.0s",
-      "lcp": "1.9s",
+      "fcp": "0.9s",
+      "lcp": "1.8s",
       "tbt": "0ms",
       "cls": "0S",
-      "speedIndex": "1.0s"
+      "speedIndex": "0.9s"
     }
   },
   "safetyPass": false,
@@ -35,11 +35,11 @@
     "architecture": "snapshot-direct",
     "purgeEndpoint": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/__runner3/cache/purge",
     "auth": "HMAC-SHA256-preserved",
-    "checkedAt": "2026-08-19T18:03:58.562Z",
+    "checkedAt": "2026-08-19T18:07:26.451Z",
     "snapshot": {
       "status": "ready",
       "origin": "https://runner3-factory-smoke-2.wasmer.app",
-      "builtAt": "2026-08-19T18:03:29.663Z",
+      "builtAt": "2026-08-19T18:06:59.334Z",
       "pages": 16,
       "bytes": 367037,
       "paths": [
@@ -89,7 +89,7 @@
       "policyReady": true,
       "snapshotReady": true,
       "coldFast": true,
-      "medianSnapshotMs": 24.4,
+      "medianSnapshotMs": 21,
       "cacheHit": false,
       "signedPurgeRequired": true,
       "loginSafe": true,
@@ -100,48 +100,48 @@
       "homeRuns": [
         {
           "http": 200,
-          "ms": 152.2,
+          "ms": 228.8,
           "cfCacheStatus": null,
           "age": null,
           "edgeMode": "snapshot",
           "edgeSnapshot": "HIT",
           "edgePolicy": "snapshot-direct",
-          "snapshotBuiltAt": "2026-08-19T18:03:29.663Z"
+          "snapshotBuiltAt": "2026-08-19T18:06:59.334Z"
         },
         {
           "http": 200,
-          "ms": 24.4,
+          "ms": 20.5,
           "cfCacheStatus": null,
           "age": null,
           "edgeMode": "snapshot",
           "edgeSnapshot": "HIT",
           "edgePolicy": "snapshot-direct",
-          "snapshotBuiltAt": "2026-08-19T18:03:29.663Z"
+          "snapshotBuiltAt": "2026-08-19T18:06:59.334Z"
         },
         {
           "http": 200,
-          "ms": 20,
+          "ms": 20.3,
           "cfCacheStatus": null,
           "age": null,
           "edgeMode": "snapshot",
           "edgeSnapshot": "HIT",
           "edgePolicy": "snapshot-direct",
-          "snapshotBuiltAt": "2026-08-19T18:03:29.663Z"
+          "snapshotBuiltAt": "2026-08-19T18:06:59.334Z"
         },
         {
           "http": 200,
-          "ms": 21.9,
+          "ms": 21,
           "cfCacheStatus": null,
           "age": null,
           "edgeMode": "snapshot",
           "edgeSnapshot": "HIT",
           "edgePolicy": "snapshot-direct",
-          "snapshotBuiltAt": "2026-08-19T18:03:29.663Z"
+          "snapshotBuiltAt": "2026-08-19T18:06:59.334Z"
         }
       ],
       "first": {
         "http": 200,
-        "ms": 152.2,
+        "ms": 228.8,
         "cfCacheStatus": null,
         "age": null,
         "edgeMode": "snapshot",
@@ -150,7 +150,7 @@
       },
       "second": {
         "http": 200,
-        "ms": 21.9,
+        "ms": 21,
         "cfCacheStatus": null,
         "age": null,
         "edgeMode": "snapshot",
@@ -179,6 +179,6 @@
     "majorLinksSame": true,
     "baselineImages": 8,
     "candidateImages": 8,
-    "checkedAt": "2026-08-19T18:03:58.860Z"
+    "checkedAt": "2026-08-19T18:07:26.792Z"
   }
 }
