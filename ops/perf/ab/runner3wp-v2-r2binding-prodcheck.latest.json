@@ -1,0 +1,92 @@
+{
+  "status": "ready",
+  "experiment": "same-origin-r2-binding-hero-productionized",
+  "candidateSha": "9124f5957e176ffc9aa64444c980f3c5d6642a0d",
+  "verdict": "KEEP_V2",
+  "keepV2": true,
+  "deployOutcome": "success",
+  "guardOutcome": "success",
+  "heroDiagnostic": {
+    "marker": true,
+    "imgSrcs": [
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-02.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-03.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-04.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-05.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-06.webp",
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-07.webp"
+    ],
+    "imagePreloads": [
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp"
+    ],
+    "offsetDemoMatches": [
+      "https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev/sites/runner3-factory-smoke-2/offset-demo-01.webp",
+      "/__runner3/r2-image/offset-demo-01-w360.webp",
+      "/__runner3/r2-image/offset-demo-01-w480.webp",
+      "/__runner3/r2-image/offset-demo-01-w640.webp"
+    ]
+  },
+  "baseline": {
+    "runs": [
+      {
+        "fcp": 1305.6480000000001,
+        "lcp": 2466.803,
+        "tbt": 200,
+        "cls": 0,
+        "perf": 0.94
+      },
+      {
+        "fcp": 1039.8809999999999,
+        "lcp": 2251.95,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      },
+      {
+        "fcp": 1025.32,
+        "lcp": 2195.2479999999996,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      }
+    ],
+    "medianFcpMs": 1039.8809999999999,
+    "medianLcpMs": 2251.95,
+    "medianTbtMs": 0,
+    "medianCls": 0
+  },
+  "candidate": {
+    "runs": [
+      {
+        "fcp": 1041.7330000000002,
+        "lcp": 1305.1400000000003,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1057.202,
+        "lcp": 1309.48,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1028.7050000000002,
+        "lcp": 1277.5660000000003,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      }
+    ],
+    "medianFcpMs": 1041.7330000000002,
+    "medianLcpMs": 1305.1400000000003,
+    "medianTbtMs": 0,
+    "medianCls": 0
+  },
+  "lcpImprovementMs": 946.8099999999995,
+  "policy": "keep only for >=300ms median LCP gain; FCP <= baseline+75ms; CLS <= baseline+0.01; TBT <= max(50, baseline+50)",
+  "checkedAt": "2026-08-19T23:52:31.421358+00:00"
+}
