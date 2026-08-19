@@ -5,7 +5,6 @@ import { StaticResponsiveImageRewriter, StaticImagePreloadRewriter } from './res
 const R2_ORIGIN = 'https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const PURGE_PATH = '/__runner3/cache/purge';
-const FCP_FLOOR_PATH = '/__runner3/fcp-floor';
 const HTML_CACHE_TAG = 'runner3-html';
 
 class HeadResourceHints {
@@ -14,10 +13,6 @@ class HeadResourceHints {
   }
 }
 function jsonResponse(body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Edge-Proxy': 'cloudflare-worker' } }); }
-function fcpFloorResponse(method) {
-  const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FCP floor</title><style>html{background:#fff}body{margin:0;font:16px system-ui,sans-serif;color:#111}main{padding:16px}</style></head><body><main>FCP floor</main></body></html>';
-  return new Response(method==='HEAD'?null:html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'public, max-age=60','X-Robots-Tag':'noindex, nofollow, noarchive, nosnippet','X-Edge-Proxy':'cloudflare-worker','X-Edge-Mode':'fcp-floor'}});
-}
 async function decorateFrontend(request, response) {
   const contentType = response.headers.get('Content-Type') || ''; if (!/text\/html/i.test(contentType)) return response;
   const headers = new Headers(response.headers); headers.delete('Content-Length'); headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet'); headers.append('Link', `<${R2_ORIGIN}>; rel=preconnect; crossorigin`);
@@ -36,6 +31,10 @@ async function publicHtmlResponse(request, env, ctx) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// Kept only for the legacy purge endpoint while the site is transitioning away
+// from full-page Workers Caching. Public anonymous traffic no longer enters this
+// cached service binding, so an old cached html-origin response cannot shadow a
+// newly deployed snapshot.
 export class PublicHtml extends WorkerEntrypoint {
   async fetch(request) { return publicHtmlResponse(request, this.env, this.ctx); }
   async purgeHtml() { const result = await this.ctx.cache.purge({ tags: [HTML_CACHE_TAG] }); return { ok: true, result }; }
@@ -58,6 +57,9 @@ async function directPublicResponse(request, env, ctx) {
     headers.set('Cloudflare-CDN-Cache-Control', 'no-store');
     headers.set('X-Edge-Cache-Policy', 'snapshot-fallback');
   } else {
+    // Unsnapshotted public routes stay correct by using the live origin until the
+    // next snapshot refresh. They are deliberately not inserted into the legacy
+    // PublicHtml cache.
     headers.set('X-Edge-Cache-Policy', 'origin-direct');
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -99,10 +101,7 @@ async function handlePurge(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
-    const incoming = new URL(request.url);
-    const method=request.method.toUpperCase();
-    if (incoming.pathname === FCP_FLOOR_PATH && ['GET','HEAD'].includes(method)) return fcpFloorResponse(method);
-    if (incoming.pathname === PURGE_PATH) return handlePurge(request, env, ctx);
+    const incoming = new URL(request.url); if (incoming.pathname === PURGE_PATH) return handlePurge(request, env, ctx);
     if (isPublicHtmlCacheCandidate(request)) return directPublicResponse(request, env, ctx);
     const response = await worker.fetch(request, env, ctx); return decorateFrontend(request, response);
   },
