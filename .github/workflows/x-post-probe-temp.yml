@@ -14,38 +14,22 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch X post through public mirrors/APIs
+        with:
+          fetch-depth: 0
+      - name: Fetch target post with x_runner
         shell: bash
         run: |
-          mkdir -p artifacts
-          python - <<'PY'
-          import json, urllib.request
-          out=[]
-          urls = [
-            'https://api.fxtwitter.com/status/2089933094010704232',
-            'https://api.vxtwitter.com/Twitter/status/2089933094010704232',
-            'https://x.com/kood520/status/2089933094010704232',
-          ]
-          for u in urls:
-              item={'url':u}
-              try:
-                  req=urllib.request.Request(u, headers={'User-Agent':'Mozilla/5.0'})
-                  with urllib.request.urlopen(req, timeout=20) as r:
-                      data=r.read(300000)
-                      item['status']=r.status
-                      item['content_type']=r.headers.get('content-type')
-                      item['body']=data.decode('utf-8','replace')[:200000]
-              except Exception as e:
-                  item['error']=repr(e)
-              out.append(item)
-          with open('artifacts/x-post-2089933094010704232.json','w',encoding='utf-8') as f:
-              json.dump(out,f,ensure_ascii=False,indent=2)
-          PY
-      - name: Commit probe result
+          printf '%s\n' '{"x_url":"https://x.com/kood520/status/2089933094010704232?s=12"}' > /tmp/x-job.json
+          python x_runner.py /tmp/x-job.json --output-root x-results
+      - name: Publish result
+        if: always()
         shell: bash
         run: |
+          test -d x-results/2089933094010704232 || exit 0
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add artifacts/x-post-2089933094010704232.json
-          git commit -m 'artifact: X post 2089933094010704232' || exit 0
-          git push
+          git add x-results/2089933094010704232
+          git diff --cached --quiet && exit 0
+          git commit -m 'x fetch result 2089933094010704232'
+          git pull --rebase origin main
+          git push origin HEAD:main
