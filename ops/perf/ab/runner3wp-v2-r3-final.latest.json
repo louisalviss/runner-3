@@ -1,0 +1,29 @@
+{
+  "status": "incomplete",
+  "experiment": "r3-stream-first-paint-shell-final",
+  "verdict": "INCONCLUSIVE",
+  "targetFcpMs": 500,
+  "targetReached": false,
+  "guard": null,
+  "patch": {
+    "status": "patched",
+    "file": "edge/wordpress-edge-proxy/src/entry.js",
+    "route": "/__runner3/r3-stream",
+    "delayMs": 900,
+    "firstChunkBytes": 739
+  },
+  "deployLogTail": "{\n  \"status\": \"ready\",\n  \"origin\": \"https://runner3-factory-smoke-2.wasmer.app\",\n  \"builtAt\": \"2026-08-19T22:12:48.143Z\",\n  \"pages\": 16,\n  \"bytes\": 367037,\n  \"paths\": [\n    \"/\",\n    \"/2026/08/17/a-field-guide-to-useful-friction/\",\n    \"/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/\",\n    \"/2026/08/17/designing-for-people-who-skip-the-tutorial/\",\n    \"/2026/08/17/small-models-big-consequences/\",\n    \"/2026/08/17/the-new-geography-of-digital-work/\",\n    \"/2026/08/17/the-quiet-machines-running-the-city/\",\n    \"/2026/08/17/the-return-of-personal-software/\",\n    \"/2026/08/17/why-interfaces-are-becoming-invisible/\",\n    \"/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/\",\n    \"/about/\",\n    \"/category/culture/\",\n    \"/category/field-notes/\",\n    \"/category/systems/\",\n    \"/category/technology/\",\n    \"/contact/\"\n  ],\n  \"errors\": [\n    {\n      \"path\": \"/category/technology/feed/\",\n      \"status\": 200,\n      \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n    },\n    {\n      \"path\": \"/category/culture/feed/\",\n      \"status\": 200,\n      \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n    },\n    {\n      \"path\": \"/category/systems/feed/\",\n      \"status\": 200,\n      \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n    },\n    {\n      \"path\": \"/category/field-notes/feed/\",\n      \"status\": 200,\n      \"detail\": \"content-type=application/rss+xml; charset=UTF-8\"\n    }\n  ],\n  \"modulePath\": \"edge/wordpress-edge-proxy/src/snapshot.generated.js\"\n}\n\n \u26c5\ufe0f wrangler 4.124.0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n\u001b[31m\u2718 \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mCould not read file: edge/wordpress-edge-proxy/wrangler.v2.jsonc\u001b[0m\n\n  ENOENT: no such file or directory, open '/home/runner/work/runner-3/runner-3/edge/wordpress-edge-proxy/wrangler.v2.jsonc'\n  \n  If you think this is a bug, please open an issue at: \u001b[4mhttps://github.com/cloudflare/workers-sdk/issues/new/choose\u001b[0m\n\n\n\ud83e\udeb5  Logs were written to \"/home/runner/.config/.wrangler/logs/wrangler-2026-08-19_22-13-09_158.log\"\n{\n  \"status\": \"failed\",\n  \"edgeUrl\": \"https://wordpress-edge-proxy-v2.ducduy2411.workers.dev\",\n  \"architecture\": \"snapshot-direct\",\n  \"detail\": \"Command failed: npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.v2.jsonc\",\n  \"checkedAt\": \"2026-08-19T22:13:09.783Z\"\n}\n",
+  "v2Home": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null
+  },
+  "r3Stream": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null
+  },
+  "fcpImprovementMs": null,
+  "checkedAt": "2026-08-19T22:13:09.829672+00:00",
+  "deploymentPolicy": "V2-only candidate; unconditional rollback"
+}
