@@ -11,6 +11,10 @@ This wrapper preserves the earliest Runner3-observed source timestamp for an
 existing canonical identity while still refreshing title/description/thumbnail
 from the latest RSS payload. If a feed later supplies an earlier timestamp, the
 earlier value wins as a correction.
+
+It also enforces the canonical health gate: this entrypoint succeeds only when
+all 10 Runner3 core sources are healthy. A degraded 9/10 (or lower) run must
+fail the workflow instead of being reported as success.
 """
 
 import rss_reader_collect as base
@@ -48,8 +52,26 @@ def _stable_merge_items(old_items, new_items):
     return _base_merge_items(old_items, stabilized)
 
 
+def _main_with_complete_health_gate():
+    # base.main() performs collection and writes the per-run health file.
+    base.main()
+    health = base.load_json(base.HEALTH_PATH, {})
+    expected = len(base.SOURCES)
+    complete = (
+        health.get("status") == "healthy"
+        and health.get("okCount") == expected
+        and health.get("failedCount") == 0
+        and len(health.get("sources") or {}) == expected
+        and all(
+            (health.get("sources") or {}).get(source["key"], {}).get("ok") is True
+            for source in base.SOURCES
+        )
+    )
+    return 0 if complete else 2
+
+
 base.merge_items = _stable_merge_items
 
 
 if __name__ == "__main__":
-    raise SystemExit(base.main())
+    raise SystemExit(_main_with_complete_health_gate())
