@@ -2,9 +2,11 @@ import fs from 'node:fs';
 
 const origin = new URL(process.env.CF_SNAPSHOT_ORIGIN || 'https://runner3-factory-smoke-2.wasmer.app');
 const modulePath = process.env.CF_SNAPSHOT_MODULE || 'edge/wordpress-edge-proxy/src/snapshot.generated.js';
+const inlineCssModulePath = process.env.CF_INLINE_CSS_MODULE || 'edge/wordpress-edge-proxy/src/inline-css.generated.js';
 const outPath = process.env.CF_SNAPSHOT_OUT || '/tmp/runner3-edge-snapshot.json';
 const maxPages = Math.max(1, Number(process.env.CF_SNAPSHOT_MAX_PAGES || 40));
 const maxBytes = Math.max(250000, Number(process.env.CF_SNAPSHOT_MAX_BYTES || 2500000));
+const maxInlineCssBytes = Math.max(32768, Number(process.env.CF_INLINE_CSS_MAX_BYTES || 262144));
 
 function normalizePath(pathname) {
   const path = pathname || '/';
@@ -46,6 +48,114 @@ function internalPaths(html, baseUrl) {
     }
   }
   return paths;
+}
+
+function attr(tag, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const quoted = tag.match(new RegExp(`\\b${escaped}\\s*=\\s*(["'])(.*?)\\1`, 'i'));
+  if (quoted) return quoted[2];
+  const bare = tag.match(new RegExp(`\\b${escaped}\\s*=\\s*([^\\s>]+)`, 'i'));
+  return bare ? bare[1] : null;
+}
+
+function stylesheetRefs(html, baseUrl) {
+  const refs = [];
+  const seen = new Set();
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    const rel = String(attr(tag, 'rel') || '').toLowerCase().split(/\s+/);
+    if (!rel.includes('stylesheet')) continue;
+    if (/\bdisabled(?:\s|=|>)/i.test(tag)) continue;
+    const media = String(attr(tag, 'media') || '').trim().toLowerCase();
+    if (media === 'print') continue;
+    const href = decodeHref(attr(tag, 'href') || '').trim();
+    if (!href) continue;
+    try {
+      const url = new URL(href, baseUrl);
+      if (!/^https?:$/.test(url.protocol)) continue;
+      const key = url.origin === origin.origin ? `${url.pathname}${url.search}` : url.toString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refs.push({ key, url: url.toString(), media: media || 'all' });
+    } catch {
+      // Ignore malformed stylesheet URLs.
+    }
+  }
+  return refs;
+}
+
+function rewriteCssUrls(css, cssUrl) {
+  return css.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi, (full, quote, rawValue) => {
+    const raw = String(rawValue || '').trim();
+    if (!raw || raw.startsWith('#') || /^(?:data:|blob:|var\()/i.test(raw)) return full;
+    try {
+      const resolved = new URL(raw, cssUrl);
+      const value = resolved.origin === origin.origin
+        ? `${resolved.pathname}${resolved.search}${resolved.hash}`
+        : resolved.toString();
+      const q = quote || '"';
+      return `url(${q}${value}${q})`;
+    } catch {
+      return full;
+    }
+  });
+}
+
+async function buildInlineCss(html, baseUrl, builtAt) {
+  const styles = {};
+  const errors = [];
+  let bytes = 0;
+  const refs = stylesheetRefs(html, baseUrl).slice(0, 16);
+
+  for (const ref of refs) {
+    try {
+      const response = await fetch(ref.url, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000),
+        headers: {
+          'User-Agent': 'Runner3EdgeCssBundler/1.0',
+          Accept: 'text/css,*/*;q=0.1',
+          'Cache-Control': 'no-cache',
+        },
+      });
+      const type = response.headers.get('content-type') || '';
+      if (!response.ok || (!/text\/css/i.test(type) && !/\.css(?:\?|$)/i.test(ref.url))) {
+        errors.push({ url: ref.url, status: response.status, detail: `content-type=${type}` });
+        continue;
+      }
+      let css = await response.text();
+      css = rewriteCssUrls(css, response.url || ref.url);
+      const cssBytes = Buffer.byteLength(css);
+      if (cssBytes < 1) continue;
+      if (bytes + cssBytes > maxInlineCssBytes) {
+        errors.push({ url: ref.url, status: response.status, detail: `inline_css_budget_exceeded=${bytes + cssBytes}` });
+        continue;
+      }
+      styles[ref.key] = { css, media: ref.media, source: ref.url };
+      bytes += cssBytes;
+    } catch (error) {
+      errors.push({ url: ref.url, status: null, detail: String(error?.message || error).slice(0, 240) });
+    }
+  }
+
+  const serialized = JSON.stringify(styles).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  const source = [
+    '// Generated immediately before the V2 Cloudflare deployment. Do not hand-edit.',
+    `export const INLINE_CSS_BUILT_AT = ${JSON.stringify(builtAt)};`,
+    `export const INLINE_STYLES = Object.freeze(${serialized});`,
+    '',
+  ].join('\n');
+  fs.writeFileSync(inlineCssModulePath, source);
+
+  return {
+    status: Object.keys(styles).length ? 'ready' : 'empty',
+    builtAt,
+    stylesheets: Object.keys(styles).length,
+    bytes,
+    keys: Object.keys(styles),
+    errors: errors.slice(0, 20),
+    modulePath: inlineCssModulePath,
+  };
 }
 
 async function sitemapPaths() {
@@ -95,6 +205,7 @@ for (const path of await sitemapPaths()) {
 const snapshots = {};
 const errors = [];
 let totalBytes = 0;
+let inlineCss = null;
 
 while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < maxBytes) {
   const requestedPath = queue.shift();
@@ -125,6 +236,8 @@ while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < 
     const finalUrl = new URL(response.url || requestedUrl);
     const requestedKey = normalizePath(requestedUrl.pathname);
     const finalKey = normalizePath(finalUrl.pathname);
+    if (requestedKey === '/' && inlineCss === null) inlineCss = await buildInlineCss(html, finalUrl, builtAt);
+
     if (!(requestedKey in snapshots)) {
       snapshots[requestedKey] = html;
       totalBytes += bytes;
@@ -147,6 +260,8 @@ if (typeof snapshots['/'] !== 'string') {
   throw new Error(`Snapshot builder failed to capture homepage: ${JSON.stringify(errors).slice(0, 1000)}`);
 }
 
+if (inlineCss === null) inlineCss = await buildInlineCss(snapshots['/'], origin, builtAt);
+
 const serialized = JSON.stringify(snapshots).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const source = [
   '// Generated immediately before Cloudflare deployment. Do not hand-edit.',
@@ -163,6 +278,7 @@ const result = {
   pages: Object.keys(snapshots).length,
   bytes: totalBytes,
   paths: Object.keys(snapshots).sort(),
+  inlineCss,
   errors: errors.slice(0, 20),
   modulePath,
 };
