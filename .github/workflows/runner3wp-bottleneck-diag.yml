@@ -1,0 +1,165 @@
+name: Runner3WP Bottleneck Diagnostic
+on:
+  push:
+    branches: [diag-runner3wp-bottleneck-20260820]
+    paths: ['.github/workflows/runner3wp-bottleneck-diag.yml']
+permissions: {contents: write}
+concurrency: {group: runner3wp-bottleneck-diag, cancel-in-progress: true}
+env:
+  V1_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag-runner3wp-bottleneck-20260820
+          fetch-depth: 0
+      - name: Environment
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          node -v
+          "$C" --version
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
+      - name: Network and HTML probes
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/diag
+          probe(){
+            label="$1"; url="$2"
+            : > "/tmp/diag/${label}-curl.jsonl"
+            for i in 1 2 3 4 5 6 7 8; do
+              curl -L -sS -o "/tmp/diag/${label}.html" \
+                -w '{"run":'"$i"',"http":%{http_code},"dns":%{time_namelookup},"connect":%{time_connect},"tls":%{time_appconnect},"ttfb":%{time_starttransfer},"total":%{time_total},"size":%{size_download},"http_version":"%{http_version}","remote_ip":"%{remote_ip}"}\n' \
+                "$url" >> "/tmp/diag/${label}-curl.jsonl"
+            done
+            curl -L -sSI "$url" > "/tmp/diag/${label}-headers.txt"
+          }
+          probe v1 "$V1_URL"
+          probe v2 "$V2_URL"
+      - name: Lighthouse mobile 3x each
+        run: |
+          set -euo pipefail
+          runlh(){
+            label="$1"; url="$2"
+            npx lighthouse "$url" \
+              --output=json --output-path="/tmp/diag/${label}.json" \
+              --only-categories=performance \
+              --form-factor=mobile \
+              --throttling-method=simulate \
+              --screenEmulation.mobile=true \
+              --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+              --quiet
+          }
+          for i in 1 2 3; do runlh "v1-$i" "$V1_URL"; done
+          for i in 1 2 3; do runlh "v2-$i" "$V2_URL"; done
+      - name: Extract root-cause evidence
+        run: |
+          set -euo pipefail
+          mkdir -p ops/perf/diag
+          python - <<'PY'
+          import json, re, statistics, pathlib, datetime
+          root=pathlib.Path('/tmp/diag')
+
+          def readj(p):
+            return json.loads(pathlib.Path(p).read_text())
+
+          def audit_match(audits, needles):
+            out=[]
+            for aid,a in audits.items():
+              text=(aid+' '+str(a.get('title',''))).lower()
+              if any(n.lower() in text for n in needles):
+                details=a.get('details') or {}
+                items=details.get('items') if isinstance(details,dict) else None
+                if isinstance(items,list): items=items[:25]
+                out.append({
+                  'id':aid,'title':a.get('title'),'score':a.get('score'),
+                  'numericValue':a.get('numericValue'),'numericUnit':a.get('numericUnit'),
+                  'displayValue':a.get('displayValue'),'description':a.get('description'),
+                  'detailsType':details.get('type') if isinstance(details,dict) else None,
+                  'items':items
+                })
+            return out
+
+          def lh(label):
+            d=readj(root/f'{label}.json'); a=d.get('audits',{})
+            metrics={}
+            ids=['first-contentful-paint','largest-contentful-paint','speed-index','total-blocking-time','interactive','server-response-time','network-rtt','network-server-latency','max-potential-fid','cumulative-layout-shift']
+            for aid in ids:
+              x=a.get(aid)
+              if x: metrics[aid]={'score':x.get('score'),'numericValue':x.get('numericValue'),'displayValue':x.get('displayValue')}
+            nr=a.get('network-requests',{}).get('details',{}).get('items',[]) or []
+            reqs=[]
+            for x in nr:
+              reqs.append({k:x.get(k) for k in ['url','protocol','resourceType','mimeType','statusCode','transferSize','resourceSize','startTime','endTime','networkRequestTime','networkEndTime','priority','isLinkPreload'] if k in x})
+            reqs=sorted(reqs,key=lambda x:(x.get('startTime') is None,x.get('startTime') or 0))[:60]
+            focus=audit_match(a,[
+              'render-block','lcp','font','preload','critical request','network dependency',
+              'unused css','unused javascript','image delivery','responsive image','cache lifetime',
+              'document latency','server response','main thread','third-party'
+            ])
+            inv=[{'id':aid,'title':x.get('title'),'score':x.get('score'),'numericValue':x.get('numericValue'),'displayValue':x.get('displayValue')} for aid,x in a.items()]
+            return {'requestedUrl':d.get('requestedUrl'),'finalUrl':d.get('finalUrl'),'lighthouseVersion':d.get('lighthouseVersion'),'fetchTime':d.get('fetchTime'),'performanceScore':(d.get('categories',{}).get('performance') or {}).get('score'),'metrics':metrics,'focusAudits':focus,'networkRequests':reqs,'auditInventory':inv}
+
+          def curlstats(label):
+            rows=[json.loads(x) for x in (root/f'{label}-curl.jsonl').read_text().splitlines() if x.strip()]
+            def med(k): return statistics.median([r[k] for r in rows])
+            return {'runs':rows,'median':{k:med(k) for k in ['dns','connect','tls','ttfb','total','size']}}
+
+          def htmlfacts(label):
+            h=(root/f'{label}.html').read_text(errors='replace')
+            head=(re.search(r'<head\b[^>]*>([\s\S]*?)</head>',h,re.I) or [None,''])[1]
+            styles=re.findall(r'<style\b[^>]*>([\s\S]*?)</style>',head,re.I)
+            links=[]
+            for tag in re.findall(r'<link\b[^>]*>',head,re.I):
+              attrs={k.lower():v for k,q,v in re.findall(r'([\w:-]+)\s*=\s*(["\'])(.*?)\2',tag,re.I|re.S)}
+              links.append({'rel':attrs.get('rel'),'as':attrs.get('as'),'href':attrs.get('href'),'fetchpriority':attrs.get('fetchpriority'),'media':attrs.get('media')})
+            scripts=[]
+            for tag in re.findall(r'<script\b[^>]*>',head,re.I):
+              attrs={k.lower():v for k,q,v in re.findall(r'([\w:-]+)\s*=\s*(["\'])(.*?)\2',tag,re.I|re.S)}
+              scripts.append({'src':attrs.get('src'),'defer':'defer' in tag.lower(),'async':'async' in tag.lower(),'type':attrs.get('type')})
+            imgs=[]
+            for tag in re.findall(r'<img\b[^>]*>',h,re.I)[:30]:
+              attrs={k.lower():v for k,q,v in re.findall(r'([\w:-]+)\s*=\s*(["\'])(.*?)\2',tag,re.I|re.S)}
+              imgs.append({k:attrs.get(k) for k in ['src','srcset','sizes','width','height','loading','fetchpriority','decoding','class','alt']})
+            return {'documentBytes':len(h.encode()),'headBytes':len(head.encode()),'inlineStyleBytes':[len(s.encode()) for s in styles],'links':links,'headScripts':scripts,'images':imgs}
+
+          runs={}
+          for side in ['v1','v2']:
+            runs[side]=[lh(f'{side}-{i}') for i in [1,2,3]]
+          summary={}
+          for side,rs in runs.items():
+            def vals(aid):
+              return [r['metrics'].get(aid,{}).get('numericValue') for r in rs if r['metrics'].get(aid,{}).get('numericValue') is not None]
+            summary[side]={
+              'performanceScoreMedian':statistics.median([r['performanceScore'] for r in rs]),
+              'fcpMsMedian':statistics.median(vals('first-contentful-paint')),
+              'lcpMsMedian':statistics.median(vals('largest-contentful-paint')),
+              'tbtMsMedian':statistics.median(vals('total-blocking-time')),
+              'serverResponseMsMedian':statistics.median(vals('server-response-time')) if vals('server-response-time') else None,
+              'speedIndexMsMedian':statistics.median(vals('speed-index')),
+            }
+          out={
+            'status':'ready','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'purpose':'Find real Runner3WP FCP/LCP bottleneck after R2 CSS rollback',
+            'curl':{'v1':curlstats('v1'),'v2':curlstats('v2')},
+            'html':{'v1':htmlfacts('v1'),'v2':htmlfacts('v2')},
+            'summary':summary,
+            'runs':runs,
+          }
+          pathlib.Path('ops/perf/diag/runner3wp-bottleneck.latest.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps({'curl':out['curl'],'html':out['html'],'summary':summary},indent=2))
+          PY
+      - name: Persist diagnostic
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/diag/runner3wp-bottleneck.latest.json
+          git commit -m 'diag: persist Runner3WP bottleneck evidence' || exit 0
+          git push origin HEAD:diag-runner3wp-bottleneck-20260820
