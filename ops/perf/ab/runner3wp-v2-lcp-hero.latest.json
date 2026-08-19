@@ -1,0 +1,56 @@
+{
+  "status": "incomplete",
+  "experiment": "hero-lcp-webp-byte-cut",
+  "verdict": "ROLLBACK_INCONCLUSIVE",
+  "keepV2": false,
+  "guard": null,
+  "build": null,
+  "baseline": {
+    "runs": [
+      {
+        "label": "base-1",
+        "performance": 0.89,
+        "fcpMs": 1770.547,
+        "lcpMs": 3660.342,
+        "tbtMs": 0,
+        "cls": 0,
+        "serverResponseMs": 51.066,
+        "speedIndexMs": 1770.547
+      },
+      {
+        "label": "base-2",
+        "performance": 0.98,
+        "fcpMs": 1055.152,
+        "lcpMs": 2352.809,
+        "tbtMs": 0,
+        "cls": 0,
+        "serverResponseMs": 33.839,
+        "speedIndexMs": 1055.152
+      },
+      {
+        "label": "base-3",
+        "performance": 0.98,
+        "fcpMs": 1072.9579999999999,
+        "lcpMs": 2296.9539999999997,
+        "tbtMs": 0,
+        "cls": 0,
+        "serverResponseMs": 88.19200000000001,
+        "speedIndexMs": 1072.9579999999999
+      }
+    ],
+    "medianFcpMs": 1072.9579999999999,
+    "medianLcpMs": 2352.809,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "candidate": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null,
+    "medianCls": null,
+    "medianTbtMs": null
+  },
+  "lcpImprovementMs": null,
+  "checkedAt": "2026-08-19T22:30:55.814344+00:00",
+  "policy": "V1 untouched; V2 kept only with >=75ms median LCP gain and no material FCP/CLS/TBT regression"
+}
