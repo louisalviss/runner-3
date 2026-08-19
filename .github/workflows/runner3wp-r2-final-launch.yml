@@ -1,0 +1,27 @@
+name: Runner3WP R2 Final Launch
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-r2-final-launch.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Point R2c benchmark at measured final patcher
+        run: |
+          set -euo pipefail
+          sed -i 's/72b5e8841d3c4d5e8c74f3324ef9c7455a83363a/bfaca6aca4cfb8173ebd91f330376e64120332db/' .github/workflows/runner3wp-v2-critical-r2c.yml
+          grep -q 'bfaca6aca4cfb8173ebd91f330376e64120332db' .github/workflows/runner3wp-v2-critical-r2c.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/runner3wp-v2-critical-r2c.yml
+          git commit -m 'test: rerun Runner3WP R2 with measured 9.2KB cap'
+          git push origin HEAD:main
