@@ -61,19 +61,44 @@ jobs:
           npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-v2.jsonc 2>&1 | tee /tmp/prod-v2-deploy.log
           sleep 4
 
-      - name: Verify production domain and safety invariants
+      - name: Verify production Worker then custom domain
         id: verify
         if: steps.deploy.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS -D /tmp/prod-home.h -o /tmp/prod-home.html "$PROD_DOMAIN/"
-          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/prod-home.h
-          grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/prod-home.h
-          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/prod-home.html
 
-          curl -fsS -D /tmp/prod-image.h -o /tmp/prod-image.webp "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w480.webp"
+          # First prove the newly deployed script itself is V2. A unique query is
+          # intentionally allowed by isPublicHtmlCacheCandidate and still resolves
+          # the bundled snapshot by pathname, while bypassing any stale outer HTML.
+          BUST="__runner3_verify=$(date +%s%N)"
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/worker-home.h -o /tmp/worker-home.html "$PROD_WORKER_URL/?$BUST"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/worker-home.h
+          grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/worker-home.h
+          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/worker-home.html
+
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/worker-image.h -o /tmp/worker-image.webp "$PROD_WORKER_URL/__runner3/r2-image/offset-demo-01-w480.webp?$BUST"
+          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/worker-image.h
+          grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/worker-image.h
+          test "$(wc -c </tmp/worker-image.webp)" -gt 10000
+
+          # Then prove the real production hostname sees the same V2 response.
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            BUST="__runner3_verify=$(date +%s%N)-$attempt"
+            if curl -fsS -H 'Cache-Control: no-cache' -D /tmp/prod-home.h -o /tmp/prod-home.html "$PROD_DOMAIN/?$BUST" \
+              && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/prod-home.h \
+              && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/prod-home.h \
+              && grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/prod-home.html; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" = 1
+
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/prod-image.h -o /tmp/prod-image.webp "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w480.webp?$BUST"
           grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/prod-image.h
           grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/prod-image.h
           test "$(wc -c </tmp/prod-image.webp)" -gt 10000
@@ -85,9 +110,6 @@ jobs:
           curl -fsS -H 'Cookie: wordpress_logged_in_probe=1' -D /tmp/prod-auth.h -o /tmp/prod-auth.html "$PROD_DOMAIN/"
           grep -Eiq '^x-edge-mode:[[:space:]]*bypass' /tmp/prod-auth.h
           grep -Eiq '^cache-control:.*(private|no-store)' /tmp/prod-auth.h
-
-          curl -fsS -D /tmp/worker-home.h -o /tmp/worker-home.html "$PROD_WORKER_URL/"
-          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/worker-home.html
 
       - name: Roll back to proven V1 baseline if promotion fails
         id: rollback
@@ -105,7 +127,7 @@ jobs:
             RUNNER3_FCP_V2=0 \
             node scripts/deploy-wordpress-workers-cache.mjs 2>&1 | tee /tmp/rollback-v1.log
           sleep 4
-          curl -fsS -D /tmp/rollback-domain.h -o /tmp/rollback-domain.html "$PROD_DOMAIN/"
+          curl -fsS -D /tmp/rollback-domain.h -o /tmp/rollback-domain.html "$PROD_DOMAIN/?__runner3_rollback=$(date +%s%N)"
           grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/rollback-domain.h
 
       - name: Build immutable production result
@@ -121,10 +143,8 @@ jobs:
           import json, os, datetime, pathlib
           promoted = all(os.environ.get(k)=='success' for k in ('BUILD_OUTCOME','DEPLOY_OUTCOME','VERIFY_OUTCOME'))
           def headers(path):
-              try:
-                  text=open(path,errors='ignore').read()
-              except Exception:
-                  return {}
+              try: text=open(path,errors='ignore').read()
+              except Exception: return {}
               out={}
               for line in text.splitlines():
                   if ':' in line:
@@ -133,8 +153,11 @@ jobs:
           def tail(path):
               p=pathlib.Path(path)
               return p.read_text(errors='replace')[-6000:] if p.exists() else None
-          hh=headers('/tmp/prod-home.h')
-          ih=headers('/tmp/prod-image.h')
+          def marker(path):
+              p=pathlib.Path(path)
+              return p.exists() and '/__runner3/r2-image/offset-demo-01-w' in p.read_text(errors='ignore')
+          hh=headers('/tmp/prod-home.h'); ih=headers('/tmp/prod-image.h')
+          wh=headers('/tmp/worker-home.h'); wih=headers('/tmp/worker-image.h')
           result={
             'status':'promoted' if promoted else 'rolled_back',
             'productionDomain':os.environ['PROD_DOMAIN'],
@@ -142,21 +165,16 @@ jobs:
             'candidateCommit':os.environ['CANDIDATE_SHA'],
             'rollbackCommit':os.environ['BASELINE_SHA'],
             'architecture':'WordPress snapshot-direct + same-origin hero via Cloudflare R2 binding',
-            'outcomes':{
-              'build':os.environ.get('BUILD_OUTCOME'),
-              'deploy':os.environ.get('DEPLOY_OUTCOME'),
-              'verify':os.environ.get('VERIFY_OUTCOME'),
-              'rollback':os.environ.get('ROLLBACK_OUTCOME'),
+            'outcomes':{'build':os.environ.get('BUILD_OUTCOME'),'deploy':os.environ.get('DEPLOY_OUTCOME'),'verify':os.environ.get('VERIFY_OUTCOME'),'rollback':os.environ.get('ROLLBACK_OUTCOME')},
+            'workerChecks':{
+              'edgeSnapshot':wh.get('x-edge-snapshot'),'edgeCachePolicy':wh.get('x-edge-cache-policy'),'heroInHtml':marker('/tmp/worker-home.html'),
+              'heroMarker':wih.get('x-runner3-lcp'),'heroContentType':wih.get('content-type'),'heroBytes':os.path.getsize('/tmp/worker-image.webp') if os.path.exists('/tmp/worker-image.webp') else None,
             },
             'productionChecks':{
-              'edgeSnapshot':hh.get('x-edge-snapshot'),
-              'edgeCachePolicy':hh.get('x-edge-cache-policy'),
-              'heroMarker':ih.get('x-runner3-lcp'),
-              'heroContentType':ih.get('content-type'),
-              'heroBytes':os.path.getsize('/tmp/prod-image.webp') if os.path.exists('/tmp/prod-image.webp') else None,
+              'edgeSnapshot':hh.get('x-edge-snapshot'),'edgeCachePolicy':hh.get('x-edge-cache-policy'),'heroInHtml':marker('/tmp/prod-home.html'),
+              'heroMarker':ih.get('x-runner3-lcp'),'heroContentType':ih.get('content-type'),'heroBytes':os.path.getsize('/tmp/prod-image.webp') if os.path.exists('/tmp/prod-image.webp') else None,
             },
-            'deployLogTail':tail('/tmp/prod-v2-deploy.log'),
-            'rollbackLogTail':tail('/tmp/rollback-v1.log'),
+            'deployLogTail':tail('/tmp/prod-v2-deploy.log'),'rollbackLogTail':tail('/tmp/rollback-v1.log'),
             'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
           with open('/tmp/runner3wp-production-v2.json','w') as f: json.dump(result,f,indent=2); f.write('\n')
