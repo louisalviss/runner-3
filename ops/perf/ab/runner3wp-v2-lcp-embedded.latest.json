@@ -1,0 +1,82 @@
+{
+  "status": "incomplete",
+  "experiment": "same-origin-embedded-q52-hero",
+  "verdict": "INCONCLUSIVE",
+  "probePass": false,
+  "build": {
+    "quality": 52,
+    "sourceBytes": 81502,
+    "variants": [
+      {
+        "width": 360,
+        "height": 240,
+        "bytes": 11086
+      },
+      {
+        "width": 480,
+        "height": 320,
+        "bytes": 16560
+      },
+      {
+        "width": 640,
+        "height": 427,
+        "bytes": 24782
+      }
+    ]
+  },
+  "patch": {
+    "status": "patched",
+    "widths": [
+      360,
+      480,
+      640
+    ],
+    "entryPath": "edge/wordpress-edge-proxy/src/entry.js",
+    "responsivePath": "edge/wordpress-edge-proxy/src/responsive-images.js",
+    "encodedBytes": {
+      "360": 14784,
+      "480": 22080,
+      "640": 33044
+    }
+  },
+  "guard": null,
+  "baseline": {
+    "runs": [
+      {
+        "fcp": 1827.2849999999999,
+        "lcp": 2805.397,
+        "tbt": 454,
+        "cls": 0,
+        "perf": 0.83
+      },
+      {
+        "fcp": 1068.216,
+        "lcp": 2162.4269999999997,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      },
+      {
+        "fcp": 1042.6909999999998,
+        "lcp": 2207.287,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 0.99
+      }
+    ],
+    "medianFcpMs": 1068.216,
+    "medianLcpMs": 2207.287,
+    "medianCls": 0,
+    "medianTbtMs": 0
+  },
+  "candidate": {
+    "runs": [],
+    "medianFcpMs": null,
+    "medianLcpMs": null,
+    "medianCls": null,
+    "medianTbtMs": null
+  },
+  "lcpImprovementMs": null,
+  "checkedAt": "2026-08-19T22:38:29.289703+00:00",
+  "note": "diagnostic only; V2 always restored to baseline after measurement"
+}
