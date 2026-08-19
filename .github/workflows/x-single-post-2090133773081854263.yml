@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   crawl:
@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: probe/x-2090133773081854263
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -50,10 +52,14 @@ jobs:
       - name: Crawl X post
         run: python crawler.py /tmp/x-post.json --output crawl_output
 
-      - name: Upload crawl output
-        uses: actions/upload-artifact@v4
-        with:
-          name: x-post-2090133773081854263
-          path: crawl_output/
-          if-no-files-found: error
-          retention-days: 1
+      - name: Persist crawl output on probe branch
+        if: always()
+        run: |
+          rm -rf probe-results/x-2090133773081854263
+          mkdir -p probe-results/x-2090133773081854263
+          cp -R crawl_output/. probe-results/x-2090133773081854263/ || true
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/x-2090133773081854263
+          git commit -m "probe result: X post 2090133773081854263" || exit 0
+          git push origin HEAD:probe/x-2090133773081854263
