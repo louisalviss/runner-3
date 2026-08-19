@@ -1,0 +1,92 @@
+name: Runner3WP V2 R2 Final3 Race-Safe A-B
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-v2-r2-final3.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+concurrency: {group: runner3wp-v2-r2-final3, cancel-in-progress: false}
+env:
+  PATCHER_SHA: bfaca6aca4cfb8173ebd91f330376e64120332db
+  V1_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CF_WORKER_NAME: wordpress-edge-proxy-v2
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ env.PATCHER_SHA }}', fetch-depth: 0}
+      - name: Patch candidate locally
+        run: |
+          set -euo pipefail
+          node --check scripts/apply-runner3wp-critical-shell-r2.mjs
+          node scripts/apply-runner3wp-critical-shell-r2.mjs
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+      - name: Deploy and verify candidate V2
+        id: candidate
+        env: {RUNNER3_FCP_V2: '1'}
+        run: |
+          set -euo pipefail
+          ok=0
+          for n in 1 2 3; do
+            node scripts/deploy-wordpress-workers-cache.mjs
+            if node --input-type=module - <<'NODE'
+          import fs from 'node:fs';const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3WP-R2-Final3-Guard/1.0'}});const h=await r.text();const head=(h.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';const m=head.match(/<style\b[^>]*data-runner3-v2-critical="r2"[^>]*>([\s\S]*?)<\/style>/i);const o={http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),headBytes:Buffer.byteLength(head),criticalCssBytes:m?Buffer.byteLength(m[1]):null,marker:!!m,template:h.includes('id="runner3-v2-deferred-css"'),loader:h.includes('data-runner3-v2-css-loader="r2"')};o.ok=o.http===200&&String(o.snapshot||'').toUpperCase()==='HIT'&&/noindex/i.test(o.noindex||'')&&o.marker&&o.template&&o.loader&&o.headBytes<12000&&o.criticalCssBytes<=9200;fs.writeFileSync('/tmp/guard.json',JSON.stringify(o,null,2));console.log(JSON.stringify(o,null,2));if(!o.ok)process.exit(7);
+          NODE
+            then ok=1; break; fi
+            sleep 4
+          done
+          test "$ok" = 1
+      - name: Prepare PSI
+        if: steps.candidate.outcome == 'success'
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"; echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+      - name: Run PSI 3x3
+        if: steps.candidate.outcome == 'success'
+        run: |
+          set +e
+          one(){ PSI_URL="$2" PSI_UI_OUT="/tmp/$1.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs; }
+          one v1-1 "$V1_URL" & a=$!; one v1-2 "$V1_URL" & b=$!; one v1-3 "$V1_URL" & c=$!; one v2-1 "$V2_URL" & d=$!; one v2-2 "$V2_URL" & e=$!; one v2-3 "$V2_URL" & f=$!; for p in $a $b $c $d $e $f; do wait "$p" || true; done; exit 0
+      - name: Judge
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,glob,re,statistics,datetime,os
+          def s(v):
+            if not isinstance(v,str):return None
+            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',v.strip());
+            if not m:return None
+            x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
+          rows=[]
+          for p in glob.glob('/tmp/v[12]-*.json'):
+            try:d=json.load(open(p))
+            except:continue
+            rows.append({'label':os.path.basename(p)[:-5],'status':d.get('status'),'performance':d.get('performance'),'fcp':s(d.get('fcp')),'lcp':s(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')})
+          v1=sorted([r for r in rows if r['label'].startswith('v1-')],key=lambda x:x['label']);v2=sorted([r for r in rows if r['label'].startswith('v2-')],key=lambda x:x['label']);good=lambda r:r['status']=='ready' and r['fcp'] is not None and r['lcp'] is not None;complete=len(v1)==3 and len(v2)==3 and all(good(r) for r in rows);m1=statistics.median([r['fcp'] for r in v1]) if complete else None;m2=statistics.median([r['fcp'] for r in v2]) if complete else None;l1=statistics.median([r['lcp'] for r in v1]) if complete else None;l2=statistics.median([r['lcp'] for r in v2]) if complete else None;perf=complete and all(r['performance']==100 for r in v2);cls=complete and all(str(r.get('cls','')).startswith('0') for r in v2);target=bool(complete and perf and cls and m2<=.5 and l2<=l1+.2)
+          try:g=json.load(open('/tmp/guard.json'))
+          except:g=None
+          o={'status':'ready','experiment':'r2-final3-race-safe','patcherSha':os.environ['PATCHER_SHA'],'verdict':'TARGET_PASS' if target else 'REJECT_ROLLBACK','targetReached':target,'completeSamples':complete,'guard':g,'v1':{'samples':v1,'medianFcpSeconds':m1,'medianLcpSeconds':l1},'v2':{'samples':v2,'medianFcpSeconds':m2,'medianLcpSeconds':l2},'fcpImprovementSeconds':m1-m2 if complete else None,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()};json.dump(o,open('/tmp/result.json','w'),indent=2);print(json.dumps(o,indent=2))
+          PY
+      - name: Enforce final decision
+        if: always()
+        run: |
+          set -euo pipefail
+          V=$(python -c "import json;print(json.load(open('/tmp/result.json'))['verdict'])" 2>/dev/null || echo REJECT_ROLLBACK); if [ "$V" = TARGET_PASS ]; then RUNNER3_FCP_V2=1 node scripts/deploy-wordpress-workers-cache.mjs; else RUNNER3_FCP_V2=0 node scripts/deploy-wordpress-workers-cache.mjs; fi
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';let v='REJECT_ROLLBACK';try{v=JSON.parse(fs.readFileSync('/tmp/result.json')).verdict}catch{}const r=await fetch(process.env.V2_URL);const h=await r.text();const m=h.includes('data-runner3-v2-critical="r2"');const o={ok:r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&/noindex/i.test(r.headers.get('x-robots-tag')||'')&&m===(v==='TARGET_PASS'),verdict:v,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),marker:m,checkedAt:new Date().toISOString()};fs.writeFileSync('/tmp/final.json',JSON.stringify(o,null,2));if(!o.ok)process.exit(12);
+          NODE
+      - name: Persist
+        if: always()
+        run: |
+          git reset --hard;git fetch origin runner3wp-v2-fcp-test;git checkout -B runner3wp-v2-fcp-test origin/runner3wp-v2-fcp-test;mkdir -p ops/perf/ab;cp /tmp/result.json ops/perf/ab/runner3wp-v2-r2-final3.latest.json 2>/dev/null || echo '{"status":"failed","verdict":"REJECT_ROLLBACK"}' > ops/perf/ab/runner3wp-v2-r2-final3.latest.json;cp /tmp/final.json ops/perf/ab/runner3wp-v2-r2-final3-runtime.latest.json 2>/dev/null || true;git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add ops/perf/ab/runner3wp-v2-r2-final3*.json;git commit -m 'test: persist Runner3WP R2 final3 result' || exit 0;git push origin HEAD:runner3wp-v2-fcp-test
