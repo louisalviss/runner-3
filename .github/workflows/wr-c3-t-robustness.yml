@@ -1,0 +1,44 @@
+name: WR Frozen C3 T Robustness
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/wr_c3_t_robustness.py'
+      - '.github/workflows/wr-c3-t-robustness.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download 10m trade artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase1-10m-final
+          path: /tmp/base
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32237685245
+      - name: Download frozen common 654-symbol universe
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-phase1-3m-final
+          path: /tmp/universe
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32237685232
+      - name: Run frozen robustness
+        env:
+          TF_MIN: 10
+          BASE_DIR: /tmp/base
+          UNIVERSE_FILE: /tmp/universe/universe.json
+          OUT_DIR: /tmp/matrix_tmp
+        run: python3 wave-rider-verify/wr_c3_t_robustness.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-frozen-c3-t-robustness-final
+          path: /tmp/final
+          retention-days: 14
