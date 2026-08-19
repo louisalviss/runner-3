@@ -56,7 +56,7 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           export NO_COLOR=1
-          npx -y wrangler@4.123.0 deploy --config apps/audio-library/wrangler.jsonc | tee /tmp/audio-library-deploy.log
+          npx -y wrangler@4.123.0 deploy --config apps/audio-library/wrangler.jsonc 2>&1 | tee /tmp/audio-library-deploy.log
           url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/audio-library-deploy.log | tail -n 1 || true)"
           test -n "$url"
           echo "LIBRARY_URL=$url" >> "$GITHUB_ENV"
@@ -117,12 +117,13 @@ jobs:
           set -euo pipefail
           git pull --rebase origin main || true
           mkdir -p ops/audio-library
+          rm -f ops/audio-library/deploy-error.txt
           python - "$LIBRARY_URL" <<'PY'
           import datetime,json,sys
           out={'status':'ready','url':sys.argv[1],'retentionDays':30,'voice':'vi-VN-NamMinhNeural','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           open('ops/audio-library/status.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
           PY
-          git add ops/audio-library/status.json
+          git add -A ops/audio-library
           git commit -m 'Publish Audio Library deploy status' || exit 0
           git push origin HEAD:main || true
 
@@ -137,6 +138,9 @@ jobs:
         run: |
           git pull --rebase origin main || true
           mkdir -p ops/audio-library
+          if [ -s /tmp/audio-library-deploy.log ]; then
+            sed -E 's/(CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)=[^[:space:]]+/\1=[REDACTED]/g' /tmp/audio-library-deploy.log | tail -c 20000 > ops/audio-library/deploy-error.txt
+          fi
           python - <<'PY'
           import datetime,json,os
           outcomes={k:os.getenv(k) for k in ('DEPLOY_OUTCOME','SECRET_OUTCOME','SEED_OUTCOME','VERIFY_OUTCOME')}
@@ -145,6 +149,6 @@ jobs:
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/audio-library/status.json
+          git add -A ops/audio-library
           git commit -m 'Persist Audio Library deploy failure' || exit 0
           git push origin HEAD:main || true
