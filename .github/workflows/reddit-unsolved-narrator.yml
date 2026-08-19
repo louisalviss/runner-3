@@ -33,6 +33,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install audio tools
+        id: install
         shell: bash
         run: |
           set -euo pipefail
@@ -42,13 +43,13 @@ jobs:
           mkdir -p "$WORKDIR" "$OUTDIR"
 
       - name: Fetch Reddit thread with Runner
+        id: fetch_reddit
         shell: bash
         run: |
           set -euo pipefail
           out="$WORKDIR/reddit.json"
           ok=0
 
-          # Prefer the encrypted Reddit OAuth credential already provisioned in runner-3.
           if [ -s ops/reddit/credentials.aes ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
             echo 'Using runner-3 Reddit OAuth credential'
             echo '::add-mask::'"$CLOUDFLARE_API_TOKEN"
@@ -80,7 +81,6 @@ jobs:
           fi
           rm -f /tmp/reddit-credentials.json
 
-          # Public JSON is a fallback, still fetched from the GitHub runner rather than the chat client.
           if [ "$ok" -ne 1 ]; then
             echo 'OAuth path unavailable; trying Reddit public JSON from runner'
             curl -fsS --max-time 45 --retry 3 \
@@ -89,20 +89,23 @@ jobs:
               -o "$out"
           fi
 
-          jq -e 'type=="array" and length>=2 and .[1].data.children|length>0' "$out" >/dev/null
+          jq -e 'type=="array" and length>=2 and ((.[1].data.children|length)>0)' "$out" >/dev/null
           echo "REDDIT_BYTES=$(wc -c < "$out")"
           echo "REDDIT_TOP_LEVEL=$(jq '.[1].data.children|length' "$out")"
 
       - name: Render verified Vietnamese episode
+        id: render
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/reddit_unsolved_narrator.py | tee "$OUTDIR/render-summary.json"
+          python -m py_compile scripts/reddit_unsolved_narrator.py
+          python scripts/reddit_unsolved_narrator.py | tee "$OUTDIR/render-summary.txt"
           test -s "$OUTDIR/episode.mp3"
           test -s "$OUTDIR/index.html"
           ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUTDIR/episode.mp3"
 
       - name: Upload audio player to R2
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
@@ -140,28 +143,38 @@ jobs:
           echo "PLAYER_URL=$player"
           echo "AUDIO_URL=$audio"
 
-      - name: Persist safe episode status
-        if: success()
+      - name: Persist narrator result or failure stage
+        if: always()
         shell: bash
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          FETCH_OUTCOME: ${{ steps.fetch_reddit.outcome }}
+          RENDER_OUTCOME: ${{ steps.render.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
         run: |
           set -euo pipefail
           mkdir -p ops/reddit-narrator
-          player="$(cat /tmp/player-url.txt)"
-          audio="$(cat /tmp/audio-url.txt)"
-          duration="$(jq -r '.duration_seconds' "$OUTDIR/chapters.json")"
-          cases="$(jq '.selected_cases | length' "$OUTDIR/chapters.json")"
-          python3 - "$player" "$audio" "$duration" "$cases" <<'PY'
+          base="$(jq -r '.baseUrl // empty' ops/r2-media/status.json 2>/dev/null || true)"
+          player="${base:+$base/$PREFIX/index.html}"
+          audio="${base:+$base/$PREFIX/episode.mp3}"
+          duration=''
+          cases=''
+          [ -s "$OUTDIR/chapters.json" ] && duration="$(jq -r '.duration_seconds // empty' "$OUTDIR/chapters.json")"
+          [ -s "$OUTDIR/chapters.json" ] && cases="$(jq -r '.selected_cases|length' "$OUTDIR/chapters.json")"
+          python3 - "$INSTALL_OUTCOME" "$FETCH_OUTCOME" "$RENDER_OUTCOME" "$PUBLISH_OUTCOME" "$player" "$audio" "$duration" "$cases" <<'PY'
           import json,sys,datetime
-          player,audio,duration,cases=sys.argv[1:]
+          install,fetch,render,publish,player,audio,duration,cases=sys.argv[1:]
+          ready = publish == 'success'
           out={
-            'status':'ready',
+            'status':'ready' if ready else 'failed',
             'episodeId':'reddit-creepiest-unsolved-v1',
-            'playerUrl':player,
-            'audioUrl':audio,
+            'playerUrl':player if ready else '',
+            'audioUrl':audio if ready else '',
             'voice':'vi-VN-NamMinhNeural',
             'resume':'localStorage/same-browser',
-            'durationSeconds':float(duration),
-            'caseCount':int(cases),
+            'steps':{'install':install,'redditFetch':fetch,'render':render,'publish':publish},
+            'durationSeconds':float(duration) if duration else None,
+            'caseCount':int(cases) if cases else None,
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
           }
           open('ops/reddit-narrator/latest.json','w').write(json.dumps(out,indent=2)+'\n')
@@ -170,7 +183,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/reddit-narrator/latest.json
-          git commit -m 'Publish Reddit narrator episode status' || exit 0
+          git commit -m 'Persist Reddit narrator run status' || exit 0
           for attempt in 1 2 3; do
             if git push origin HEAD:main; then exit 0; fi
             git pull --rebase origin main
