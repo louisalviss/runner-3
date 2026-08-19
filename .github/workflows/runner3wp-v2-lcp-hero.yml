@@ -1,0 +1,208 @@
+name: Runner3WP V2 Hero LCP A-B
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-v2-lcp-hero.yml']
+  workflow_dispatch:
+
+permissions: {contents: write}
+concurrency: {group: runner3wp-v2-lcp-hero, cancel-in-progress: false}
+
+env:
+  CANDIDATE_BRANCH: runner3wp-v2-lcp-hero-20260820
+  BASELINE_SHA: bfaca6aca4cfb8173ebd91f330376e64120332db
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+  CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+  CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+  CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+  R2_BUCKET: runner3-wp-media
+  R2_HOST: pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev
+  SITE_SLUG: runner3-factory-smoke-2
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-lcp-hero-20260820
+          fetch-depth: 0
+
+      - name: Verify safe V2 baseline
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3-LCP-Baseline-Guard/1.0'}});
+          const h=await r.text();
+          const o={http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),oldHero:h.includes('responsive-v2/offset-demo-01-w640.webp'),candidateHero:h.includes('lcp-v1/offset-demo-01-w640.webp')};
+          o.ok=o.http===200&&String(o.snapshot||'').toUpperCase()==='HIT'&&/noindex/i.test(o.noindex||'')&&o.oldHero&&!o.candidateHero;
+          console.log(JSON.stringify(o,null,2));
+          if(!o.ok)process.exit(7);
+          NODE
+
+      - name: Prepare measurement runtime
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
+          python -m pip install --quiet 'Pillow==11.3.0'
+
+      - name: Lighthouse baseline 3x
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/lcp-lh
+          runlh(){ npx lighthouse "$V2_URL" --output=json --output-path="/tmp/lcp-lh/base-$1.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet; }
+          for i in 1 2 3; do runlh "$i"; done
+
+      - name: Build and upload lean hero variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import io,json,math,os,subprocess,urllib.request
+          from pathlib import Path
+          from PIL import Image,ImageChops,ImageStat
+
+          src=Path('media')/os.environ['SITE_SLUG']/'offset-demo-01.webp'
+          out=Path('/tmp/lcp-v1'); out.mkdir(parents=True,exist_ok=True)
+          widths=(360,480,640)
+          qualities=(68,64,60,56,52,48)
+          with Image.open(src) as im:
+              im.load(); base=im.convert('RGB'); ow,oh=base.size
+              ref=base.resize((640,round(oh*640/ow)),Image.Resampling.LANCZOS)
+              trials=[]; selected=None
+              for q in qualities:
+                  p=out/f'trial-q{q}.webp'; ref.save(p,'WEBP',quality=q,method=6)
+                  with Image.open(p) as c: cand=c.convert('RGB')
+                  diff=ImageChops.difference(ref,c); stat=ImageStat.Stat(diff)
+                  mse=sum(x*x for x in stat.rms)/len(stat.rms)
+                  psnr=99.0 if mse==0 else 10*math.log10((255*255)/mse)
+                  row={'quality':q,'bytes':p.stat().st_size,'psnrDb':round(psnr,3)}; trials.append(row)
+                  if selected is None and row['bytes']<=20000 and psnr>=34.0: selected=q
+              if selected is None:
+                  eligible=[x for x in trials if x['bytes']<=22000 and x['psnrDb']>=33.5]
+                  if eligible: selected=eligible[0]['quality']
+              if selected is None:
+                  raise RuntimeError('no_quality_candidate:'+json.dumps(trials))
+              variants=[]
+              for w in widths:
+                  h=max(1,round(oh*w/ow)); resized=base.resize((w,h),Image.Resampling.LANCZOS)
+                  p=out/f'offset-demo-01-w{w}.webp'; resized.save(p,'WEBP',quality=selected,method=6)
+                  variants.append({'width':w,'height':h,'bytes':p.stat().st_size})
+          result={'status':'ready','quality':selected,'sourceBytes':src.stat().st_size,'trials':trials,'variants':variants}
+          Path('/tmp/lcp-build.json').write_text(json.dumps(result,indent=2)); print(json.dumps(result,indent=2))
+          PY
+          for w in 360 480 640; do
+            key="sites/$SITE_SLUG/lcp-v1/offset-demo-01-w${w}.webp"
+            npx --yes wrangler@4.124.0 r2 object put "$R2_BUCKET/$key" --file "/tmp/lcp-v1/offset-demo-01-w${w}.webp" --remote --content-type image/webp --cache-control 'public, max-age=31536000, immutable'
+          done
+          python - <<'PY'
+          import io,json,os,urllib.request
+          from PIL import Image
+          d=json.load(open('/tmp/lcp-build.json')); checked=[]
+          for v in d['variants']:
+              url=f"https://{os.environ['R2_HOST']}/sites/{os.environ['SITE_SLUG']}/lcp-v1/offset-demo-01-w{v['width']}.webp?verify=1"
+              req=urllib.request.Request(url,headers={'User-Agent':'Runner3-LCP-Verify/1.0','Cache-Control':'no-cache'})
+              with urllib.request.urlopen(req,timeout=30) as r: data=r.read(); ctype=r.headers.get('content-type','')
+              with Image.open(io.BytesIO(data)) as im: im.load(); size=im.size; fmt=im.format
+              assert size==(v['width'],v['height']) and fmt=='WEBP' and data, (url,size,fmt)
+              checked.append({'width':v['width'],'bytes':len(data),'contentType':ctype})
+          d['verified']=checked; json.dump(d,open('/tmp/lcp-build.json','w'),indent=2); print(json.dumps({'verified':checked},indent=2))
+          PY
+
+      - name: Validate candidate code and deploy V2 only
+        id: candidate
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          node --check edge/wordpress-edge-proxy/src/responsive-images.js
+          grep -q "HERO_VARIANT_DIR = 'lcp-v1'" edge/wordpress-edge-proxy/src/responsive-images.js
+          node scripts/deploy-wordpress-workers-cache.mjs 2>&1 | tee /tmp/lcp-deploy.log
+
+      - name: Candidate runtime guard
+        id: guard
+        if: steps.candidate.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3-LCP-Candidate-Guard/1.0'}}); const h=await r.text();
+          const o={http:r.status,snapshot:r.headers.get('x-edge-snapshot'),noindex:r.headers.get('x-robots-tag'),candidate360:h.includes('lcp-v1/offset-demo-01-w360.webp'),candidate480:h.includes('lcp-v1/offset-demo-01-w480.webp'),candidate640:h.includes('lcp-v1/offset-demo-01-w640.webp'),otherImagesStayV2:h.includes('responsive-v2/offset-demo-02-w640.webp')};
+          o.ok=o.http===200&&String(o.snapshot||'').toUpperCase()==='HIT'&&/noindex/i.test(o.noindex||'')&&o.candidate360&&o.candidate480&&o.candidate640&&o.otherImagesStayV2;
+          fs.writeFileSync('/tmp/lcp-guard.json',JSON.stringify(o,null,2)); console.log(JSON.stringify(o,null,2)); if(!o.ok)process.exit(8);
+          NODE
+
+      - name: Lighthouse candidate 3x
+        if: steps.candidate.outcome == 'success' && steps.guard.outcome == 'success'
+        run: |
+          set -euo pipefail
+          runlh(){ npx lighthouse "$V2_URL" --output=json --output-path="/tmp/lcp-lh/cand-$1.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet; }
+          for i in 1 2 3; do runlh "$i"; done
+
+      - name: Judge LCP improvement
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pathlib,statistics,datetime
+          root=pathlib.Path('/tmp/lcp-lh')
+          def read(label):
+              p=root/f'{label}.json'
+              if not p.exists(): return None
+              d=json.loads(p.read_text()); a=d.get('audits',{})
+              n=lambda k:(a.get(k)or{}).get('numericValue')
+              return {'label':label,'performance':(d.get('categories',{}).get('performance')or{}).get('score'),'fcpMs':n('first-contentful-paint'),'lcpMs':n('largest-contentful-paint'),'tbtMs':n('total-blocking-time'),'cls':n('cumulative-layout-shift'),'serverResponseMs':n('server-response-time'),'speedIndexMs':n('speed-index')}
+          base=[x for i in (1,2,3) if (x:=read(f'base-{i}'))]; cand=[x for i in (1,2,3) if (x:=read(f'cand-{i}'))]
+          complete=len(base)==3 and len(cand)==3 and all(x.get('lcpMs') is not None for x in base+cand)
+          med=lambda rows,k:statistics.median([x[k] for x in rows]) if rows and all(x.get(k) is not None for x in rows) else None
+          bf,cf=med(base,'fcpMs'),med(cand,'fcpMs'); bl,cl=med(base,'lcpMs'),med(cand,'lcpMs'); bc,cc=med(base,'cls'),med(cand,'cls'); bt,ct=med(base,'tbtMs'),med(cand,'tbtMs')
+          improve=(bl-cl) if complete else None
+          keep=bool(complete and improve>=75 and cf<=bf+50 and cc<=bc+0.01 and ct<=max(50,bt+50))
+          def load(p):
+              try:return json.load(open(p))
+              except:return None
+          o={'status':'ready' if complete else 'incomplete','experiment':'hero-lcp-webp-byte-cut','verdict':'KEEP_V2' if keep else ('ROLLBACK_NO_GAIN' if complete else 'ROLLBACK_INCONCLUSIVE'),'keepV2':keep,'guard':load('/tmp/lcp-guard.json'),'build':load('/tmp/lcp-build.json'),'baseline':{'runs':base,'medianFcpMs':bf,'medianLcpMs':bl,'medianCls':bc,'medianTbtMs':bt},'candidate':{'runs':cand,'medianFcpMs':cf,'medianLcpMs':cl,'medianCls':cc,'medianTbtMs':ct},'lcpImprovementMs':improve,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'policy':'V1 untouched; V2 kept only with >=75ms median LCP gain and no material FCP/CLS/TBT regression'}
+          pathlib.Path('/tmp/lcp-result.json').write_text(json.dumps(o,indent=2)); print(json.dumps(o,indent=2))
+          PY
+
+      - name: Enforce V2 decision
+        if: always()
+        run: |
+          set -euo pipefail
+          KEEP=$(python -c "import json;print('1' if json.load(open('/tmp/lcp-result.json')).get('keepV2') else '0')" 2>/dev/null || echo 0)
+          if [ "$KEEP" != 1 ]; then
+            git reset --hard
+            git checkout --detach "$BASELINE_SHA"
+            node scripts/deploy-wordpress-workers-cache.mjs
+          fi
+          export KEEP
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs'; const keep=process.env.KEEP==='1';
+          const r=await fetch(process.env.V2_URL,{headers:{'user-agent':'Runner3-LCP-Final-Guard/1.0'}}); const h=await r.text();
+          const marker=h.includes('lcp-v1/offset-demo-01-w640.webp');
+          const o={ok:r.status===200&&String(r.headers.get('x-edge-snapshot')||'').toUpperCase()==='HIT'&&marker===keep,kept:keep,http:r.status,snapshot:r.headers.get('x-edge-snapshot'),candidateMarker:marker,checkedAt:new Date().toISOString()};
+          fs.writeFileSync('/tmp/lcp-final.json',JSON.stringify(o,null,2)); console.log(JSON.stringify(o,null,2)); if(!o.ok)process.exit(12);
+          NODE
+
+      - name: Persist evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s /tmp/lcp-result.json || printf '{"status":"failed","experiment":"hero-lcp-webp-byte-cut","verdict":"ROLLBACK_INCONCLUSIVE","keepV2":false}\n' >/tmp/lcp-result.json
+          git fetch origin "$CANDIDATE_BRANCH"
+          git checkout -B "$CANDIDATE_BRANCH" "origin/$CANDIDATE_BRANCH"
+          mkdir -p ops/perf/ab
+          cp /tmp/lcp-result.json ops/perf/ab/runner3wp-v2-lcp-hero.latest.json
+          cp /tmp/lcp-final.json ops/perf/ab/runner3wp-v2-lcp-hero.runtime.latest.json 2>/dev/null || true
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-v2-lcp-hero*.json
+          git commit -m 'perf: persist Runner3WP V2 hero LCP A-B' || exit 0
+          git push origin HEAD:"$CANDIDATE_BRANCH"
