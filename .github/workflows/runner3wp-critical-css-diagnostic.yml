@@ -1,0 +1,58 @@
+name: Runner3WP Critical CSS Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-critical-css-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-critical-css-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Capture live V1 critical path
+        run: |
+          set -euo pipefail
+          mkdir -p ops/perf/ab
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const url='https://runner3wp.pntr.dev/';
+          const r=await fetch(url,{headers:{'user-agent':'Runner3WP-Critical-Diagnostic/1.0','cache-control':'no-cache'}});
+          const html=await r.text();
+          if(r.status!==200) throw new Error(`HTTP ${r.status}`);
+          const head=(html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)||[])[1]||'';
+          const body=(html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)||[])[1]||'';
+          const styles=[...head.matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi)].map((m)=>({id:(m[1].match(/\bid=(["'])([^"']+)\1/i)||[])[2]||'',bytes:Buffer.byteLength(m[0]),cssBytes:Buffer.byteLength(m[2]),css:m[2]}));
+          const critical=styles.find((s)=>s.id==='runner3-critical-css');
+          if(!critical) throw new Error('runner3-critical-css not found');
+          const h1Index=html.search(/<h1\b/i);
+          const bodyStart=html.search(/<body\b/i);
+          const h1Window=h1Index>=0?html.slice(Math.max(bodyStart,0),Math.min(html.length,h1Index+12000)):body.slice(0,20000);
+          const classes=[...new Set([...h1Window.matchAll(/\bclass=(["'])([^"']+)\1/gi)].flatMap((m)=>m[2].split(/\s+/)).filter(Boolean))].sort();
+          const ids=[...new Set([...h1Window.matchAll(/\bid=(["'])([^"']+)\1/gi)].map((m)=>m[2]).filter(Boolean))].sort();
+          const tags=[...new Set([...h1Window.matchAll(/<([a-z][a-z0-9-]*)\b/gi)].map((m)=>m[1].toLowerCase()))].sort();
+          const out={status:'ready',url,http:r.status,checkedAt:new Date().toISOString(),htmlBytes:Buffer.byteLength(html),headBytes:Buffer.byteLength(head),bodyStartByte:bodyStart,h1Byte:h1Index,styles:styles.map(({id,bytes,cssBytes})=>({id,bytes,cssBytes})),criticalCssBytes:critical.cssBytes,classes,ids,tags,bodyPrefix:h1Window.slice(0,20000),criticalCss:critical.css};
+          fs.writeFileSync('ops/perf/ab/runner3wp-critical-css-diagnostic.latest.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify({...out,criticalCss:undefined,bodyPrefix:undefined},null,2));
+          NODE
+      - name: Persist diagnostic
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/ab/runner3wp-critical-css-diagnostic.latest.json
+          git commit -m 'diag: persist Runner3WP critical CSS state' || exit 0
+          git push origin HEAD:main
