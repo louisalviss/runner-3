@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "runner3-audio-chatgpt-bridge",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "CHATGPT_QUEUE_SHA256": "cd31cca49e2d16a54480a89057f69d21efedb54e0fe0936f4cd4f79b746adb5c"
+  },
+  "r2_buckets": [
+    {
+      "binding": "AUDIO_BUCKET",
+      "bucket_name": "runner3-wp-media"
+    }
+  ]
+}

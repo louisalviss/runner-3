@@ -1,0 +1,81 @@
+name: Audio Library ChatGPT Bridge Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/audio-chatgpt-bridge/**'
+      - '.github/workflows/audio-library-chatgpt-bridge-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-audio-chatgpt-bridge-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install crypto dependency
+        run: python -m pip install -q 'cryptography>=45,<47'
+
+      - name: Deploy bridge Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          export NO_COLOR=1
+          npx -y wrangler@4.123.0 deploy --config apps/audio-chatgpt-bridge/wrangler.jsonc | tee /tmp/chatgpt-bridge-deploy.log
+          url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/chatgpt-bridge-deploy.log | tail -n 1 || true)"
+          test -n "$url"
+          echo "BRIDGE_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Publish bridge status and public encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/audio-library
+          python - <<'PY'
+          import base64,datetime,hashlib,json,os
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+token.encode()).digest()
+          private=X25519PrivateKey.from_private_bytes(seed)
+          public=private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+          out={
+            'status':'ready',
+            'url':os.environ['BRIDGE_URL'],
+            'publicKey':base64.b64encode(public).decode(),
+            'crypto':'X25519-HKDF-SHA256-ChaCha20Poly1305',
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          open('ops/audio-library/chatgpt-bridge-status.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/chatgpt-bridge-status.json
+          git commit -m 'Publish ChatGPT audio bridge status [skip ci]' || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true

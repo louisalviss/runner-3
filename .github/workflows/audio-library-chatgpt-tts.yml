@@ -1,0 +1,63 @@
+name: Audio Library ChatGPT TTS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/audio-library/chatgpt-outbox/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUDIO_LIBRARY_BUCKET: runner3-wp-media
+      AUDIO_LIBRARY_VOICE: vi-VN-NamMinhNeural
+      AUDIO_LIBRARY_VOICE_RATE: +3%
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install -q requests edge-tts 'cryptography>=45,<47'
+          if ! command -v ffmpeg >/dev/null 2>&1; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
+      - name: Decrypt and synthesize
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')
+          test "${#files[@]}" -gt 0
+          mkdir -p /tmp/chatgpt-payloads
+          python - "${files[@]}" <<'PY'
+          import base64,hashlib,json,os,sys
+          from pathlib import Path
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).digest()
+          private=X25519PrivateKey.from_private_bytes(seed)
+          for name in sys.argv[1:]:
+              env=json.loads(Path(name).read_text(encoding='utf-8'))
+              item_id=str(env['id'])
+              eph=X25519PublicKey.from_public_bytes(base64.b64decode(env['ephemeralPublicKey']))
+              shared=private.exchange(eph)
+              key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-audio-library-chatgpt-v1').derive(shared)
+              plain=ChaCha20Poly1305(key).decrypt(base64.b64decode(env['nonce']),base64.b64decode(env['ciphertext']),item_id.encode())
+              payload=json.loads(plain)
+              if str(payload.get('id')) != item_id: raise SystemExit('payload id mismatch')
+              Path('/tmp/chatgpt-payloads/'+item_id+'.json').write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
+          PY
+          for f in /tmp/chatgpt-payloads/*.json; do python scripts/audio_library_tts_from_chatgpt.py "$f"; done
