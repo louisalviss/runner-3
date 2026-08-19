@@ -52,3 +52,5 @@ jobs:
           git diff --cached --quiet || git commit -m 'test: probe Gwen-TTS endpoint health'
           git pull --rebase origin main || true
           git push
+
+# re-probe after FINAL-1944 auth at 2026-08-19 19:45 +07
