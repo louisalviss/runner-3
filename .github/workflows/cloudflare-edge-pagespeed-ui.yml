@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/cloudflare-edge-pagespeed-ui.yml'
+      - 'scripts/pagespeed-ui-audit.mjs'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -76,6 +77,11 @@ jobs:
           import json
           d=json.load(open('/tmp/pagespeed-edge-ui.json'))
           assert d.get('status') == 'ready', json.dumps(d,indent=2)
+          for strategy in ('mobile','desktop'):
+              scores=d.get(strategy,{}).get('scores',{})
+              metrics=d.get(strategy,{}).get('metrics',{})
+              assert scores.get('performance') is not None, strategy+' performance missing'
+              assert metrics.get('lcp') is not None and metrics.get('fcp') is not None, strategy+' lab metrics missing'
           print(json.dumps({
             'target': d.get('target'),
             'resultUrl': d.get('resultUrl'),
