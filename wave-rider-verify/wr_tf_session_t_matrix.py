@@ -213,3 +213,4 @@ report={
 }
 json.dump(report,open(OUT/f'tf{TF}_session_t_matrix.json','w'),indent=2)
 print(json.dumps(report,indent=2))
+# trigger marker: matrix implementation frozen for this diagnostic
