@@ -1,0 +1,47 @@
+name: PageSpeed ShareAllFiles Live
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pagespeed-shareallfiles-live.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser
+        run: |
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+      - name: Run current PageSpeed UI mobile
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p ops/pagespeed/benchmark
+          node --input-type=module - <<'NODE'
+          import { chromium } from 'playwright'; import fs from 'node:fs';
+          const target='https://shareallfiles.net/'; const out={target,status:'starting',checkedAt:new Date().toISOString()};
+          function metric(t,l){const e=l.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');for(const r of [new RegExp(`${e}\\s*\\n\\s*([0-9.]+)\\s*(ms|s)?`,'i'),new RegExp(`${e}[^0-9]{0,100}([0-9.]+)\\s*(ms|s)`,'i')]){const m=t.match(r);if(m)return `${m[1]}${m[2]||''}`;}return null;}
+          const b=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']}); const p=await b.newPage({viewport:{width:1440,height:1200}});
+          try{await p.goto('https://pagespeed.web.dev/?hl=en',{waitUntil:'domcontentloaded',timeout:60000});const i=p.locator('input').first();await i.waitFor({state:'visible',timeout:30000});await i.fill(target);await p.getByRole('button',{name:/analy[sz]e/i}).first().click();await p.waitForURL(/pagespeed\.web\.dev\/analysis\//,{timeout:90000}).catch(()=>{});await p.waitForFunction(()=>{const t=document.body.innerText||'';return /First Contentful Paint/i.test(t)&&/Largest Contentful Paint/i.test(t)&&/\bPerformance\b/i.test(t);},null,{timeout:180000});let body='',fcp=null,lcp=null;const s=Date.now();while(Date.now()-s<60000){body=await p.locator('body').innerText();fcp=metric(body,'First Contentful Paint');lcp=metric(body,'Largest Contentful Paint');if(fcp&&lcp)break;await p.waitForTimeout(1000);}out.status=fcp?'ready':'failed';out.fcp=fcp;out.lcp=lcp;out.resultUrl=p.url();out.lighthouse=(body.match(/Lighthouse\s+[0-9.]+/i)||[])[0]||null;out.environment=(body.match(/Emulated[^\n]*/i)||[])[0]||null;out.network=(body.match(/Slow\s+4G/i)||[])[0]||null;}catch(e){out.status='failed';out.error=String(e?.message||e);out.resultUrl=p.url();}finally{await b.close();fs.writeFileSync('ops/pagespeed/benchmark/shareallfiles-live.latest.json',JSON.stringify(out,null,2)+'\n');console.log(JSON.stringify(out,null,2));}
+          NODE
+      - name: Persist result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ops/pagespeed/benchmark/shareallfiles-live.latest.json
+          cp ops/pagespeed/benchmark/shareallfiles-live.latest.json /tmp/result.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for x in 1 2 3 4 5; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/pagespeed/benchmark; cp /tmp/result.json ops/pagespeed/benchmark/shareallfiles-live.latest.json; git add ops/pagespeed/benchmark/shareallfiles-live.latest.json; git commit -m "Persist shareallfiles live PSI: ${GITHUB_RUN_ID}" || exit 0; git push origin HEAD:main && exit 0; sleep 2;
+          done
+          exit 2
