@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - x-job.json
+  issues:
+    types: [opened]
   workflow_dispatch:
     inputs:
       x_url:
@@ -13,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: x-runner
@@ -20,6 +23,7 @@ concurrency:
 
 jobs:
   inspect-x:
+    if: github.event_name != 'issues' || startsWith(github.event.issue.title, '[x-runner]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,9 +33,25 @@ jobs:
 
       - name: Prepare job
         env:
+          EVENT_NAME: ${{ github.event_name }}
           DISPATCH_URL: ${{ github.event.inputs.x_url }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          if [ -n "$DISPATCH_URL" ]; then
+          if [ "$EVENT_NAME" = "issues" ]; then
+            python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          body = os.environ.get("ISSUE_BODY", "")
+          match = re.search(r"https://(?:www\.)?(?:x\.com|twitter\.com)/[^\s]+/status/\d+(?:\?[^\s]*)?", body)
+          if not match:
+              raise SystemExit("issue body does not contain a valid X status URL")
+          Path("x-job.runtime.json").write_text(
+              json.dumps({"x_url": match.group(0)}, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          PY
+            echo "JOB_FILE=x-job.runtime.json" >> "$GITHUB_ENV"
+          elif [ -n "$DISPATCH_URL" ]; then
             python - <<'PY'
           import json, os
           from pathlib import Path
