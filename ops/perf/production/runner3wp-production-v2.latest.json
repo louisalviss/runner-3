@@ -1,5 +1,5 @@
 {
-  "status": "rolled_back",
+  "status": "promoted",
   "productionDomain": "https://runner3wp.pntr.dev",
   "productionWorkerUrl": "https://wordpress-edge-proxy.ducduy2411.workers.dev",
   "candidateCommit": "9124f5957e176ffc9aa64444c980f3c5d6642a0d",
@@ -7,25 +7,27 @@
   "architecture": "WordPress snapshot-direct + same-origin hero via Cloudflare R2 binding",
   "outcomes": {
     "build": "success",
-    "deploy": "failure",
-    "verify": "skipped",
-    "rollback": "success"
+    "deploy": "success",
+    "verify": "success",
+    "rollback": "skipped"
   },
   "workerChecks": {
-    "edgeSnapshot": null,
-    "edgeCachePolicy": null,
-    "heroInHtml": false,
-    "heroMarker": null,
-    "heroContentType": null,
-    "heroBytes": null
+    "edgeSnapshot": "HIT",
+    "edgeCachePolicy": "snapshot-direct",
+    "heroInHtml": true,
+    "heroMarker": "r2-binding-same-origin",
+    "heroContentType": "image/webp",
+    "heroBytes": 21058
   },
   "productionChecks": {
-    "edgeSnapshot": null,
-    "edgeCachePolicy": null,
-    "heroInHtml": false,
-    "heroMarker": null,
-    "heroContentType": null,
-    "heroBytes": null
+    "edgeSnapshot": "HIT",
+    "edgeCachePolicy": "snapshot-direct",
+    "heroInHtml": true,
+    "heroMarker": "r2-binding-same-origin",
+    "heroContentType": "image/webp",
+    "heroBytes": 21058
   },
-  "checkedAt": "2026-08-19T23:53:53.191778+00:00"
+  "deployLogTail": "\n \u26c5\ufe0f wrangler 4.124.0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nTotal Upload: 381.22 KiB / gzip: 33.54 KiB\nWorker Startup Time: 5 ms\nYour Worker has access to the following bindings:\nBinding                                                            Resource                  \nenv.MEDIA_BUCKET (runner3-wp-media)                                R2 Bucket                 \nenv.ORIGIN (\"https://runner3-factory-smoke-2.wasme...\")            Environment Variable      \n\nUploaded wordpress-edge-proxy (2.15 sec)\nDeployed wordpress-edge-proxy triggers (0.43 sec)\n  https://wordpress-edge-proxy.ducduy2411.workers.dev\nCurrent Version ID: aaf6a342-c756-424e-b3f5-8597323cc07a\n\nCloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md\n",
+  "rollbackLogTail": null,
+  "checkedAt": "2026-08-19T23:55:02.231581+00:00"
 }
