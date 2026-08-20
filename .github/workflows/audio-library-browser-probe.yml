@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/audio-library-browser-probe.yml'
+      - 'apps/audio-library/worker.js'
   workflow_dispatch:
 
 permissions:
@@ -39,7 +40,7 @@ jobs:
           print(hashlib.sha256(('audio-library-session-v3\0'+sys.argv[1]+'\0'+sys.argv[2]).encode()).hexdigest())
           PY
           )"
-          curl -sS -H "Authorization: Bearer $session" 'https://runner3-audio-library.ducduy2411.workers.dev/?probe=syntax-v2' -o /tmp/root.html
+          curl -sS -H "Authorization: Bearer $session" 'https://runner3-audio-library.ducduy2411.workers.dev/?probe=syntax-v3' -o /tmp/root.html
           python - <<'PY'
           import re, pathlib, subprocess, json
           html=pathlib.Path('/tmp/root.html').read_text(errors='replace')
@@ -62,7 +63,7 @@ jobs:
             page.on('console', m=>{ if(m.type()==='error') consoleErrors.push(m.text()); });
             page.on('response', r=>{ const u=new URL(r.url()); if(u.pathname.startsWith('/api/')) responses.push({path:u.pathname,status:r.status()}); });
             await page.setExtraHTTPHeaders({authorization:'Bearer '+process.env.SESSION_TOKEN});
-            const resp=await page.goto('https://runner3-audio-library.ducduy2411.workers.dev/?probe=browser-v2',{waitUntil:'networkidle',timeout:30000});
+            const resp=await page.goto('https://runner3-audio-library.ducduy2411.workers.dev/?probe=browser-v3',{waitUntil:'networkidle',timeout:30000});
             await page.waitForTimeout(1000);
             const checks=JSON.parse(fs.readFileSync('/tmp/script-checks.json','utf8'));
             const out={rootStatus:resp?.status(),url:page.url(),title:await page.title(),itemCount:await page.locator('.item').count(),listText:(await page.locator('#list').innerText().catch(()=>'' )).slice(0,1200),countText:await page.locator('#count').innerText().catch(()=>''),errors,consoleErrors,responses,scriptChecks:checks,hasApp:await page.locator('#app').count(),bodyText:(await page.locator('body').innerText()).slice(0,1500)};
