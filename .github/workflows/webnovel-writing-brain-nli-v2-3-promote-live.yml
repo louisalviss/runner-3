@@ -1,0 +1,40 @@
+name: webnovel-writing-brain-nli-v2-3-promote-live
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/webnovel-nli-v2-3]
+    paths: ['.github/workflows/webnovel-writing-brain-nli-v2-3-promote-live.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_WORKFLOW: webnovel-writing-brain-nli-v2-3-promote.yml
+      STATUS_FILE: ops/webnovel-writing-brain-nli-v2-3-promote-live.json
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Snapshot promotion run
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow "$TARGET_WORKFLOW" --branch "$GITHUB_REF_NAME" --limit 10 --json databaseId,createdAt --jq 'sort_by(.createdAt)|reverse|.[0].databaseId')
+          test -n "$run_id" && test "$run_id" != null
+          export RUN_ID="$run_id" STATUS=$(gh run view "$run_id" --json status --jq .status) CONCLUSION=$(gh run view "$run_id" --json conclusion --jq '.conclusion // ""') HEAD_SHA=$(gh run view "$run_id" --json headSha --jq .headSha)
+          mkdir -p ops
+          python - <<'PY'
+          import os,json,pathlib,datetime
+          d={'schema':'webnovel-writing-brain-nli-v2.3-promote-live','run_id':int(os.environ['RUN_ID']),'status':os.environ['STATUS'],'conclusion':os.environ['CONCLUSION'] or None,'head_sha':os.environ['HEAD_SHA'],'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(d,indent=2)+'\n')
+          print(json.dumps(d))
+          PY
+      - name: Commit snapshot
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE" && git commit -m 'Snapshot NLI V2.3 promotion [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do git fetch origin "$GITHUB_REF_NAME"; git rebase "origin/$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0; git rebase --abort || true; sleep $((i*2)); done
+          exit 1
