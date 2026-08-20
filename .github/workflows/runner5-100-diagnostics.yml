@@ -1,0 +1,74 @@
+name: Runner5 100 Diagnostics
+
+on:
+  push:
+    branches: [ai-wordpress-runner5-100]
+    paths:
+      - '.github/workflows/runner5-100-diagnostics.yml'
+      - 'ops/triggers/runner5-100-diag.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-100-diagnostics
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ai-wordpress-runner5-100
+      - name: Run Lighthouse raw diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME"
+          npx --yes lighthouse@13.4.1 https://runner5-restore-gateway.pages.dev/ \
+            --output=json --output-path=/tmp/lh.json \
+            --chrome-path="$CHROME" \
+            --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+            --quiet
+          python - <<'PY'
+          import json, pathlib, re, datetime
+          d=json.load(open('/tmp/lh.json'))
+          audits=d.get('audits',{})
+          exact=['button-name','color-contrast','heading-order','meta-description','cumulative-layout-shift','largest-contentful-paint','first-contentful-paint','render-blocking-resources','unused-css-rules','legacy-javascript','uses-long-cache-ttl','image-size-responsive']
+          keywords=('layout','shift','render','cache','legacy','unused-css','button','contrast','heading','meta-description','font')
+          chosen={}
+          for k,v in audits.items():
+            if k in exact or any(x in k.lower() for x in keywords):
+              if v.get('score') != 1 or k in exact:
+                chosen[k]={
+                  'score':v.get('score'),'displayValue':v.get('displayValue'),'title':v.get('title'),
+                  'description':v.get('description'),'details':v.get('details')
+                }
+          out={
+            'status':'ready',
+            'url':d.get('finalUrl') or d.get('requestedUrl'),
+            'categories':{k:v.get('score') for k,v in d.get('categories',{}).items()},
+            'metrics':{k:audits.get(k,{}).get('displayValue') for k in ['first-contentful-paint','largest-contentful-paint','total-blocking-time','cumulative-layout-shift','speed-index']},
+            'audits':chosen,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
+          }
+          p=pathlib.Path('/tmp/runner5-100-diagnostics.json');p.write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps({'categories':out['categories'],'metrics':out['metrics'],'auditKeys':list(chosen)},indent=2))
+          PY
+      - name: Persist diagnostics to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin ai-wordpress-runner5-100
+          git reset --hard origin/ai-wordpress-runner5-100
+          mkdir -p ops/pagespeed
+          cp /tmp/runner5-100-diagnostics.json ops/pagespeed/runner5-100-diagnostics.json
+          git add ops/pagespeed/runner5-100-diagnostics.json
+          git commit -m 'diag: persist Runner5 Lighthouse selectors' || exit 0
+          git push origin HEAD:ai-wordpress-runner5-100
