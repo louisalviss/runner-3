@@ -44,7 +44,10 @@ def cached_derivatives_hourly(sym, year, k1):
     key = (sym, int(year))
     if key not in _der_cache:
         _der_cache[key] = _orig_derivatives_hourly(sym, year, k1)
-    return _der_cache[key]
+    d, diag = _der_cache[key]
+    # base.run mutates diag by adding tf/symbol/price flags. Return a fresh copy
+    # so the 10m pass cannot overwrite diagnostics already recorded for 5m.
+    return d, dict(diag)
 
 base.derivatives_hourly = cached_derivatives_hourly
 
