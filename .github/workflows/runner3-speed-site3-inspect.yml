@@ -1,0 +1,47 @@
+name: Runner3 Speed Site3 Read-only Inspector
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-inspect.yml'
+      - 'scripts/runner3-speed-site3-inspect.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decrypt Wasmer account
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+      - name: Install browser helper
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Inspect current site
+        run: node scripts/runner3-speed-site3-inspect.mjs
+      - name: Persist inspection
+        if: always()
+        run: |
+          set -euo pipefail
+          cp /tmp/runner3-speed-site3-inspect.json ops/site-factory/runner3-speed-site3-inspect.latest.json
+          git config user.name 'runner3-speed-site3-inspect-bot'
+          git config user.email 'runner3-speed-site3-inspect-bot@users.noreply.github.com'
+          git add ops/site-factory/runner3-speed-site3-inspect.latest.json
+          git commit -m 'test: record site3 read-only inspection' || exit 0
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
+      - if: always()
+        run: rm -f /tmp/wasmer-account.json
