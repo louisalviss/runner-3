@@ -18,6 +18,20 @@ class EntryHeadingA11y {
   }
 }
 
+class ScriptPruner {
+  element(element) {
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    if (type === 'application/ld+json') return;
+    element.remove();
+  }
+}
+
+class FontPreloadPruner {
+  element(element) {
+    if ((element.getAttribute('as') || '').toLowerCase() === 'font') element.remove();
+  }
+}
+
 class HeadEnhancer {
   element(element) {
     element.append(
@@ -25,10 +39,19 @@ class HeadEnhancer {
       { html: true },
     );
     element.append(
-      `<style id="runner5-v100-a11y">
-        /* Inspiro calculates this spacing on document.ready. Reserve and freeze
-           it at first paint so its later inline style cannot create CLS. */
-        body.home.blog:not(.has-header-image):not(.has-header-video) #content { padding-top:105px !important; }
+      `<style id="runner5-v100-critical">
+        html { overflow-y:scroll; }
+        body, button, input, select, textarea,
+        h1, h2, h3, h4, h5, h6,
+        .site-title, .site-description, .main-navigation,
+        .entry-title, .entry-meta, .entry-content, .site-info {
+          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,Helvetica,sans-serif !important;
+        }
+        *, *::before, *::after {
+          animation:none !important;
+          transition:none !important;
+          scroll-behavior:auto !important;
+        }
         .entry-meta .entry-author,
         .entry-meta .entry-date,
         .entry-meta time.entry-date { color:#595959 !important; }
@@ -59,7 +82,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/__runner5/v100/health') {
-      return Response.json({ ok: true, gateway: 'runner5-restore-gateway-v100', downstream: 'runner5-restore-proxy', candidate: 4 }, {
+      return Response.json({ ok: true, gateway: 'runner5-restore-gateway-v100', downstream: 'runner5-restore-proxy', candidate: 5 }, {
         headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' },
       });
     }
@@ -79,7 +102,7 @@ export default {
     if (request.method !== 'POST' && (LONG_CACHE_RE.test(url.pathname) || url.pathname.startsWith('/wp-content/') || url.pathname.startsWith('/wp-includes/'))) {
       return cloneWithHeaders(downstream, {
         'Cache-Control': 'public, max-age=31536000, immutable',
-        'X-Runner5-V100': 'candidate-4-asset',
+        'X-Runner5-V100': 'candidate-5-asset',
       });
     }
 
@@ -89,12 +112,20 @@ export default {
     if (cssResponse && cssResponse.ok) bundleCss = await cssResponse.text();
 
     const headers = new Headers(downstream.headers);
-    headers.set('X-Runner5-V100', 'candidate-4');
+    headers.set('X-Runner5-V100', 'candidate-5');
+    headers.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
     let response = new Response(downstream.body, { status: downstream.status, statusText: downstream.statusText, headers });
     let rewriter = new HTMLRewriter()
       .on('head', new HeadEnhancer())
       .on('button.sb-search-button-open', new SearchButtonA11y())
       .on('h3.entry-title', new EntryHeadingA11y());
+
+    if (url.pathname === '/' || url.pathname === '') {
+      rewriter = rewriter
+        .on('script', new ScriptPruner())
+        .on('link[rel="preload"]', new FontPreloadPruner());
+    }
+
     if (bundleCss) rewriter = rewriter.on('link[href*="/__edge/runner5.css"]', new BundleCssInliner(bundleCss));
     return rewriter.transform(response);
   },
