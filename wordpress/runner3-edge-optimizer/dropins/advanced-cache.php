@@ -1,6 +1,7 @@
 <?php
 /* RUNNER3_SPEED_DROPIN v1.0.0 */
 if (!defined('ABSPATH')) return;
+$runner3_plugin=__DIR__.'/plugins/runner3-edge-optimizer/runner3-edge-optimizer.php';if(!is_file($runner3_plugin))return;
 $runner3_dir=__DIR__.'/cache/runner3-speed';$runner3_flag=$runner3_dir.'/enabled.flag';if(!is_file($runner3_flag))return;
 $runner3_method=strtoupper((string)($_SERVER['REQUEST_METHOD']??'GET'));if($runner3_method!=='GET'&&$runner3_method!=='HEAD')return;if(!empty($_SERVER['QUERY_STRING']))return;
 $runner3_uri=(string)($_SERVER['REQUEST_URI']??'/');$runner3_path=parse_url($runner3_uri,PHP_URL_PATH)?:'/';
