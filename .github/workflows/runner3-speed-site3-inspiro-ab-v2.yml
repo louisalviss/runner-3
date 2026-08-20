@@ -1,0 +1,190 @@
+name: Runner3 Speed Site3 Inspiro A-B-C v2
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-inspiro-ab-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WP_SITE_SLUG: runner3-speed-site3-realistic
+  WP_APP_NAME: runner3-speed-site3-realistic
+
+concurrency:
+  group: runner3-speed-site3-inspiro-ab-v2
+  cancel-in-progress: false
+
+jobs:
+  full-ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare
+        run: |
+          set -euo pipefail
+          echo prepare >/tmp/r3-stage.txt
+          npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
+          test -s /tmp/runner3-speed.zip
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+          echo prepared >/tmp/r3-stage.txt
+
+      - name: Fixture check
+        run: |
+          set -euo pipefail
+          echo fixture_check >/tmp/r3-stage.txt
+          python - <<'PY'
+          import json
+          f=json.load(open('ops/site-factory/runner3-speed-site3-inspiro.latest.json'))
+          assert f['status']=='READY', f
+          x=f['fixture']
+          assert x['theme']=='inspiro' and x['demoImportId']=='inspiro-lite-architecture', x
+          assert all(x['verify']['gates'].values()), x['verify']['gates']
+          print({'fixture':'PASS','pages':len(x['pages']),'posts':len(x['posts']),'media':len(x['media'])})
+          PY
+          echo fixture_ok >/tmp/r3-stage.txt
+
+      - name: A no plugin
+        run: |
+          set -euo pipefail
+          echo state_a >/tmp/r3-stage.txt
+          node scripts/runner3-speed-site3-inspiro-preaudit.mjs
+          test -s /tmp/runner3-speed-site3-inspiro-a.json
+          python - <<'PY'
+          import json
+          a=json.load(open('/tmp/runner3-speed-site3-inspiro-a.json'))
+          assert a['status']=='ready' and a['pluginAbsent'] and a['themeInspiro'] and a['elementorActive'], a
+          print({'A':'PASS','curl':a['curl']['medianTtfbMs'],'browser':a['browser']['medianTtfbMs'],'score':a['lighthouse']['medianScore'],'lcp':a['lighthouse']['medianLcpMs']})
+          PY
+          echo state_a_ok >/tmp/r3-stage.txt
+
+      - name: B C benchmark
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
+        run: |
+          set -euo pipefail
+          echo state_bc >/tmp/r3-stage.txt
+          node scripts/runner3-speed-ab-benchmark.mjs
+          test -s /tmp/runner3-speed-ab.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-ab.json'))
+          assert r['status']=='ready', r
+          b,c=r['baseline'],r['optimized']
+          assert all(x.get('speed')=='HIT' for x in c['curl']['runs']), r
+          assert all(x.get('speed')=='HIT' for x in c['browser']['runs']), r
+          print({'BC':'PASS','B_browser':b['browser']['medianTtfbMs'],'C_browser':c['browser']['medianTtfbMs'],'B_score':b['lighthouse']['medianScore'],'C_score':c['lighthouse']['medianScore']})
+          PY
+          echo state_bc_ok >/tmp/r3-stage.txt
+
+      - name: Safety
+        run: |
+          set -euo pipefail
+          echo safety >/tmp/r3-stage.txt
+          node scripts/runner3-speed-safety-matrix.mjs
+          test -s /tmp/runner3-speed-safety-matrix.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          assert r['status']=='ready', r
+          keys=['currentHit','headHit','headEmptyBody','authCookieBypass','wooCartCookieBypass','wooSessionCookieBypass','cartPathBypass','checkoutPathBypass','accountPathBypass','wcApiPathBypass','deactivated','deactivateNoHit','reactivatedOff','finalNoHit']
+          assert all(r[k] for k in keys), r
+          print({'safety':'PASS'})
+          PY
+          echo safety_ok >/tmp/r3-stage.txt
+
+      - name: Functional compare
+        run: |
+          set -euo pipefail
+          echo functional >/tmp/r3-stage.txt
+          node scripts/runner3-speed-site3-inspiro-functional.mjs
+          test -s /tmp/runner3-speed-site3-inspiro-functional.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-inspiro-functional.json'))
+          assert r['status']=='ready' and all(r['gates'].values()), r
+          assert all(x['pass'] for x in r['routeChecks']), r
+          print({'functional':'PASS','gates':r['gates']})
+          PY
+          echo functional_ok >/tmp/r3-stage.txt
+
+      - name: Aggregate
+        run: |
+          set -euo pipefail
+          echo aggregate >/tmp/r3-stage.txt
+          python - <<'PY'
+          import json,datetime
+          a=json.load(open('/tmp/runner3-speed-site3-inspiro-a.json'))
+          bc=json.load(open('/tmp/runner3-speed-ab.json'))
+          sx=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          fx=json.load(open('/tmp/runner3-speed-site3-inspiro-functional.json'))
+          b,c=bc['baseline'],bc['optimized']
+          gates={
+            'A_clean':a['status']=='ready' and a['pluginAbsent'],
+            'B_off_browser_ttfb_within_35pct_of_A':b['browser']['medianTtfbMs']<=a['browser']['medianTtfbMs']*1.35,
+            'B_off_lighthouse_within_4_of_A':b['lighthouse']['medianScore']>=a['lighthouse']['medianScore']-4,
+            'C_curl_ttfb_better_than_B':c['curl']['medianTtfbMs']<b['curl']['medianTtfbMs'],
+            'C_browser_ttfb_better_than_B':c['browser']['medianTtfbMs']<b['browser']['medianTtfbMs'],
+            'C_lighthouse_not_worse_than_B_by_more_than_2':c['lighthouse']['medianScore']>=b['lighthouse']['medianScore']-2,
+            'C_all_hit':all(x.get('speed')=='HIT' for x in c['curl']['runs']) and all(x.get('speed')=='HIT' for x in c['browser']['runs']),
+            'safety':sx['status']=='ready',
+            'functional':fx['status']=='ready' and all(fx['gates'].values())
+          }
+          report={
+            'status':'PASS' if all(gates.values()) else 'FAIL',
+            'runType':'site3_inspiro_sequential_abc_functional',
+            'siteUrl':a['url'],'pluginVersion':bc['pluginVersion'],
+            'fixture':{'theme':'inspiro','demo':'Architecture (Lite) / Elementor','pages':len(a['snapshot']['pages']),'posts':len(a['snapshot']['posts']),'media':len(a['snapshot']['media'])},
+            'baselineLocked':{'curlTtfbMs':a['curl']['medianTtfbMs'],'curlTotalMs':a['curl']['medianTotalMs'],'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'browserCls':a['browser']['medianCls'],'browserLoadMs':a['browser']['medianLoadMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseFcpMs':a['lighthouse']['medianFcpMs'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs'],'lighthouseTbtMs':a['lighthouse']['medianTbtMs'],'lighthouseCls':a['lighthouse']['medianCls'],'lighthouseServerResponseMs':a['lighthouse']['medianServerResponseMs'],'checkedAt':a['checkedAt']},
+            'states':{
+              'A_no_plugin':{'curlTtfbMs':a['curl']['medianTtfbMs'],'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs']},
+              'B_active_off':{'curlTtfbMs':b['curl']['medianTtfbMs'],'browserTtfbMs':b['browser']['medianTtfbMs'],'browserFcpMs':b['browser']['medianFcpMs'],'browserLcpMs':b['browser']['medianLcpMs'],'lighthouseScore':b['lighthouse']['medianScore'],'lighthouseLcpMs':b['lighthouse']['medianLcpMs']},
+              'C_performance_on':{'curlTtfbMs':c['curl']['medianTtfbMs'],'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs']}
+            },
+            'bcDelta':bc['delta'],'gates':gates,'safety':sx,'functional':fx,'finalPluginState':'active_performance_off','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          json.dump(report,open('/tmp/runner3-speed-site3-inspiro-ab-report.json','w'),indent=2)
+          print(json.dumps(report,indent=2))
+          if report['status']!='PASS': raise SystemExit(2)
+          PY
+          echo aggregate_ok >/tmp/r3-stage.txt
+
+      - name: Persist
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,datetime
+          def load(path):
+              if not os.path.exists(path): return None
+              try:return json.load(open(path))
+              except Exception as e:return {'status':'unreadable','error':str(e)}
+          stage=open('/tmp/r3-stage.txt').read().strip() if os.path.exists('/tmp/r3-stage.txt') else 'unknown'
+          final=load('/tmp/runner3-speed-site3-inspiro-ab-report.json')
+          cp={'status':(final or {}).get('status','PARTIAL_OR_FAILED'),'runType':'site3_inspiro_sequential_abc_functional','stage':stage,'baseline':load('/tmp/runner3-speed-site3-inspiro-a.json'),'ab':load('/tmp/runner3-speed-ab.json'),'safety':load('/tmp/runner3-speed-safety-matrix.json'),'functional':load('/tmp/runner3-speed-site3-inspiro-functional.json'),'final':final,'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(cp,open('ops/site-factory/runner3-speed-site3-inspiro-ab.latest.json','w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-site3-inspiro-ab-bot'
+          git config user.email 'runner3-speed-site3-inspiro-ab-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-site3-inspiro-ab.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record Inspiro Site 3 A-B-C benchmark' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip
