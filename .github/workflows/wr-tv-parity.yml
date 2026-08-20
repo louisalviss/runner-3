@@ -7,6 +7,7 @@ on:
       - 'wave-rider-verify/wr_tv_parity.py'
       - 'wave-rider-verify/wr_tv_parity_more.py'
       - 'wave-rider-verify/wr_tv_recent_cases.py'
+      - 'wave-rider-verify/wr_tv_recent_cases_exitreport.py'
 permissions:
   contents: read
   actions: read
@@ -23,7 +24,7 @@ jobs:
       - name: Fetch frozen WR reference
         run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
       - name: Generate recent provider-exact parity cases
-        run: python3 wave-rider-verify/wr_tv_recent_cases.py
+        run: python3 wave-rider-verify/wr_tv_recent_cases_exitreport.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
