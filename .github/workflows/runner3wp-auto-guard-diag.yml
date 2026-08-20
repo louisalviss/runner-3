@@ -1,0 +1,45 @@
+name: Runner3WP Automation Guard Diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-auto-guard-diag.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+env:
+  FEATURE_BRANCH: runner3wp-edge-optimizer-auto-20260820
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: runner3wp-edge-optimizer-auto-20260820, fetch-depth: 0}
+      - name: Probe
+        run: |
+          set +e
+          BUST="__runner3_diag=$(date +%s%N)"
+          curl -sS -D /tmp/home.h -o /tmp/home.html "$V2_URL?$BUST"; H=$?
+          curl -sS -D /tmp/hero.h -o /tmp/hero.webp "${V2_URL}__runner3/r2-image/offset-demo-01-w480.webp?$BUST"; I=$?
+          CODE=$(curl -sS -o /tmp/unsigned.json -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{"op":"peek"}' "${V2_URL}__runner3/automation/events")
+          export H I CODE
+          python - <<'PY'
+          import json,os,re,pathlib
+          def text(p):
+            try:return pathlib.Path(p).read_text(errors='replace')
+            except:return ''
+          hh=text('/tmp/home.h'); hi=text('/tmp/home.html'); ih=text('/tmp/hero.h'); uj=text('/tmp/unsigned.json')
+          def header(t,n):
+            m=re.search(rf'(?im)^{re.escape(n)}:\s*([^\r\n]+)',t);return m.group(1).strip() if m else None
+          o={
+            'homeCurl':int(os.environ['H']),'homeHttp':header(hh,'HTTP') or (hh.splitlines()[0] if hh else None),
+            'snapshot':header(hh,'x-edge-snapshot'),'policy':header(hh,'x-edge-cache-policy'),
+            'heroInHtml':'/__runner3/r2-image/offset-demo-01-w' in hi,
+            'heroCurl':int(os.environ['I']),'heroHttp':ih.splitlines()[0] if ih else None,'heroMarker':header(ih,'x-runner3-lcp'),'heroType':header(ih,'content-type'),'heroBytes':pathlib.Path('/tmp/hero.webp').stat().st_size if pathlib.Path('/tmp/hero.webp').exists() else None,
+            'unsignedHttp':int(os.environ['CODE']),'unsignedBody':uj[:500],
+          }
+          pathlib.Path('/tmp/diag.json').write_text(json.dumps(o,indent=2)+'\n');print(json.dumps(o,indent=2))
+          PY
+      - name: Persist
+        run: |
+          git fetch origin "$FEATURE_BRANCH";git reset --hard "origin/$FEATURE_BRANCH";mkdir -p ops/perf/automation;cp /tmp/diag.json ops/perf/automation/guard-diag.latest.json
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add ops/perf/automation/guard-diag.latest.json;git commit -m 'diag: persist automation guard state [skip ci]'||exit 0;git push origin HEAD:"$FEATURE_BRANCH"
