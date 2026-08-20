@@ -15,6 +15,10 @@ permissions:
 env:
   WP_SITE_SLUG: runner5-restore-lab-1
 
+concurrency:
+  group: runner3-speed-direct-wp-lab
+  cancel-in-progress: true
+
 jobs:
   ab:
     runs-on: ubuntu-latest
@@ -77,8 +81,13 @@ jobs:
           r=json.load(open('/tmp/runner3-speed-ab.json'))
           assert r['status']=='ready', r
           assert r['cloudflare'] is False, r
-          assert r['baseline']['lighthouse']['medianScore'] is not None
-          assert r['optimized']['lighthouse']['medianScore'] is not None
+          assert r['pluginVersion'], r
+          b=r['baseline']; o=r['optimized']
+          assert o['lighthouse']['medianScore'] >= b['lighthouse']['medianScore'], ('score_regression',r)
+          assert o['lighthouse']['medianCls'] <= b['lighthouse']['medianCls'] + 0.001, ('cls_regression',r)
+          assert o['lighthouse']['medianLcpMs'] <= b['lighthouse']['medianLcpMs'] + 100, ('lh_lcp_regression',r)
+          assert o['browser']['medianLcpMs'] <= b['browser']['medianLcpMs'] + 75, ('browser_lcp_regression',r)
+          assert o['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'], ('ttfb_not_improved',r)
           print(json.dumps(r,indent=2))
           PY
 
