@@ -7,27 +7,12 @@ const base = String(site.siteUrl || 'https://runner5-restore-lab-1.wasmer.app/')
 const dashboard = site.dashboardUrl;
 const out = '/tmp/runner5-neve-official-demo.json';
 const result = {
-  status: 'STARTING',
-  siteUrl: base + '/',
-  theme: 'neve',
-  demo: 'Default',
-  tier: 'Free',
-  source: 'Neve > Starter Sites official UI',
-  noindex: false,
-  pages: [],
-  posts: [],
-  mediaCount: 0,
-  homeImages: 0,
-  homeUploadRefs: 0,
-  stage: 'init',
-  detail: null,
-  uiTail: null,
-  updatedAt: new Date().toISOString(),
+  status: 'STARTING', siteUrl: base + '/', theme: 'neve', demo: 'Default', tier: 'Free',
+  source: 'Neve > Starter Sites official UI', noindex: false, pages: [], posts: [],
+  mediaCount: 0, homeImages: 0, homeUploadRefs: 0, stage: 'init', detail: null,
+  uiTail: null, updatedAt: new Date().toISOString(),
 };
-const save = () => {
-  result.updatedAt = new Date().toISOString();
-  fs.writeFileSync(out, JSON.stringify(result, null, 2));
-};
+const save = () => { result.updatedAt = new Date().toISOString(); fs.writeFileSync(out, JSON.stringify(result, null, 2)); };
 const stage = (s) => { result.stage = s; console.log('STAGE', s); save(); };
 const onWasmerLogin = (p) => /\/login(?:[/?#]|$)/i.test(p.url());
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -38,26 +23,18 @@ async function loginWasmer(p) {
   await p.waitForTimeout(600);
   if (!onWasmerLogin(p)) return;
   const user = p.locator('input[name=username],input[autocomplete=username],input[type=email],input[type=text]').first();
-  await user.fill(account.username || account.email);
-  await user.press('Enter');
-  const pass = p.locator('input[type=password]').first();
-  await pass.waitFor({ state: 'visible', timeout: 20000 });
-  await pass.fill(account.password);
-  await pass.press('Enter');
+  await user.fill(account.username || account.email); await user.press('Enter');
+  const pass = p.locator('input[type=password]').first(); await pass.waitFor({ state: 'visible', timeout: 20000 });
+  await pass.fill(account.password); await pass.press('Enter');
   const end = Date.now() + 20000;
-  while (Date.now() < end) {
-    if (!onWasmerLogin(p)) return;
-    await p.waitForTimeout(350);
-  }
+  while (Date.now() < end) { if (!onWasmerLogin(p)) return; await p.waitForTimeout(350); }
   throw new Error('wasmer_login_failed');
 }
 
 async function pollWpAdmin(ctx, ms = 22000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    for (const p of ctx.pages()) {
-      if (p.url().startsWith(base) && /\/wp-admin(?:\/|\?|$)/i.test(p.url()) && !/wp-login\.php/i.test(p.url())) return p;
-    }
+    for (const p of ctx.pages()) if (p.url().startsWith(base) && /\/wp-admin(?:\/|\?|$)/i.test(p.url()) && !/wp-login\.php/i.test(p.url())) return p;
     await sleep(400);
   }
   return null;
@@ -66,19 +43,14 @@ async function pollWpAdmin(ctx, ms = 22000) {
 async function enterWpAdmin(ctx, p) {
   stage('wordpress_admin');
   for (let attempt = 0; attempt < 3; attempt++) {
-    await p.goto(dashboard, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
-    await p.waitForTimeout(800);
+    await p.goto(dashboard, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {}); await p.waitForTimeout(800);
     let admin = p.getByText(/WordPress Admin/i).first();
     if (!await admin.isVisible().catch(() => false)) {
       const settings = p.getByText(/^Settings$/i).first();
       if (await settings.isVisible().catch(() => false)) {
-        await settings.click().catch(() => {});
-        await p.waitForTimeout(450);
+        await settings.click().catch(() => {}); await p.waitForTimeout(450);
         const wp = p.getByText(/^WordPress$/i).first();
-        if (await wp.isVisible().catch(() => false)) {
-          await wp.click().catch(() => {});
-          await p.waitForTimeout(450);
-        }
+        if (await wp.isVisible().catch(() => false)) { await wp.click().catch(() => {}); await p.waitForTimeout(450); }
         admin = p.getByText(/WordPress Admin/i).first();
       }
     }
@@ -87,39 +59,26 @@ async function enterWpAdmin(ctx, p) {
       if (href) {
         const wp = await ctx.newPage();
         await wp.goto(new URL(href, 'https://wasmer.io').href, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
-        const found = await pollWpAdmin(ctx, 18000);
-        if (found) return found;
+        const found = await pollWpAdmin(ctx, 18000); if (found) return found;
       }
       await admin.click({ noWaitAfter: true }).catch(() => {});
-      const found = await pollWpAdmin(ctx, 20000);
-      if (found) return found;
+      const found = await pollWpAdmin(ctx, 20000); if (found) return found;
     }
   }
   throw new Error('magic_admin_failed');
 }
 
 async function getNonce(wp) {
-  await wp.goto(`${base}/wp-admin/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await wp.waitForTimeout(500);
+  await wp.goto(`${base}/wp-admin/`, { waitUntil: 'domcontentloaded', timeout: 60000 }); await wp.waitForTimeout(500);
   let nonce = await wp.evaluate(() => globalThis.wpApiSettings?.nonce || globalThis.wp?.apiSettings?.nonce || null).catch(() => null);
-  if (!nonce) {
-    const html = await wp.content();
-    const m = html.match(/wpApiSettings\s*=\s*\{[^}]*["']nonce["']\s*:\s*["']([A-Za-z0-9_-]+)["']/i);
-    if (m) nonce = m[1];
-  }
+  if (!nonce) { const html = await wp.content(); const m = html.match(/wpApiSettings\s*=\s*\{[^}]*["']nonce["']\s*:\s*["']([A-Za-z0-9_-]+)["']/i); if (m) nonce = m[1]; }
   if (!nonce) throw new Error('wp_rest_nonce_missing');
   return nonce;
 }
 
 async function api(ctx, nonce, path) {
-  const r = await ctx.request.fetch(`${base}/wp-json${path}`, {
-    headers: { 'X-WP-Nonce': nonce, Accept: 'application/json' },
-    timeout: 60000,
-    failOnStatusCode: false,
-  });
-  const text = await r.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
+  const r = await ctx.request.fetch(`${base}/wp-json${path}`, { headers: { 'X-WP-Nonce': nonce, Accept: 'application/json' }, timeout: 60000, failOnStatusCode: false });
+  const text = await r.text(); let data; try { data = JSON.parse(text); } catch { data = text; }
   if (!r.ok()) throw new Error(`api_${path}:${r.status()}:${String(text).slice(0, 220)}`);
   return data;
 }
@@ -136,36 +95,18 @@ async function snapshot(ctx, nonce) {
 async function setNoindex(wp) {
   stage('confirm_noindex');
   await wp.goto(`${base}/wp-admin/options-reading.php`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  const box = wp.locator('input[name="blog_public"]').first();
-  await box.waitFor({ state: 'attached', timeout: 15000 });
-  if (!await box.isChecked()) {
-    await box.check();
-    await wp.locator('#submit,input[type=submit]').first().click();
-    await wp.waitForLoadState('domcontentloaded').catch(() => {});
-  }
-  result.noindex = await wp.locator('input[name="blog_public"]').first().isChecked().catch(() => false);
-  save();
+  const box = wp.locator('input[name="blog_public"]').first(); await box.waitFor({ state: 'attached', timeout: 15000 });
+  if (!await box.isChecked()) { await box.check(); await wp.locator('#submit,input[type=submit]').first().click(); await wp.waitForLoadState('domcontentloaded').catch(() => {}); }
+  result.noindex = await wp.locator('input[name="blog_public"]').first().isChecked().catch(() => false); save();
   if (!result.noindex) throw new Error('noindex_not_set');
 }
 
-async function bodyText(wp) {
-  return (await wp.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-}
+async function bodyText(wp) { return (await wp.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').trim(); }
 
 async function clickAny(wp, patterns, timeout = 500) {
   for (const re of patterns) {
-    const candidates = [
-      wp.getByRole('button', { name: re }).first(),
-      wp.getByRole('link', { name: re }).first(),
-      wp.getByText(re).first(),
-    ];
-    for (const loc of candidates) {
-      if (await loc.isVisible({ timeout }).catch(() => false)) {
-        console.log('CLICK', String(re));
-        await loc.click().catch(() => {});
-        await wp.waitForTimeout(650);
-        return true;
-      }
+    for (const loc of [wp.getByRole('button', { name: re }).first(), wp.getByRole('link', { name: re }).first(), wp.getByText(re).first()]) {
+      if (await loc.isVisible({ timeout }).catch(() => false)) { console.log('CLICK', String(re)); await loc.click().catch(() => {}); await wp.waitForTimeout(650); return true; }
     }
   }
   return false;
@@ -173,72 +114,55 @@ async function clickAny(wp, patterns, timeout = 500) {
 
 async function openDefaultStarter(wp) {
   stage('starter_sites_ui');
-  await wp.goto(`${base}/wp-admin/admin.php?page=neve-onboarding`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await wp.waitForTimeout(3000);
-  let text = await bodyText(wp);
-  result.uiTail = text.slice(-1800); save();
+  await wp.goto(`${base}/wp-admin/admin.php?page=neve-onboarding`, { waitUntil: 'domcontentloaded', timeout: 60000 }); await wp.waitForTimeout(3000);
+  let text = await bodyText(wp); result.uiTail = text.slice(-1800); save();
   if (!/Choose a design|starter sites|Nearly 200 starter sites/i.test(text)) throw new Error('neve_starter_catalog_not_loaded:' + text.slice(-900));
 
-  // The current Neve catalog exposes the official free "Default" starter near the top.
-  const root = wp.locator('#wpbody-content');
-  const titles = root.getByText(/^Default$/i);
-  let chosen = null;
-  const count = await titles.count();
-  for (let i = 0; i < count; i++) {
-    const c = titles.nth(i);
-    if (await c.isVisible().catch(() => false)) { chosen = c; break; }
+  // Neve 2026 DOM: .ss-title is a sibling of the actual clickable .ss-card.
+  const wraps = wp.locator('#wpbody-content .ss-card-wrap');
+  let card = null;
+  for (let i = 0, n = await wraps.count(); i < n; i++) {
+    const wrap = wraps.nth(i);
+    const title = (await wrap.locator('.ss-title').first().innerText().catch(() => '')).trim();
+    const pro = await wrap.locator('.ss-badge').count();
+    if (/^Default$/i.test(title) && pro === 0) { card = wrap.locator('.ss-card[role="button"]').first(); break; }
   }
-  if (!chosen) throw new Error('official_free_default_card_missing:' + text.slice(-1200));
-  await chosen.scrollIntoViewIfNeeded().catch(() => {});
-  await chosen.click();
-  await wp.waitForTimeout(1800);
-  text = await bodyText(wp);
-  result.uiTail = text.slice(-1800); save();
-  if (/Default\s+PRO/i.test(text)) throw new Error('default_unexpectedly_pro');
+  if (!card || !await card.isVisible().catch(() => false)) throw new Error('official_free_default_card_wrapper_missing:' + text.slice(-1200));
+  await card.scrollIntoViewIfNeeded().catch(() => {}); await card.click(); await wp.waitForTimeout(2200);
+  text = await bodyText(wp); result.uiTail = text.slice(-1800); save();
+  if (!/Selected Template|Customize design|Default/i.test(text) || /Choose a design[\s\S]*Nearly 200 starter sites/i.test(text) && !/Selected Template/i.test(text)) {
+    throw new Error('default_card_click_did_not_open_preview:' + text.slice(-1300));
+  }
 }
 
 async function triggerImportAndWait(ctx, wp, nonce, before) {
   stage('official_import');
   const beforePageIds = new Set(before.pages.map((x) => x.id));
   const beforeMediaIds = new Set(before.media.map((x) => x.id));
-  let importClicked = false;
   const end = Date.now() + 4 * 60 * 1000;
+  let started = false;
 
   while (Date.now() < end) {
-    const text = await bodyText(wp);
-    result.uiTail = text.slice(-1900); save();
-    if (/Import Failed|Failed to Import|Import Error/i.test(text)) throw new Error('official_ui_import_failed:' + text.slice(-1000));
+    const text = await bodyText(wp); result.uiTail = text.slice(-1900); save();
+    if (/Import Failed|Failed to Import|Import Error|Something went wrong while loading the site data/i.test(text)) throw new Error('official_ui_import_failed:' + text.slice(-1100));
 
-    // Prefer complete-site import. These are only official Neve UI actions.
-    if (!importClicked) {
-      const clicked = await clickAny(wp, [
-        /Import Complete Site/i,
-        /Import Website/i,
-        /Import Site/i,
-        /Start Import/i,
-        /^Import$/i,
-      ], 450);
-      if (clicked) { importClicked = true; await wp.waitForTimeout(1000); }
-      else {
-        // Some versions expose builder/plugin/setup screens first.
-        if (await clickAny(wp, [/^Gutenberg$/i, /Block Editor/i, /WordPress Editor/i], 250)) continue;
-        if (await clickAny(wp, [/Continue/i, /Next/i], 250)) continue;
-      }
-    } else {
-      // A confirmation screen may expose a second explicit import button.
-      await clickAny(wp, [/Import Website/i, /Import Site/i, /Start Import/i, /^Import$/i], 250);
-      await clickAny(wp, [/Continue/i], 180);
+    // Exact current Neve sequence from SiteSettings.js: Continue -> Import Website -> Start Import.
+    if (/Customize design/i.test(text)) { await clickAny(wp, [/^Continue$/i], 700); }
+    else if (/Select features/i.test(text) && /Import Website/i.test(text)) { await clickAny(wp, [/^Import Website$/i], 700); }
+    else if (/Start Import\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {
+      if (await clickAny(wp, [/^Start Import$/i], 700)) started = true;
+    } else if (!started) {
+      if (await clickAny(wp, [/^Start Import$/i], 300)) started = true;
     }
 
-    let now;
-    try { now = await snapshot(ctx, nonce); } catch { now = null; }
+    let now; try { now = await snapshot(ctx, nonce); } catch { now = null; }
     if (now) {
       const newPages = now.pages.filter((x) => !beforePageIds.has(x.id));
       const newMedia = now.media.filter((x) => !beforeMediaIds.has(x.id));
-      console.log('IMPORT_COUNTS', { pages: now.pages.length, media: now.media.length, newPages: newPages.length, newMedia: newMedia.length });
+      console.log('IMPORT_COUNTS', { pages: now.pages.length, media: now.media.length, newPages: newPages.length, newMedia: newMedia.length, started });
       if (now.pages.length >= 3 && now.media.length >= 3 && (newPages.length >= 3 || before.pages.length === 0)) return now;
     }
-    await wp.waitForTimeout(1800);
+    await wp.waitForTimeout(1600);
   }
   throw new Error('official_import_timeout:' + result.uiTail);
 }
@@ -247,16 +171,10 @@ async function verify(ctx, wp, nonce) {
   stage('verify_official_demo');
   const now = await snapshot(ctx, nonce);
   result.pages = now.pages.map((x) => ({ id: x.id, slug: x.slug, title: x.title?.rendered || '', status: x.status }));
-  result.posts = now.posts.map((x) => ({ id: x.id, slug: x.slug, title: x.title?.rendered || '', status: x.status }));
-  result.mediaCount = now.media.length;
-  const r = await fetch(`${base}/?official=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache', 'User-Agent': 'Runner5NeveDefaultVerify/1.0' } });
-  const html = await r.text();
-  result.homeImages = (html.match(/<img\b/gi) || []).length;
-  result.homeUploadRefs = (html.match(/wp-content\/uploads\//gi) || []).length;
-  const noidx = /<meta[^>]+name=["']robots["'][^>]+noindex/i.test(html) || /noindex[^>]+nofollow/i.test(html);
-  result.noindex = result.noindex && noidx;
-  save();
-
+  result.posts = now.posts.map((x) => ({ id: x.id, slug: x.slug, title: x.title?.rendered || '', status: x.status })); result.mediaCount = now.media.length;
+  const r = await fetch(`${base}/?official=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache', 'User-Agent': 'Runner5NeveDefaultVerify/1.0' } }); const html = await r.text();
+  result.homeImages = (html.match(/<img\b/gi) || []).length; result.homeUploadRefs = (html.match(/wp-content\/uploads\//gi) || []).length;
+  const noidx = /<meta[^>]+name=["']robots["'][^>]+noindex/i.test(html) || /noindex[^>]+nofollow/i.test(html); result.noindex = result.noindex && noidx; save();
   if (!r.ok) throw new Error(`public_home_http_${r.status}`);
   if (result.pages.length < 3) throw new Error(`official_pages_too_few:${result.pages.length}`);
   if (result.mediaCount < 3) throw new Error(`official_media_too_few:${result.mediaCount}`);
@@ -264,34 +182,14 @@ async function verify(ctx, wp, nonce) {
   if (!result.noindex) throw new Error('public_noindex_missing');
 }
 
-const chromePath = process.env.CHROME_PATH;
-if (!chromePath) throw new Error('CHROME_PATH_missing');
+const chromePath = process.env.CHROME_PATH; if (!chromePath) throw new Error('CHROME_PATH_missing');
 const browser = await chromium.launch({ headless: true, executablePath: chromePath, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
-const p = await ctx.newPage();
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 } }); const p = await ctx.newPage();
 try {
-  await loginWasmer(p);
-  const wp = await enterWpAdmin(ctx, p);
-  await setNoindex(wp);
-  const nonce = await getNonce(wp);
-  const before = await snapshot(ctx, nonce);
-  await openDefaultStarter(wp);
-  await triggerImportAndWait(ctx, wp, nonce, before);
-  await setNoindex(wp);
-  const verifyNonce = await getNonce(wp);
-  await verify(ctx, wp, verifyNonce);
-  result.status = 'READY';
-  result.stage = 'done';
-  result.detail = null;
-  save();
+  await loginWasmer(p); const wp = await enterWpAdmin(ctx, p); await setNoindex(wp); const nonce = await getNonce(wp); const before = await snapshot(ctx, nonce);
+  await openDefaultStarter(wp); await triggerImportAndWait(ctx, wp, nonce, before); await setNoindex(wp); const verifyNonce = await getNonce(wp); await verify(ctx, wp, verifyNonce);
+  result.status = 'READY'; result.stage = 'done'; result.detail = null; save();
 } catch (e) {
-  result.status = 'FAILED';
-  result.detail = String(e?.stack || e);
-  try { result.uiTail = (await bodyText(ctx.pages().at(-1))).slice(-2200); } catch {}
-  save();
-  console.error(result.detail);
-  process.exitCode = 1;
-} finally {
-  await browser.close();
-}
+  result.status = 'FAILED'; result.detail = String(e?.stack || e); try { result.uiTail = (await bodyText(ctx.pages().at(-1))).slice(-2200); } catch {} save(); console.error(result.detail); process.exitCode = 1;
+} finally { await browser.close(); }
 console.log(JSON.stringify(result, null, 2));
