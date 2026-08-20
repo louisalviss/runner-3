@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/runner5-neve-official-ui-import.mjs'
+      - 'scripts/runner5-neve-ui-scroll-wrapper.mjs'
       - '.github/workflows/runner5-neve-official-demo.yml'
   workflow_dispatch:
 
@@ -52,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           sed -i 's/admin.php?page=tiob-starter-sites/admin.php?page=neve-onboarding/g' scripts/runner5-neve-official-ui-import.mjs
-          node scripts/runner5-neve-official-ui-import.mjs
+          node scripts/runner5-neve-ui-scroll-wrapper.mjs
 
       - name: Persist safe import status
         if: always()
