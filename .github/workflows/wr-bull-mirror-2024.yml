@@ -1,0 +1,31 @@
+name: WR Bull Mirror 2024 Exact
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/wr_bull_mirror_2024.py'
+      - '.github/workflows/wr-bull-mirror-2024.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download frozen exact Zone C 2024 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2024-frozen-rolling-oos-final
+          path: /tmp/base
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32253319968
+      - name: Run 2024 exact bull mirror diagnostic
+        run: python3 wave-rider-verify/wr_bull_mirror_2024.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-bull-mirror-2024-final
+          path: /tmp/final
+          retention-days: 14
