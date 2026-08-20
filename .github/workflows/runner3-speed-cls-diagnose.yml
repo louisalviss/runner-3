@@ -1,0 +1,44 @@
+name: Runner3 Speed CLS Diagnose
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/runner3-speed-cls-diagnose.mjs'
+      - '.github/workflows/runner3-speed-cls-diagnose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WP_SITE_SLUG: runner5-restore-lab-1
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Decrypt Wasmer account state
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+      - name: Force Runner3 Speed OFF
+        env:
+          RUNNER3_PROBE_MODE: off
+        run: node scripts/probe-runner3-speed-wordpress.mjs
+      - name: Capture CLS sources
+        run: node scripts/runner3-speed-cls-diagnose.mjs
+      - name: Remove transient secrets
+        if: always()
+        run: rm -f /tmp/wasmer-account.json
