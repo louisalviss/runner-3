@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/audio_library_extract_for_chatgpt.py | tee /tmp/audio-chatgpt-inbox-result.json
+          python scripts/audio_library_extract_direct.py /tmp/audio-chat-intake-result.json | tee /tmp/audio-chatgpt-inbox-result.json
 
       - name: Publish checkpoint and encrypted inbox
         if: always() && steps.changed.outputs.count != '0'
