@@ -1,0 +1,73 @@
+name: moxing-vi-status-watcher
+
+on:
+  workflow_run:
+    workflows: ["moxing-translate-vi"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_TAG: moxing-vi-translation-v1-2026-08-17
+      TARGET_ASSET: moxing-vi-translation-v1-2026-08-17.zip
+      STATUS_FILE: ops/moxing-vi-status.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Record workflow result and release state
+        run: |
+          set -euo pipefail
+          conclusion='${{ github.event.workflow_run.conclusion }}'
+          run_id='${{ github.event.workflow_run.id }}'
+          head_sha='${{ github.event.workflow_run.head_sha }}'
+          release_ok=false
+          asset_size=0
+          if [ "$conclusion" = success ]; then
+            release_json=$(gh release view "$TARGET_TAG" --json assets 2>/dev/null || true)
+            if [ -n "$release_json" ]; then
+              asset_size=$(printf '%s' "$release_json" | jq -r --arg n "$TARGET_ASSET" '.assets[]? | select(.name==$n) | .size // 0' | head -n1)
+              [ -n "$asset_size" ] || asset_size=0
+              if [ "$asset_size" -gt 0 ] 2>/dev/null; then release_ok=true; fi
+            fi
+          fi
+          mkdir -p "$(dirname "$STATUS_FILE")"
+          export CONCLUSION="$conclusion" RUN_ID="$run_id" HEAD_SHA="$head_sha" RELEASE_OK="$release_ok" ASSET_SIZE="$asset_size"
+          python - <<'PY'
+          import json, os, pathlib, datetime
+          data={
+            'schema':'moxing-vi-status-v2',
+            'workflow':'moxing-translate-vi.yml',
+            'run_id':int(os.environ['RUN_ID']),
+            'head_sha':os.environ['HEAD_SHA'],
+            'status':'completed',
+            'conclusion':os.environ['CONCLUSION'],
+            'release_tag':os.environ['TARGET_TAG'],
+            'release_asset':os.environ['TARGET_ASSET'],
+            'release_ok':os.environ['RELEASE_OK'].lower()=='true',
+            'asset_size_bytes':int(os.environ['ASSET_SIZE'] or 0),
+            'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'contract':'VN-first is complete only when conclusion=success and release_ok=true.'
+          }
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+      - name: Persist status to main
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          git commit -m 'Update Moxing VN translation status [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
