@@ -8,10 +8,9 @@ on:
       - '.github/workflows/audio-library-chatgpt-inbox.yml'
       - 'scripts/audio_library_extract_for_chatgpt.py'
       - 'scripts/audio_library_extract_for_chatgpt_r2.py'
-      - 'scripts/audio_library_resolve_short_urls.py'
-      - 'scripts/audio_library_resolve_reddit_fxheaders.py'
-      - 'scripts/audio_library_resolve_reddit_metadata.py'
-      - 'scripts/audio_library_resolve_reddit_via_curlx.py'
+      - 'scripts/audio_library_resolve_reddit_via_rxddit.py'
+      - 'scripts/audio_library_resolve_reddit_via_curlx_next.py'
+      - 'scripts/audio_library_resolve_reddit_via_unfurl.py'
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
@@ -56,41 +55,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -q -U requests beautifulsoup4 pypdf yt-dlp playwright 'cryptography>=45,<47'
+          python -m pip install -q -U requests beautifulsoup4 lxml pypdf yt-dlp playwright 'cryptography>=45,<47'
 
-      - name: Resolve short source URLs
-        id: resolve
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/audio_library_resolve_short_urls.py | tee /tmp/audio-short-url-result.json
-
-      - name: Resolve Reddit share links with fxreddit request fingerprint
-        id: fxheaders
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/audio_library_resolve_reddit_fxheaders.py | tee /tmp/audio-reddit-fxheaders-result.json
-
-      - name: Resolve Reddit share links through metadata APIs
-        id: metadata
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/audio_library_resolve_reddit_metadata.py | tee /tmp/audio-reddit-metadata-result.json
-
-      - name: Resolve remaining Reddit short URLs through curl-x
-        id: fallback
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/audio_library_resolve_reddit_via_curlx.py | tee /tmp/audio-short-url-fallback-result.json
-
-      - name: Extract raw sources and encrypt for ChatGPT
+      - name: Read Library, resolve sources, extract raw and encrypt for ChatGPT
         id: extract
         continue-on-error: true
         shell: bash
@@ -106,10 +73,6 @@ jobs:
       - name: Publish encrypted inbox and checkpoint
         if: always()
         env:
-          RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
-          FXHEADERS_OUTCOME: ${{ steps.fxheaders.outcome }}
-          METADATA_OUTCOME: ${{ steps.metadata.outcome }}
-          FALLBACK_OUTCOME: ${{ steps.fallback.outcome }}
           EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
           EXTRACT_EXIT_CODE: ${{ steps.extract.outputs.exit_code }}
         shell: bash
@@ -119,29 +82,25 @@ jobs:
           python - <<'PY'
           import datetime,json,os,re
           from pathlib import Path
+
           def load(path):
               p=Path(path)
               if not p.exists(): return None
               try: return json.loads(p.read_text(encoding='utf-8'))
               except Exception as e: return {'parseError':str(e)}
+
           stderr=''
           sp=Path('/tmp/audio-chatgpt-inbox-stderr.log')
           if sp.exists():
               stderr=sp.read_text(encoding='utf-8',errors='replace')[-3000:]
               stderr=re.sub(r'https?://\S+','[url-redacted]',stderr)
               stderr=re.sub(r'(?i)(token|authorization|secret|key)\s*[=:]\s*\S+',r'\1=[redacted]',stderr)
+
           out={
             'status':'ready',
-            'resolveOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
-            'fxheadersOutcome':os.environ.get('FXHEADERS_OUTCOME','unknown'),
-            'metadataOutcome':os.environ.get('METADATA_OUTCOME','unknown'),
-            'fallbackOutcome':os.environ.get('FALLBACK_OUTCOME','unknown'),
+            'discoveryMode':'library-items-read-only-retry-safe',
             'extractOutcome':os.environ.get('EXTRACT_OUTCOME','unknown'),
             'extractExitCode':os.environ.get('EXTRACT_EXIT_CODE',''),
-            'resolver':load('/tmp/audio-short-url-result.json'),
-            'fxheaders':load('/tmp/audio-reddit-fxheaders-result.json'),
-            'metadata':load('/tmp/audio-reddit-metadata-result.json'),
-            'fallback':load('/tmp/audio-short-url-fallback-result.json'),
             'extractor':load('/tmp/audio-chatgpt-inbox-result.json'),
             'extractStderr':stderr,
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -184,6 +143,7 @@ jobs:
                   except Exception:
                       continue
           PY
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/audio-library/chatgpt-inbox/*.json 2>/dev/null || true
