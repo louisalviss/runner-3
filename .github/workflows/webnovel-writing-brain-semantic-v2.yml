@@ -1,0 +1,203 @@
+name: webnovel-writing-brain-semantic-v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/webnovel-canonical-v2-semantic
+    paths:
+      - 'scripts/webnovel_writing_brain_semantic_v2.py'
+      - '.github/workflows/webnovel-writing-brain-semantic-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-semantic-v2
+  cancel-in-progress: false
+
+env:
+  BASE_TAG: webnovel-writing-brain-vnfirst-v1-2026-08-20
+  BASE_ASSET: webnovel-writing-brain-vnfirst-v1-2026-08-20.zip
+  V1_TAG: webnovel-writing-brain-canonical-v1-2026-08-20
+  V1_ASSET: webnovel-writing-brain-canonical-v1-2026-08-20.zip
+  TAG: webnovel-writing-brain-semantic-v2-candidate-2026-08-20
+  ASSET: webnovel-writing-brain-semantic-v2-candidate-2026-08-20.zip
+  MODEL_ID: intfloat/multilingual-e5-small
+  STATUS_FILE: ops/webnovel-writing-brain-semantic-v2-status.json
+
+jobs:
+  build-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TOKENIZERS_PARALLELISM: 'false'
+      OMP_NUM_THREADS: '4'
+      MKL_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install semantic build runtime
+        run: |
+          python -m pip install --disable-pip-version-check \
+            'sentence-transformers>=3,<6' 'faiss-cpu>=1.8,<2' \
+            'numpy<3' 'scipy<2' 'scikit-learn<2' 'joblib<2'
+
+      - name: Download and audit base + Canonical V1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source/base source/v1
+          gh release download "$BASE_TAG" --pattern "$BASE_ASSET" --dir source/base
+          gh release download "$V1_TAG" --pattern "$V1_ASSET" --dir source/v1
+          unzip -q "source/base/$BASE_ASSET" -d source/base/unpacked
+          unzip -q "source/v1/$V1_ASSET" -d source/v1/unpacked
+          base_db=$(find source/base/unpacked -type f -name writing_brain.sqlite | head -n1)
+          v1_db=$(find source/v1/unpacked -type f -name writing_brain.sqlite | head -n1)
+          test -n "$base_db" && test -n "$v1_db"
+          echo "BASE_DIR=$(dirname "$base_db")" >> "$GITHUB_ENV"
+          echo "V1_DIR=$(dirname "$v1_db")" >> "$GITHUB_ENV"
+          export BASE_DB="$base_db" V1_DB="$v1_db"
+          python - <<'PY'
+          import os,sqlite3,json,pathlib,re
+          b=sqlite3.connect(os.environ['BASE_DB'])
+          assert b.execute('select count(*) from passages').fetchone()[0]==21210
+          assert b.execute("select count(*) from passages where source='vidian'").fetchone()[0]==11672
+          assert b.execute("select count(*) from passages where source='moxing'").fetchone()[0]==9538
+          b.close()
+          v=sqlite3.connect(os.environ['V1_DB'])
+          rules=v.execute('select count(*) from canonical_rules').fetchone()[0]
+          assert rules>10000,rules
+          v.close()
+          print({'base_passages':21210,'v1_canonical_rules':rules,'audit':'pass'})
+          PY
+
+      - name: Build Semantic V2 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python scripts/webnovel_writing_brain_semantic_v2.py \
+            --base "$BASE_DIR" --v1 "$V1_DIR" --out build/writing_brain \
+            --model-id "$MODEL_ID" --neighbors 24 | tee build/semantic-v2-build.log
+          cp build/writing_brain/semantic_v2_qa.json build/writing_brain/canonical_qa.json
+          mkdir -p build/writing_brain/runtime
+          cp scripts/webnovel_writing_brain.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_canonical_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_semantic_v2.py build/writing_brain/runtime/
+
+      - name: Structural QA + current-agent smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sqlite3,pathlib,re
+          root=pathlib.Path('build/writing_brain')
+          qa=json.load(open(root/'semantic_v2_qa.json',encoding='utf-8'))
+          assert qa['passages_total']==21210,qa
+          assert qa['passage_atomic_coverage']==21210,qa
+          assert qa['atomic_rules']>=21210,qa
+          assert qa['canonical_rules']>10000,qa
+          assert qa['canonical_cjk_rows']==0,qa
+          assert qa['max_cluster_size']<=32,qa
+          con=sqlite3.connect(root/'writing_brain.sqlite')
+          assert con.execute('select count(*) from atomic_rules').fetchone()[0]==qa['atomic_rules']
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==qa['canonical_rules']
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          assert con.execute('select count(*) from canonical_atomic_evidence').fetchone()[0]==qa['atomic_rules']
+          assert con.execute("select count(*) from sqlite_master where type='table' and name='canonical_conflicts'").fetchone()[0]==1
+          con.close()
+          print(json.dumps(qa,ensure_ascii=False,indent=2))
+          PY
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_agent.py query \
+            --index build/writing_brain \
+            --q 'mở đầu tiên hiệp, nhân vật chính thận trọng, progression có cost, không dump worldbuilding' \
+            --limit 15 --json-out build/query-smoke.json >/dev/null
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_agent.py checklist \
+            --index build/writing_brain --topic progression_power --limit 12 \
+            --json-out build/checklist-smoke.json >/dev/null
+          python - <<'PY'
+          import json
+          q=json.load(open('build/query-smoke.json',encoding='utf-8'))
+          c=json.load(open('build/checklist-smoke.json',encoding='utf-8'))
+          assert len(q['hits'])>=10,len(q['hits'])
+          assert all('rule_id' in x and 'evidence' in x for x in q['hits'])
+          assert len(c['items'])>=5,len(c['items'])
+          print({'query_hits':len(q['hits']),'checklist_items':len(c['items'])})
+          PY
+
+      - name: Package and publish candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('build/writing_brain'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,pathlib.Path('writing_brain')/p.relative_to(root))
+          pkg={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          pathlib.Path('build/package.json').write_text(json.dumps(pkg,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(pkg,indent=2))
+          PY
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain Semantic V2 Candidate — 2026-08-20' \
+              --notes 'Candidate only. Atomic Vietnamese craft rules + multilingual E5 semantic merge + conflict detection + benchmark against Canonical V1.'
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Persist candidate status and conditional pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ASSET_SIZE=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name==env.ASSET) | .size' | head -n1)
+          test -n "$ASSET_SIZE" && test "$ASSET_SIZE" -gt 0
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          qa=json.load(open('build/writing_brain/semantic_v2_qa.json',encoding='utf-8'))
+          pkg=json.load(open('build/package.json',encoding='utf-8'))
+          now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          status={'schema':'webnovel-writing-brain-semantic-v2-status','status':'completed',
+            'conclusion':'success','candidate_release_tag':os.environ['TAG'],'candidate_asset':os.environ['ASSET'],
+            'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':pkg['sha256'],
+            'promotion_pass':qa['promotion_pass'],'passages_total':qa['passages_total'],'atomic_rules':qa['atomic_rules'],
+            'canonical_rules':qa['canonical_rules'],'atomic_collapsed':qa['atomic_collapsed'],
+            'cross_source_rules':qa['cross_source_rules'],'conflict_candidates':qa['conflict_candidates'],
+            'benchmark':qa['benchmark'],'checked_at_utc':now}
+          pathlib.Path(os.environ['STATUS_FILE']).parent.mkdir(parents=True,exist_ok=True)
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          if qa['promotion_pass']:
+              pointer={'schema':'webnovel-writing-brain-default-v2','default_release_tag':os.environ['TAG'],
+                'default_asset':os.environ['ASSET'],'knowledge_mode':'atomic-semantic-canonical-first','language_mode':'vi-first',
+                'passages_total':qa['passages_total'],'atomic_rules':qa['atomic_rules'],'canonical_rules':qa['canonical_rules'],
+                'evidence_preserved':True,'benchmark_passed':True,'updated_at_utc':now}
+              pathlib.Path('ops/webnovel-writing-brain-default.json').write_text(json.dumps(pointer,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(status,ensure_ascii=False,indent=2))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          if python - <<'PY'
+          import json
+          q=json.load(open('build/writing_brain/semantic_v2_qa.json'))
+          raise SystemExit(0 if q['promotion_pass'] else 1)
+          PY
+          then
+            git add ops/webnovel-writing-brain-default.json
+          fi
+          git commit -m 'Publish Semantic V2 benchmark status [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git fetch origin "${GITHUB_REF_NAME}"
+            if git rebase "origin/${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
