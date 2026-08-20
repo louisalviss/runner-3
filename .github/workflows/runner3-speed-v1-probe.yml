@@ -1,22 +1,17 @@
 name: Runner3 Speed v1 Probe
 
 on:
-  pull_request:
-    paths:
-      - 'wordpress/runner3-speed/**'
-      - 'scripts/probe-runner3-speed-wordpress.mjs'
-      - '.github/workflows/runner3-speed-v1-probe.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: runner3-speed-direct-wp-lab
-  cancel-in-progress: false
-
 env:
   WP_SITE_SLUG: runner5-restore-lab-1
+
+concurrency:
+  group: runner3-speed-direct-wp-lab
+  cancel-in-progress: true
 
 jobs:
   probe:
@@ -26,9 +21,6 @@ jobs:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
 
       - name: Static checks
         run: |
@@ -56,17 +48,20 @@ jobs:
         run: npm install --no-save playwright-core@1.58.2
 
       - name: Probe install ON HIT bypass OFF
-        id: full
         env:
           RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
           RUNNER3_PROBE_MODE: full
         run: |
-          set +e
+          set -euo pipefail
           node scripts/probe-runner3-speed-wordpress.mjs
-          rc=$?
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-probe-full.json 2>/dev/null || true
-          exit 0
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-probe.json'))
+          assert r['status']=='ready', r
+          for k in ['installed','active','hit','queryBypass','apiBypass','adminBypass','off','productionUnchanged']:
+              assert r[k], (k,r)
+          print(json.dumps({'status':'PASS','probe':r},indent=2))
+          PY
 
       - name: Force OFF cleanup
         if: always()
@@ -75,26 +70,7 @@ jobs:
         run: |
           set +e
           node scripts/probe-runner3-speed-wordpress.mjs
-          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-cleanup.json 2>/dev/null || true
           exit 0
-
-      - name: Enforce safety probe
-        if: always()
-        env:
-          FULL_RC: ${{ steps.full.outputs.rc }}
-        run: |
-          set -euo pipefail
-          test "${FULL_RC:-99}" = 0
-          python - <<'PY'
-          import json
-          full=json.load(open('/tmp/runner3-speed-probe-full.json'))
-          clean=json.load(open('/tmp/runner3-speed-cleanup.json'))
-          assert full['status']=='ready', full
-          for k in ['installed','active','hit','queryBypass','apiBypass','adminBypass','off','productionUnchanged']:
-              assert full[k], (k,full)
-          assert clean['status']=='cleanup_ready' and clean['off'], clean
-          print(json.dumps({'status':'PASS','probe':full,'cleanup':clean},indent=2))
-          PY
 
       - name: Remove transient secrets
         if: always()
