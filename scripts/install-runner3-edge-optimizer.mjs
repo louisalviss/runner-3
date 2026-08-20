@@ -115,7 +115,7 @@ async function configureAndTest(wp) {
   if (!(await form.count())) throw new Error('plugin_test_form_missing');
   await Promise.all([
     wp.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null),
-    form.evaluate((el) => el.submit()),
+    form.evaluate((el) => HTMLFormElement.prototype.submit.call(el)),
   ]);
   await wp.waitForTimeout(900);
   const body = await wp.locator('body').innerText().catch(() => '');
