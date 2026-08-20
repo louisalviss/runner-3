@@ -1,0 +1,52 @@
+name: Security Archive Wave Rider PRs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-archive-wave-rider-prs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Archive Wave Rider pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          # Known WR research PRs plus dynamic head/title detection.  Do not archive
+          # unrelated Trend State Rider / Derivatives Trend Rider PRs merely because
+          # their bodies mention Wave Rider.
+          known='28 33 34 37 38 40 41 42 43 45 49 52 53 54 55 56 57 59 60 61 62 63 64 65 66 67 68 70 77 78 80 81 82 83 86 89 90 93 95 96 97 117 125'
+          printf '%s\n' $known > /tmp/known.txt
+          gh api --paginate "repos/$repo/pulls?state=all&per_page=100" \
+            --jq '.[] | select((.head.ref|startswith("wr-")) or (.title|test("Wave Rider|(^| )WR( |$)|v2\\.5\\.15"))) | .number' \
+            > /tmp/dynamic.txt
+          cat /tmp/known.txt /tmp/dynamic.txt | sort -nu > /tmp/targets.txt
+          archived=0
+          failed=0
+          : > /tmp/results.tsv
+          while read -r n; do
+            [ -z "$n" ] && continue
+            node=$(gh api "repos/$repo/pulls/$n" --jq '.node_id')
+            if out=$(gh api graphql \
+              -f query='mutation($id:ID!){archivePullRequest(input:{pullRequestId:$id}){pullRequest{number}}}' \
+              -F id="$node" 2>&1); then
+              echo -e "$n\tARCHIVED" | tee -a /tmp/results.tsv
+              archived=$((archived+1))
+            else
+              echo -e "$n\tFAILED\t$out" | tee -a /tmp/results.tsv
+              failed=$((failed+1))
+            fi
+          done < /tmp/targets.txt
+          echo "targets=$(wc -l < /tmp/targets.txt) archived=$archived failed=$failed"
+          cat /tmp/results.tsv
+          test "$failed" -eq 0
