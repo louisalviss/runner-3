@@ -1,4 +1,4 @@
-name: Runner3 Speed Site3 Realistic WordPress
+name: Runner3 Speed Site3 Blocksy Realistic WordPress
 
 on:
   push:
@@ -6,7 +6,8 @@ on:
       - runner3-speed-site3-realistic-20260821
     paths:
       - '.github/workflows/runner3-speed-site3-realistic.yml'
-      - 'scripts/runner3-speed-site3-preaudit.mjs'
+      - 'scripts/runner3-speed-site3-blocksy-seed.mjs'
+      - 'scripts/runner3-speed-site3-blocksy-preaudit.mjs'
       - 'wordpress/runner3-speed/**'
   workflow_dispatch:
 
@@ -39,9 +40,9 @@ jobs:
           php -l wordpress/runner3-speed/runner3-speed.php
           php -l wordpress/runner3-speed/dropins/advanced-cache.php
           php -l wordpress/runner3-speed/uninstall.php
-          node --check scripts/runner3-speed-site3-preaudit.mjs
+          node --check scripts/runner3-speed-site3-blocksy-seed.mjs
+          node --check scripts/runner3-speed-site3-blocksy-preaudit.mjs
           node --check scripts/provision-wordpress-site-v15.mjs
-          node --check scripts/runner5-wordpress-retheme-v3.mjs
           node --check scripts/runner3-speed-ab-benchmark.mjs
           node --check scripts/runner3-speed-safety-matrix.mjs
           (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
@@ -55,10 +56,12 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
 
-      - name: Install browser benchmark tooling
-        run: npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+      - name: Install benchmark and fixture tooling
+        run: |
+          npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+          python -m pip install --quiet pillow
 
-      - name: Provision a brand-new direct WordPress host
+      - name: Provision direct WordPress benchmark host
         run: |
           set -euo pipefail
           cat >/tmp/site3-realistic.request.json <<'JSON'
@@ -81,46 +84,54 @@ jobs:
           print(json.dumps({'status':'PASS','siteUrl':r['siteUrl'],'reusedExistingApp':r['reusedExistingApp']},indent=2))
           PY
 
-      - name: Build official Astra Construction full starter site with Elementor
+      - name: Generate 18 deterministic local benchmark images
         run: |
           set -euo pipefail
-          cp ops/site-factory/runner5-restore-lab-1.json /tmp/runner5-record.original.json
-          trap 'cp /tmp/runner5-record.original.json ops/site-factory/runner5-restore-lab-1.json' EXIT
-          cp ops/site-factory/runner3-speed-site3-realistic.json ops/site-factory/runner5-restore-lab-1.json
+          mkdir -p /tmp/runner3-site3-media
           python - <<'PY'
-          from pathlib import Path
-          s=Path('scripts/runner5-wordpress-retheme-v3.mjs').read_text()
-          s=s.replace("name:'Nutritionist',builder:'Block Editor/Spectra'","name:'Construction',builder:'Elementor'")
-          s=s.replace("'Nutritionist'","'Construction'")
-          s=s.replace("/Nutritionist/i","/Construction/i")
-          s=s.replace("[/Block Editor/i,/Spectra/i,/Gutenberg/i]","[/Elementor/i]")
-          s=s.replace("const sp=await plugin(ctx,n,'ultimate-addons-for-gutenberg','ultimate-addons-for-gutenberg/');result.plugins.spectra=sp.status||'active';","const el=await plugin(ctx,n,'elementor','elementor/');result.plugins.elementor=el.status||'active';")
-          s=s.replace("result.verify.pageTitles.length>=6&&['about','program','success','blog','contact'].filter(x=>j.includes(x)).length>=4","result.verify.pageTitles.length>=5&&['about','services','projects','contact'].filter(x=>j.includes(x)).length>=4")
-          s=s.replace("if(!result.verify.noindexMeta)throw new Error('public_noindex_meta_missing');","")
-          Path('/tmp/runner3-site3-construction-import.mjs').write_text(s)
+          from PIL import Image,ImageDraw
+          import random, os
+          random.seed(7331)
+          for i in range(18):
+              w,h=(2400,1400) if i==0 else (1600,1000)
+              base=Image.new('RGB',(w,h),(208-i*5%70,196+i*7%50,176+i*11%60))
+              noise=Image.effect_noise((w,h),38).convert('L')
+              tint=Image.merge('RGB',(noise,noise,noise))
+              base=Image.blend(base,tint,0.16)
+              d=ImageDraw.Draw(base,'RGBA')
+              for j in range(34):
+                  x1=random.randint(-200,w-100); y1=random.randint(-150,h-80)
+                  x2=x1+random.randint(160,760); y2=y1+random.randint(120,520)
+                  d.rectangle((x1,y1,x2,y2),fill=(40+13*j%170,55+17*j%150,68+23*j%140,random.randint(35,105)))
+              d.rectangle((0,int(h*.72),w,h),fill=(18,24,30,120))
+              d.text((int(w*.05),int(h*.79)),f'NORTHLINE / PROJECT {i+1:02d}',fill=(245,245,240,235))
+              q=94 if i==0 else 91
+              base.save(f'/tmp/runner3-site3-media/runner3-project-{i+1:02d}.jpg','JPEG',quality=q,optimize=False,progressive=True)
+          print([(x,os.path.getsize('/tmp/runner3-site3-media/'+x)) for x in sorted(os.listdir('/tmp/runner3-site3-media'))])
           PY
-          node --check /tmp/runner3-site3-construction-import.mjs
-          node /tmp/runner3-site3-construction-import.mjs
-          test -s /tmp/runner5-wordpress-retheme.json
+          test "$(find /tmp/runner3-site3-media -name '*.jpg' | wc -l)" -eq 18
+
+      - name: Seed deterministic Blocksy + Elementor site
+        run: |
+          set -euo pipefail
+          SITE3_MEDIA_DIR=/tmp/runner3-site3-media node scripts/runner3-speed-site3-blocksy-seed.mjs
+          test -s /tmp/runner3-speed-site3-seed.json
           python - <<'PY'
           import json
-          r=json.load(open('/tmp/runner5-wordpress-retheme.json'))
+          r=json.load(open('/tmp/runner3-speed-site3-seed.json'))
           assert r['status']=='READY', r
-          assert r['theme']=='astra', r
-          assert r['starter']['imported'] is True, r
-          assert r['plugins'].get('starterTemplates')=='active', r
+          assert r['theme']=='blocksy', r
           assert r['plugins'].get('elementor')=='active', r
-          print(json.dumps(r,indent=2))
+          assert len(r['pages'])==8 and len(r['posts'])==18 and len(r['media'])==18, r
+          assert r['menu']['items']>=5 and r['verify']['featuredPosts']==18 and r['verify']['sections']>=6, r
+          assert r['starterImport']['required'] is False, r
+          print(json.dumps({'status':'PASS','theme':r['theme'],'plugins':r['plugins'],'pages':len(r['pages']),'posts':len(r['posts']),'media':len(r['media']),'menu':r['menu'],'starterImport':r['starterImport']},indent=2))
           PY
-          cp /tmp/runner5-record.original.json ops/site-factory/runner5-restore-lab-1.json
-          trap - EXIT
 
-      - name: State A - prove site richness and benchmark with no Runner3 Speed
-        env:
-          WP_SITE_SLUG: runner3-speed-site3-realistic
+      - name: State A - no Runner3 Speed
         run: |
           set -euo pipefail
-          node scripts/runner3-speed-site3-preaudit.mjs
+          node scripts/runner3-speed-site3-blocksy-preaudit.mjs
           test -s /tmp/runner3-speed-site3-a.json
           python - <<'PY'
           import json
@@ -129,13 +140,13 @@ jobs:
           assert r['pluginAbsent'] is True, r
           assert r['cloudflare'] is False, r
           q=r['richness']
-          assert q['pages']>=5 and q['localMedia']>=8 and q['images']>=4 and q['elementor'] and q['astra'], r
-          print(json.dumps({'status':'PASS','richness':q,'browser':r['browser'],'lighthouse':r['lighthouse']},indent=2))
+          assert q['pages']==8 and q['posts']==18 and q['localMedia']==18 and q['featuredPosts']==18, r
+          assert q['images']>=8 and q['navLinks']>=5 and q['sections']>=6 and q['elementorActive'] and q['blocksy'], r
+          print(json.dumps({'status':'PASS','richness':q,'browser':{k:v for k,v in r['browser'].items() if k!='runs'},'lighthouse':r['lighthouse']},indent=2))
           PY
 
       - name: States B/C - installed OFF vs Performance ON
         env:
-          WP_SITE_SLUG: runner3-speed-site3-realistic
           RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
         run: |
           set -euo pipefail
@@ -164,8 +175,6 @@ jobs:
           PY
 
       - name: Dynamic/private safety matrix
-        env:
-          WP_SITE_SLUG: runner3-speed-site3-realistic
         run: |
           set -euo pipefail
           node scripts/runner3-speed-safety-matrix.mjs
@@ -179,25 +188,32 @@ jobs:
           print(json.dumps({'status':'PASS','safety':r},indent=2))
           PY
 
-      - name: Aggregate realistic site3 result
+      - name: Aggregate realistic Blocksy result
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,datetime
+          seed=json.load(open('/tmp/runner3-speed-site3-seed.json'))
           a=json.load(open('/tmp/runner3-speed-site3-a.json'))
           bc=json.load(open('/tmp/runner3-speed-ab.json'))
           sx=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
-          imp=json.load(open('/tmp/runner5-wordpress-retheme.json'))
           site=json.load(open('ops/site-factory/runner3-speed-site3-realistic.json'))
           b,c=bc['baseline'],bc['optimized']
           report={
-            'status':'PASS','site':site,'starterImport':imp,'richness':a['richness'],'pluginVersion':bc['pluginVersion'],
+            'status':'PASS',
+            'site':site,
+            'starterImport':seed['starterImport'],
+            'fixture':{'theme':seed['theme'],'plugins':seed['plugins'],'pages':len(seed['pages']),'posts':len(seed['posts']),'media':len(seed['media']),'menu':seed['menu']},
+            'richness':a['richness'],
+            'pluginVersion':bc['pluginVersion'],
             'states':{
               'A_no_plugin':{'curlTtfbMs':a['curl']['medianTtfbMs'],'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs'],'cls':a['lighthouse']['medianCls']},
               'B_active_off':{'curlTtfbMs':b['curl']['medianTtfbMs'],'browserTtfbMs':b['browser']['medianTtfbMs'],'browserFcpMs':b['browser']['medianFcpMs'],'browserLcpMs':b['browser']['medianLcpMs'],'lighthouseScore':b['lighthouse']['medianScore'],'lighthouseLcpMs':b['lighthouse']['medianLcpMs'],'cls':b['lighthouse']['medianCls']},
               'C_performance_on':{'curlTtfbMs':c['curl']['medianTtfbMs'],'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs'],'cls':c['lighthouse']['medianCls']}
             },
-            'bcDelta':bc['delta'],'safety':sx,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+            'bcDelta':bc['delta'],
+            'safety':sx,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
           }
           assert b['browser']['medianTtfbMs'] <= a['browser']['medianTtfbMs']*1.20, report
           assert b['lighthouse']['medianScore'] >= a['lighthouse']['medianScore']-2, report
@@ -209,10 +225,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: runner3-speed-site3-realistic-evidence
+          name: runner3-speed-site3-blocksy-realistic-evidence
           path: |
             /tmp/site-factory-v15-runner3-speed-site3-realistic.json
-            /tmp/runner5-wordpress-retheme.json
+            /tmp/runner3-speed-site3-seed.json
             /tmp/runner3-speed-site3-a.json
             /tmp/runner3-speed-ab.json
             /tmp/runner3-speed-safety-matrix.json
@@ -230,14 +246,16 @@ jobs:
               if not os.path.exists(path): return None
               try: return json.load(open(path))
               except Exception as e: return {'status':'unreadable','error':str(e)}
+          final=load('/tmp/runner3-speed-site3-realistic-report.json')
           checkpoint={
-            'status':'PASS' if (load('/tmp/runner3-speed-site3-realistic-report.json') or {}).get('status')=='PASS' else 'PARTIAL_OR_FAILED',
+            'status':'PASS' if (final or {}).get('status')=='PASS' else 'PARTIAL_OR_FAILED',
             'site':load('/tmp/site-factory-v15-runner3-speed-site3-realistic.json'),
-            'starterImport':load('/tmp/runner5-wordpress-retheme.json'),
+            'seed':load('/tmp/runner3-speed-site3-seed.json'),
+            'starterImport':(load('/tmp/runner3-speed-site3-seed.json') or {}).get('starterImport'),
             'stateA':load('/tmp/runner3-speed-site3-a.json'),
             'ab':load('/tmp/runner3-speed-ab.json'),
             'safety':load('/tmp/runner3-speed-safety-matrix.json'),
-            'final':load('/tmp/runner3-speed-site3-realistic-report.json'),
+            'final':final,
             'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
           }
           os.makedirs('ops/site-factory',exist_ok=True)
@@ -247,9 +265,9 @@ jobs:
           git config user.email 'runner3-speed-site3-bot@users.noreply.github.com'
           git add -- ops/site-factory/runner3-speed-site3-realistic.latest.json
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'test: record realistic site3 evidence'
+          git commit -m 'test: record Blocksy realistic site3 evidence'
           git push origin HEAD:runner3-speed-site3-realistic-20260821
 
       - name: Cleanup transient files
         if: always()
-        run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip /tmp/runner3-site3-construction-import.mjs /tmp/runner3-speed-site3-ab.mjs
+        run: rm -rf /tmp/runner3-site3-media /tmp/wasmer-account.json /tmp/runner3-speed.zip /tmp/runner3-speed-site3-ab.mjs
