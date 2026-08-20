@@ -6,15 +6,14 @@ on:
     paths:
       - 'wave-rider-verify/wr_crossasset_cache.py'
       - '.github/workflows/wr-crossasset-data-cache.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'wave-rider-verify/wr_crossasset_cache.py'
-      - '.github/workflows/wr-crossasset-data-cache.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: wr-crossasset-data-cache
+  cancel-in-progress: true
 
 env:
   PYTHONUNBUFFERED: '1'
@@ -117,4 +116,40 @@ jobs:
             gh release create "$DATA_TAG" --target "$GITHUB_SHA" --title "Cross-Asset M5 Research Cache 2026-08-21" --notes-file /tmp/README_DATA.md
           fi
           gh release upload "$DATA_TAG" /tmp/cache/*.parquet /tmp/manifest.json /tmp/README_DATA.md --clobber
-          gh release view "$DATA_TAG" --json url,tagName,name,assets
+          gh release view "$DATA_TAG" --json url,tagName,name,assets > /tmp/release.json
+          cat /tmp/release.json
+      - name: Persist release catalog on research branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin wr-crossasset-20260821
+          git checkout -B wr-crossasset-20260821 origin/wr-crossasset-20260821
+          mkdir -p wave-rider-verify/data
+          cp /tmp/manifest.json wave-rider-verify/data/crossasset_m5_manifest.json
+          python - <<'PY'
+          import json, pathlib, hashlib, datetime
+          rel=json.load(open('/tmp/release.json'))
+          man=json.load(open('/tmp/manifest.json'))
+          out={
+              'dataset_id':man['dataset_id'],
+              'release_tag':rel['tagName'],
+              'release_url':rel['url'],
+              'asset_count':man['asset_count'],
+              'groups':man['groups'],
+              'manifest_sha256':hashlib.sha256(open('/tmp/manifest.json','rb').read()).hexdigest(),
+              'published_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'status':'PERSISTED_GITHUB_RELEASE'
+          }
+          pathlib.Path('wave-rider-verify/data/crossasset_m5_catalog.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          git add wave-rider-verify/data/crossasset_m5_manifest.json wave-rider-verify/data/crossasset_m5_catalog.json
+          if git diff --cached --quiet; then
+            echo 'catalog unchanged'
+          else
+            git commit -m 'data: catalog persistent cross-asset M5 cache'
+            git push origin wr-crossasset-20260821
+          fi
