@@ -1,7 +1,6 @@
 name: Runner5 Neve Official Demo
 
-# Manual retrigger after replacing the flaky React confirmation click with the
-# plugin's own ti-onboarding action that the button invokes.
+# Official free Neve starter-site import for Runner5.
 on:
   push:
     branches: [main]
@@ -55,18 +54,32 @@ jobs:
           test -x "$CHROME_PATH" || { echo "Chrome executable unavailable: $CHROME_PATH" >&2; exit 4; }
           echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
 
-      - name: Patch final Neve confirmation action
+      - name: Patch Neve confirmation flow
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('scripts/runner5-neve-default-official-import.mjs')
           s = p.read_text()
-          old = """else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {\n      if (await clickAny(wp, [/^Start Import$/i], 700)) started = true;\n    }"""
-          new = """else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {\n      const advanced = await wp.evaluate(() => {\n        try {\n          const store = globalThis.wp?.data?.dispatch?.('ti-onboarding');\n          if (!store || typeof store.setOnboardingStep !== 'function') return false;\n          store.setOnboardingStep(5);\n          return true;\n        } catch { return false; }\n      }).catch(() => false);\n      if (!advanced) throw new Error('ti_onboarding_step5_dispatch_failed');\n      started = true;\n      await wp.waitForTimeout(1800);\n    }"""
-          if old not in s:
+
+          old_confirm = """else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {\n      if (await clickAny(wp, [/^Start Import$/i], 700)) started = true;\n    }"""
+          new_confirm = """else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {\n      const advanced = await wp.evaluate(() => {\n        try {\n          const store = globalThis.wp?.data?.dispatch?.('ti-onboarding');\n          if (!store || typeof store.setOnboardingStep !== 'function') return false;\n          store.setOnboardingStep(5);\n          return true;\n        } catch { return false; }\n      }).catch(() => false);\n      if (!advanced) throw new Error('ti_onboarding_step5_dispatch_failed');\n      started = true;\n      await wp.waitForTimeout(1800);\n    }"""
+          if old_confirm not in s:
               raise SystemExit('confirmation patch target missing')
-          p.write_text(s.replace(old, new))
+          s = s.replace(old_confirm, new_confirm)
+
+          old_order = """if (/Customize design/i.test(text)) { await clickAny(wp, [/^Continue$/i], 700); }\n    else if (/Select features/i.test(text) && /Import Website/i.test(text)) { await clickAny(wp, [/^Import Website$/i], 700); }\n    else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {"""
+          new_order = """if (/Customize design/i.test(text)) { await clickAny(wp, [/^Continue$/i], 700); }\n    else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {"""
+          if old_order not in s:
+              raise SystemExit('branch-order patch target missing')
+          s = s.replace(old_order, new_order, 1)
+
+          marker = """      started = true;\n      await wp.waitForTimeout(1800);\n    }"""
+          replacement = marker + """\n    else if (/Select features/i.test(text) && /Import Website/i.test(text)) { await clickAny(wp, [/^Import Website$/i], 700); }"""
+          if marker not in s:
+              raise SystemExit('branch-order insertion marker missing')
+          s = s.replace(marker, replacement, 1)
+          p.write_text(s)
           PY
 
       - name: Import official free Neve Default starter site
