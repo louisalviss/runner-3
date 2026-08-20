@@ -1,0 +1,103 @@
+name: Reddit Jina macOS Fastpath
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-jina-macos-fastpath.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reddit-jina-macos-fastpath
+  cancel-in-progress: true
+
+jobs:
+  extract:
+    runs-on: macos-latest
+    timeout-minutes: 8
+    env:
+      ITEM_ID: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
+      SOURCE_URL: https://www.reddit.com/r/AskReddit/s/k3EUqNBKsi
+      CANONICAL_URL: https://www.reddit.com/r/AskReddit/comments/1vsxt55/what_video_game_did_you_drop_laughably_quick/
+      CHATGPT_INBOX_PUBLIC_KEY: sYGZHQp2jOgHK7mnuF+Yij8rZOxYbgxKNOP4okx0k3E=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install crypto
+        run: python -m pip install -q 'cryptography>=45,<47'
+
+      - name: Read canonical Reddit thread and encrypt raw source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64,datetime,json,os,re,secrets,urllib.error,urllib.request
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+          ITEM=os.environ['ITEM_ID']; SOURCE=os.environ['SOURCE_URL']; CANON=os.environ['CANONICAL_URL']; PUB=os.environ['CHATGPT_INBOX_PUBLIC_KEY']
+          target='https://r.jina.ai/'+CANON
+          req=urllib.request.Request(target,headers={'User-Agent':'Runner3AudioRawReader/1.0','Accept':'text/plain'})
+          status=None; text=''; err=None
+          try:
+              with urllib.request.urlopen(req,timeout=70) as r:
+                  status=r.status; text=r.read().decode('utf-8','replace')
+          except urllib.error.HTTPError as e:
+              status=e.code; text=e.read().decode('utf-8','replace'); err='HTTPError'
+          except Exception as e:
+              err=type(e).__name__
+
+          # Preserve source content; strip only Jina transport metadata lines.
+          title='What video game did you drop laughably quick?'
+          m=re.search(r'(?mi)^Title:\s*(.+)$',text)
+          if m: title=m.group(1).strip()
+          raw=re.sub(r'(?mi)^(Title|URL Source|Published Time|Markdown Content):\s*.*$','',text)
+          raw=re.sub(r'\n{3,}','\n\n',raw).strip()
+          # Avoid accidentally staging an error/interstitial page.
+          useful=(status==200 and len(raw)>=800 and ('AskReddit' in raw or 'Comment' in raw or 'ago' in raw or 'points' in raw))
+          staged=False
+          if useful:
+              payload={
+                'id':ITEM,'sourceUrl':SOURCE,'canonicalUrl':CANON,'sourceLabel':'Reddit','title':title,
+                'rawText':raw[:180000],'rawTruncated':len(raw)>180000,
+                'extractedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'extractTransport':'jina-reader-canonical-reddit',
+                'editorPolicy':'RAW_SOURCE_ONLY_NO_TRANSLATION_NO_SUMMARY_NO_LLM',
+              }
+              recipient=X25519PublicKey.from_public_bytes(base64.b64decode(PUB)); eph=X25519PrivateKey.generate(); shared=eph.exchange(recipient)
+              key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-audio-library-inbox-v1').derive(shared)
+              nonce=secrets.token_bytes(12); plain=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+              cipher=ChaCha20Poly1305(key).encrypt(nonce,plain,ITEM.encode())
+              env={'v':1,'id':ITEM,'ephemeralPublicKey':base64.b64encode(eph.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)).decode(),'nonce':base64.b64encode(nonce).decode(),'ciphertext':base64.b64encode(cipher).decode()}
+              p=Path('ops/audio-library/chatgpt-inbox'); p.mkdir(parents=True,exist_ok=True); (p/f'{ITEM}.json').write_text(json.dumps(env,separators=(',',':'))+'\n',encoding='utf-8')
+              staged=True
+
+          out={'status':'ready','itemId':ITEM,'readerStatus':status,'readerError':err,'readerBytes':len(text),'rawChars':len(raw),'staged':staged,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          Path('ops/audio-library/reddit-jina-fastpath-status.json').write_text(json.dumps(out,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out))
+          PY
+
+      - name: Publish encrypted inbox and checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-jina-fastpath-status.json
+          git add "ops/audio-library/chatgpt-inbox/${ITEM_ID}.json" 2>/dev/null || true
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Reddit Jina fastpath [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
