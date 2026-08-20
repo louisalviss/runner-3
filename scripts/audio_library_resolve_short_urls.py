@@ -19,6 +19,7 @@ ITEM_PREFIX = 'audio-library/items/'
 QUEUE_PREFIX = 'audio-library/queue/'
 
 UAS = [
+    'Runner3Audio/1.0 (+https://github.com/louisalviss/runner-3)',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
@@ -111,7 +112,7 @@ def resolve_browser(url: str):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser=p.chromium.launch(headless=True, executable_path=chrome, args=['--disable-dev-shm-usage','--no-sandbox'])
-            ctx=browser.new_context(user_agent=UAS[0], viewport={'width':1365,'height':900}, locale='en-US')
+            ctx=browser.new_context(user_agent=UAS[1], viewport={'width':1365,'height':900}, locale='en-US')
             page=ctx.new_page()
             try:
                 page.goto(url, wait_until='domcontentloaded', timeout=90000)
@@ -176,7 +177,7 @@ def main():
         queue['sourceUrl']=canonical
         queue['sharedUrl']=src
         wrangler_put(f'{QUEUE_PREFIX}{item_id}.json', queue)
-        results.append({'id':item_id,'status':'resolved','mode':mode,'canonicalUrl':canonical})
+        results.append({'id':item_id,'status':'resolved','mode':mode,'canonicalResolved':True})
     print(json.dumps({'ok':True,'results':results},ensure_ascii=False))
 
 if __name__=='__main__':
