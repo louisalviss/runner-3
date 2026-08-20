@@ -12,11 +12,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: runner3-speed-v1-probe-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: runner3-speed-direct-wp-lab
+  cancel-in-progress: false
 
 env:
-  WP_SITE_SLUG: runner3-factory-smoke-2
+  WP_SITE_SLUG: runner5-restore-lab-1
 
 jobs:
   probe:
