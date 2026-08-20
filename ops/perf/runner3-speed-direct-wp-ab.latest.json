@@ -1,0 +1,82 @@
+{
+  "status": "PASS",
+  "product": "Runner3 Speed",
+  "plugin_version": "1.1.1",
+  "source_branch": "runner3-speed-v1-20260820",
+  "source_commit": "b66d5269d403c5d04560d37b690017072ad6e913",
+  "workflow_run_id": 32373708732,
+  "workflow_run_number": 32,
+  "workflow_job_id": 96440499550,
+  "site": "runner5-restore-lab-1",
+  "cloudflare": false,
+  "validated_at": "2026-08-20T13:25:38Z",
+  "baseline": {
+    "curl_median_ttfb_ms": 450.0,
+    "browser_median_ttfb_ms": 436.7,
+    "browser_median_fcp_ms": 580,
+    "browser_median_lcp_ms": 580,
+    "browser_median_cls": 0,
+    "lighthouse_median_score": 100,
+    "lighthouse_median_lcp_ms": 930.4,
+    "lighthouse_median_server_response_ms": 282
+  },
+  "optimized": {
+    "curl_hit_count": 15,
+    "curl_total_runs": 15,
+    "curl_median_ttfb_ms": 280.1,
+    "browser_hit_count": 7,
+    "browser_total_runs": 7,
+    "browser_median_ttfb_ms": 280.7,
+    "browser_median_fcp_ms": 496,
+    "browser_median_lcp_ms": 496,
+    "browser_median_cls": 0,
+    "lighthouse_median_score": 100,
+    "lighthouse_median_lcp_ms": 954.7,
+    "lighthouse_median_server_response_ms": 98
+  },
+  "delta": {
+    "curl_ttfb_ms": -169.9,
+    "curl_ttfb_pct": -37.8,
+    "browser_ttfb_ms": -156.0,
+    "browser_ttfb_pct": -35.7,
+    "browser_fcp_ms": -84,
+    "browser_lcp_ms": -84,
+    "browser_cls": 0,
+    "browser_load_ms": -153.2,
+    "lighthouse_score": 0,
+    "lighthouse_lcp_ms": 24.3,
+    "lighthouse_server_response_ms": -184
+  },
+  "canonical_safety": {
+    "installed": true,
+    "active": true,
+    "hit": true,
+    "query_bypass": true,
+    "api_bypass": true,
+    "admin_bypass": true,
+    "off": true,
+    "production_unchanged": true
+  },
+  "extended_safety": {
+    "current_hit": true,
+    "head_hit": true,
+    "head_empty_body": true,
+    "auth_cookie_bypass": true,
+    "woo_cart_cookie_bypass": true,
+    "woo_session_cookie_bypass": true,
+    "cart_path_bypass": true,
+    "checkout_path_bypass": true,
+    "account_path_bypass": true,
+    "wc_api_path_bypass": true,
+    "deactivated": true,
+    "deactivate_no_hit": true,
+    "reactivated_off": true,
+    "final_no_hit": true
+  },
+  "notes": [
+    "All 15 curl optimized requests were HIT with X-Runner3-Speed-Version 1.1.1.",
+    "All 7 browser optimized requests were HIT with X-Runner3-Speed-Version 1.1.1.",
+    "Frontend font/layout experiments were removed; v1.1.1 is cache-only.",
+    "Release branch must rerun the canonical gate before merge."
+  ]
+}
