@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install extraction dependencies
-        run: python -m pip install -q requests beautifulsoup4 pypdf 'cryptography>=45,<47'
+        run: python -m pip install -q requests beautifulsoup4 lxml pypdf 'cryptography>=45,<47'
       - name: Extract current public Reddit source
         shell: bash
         run: |
