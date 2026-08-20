@@ -1,0 +1,17 @@
+{
+  "scriptCount": 2,
+  "checks": [
+    {
+      "index": 0,
+      "chars": 532,
+      "ok": true,
+      "stderr": ""
+    },
+    {
+      "index": 1,
+      "chars": 9292,
+      "ok": false,
+      "stderr": "/tmp/s1.js:13\nasync function bulkShare(){const arr=selectedItems().filter(i=>i.status==='ready');if(!arr.length)return toast('Chưa chọn audio sẵn sàng');const text=arr.map(i=>(i.title||'Audio')+'\n                                                                                                                                                                                    ^\n\nSyntaxError: Invalid or unexpected token\n    at wrapSafe (node:internal/modules/cjs/loader:1713:18)\n    at checkSyntax (node:internal/main/check_syntax:78:3)\n\nNode.js v22.23.2\n"
+    }
+  ]
+}
