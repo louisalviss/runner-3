@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/runner5-v100-preview.yml'
       - 'edge/runner5-v100-gateway/**'
-      - 'ops/triggers/runner5-v100-preview.txt'
+      - 'ops/triggers/runner5-v100-preview-*.txt'
   workflow_dispatch:
 
 permissions:
@@ -32,7 +32,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-
       - name: Ensure Pages project
         shell: bash
         run: |
@@ -53,14 +52,12 @@ jobs:
             data=json.loads(r.read().decode()); assert data.get('success'), data
           print('project_created')
           PY
-
       - name: Deploy V100 gateway
         shell: bash
         run: |
           set -euo pipefail
           cd edge/runner5-v100-gateway
           npx --yes wrangler@4.102.0 pages deploy ./dist --project-name "$CF_PAGES_PROJECT" --branch main --commit-dirty=true
-
       - name: Verify V100 identity
         shell: bash
         run: |
@@ -81,7 +78,6 @@ jobs:
           fs.writeFileSync('/tmp/v100-verify.json',JSON.stringify(out,null,2)+'\n'); console.log(JSON.stringify(out,null,2));
           if(out.status!=='ready') process.exit(3);
           NODE
-
       - name: Run local Lighthouse candidate
         shell: bash
         run: |
@@ -94,7 +90,6 @@ jobs:
           out={'status':'ready','categories':{k:round(v['score']*100) for k,v in d['categories'].items()},'metrics':{k:a[k].get('displayValue') for k in ('first-contentful-paint','largest-contentful-paint','total-blocking-time','cumulative-layout-shift','speed-index')},'failed':{k:{'score':v.get('score'),'title':v.get('title')} for k,v in a.items() if v.get('score') not in (1,None) and k in ('button-name','color-contrast','heading-order','meta-description','cls-culprits-insight','render-blocking-insight','cache-insight','legacy-javascript-insight','unused-css-rules')}}
           open('/tmp/v100-local.json','w').write(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
           PY
-
       - name: Install PageSpeed browser runtime
         shell: bash
         run: |
@@ -102,11 +97,9 @@ jobs:
           npm install --no-save playwright@1.61.0 >/dev/null 2>&1
           npx playwright install --with-deps chromium >/dev/null 2>&1
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
-
       - name: Run Google PageSpeed UI
         continue-on-error: true
         run: node scripts/pagespeed-ui-audit.mjs
-
       - name: Persist candidate result
         if: always()
         shell: bash
