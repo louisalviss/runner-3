@@ -1,0 +1,41 @@
+name: Runner3 Speed Site3 Fix Plugin REST Path
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-fix-plugin-path.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Make plugin REST IDs slash-safe
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/runner3-speed-site3-blocksy-seed.mjs')
+          s=p.read_text()
+          old='encodeURIComponent(plugin.plugin)'
+          new="plugin.plugin.split('/').map(encodeURIComponent).join('/')"
+          count=s.count(old)
+          assert count >= 3, count
+          s=s.replace(old,new)
+          p.write_text(s)
+          print({'replacements':count})
+          PY
+          node --check scripts/runner3-speed-site3-blocksy-seed.mjs
+          git config user.name 'runner3-speed-site3-fix-bot'
+          git config user.email 'runner3-speed-site3-fix-bot@users.noreply.github.com'
+          git add scripts/runner3-speed-site3-blocksy-seed.mjs
+          git commit -m 'fix: make plugin REST paths slash-safe'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
