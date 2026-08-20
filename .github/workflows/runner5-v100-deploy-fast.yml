@@ -1,0 +1,35 @@
+name: Runner5 V100 Deploy Fast
+
+on:
+  push:
+    branches: [main]
+    paths: ['ops/triggers/runner5-v100-deploy-fast-*.txt']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - name: Deploy current V100 gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd edge/runner5-v100-gateway
+          npx --yes wrangler@4.102.0 pages deploy ./dist --project-name runner5-restore-gateway-v100 --branch main --commit-dirty=true
+      - name: Verify candidate 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            body="$(curl -fsS --max-time 10 https://runner5-restore-gateway-v100.pages.dev/__runner5/v100/health || true)"
+            echo "$body"
+            echo "$body" | grep -q '"candidate":5' && exit 0
+            sleep 3
+          done
+          exit 2
