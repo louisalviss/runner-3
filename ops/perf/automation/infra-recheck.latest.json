@@ -1,0 +1,89 @@
+{
+  "status": "ready",
+  "experiment": "runner3wp-automation-infra-recheck",
+  "verdict": "FAIL",
+  "pass": false,
+  "baseline": {
+    "runs": [
+      {
+        "fcp": 1249.3780000000002,
+        "lcp": 1454.8780000000002,
+        "tbt": 122,
+        "cls": 0,
+        "perf": 0.99
+      },
+      {
+        "fcp": 954.999,
+        "lcp": 1059.999,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 914.88,
+        "lcp": 1064.88,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      }
+    ],
+    "median": {
+      "fcp": 954.999,
+      "lcp": 1064.88,
+      "tbt": 0,
+      "cls": 0,
+      "perf": 1
+    }
+  },
+  "candidate": {
+    "runs": [
+      {
+        "fcp": 1120.143,
+        "lcp": 1330.553,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1040.4015000000002,
+        "lcp": 1294.1550000000002,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      },
+      {
+        "fcp": 1109.696,
+        "lcp": 1582.6779999999999,
+        "tbt": 0,
+        "cls": 0,
+        "perf": 1
+      }
+    ],
+    "median": {
+      "fcp": 1109.696,
+      "lcp": 1330.553,
+      "tbt": 0,
+      "cls": 0,
+      "perf": 1
+    }
+  },
+  "policy": {
+    "version": 1,
+    "lighthouseRuns": 3,
+    "performanceScoreMin": 0.95,
+    "maxFcpRegressionMs": 75,
+    "maxLcpRegressionMs": 100,
+    "maxClsRegression": 0.01,
+    "maxTbtMs": 50,
+    "maxTbtRegressionMs": 50,
+    "optimizationMinLcpGainMs": 150,
+    "functional": {
+      "requireSnapshotHit": true,
+      "requireSnapshotDirect": true,
+      "requireSameOriginHero": true,
+      "requireAdminBypass": true,
+      "requireAuthenticatedBypass": true
+    }
+  },
+  "checkedAt": "2026-08-20T00:20:06.588673+00:00"
+}
