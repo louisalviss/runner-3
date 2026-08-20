@@ -1,0 +1,55 @@
+name: Audio Library UI Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-ui-probe.yml'
+      - 'apps/audio-library/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe production UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://runner3-audio-library.ducduy2411.workers.dev'
+          root_code="$(curl -sS -o /tmp/root.html -w '%{http_code}' "$base/")"
+          health_code="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$base/health")"
+          api_code="$(curl -sS -o /tmp/api.json -w '%{http_code}' "$base/api/items")"
+          python - <<'PY'
+          import json,re,datetime
+          root=open('/tmp/root.html',errors='replace').read()
+          health=open('/tmp/health.json',errors='replace').read()
+          api=open('/tmp/api.json',errors='replace').read()
+          def safe(s):
+              s=re.sub(r'(?i)(password|token|cookie)[^<\n]{0,120}',r'\1=[REDACTED]',s)
+              return s[:500]
+          out={
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'rootBytes':len(root.encode()),
+            'rootHasLogin':'Audio Library' in root and ('type="password"' in root or 'name="password"' in root),
+            'rootHasApp':'id="app"' in root,
+            'rootPreview':safe(root),
+            'healthPreview':safe(health),
+            'apiPreview':safe(api),
+          }
+          open('ops/audio-library/ui-probe.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+      - name: Persist probe
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add ops/audio-library/ui-probe.json
+          git commit -m 'Publish Audio Library UI probe [skip ci]' || exit 0
+          git push origin HEAD:main
