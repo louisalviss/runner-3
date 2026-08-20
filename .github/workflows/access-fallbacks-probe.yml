@@ -51,7 +51,7 @@ jobs:
           python3 - <<'PY'
           import json,subprocess,pathlib
           from playwright.sync_api import sync_playwright
-          targets=[('reddit','https://www.reddit.com/'),('reddit_old','https://old.reddit.com/'),('voz','https://voz.vn/'),('medium','https://medium.com/'),('quora','https://www.quora.com/'),('douyin','https://www.douyin.com/')]
+          targets=[('facebook_target','https://www.facebook.com/share/p/19Y24DbnyG/?'),('reddit','https://www.reddit.com/'),('reddit_old','https://old.reddit.com/'),('voz','https://voz.vn/'),('medium','https://medium.com/'),('quora','https://www.quora.com/'),('douyin','https://www.douyin.com/')]
           ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
           out=[]
           with sync_playwright() as p:
@@ -64,11 +64,11 @@ jobs:
               r={'name':name,'route':'warp','curl_code':parts[0] or '000','curl_final':parts[1],'curl_bytes':parts[2] or '0','curl_rc':cp.returncode}
               page=c.new_page()
               try:
-                resp=page.goto(url,wait_until='domcontentloaded',timeout=18000); page.wait_for_timeout(2200)
+                resp=page.goto(url,wait_until='domcontentloaded',timeout=18000); page.wait_for_timeout(3500)
                 try:text=page.locator('body').inner_text(timeout=3000)
                 except:text=''
                 title=page.title(); low=(title+' '+text).lower()
-                r.update(browser_status=resp.status if resp else None,browser_final=page.url,title=title,text_prefix=text[:220],challenge=any(x in low for x in ['prove your humanity','verify you are human','captcha','security verification','blocked by network security','just a moment','验证码','security check','access denied']))
+                r.update(browser_status=resp.status if resp else None,browser_final=page.url,title=title,text_prefix=text[:3000],body_chars=len(text),challenge=any(x in low for x in ['prove your humanity','verify you are human','captcha','security verification','blocked by network security','just a moment','验证码','security check','access denied']))
               except Exception as e:r.update(browser_error=f'{type(e).__name__}: {e}',browser_final=page.url)
               page.close(); out.append(r)
             c.close(); b.close()
@@ -149,7 +149,7 @@ jobs:
           sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner COUNTRY="$COUNTRY" python3 - <<'PY'
           import json,subprocess,pathlib,os
           from playwright.sync_api import sync_playwright
-          targets=[('reddit','https://www.reddit.com/'),('reddit_old','https://old.reddit.com/'),('voz','https://voz.vn/'),('medium','https://medium.com/'),('quora','https://www.quora.com/'),('douyin','https://www.douyin.com/')]
+          targets=[('facebook_target','https://www.facebook.com/share/p/19Y24DbnyG/?'),('reddit','https://www.reddit.com/'),('reddit_old','https://old.reddit.com/'),('voz','https://voz.vn/'),('medium','https://medium.com/'),('quora','https://www.quora.com/'),('douyin','https://www.douyin.com/')]
           ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'; route='vpn-'+os.environ['COUNTRY']
           out=[]
           with sync_playwright() as p:
@@ -158,10 +158,10 @@ jobs:
               body=f'/tmp/{route}-{name}.body'; cp=subprocess.run(['curl','-L','-sS','--compressed','--max-time','15','-A',ua,'-o',body,'-w','%{http_code}\t%{url_effective}\t%{size_download}',url],capture_output=True,text=True); parts=(cp.stdout.strip().split('\t')+['','',''])[:3]
               r={'name':name,'route':route,'curl_code':parts[0] or '000','curl_final':parts[1],'curl_bytes':parts[2] or '0','curl_rc':cp.returncode}; page=c.new_page()
               try:
-                resp=page.goto(url,wait_until='domcontentloaded',timeout=18000); page.wait_for_timeout(2200)
+                resp=page.goto(url,wait_until='domcontentloaded',timeout=18000); page.wait_for_timeout(3500)
                 try:text=page.locator('body').inner_text(timeout=3000)
                 except:text=''
-                title=page.title(); low=(title+' '+text).lower(); r.update(browser_status=resp.status if resp else None,browser_final=page.url,title=title,text_prefix=text[:220],challenge=any(x in low for x in ['prove your humanity','verify you are human','captcha','security verification','blocked by network security','just a moment','验证码','security check','access denied']))
+                title=page.title(); low=(title+' '+text).lower(); r.update(browser_status=resp.status if resp else None,browser_final=page.url,title=title,text_prefix=text[:3000],body_chars=len(text),challenge=any(x in low for x in ['prove your humanity','verify you are human','captcha','security verification','blocked by network security','just a moment','验证码','security check','access denied']))
               except Exception as e:r.update(browser_error=f'{type(e).__name__}: {e}',browser_final=page.url)
               page.close(); out.append(r)
             c.close(); b.close()
