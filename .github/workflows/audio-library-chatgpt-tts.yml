@@ -14,11 +14,11 @@ on:
       - 'ops/audio-library/chatgpt-outbox-chunks/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   tts:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -30,19 +30,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 2
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -q requests edge-tts 'cryptography>=45,<47'
-          if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
       - name: Reassemble encrypted outbox when chunked
         shell: bash
         run: |
@@ -64,10 +72,14 @@ jobs:
           Path('/tmp/chunked-outbox.json').write_text(json.dumps(env,separators=(',',':')),encoding='utf-8')
           PY
           fi
+
       - name: Decrypt and synthesize
+        id: synth
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          exec > >(tee /tmp/chatgpt-tts.log) 2>&1
           if [ -s /tmp/chunked-outbox.json ]; then
             files="/tmp/chunked-outbox.json"
           else
@@ -75,8 +87,10 @@ jobs:
             if [ -z "$files" ]; then files="ops/audio-library/chatgpt-outbox/${AUDIO_LIBRARY_CURRENT_ITEM}.json"; fi
           fi
           test -s "$files"
-          mkdir -p /tmp/chatgpt-payloads
-          python - $files <<'PY'
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            mkdir -p /tmp/chatgpt-payloads
+            python - $files <<'PY'
           import base64,hashlib,json,os,sys
           from pathlib import Path
           from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
@@ -96,6 +110,75 @@ jobs:
               if str(payload.get('id')) != item_id: raise SystemExit('payload id mismatch')
               Path('/tmp/chatgpt-payloads/'+item_id+'.json').write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
           PY
-          for f in /tmp/chatgpt-payloads/*.json; do python scripts/audio_library_tts_from_chatgpt.py "$f"; done
+            code=$?
+          fi
+          if [ "$code" -eq 0 ]; then
+            for f in /tmp/chatgpt-payloads/*.json; do
+              python scripts/audio_library_tts_from_chatgpt.py "$f" || { code=$?; break; }
+            done
+          fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
 
-# 2026-08-20: retrigger current ChatGPT-authored item after outbox creation
+      - name: Publish safe TTS checkpoint
+        if: always()
+        env:
+          SYNTH_OUTCOME: ${{ steps.synth.outcome }}
+          SYNTH_EXIT_CODE: ${{ steps.synth.outputs.exit_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/audio-library /tmp/audio-tts-status
+          item_key="audio-library/items/${AUDIO_LIBRARY_CURRENT_ITEM}.json"
+          media_key="audio-library/media/${AUDIO_LIBRARY_CURRENT_ITEM}/episode.mp3"
+          script_key="audio-library/media/${AUDIO_LIBRARY_CURRENT_ITEM}/script.txt"
+          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${item_key}" --file=/tmp/audio-tts-status/item.json --remote >/tmp/audio-tts-status/item.log 2>&1 || true
+          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${media_key}" --file=/tmp/audio-tts-status/episode.mp3 --remote >/tmp/audio-tts-status/media.log 2>&1 || true
+          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${script_key}" --file=/tmp/audio-tts-status/script.txt --remote >/tmp/audio-tts-status/script.log 2>&1 || true
+          python - <<'PY'
+          import datetime,json,os,re
+          from pathlib import Path
+          item={}
+          p=Path('/tmp/audio-tts-status/item.json')
+          if p.exists() and p.stat().st_size:
+              try: item=json.loads(p.read_text(encoding='utf-8'))
+              except Exception: item={}
+          log=''
+          lp=Path('/tmp/chatgpt-tts.log')
+          if lp.exists(): log=lp.read_text(encoding='utf-8',errors='replace')[-2500:]
+          log=re.sub(r'https?://\S+','[url-redacted]',log)
+          log=re.sub(r'(?i)(token|authorization|secret|key)\s*[=:]\s*\S+',r'\1=[redacted]',log)
+          mp3=Path('/tmp/audio-tts-status/episode.mp3')
+          script=Path('/tmp/audio-tts-status/script.txt')
+          out={
+            'status':'ready',
+            'itemId':os.environ['AUDIO_LIBRARY_CURRENT_ITEM'],
+            'synthOutcome':os.environ.get('SYNTH_OUTCOME','unknown'),
+            'synthExitCode':os.environ.get('SYNTH_EXIT_CODE',''),
+            'itemStatus':item.get('status'),
+            'title':item.get('title'),
+            'durationSeconds':item.get('durationSeconds'),
+            'hasAudioUrl':bool(item.get('audioUrl')),
+            'hasTranscriptUrl':bool(item.get('transcriptUrl')),
+            'episodeObjectExists':mp3.exists() and mp3.stat().st_size>1500,
+            'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,
+            'scriptObjectExists':script.exists() and script.stat().st_size>300,
+            'scriptBytes':script.stat().st_size if script.exists() else 0,
+            'errorTail':log if os.environ.get('SYNTH_OUTCOME')!='success' else '',
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/audio-library/chatgpt-tts-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/chatgpt-tts-status.json
+          git diff --cached --quiet || git commit -m 'Publish ChatGPT Audio TTS status [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
+
+      - name: Fail if synthesis failed
+        if: steps.synth.outcome == 'failure'
+        run: exit 1
+
+# 2026-08-20: ubuntu diagnostic retry with safe status checkpoint
