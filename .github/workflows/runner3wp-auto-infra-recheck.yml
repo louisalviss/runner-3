@@ -1,0 +1,75 @@
+name: Runner3WP Automation Infra Recheck
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner3wp-auto-infra-recheck.yml']
+  workflow_dispatch:
+permissions: {contents: write}
+concurrency: {group: runner3wp-auto-infra-recheck, cancel-in-progress: false}
+env:
+  FEATURE_BRANCH: runner3wp-edge-optimizer-auto-20260820
+  PROD_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: runner3wp-edge-optimizer-auto-20260820, fetch-depth: 0}
+      - name: Build and deploy isolated V2
+        run: |
+          set -euo pipefail
+          node --check edge/wordpress-edge-proxy/src/entry-auto.js
+          node --check edge/wordpress-edge-proxy/src/automation-events.js
+          node scripts/build-wordpress-edge-snapshot.mjs
+          npx --yes wrangler@4.124.0 deploy --config "$CF_WORKER_CONFIG"
+      - name: Retry functional guard
+        id: guard
+        run: |
+          set -euo pipefail
+          ok=0
+          for n in 1 2 3 4 5 6; do
+            BUST="__runner3_auto=$(date +%s%N)-$n"
+            if curl -fsS -D /tmp/home.h -o /tmp/home.html "$V2_URL?$BUST" \
+              && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/home.h \
+              && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/home.h \
+              && grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/home.html \
+              && curl -fsS -D /tmp/hero.h -o /tmp/hero.webp "${V2_URL}__runner3/r2-image/offset-demo-01-w480.webp?$BUST" \
+              && grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/hero.h \
+              && test "$(wc -c </tmp/hero.webp)" -gt 10000; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = 1
+          code=$(curl -sS -o /tmp/unsigned.json -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{"op":"peek"}' "${V2_URL}__runner3/automation/events")
+          test "$code" = 401
+      - name: Lighthouse 3x A/B
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)";test -n "$C";echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1;mkdir -p /tmp/lh
+          for i in 1 2 3;do
+            npx lighthouse "$PROD_URL" --output=json --output-path="/tmp/lh/b$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+            npx lighthouse "$V2_URL" --output=json --output-path="/tmp/lh/c$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          done
+      - name: Judge
+        run: |
+          python - <<'PY'
+          import json,statistics,pathlib,datetime
+          p=json.load(open('ops/perf/runner3wp-regression-policy.json'))
+          def r(f):
+            d=json.load(open(f));a=d['audits'];g=lambda k:(a.get(k)or{}).get('numericValue');return {'fcp':g('first-contentful-paint'),'lcp':g('largest-contentful-paint'),'tbt':g('total-blocking-time'),'cls':g('cumulative-layout-shift'),'perf':d['categories']['performance']['score']}
+          b=[r(f'/tmp/lh/b{i}.json') for i in (1,2,3)];c=[r(f'/tmp/lh/c{i}.json') for i in (1,2,3)];m=lambda a,k:statistics.median(x[k] for x in a);bm={k:m(b,k) for k in b[0]};cm={k:m(c,k) for k in c[0]}
+          ok=cm['perf']>=p['performanceScoreMin'] and cm['fcp']<=bm['fcp']+p['maxFcpRegressionMs'] and cm['lcp']<=bm['lcp']+p['maxLcpRegressionMs'] and cm['cls']<=bm['cls']+p['maxClsRegression'] and cm['tbt']<=max(p['maxTbtMs'],bm['tbt']+p['maxTbtRegressionMs'])
+          o={'status':'ready','experiment':'runner3wp-automation-infra-recheck','verdict':'PASS' if ok else 'FAIL','pass':ok,'baseline':{'runs':b,'median':bm},'candidate':{'runs':c,'median':cm},'policy':p,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()};pathlib.Path('/tmp/recheck.json').write_text(json.dumps(o,indent=2)+'\n');print(json.dumps(o,indent=2));assert ok
+          PY
+      - name: Persist
+        if: always()
+        run: |
+          test -s /tmp/recheck.json||echo '{"status":"failed","verdict":"FAIL","pass":false}' >/tmp/recheck.json
+          git fetch origin "$FEATURE_BRANCH";git reset --hard "origin/$FEATURE_BRANCH";mkdir -p ops/perf/automation;cp /tmp/recheck.json ops/perf/automation/infra-recheck.latest.json
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add ops/perf/automation/infra-recheck.latest.json;git commit -m 'test: persist automation infra recheck [skip ci]'||exit 0;git push origin HEAD:"$FEATURE_BRANCH"
