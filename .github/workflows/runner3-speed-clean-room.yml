@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   WP_SITE_SLUG: runner3-speed-clean-lab-1
@@ -93,13 +93,11 @@ jobs:
           set -euo pipefail
           cp ops/site-factory/runner5-restore-lab-1.json /tmp/runner5-record.original.json
           cp ops/site-factory/runner3-speed-clean-lab-1.json ops/site-factory/runner5-restore-lab-1.json
-
           set +e
           node scripts/runner5-wordpress-retheme-v3.mjs
           RETHEME_RC=$?
           set -e
           echo "official_starter_import_exit=$RETHEME_RC"
-
           node scripts/runner5-astra-sample-import.mjs
           test -s /tmp/runner5-astra-sample.json
           python - <<'PY'
@@ -179,20 +177,14 @@ jobs:
           site=json.load(open('ops/site-factory/runner3-speed-clean-lab-1.json'))
           b=bc['baseline']; c=bc['optimized']
           report={
-            'status':'PASS',
-            'site':site,
-            'theme':'astra',
-            'pluginVersion':bc['pluginVersion'],
+            'status':'PASS','site':site,'theme':'astra','pluginVersion':bc['pluginVersion'],
             'states':{
               'A_no_plugin':{'curlTtfbMs':a['curl']['medianTtfbMs'],'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs'],'cls':a['lighthouse']['medianCls']},
               'B_active_off':{'curlTtfbMs':b['curl']['medianTtfbMs'],'browserTtfbMs':b['browser']['medianTtfbMs'],'browserFcpMs':b['browser']['medianFcpMs'],'browserLcpMs':b['browser']['medianLcpMs'],'lighthouseScore':b['lighthouse']['medianScore'],'lighthouseLcpMs':b['lighthouse']['medianLcpMs'],'cls':b['lighthouse']['medianCls']},
-              'C_performance_on':{'curlTtfbMs':c['curl']['medianTtfbMs'],'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs'],'cls':c['lighthouse']['medianCls']},
+              'C_performance_on':{'curlTtfbMs':c['curl']['medianTtfbMs'],'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs'],'cls':c['lighthouse']['medianCls']}
             },
-            'bcDelta':bc['delta'],
-            'safety':sx,
-            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+            'bcDelta':bc['delta'],'safety':sx,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
           }
-          # OFF must behave close to no-plugin baseline; allow normal hosting/Lighthouse noise, but reject material regressions.
           assert b['lighthouse']['medianScore'] >= a['lighthouse']['medianScore'] - 2, report
           assert b['lighthouse']['medianLcpMs'] <= a['lighthouse']['medianLcpMs'] + 200, report
           assert b['browser']['medianTtfbMs'] <= a['browser']['medianTtfbMs'] * 1.20, report
@@ -215,6 +207,40 @@ jobs:
             /tmp/runner3-speed-clean-room-report.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Persist clean-room checkpoint to branch
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, datetime, shutil
+          def load(path):
+              if not os.path.exists(path): return None
+              try: return json.load(open(path))
+              except Exception as e: return {'status':'unreadable','error':str(e)}
+          site=load('/tmp/site-factory-v15-runner3-speed-clean-lab-1.json')
+          data=load('/tmp/runner5-astra-sample.json')
+          a=load('/tmp/runner3-speed-clean-room-a.json')
+          bc=load('/tmp/runner3-speed-ab.json')
+          sx=load('/tmp/runner3-speed-safety-matrix.json')
+          final=load('/tmp/runner3-speed-clean-room-report.json')
+          checkpoint={
+            'status':'PASS' if final and final.get('status')=='PASS' else 'PARTIAL_OR_FAILED',
+            'site':site,'demo':data,'stateA':a,'ab':bc,'safety':sx,'final':final,
+            'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(checkpoint,open('ops/site-factory/runner3-speed-clean-lab-1.clean-room.latest.json','w'),indent=2)
+          if site:
+              json.dump(site,open('ops/site-factory/runner3-speed-clean-lab-1.json','w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-clean-room-bot'
+          git config user.email 'runner3-speed-clean-room-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-clean-lab-1.clean-room.latest.json
+          if test -f ops/site-factory/runner3-speed-clean-lab-1.json; then git add -- ops/site-factory/runner3-speed-clean-lab-1.json; fi
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'test: record Runner3 Speed clean-room evidence'
+          git push origin HEAD:runner3-speed-cleanroom-20260820
 
       - name: Remove transient secrets and plugin ZIP
         if: always()
