@@ -1,0 +1,50 @@
+{
+  "status": "incomplete",
+  "experiment": "runner3wp-automation-infra-v1",
+  "verdict": "FAIL",
+  "pass": false,
+  "outcomes": {
+    "deploy": "success",
+    "guard": "failure",
+    "lighthouse": "skipped"
+  },
+  "baseline": {
+    "runs": [],
+    "median": {
+      "fcp": null,
+      "lcp": null,
+      "tbt": null,
+      "cls": null,
+      "perf": null
+    }
+  },
+  "candidate": {
+    "runs": [],
+    "median": {
+      "fcp": null,
+      "lcp": null,
+      "tbt": null,
+      "cls": null,
+      "perf": null
+    }
+  },
+  "policy": {
+    "version": 1,
+    "lighthouseRuns": 3,
+    "performanceScoreMin": 0.95,
+    "maxFcpRegressionMs": 75,
+    "maxLcpRegressionMs": 100,
+    "maxClsRegression": 0.01,
+    "maxTbtMs": 50,
+    "maxTbtRegressionMs": 50,
+    "optimizationMinLcpGainMs": 150,
+    "functional": {
+      "requireSnapshotHit": true,
+      "requireSnapshotDirect": true,
+      "requireSameOriginHero": true,
+      "requireAdminBypass": true,
+      "requireAuthenticatedBypass": true
+    }
+  },
+  "checkedAt": "2026-08-20T00:15:41.595753+00:00"
+}
