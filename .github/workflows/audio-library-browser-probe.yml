@@ -1,0 +1,80 @@
+name: Audio Library Browser Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-browser-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser driver
+        run: npm install --no-save playwright-core@1.55.0
+      - name: Probe authenticated UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          shared="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | awk '{print $1}')"
+          access="$(python - <<'PY'
+          import json,re
+          s=open('apps/audio-library/wrangler.jsonc').read()
+          print(re.search(r'"LIBRARY_ACCESS_SHA256"\s*:\s*"([0-9a-f]+)"',s).group(1))
+          PY
+          )"
+          session="$(python - "$shared" "$access" <<'PY'
+          import hashlib,sys
+          print(hashlib.sha256(('audio-library-session-v3\0'+sys.argv[1]+'\0'+sys.argv[2]).encode()).hexdigest())
+          PY
+          )"
+          SESSION_TOKEN="$session" node <<'JS'
+          const { chromium } = require('playwright-core');
+          const fs = require('fs');
+          (async()=>{
+            const browser = await chromium.launch({headless:true, executablePath:'/usr/bin/google-chrome', args:['--no-sandbox']});
+            const page = await browser.newPage({viewport:{width:390,height:844}});
+            const errors=[]; const consoleErrors=[]; const responses=[];
+            page.on('pageerror', e=>errors.push(String(e)));
+            page.on('console', m=>{ if(m.type()==='error') consoleErrors.push(m.text()); });
+            page.on('response', r=>{ const u=new URL(r.url()); if(u.pathname.startsWith('/api/')) responses.push({path:u.pathname,status:r.status()}); });
+            await page.setExtraHTTPHeaders({authorization:'Bearer '+process.env.SESSION_TOKEN});
+            const resp=await page.goto('https://runner3-audio-library.ducduy2411.workers.dev/?probe=browser-v1',{waitUntil:'networkidle',timeout:30000});
+            await page.waitForTimeout(1500);
+            const out={
+              rootStatus:resp?.status(),
+              url:page.url(),
+              title:await page.title(),
+              itemCount:await page.locator('.item').count(),
+              listText:(await page.locator('#list').innerText().catch(()=>'' )).slice(0,1200),
+              countText:await page.locator('#count').innerText().catch(()=>''),
+              errors,consoleErrors,responses,
+              hasApp:await page.locator('#app').count(),
+              bodyText:(await page.locator('body').innerText()).slice(0,1500),
+            };
+            fs.writeFileSync('/tmp/browser-probe.json',JSON.stringify(out,null,2));
+            await browser.close();
+          })().catch(e=>{fs.writeFileSync('/tmp/browser-probe.json',JSON.stringify({fatal:String(e),stack:e.stack},null,2));process.exitCode=0});
+          JS
+          mkdir -p ops/audio-library
+          cp /tmp/browser-probe.json ops/audio-library/browser-probe.json
+      - name: Persist probe
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add ops/audio-library/browser-probe.json
+          git commit -m 'Publish Audio Library browser probe [skip ci]' || exit 0
+          git push origin HEAD:main
