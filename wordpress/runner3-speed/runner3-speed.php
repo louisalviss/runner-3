@@ -312,7 +312,12 @@ final class Runner3_Speed {
         if (!$file || !wp_mkdir_p(dirname($file))) return $html;
         $tmp = $file.'.tmp-'.wp_generate_uuid4();
         if (@file_put_contents($tmp, $html, LOCK_EX) !== false) {
-            if (!@rename($tmp, $file)) @unlink($tmp);
+            if (!@rename($tmp, $file)) {
+                @unlink($tmp);
+            } elseif (!headers_sent()) {
+                header('X-Runner3-Speed: STORE');
+                header('X-Runner3-Speed-Version: '.self::VERSION);
+            }
         } elseif (is_file($tmp)) @unlink($tmp);
         return $html;
     }
@@ -320,7 +325,7 @@ final class Runner3_Speed {
     private static function cache_file_for_request() {
         $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? '')); if ($host === '') return null;
         $path = parse_url((string)($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
-        return self::cache_dir().'/pages/'.hash('sha256', $host."\n".$path).'.html';
+        return self::cache_dir().'/pages/'.hash('sha256', 'v110'."\n".$host."\n".$path).'.html';
     }
 
     public static function invalidate() {
