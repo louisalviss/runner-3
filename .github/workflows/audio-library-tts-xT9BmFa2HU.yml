@@ -1,4 +1,5 @@
 name: Audio Library TTS xT9BmFa2HU
+# diagnostic-v2
 
 on:
   push:
@@ -66,10 +67,19 @@ jobs:
           PY
       - name: Synthesize Nam Minh
         id: synth
+        continue-on-error: true
         shell: bash
-        run: python scripts/audio_library_tts_from_chatgpt.py /tmp/payload.json
+        run: |
+          set +e
+          python scripts/audio_library_tts_from_chatgpt.py /tmp/payload.json 2>&1 | tee /tmp/synth.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
       - name: Publish safe status
         if: always()
+        env:
+          SYNTH_OUTCOME: ${{ steps.synth.outcome }}
+          SYNTH_EXIT_CODE: ${{ steps.synth.outputs.exit_code }}
         shell: bash
         run: |
           set -euo pipefail
@@ -78,7 +88,7 @@ jobs:
           npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${item_key}" --file=/tmp/item.json --remote >/dev/null 2>&1 || true
           npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${media_key}" --file=/tmp/episode.mp3 --remote >/dev/null 2>&1 || true
           python - <<'PY'
-          import json,datetime,os
+          import json,datetime,os,re
           from pathlib import Path
           item={}
           p=Path('/tmp/item.json')
@@ -86,7 +96,12 @@ jobs:
               try:item=json.loads(p.read_text())
               except:pass
           mp3=Path('/tmp/episode.mp3')
-          out={'status':'ready','itemId':os.environ['ITEM_ID'],'itemStatus':item.get('status'),'title':item.get('title'),'durationSeconds':item.get('durationSeconds'),'hasAudioUrl':bool(item.get('audioUrl')),'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          log=''
+          lp=Path('/tmp/synth.log')
+          if lp.exists(): log=lp.read_text(errors='replace')[-2200:]
+          log=re.sub(r'https?://\S+','[url-redacted]',log)
+          log=re.sub(r'(?i)(token|authorization|secret|key)\s*[=:]\s*\S+',r'\1=[redacted]',log)
+          out={'status':'ready','runId':int(os.environ['GITHUB_RUN_ID']),'itemId':os.environ['ITEM_ID'],'synthOutcome':os.environ.get('SYNTH_OUTCOME'),'synthExitCode':os.environ.get('SYNTH_EXIT_CODE'),'itemStatus':item.get('status'),'title':item.get('title'),'durationSeconds':item.get('durationSeconds'),'hasAudioUrl':bool(item.get('audioUrl')),'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,'errorTail':log if os.environ.get('SYNTH_OUTCOME')!='success' else '', 'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           Path('ops/audio-library/oneoff-xT9BmFa2HU-tts-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
           PY
           git config user.name 'github-actions[bot]'
@@ -95,3 +110,6 @@ jobs:
           git commit -m 'Publish xT9BmFa2HU TTS status [skip ci]' || exit 0
           git pull --rebase origin main || true
           git push origin HEAD:main || true
+      - name: Fail if synthesis failed
+        if: steps.synth.outcome == 'failure'
+        run: exit 1
