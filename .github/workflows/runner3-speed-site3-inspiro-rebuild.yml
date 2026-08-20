@@ -1,0 +1,109 @@
+name: Runner3 Speed Site3 Inspiro Rebuild
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-inspiro-rebuild.yml'
+
+permissions:
+  contents: write
+
+env:
+  WP_SITE_SLUG: runner3-speed-site3-realistic
+  WP_APP_NAME: runner3-speed-site3-realistic
+
+concurrency:
+  group: runner3-speed-site3-inspiro-rebuild
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare
+        run: |
+          set -euo pipefail
+          node --check scripts/runner3-speed-site3-inspiro-import.mjs
+          npm install --no-save playwright-core@1.58.2
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Provision or reuse Site 3
+        run: |
+          set -euo pipefail
+          cat >/tmp/site3-realistic.request.json <<'JSON'
+          {"site_name":"Runner3 Speed Site 3 Realistic","site_slug":"runner3-speed-site3-realistic","app_name":"runner3-speed-site3-realistic","domain_mode":"wasmer"}
+          JSON
+          SITE_FACTORY_REQUEST=/tmp/site3-realistic.request.json node scripts/provision-wordpress-site-v15.mjs
+          test -s /tmp/site-factory-v15-runner3-speed-site3-realistic.json
+          cp /tmp/site-factory-v15-runner3-speed-site3-realistic.json ops/site-factory/runner3-speed-site3-realistic.json
+
+      - name: Import real Inspiro Architecture Elementor starter site
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-site3-inspiro-import.mjs
+          test -s /tmp/runner3-speed-site3-inspiro.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-inspiro.json'))
+          assert r['status']=='READY', r
+          v=r['verify']
+          assert all(v['gates'].values()), v
+          print(json.dumps({
+            'status':r['status'],
+            'siteUrl':r['siteUrl'],
+            'theme':r['theme'],
+            'demo':r['demo'],
+            'pages':len(r['pages']),
+            'posts':len(r['posts']),
+            'media':len(r['media']),
+            'imagesOnHome':v['images'],
+            'elementorMarkers':v['elementorMarkers'],
+            'htmlBytes':v['htmlBytes'],
+            'gates':v['gates']
+          },indent=2))
+          PY
+
+      - name: Persist fixture checkpoint
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,datetime
+          def load(path):
+              if not os.path.exists(path): return None
+              try:return json.load(open(path))
+              except Exception as e:return {'status':'unreadable','error':str(e)}
+          fixture=load('/tmp/runner3-speed-site3-inspiro.json')
+          cp={
+            'status':(fixture or {}).get('status','PARTIAL_OR_FAILED'),
+            'runType':'site3_real_starter_import',
+            'fixture':fixture,
+            'site':load('/tmp/site-factory-v15-runner3-speed-site3-realistic.json'),
+            'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(cp,open('ops/site-factory/runner3-speed-site3-inspiro.latest.json','w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-site3-inspiro-bot'
+          git config user.email 'runner3-speed-site3-inspiro-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-site3-inspiro.latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'test: record Inspiro Architecture Site 3 fixture'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/wasmer-account.json
