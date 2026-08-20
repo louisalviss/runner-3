@@ -65,7 +65,28 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < /tmp/audio-chat-intake-files.txt
-          python scripts/audio_library_chat_intake.py "${files[@]}" | tee /tmp/audio-chat-intake-result.json
+          python scripts/audio_library_chat_intake.py "${files[@]}" | tee /tmp/audio-chat-intake-raw.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          raw = Path('/tmp/audio-chat-intake-raw.log').read_text(encoding='utf-8', errors='replace').splitlines()
+          parsed = None
+          for line in reversed(raw):
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  obj = json.loads(line)
+              except Exception:
+                  continue
+              if isinstance(obj, dict) and isinstance(obj.get('results'), list):
+                  parsed = obj
+                  break
+          if parsed is None:
+              raise SystemExit('No enqueue JSON result found in Runner output')
+          Path('/tmp/audio-chat-intake-result.json').write_text(json.dumps(parsed, ensure_ascii=False), encoding='utf-8')
+          print(json.dumps(parsed, ensure_ascii=False))
+          PY
 
       - name: Extract raw source and encrypt for ChatGPT
         id: extract
@@ -105,7 +126,21 @@ jobs:
           extract_path = Path('/tmp/audio-chatgpt-inbox-result.json')
           if extract_path.exists():
               try:
-                  extract_results = json.loads(extract_path.read_text(encoding='utf-8')).get('results', [])
+                  lines = extract_path.read_text(encoding='utf-8', errors='replace').splitlines()
+                  parsed = None
+                  for line in reversed(lines):
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          obj = json.loads(line)
+                      except Exception:
+                          continue
+                      if isinstance(obj, dict) and isinstance(obj.get('results'), list):
+                          parsed = obj
+                          break
+                  if parsed is not None:
+                      extract_results = parsed.get('results', [])
               except Exception:
                   extract_results = []
           out = {
