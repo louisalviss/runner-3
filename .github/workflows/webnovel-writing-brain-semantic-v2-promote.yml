@@ -1,0 +1,117 @@
+name: webnovel-writing-brain-semantic-v2-promote
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/webnovel-writing-brain-semantic-v2-promote.yml'
+
+permissions:
+  contents: write
+
+env:
+  CANDIDATE_TAG: webnovel-writing-brain-semantic-v2-1-candidate-2026-08-20
+  CANDIDATE_ASSET: webnovel-writing-brain-semantic-v2-1-candidate-2026-08-20.zip
+  CANDIDATE_SHA256: c7376b5cf19dc6ce08fe011057aeb50f795f9ae05005736db43dc26c3050ee13
+  STABLE_TAG: webnovel-writing-brain-semantic-v2-1-2026-08-20
+  STABLE_ASSET: webnovel-writing-brain-semantic-v2-1-2026-08-20.zip
+  STATUS_FILE: ops/webnovel-writing-brain-semantic-v2-1-production.json
+  POINTER_FILE: ops/webnovel-writing-brain-default.json
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download and verify promoted candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/unpacked
+          gh release download "$CANDIDATE_TAG" --pattern "$CANDIDATE_ASSET" --dir build
+          echo "$CANDIDATE_SHA256  build/$CANDIDATE_ASSET" | sha256sum -c -
+          unzip -q "build/$CANDIDATE_ASSET" -d build/unpacked
+          python - <<'PY'
+          import json, pathlib, sqlite3
+          root=pathlib.Path('build/unpacked')
+          qa_files=list(root.rglob('semantic_v2_qa.json'))
+          db_files=list(root.rglob('writing_brain.sqlite'))
+          assert len(qa_files)==1, qa_files
+          assert len(db_files)==1, db_files
+          qa=json.loads(qa_files[0].read_text(encoding='utf-8'))
+          assert qa['promotion_pass'] is True, qa
+          assert qa['passages_total']==21210, qa
+          assert qa['atomic_rules']==23509, qa
+          assert qa['canonical_rules']==16697, qa
+          assert qa['cross_source_rules']==1098, qa
+          assert qa['max_cluster_size']<=16, qa
+          assert qa['canonical_cjk_rows']==0, qa
+          con=sqlite3.connect(db_files[0])
+          assert con.execute('select count(*) from passages').fetchone()[0]==21210
+          assert con.execute('select count(*) from atomic_rules').fetchone()[0]==23509
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==16697
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          con.close()
+          print({'qa':'pass','passages':21210,'atomic_rules':23509,'canonical_rules':16697})
+          PY
+          cp "build/$CANDIDATE_ASSET" "build/$STABLE_ASSET"
+      - name: Publish stable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$STABLE_TAG" >/dev/null 2>&1; then
+            gh release create "$STABLE_TAG" --title 'Webnovel Writing Brain Semantic V2.1 — Stable — 2026-08-20' \
+              --notes 'Production-stable Semantic Canonical V2.1. Preserves all 21,210 source passages, exposes 23,509 atomic rules and 16,697 cohesive canonical rules, with cross-source corroboration and conflict candidates.'
+          fi
+          gh release upload "$STABLE_TAG" "build/$STABLE_ASSET" --clobber
+          export STABLE_SIZE=$(gh release view "$STABLE_TAG" --json assets --jq '.assets[] | select(.name==env.STABLE_ASSET) | .size' | head -n1)
+          test -n "$STABLE_SIZE" && test "$STABLE_SIZE" -gt 0
+          export STABLE_SHA=$(sha256sum "build/$STABLE_ASSET" | awk '{print $1}')
+          test "$STABLE_SHA" = "$CANDIDATE_SHA256"
+          python - <<'PY'
+          import json, os, pathlib, datetime
+          now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          status={
+            'schema':'webnovel-writing-brain-semantic-v2.1-production-v1',
+            'status':'completed','conclusion':'success','promotion_pass':True,
+            'stable_release_tag':os.environ['STABLE_TAG'],'stable_asset':os.environ['STABLE_ASSET'],
+            'asset_size_bytes':int(os.environ['STABLE_SIZE']),'asset_sha256':os.environ['STABLE_SHA'],
+            'promoted_from_tag':os.environ['CANDIDATE_TAG'],'promoted_from_sha256':os.environ['CANDIDATE_SHA256'],
+            'passages_total':21210,'atomic_rules':23509,'canonical_rules':16697,
+            'atomic_collapsed':6812,'cross_source_rules':1098,'conflict_candidates':26320,'max_cluster_size':16,
+            'checked_at_utc':now}
+          pointer={
+            'schema':'webnovel-writing-brain-default-v2.1-stable',
+            'default_release_tag':os.environ['STABLE_TAG'],'default_asset':os.environ['STABLE_ASSET'],
+            'knowledge_mode':'semantic-canonical-first','language_mode':'vi-first',
+            'passages_total':21210,'atomic_rules':23509,'canonical_rules':16697,'atomic_collapsed':6812,
+            'cross_source_rules':1098,'conflict_candidates':26320,'max_cluster_size':16,
+            'evidence_preserved':True,'promotion_pass':True,
+            'benchmark':{'queries':68,'relevance_delta_vs_v1':-0.003758,'redundancy_improvement':0.007466,'evidence_density_gain':1.279412,'cross_source_hit_rate':0.617647},
+            'updated_at_utc':now}
+          pathlib.Path(os.environ['STATUS_FILE']).parent.mkdir(parents=True,exist_ok=True)
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          pathlib.Path(os.environ['POINTER_FILE']).write_text(json.dumps(pointer,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(status,ensure_ascii=False,indent=2))
+          PY
+      - name: Persist stable production pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE" "$POINTER_FILE"
+          git commit -m 'Promote Semantic V2.1 Writing Brain to stable [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
