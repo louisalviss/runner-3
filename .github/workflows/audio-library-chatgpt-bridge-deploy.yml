@@ -80,3 +80,5 @@ jobs:
           git commit -m 'Publish ChatGPT audio bridge status [skip ci]' || exit 0
           git pull --rebase origin main || true
           git push origin HEAD:main || true
+
+# 2026-08-20: force redeploy to refresh queue verifier
