@@ -1,0 +1,38 @@
+name: Runner5 Neve Demo Diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/runner5-neve-demo-diagnostic.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - shell: bash
+        run: |
+          node <<'NODE'
+          import fs from 'fs';
+          const base='https://demosites.io/fashion-photography-portfolio/';
+          const u=new URL('wp-json/ti-demo-data/data',base);u.searchParams.set('license','free');u.searchParams.set('ti_downloads','yes');
+          const r=await fetch(u);const d=await r.json();
+          let xml={};
+          if(d.content_file){
+            const cu=new URL(d.content_file);if(!cu.searchParams.has('key'))cu.searchParams.set('key','free');
+            const xr=await fetch(cu,{headers:{'User-Agent':'WordPress/runner5','Origin':'https://runner5-restore-lab-1.wasmer.app'}});const x=await xr.text();
+            xml={url:d.content_file,http:xr.status,bytes:Buffer.byteLength(x),itemCount:(x.match(/<item>/g)||[]).length,pageCount:(x.match(/<wp:post_type><!\[CDATA\[page\]\]><\/wp:post_type>/g)||[]).length,postCount:(x.match(/<wp:post_type><!\[CDATA\[post\]\]><\/wp:post_type>/g)||[]).length,attachmentCount:(x.match(/<wp:post_type><!\[CDATA\[attachment\]\]><\/wp:post_type>/g)||[]).length,publishCount:(x.match(/<wp:status><!\[CDATA\[publish\]\]><\/wp:status>/g)||[]).length,head:x.slice(0,200)};
+          }
+          const safe={status:'READY',demoUrl:base,keys:Object.keys(d),slug:d.slug||null,content_file:d.content_file||null,front_page:d.front_page||null,mandatory_plugins:d.mandatory_plugins||null,recommended_plugins:d.recommended_plugins||null,xml,checkedAt:new Date().toISOString()};
+          fs.mkdirSync('ops/wordpress-access',{recursive:true});fs.writeFileSync('ops/wordpress-access/runner5-neve-demo-diagnostic.json',JSON.stringify(safe,null,2));
+          console.log(JSON.stringify(safe,null,2));
+          NODE
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/wordpress-access/runner5-neve-demo-diagnostic.json
+          git commit -m 'Persist Runner5 Neve demo diagnostic' || exit 0
+          for i in 1 2 3; do git pull --rebase origin main && git push origin HEAD:main && exit 0; sleep 2; done
+          exit 1
