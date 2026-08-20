@@ -6,6 +6,7 @@ on:
     branches: [feature/webnovel-nli-v2-3]
     paths:
       - 'scripts/webnovel_writing_brain_nli_v2_3.py'
+      - 'scripts/webnovel_writing_brain_context_agent.py'
       - '.github/workflows/webnovel-writing-brain-nli-v2-3.yml'
 
 permissions:
@@ -13,7 +14,7 @@ permissions:
 
 concurrency:
   group: webnovel-writing-brain-nli-v2-3
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   SOURCE_TAG: webnovel-writing-brain-context-v2-2-2026-08-20
@@ -23,6 +24,7 @@ env:
   ASSET: webnovel-writing-brain-nli-v2-3-candidate-2026-08-20.zip
   STATUS_FILE: ops/webnovel-writing-brain-nli-v2-3-status.json
   TOKENIZERS_PARALLELISM: 'false'
+  HF_HUB_DISABLE_XET: '1'
   OMP_NUM_THREADS: '4'
   MKL_NUM_THREADS: '4'
 
@@ -113,7 +115,8 @@ jobs:
           import json
           a=json.load(open('build/v22-query.json',encoding='utf-8'));b=json.load(open('build/v23-query.json',encoding='utf-8'))
           assert [x['rule_id'] for x in a['hits']]==[x['rule_id'] for x in b['hits']]
-          print({'retrieval_parity_hits':len(b['hits'])})
+          assert all('nli_audited_relations' in x for x in b['hits'])
+          print({'retrieval_parity_hits':len(b['hits']),'nli_audit_runtime':'pass'})
           PY
 
       - name: Package and publish V2.3 candidate
