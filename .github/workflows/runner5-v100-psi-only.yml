@@ -1,0 +1,61 @@
+name: Runner5 V100 PSI Only
+
+on:
+  push:
+    branches: [main]
+    paths: ['ops/triggers/runner5-v100-psi-only-*.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  psi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PSI_URL: https://runner5-restore-gateway-v100.pages.dev/
+      PSI_UI_OUT: /tmp/runner5-v100-psi-only.json
+      PSI_UI_SCREENSHOT: /tmp/runner5-v100-psi-only.png
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - name: Verify live candidate 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            body="$(curl -fsS --max-time 10 https://runner5-restore-gateway-v100.pages.dev/__runner5/v100/health || true)"
+            echo "$body"
+            echo "$body" | grep -q '"candidate":5' && exit 0
+            sleep 4
+          done
+          exit 2
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Run Google PageSpeed UI
+        run: node scripts/pagespeed-ui-audit.mjs
+      - name: Persist PSI only result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-v100-psi-only.json || printf '{"status":"failed"}\n' >/tmp/runner5-v100-psi-only.json
+          cp /tmp/runner5-v100-psi-only.json /tmp/safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for a in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main
+            mkdir -p ops/pagespeed
+            cp /tmp/safe.json ops/pagespeed/runner5-v100-psi-only.json
+            git add ops/pagespeed/runner5-v100-psi-only.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'diag: persist Runner5 V100 PSI only'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
