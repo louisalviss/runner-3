@@ -3,10 +3,18 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import requests
+
+# Reddit RSS is the reliable fallback from GitHub-hosted runners. Ensure the
+# XML parser exists even if the surrounding workflow forgot to install it.
+try:
+    import lxml  # noqa: F401
+except Exception:
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'lxml'])
 
 import audio_library_extract_for_chatgpt as core
 
@@ -81,10 +89,10 @@ def resolve_reddit_share(item: dict):
 
 
 def claim_pending_from_worker():
-    """Claim the real R2 queue through the runner API.
+    """Claim the authoritative R2 queue through the runner API.
 
-    UI-added links are created directly in R2 and therefore may never appear in
-    chat-intake status files. The runner queue is the authoritative source.
+    UI-added links are created directly in R2 and may never appear in chat
+    intake status files, so status files cannot be the primary discovery path.
     """
     items = []
     headers = {'X-Runner-Token': runner_token(), 'User-Agent': core.UA}
@@ -143,7 +151,6 @@ def pending_items_r2():
     try:
         return claim_pending_from_worker()
     except Exception as e:
-        # Keep the old status-file path only as a resilience fallback.
         items = legacy_pending_items()
         if items:
             return items
