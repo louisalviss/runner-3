@@ -1,6 +1,7 @@
 import { chromium } from 'playwright-core';
 import fs from 'fs';
 
+// Official Themeisle starter-site import only. No synthetic sample content.
 const site = JSON.parse(fs.readFileSync('ops/site-factory/runner5-restore-lab-1.json','utf8'));
 const account = JSON.parse(fs.readFileSync('/tmp/wasmer-account.json','utf8'));
 const base = String(site.siteUrl || 'https://runner5-restore-lab-1.wasmer.app/').replace(/\/$/,'');
