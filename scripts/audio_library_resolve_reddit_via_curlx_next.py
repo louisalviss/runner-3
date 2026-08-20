@@ -15,7 +15,8 @@ BUCKET = os.environ.get('AUDIO_LIBRARY_BUCKET', 'runner3-wp-media')
 STATUS = ROOT / 'ops/audio-library/chat-intake-status.json'
 ITEM_PREFIX = 'audio-library/items/'
 QUEUE_PREFIX = 'audio-library/queue/'
-UA = 'Runner3AudioResolver/3.0'
+UA = 'Runner3AudioResolver/3.1'
+LYNX_UA = 'FreeBSD/11.0 Lynx/56'
 
 
 def wrangler_get(key):
@@ -86,6 +87,34 @@ def canonical_from(v, original):
             if mm and subreddit:
                 return f'https://www.reddit.com/r/{subreddit}/comments/{mm.group(1)}/'
     return None
+
+
+def try_reddit_lynx(url):
+    diagnostics=[]
+    for follow in (False, True):
+        try:
+            r = requests.get(
+                url,
+                headers={'User-Agent':LYNX_UA,'Accept':'text/html,*/*','Accept-Language':'en-US,en;q=0.9'},
+                timeout=45,
+                allow_redirects=follow,
+            )
+        except Exception as e:
+            diagnostics.append(f'{"follow" if follow else "manual"}:{type(e).__name__}')
+            continue
+        mode = 'follow' if follow else 'manual'
+        loc = r.headers.get('location','')
+        found = canonical_from([r.url, loc, r.text], url)
+        if found:
+            return found, f'lynx:{r.status_code}:{mode}:canonical'
+        text = html.unescape(r.text or '').replace('\\u002F','/').replace('\\/','/')
+        # s9e/TextFormatter's Reddit /s/ rule extracts this path directly.
+        m = re.search(r'(?<![A-Za-z0-9_])([A-Za-z0-9_]+/comments/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+/[A-Za-z0-9_]+)?)', text)
+        if m:
+            path = m.group(1).strip('/')
+            return f'https://www.reddit.com/r/{path}/', f'lynx:{r.status_code}:{mode}:s9e-path'
+        diagnostics.append(f'{mode}:{r.status_code}:{len(r.text or "")}:{"loc" if loc else "noloc"}')
+    return None, 'lynx:' + ','.join(diagnostics)
 
 
 def try_microlink(url):
@@ -168,7 +197,7 @@ def main():
         diagnostics=[]
         canonical=None
         mode=None
-        for fn in (try_microlink, try_domainee, try_curlx, try_reddit_headers):
+        for fn in (try_reddit_lynx, try_microlink, try_domainee, try_curlx, try_reddit_headers):
             canonical, mode = fn(src)
             diagnostics.append(mode)
             if canonical: break
