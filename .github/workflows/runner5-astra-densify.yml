@@ -1,0 +1,47 @@
+name: Runner5 Astra Densify
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/runner5-astra-densify.mjs'
+      - '.github/workflows/runner5-astra-densify.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  densify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY || secrets.CLOUDFLARE_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - shell: bash
+        run: openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+      - shell: bash
+        run: |
+          npm install --no-save playwright-core@1.58.2 playwright@1.58.2
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - run: node scripts/runner5-astra-densify.mjs
+      - if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-astra-densify.json || printf '{"status":"RUNNER_ERROR"}\n' >/tmp/runner5-astra-densify.json
+          cp /tmp/runner5-astra-densify.json /tmp/safe.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/safe.json ops/wordpress-access/runner5-astra-densify.json; git add ops/wordpress-access/runner5-astra-densify.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'Persist Runner5 Astra densify status'
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
+      - name: Refresh optimized proxy
+        if: success()
+        run: gh workflow run deploy-runner5-restore-proxy.yml --ref main
