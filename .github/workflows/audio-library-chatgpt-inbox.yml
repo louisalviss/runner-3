@@ -8,6 +8,7 @@ on:
       - '.github/workflows/audio-library-chatgpt-inbox.yml'
       - 'scripts/audio_library_extract_for_chatgpt.py'
       - 'scripts/audio_library_resolve_short_urls.py'
+      - 'scripts/audio_library_resolve_reddit_via_curlx.py'
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
@@ -62,6 +63,14 @@ jobs:
           set -euo pipefail
           python scripts/audio_library_resolve_short_urls.py | tee /tmp/audio-short-url-result.json
 
+      - name: Resolve remaining Reddit short URLs through curl-x
+        id: fallback
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audio_library_resolve_reddit_via_curlx.py | tee /tmp/audio-short-url-fallback-result.json
+
       - name: Extract raw sources and encrypt for ChatGPT
         id: extract
         continue-on-error: true
@@ -74,6 +83,7 @@ jobs:
         if: always()
         env:
           RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
+          FALLBACK_OUTCOME: ${{ steps.fallback.outcome }}
           EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
         shell: bash
         run: |
@@ -90,8 +100,10 @@ jobs:
           out={
             'status':'ready',
             'resolveOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
+            'fallbackOutcome':os.environ.get('FALLBACK_OUTCOME','unknown'),
             'extractOutcome':os.environ.get('EXTRACT_OUTCOME','unknown'),
             'resolver':load('/tmp/audio-short-url-result.json'),
+            'fallback':load('/tmp/audio-short-url-fallback-result.json'),
             'extractor':load('/tmp/audio-chatgpt-inbox-result.json'),
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
