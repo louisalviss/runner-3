@@ -18,7 +18,8 @@ for (const [ticker,exchange] of specs) {
     const chart=await createChart(session);
     const sym=await chart.resolve(ticker,exchange);
     console.log('RESOLVED',exchange+':'+ticker, JSON.stringify(sym));
-    const series=await createSeries(session,chart,sym,'5',0,[start,end]);
+    const range=`r,${start}:${end}`;
+    const series=await createSeries(session,chart,sym,'5',0,range);
     const h=series.history || [];
     console.log('HISTORY',exchange+':'+ticker,h.length,h[0],h[h.length-1]);
     fs.writeFileSync(`${outdir}/${exchange}-${ticker}.json`,JSON.stringify({ticker,exchange,symbol:sym,history:h},null,2));
