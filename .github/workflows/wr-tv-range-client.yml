@@ -1,0 +1,28 @@
+name: WR TradingView Range Client
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-tv-range-client.yml'
+      - 'wave-rider-verify/tv_range_fetch.mjs'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save @ch99q/twc ws
+      - name: Fetch TradingView date range
+        run: node wave-rider-verify/tv_range_fetch.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-tv-range-client
+          path: wave-rider-verify/output/tv-range
+          retention-days: 14
