@@ -11,6 +11,7 @@ on:
       - 'wave-rider-verify/wr_tv_pivot_diagnostic.py'
       - 'wave-rider-verify/wr_tv_rightmost_final.py'
       - 'wave-rider-verify/wr_tv_next5.py'
+      - 'wave-rider-verify/wr_tv_next5_10m.py'
 permissions:
   contents: read
   actions: read
@@ -34,6 +35,8 @@ jobs:
         run: python3 wave-rider-verify/wr_tv_rightmost_final.py
       - name: Generate next five blind-check cases
         run: python3 wave-rider-verify/wr_tv_next5.py
+      - name: Generate same five 10m cases
+        run: python3 wave-rider-verify/wr_tv_next5_10m.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -43,4 +46,5 @@ jobs:
             wave-rider-verify/output/tv-pivot-diagnostic
             wave-rider-verify/output/tv-rightmost-final
             wave-rider-verify/output/tv-next5
+            wave-rider-verify/output/tv-next5-10m
           retention-days: 14
