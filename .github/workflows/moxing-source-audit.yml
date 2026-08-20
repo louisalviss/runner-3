@@ -1,0 +1,80 @@
+name: moxing-source-audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/moxing-source-audit.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_TAG: webnovel-writing-brain-v1-2026-08-17
+      SOURCE_ASSET: webnovel-writing-brain-v1-2026-08-17.zip
+      STATUS_FILE: ops/moxing-source-audit.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download and audit source release
+        run: |
+          set -euo pipefail
+          rm -rf source && mkdir source
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir source
+          sha=$(sha256sum "source/$SOURCE_ASSET" | awk '{print $1}')
+          size=$(stat -c%s "source/$SOURCE_ASSET")
+          unzip -q "source/$SOURCE_ASSET" -d source/unpacked
+          export SHA="$sha" SIZE="$size"
+          python - <<'PY'
+          import json, os, pathlib, sqlite3, datetime
+          root=pathlib.Path('source/unpacked')
+          candidates=list(root.rglob('writing_brain.sqlite'))
+          if not candidates:
+              raise SystemExit('writing_brain.sqlite missing')
+          db=candidates[0]
+          con=sqlite3.connect(db)
+          total=con.execute('select count(*) from passages').fetchone()[0]
+          moxing=con.execute("select count(*) from passages where source='moxing'").fetchone()[0]
+          vidian=con.execute("select count(*) from passages where source='vidian'").fetchone()[0]
+          cols=[r[1] for r in con.execute('pragma table_info(passages)')]
+          ok=(total==21210 and moxing==9538 and vidian==11672 and {'id','evidence_id','text','source'}.issubset(cols))
+          data={
+            'schema':'moxing-source-audit-v1',
+            'source_tag':os.environ['SOURCE_TAG'],
+            'source_asset':os.environ['SOURCE_ASSET'],
+            'sha256':os.environ['SHA'],
+            'size_bytes':int(os.environ['SIZE']),
+            'writing_brain_db':str(db),
+            'passages_total':total,
+            'passages_moxing':moxing,
+            'passages_vidian':vidian,
+            'passage_columns':cols,
+            'content_contract_ok':ok,
+            'audited_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'contract':'Repin source SHA only when content_contract_ok=true.'
+          }
+          p=pathlib.Path(os.environ['STATUS_FILE']); p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          if not ok: raise SystemExit('source content contract failed')
+          PY
+      - name: Persist audit
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          git commit -m 'Record Moxing source release audit [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
