@@ -34,3 +34,4 @@ foreach ([ABSPATH.'wp-config.php', dirname(ABSPATH).'/wp-config.php'] as $path) 
 
 delete_option('runner3_speed_enabled');
 delete_option('runner3_speed_status');
+delete_option('runner3_speed_critical_fonts');
