@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# trigger: wrap-v1
 import json
 import textwrap
 from pathlib import Path
