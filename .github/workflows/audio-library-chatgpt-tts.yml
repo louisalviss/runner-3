@@ -6,6 +6,10 @@ on:
     paths:
       - 'ops/audio-library/chatgpt-outbox/*.json'
       - '.github/workflows/audio-library-chatgpt-tts.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/audio-library/tts-trigger/**'
 
 permissions:
   contents: read
