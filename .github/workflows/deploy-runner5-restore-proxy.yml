@@ -34,12 +34,13 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os, re, urllib.parse, urllib.request, time
-          origin=os.environ['ORIGIN_URL']; ua='Mozilla/5.0 EdgeSnapshotBuilder/4.0'; edge_css='/__edge/runner5.css'
+          origin=os.environ['ORIGIN_URL']; ua='Mozilla/5.0 EdgeSnapshotBuilder/5.0'; edge_css='/__edge/runner5.css'
           def fetch(url, timeout=40):
               req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*','Cache-Control':'no-cache'})
               with urllib.request.urlopen(req,timeout=timeout) as r: return r.read(), r.headers.get('content-type','')
           raw,_=fetch(origin); html=raw.decode('utf-8','ignore')
-          if len(html)<1000 or 'Runner5 Restore Lab Demo' not in html: raise SystemExit('homepage snapshot marker missing')
+          if len(html)<5000 or 'r5-hero' not in html or 'Nourish Studio' not in html:
+              raise SystemExit('visual homepage snapshot marker missing')
           base=urllib.parse.urlparse(origin)
           link_re=re.compile(r'<link\b[^>]*>',re.I); href_re=re.compile(r'\bhref\s*=\s*(["\'])(.*?)\1',re.I|re.S); rel_re=re.compile(r'\brel\s*=\s*(["\'])(.*?)\1',re.I|re.S); media_re=re.compile(r'\bmedia\s*=\s*(["\'])(.*?)\1',re.I|re.S)
           captured=[]; bundle=[]
@@ -75,9 +76,10 @@ jobs:
           first=True
           for item in captured:
               html=html.replace(item['tag'], f'<link rel="stylesheet" id="runner5-edge-css" href="{edge_css}">' if first else '', 1); first=False
+          # Only defer known safe core scripts. Astra does not require jQuery to be present.
           deferred=[]
           script_open_re=re.compile(r'<script\b[^>]*\bsrc\s*=\s*(["\'])(.*?)\1[^>]*>',re.I|re.S)
-          safe_fragments=('jquery/jquery.min.js','jquery-migrate.min.js','/themes/inspiro/assets/js/','wp-emoji-release.min.js')
+          safe_fragments=('jquery/jquery.min.js','jquery-migrate.min.js','wp-emoji-release.min.js')
           def defer_known(m):
               tag=m.group(0); src=m.group(2)
               if not any(x in src for x in safe_fragments): return tag
@@ -111,19 +113,18 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, time, urllib.request, re
-          url=os.environ['PROXY_URL']; result={'status':'FAILED','url':url,'http':None,'titleMarker':False,'edgeMode':None,'edgeCache':None,'cssReady':False,'jqueryDeferred':False,'firstMs':None,'warmMs':None,'detail':None}; timings=[]; err=None
+          import json, os, time, urllib.request
+          url=os.environ['PROXY_URL']; result={'status':'FAILED','url':url,'http':None,'visualDemo':False,'imageCount':0,'edgeMode':None,'edgeCache':None,'cssReady':False,'firstMs':None,'warmMs':None,'detail':None}; timings=[]; err=None
           for _ in range(12):
               try:
-                  t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-cache'})
                   with urllib.request.urlopen(req,timeout=25) as r:
-                      body=r.read(1000000).decode('utf-8','ignore'); timings.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['titleMarker']='Runner5 Restore Lab Demo' in body or 'Restore Lab' in body; result['edgeMode']=r.headers.get('x-edge-mode'); result['edgeCache']=r.headers.get('x-edge-cache')
-                      script_tags=re.findall(r'<script\b[^>]*>',body,re.I|re.S)
-                      result['jqueryDeferred']=any('jquery.min.js' in tag.lower() and re.search(r'\b(?:defer|async)\b',tag,re.I) for tag in script_tags)
+                      body=r.read(1500000).decode('utf-8','ignore'); timings.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['visualDemo']='r5-hero' in body and 'Nourish Studio' in body; result['imageCount']=body.count('<img'); result['edgeMode']=r.headers.get('x-edge-mode'); result['edgeCache']=r.headers.get('x-edge-cache')
                   css_req=urllib.request.Request(url.rstrip('/')+'/__edge/runner5.css',headers={'User-Agent':'Mozilla/5.0'})
                   with urllib.request.urlopen(css_req,timeout=25) as cr:
                       css=cr.read(1000000); result['cssReady']=cr.status==200 and cr.headers.get('x-edge-mode')=='snapshot-asset' and len(css)>1000
-                  if result['http']==200 and result['titleMarker'] and result['edgeMode']=='snapshot' and result['cssReady'] and result['jqueryDeferred'] and len(timings)>=2: result['status']='READY'; break
+                  if result['http']==200 and result['visualDemo'] and result['imageCount']>=4 and result['edgeMode']=='snapshot' and result['cssReady'] and len(timings)>=2:
+                      result['status']='READY'; break
               except Exception as e: err=str(e)
               time.sleep(3)
           result['firstMs']=timings[0] if timings else None; result['warmMs']=timings[-1] if len(timings)>1 else None; result['detail']=None if result['status']=='READY' else err; result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
