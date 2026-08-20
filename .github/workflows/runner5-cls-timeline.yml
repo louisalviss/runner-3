@@ -3,7 +3,9 @@ name: Runner5 CLS Timeline
 on:
   push:
     branches: [main]
-    paths: ['ops/triggers/runner5-cls-timeline.txt']
+    paths:
+      - '.github/workflows/runner5-cls-timeline.yml'
+      - 'ops/triggers/runner5-cls-timeline-*.txt'
   workflow_dispatch:
 
 permissions:
@@ -26,18 +28,26 @@ jobs:
           import { chromium } from 'playwright-core'; import fs from 'node:fs';
           const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,args:['--no-sandbox','--disable-dev-shm-usage']});
           const ctx=await browser.newContext({viewport:{width:412,height:915},isMobile:true,hasTouch:true,deviceScaleFactor:1});
-          const page=await ctx.newPage(); const cdp=await ctx.newCDPSession(page); await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled',{cacheDisabled:true}); await cdp.send('Network.emulateNetworkConditions',{offline:false,latency:150,downloadThroughput:1.6*1024*1024/8,uploadThroughput:750*1024/8,connectionType:'cellular4g'}); await cdp.send('Emulation.setCPUThrottlingRate',{rate:4});
-          const shifts=[]; await page.addInitScript(()=>{ window.__shifts=[]; new PerformanceObserver(list=>{for(const e of list.getEntries()){if(!e.hadRecentInput)window.__shifts.push({value:e.value,startTime:e.startTime,sources:(e.sources||[]).map(s=>({node:s.node?.outerHTML?.slice(0,300),previousRect:s.previousRect,currentRect:s.currentRect}))})}}).observe({type:'layout-shift',buffered:true}); });
-          const nav=page.goto('https://runner5-restore-gateway.pages.dev/',{waitUntil:'domcontentloaded',timeout:45000}).catch(()=>null);
+          const page=await ctx.newPage(); const cdp=await ctx.newCDPSession(page);
+          await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled',{cacheDisabled:true});
+          await cdp.send('Network.emulateNetworkConditions',{offline:false,latency:150,downloadThroughput:1.6*1024*1024/8,uploadThroughput:750*1024/8,connectionType:'cellular4g'}); await cdp.send('Emulation.setCPUThrottlingRate',{rate:4});
+          await page.addInitScript(()=>{window.__shifts=[];new PerformanceObserver(list=>{for(const e of list.getEntries()){if(!e.hadRecentInput)window.__shifts.push({value:e.value,startTime:e.startTime,sources:(e.sources||[]).map(s=>({node:s.node?.outerHTML?.slice(0,220),previousRect:s.previousRect,currentRect:s.currentRect}))})}}).observe({type:'layout-shift',buffered:true})});
+          await page.goto('https://runner5-restore-gateway.pages.dev/',{waitUntil:'domcontentloaded',timeout:45000});
           const rows=[];
-          for(let i=0;i<60;i++){ await page.waitForTimeout(100); rows.push(await page.evaluate((t)=>{const sels=['#masthead','.site-header','.site-content-contain','#page','.header-widgets-wrapper','#sb-search','main#main','footer#colophon'];const x={t};for(const s of sels){const e=document.querySelector(s);if(e){const r=e.getBoundingClientRect();const cs=getComputedStyle(e);x[s]={top:r.top,height:r.height,bottom:r.bottom,display:cs.display,position:cs.position,marginTop:cs.marginTop,paddingTop:cs.paddingTop}}}return x},(i+1)*100)); }
-          await nav; const perf=await page.evaluate(()=>({shifts:window.__shifts||[],fonts:document.fonts?.status,readyState:document.readyState}));
-          fs.writeFileSync('/tmp/cls-timeline.json',JSON.stringify({status:'ready',rows,perf},null,2)+'\n'); console.log(JSON.stringify({shifts:perf.shifts,first:rows[0],last:rows.at(-1)},null,2)); await browser.close();
+          for(let i=0;i<50;i++){
+            await page.waitForTimeout(100);
+            rows.push(await page.evaluate((t)=>{const sels=['#masthead','.site-header','.site-content-contain','#page','.header-widgets-wrapper','#sb-search','main#main','footer#colophon'];const x={t};for(const s of sels){const e=document.querySelector(s);if(e){const r=e.getBoundingClientRect(),cs=getComputedStyle(e);x[s]={top:+r.top.toFixed(2),height:+r.height.toFixed(2),bottom:+r.bottom.toFixed(2),display:cs.display,position:cs.position,marginTop:cs.marginTop,paddingTop:cs.paddingTop}}}return x},(i+1)*100));
+          }
+          const perf=await page.evaluate(()=>({shifts:window.__shifts||[],fonts:document.fonts?.status,readyState:document.readyState}));
+          const changes={}; for(const sel of ['#masthead','.site-header','.site-content-contain','#page','.header-widgets-wrapper','#sb-search','main#main']){const vals=[];for(const r of rows){const v=r[sel];if(v&&!vals.some(x=>x.top===v.top&&x.height===v.height))vals.push({t:r.t,top:v.top,height:v.height,bottom:v.bottom,position:v.position,display:v.display})}if(vals.length)changes[sel]=vals}
+          const out={status:'ready',changes,shifts:perf.shifts,fonts:perf.fonts,readyState:perf.readyState}; fs.writeFileSync('/tmp/cls-timeline.json',JSON.stringify(out,null,2)+'\n');console.log(JSON.stringify(out,null,2));await browser.close();
           NODE
           node /tmp/trace.mjs
       - name: Persist timeline
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          test -s /tmp/cls-timeline.json || printf '{"status":"failed","detail":"timeline_missing"}\n' >/tmp/cls-timeline.json
           cp /tmp/cls-timeline.json /tmp/safe.json; git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for a in 1 2 3;do git fetch origin main;git reset --hard origin/main;mkdir -p ops/pagespeed;cp /tmp/safe.json ops/pagespeed/runner5-cls-timeline.json;git add ops/pagespeed/runner5-cls-timeline.json;if git diff --cached --quiet;then exit 0;fi;git commit -m 'diag: persist Runner5 CLS timeline';if git push origin HEAD:main;then exit 0;fi;sleep 2;done;exit 2
