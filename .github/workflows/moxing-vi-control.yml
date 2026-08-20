@@ -1,0 +1,114 @@
+name: moxing-vi-control
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/moxing-vi-control.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: moxing-vi-control
+  cancel-in-progress: false
+
+jobs:
+  control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_WORKFLOW: moxing-translate-vi.yml
+      TARGET_TAG: moxing-vi-translation-v1-2026-08-17
+      TARGET_ASSET: moxing-vi-translation-v1-2026-08-17.zip
+      STATUS_FILE: ops/moxing-vi-status.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Dispatch fresh translation run
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run "$TARGET_WORKFLOW" --ref main
+          run_id=""
+          for i in $(seq 1 40); do
+            run_id=$(gh run list --workflow "$TARGET_WORKFLOW" --event workflow_dispatch --limit 30 \
+              --json databaseId,headSha,createdAt \
+              --jq '.[] | select(.headSha=="'"$GITHUB_SHA"'") | .databaseId' | head -n1)
+            if [ -n "$run_id" ]; then break; fi
+            sleep 3
+          done
+          if [ -z "$run_id" ]; then
+            echo "Unable to resolve dispatched run id" >&2
+            exit 2
+          fi
+          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "Dispatched run $run_id for $GITHUB_SHA"
+
+      - name: Watch translation and record result
+        shell: bash
+        run: |
+          set +e
+          gh run watch "$RUN_ID" --exit-status
+          watch_rc=$?
+          status=$(gh run view "$RUN_ID" --json status --jq '.status' 2>/dev/null || echo unknown)
+          conclusion=$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion // ""' 2>/dev/null || true)
+          [ -n "$conclusion" ] || conclusion=unknown
+
+          release_ok=false
+          asset_size=0
+          asset_digest=""
+          if [ "$conclusion" = "success" ]; then
+            release_json=$(gh release view "$TARGET_TAG" --json tagName,assets,url 2>/dev/null)
+            if [ $? -eq 0 ]; then
+              asset_size=$(printf '%s' "$release_json" | jq -r --arg n "$TARGET_ASSET" '.assets[]? | select(.name==$n) | .size // 0' | head -n1)
+              [ -n "$asset_size" ] || asset_size=0
+              if [ "$asset_size" -gt 0 ] 2>/dev/null; then release_ok=true; fi
+            fi
+          fi
+
+          mkdir -p "$(dirname "$STATUS_FILE")"
+          export STATUS="$status" CONCLUSION="$conclusion" RELEASE_OK="$release_ok" ASSET_SIZE="$asset_size" WATCH_RC="$watch_rc"
+          python - <<'PY'
+          import json, os, pathlib, datetime
+          p=pathlib.Path(os.environ['STATUS_FILE'])
+          data={
+            'schema':'moxing-vi-control-status-v1',
+            'workflow':os.environ['TARGET_WORKFLOW'],
+            'run_id':int(os.environ['RUN_ID']),
+            'head_sha':os.environ['GITHUB_SHA'],
+            'status':os.environ['STATUS'],
+            'conclusion':os.environ['CONCLUSION'],
+            'release_tag':os.environ['TARGET_TAG'],
+            'release_asset':os.environ['TARGET_ASSET'],
+            'release_ok':os.environ['RELEASE_OK'].lower()=='true',
+            'asset_size_bytes':int(os.environ['ASSET_SIZE'] or 0),
+            'watch_rc':int(os.environ['WATCH_RC']),
+            'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'contract':'VN-first is complete only when conclusion=success and release_ok=true.'
+          }
+          p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Persist status to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Update Moxing VN translation status [skip ci]'
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
