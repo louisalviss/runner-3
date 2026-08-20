@@ -1,0 +1,131 @@
+name: Reddit Share macOS Resolver Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-share-macos-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reddit-share-macos-probe
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    runs-on: macos-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve Reddit share URL across independent egress paths
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import html,json,re,urllib.parse,urllib.request,urllib.error
+          from pathlib import Path
+
+          SOURCE='https://www.reddit.com/r/AskReddit/s/k3EUqNBKsi'
+          LYNX='FreeBSD/11.0 Lynx/56'
+          diagnostics=[]
+
+          def decode(s):
+              return html.unescape(str(s or '')).replace('\\u002F','/').replace('\\/','/')
+
+          def canonical(*values):
+              for raw in values:
+                  text=decode(raw)
+                  pats=[
+                    r'https?://(?:www\.|old\.)?reddit\.com(?P<p>/r/[^\s\"<>]+/comments/[a-z0-9]+(?:/[^\s\"<>?]*)?)',
+                    r'https?://(?:www\.|old\.)?reddit\.com(?P<p>/comments/[a-z0-9]+(?:/[^\s\"<>?]*)?)',
+                    r'(?P<p>/r/[^\s\"<>]+/comments/[a-z0-9]+(?:/[^\s\"<>?]*)?)',
+                    r'(?P<p>/comments/[a-z0-9]+(?:/[^\s\"<>?]*)?)',
+                  ]
+                  for pat in pats:
+                      m=re.search(pat,text,re.I)
+                      if m:
+                          return ('https://www.reddit.com'+m.group('p')).split('?')[0].rstrip('/')+'/'
+                  m=re.search(r'(?<![A-Za-z0-9_])([A-Za-z0-9_]+/comments/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+/[A-Za-z0-9_]+)?)',text)
+                  if m:
+                      return 'https://www.reddit.com/r/'+m.group(1).strip('/')+'/'
+                  m=re.search(r'https?://redd\.it/([a-z0-9]+)',text,re.I)
+                  if m:
+                      return 'https://www.reddit.com/comments/'+m.group(1)+'/'
+              return None
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          def request(url, method='GET', headers=None, data=None, follow=True, timeout=35):
+              req=urllib.request.Request(url,data=data,method=method,headers=headers or {})
+              opener=urllib.request.build_opener() if follow else urllib.request.build_opener(NoRedirect)
+              try:
+                  r=opener.open(req,timeout=timeout)
+                  body=r.read().decode('utf-8','replace')
+                  return r.status,r.geturl(),dict(r.headers),body
+              except urllib.error.HTTPError as e:
+                  body=e.read().decode('utf-8','replace')
+                  return e.code,e.geturl(),dict(e.headers),body
+
+          found=None
+          for follow in (False,True):
+              try:
+                  st,url,h,b=request(SOURCE,headers={'User-Agent':LYNX,'Accept':'text/html,*/*'},follow=follow)
+                  diagnostics.append({'method':'reddit-lynx-'+('follow' if follow else 'manual'),'status':st,'bytes':len(b),'location':bool(h.get('Location') or h.get('location'))})
+                  found=canonical(url,h.get('Location') or h.get('location'),b)
+                  if found: break
+              except Exception as e:
+                  diagnostics.append({'method':'reddit-lynx','error':type(e).__name__})
+
+          calls=[]
+          q=urllib.parse.quote(SOURCE,safe='')
+          calls.append(('reddit-oembed',f'https://www.reddit.com/oembed?url={q}&format=json&omitscript=true',{'User-Agent':LYNX,'Accept':'application/json,*/*'}))
+          calls.append(('tinyutils',f'https://tinyutils.dev/api/url-resolve?url={q}',{'User-Agent':'Runner3Probe/1.0','Accept':'application/json'}))
+          calls.append(('domainee',f'https://api.domainee.dev/v1/tools/redirect-checker?url={q}',{'User-Agent':'Runner3Probe/1.0','Accept':'application/json'}))
+          calls.append(('microlink',f'https://api.microlink.io?url={q}',{'User-Agent':'Runner3Probe/1.0','Accept':'application/json'}))
+          calls.append(('redirectcheck',f'https://www.redirectcheck.org/api/check?url={q}&ua=Googlebot',{'User-Agent':'Runner3Probe/1.0','Accept':'application/json'}))
+
+          if not found:
+              for name,url,headers in calls:
+                  try:
+                      st,final,h,b=request(url,headers=headers,follow=True,timeout=45)
+                      diagnostics.append({'method':name,'status':st,'bytes':len(b)})
+                      found=canonical(final,h.get('Location') or h.get('location'),b)
+                      if found: break
+                  except Exception as e:
+                      diagnostics.append({'method':name,'error':type(e).__name__})
+
+          if not found:
+              try:
+                  payload=json.dumps({'url':SOURCE}).encode()
+                  st,final,h,b=request('https://www.curl-x.com/api/extract',method='POST',headers={'User-Agent':'curl/8.5.0','Accept':'application/json','Content-Type':'application/json'},data=payload,follow=True,timeout=60)
+                  diagnostics.append({'method':'curlx-api','status':st,'bytes':len(b)})
+                  found=canonical(final,h.get('Location') or h.get('location'),b)
+              except Exception as e:
+                  diagnostics.append({'method':'curlx-api','error':type(e).__name__})
+
+          out={'status':'ready','resolved':bool(found),'canonicalUrl':found,'diagnostics':diagnostics}
+          p=Path('ops/audio-library/reddit-macos-probe-status.json')
+          p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+
+      - name: Publish probe result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-macos-probe-status.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Reddit macOS resolver probe [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
