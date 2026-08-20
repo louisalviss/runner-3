@@ -1,0 +1,255 @@
+name: Runner3WP Edge Auto Consumer
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-edge-auto-consumer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-edge-auto-consumer
+  cancel-in-progress: false
+
+env:
+  FEATURE_BRANCH: runner3wp-edge-optimizer-auto-20260820
+  QUEUE_OBJECT: runner3-wp-media/sites/runner3-factory-smoke-2/automation/pending.json
+  PROD_URL: https://runner3wp.pntr.dev/
+  V2_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  PROD_WORKER_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev/
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FEATURE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Read pending change event
+        id: queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f /tmp/pending.json
+          if npx --yes wrangler@4.124.0 r2 object get "$QUEUE_OBJECT" --file /tmp/pending.json --remote >/tmp/r2-get.log 2>&1; then
+            test -s /tmp/pending.json
+            echo 'HAS_EVENT=1' >> "$GITHUB_ENV"
+          else
+            echo 'HAS_EVENT=0' >> "$GITHUB_ENV"
+          fi
+
+      - name: Seed one setup probe on workflow creation
+        if: env.HAS_EVENT == '0' && github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, time, datetime, pathlib
+          now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          d={'version':1,'revision':f'setup-{time.time_ns()}','firstSeenAt':now,'lastSeenAt':now,'global':False,'reasons':['setup_probe'],'urls':['/'],'media':[],'source':'github-actions/setup'}
+          pathlib.Path('/tmp/pending.json').write_text(json.dumps(d)+'\n')
+          PY
+          npx --yes wrangler@4.124.0 r2 object put "$QUEUE_OBJECT" --file /tmp/pending.json --remote --content-type application/json
+          echo 'HAS_EVENT=1' >> "$GITHUB_ENV"
+
+      - name: Stop cleanly when queue is empty
+        if: env.HAS_EVENT == '0'
+        run: echo 'No WordPress changes pending.'
+
+      - name: Capture queue revision
+        if: env.HAS_EVENT == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          d=json.load(open('/tmp/pending.json'))
+          r=str(d.get('revision') or '')
+          if not r: raise SystemExit('queue revision missing')
+          print('QUEUE_REVISION='+r)
+          print('QUEUE_GLOBAL='+('1' if d.get('global') else '0'))
+          print('QUEUE_REASON='+str((d.get('reasons') or ['unknown'])[0]).replace('\n',' ')[:120])
+          PY
+
+      - name: Build fresh WordPress snapshot
+        if: env.HAS_EVENT == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-wordpress-edge-snapshot.mjs
+          test -s /tmp/runner3-edge-snapshot.json
+          node -e "const d=require('/tmp/runner3-edge-snapshot.json'); if(d.status!=='ready'||d.pages<1) process.exit(9)"
+
+      - name: Deploy candidate to isolated V2
+        if: env.HAS_EVENT == '1'
+        id: v2deploy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.v2.jsonc
+
+      - name: Functional guard on isolated V2
+        if: env.HAS_EVENT == '1' && steps.v2deploy.outcome == 'success'
+        id: guard
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            bust="__runner3_auto=$(date +%s%N)-$attempt"
+            if curl -fsS -D /tmp/v2.h -o /tmp/v2.html "$V2_URL?$bust" \
+              && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/v2.h \
+              && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/v2.h \
+              && grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/v2.html; then ok=1; break; fi
+            sleep 4
+          done
+          test "$ok" = 1
+          curl -fsS -D /tmp/v2-image.h -o /tmp/v2-image.webp "${V2_URL}__runner3/r2-image/offset-demo-01-w480.webp?$(date +%s%N)"
+          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/v2-image.h
+          grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/v2-image.h
+          curl -sS -D /tmp/v2-admin.h -o /dev/null "${V2_URL}wp-admin/"
+          grep -Eiq '^HTTP/[^ ]+[[:space:]]+307' /tmp/v2-admin.h
+          curl -fsS -H 'Cookie: wordpress_logged_in_probe=1' -D /tmp/v2-auth.h -o /dev/null "$V2_URL"
+          grep -Eiq '^x-edge-mode:[[:space:]]*bypass' /tmp/v2-auth.h
+
+      - name: Lighthouse regression gate 3x
+        if: env.HAS_EVENT == '1' && steps.guard.outcome == 'success'
+        id: lighthouse
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          npm install --no-save lighthouse@12.8.2 >/dev/null 2>&1
+          mkdir -p /tmp/lh
+          for i in 1 2 3; do
+            npx lighthouse "$PROD_URL" --output=json --output-path="/tmp/lh/b$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+            npx lighthouse "$V2_URL" --output=json --output-path="/tmp/lh/c$i.json" --only-categories=performance --form-factor=mobile --throttling-method=simulate --screenEmulation.mobile=true --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          done
+          python - <<'PY'
+          import json, statistics, pathlib
+          p=json.load(open('ops/perf/runner3wp-regression-policy.json'))
+          def row(path):
+            d=json.load(open(path));a=d['audits'];g=lambda k:(a.get(k) or {}).get('numericValue')
+            return {'fcp':g('first-contentful-paint'),'lcp':g('largest-contentful-paint'),'tbt':g('total-blocking-time'),'cls':g('cumulative-layout-shift'),'perf':d['categories']['performance']['score']}
+          b=[row(f'/tmp/lh/b{i}.json') for i in (1,2,3)];c=[row(f'/tmp/lh/c{i}.json') for i in (1,2,3)]
+          med=lambda rows,k:statistics.median(x[k] for x in rows)
+          bm={k:med(b,k) for k in b[0]};cm={k:med(c,k) for k in c[0]}
+          passed=cm['perf']>=p['performanceScoreMin'] and cm['fcp']<=bm['fcp']+p['maxFcpRegressionMs'] and cm['lcp']<=bm['lcp']+p['maxLcpRegressionMs'] and cm['cls']<=bm['cls']+p['maxClsRegression'] and cm['tbt']<=max(p['maxTbtMs'],bm['tbt']+p['maxTbtRegressionMs'])
+          out={'pass':passed,'baseline':{'runs':b,'median':bm},'candidate':{'runs':c,'median':cm},'policy':p}
+          pathlib.Path('/tmp/regression.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          if not passed: raise SystemExit(12)
+          PY
+
+      - name: Capture current production version
+        if: env.HAS_EVENT == '1' && steps.lighthouse.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.124.0 versions list --name wordpress-edge-proxy --json > /tmp/prod-versions.json
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          d=json.load(open('/tmp/prod-versions.json'))
+          if not isinstance(d,list) or not d: raise SystemExit('no production versions')
+          print('PREVIOUS_PROD_VERSION='+str(d[0]['id']))
+          PY
+
+      - name: Deploy candidate to production
+        if: env.HAS_EVENT == '1' && steps.lighthouse.outcome == 'success'
+        id: proddeploy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          src='edge/wordpress-edge-proxy/wrangler.v2.jsonc';dst='edge/wordpress-edge-proxy/wrangler.prod-auto.jsonc'
+          d=json.load(open(src));d['name']='wordpress-edge-proxy'
+          open(dst,'w').write(json.dumps(d,indent=2)+'\n')
+          PY
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-auto.jsonc
+
+      - name: Verify production candidate
+        if: env.HAS_EVENT == '1' && steps.proddeploy.outcome == 'success'
+        id: prodverify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            bust="__runner3_auto_prod=$(date +%s%N)-$attempt"
+            if curl -fsS -D /tmp/prod.h -o /tmp/prod.html "$PROD_URL?$bust" \
+              && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/prod.h \
+              && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/prod.h \
+              && grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/prod.html; then ok=1; break; fi
+            sleep 4
+          done
+          test "$ok" = 1
+          curl -fsS -D /tmp/prod-image.h -o /tmp/prod-image.webp "${PROD_URL}__runner3/r2-image/offset-demo-01-w480.webp?$(date +%s%N)"
+          grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/prod-image.h
+          curl -sS -D /tmp/prod-admin.h -o /dev/null "${PROD_URL}wp-admin/"
+          grep -Eiq '^HTTP/[^ ]+[[:space:]]+307' /tmp/prod-admin.h
+
+      - name: Roll back failed production deploy
+        if: env.HAS_EVENT == '1' && steps.lighthouse.outcome == 'success' && (steps.proddeploy.outcome != 'success' || steps.prodverify.outcome != 'success')
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.124.0 rollback "$PREVIOUS_PROD_VERSION" --name wordpress-edge-proxy --message 'Runner3 auto rollback after failed production verification'
+          exit 17
+
+      - name: ACK queue only if revision is unchanged
+        if: env.HAS_EVENT == '1' && steps.proddeploy.outcome == 'success' && steps.prodverify.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f /tmp/pending-now.json
+          if ! npx --yes wrangler@4.124.0 r2 object get "$QUEUE_OBJECT" --file /tmp/pending-now.json --remote >/dev/null 2>&1; then
+            echo 'Queue already empty.'; exit 0
+          fi
+          current="$(node -e "console.log(require('/tmp/pending-now.json').revision||'')")"
+          if [ "$current" = "$QUEUE_REVISION" ]; then
+            npx --yes wrangler@4.124.0 r2 object delete "$QUEUE_OBJECT" --remote
+            echo 'Queue ACKed.'
+          else
+            echo 'Newer event arrived; queue retained for next run.'
+          fi
+
+      - name: Persist consumer evidence
+        if: always() && env.HAS_EVENT == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pathlib,datetime,os
+          def load(p):
+            q=pathlib.Path(p)
+            return json.loads(q.read_text()) if q.exists() else None
+          out={'queueRevision':os.environ.get('QUEUE_REVISION'),'queueReason':os.environ.get('QUEUE_REASON'),'queueGlobal':os.environ.get('QUEUE_GLOBAL'),'snapshot':load('/tmp/runner3-edge-snapshot.json'),'regression':load('/tmp/regression.json'),'outcomes':{'v2deploy':'${{ steps.v2deploy.outcome }}','guard':'${{ steps.guard.outcome }}','lighthouse':'${{ steps.lighthouse.outcome }}','proddeploy':'${{ steps.proddeploy.outcome }}','prodverify':'${{ steps.prodverify.outcome }}'},'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path('/tmp/consumer.latest.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          git fetch origin "$FEATURE_BRANCH"
+          git reset --hard "origin/$FEATURE_BRANCH"
+          mkdir -p ops/perf/automation
+          cp /tmp/consumer.latest.json ops/perf/automation/consumer.latest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/automation/consumer.latest.json
+          git commit -m 'ops: persist Runner3WP auto consumer evidence [skip ci]' || exit 0
+          git push origin HEAD:"$FEATURE_BRANCH"
