@@ -17,22 +17,32 @@ const median = values => { const a=[...values].filter(Number.isFinite).sort((x,y
 const round = (v,n=1) => Number.isFinite(v) ? Number(v.toFixed(n)) : null;
 
 async function login(page) {
-  await page.goto('https://wasmer.io/login', { waitUntil:'domcontentloaded', timeout:60000 });
-  if (!/\/login(?:[/?#]|$)/i.test(page.url())) return;
-  const ident = page.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();
-  await ident.waitFor({ state:'visible', timeout:15000 });
-  await ident.fill(account.username || account.email);
-  const next = page.locator('button').filter({ hasText:/continue|next|log in|sign in/i }).first();
-  if (await next.count() && await next.isVisible().catch(()=>false)) await next.click(); else await ident.press('Enter');
-  await sleep(500);
-  if (!/\/login(?:[/?#]|$)/i.test(page.url())) return;
-  const pass = page.locator('input[type=password]').first();
-  await pass.waitFor({ state:'visible', timeout:20000 });
-  await pass.fill(account.password);
-  const submit = page.locator('input[type=submit],button').filter({ hasText:/log in|sign in|continue/i }).first();
-  if (await submit.count() && await submit.isVisible().catch(()=>false)) await submit.click(); else await pass.press('Enter');
-  await sleep(2200);
-  if (/\/login(?:[/?#]|$)/i.test(page.url())) throw new Error('wasmer_login_failed');
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.goto('https://wasmer.io/login', { waitUntil:'domcontentloaded', timeout:60000 });
+      if (!/\/login(?:[/?#]|$)/i.test(page.url())) return;
+      const ident = page.locator('input[name=username],input[placeholder*=Username i],input[type=text]').first();
+      await ident.waitFor({ state:'visible', timeout:15000 });
+      await ident.fill(account.username || account.email);
+      const next = page.locator('button').filter({ hasText:/continue|next|log in|sign in/i }).first();
+      if (await next.count() && await next.isVisible().catch(()=>false)) await next.click(); else await ident.press('Enter');
+      await sleep(700);
+      if (!/\/login(?:[/?#]|$)/i.test(page.url())) return;
+      const pass = page.locator('input[type=password]').first();
+      await pass.waitFor({ state:'visible', timeout:20000 });
+      await pass.fill(account.password);
+      const submit = page.locator('input[type=submit],button').filter({ hasText:/log in|sign in|continue/i }).first();
+      if (await submit.count() && await submit.isVisible().catch(()=>false)) await submit.click(); else await pass.press('Enter');
+      await sleep(2200);
+      if (!/\/login(?:[/?#]|$)/i.test(page.url())) return;
+      lastError = new Error('wasmer_login_failed');
+    } catch (e) {
+      lastError = e;
+    }
+    if (attempt < 3) await sleep(1500 * attempt);
+  }
+  throw lastError || new Error('wasmer_login_failed');
 }
 
 async function adminPage(ctx,page) {
@@ -103,19 +113,22 @@ async function activate(wp){
 
 async function toggle(wp,want){
   await wp.goto(`${base}/wp-admin/options-general.php?page=runner3-speed`,{waitUntil:'domcontentloaded',timeout:60000});
-  const text=await wp.locator('body').innerText();
-  const on=/Performance\s*ON/i.test(text);
-  if(on===want)return;
-  const form=wp.locator('form').filter({has:wp.locator('input[name="action"][value="runner3_speed_toggle"]')}).first();
+  let form=wp.locator('form').filter({has:wp.locator('input[name="action"][value="runner3_speed_toggle"]')}).first();
   if(!(await form.count()))throw new Error('toggle_missing');
+  const value=await form.locator('input[name="enable"]').inputValue();
+  const on=value==='0';
+  if(on===want)return;
+  if((value==='1')!==want)throw new Error(`toggle_state_mismatch:${value}:${want?'on':'off'}`);
   await Promise.all([
     wp.waitForNavigation({waitUntil:'domcontentloaded',timeout:60000}).catch(()=>null),
     form.evaluate(el=>HTMLFormElement.prototype.submit.call(el))
   ]);
   await sleep(900);
-  const after=await wp.locator('body').innerText();
-  if(want&&!/Performance\s*ON/i.test(after))throw new Error(`turn_on_failed:${after.slice(0,300)}`);
-  if(!want&&!/Performance\s*OFF/i.test(after))throw new Error('turn_off_failed');
+  form=wp.locator('form').filter({has:wp.locator('input[name="action"][value="runner3_speed_toggle"]')}).first();
+  if(!(await form.count()))throw new Error('toggle_missing_after_submit');
+  const afterValue=await form.locator('input[name="enable"]').inputValue();
+  const afterOn=afterValue==='0';
+  if(afterOn!==want)throw new Error(`toggle_failed:${afterValue}:${want?'on':'off'}`);
 }
 
 function lastHeader(text,name){
