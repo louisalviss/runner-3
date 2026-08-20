@@ -1,0 +1,93 @@
+name: Runner3 Speed Direct WordPress A/B
+
+on:
+  pull_request:
+    paths:
+      - 'wordpress/runner3-speed/**'
+      - 'scripts/runner3-speed-ab-benchmark.mjs'
+      - 'scripts/probe-runner3-speed-wordpress.mjs'
+      - '.github/workflows/runner3-speed-direct-wp-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WP_SITE_SLUG: runner5-restore-lab-1
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          php -l wordpress/runner3-speed/uninstall.php
+          node --check scripts/runner3-speed-ab-benchmark.mjs
+          node --check scripts/probe-runner3-speed-wordpress.mjs
+
+      - name: Package plugin
+        run: |
+          set -euo pipefail
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
+          test -s /tmp/runner3-speed.zip
+
+      - name: Decrypt Wasmer account state
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install benchmark tooling
+        run: npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+
+      - name: Run OFF vs ON benchmark
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-ab-benchmark.mjs
+          test -s /tmp/runner3-speed-ab.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-ab.json'))
+          assert r['status']=='ready', r
+          assert r['cloudflare'] is False, r
+          assert r['baseline']['lighthouse']['medianScore'] is not None
+          assert r['optimized']['lighthouse']['medianScore'] is not None
+          print(json.dumps(r,indent=2))
+          PY
+
+      - name: Force Runner3 Speed OFF
+        if: always()
+        env:
+          RUNNER3_PROBE_MODE: off
+        run: |
+          set +e
+          node scripts/probe-runner3-speed-wordpress.mjs
+          exit 0
+
+      - name: Upload benchmark result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-speed-direct-wp-ab
+          path: /tmp/runner3-speed-ab.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove transient secrets
+        if: always()
+        run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip
