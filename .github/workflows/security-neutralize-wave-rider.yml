@@ -1,0 +1,75 @@
+name: Security Neutralize Wave Rider Public Refs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-neutralize-wave-rider.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  neutralize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Move market-data release tag to clean main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/market-data-crossasset-m5-20260821" \
+            -f sha="$GITHUB_SHA" -F force=true
+      - name: Close open WR pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
+            --jq '.[] | select(.head.ref | startswith("wr-")) | .number' > /tmp/wr_prs.txt
+          while read -r n; do
+            [ -z "$n" ] && continue
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$n" -f state=closed >/dev/null
+            echo "closed PR $n"
+          done < /tmp/wr_prs.txt
+      - name: Delete all live WR branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/wr-" \
+            --jq '.[].ref' > /tmp/wr_refs.txt
+          while read -r full; do
+            [ -z "$full" ] && continue
+            ref="${full#refs/}"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/$ref"
+            echo "deleted $full"
+          done < /tmp/wr_refs.txt
+      - name: Write containment status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch_count=$(wc -l < /tmp/wr_refs.txt | tr -d ' ')
+          pr_count=$(wc -l < /tmp/wr_prs.txt | tr -d ' ')
+          mkdir -p security
+          cat > security/wave-rider-containment-status.json <<JSON
+          {
+            "status": "PUBLIC_REFS_NEUTRALIZED",
+            "clean_commit": "$GITHUB_SHA",
+            "release_tag_moved": "market-data-crossasset-m5-20260821",
+            "wr_branches_deleted": $branch_count,
+            "wr_open_prs_closed": $pr_count,
+            "note": "Old commit SHAs and GitHub pull-request internal refs may still require GitHub Support cache/ref removal for complete historical erasure."
+          }
+          JSON
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- security/wave-rider-containment-status.json
+          git commit -m 'security: record Wave Rider public-ref containment' || exit 0
+          git push origin HEAD:main
