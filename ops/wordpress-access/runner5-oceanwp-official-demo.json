@@ -2,10 +2,49 @@
   "status": "FAILED",
   "siteUrl": "https://runner5-restore-lab-1.wasmer.app/",
   "theme": "oceanwp",
-  "demo": "Travel",
+  "demo": "travel",
   "source": "OceanWP official importer",
-  "noindex": false,
-  "template": null,
+  "noindex": true,
+  "template": {
+    "template_name": "Travel",
+    "slug": "travel",
+    "categories": [
+      "Blog"
+    ],
+    "tags": [
+      "adventure",
+      "hobby",
+      "lifestyle"
+    ],
+    "plan": "free",
+    "builder": "elementor",
+    "content": true,
+    "theme_settings": true,
+    "widgets": true,
+    "form": true,
+    "home_title": "Home",
+    "blog_title": "Blog",
+    "image_type": "royalty-free",
+    "posts_to_show": 4,
+    "elementor_width": 1220,
+    "required_plugins": {
+      "free": {
+        "oceanwp": [
+          "ocean-extra",
+          "ocean-social-sharing",
+          "ocean-custom-sidebar"
+        ],
+        "other": [
+          "wpforms-lite",
+          "elementor"
+        ]
+      },
+      "premium": [
+        "ocean-sticky-header",
+        "ocean-elementor-widgets"
+      ]
+    }
+  },
   "pages": [],
   "posts": [],
   "mediaCount": 0,
@@ -17,7 +56,7 @@
     "elementor": "active",
     "wpforms-lite": "active"
   },
-  "stage": "confirm_noindex",
-  "detail": "locator.waitFor: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator('input[name=\"blog_public\"]').first()\n\n    at setNoindex (/home/runner/work/runner-3/runner-3/scripts/runner5-oceanwp-official-import.mjs:135:74)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/runner5-oceanwp-official-import.mjs:184:3",
-  "updatedAt": "2026-08-20T22:03:12.571Z"
+  "stage": "reset_site",
+  "detail": "Error: oceanwp_onboarding_nonce_missing\n    at getOceanAjaxNonce (file:///home/runner/work/runner-3/runner-3/scripts/runner5-oceanwp-official-import.mjs:158:17)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/runner5-oceanwp-official-import.mjs:216:22",
+  "updatedAt": "2026-08-20T22:26:47.785Z"
 }
