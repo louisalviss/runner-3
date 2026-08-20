@@ -8,7 +8,20 @@ const TRASH_PREFIX = 'audio-library/trash/';
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store, no-cache, must-revalidate', ...headers },
+  });
+}
+
+function noCacheHtml(body, status = 200, headers = {}) {
+  return new Response(body, {
+    status,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
+      pragma: 'no-cache',
+      expires: '0',
+      ...headers,
+    },
   });
 }
 
@@ -38,7 +51,7 @@ function cookieValue(request, name) {
 
 async function sessionToken(env) {
   if (!env.RUNNER_SHARED_TOKEN || !env.LIBRARY_ACCESS_SHA256) return '';
-  return sha256Hex(`audio-library-session-v2\0${env.RUNNER_SHARED_TOKEN}\0${env.LIBRARY_ACCESS_SHA256}`);
+  return sha256Hex(`audio-library-session-v3\0${env.RUNNER_SHARED_TOKEN}\0${env.LIBRARY_ACCESS_SHA256}`);
 }
 
 async function authorized(request, env) {
@@ -54,12 +67,12 @@ async function authorized(request, env) {
 
 function loginPage(error = '') {
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#000"><title>Audio Library</title><style>
-  :root{color-scheme:dark}*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#000;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{min-height:100dvh;display:grid;place-items:center;padding:22px}.card{width:min(420px,100%);border:1px solid #2b2b2b;background:#080808;border-radius:20px;padding:22px}.title{font-size:26px;font-weight:760;letter-spacing:-.03em;margin:0 0 8px}.sub{color:#8f8f95;font-size:14px;margin-bottom:20px}.field{width:100%;height:50px;border:1px solid #333;border-radius:13px;background:#000;color:#fff;padding:0 14px;font-size:17px;outline:none}.field:focus{border-color:#777}.btn{width:100%;height:50px;margin-top:10px;border:0;border-radius:13px;background:#fff;color:#000;font-size:16px;font-weight:750}.note{color:#777;font-size:12px;margin-top:12px;text-align:center}.err{color:#ff7979;font-size:13px;margin:0 0 10px}</style></head><body><form class="card" method="post" action="/login"><h1 class="title">Audio Library</h1><div class="sub">Nhập pass một lần. Safari sẽ ghi nhớ phiên đăng nhập trên thiết bị này.</div>${error ? `<div class="err">${error}</div>` : ''}<input class="field" name="password" type="password" autocomplete="current-password" autofocus placeholder="Pass" required><button class="btn" type="submit">Mở thư viện</button><div class="note">Phiên được lưu trên máy, không lưu lại pass.</div></form><script>(()=>{try{const t=localStorage.getItem('audio-library-session-v2');if(t){document.cookie='audio_library_session='+encodeURIComponent(t)+'; Max-Age=31536000; Path=/; Secure; SameSite=Lax';location.replace('/')}}catch{}})();</script></body></html>`;
+  :root{color-scheme:dark}*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#000;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{min-height:100dvh;display:flex;align-items:flex-start;justify-content:center;padding:calc(82px + env(safe-area-inset-top)) 20px 30px}.card{width:min(420px,100%);border:1px solid #303030;background:#090909;border-radius:20px;padding:22px;box-shadow:0 16px 60px #000}.title{font-size:28px;font-weight:780;letter-spacing:-.03em;margin:0 0 8px}.sub{color:#a0a0a6;font-size:14px;line-height:1.45;margin-bottom:20px}.field{width:100%;height:52px;border:1px solid #3b3b3b;border-radius:13px;background:#000;color:#fff;padding:0 14px;font-size:17px;outline:none}.field:focus{border-color:#888}.btn{width:100%;height:52px;margin-top:10px;border:0;border-radius:13px;background:#fff;color:#000;font-size:16px;font-weight:780}.note{color:#777;font-size:12px;margin-top:12px;text-align:center}.err{color:#ff7979;font-size:13px;margin:0 0 10px}</style></head><body><form class="card" method="post" action="/login"><h1 class="title">Audio Library</h1><div class="sub">Nhập pass một lần. Safari sẽ ghi nhớ đăng nhập trên thiết bị này.</div>${error ? `<div class="err">${error}</div>` : ''}<input class="field" name="password" type="password" autocomplete="current-password" autofocus placeholder="Pass" required><button class="btn" type="submit">Mở thư viện</button><div class="note">Session cũ đã được làm mới để tránh màn hình trống.</div></form><script>try{localStorage.removeItem('audio-library-session-v2');localStorage.removeItem('audio-library-session-v3')}catch{}</script></body></html>`;
 }
 
 function rememberPage(token) {
   const safe = JSON.stringify(token);
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#000"></head><body style="margin:0;background:#000;color:#fff"><script>try{localStorage.setItem('audio-library-session-v2',${safe});document.cookie='audio_library_session='+encodeURIComponent(${safe})+'; Max-Age=31536000; Path=/; Secure; SameSite=Lax'}catch{}location.replace('/');</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#000"></head><body style="margin:0;background:#000;color:#fff"><div style="font-family:-apple-system;padding:32px;color:#aaa">Đang mở thư viện…</div><script>try{localStorage.setItem('audio-library-session-v3',${safe})}catch{}location.replace('/?v=3');</script></body></html>`;
 }
 
 async function login(request, env) {
@@ -77,15 +90,14 @@ async function login(request, env) {
   const suppliedHash = await sha256Hex(password);
   if (!env.LIBRARY_ACCESS_SHA256 || !(await timingSafeEqualStrings(suppliedHash, env.LIBRARY_ACCESS_SHA256))) {
     if (wantsJson) return json({ error: 'Pass không đúng' }, 401);
-    return new Response(loginPage('Pass không đúng.'), { status: 401, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+    return noCacheHtml(loginPage('Pass không đúng.'), 401, {
+      'set-cookie': 'audio_library_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax',
+    });
   }
   const token = await sessionToken(env);
   const cookie = `audio_library_session=${encodeURIComponent(token)}; Max-Age=31536000; Path=/; HttpOnly; Secure; SameSite=Lax`;
   if (wantsJson) return json({ ok: true, token }, 200, { 'set-cookie': cookie });
-  return new Response(rememberPage(token), {
-    status: 200,
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': cookie },
-  });
+  return noCacheHtml(rememberPage(token), 200, { 'set-cookie': cookie });
 }
 
 async function softDelete(request, env, id) {
@@ -108,11 +120,12 @@ async function appResponse(request, env, ctx) {
   if (!response.ok || !(response.headers.get('content-type') || '').includes('text/html')) return response;
   const token = await sessionToken(env);
   let body = await response.text();
-  const bootstrap = `<script>(()=>{const t=${JSON.stringify(token)};try{localStorage.setItem('audio-library-session-v2',t)}catch{}const nf=window.fetch.bind(window);window.fetch=(input,init={})=>{try{const u=new URL(typeof input==='string'?input:input.url,location.href);if(u.origin===location.origin&&u.pathname.startsWith('/api/')){const h=new Headers(init.headers||(typeof input!=='string'?input.headers:undefined)||{});h.set('authorization','Bearer '+t);init={...init,headers:h}}}catch{}return nf(input,init)};})();</script>`;
+  const bootstrap = `<script>(()=>{const t=${JSON.stringify(token)};try{localStorage.setItem('audio-library-session-v3',t)}catch{}const nf=window.fetch.bind(window);window.fetch=(input,init={})=>{try{const u=new URL(typeof input==='string'?input:input.url,location.href);if(u.origin===location.origin&&u.pathname.startsWith('/api/')){const h=new Headers(init.headers||(typeof input!=='string'?input.headers:undefined)||{});h.set('authorization','Bearer '+t);init={...init,headers:h}}}catch{}return nf(input,init)};})();</script>`;
   body = body.replace('<body>', '<body>' + bootstrap);
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/html; charset=utf-8');
-  headers.set('cache-control', 'no-store');
+  headers.set('cache-control', 'no-store, no-cache, must-revalidate, max-age=0');
+  headers.set('pragma', 'no-cache');
   headers.delete('content-length');
   return new Response(body, { status: response.status, headers });
 }
@@ -121,19 +134,30 @@ async function handle(request, env, ctx) {
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/api/runner/')) return inner.fetch(request, env, ctx);
-  if (url.pathname === '/health') return json({ ok: true, service: 'runner3-audio-library', access: 'password', remembered: true, auth: 'cookie+bearer-v2', softDeleteDays: 30 });
+  if (url.pathname === '/health') return json({ ok: true, service: 'runner3-audio-library', access: 'password', remembered: true, auth: 'cookie+bearer-v3', softDeleteDays: 30 });
+  if (url.pathname === '/login' && request.method === 'GET') {
+    return noCacheHtml(loginPage(), 200, {
+      'set-cookie': 'audio_library_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax',
+    });
+  }
   if (url.pathname === '/login' && request.method === 'POST') return login(request, env);
   if (url.pathname === '/logout') {
-    return new Response(`<!doctype html><script>try{localStorage.removeItem('audio-library-session-v2')}catch{}location.replace('/')</script>`, {
-      status: 200,
-      headers: { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'audio_library_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax' },
+    return noCacheHtml(`<!doctype html><script>try{localStorage.removeItem('audio-library-session-v2');localStorage.removeItem('audio-library-session-v3')}catch{}location.replace('/login?v=3')</script>`, 200, {
+      'set-cookie': 'audio_library_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax',
     });
   }
 
   const ok = await authorized(request, env);
   if (!ok) {
     if (url.pathname.startsWith('/api/')) return json({ error: 'Unauthorized' }, 401);
-    return new Response(loginPage(), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+    return new Response(null, {
+      status: 303,
+      headers: {
+        location: '/login?v=3',
+        'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'set-cookie': 'audio_library_session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax',
+      },
+    });
   }
 
   const m = url.pathname.match(/^\/api\/items\/([0-9a-f-]+)$/i);
