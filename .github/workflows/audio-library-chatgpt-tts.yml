@@ -7,26 +7,25 @@ on:
       - 'ops/audio-library/chatgpt-outbox/*.json'
       - 'ops/audio-library/chatgpt-outbox-chunks/**'
       - '.github/workflows/audio-library-chatgpt-tts.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'ops/audio-library/tts-trigger/**'
-      - 'ops/audio-library/chatgpt-outbox-chunks/**'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: runner3-audio-chatgpt-tts-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
   tts:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       AUDIO_LIBRARY_BUCKET: runner3-wp-media
       AUDIO_LIBRARY_VOICE: vi-VN-NamMinhNeural
       AUDIO_LIBRARY_VOICE_RATE: +3%
-      AUDIO_LIBRARY_CURRENT_ITEM: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,8 +41,6 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        shell: bash
-        continue-on-error: true
         run: |
           set -euo pipefail
           python -m pip install -q requests edge-tts 'cryptography>=45,<47'
@@ -52,62 +49,79 @@ jobs:
             sudo apt-get install -y -qq ffmpeg
           fi
 
-      - name: Reassemble encrypted outbox when chunked
+      - name: Discover changed encrypted outboxes
+        id: discover
         shell: bash
-        continue-on-error: true
         run: |
           set -euo pipefail
-          chunk_dir="ops/audio-library/chatgpt-outbox-chunks/${AUDIO_LIBRARY_CURRENT_ITEM}"
-          if [ -s "$chunk_dir/manifest.json" ]; then
-            python - <<'PY'
-          import hashlib,json,os
+          mkdir -p /tmp/audio-outboxes
+          python - <<'PY'
+          import hashlib,json,os,subprocess
           from pathlib import Path
-          item=os.environ['AUDIO_LIBRARY_CURRENT_ITEM']
-          root=Path('ops/audio-library/chatgpt-outbox-chunks')/item
-          m=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
-          if str(m.get('id')) != item: raise SystemExit('manifest id mismatch')
-          n=int(m['chunkCount'])
-          cipher=''.join((root/f'{i:03d}.txt').read_text(encoding='utf-8').strip() for i in range(n))
-          if len(cipher) != int(m['ciphertextChars']): raise SystemExit('ciphertext length mismatch')
-          if hashlib.sha256(cipher.encode()).hexdigest() != m['ciphertextSha256']: raise SystemExit('ciphertext hash mismatch')
-          env={'v':m.get('v',1),'id':item,'ephemeralPublicKey':m['ephemeralPublicKey'],'nonce':m['nonce'],'ciphertext':cipher}
-          Path('/tmp/chunked-outbox.json').write_text(json.dumps(env,separators=(',',':')),encoding='utf-8')
-          PY
-          fi
 
-      - name: Decrypt and synthesize
+          sha=os.environ.get('GITHUB_SHA','')
+          run=subprocess.run(['git','diff-tree','--no-commit-id','--name-only','-r',sha],text=True,capture_output=True,check=False)
+          changed=[x.strip() for x in run.stdout.splitlines() if x.strip()]
+          out=[]
+          seen=set()
+
+          for name in changed:
+              if name.startswith('ops/audio-library/chatgpt-outbox/') and name.endswith('.json'):
+                  p=Path(name)
+                  if p.exists() and str(p) not in seen:
+                      out.append(str(p)); seen.add(str(p))
+
+          chunk_ids=[]
+          for name in changed:
+              prefix='ops/audio-library/chatgpt-outbox-chunks/'
+              if name.startswith(prefix):
+                  rest=name[len(prefix):]
+                  item=rest.split('/',1)[0]
+                  if item and item not in chunk_ids: chunk_ids.append(item)
+
+          for item in chunk_ids:
+              root=Path('ops/audio-library/chatgpt-outbox-chunks')/item
+              mp=root/'manifest.json'
+              if not mp.exists(): continue
+              m=json.loads(mp.read_text(encoding='utf-8'))
+              n=int(m['chunkCount'])
+              cipher=''.join((root/f'{i:03d}.txt').read_text(encoding='utf-8').strip() for i in range(n))
+              if len(cipher)!=int(m['ciphertextChars']): raise SystemExit(f'{item}: ciphertext length mismatch')
+              expected=m.get('ciphertextSha256')
+              if expected and hashlib.sha256(cipher.encode()).hexdigest()!=expected: raise SystemExit(f'{item}: ciphertext hash mismatch')
+              env={'v':m.get('v',1),'id':item,'ephemeralPublicKey':m['ephemeralPublicKey'],'nonce':m['nonce'],'ciphertext':cipher}
+              p=Path('/tmp/audio-outboxes')/f'{item}.json'
+              p.write_text(json.dumps(env,separators=(',',':')),encoding='utf-8')
+              if str(p) not in seen: out.append(str(p)); seen.add(str(p))
+
+          Path('/tmp/outboxes.list').write_text('\n'.join(out)+('\n' if out else ''),encoding='utf-8')
+          print(json.dumps({'changed':changed,'outboxCount':len(out),'outboxes':out},ensure_ascii=False))
+          PY
+          count="$(grep -c . /tmp/outboxes.list || true)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Decrypt and synthesize changed items
         id: synth
-        if: always()
+        if: steps.discover.outputs.count != '0'
         continue-on-error: true
         shell: bash
         run: |
           set +e
           exec > >(tee /tmp/chatgpt-tts.log) 2>&1
-          python -m pip install -q requests edge-tts 'cryptography>=45,<47' || true
-          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-            sudo apt-get update -qq || true
-            sudo apt-get install -y -qq ffmpeg || true
-          fi
-          if [ -s /tmp/chunked-outbox.json ]; then
-            files="/tmp/chunked-outbox.json"
-          else
-            files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')"
-            if [ -z "$files" ]; then files="ops/audio-library/chatgpt-outbox/${AUDIO_LIBRARY_CURRENT_ITEM}.json"; fi
-          fi
-          test -s "$files"
-          code=$?
-          if [ "$code" -eq 0 ]; then
-            mkdir -p /tmp/chatgpt-payloads
-            python - $files <<'PY'
-          import base64,hashlib,json,os,sys
+          mkdir -p /tmp/chatgpt-payloads
+          python - <<'PY'
+          import base64,hashlib,json,os,zlib
           from pathlib import Path
           from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
           from cryptography.hazmat.primitives.kdf.hkdf import HKDF
           from cryptography.hazmat.primitives import hashes
           from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+          names=[x.strip() for x in Path('/tmp/outboxes.list').read_text().splitlines() if x.strip()]
           seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).digest()
           private=X25519PrivateKey.from_private_bytes(seed)
-          for name in sys.argv[1:]:
+          ids=[]
+          for name in names:
               env=json.loads(Path(name).read_text(encoding='utf-8'))
               item_id=str(env['id'])
               eph=X25519PublicKey.from_public_bytes(base64.b64decode(env['ephemeralPublicKey']))
@@ -115,11 +129,16 @@ jobs:
               key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-audio-library-chatgpt-v1').derive(shared)
               plain=ChaCha20Poly1305(key).decrypt(base64.b64decode(env['nonce']),base64.b64decode(env['ciphertext']),item_id.encode())
               payload=json.loads(plain)
-              if str(payload.get('id')) != item_id: raise SystemExit('payload id mismatch')
+              if str(payload.get('id'))!=item_id: raise SystemExit(f'{item_id}: payload id mismatch')
+              if not payload.get('script') and payload.get('scriptZlibB64'):
+                  payload['script']=zlib.decompress(base64.b64decode(payload.pop('scriptZlibB64'))).decode('utf-8')
+              if len(str(payload.get('script') or ''))<300: raise SystemExit(f'{item_id}: script missing or too short')
               Path('/tmp/chatgpt-payloads/'+item_id+'.json').write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
+              ids.append(item_id)
+          Path('/tmp/item-ids.json').write_text(json.dumps(ids),encoding='utf-8')
+          print(json.dumps({'decryptedItems':ids}))
           PY
-            code=$?
-          fi
+          code=$?
           if [ "$code" -eq 0 ]; then
             for f in /tmp/chatgpt-payloads/*.json; do
               python scripts/audio_library_tts_from_chatgpt.py "$f" || { code=$?; break; }
@@ -129,7 +148,7 @@ jobs:
           exit "$code"
 
       - name: Publish safe TTS checkpoint
-        if: always()
+        if: always() && steps.discover.outputs.count != '0'
         env:
           SYNTH_OUTCOME: ${{ steps.synth.outcome }}
           SYNTH_EXIT_CODE: ${{ steps.synth.outputs.exit_code }}
@@ -137,44 +156,47 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ops/audio-library /tmp/audio-tts-status
-          item_key="audio-library/items/${AUDIO_LIBRARY_CURRENT_ITEM}.json"
-          media_key="audio-library/media/${AUDIO_LIBRARY_CURRENT_ITEM}/episode.mp3"
-          script_key="audio-library/media/${AUDIO_LIBRARY_CURRENT_ITEM}/script.txt"
-          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${item_key}" --file=/tmp/audio-tts-status/item.json --remote >/tmp/audio-tts-status/item.log 2>&1 || true
-          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${media_key}" --file=/tmp/audio-tts-status/episode.mp3 --remote >/tmp/audio-tts-status/media.log 2>&1 || true
-          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${script_key}" --file=/tmp/audio-tts-status/script.txt --remote >/tmp/audio-tts-status/script.log 2>&1 || true
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          ids=[]
+          p=Path('/tmp/item-ids.json')
+          if p.exists():
+              try: ids=json.loads(p.read_text())
+              except Exception: ids=[]
+          Path('/tmp/ids.txt').write_text('\n'.join(ids)+('\n' if ids else ''))
+          PY
+          while IFS= read -r item; do
+            [ -n "$item" ] || continue
+            mkdir -p "/tmp/audio-tts-status/$item"
+            npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/audio-library/items/${item}.json" --file="/tmp/audio-tts-status/$item/item.json" --remote >/dev/null 2>&1 || true
+            npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/audio-library/media/${item}/episode.mp3" --file="/tmp/audio-tts-status/$item/episode.mp3" --remote >/dev/null 2>&1 || true
+            npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/audio-library/media/${item}/script.txt" --file="/tmp/audio-tts-status/$item/script.txt" --remote >/dev/null 2>&1 || true
+          done < /tmp/ids.txt
           python - <<'PY'
           import datetime,json,os,re
           from pathlib import Path
-          item={}
-          p=Path('/tmp/audio-tts-status/item.json')
-          if p.exists() and p.stat().st_size:
-              try: item=json.loads(p.read_text(encoding='utf-8'))
-              except Exception: item={}
+          ids=[]
+          p=Path('/tmp/item-ids.json')
+          if p.exists():
+              try: ids=json.loads(p.read_text())
+              except Exception: ids=[]
+          rows=[]
+          for item in ids:
+              root=Path('/tmp/audio-tts-status')/item
+              meta={}
+              ip=root/'item.json'
+              if ip.exists() and ip.stat().st_size:
+                  try: meta=json.loads(ip.read_text(encoding='utf-8'))
+                  except Exception: meta={}
+              mp3=root/'episode.mp3'; script=root/'script.txt'
+              rows.append({'itemId':item,'itemStatus':meta.get('status'),'title':meta.get('title'),'durationSeconds':meta.get('durationSeconds'),'hasAudioUrl':bool(meta.get('audioUrl')),'hasTranscriptUrl':bool(meta.get('transcriptUrl')),'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,'scriptBytes':script.stat().st_size if script.exists() else 0})
           log=''
           lp=Path('/tmp/chatgpt-tts.log')
-          if lp.exists(): log=lp.read_text(encoding='utf-8',errors='replace')[-2500:]
+          if lp.exists(): log=lp.read_text(errors='replace')[-2500:]
           log=re.sub(r'https?://\S+','[url-redacted]',log)
           log=re.sub(r'(?i)(token|authorization|secret|key)\s*[=:]\s*\S+',r'\1=[redacted]',log)
-          mp3=Path('/tmp/audio-tts-status/episode.mp3')
-          script=Path('/tmp/audio-tts-status/script.txt')
-          out={
-            'status':'ready',
-            'itemId':os.environ['AUDIO_LIBRARY_CURRENT_ITEM'],
-            'synthOutcome':os.environ.get('SYNTH_OUTCOME','unknown'),
-            'synthExitCode':os.environ.get('SYNTH_EXIT_CODE',''),
-            'itemStatus':item.get('status'),
-            'title':item.get('title'),
-            'durationSeconds':item.get('durationSeconds'),
-            'hasAudioUrl':bool(item.get('audioUrl')),
-            'hasTranscriptUrl':bool(item.get('transcriptUrl')),
-            'episodeObjectExists':mp3.exists() and mp3.stat().st_size>1500,
-            'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,
-            'scriptObjectExists':script.exists() and script.stat().st_size>300,
-            'scriptBytes':script.stat().st_size if script.exists() else 0,
-            'errorTail':log if os.environ.get('SYNTH_OUTCOME')!='success' else '',
-            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-          }
+          out={'status':'ready','synthOutcome':os.environ.get('SYNTH_OUTCOME','unknown'),'synthExitCode':os.environ.get('SYNTH_EXIT_CODE',''),'items':rows,'errorTail':log if os.environ.get('SYNTH_OUTCOME')=='failure' else '', 'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           Path('ops/audio-library/chatgpt-tts-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(out,ensure_ascii=False))
           PY
@@ -188,5 +210,3 @@ jobs:
       - name: Fail if synthesis failed
         if: steps.synth.outcome == 'failure'
         run: exit 1
-
-# 2026-08-20: self-healing single-envelope retry
