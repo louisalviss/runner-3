@@ -1,0 +1,131 @@
+name: webnovel-writing-brain-conflict-audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/webnovel-writing-brain-conflict-audit.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-conflict-audit
+  cancel-in-progress: false
+
+env:
+  SOURCE_TAG: webnovel-writing-brain-semantic-v2-1-2026-08-20
+  SOURCE_ASSET: webnovel-writing-brain-semantic-v2-1-2026-08-20.zip
+  SOURCE_SHA256: c7376b5cf19dc6ce08fe011057aeb50f795f9ae05005736db43dc26c3050ee13
+  STATUS_FILE: ops/webnovel-writing-brain-conflict-audit.json
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download production brain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/unpacked
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir audit
+          echo "$SOURCE_SHA256  audit/$SOURCE_ASSET" | sha256sum -c -
+          unzip -q "audit/$SOURCE_ASSET" -d audit/unpacked
+          db=$(find audit/unpacked -type f -name writing_brain.sqlite | head -n1)
+          test -n "$db"
+          echo "DB=$db" >> "$GITHUB_ENV"
+
+      - name: Profile conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import collections,datetime,json,math,os,pathlib,re,sqlite3,statistics,unicodedata
+          con=sqlite3.connect(os.environ['DB']); con.row_factory=sqlite3.Row
+          rules={r['id']:dict(r) for r in con.execute('SELECT id,topic,direction,canonical_text,confidence,evidence_count,vidian_count,moxing_count,cross_source FROM canonical_rules')}
+          conflicts=[dict(r) for r in con.execute('SELECT id,rule_a,rule_b,topic,similarity,direction_a,direction_b,status,reason FROM canonical_conflicts ORDER BY similarity DESC,id')]
+          assert len(conflicts)==26320,len(conflicts)
+          def norm(s):
+              s=''.join(c for c in unicodedata.normalize('NFD',(s or '').lower()) if unicodedata.category(c)!='Mn')
+              return re.sub(r'[^0-9a-z]+',' ',s).strip()
+          def toks(s): return {x for x in norm(s).split() if len(x)>=3}
+          def jac(a,b):
+              a,b=toks(a),toks(b)
+              return len(a&b)/len(a|b) if a and b else 0.0
+          def evidence_sources(rule_id):
+              rows=con.execute('SELECT source,count(*) n FROM canonical_evidence WHERE rule_id=? GROUP BY source',(rule_id,)).fetchall()
+              return {r['source']:r['n'] for r in rows}
+          topic=collections.Counter(); dpair=collections.Counter(); sims=[]; lex=[]; both_cross=0; either_cross=0
+          buckets=collections.Counter(); candidates=[]
+          context_words=('khi','nếu','trừ khi','trong trường hợp','tùy','tuỳ','đối với','chỉ khi','thay vì','nhưng','tuy nhiên','không phải lúc nào')
+          absolute_words=('luôn','không bao giờ','bắt buộc','nhất định','mọi','tất cả','hoàn toàn')
+          for c in conflicts:
+              a,b=rules[c['rule_a']],rules[c['rule_b']]
+              topic[c['topic']]+=1
+              pair=' ↔ '.join(sorted((c['direction_a'],c['direction_b'])))
+              dpair[pair]+=1; sims.append(float(c['similarity']))
+              j=jac(a['canonical_text'],b['canonical_text']); lex.append(j)
+              either_cross+=int(bool(a['cross_source'] or b['cross_source']))
+              both_cross+=int(bool(a['cross_source'] and b['cross_source']))
+              s=float(c['similarity'])
+              if s>=0.95: buckets['>=0.95']+=1
+              elif s>=0.92: buckets['0.92-0.95']+=1
+              elif s>=0.90: buckets['0.90-0.92']+=1
+              elif s>=0.88: buckets['0.88-0.90']+=1
+              else: buckets['0.86-0.88']+=1
+              combined=(a['canonical_text']+' '+b['canonical_text']).lower()
+              context_hit=sum(w in combined for w in context_words)
+              absolute_hit=sum(w in combined for w in absolute_words)
+              # audit score only; not used to mutate data.
+              priority=2.2*s+0.8*j+0.12*math.log2(1+a['evidence_count']+b['evidence_count'])+0.15*(a['cross_source']+b['cross_source'])
+              candidates.append((priority,{
+                  'conflict_id':c['id'],'topic':c['topic'],'similarity':round(s,6),'lexical_jaccard':round(j,6),
+                  'direction_a':a['direction'],'direction_b':b['direction'],
+                  'rule_a':a['id'],'text_a':a['canonical_text'],'evidence_a':a['evidence_count'],'sources_a':evidence_sources(a['id']),
+                  'rule_b':b['id'],'text_b':b['canonical_text'],'evidence_b':b['evidence_count'],'sources_b':evidence_sources(b['id']),
+                  'context_markers':context_hit,'absolute_markers':absolute_hit,
+              }))
+          samples=[x for _,x in sorted(candidates,key=lambda z:z[0],reverse=True)[:80]]
+          sim_sorted=sorted(sims); lex_sorted=sorted(lex)
+          def pct(xs,p):
+              if not xs:return 0.0
+              pos=(len(xs)-1)*p; lo=int(pos); hi=min(len(xs)-1,lo+1); f=pos-lo
+              return xs[lo]*(1-f)+xs[hi]*f
+          out={
+              'schema':'webnovel-writing-brain-conflict-audit-v1',
+              'release_tag':os.environ['SOURCE_TAG'],'conflicts_total':len(conflicts),'rules_total':len(rules),
+              'topics':dict(topic.most_common()),'direction_pairs':dict(dpair.most_common()),'similarity_buckets':dict(buckets),
+              'similarity':{'min':round(min(sims),6),'p25':round(pct(sim_sorted,.25),6),'median':round(pct(sim_sorted,.5),6),'p75':round(pct(sim_sorted,.75),6),'p90':round(pct(sim_sorted,.9),6),'p95':round(pct(sim_sorted,.95),6),'max':round(max(sims),6),'mean':round(statistics.mean(sims),6)},
+              'lexical_jaccard':{'p25':round(pct(lex_sorted,.25),6),'median':round(pct(lex_sorted,.5),6),'p75':round(pct(lex_sorted,.75),6),'p90':round(pct(lex_sorted,.9),6),'mean':round(statistics.mean(lex),6)},
+              'either_rule_cross_source':either_cross,'both_rules_cross_source':both_cross,
+              'priority_samples':samples,
+              'interpretation_contract':'Audit only. No conflict candidate is promoted to a true contradiction until a separate resolver classifies scope/condition and preserves both rules as evidence.',
+              'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          pathlib.Path(os.environ['STATUS_FILE']).parent.mkdir(parents=True,exist_ok=True)
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({k:v for k,v in out.items() if k!='priority_samples'},ensure_ascii=False,indent=2))
+          con.close()
+          PY
+
+      - name: Commit audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          git commit -m 'Audit Semantic V2.1 conflicts [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
