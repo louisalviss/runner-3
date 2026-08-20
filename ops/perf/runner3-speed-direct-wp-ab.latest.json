@@ -1,0 +1,83 @@
+{
+  "status": "PASS",
+  "site": "runner5-restore-lab-1",
+  "url": "https://runner5-restore-lab-1.wasmer.app",
+  "cloudflareDetected": false,
+  "plugin": "Runner3 Speed v1",
+  "method": {
+    "baseline": "plugin active, Performance OFF",
+    "optimized": "plugin active, Performance ON, warmed cache HIT",
+    "curlRunsPerState": 15,
+    "browserRunsPerState": 7,
+    "lighthouseMobileRunsPerState": 3,
+    "aggregation": "median",
+    "cleanup": "forced OFF after benchmark"
+  },
+  "baseline": {
+    "curl": {
+      "ttfbMs": 536.6,
+      "totalMs": 824.7
+    },
+    "browser": {
+      "ttfbMs": 538.3,
+      "fcpMs": 924.0,
+      "lcpMs": 924.0,
+      "domContentLoadedMs": 924.9,
+      "loadMs": 1193.3,
+      "wallMs": 1798.0
+    },
+    "lighthouseMobile": {
+      "performanceScore": 94,
+      "fcpMs": 908.7,
+      "lcpMs": 1208.7,
+      "speedIndexMs": 1702.2,
+      "tbtMs": 0,
+      "cls": 0.158,
+      "serverResponseMs": 254
+    }
+  },
+  "optimized": {
+    "curl": {
+      "ttfbMs": 442.3,
+      "totalMs": 729.0
+    },
+    "browser": {
+      "ttfbMs": 447.1,
+      "fcpMs": 792.0,
+      "lcpMs": 792.0,
+      "domContentLoadedMs": 798.9,
+      "loadMs": 923.6,
+      "wallMs": 1531.0
+    },
+    "lighthouseMobile": {
+      "performanceScore": 94,
+      "fcpMs": 909.0,
+      "lcpMs": 1209.0,
+      "speedIndexMs": 1703.6,
+      "tbtMs": 0,
+      "cls": 0.158,
+      "serverResponseMs": 151
+    }
+  },
+  "delta": {
+    "curlTtfbMs": -94.3,
+    "curlTtfbPct": -17.6,
+    "curlTotalMs": -95.7,
+    "browserTtfbMs": -91.2,
+    "browserTtfbPct": -16.9,
+    "browserFcpMs": -132.0,
+    "browserLcpMs": -132.0,
+    "browserLoadMs": -269.7,
+    "lighthousePerformanceScore": 0,
+    "lighthouseServerResponseMs": -103,
+    "lighthouseFcpMs": 0.3,
+    "lighthouseLcpMs": 0.3
+  },
+  "githubActions": {
+    "workflow": "Runner3 Speed Direct WordPress A/B",
+    "runId": 32359423443,
+    "runNumber": 2,
+    "conclusion": "success"
+  },
+  "checkedAt": "2026-08-20T10:35:32.189Z"
+}
