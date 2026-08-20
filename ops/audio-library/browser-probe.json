@@ -1,17 +1,34 @@
 {
   "rootStatus": 200,
-  "url": "https://runner3-audio-library.ducduy2411.workers.dev/?probe=browser-v1",
+  "url": "https://runner3-audio-library.ducduy2411.workers.dev/?probe=browser-v3",
   "title": "Audio Library",
   "itemCount": 0,
   "listText": "",
   "countText": "",
   "errors": [
-    "SyntaxError: Invalid or unexpected token"
+    {
+      "message": "Invalid or unexpected token",
+      "stack": ""
+    }
   ],
   "consoleErrors": [
     "Failed to load resource: the server responded with a status of 404 ()"
   ],
   "responses": [],
+  "scriptChecks": [
+    {
+      "index": 0,
+      "chars": 532,
+      "ok": true,
+      "stderr": ""
+    },
+    {
+      "index": 1,
+      "chars": 9292,
+      "ok": false,
+      "stderr": "/tmp/script-1.js:13\nasync function bulkShare(){const arr=selectedItems().filter(i=>i.status==='ready');if(!arr.length)return toast('Chưa chọn audio sẵn sàng');const text=arr.map(i=>(i.title||'Audio')+'\n                                                                                                                                                                                    ^\n\nSyntaxError: Invalid or unexpected token\n    at wrapSafe (node:internal/modules/cjs/loader:1713:18)\n    at checkSyntax (node:internal/main/check_syntax:78:3)\n\nNode.js v22.23.2\n"
+    }
+  ],
   "hasApp": 1,
   "bodyText": "Thư viện\nChọn\nThêm\nTất cả\nĐang nghe\nĐã nghe"
 }
