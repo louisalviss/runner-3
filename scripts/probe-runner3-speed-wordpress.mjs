@@ -55,8 +55,7 @@ async function row(wp) {
 }
 
 async function install(wp) {
-  let existing = await row(wp);
-  if (await existing.count()) { result.installed = true; save(); return; }
+  await row(wp);
   await wp.goto(`${base}/wp-admin/plugin-install.php?tab=upload`, { waitUntil:'domcontentloaded', timeout:60000 });
   const input = wp.locator('input[type=file][name=pluginzip],input[type=file]').first();
   await input.waitFor({ state:'attached', timeout:15000 });
@@ -70,10 +69,13 @@ async function install(wp) {
   if (await replace.count()) {
     const href = await replace.getAttribute('href').catch(() => null);
     if (href) await wp.goto(new URL(href, `${base}/wp-admin/`).href, { waitUntil:'domcontentloaded', timeout:60000 });
-    else await replace.click({ force:true }).catch(() => {});
-    await wp.waitForTimeout(1500);
+    else {
+      await replace.click({ force:true });
+      await wp.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+    await wp.waitForTimeout(1800);
   }
-  existing = await row(wp);
+  const existing = await row(wp);
   if (!(await existing.count())) throw new Error('runner3_speed_install_missing');
   result.installed = true; save();
 }
