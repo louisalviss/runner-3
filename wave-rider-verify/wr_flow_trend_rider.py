@@ -112,10 +112,13 @@ def run(sym,tf,b,tick,btc,btcz,setup,exitmode):
  for i,x in enumerate(b):
   if x.ot>=END:break
   if active:
-   d,e,st,sigt,peak,trough=active; hit=(x.l<=st if d==1 else x.h>=st); reason=None; px=None
+   d,e,st,sigt,peak,trough,entry_i,orig=active
+   hit=(x.l<=st if d==1 else x.h>=st); reason=None; px=None
    if hit: reason='SL/TRAIL'; px=st
    if not reason and exitmode.startswith('FIXED'):
-    tp=2.0 if exitmode=='FIXED_2_0' else 2.3; tgt=e+tp*(e-st) if d==1 else e-tp*(st-e); h=(x.h>=tgt if d==1 else x.l<=tgt)
+    tp=2.0 if exitmode=='FIXED_2_0' else 2.3
+    tgt=e+tp*orig if d==1 else e-tp*orig
+    h=(x.h>=tgt if d==1 else x.l<=tgt)
     if h: reason='TP'; px=tgt
    if not reason and exitmode=='EMA20_EXIT':
     if (d==1 and x.c<z['e20'][i]) or (d==-1 and x.c>z['e20'][i]):reason='EMA20'; px=x.c
@@ -123,15 +126,14 @@ def run(sym,tf,b,tick,btc,btcz,setup,exitmode):
     chlo=min(y.l for y in b[i-10:i]); chhi=max(y.h for y in b[i-10:i])
     if (d==1 and x.c<chlo) or (d==-1 and x.c>chhi):reason='CHANNEL'; px=x.c
    if reason:
-    rr=(px-e)*(1 if d==1 else -1)/abs(e-(active[2] if reason!='SL/TRAIL' else active[2]))
-    # normalize to ORIGINAL structural risk stored separately below
-    orig=active[7]; rr=(px-e)*(1 if d==1 else -1)/orig
+    rr=(px-e)*(1 if d==1 else -1)/orig
     out.append({'symbol':sym,'tf':tf,'setup':setup,'exit':exitmode,'signal_time':sigt,'side':'LONG' if d==1 else 'SHORT','entry':e,'stop0':e-orig if d==1 else e+orig,'exit_time':x.ct,'R':rr,'exit_reason':reason})
     active=None; continue
    peak=max(peak,x.h); trough=min(trough,x.l)
    if exitmode=='ATR_TRAIL_2_5' and z['atr'][i] is not None:
-    ns=peak-2.5*z['atr'][i] if d==1 else trough+2.5*z['atr'][i]; st=max(st,ns) if d==1 else min(st,ns)
-   active=(d,e,st,sigt,peak,trough,active[6],active[7])
+    ns=peak-2.5*z['atr'][i] if d==1 else trough+2.5*z['atr'][i]
+    st=max(st,ns) if d==1 else min(st,ns)
+   active=(d,e,st,sigt,peak,trough,entry_i,orig)
   if pending and i==pending[0]+1 and active is None:
    _,d,trig,s0,sigt=pending; ok=(x.c>trig if d==1 else x.c<trig)
    if ok:
