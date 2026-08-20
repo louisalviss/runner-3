@@ -1,0 +1,40 @@
+{
+  "schema": "webnovel-writing-brain-nli-v2.3-production-status",
+  "status": "completed",
+  "conclusion": "success",
+  "promotion_pass": true,
+  "release_tag": "webnovel-writing-brain-nli-v2-3-2026-08-20",
+  "asset": "webnovel-writing-brain-nli-v2-3-2026-08-20.zip",
+  "asset_size_bytes": 169140679,
+  "asset_sha256": "f961aa5d4b924b4ef7201fb2d0f5b676fa7fd6579e0d70eedbe5669447fbc4db",
+  "passages_total": 21210,
+  "atomic_rules": 23509,
+  "canonical_rules": 16697,
+  "relations_total": 26320,
+  "review_before": 2494,
+  "review_after": 1104,
+  "review_resolved": 1390,
+  "review_resolved_rate": 0.557338,
+  "overall_review_rate": 0.041945,
+  "nli_decisions": {
+    "review": 1104,
+    "true_conflict": 124,
+    "complementary": 1067,
+    "conditional": 199
+  },
+  "final_relations": {
+    "complementary": 22412,
+    "conditional": 2538,
+    "direction_error": 10,
+    "review": 1104,
+    "true_conflict": 256
+  },
+  "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+  "model_sanity": {
+    "paraphrase_entailment": 0.998555,
+    "explicit_contradiction": 0.999454,
+    "context_pair_neutral": 0.992848
+  },
+  "knowledge_mode": "semantic-canonical-context-nli-first",
+  "checked_at_utc": "2026-08-20T18:00:21Z"
+}

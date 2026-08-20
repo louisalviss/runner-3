@@ -6,6 +6,13 @@ import webnovel_writing_brain as brain
 import webnovel_writing_brain_canonical_agent as canonical
 
 
+def _nli_for_relation(con,relation_id):
+    try:
+        r=con.execute('SELECT * FROM canonical_relation_nli WHERE relation_id=?',(relation_id,)).fetchone()
+        return dict(r) if r else None
+    except sqlite3.OperationalError:
+        return None
+
 def _load_context(con,rule_id,relation_limit=6):
     try:
         r=con.execute('SELECT * FROM canonical_rule_context WHERE rule_id=?',(rule_id,)).fetchone()
@@ -23,7 +30,7 @@ def _load_context(con,rule_id,relation_limit=6):
           ORDER BY CASE relation WHEN 'true_conflict' THEN 0 WHEN 'conditional' THEN 1 WHEN 'direction_error' THEN 2 ELSE 3 END,
                    confidence DESC LIMIT ?''',(rule_id,rule_id,relation_limit)).fetchall()
         for x in rows:
-            d=dict(x);d['other_rule_id']=d['rule_b'] if d['rule_a']==rule_id else d['rule_a'];rels.append(d)
+            d=dict(x);d['other_rule_id']=d['rule_b'] if d['rule_a']==rule_id else d['rule_a'];d['nli']=_nli_for_relation(con,d['relation_id']);rels.append(d)
     except sqlite3.OperationalError:pass
     return c,rels
 
@@ -43,14 +50,14 @@ def enrich_hits(index,hits):
         x=dict(h);ctx,rels=_load_context(con,x['rule_id']);x['context']=ctx;x['relations']=rels;x['effective_direction']=_effective(x,ctx)
         x['true_conflict_relations']=sum(r['relation']=='true_conflict' for r in rels)
         x['conditional_relations']=sum(r['relation']=='conditional' for r in rels)
+        x['nli_audited_relations']=sum(r.get('nli') is not None for r in rels)
         out.append(x)
     con.close();return out
 
 def search(index,q,limit=12,topic=None,direction=None,cross_source_only=False,evidence_limit=4):
     hits=canonical.search(index,q,limit*2 if direction else limit,topic,None,cross_source_only,evidence_limit)
     hits=enrich_hits(index,hits)
-    if direction:
-        hits=[x for x in hits if x['effective_direction']==direction]
+    if direction:hits=[x for x in hits if x['effective_direction']==direction]
     return hits[:limit]
 
 def direct(index,brief,limit=32):
@@ -62,20 +69,19 @@ def direct(index,brief,limit=32):
         sec['techniques']=[x for x in hits if x['effective_direction']=='technique']
         sec['conditional']=[x for x in hits if x.get('context',{}).get('application_mode')=='contextual']
         sec['true_conflict_relations']=sum(x['true_conflict_relations'] for x in hits)
-    d['schema']='webnovel-writing-directive-context-v2.2';d['knowledge_layer']='canonical_rules+context_relations'
-    d['protocol']=['Draft from semantic canonical rules first.','Use effective_direction inferred from Vietnamese text; legacy direction labels are provenance only when they disagree.','Treat conditional relations as context-dependent alternatives, not universal contradictions.','Surface true-conflict relations when two explicit opposing rules target the same proposition.','Use linked evidence for nuance/provenance.']
+        sec['nli_audited_relations']=sum(x['nli_audited_relations'] for x in hits)
+    d['schema']='webnovel-writing-directive-context-v2.3';d['knowledge_layer']='canonical_rules+context_relations+nli_audit'
+    d['protocol']=['Draft from semantic canonical rules first.','Use effective_direction inferred from Vietnamese text; legacy direction labels are provenance only when they disagree.','Treat conditional relations as context-dependent alternatives, not universal contradictions.','Surface true-conflict relations when two explicit opposing rules target the same proposition.','For NLI-audited relations, retain bidirectional contradiction/neutral/entailment probabilities for auditability.','Use linked evidence for nuance/provenance.']
     return d
 
 def review(index,text,limit=24):
     d=canonical.review(index,text,limit)
     for bucket in d.get('rule_buckets',[]):bucket['rules']=enrich_hits(index,bucket.get('rules',[]))
-    d['schema']='webnovel-writing-review-context-v2.2';d['knowledge_layer']='canonical_rules+context_relations';return d
+    d['schema']='webnovel-writing-review-context-v2.3';d['knowledge_layer']='canonical_rules+context_relations+nli_audit';return d
 
 def checklist(index,topic,limit=18):
     hits=search(index,' '.join(brain.TOPIC_TERMS[topic][:10]),limit,topic,evidence_limit=3)
-    return {'schema':'webnovel-writing-checklist-context-v2.2','topic':topic,'items':hits,
-      'cross_source_rules':sum(x['cross_source'] for x in hits),'conditional_items':sum(x.get('context',{}).get('application_mode')=='contextual' for x in hits),
-      'knowledge_layer':'canonical_rules+context_relations'}
+    return {'schema':'webnovel-writing-checklist-context-v2.3','topic':topic,'items':hits,'cross_source_rules':sum(x['cross_source'] for x in hits),'conditional_items':sum(x.get('context',{}).get('application_mode')=='contextual' for x in hits),'knowledge_layer':'canonical_rules+context_relations+nli_audit'}
 
 def dump(x,path=None):
     raw=json.dumps(x,ensure_ascii=False,indent=2);print(raw)
@@ -89,9 +95,12 @@ def main():
     c=sp.add_parser('checklist');c.add_argument('--index',required=True);c.add_argument('--topic',required=True,choices=brain.CANONICAL_TOPICS);c.add_argument('--limit',type=int,default=18);c.add_argument('--json-out')
     s=sp.add_parser('stats');s.add_argument('--index',required=True)
     a=ap.parse_args()
-    if a.cmd=='query':dump({'schema':'webnovel-writing-query-context-v2.2','query':a.q,'hits':search(a.index,a.q,a.limit,a.topic,a.direction,a.cross_source_only)},a.json_out)
+    if a.cmd=='query':dump({'schema':'webnovel-writing-query-context-v2.3','query':a.q,'hits':search(a.index,a.q,a.limit,a.topic,a.direction,a.cross_source_only)},a.json_out)
     elif a.cmd=='direct':dump(direct(a.index,a.brief if a.brief is not None else Path(a.file).read_text(encoding='utf-8'),a.limit),a.json_out)
     elif a.cmd=='review':dump(review(a.index,a.text if a.text is not None else Path(a.file).read_text(encoding='utf-8'),a.limit),a.json_out)
     elif a.cmd=='checklist':dump(checklist(a.index,a.topic,a.limit),a.json_out)
-    else:print((Path(a.index)/'context_v2_2_qa.json').read_text(encoding='utf-8'))
+    else:
+        p=Path(a.index)/'nli_v2_3_qa.json'
+        if not p.exists():p=Path(a.index)/'context_v2_2_qa.json'
+        print(p.read_text(encoding='utf-8'))
 if __name__=='__main__':main()

@@ -1,24 +1,26 @@
 {
-  "schema": "webnovel-writing-brain-default-v3",
-  "default_release_tag": "webnovel-writing-brain-context-v2-2-2026-08-20",
-  "default_asset": "webnovel-writing-brain-context-v2-2-2026-08-20.zip",
-  "knowledge_mode": "semantic-canonical-context-first",
+  "schema": "webnovel-writing-brain-default-v4",
+  "default_release_tag": "webnovel-writing-brain-nli-v2-3-2026-08-20",
+  "default_asset": "webnovel-writing-brain-nli-v2-3-2026-08-20.zip",
+  "knowledge_mode": "semantic-canonical-context-nli-first",
   "language_mode": "vi-first",
   "passages_total": 21210,
   "atomic_rules": 23509,
   "canonical_rules": 16697,
   "cross_source_rules": 1098,
-  "raw_conflict_candidates": 26320,
   "context_relations": 26320,
-  "relations": {
-    "complementary": 21345,
-    "conditional": 2339,
-    "true_conflict": 132,
-    "review": 2494,
-    "direction_error": 10
+  "review_relations_remaining": 1104,
+  "nli_review_resolved": 1390,
+  "final_relations": {
+    "complementary": 22412,
+    "conditional": 2538,
+    "direction_error": 10,
+    "review": 1104,
+    "true_conflict": 256
   },
-  "legacy_negative_direction_mismatches": 523,
+  "nli_model": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
   "evidence_preserved": true,
+  "retrieval_ranking_preserved": true,
   "promotion_pass": true,
-  "updated_at_utc": "2026-08-20T14:10:06.615920+00:00"
+  "updated_at_utc": "2026-08-20T18:00:21Z"
 }
