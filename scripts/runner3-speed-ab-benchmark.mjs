@@ -64,13 +64,22 @@ async function toggle(wp,want){
   const after=await wp.locator('body').innerText(); if(want&&!/Performance\s*ON/i.test(after))throw new Error(`turn_on_failed:${after.slice(0,300)}`); if(!want&&!/Performance\s*OFF/i.test(after))throw new Error('turn_off_failed');
 }
 
+function lastHeader(text,name){
+  const rx=new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}:\\s*(.+)$`,'gim');
+  const matches=[...text.matchAll(rx)]; return matches.length?matches[matches.length-1][1].trim():null;
+}
+
 function curlRuns(n=15){
   const rows=[];
   for(let i=0;i<n;i++){
-    const raw=execFileSync('curl',['-L','-sS','-o','/dev/null','-w','%{http_code} %{time_starttransfer} %{time_total} %{size_download}',base+'/'],{encoding:'utf8'}).trim();
-    const [code,ttfb,total,size]=raw.split(/\s+/); rows.push({code:Number(code),ttfbMs:Number(ttfb)*1000,totalMs:Number(total)*1000,size:Number(size)});
+    const raw=execFileSync('curl',['-L','-sS','-D','-','-o','/dev/null','-w','\n__R3_METRICS__ %{http_code} %{time_starttransfer} %{time_total} %{size_download}',base+'/'],{encoding:'utf8'});
+    const [head,metricRaw='']=raw.split('__R3_METRICS__');
+    const [code,ttfb,total,size]=metricRaw.trim().split(/\s+/);
+    rows.push({code:Number(code),ttfbMs:Number(ttfb)*1000,totalMs:Number(total)*1000,size:Number(size),speed:lastHeader(head,'x-runner3-speed'),speedVersion:lastHeader(head,'x-runner3-speed-version')});
   }
-  return {runs:rows,medianTtfbMs:round(median(rows.map(x=>x.ttfbMs))),medianTotalMs:round(median(rows.map(x=>x.totalMs))),medianBytes:round(median(rows.map(x=>x.size)),0)};
+  const states=Object.fromEntries([...new Set(rows.map(x=>x.speed||'NONE'))].map(s=>[s,rows.filter(x=>(x.speed||'NONE')===s).length]));
+  const hits=rows.filter(x=>x.speed==='HIT');
+  return {runs:rows,states,medianTtfbMs:round(median(rows.map(x=>x.ttfbMs))),medianTotalMs:round(median(rows.map(x=>x.totalMs))),medianBytes:round(median(rows.map(x=>x.size)),0),hitMedianTtfbMs:round(median(hits.map(x=>x.ttfbMs))),hitMedianTotalMs:round(median(hits.map(x=>x.totalMs)))};
 }
 
 async function browserRuns(browser,n=7){
@@ -81,10 +90,13 @@ async function browserRuns(browser,n=7){
     await page.addInitScript(()=>{window.__runner3Lcp=0;window.__runner3Cls=0;new PerformanceObserver(list=>{for(const e of list.getEntries())window.__runner3Lcp=Math.max(window.__runner3Lcp,e.startTime||0);}).observe({type:'largest-contentful-paint',buffered:true});new PerformanceObserver(list=>{for(const e of list.getEntries())if(!e.hadRecentInput)window.__runner3Cls+=e.value||0;}).observe({type:'layout-shift',buffered:true});});
     const started=Date.now(); const resp=await page.goto(base+'/',{waitUntil:'load',timeout:60000}); await sleep(600);
     const perf=await page.evaluate(()=>{const nav=performance.getEntriesByType('navigation')[0];const fcp=performance.getEntriesByName('first-contentful-paint')[0];return{ttfb:nav?.responseStart||0,domContentLoaded:nav?.domContentLoadedEventEnd||0,load:nav?.loadEventEnd||0,fcp:fcp?.startTime||0,lcp:window.__runner3Lcp||0,cls:window.__runner3Cls||0};});
-    rows.push({status:resp?.status()||0,wallMs:Date.now()-started,...perf}); await ctx.close();
+    const h=resp?.headers()||{};
+    rows.push({status:resp?.status()||0,wallMs:Date.now()-started,speed:h['x-runner3-speed']||null,speedVersion:h['x-runner3-speed-version']||null,...perf}); await ctx.close();
   }
   const pick=k=>round(median(rows.map(x=>Number(x[k]))),k==='cls'?3:1);
-  return {runs:rows,medianTtfbMs:pick('ttfb'),medianFcpMs:pick('fcp'),medianLcpMs:pick('lcp'),medianCls:pick('cls'),medianDclMs:pick('domContentLoaded'),medianLoadMs:pick('load'),medianWallMs:pick('wallMs')};
+  const states=Object.fromEntries([...new Set(rows.map(x=>x.speed||'NONE'))].map(s=>[s,rows.filter(x=>(x.speed||'NONE')===s).length]));
+  const hits=rows.filter(x=>x.speed==='HIT');
+  return {runs:rows,states,medianTtfbMs:pick('ttfb'),medianFcpMs:pick('fcp'),medianLcpMs:pick('lcp'),medianCls:pick('cls'),medianDclMs:pick('domContentLoaded'),medianLoadMs:pick('load'),medianWallMs:pick('wallMs'),hitMedianTtfbMs:round(median(hits.map(x=>x.ttfb))),hitMedianLcpMs:round(median(hits.map(x=>x.lcp)))};
 }
 
 function lighthouseRuns(label,n=3){
@@ -101,12 +113,15 @@ function lighthouseRuns(label,n=3){
 }
 
 const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']}); const adminCtx=await browser.newContext({ignoreHTTPSErrors:true}); const page=await adminCtx.newPage(); let wp;
-const report={status:'starting',site:slug,url:base,pluginVersion:expectedVersion,cloudflare:false,baseline:null,optimized:null,delta:null,checkedAt:null};
+const report={status:'starting',site:slug,url:base,pluginVersion:expectedVersion,cloudflare:false,baseline:null,optimized:null,optimizedWarm:null,delta:null,checkedAt:null};
 try{
   await login(page); wp=await adminPage(adminCtx,page); await install(wp); await activate(wp); await toggle(wp,false); await sleep(1500);
   const headers=execFileSync('curl',['-sSI',base+'/'],{encoding:'utf8'}); report.cloudflare=/^cf-ray:/im.test(headers); report.responseHeaders=headers.split(/\r?\n/).filter(x=>/^(server|cf-ray|x-runner3-speed|via|x-powered-by):/i.test(x));
   report.baseline={curl:curlRuns(15),browser:await browserRuns(browser,7),lighthouse:lighthouseRuns('off',3)};
-  await toggle(wp,true); await fetch(base+'/'); await fetch(base+'/'); await sleep(800); const warm=await fetch(base+'/'); if(warm.headers.get('x-runner3-speed')!=='HIT')throw new Error('optimized_cache_not_hit');
+  await toggle(wp,true); await fetch(base+'/'); await fetch(base+'/'); await sleep(800); const warm=await fetch(base+'/'); const warmBody=await warm.text();
+  report.optimizedWarm={speed:warm.headers.get('x-runner3-speed'),speedVersion:warm.headers.get('x-runner3-speed-version'),bytes:warmBody.length,layoutStabilizer:warmBody.includes('runner3-inspiro-layout-stabilizer'),fontPreloadCount:(warmBody.match(/rel=["']preload["'][^>]+as=["']font["']/gi)||[]).length};
+  if(report.optimizedWarm.speed!=='HIT')throw new Error(`optimized_cache_not_hit:${report.optimizedWarm.speed||'none'}`);
+  if(report.optimizedWarm.speedVersion!==expectedVersion)throw new Error(`optimized_cache_version_mismatch:${report.optimizedWarm.speedVersion||'none'}`);
   report.optimized={curl:curlRuns(15),browser:await browserRuns(browser,7),lighthouse:lighthouseRuns('on',3)};
   const b=report.baseline,o=report.optimized;
   report.delta={curlTtfbMs:round(o.curl.medianTtfbMs-b.curl.medianTtfbMs),curlTtfbPct:round((o.curl.medianTtfbMs/b.curl.medianTtfbMs-1)*100),browserTtfbMs:round(o.browser.medianTtfbMs-b.browser.medianTtfbMs),browserTtfbPct:round((o.browser.medianTtfbMs/b.browser.medianTtfbMs-1)*100),browserFcpMs:round(o.browser.medianFcpMs-b.browser.medianFcpMs),browserLcpMs:round(o.browser.medianLcpMs-b.browser.medianLcpMs),browserCls:round(o.browser.medianCls-b.browser.medianCls,3),browserLoadMs:round(o.browser.medianLoadMs-b.browser.medianLoadMs),lighthouseScore:round(o.lighthouse.medianScore-b.lighthouse.medianScore,0),lighthouseFcpMs:round(o.lighthouse.medianFcpMs-b.lighthouse.medianFcpMs),lighthouseLcpMs:round(o.lighthouse.medianLcpMs-b.lighthouse.medianLcpMs),lighthouseCls:round(o.lighthouse.medianCls-b.lighthouse.medianCls,3),lighthouseServerResponseMs:round(o.lighthouse.medianServerResponseMs-b.lighthouse.medianServerResponseMs)};
