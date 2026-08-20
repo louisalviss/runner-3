@@ -1,0 +1,184 @@
+name: Runner3 Speed Site3 B/C Recovery
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-bc-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WP_SITE_SLUG: runner3-speed-site3-realistic
+
+concurrency:
+  group: runner3-speed-site3-bc-recovery
+  cancel-in-progress: true
+
+jobs:
+  recover-bc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate State A checkpoint and package Runner3 Speed
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p='ops/site-factory/runner3-speed-site3-realistic.latest.json'
+          r=json.load(open(p))
+          assert r['seed']['status']=='READY', r.get('seed')
+          assert r['seed']['theme']=='blocksy', r['seed']
+          assert r['stateA']['status']=='ready', r.get('stateA')
+          assert r['stateA']['pluginAbsent'] is True, r['stateA']
+          print({'stateA':'PASS','browserTtfbMs':r['stateA']['browser']['medianTtfbMs'],'lighthouseScore':r['stateA']['lighthouse']['medianScore']})
+          PY
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          php -l wordpress/runner3-speed/uninstall.php
+          node --check scripts/runner3-speed-ab-benchmark.mjs
+          node --check scripts/runner3-speed-safety-matrix.mjs
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
+          test -s /tmp/runner3-speed.zip
+
+      - name: Decrypt Wasmer account
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install benchmark tooling
+        run: npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+
+      - name: Restore runtime site record from checkpoint
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          p='ops/site-factory/runner3-speed-site3-realistic.latest.json'
+          r=json.load(open(p))
+          site=r['site']
+          assert site['status']=='COMPLETE' and site['wpAdminReachable'] and site['wpApiReachable'], site
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(site,open('ops/site-factory/runner3-speed-site3-realistic.json','w'),indent=2)
+          print({'siteUrl':site['siteUrl'],'dashboardUrl':site['dashboardUrl']})
+          PY
+
+      - name: States B/C - installed OFF vs Performance ON
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-ab-benchmark.mjs
+          test -s /tmp/runner3-speed-ab.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-ab.json'))
+          assert r['status']=='ready', r
+          assert r['cloudflare'] is False, r
+          b,o=r['baseline'],r['optimized']
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['curl']['runs']), r
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['browser']['runs']), r
+          assert o['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'], r
+          print(json.dumps({'status':'PASS','version':r['pluginVersion'],'B_browserTtfbMs':b['browser']['medianTtfbMs'],'C_browserTtfbMs':o['browser']['medianTtfbMs'],'B_lighthouse':b['lighthouse']['medianScore'],'C_lighthouse':o['lighthouse']['medianScore'],'delta':r['delta']},indent=2))
+          PY
+
+      - name: Dynamic/private safety matrix
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-safety-matrix.mjs
+          test -s /tmp/runner3-speed-safety-matrix.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          assert r['status']=='ready', r
+          for k in ['currentHit','headHit','headEmptyBody','authCookieBypass','wooCartCookieBypass','wooSessionCookieBypass','cartPathBypass','checkoutPathBypass','accountPathBypass','wcApiPathBypass','deactivated','deactivateNoHit','reactivatedOff','finalNoHit']:
+              assert r[k], (k,r)
+          print(json.dumps({'status':'PASS','detail':r['detail']},indent=2))
+          PY
+
+      - name: Aggregate final Blocksy A/B/C result
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,datetime
+          cp=json.load(open('ops/site-factory/runner3-speed-site3-realistic.latest.json'))
+          a=cp['stateA']; seed=cp['seed']
+          bc=json.load(open('/tmp/runner3-speed-ab.json'))
+          sx=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          b,c=bc['baseline'],bc['optimized']
+          report={
+            'status':'PASS',
+            'site':cp['site'],
+            'starterImport':seed['starterImport'],
+            'fixture':{'theme':seed['theme'],'plugins':seed['plugins'],'pages':len(seed['pages']),'posts':len(seed['posts']),'media':len(seed['media']),'menu':seed['menu']},
+            'richness':a['richness'],
+            'pluginVersion':bc['pluginVersion'],
+            'states':{
+              'A_no_plugin':{'curlTtfbMs':a['curl']['medianTtfbMs'],'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs']},
+              'B_active_off':{'curlTtfbMs':b['curl']['medianTtfbMs'],'browserTtfbMs':b['browser']['medianTtfbMs'],'browserFcpMs':b['browser']['medianFcpMs'],'browserLcpMs':b['browser']['medianLcpMs'],'lighthouseScore':b['lighthouse']['medianScore'],'lighthouseLcpMs':b['lighthouse']['medianLcpMs']},
+              'C_performance_on':{'curlTtfbMs':c['curl']['medianTtfbMs'],'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs']}
+            },
+            'bcDelta':bc['delta'],
+            'safety':sx,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          assert b['browser']['medianTtfbMs'] <= a['browser']['medianTtfbMs']*1.20, report
+          assert b['lighthouse']['medianScore'] >= a['lighthouse']['medianScore']-2, report
+          json.dump(report,open('/tmp/runner3-speed-site3-realistic-report.json','w'),indent=2)
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-speed-site3-bc-recovery-evidence
+          path: |
+            /tmp/runner3-speed-ab.json
+            /tmp/runner3-speed-safety-matrix.json
+            /tmp/runner3-speed-site3-realistic-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Persist recovered checkpoint
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,datetime
+          p='ops/site-factory/runner3-speed-site3-realistic.latest.json'
+          cp=json.load(open(p))
+          def load(path):
+              if not os.path.exists(path): return None
+              try:return json.load(open(path))
+              except Exception as e:return {'status':'unreadable','error':str(e)}
+          cp['ab']=load('/tmp/runner3-speed-ab.json')
+          cp['safety']=load('/tmp/runner3-speed-safety-matrix.json')
+          cp['final']=load('/tmp/runner3-speed-site3-realistic-report.json')
+          cp['status']='PASS' if (cp['final'] or {}).get('status')=='PASS' else 'PARTIAL_OR_FAILED'
+          cp['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          json.dump(cp,open(p,'w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-site3-recovery-bot'
+          git config user.email 'runner3-speed-site3-recovery-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-site3-realistic.latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'test: record recovered Blocksy B/C evidence'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip
