@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/runner5-neve-official-demo.mjs'
+      - 'scripts/runner5-neve-official-demo-v2.mjs'
       - '.github/workflows/runner5-neve-official-demo.yml'
   workflow_dispatch:
 
@@ -48,7 +49,7 @@ jobs:
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
 
       - name: Import official Neve Photography Studio demo
-        run: node scripts/runner5-neve-official-demo.mjs
+        run: node scripts/runner5-neve-official-demo-v2.mjs
 
       - name: Persist safe import status
         if: always()
