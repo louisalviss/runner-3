@@ -5,7 +5,6 @@ on:
     paths:
       - 'wordpress/runner3-speed/**'
       - 'scripts/runner3-speed-ab-benchmark.mjs'
-      - 'scripts/probe-runner3-speed-wordpress.mjs'
       - '.github/workflows/runner3-speed-direct-wp-ab.yml'
       - '.github/workflows/runner3-speed-v1-probe.yml'
   workflow_dispatch:
@@ -39,7 +38,6 @@ jobs:
           php -l wordpress/runner3-speed/dropins/advanced-cache.php
           php -l wordpress/runner3-speed/uninstall.php
           node --check scripts/runner3-speed-ab-benchmark.mjs
-          node --check scripts/probe-runner3-speed-wordpress.mjs
 
       - name: Package plugin
         run: |
@@ -58,19 +56,7 @@ jobs:
       - name: Install benchmark tooling
         run: npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
 
-      - name: Force clean OFF baseline
-        env:
-          RUNNER3_PROBE_MODE: off
-        run: |
-          set -euo pipefail
-          node scripts/probe-runner3-speed-wordpress.mjs
-          python - <<'PY'
-          import json
-          r=json.load(open('/tmp/runner3-speed-probe.json'))
-          assert r['status']=='cleanup_ready' and r['off'], r
-          PY
-
-      - name: Run OFF vs ON benchmark
+      - name: Run canonical performance and safety validation
         env:
           RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
         run: |
@@ -83,7 +69,7 @@ jobs:
           assert r['status']=='ready', r
           assert r['cloudflare'] is False, r
           assert r['pluginVersion'], r
-          b=r['baseline']; o=r['optimized']
+          b=r['baseline']; o=r['optimized']; s=r['safety']
           assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['curl']['runs']), ('curl_not_all_current_hits',r)
           assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['browser']['runs']), ('browser_not_all_current_hits',r)
           assert o['lighthouse']['medianScore'] >= b['lighthouse']['medianScore'], ('score_regression',r)
@@ -91,45 +77,17 @@ jobs:
           assert o['lighthouse']['medianLcpMs'] <= b['lighthouse']['medianLcpMs'] + 100, ('lh_lcp_regression',r)
           assert o['browser']['medianLcpMs'] <= b['browser']['medianLcpMs'] + 75, ('browser_lcp_regression',r)
           assert o['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'], ('ttfb_not_improved',r)
-          print(json.dumps(r,indent=2))
-          PY
-
-      - name: Full install ON HIT bypass OFF safety probe
-        env:
-          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
-          RUNNER3_PROBE_MODE: full
-        run: |
-          set -euo pipefail
-          node scripts/probe-runner3-speed-wordpress.mjs
-          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-probe-full.json
-          python - <<'PY'
-          import json
-          r=json.load(open('/tmp/runner3-speed-probe-full.json'))
-          assert r['status']=='ready', r
           for k in ['installed','active','hit','queryBypass','apiBypass','adminBypass','off','productionUnchanged']:
-              assert r[k], (k,r)
-          print(json.dumps({'status':'PASS','probe':r},indent=2))
+              assert s[k], (k,r)
+          print(json.dumps({'status':'PASS','version':r['pluginVersion'],'delta':r['delta'],'safety':s},indent=2))
           PY
 
-      - name: Force Runner3 Speed OFF
-        if: always()
-        env:
-          RUNNER3_PROBE_MODE: off
-        run: |
-          set +e
-          node scripts/probe-runner3-speed-wordpress.mjs
-          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-cleanup.json 2>/dev/null || true
-          exit 0
-
-      - name: Upload validation results
+      - name: Upload validation result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runner3-speed-direct-wp-validation
-          path: |
-            /tmp/runner3-speed-ab.json
-            /tmp/runner3-speed-probe-full.json
-            /tmp/runner3-speed-cleanup.json
+          path: /tmp/runner3-speed-ab.json
           if-no-files-found: warn
           retention-days: 7
 
