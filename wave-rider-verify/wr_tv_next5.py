@@ -16,7 +16,7 @@ SPECS=[
  ('OANDA:AUDUSD','regular'),
  ('OANDA:XAGUSD','regular'),
  ('ICMARKETS:USTEC','regular'),
- ('NASDAQ:MSFT','regular'),
+ ('NASDAQ:TSLA','regular'),
 ]
 
 def pine_rightmost_pivots(v,left,right,high=True):
