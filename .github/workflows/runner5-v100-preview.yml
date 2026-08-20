@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/runner5-v100-preview.yml'
+      - 'edge/runner5-v100-gateway/**'
       - 'ops/triggers/runner5-v100-preview.txt'
   workflow_dispatch:
 
