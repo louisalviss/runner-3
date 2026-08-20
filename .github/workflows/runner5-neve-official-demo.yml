@@ -48,7 +48,11 @@ jobs:
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
 
       - name: Import official Neve Photography Studio demo
-        run: node scripts/runner5-neve-official-ui-import.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/admin.php?page=tiob-starter-sites/admin.php?page=neve-onboarding/g' scripts/runner5-neve-official-ui-import.mjs
+          node scripts/runner5-neve-official-ui-import.mjs
 
       - name: Persist safe import status
         if: always()
