@@ -2,8 +2,10 @@ import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_BUNDLE } from './snapshot.gener
 
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
-const CACHE_VERSION = 'runner5-opt-v4';
+const CACHE_VERSION = 'runner5-opt-v5';
 const EDGE_CSS_PATH = '/__edge/runner5.css';
+const META_DESCRIPTION = 'Runner5 Restore Lab Demo — WordPress restore verification articles and case studies.';
+const SYSTEM_FONT_STACK = '-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif';
 
 function isAdminPath(pathname) {
   return pathname === '/wp-login.php' ||
@@ -49,11 +51,57 @@ async function proxyOrigin(request, incoming) {
   }
   return new Response(upstreamResponse.body, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: outHeaders });
 }
-function snapshotResponse(request, incoming) {
-  let html = rewriteOrigin(HOME_SNAPSHOT || '', incoming.origin);
-  // Font preloads caused a large lab CLS regression on this theme. Let the browser use fallback
-  // metrics instead of forcing a late swap during the first render.
+function optimizedCss(incomingOrigin) {
+  let css = rewriteOrigin(STYLE_BUNDLE || '', incomingOrigin);
+  css = css.replace(/font-display\s*:\s*swap\s*;/gi, 'font-display:optional;');
+  css += `\n/* Runner5 Lighthouse stability/accessibility overrides */\n` +
+    `body,button,input,select,textarea,h1,h2,h3,h4,h5,h6,p,a,li,span,time{font-family:${SYSTEM_FONT_STACK}!important}` +
+    `.entry-meta,.entry-meta a,.entry-meta .byline a,.entry-meta .posted-on a{color:#555!important}` +
+    `.site-info,.site-info a,.site-info .copyright{color:#d0d0d0!important}` +
+    `img,svg,video{height:auto}`;
+  return css;
+}
+function optimizeSnapshotHtml(source, incoming) {
+  let html = rewriteOrigin(source || '', incoming.origin);
+
+  // Avoid a late web-font swap. System metrics are stable on the first paint.
   html = html.replace(/<link\b[^>]*\brel=["']preload["'][^>]*\bas=["']font["'][^>]*>/gi, '');
+
+  // Inline the small critical stylesheet so it cannot block first render on a second request.
+  const css = optimizedCss(incoming.origin);
+  let inlined = false;
+  html = html.replace(/<link\b[^>]*>/gi, (tag) => {
+    const isStylesheet = /\brel=["'][^"']*stylesheet[^"']*["']/i.test(tag);
+    const isEdgeBundle = /\bhref=["'](?:\/__edge\/runner5\.css|\/__edge-bundle-v2\.css)(?:\?[^"']*)?["']/i.test(tag);
+    if (isStylesheet && isEdgeBundle) {
+      inlined = true;
+      return `<style id="runner5-critical-css">${css}</style>`;
+    }
+    return tag;
+  });
+  if (!inlined && css && /<\/head>/i.test(html)) {
+    html = html.replace(/<\/head>/i, `<style id="runner5-critical-css">${css}</style></head>`);
+  }
+
+  // Lighthouse SEO: provide a deterministic description for the restored demo home page.
+  if (!/<meta\b[^>]*\bname=["']description["']/i.test(html)) {
+    html = html.replace(/<\/head>/i, `<meta name="description" content="${META_DESCRIPTION}"></head>`);
+  }
+
+  // Lighthouse accessibility: the theme's icon-only search button has no accessible name.
+  html = html.replace(/<button\b[^>]*>/gi, (tag) => {
+    if (!/\bclass=["'][^"']*\bsearch-icon\b[^"']*["']/i.test(tag)) return tag;
+    if (/\baria-label\s*=|\baria-labelledby\s*=|\btitle\s*=/i.test(tag)) return tag;
+    return tag.replace(/^<button/i, '<button aria-label="Search"');
+  });
+
+  // Lighthouse heading order: post cards are direct children of the page H1 and must start at H2.
+  html = html.replace(/<h3(\s[^>]*\bclass=["'][^"']*\bentry-title\b[^"']*["'][^>]*)>([\s\S]*?)<\/h3>/gi, '<h2$1>$2</h2>');
+
+  return html;
+}
+function snapshotResponse(request, incoming) {
+  const html = optimizeSnapshotHtml(HOME_SNAPSHOT, incoming);
   const headers = new Headers({
     'content-type': 'text/html; charset=UTF-8',
     'cache-control': 'public, max-age=60, stale-while-revalidate=600',
@@ -63,8 +111,7 @@ function snapshotResponse(request, incoming) {
   return new Response(request.method === 'HEAD' ? null : html, { status: 200, headers });
 }
 function cssBundleResponse(request, incoming) {
-  let body = rewriteOrigin(STYLE_BUNDLE || '', incoming.origin);
-  body = body.replace(/font-display\s*:\s*swap\s*;/gi, 'font-display:optional;');
+  const body = optimizedCss(incoming.origin);
   const headers = new Headers({
     'content-type': 'text/css; charset=UTF-8',
     'cache-control': 'public, max-age=86400, stale-while-revalidate=604800',
