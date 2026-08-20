@@ -18,7 +18,7 @@ concurrency:
 env:
   SOURCE_TAG: webnovel-writing-brain-v1-2026-08-17
   SOURCE_ASSET: webnovel-writing-brain-v1-2026-08-17.zip
-  SOURCE_SHA256: ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f
+  SOURCE_SHA256: 47234d96931c4249ae778d63f396fbee93c9d6f01b319426bdc3133859f1e3d2
   TAG: moxing-vi-translation-v1-2026-08-17
   ASSET: moxing-vi-translation-v1-2026-08-17.zip
   SHARDS: 16
@@ -159,7 +159,7 @@ jobs:
           with open(root/'translations.jsonl','w',encoding='utf-8') as f:
               for x in out:f.write(json.dumps(x,ensure_ascii=False)+'\n')
           quality={'rows':len(out),'empty':empty,'empty_evidence_id':empty_evidence,'sha_mismatch':bad_sha,'model_mismatch':bad_model,'zh_char_ratio':round(ratio,6),'zh_heavy_rows':zh_heavy,'length_outlier_rows':length_outlier,'median_vi_zh_length_ratio':round(median_ratio,4),'chunked_rows':chunked}
-          manifest={'schema':'moxing-vi-translation-v1.2','source_tag':'webnovel-writing-brain-v1-2026-08-17','source_sha256':'ac0df6427aa0fa4aa7fd06555be7b2b35118f685d5ee0cd7920b97b6196ac39f','model_id':os.environ['MODEL_ID'],'model_revision':os.environ['MODEL_REVISION'],'model_license':'Apache-2.0','runtime':'CTranslate2 INT8','selected_by':'12-sentence Moxing webnovel-craft A/B probe versus HachimiMT-60; Helsinki baseline rejected on qualitative QA','quality':quality,'shards':16,'long_passage_policy':'split at Chinese sentence/clause punctuation around 160 chars before translation','policy':'Machine translation is the Vietnamese retrieval/display layer. Original Chinese remains canonical provenance and should be checked for exact nuance. Repeated evidence hashes are permitted because the same source sentence may back multiple retained records.'}
+          manifest={'schema':'moxing-vi-translation-v1.2','source_tag':'webnovel-writing-brain-v1-2026-08-17','source_sha256':'47234d96931c4249ae778d63f396fbee93c9d6f01b319426bdc3133859f1e3d2','model_id':os.environ['MODEL_ID'],'model_revision':os.environ['MODEL_REVISION'],'model_license':'Apache-2.0','runtime':'CTranslate2 INT8','selected_by':'12-sentence Moxing webnovel-craft A/B probe versus HachimiMT-60; Helsinki baseline rejected on qualitative QA','quality':quality,'shards':16,'long_passage_policy':'split at Chinese sentence/clause punctuation around 160 chars before translation','policy':'Machine translation is the Vietnamese retrieval/display layer. Original Chinese remains canonical provenance and should be checked for exact nuance. Repeated evidence hashes are permitted because the same source sentence may back multiple retained records.'}
           (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(manifest,ensure_ascii=False,indent=2))
           PY
