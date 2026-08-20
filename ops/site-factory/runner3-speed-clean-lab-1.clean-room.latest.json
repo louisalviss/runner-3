@@ -1,5 +1,5 @@
 {
-  "status": "PARTIAL_OR_FAILED",
+  "status": "PASS",
   "site": {
     "status": "COMPLETE",
     "stage": "complete",
@@ -14,10 +14,17 @@
     "wpApiReachable": true,
     "reusedExistingApp": true,
     "detail": null,
-    "updatedAt": "2026-08-20T15:42:02.342Z"
+    "updatedAt": "2026-08-20T16:00:48.138Z"
+  },
+  "astra": {
+    "status": "READY",
+    "siteUrl": "https://runner3-speed-clean-lab-1.wasmer.app/",
+    "theme": "astra",
+    "detail": null,
+    "updatedAt": "2026-08-20T16:00:57.847Z"
   },
   "demo": {
-    "status": "FAILED",
+    "status": "READY",
     "siteUrl": "https://runner3-speed-clean-lab-1.wasmer.app/",
     "theme": "astra",
     "noindex": true,
@@ -63,6 +70,31 @@
         "id": 13,
         "title": "Mastering the First Impression: Your intriguing post title goes here",
         "slug": "post-3"
+      },
+      {
+        "id": 14,
+        "title": "Building a Balanced Plate",
+        "slug": "nutrition-guide-1"
+      },
+      {
+        "id": 15,
+        "title": "Protein Basics",
+        "slug": "nutrition-guide-2"
+      },
+      {
+        "id": 16,
+        "title": "Healthy Snacks That Work",
+        "slug": "nutrition-guide-3"
+      },
+      {
+        "id": 17,
+        "title": "Meal Planning for Busy Weeks",
+        "slug": "nutrition-guide-4"
+      },
+      {
+        "id": 18,
+        "title": "Understanding Food Labels",
+        "slug": "nutrition-guide-5"
       }
     ],
     "demoFetch": {
@@ -72,12 +104,945 @@
     "plugins": {
       "sureforms": "active"
     },
-    "detail": "Error: sample_content_incomplete\n    at file:///home/runner/work/runner-3/runner-3/scripts/runner5-astra-sample-import.mjs:23:383\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)",
-    "updatedAt": "2026-08-20T15:50:51.720Z"
+    "detail": null,
+    "updatedAt": "2026-08-20T16:01:20.460Z"
   },
-  "stateA": null,
-  "ab": null,
-  "safety": null,
-  "final": null,
-  "recordedAt": "2026-08-20T15:50:53.177021+00:00"
+  "stateA": {
+    "status": "ready",
+    "site": "runner3-speed-clean-lab-1",
+    "url": "https://runner3-speed-clean-lab-1.wasmer.app",
+    "state": "A_NO_PLUGIN",
+    "pluginAbsent": true,
+    "cloudflare": false,
+    "curl": {
+      "runs": [
+        {
+          "code": 200,
+          "ttfbMs": 347.096,
+          "totalMs": 469.205,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 383.777,
+          "totalMs": 505.055,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 375.193,
+          "totalMs": 497.769,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 361.131,
+          "totalMs": 494.548,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 362.08000000000004,
+          "totalMs": 493.79699999999997,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 363.762,
+          "totalMs": 486.268,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 350.76,
+          "totalMs": 471.22,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 347.937,
+          "totalMs": 470.985,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 376.41999999999996,
+          "totalMs": 498.284,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 358.811,
+          "totalMs": 483.342,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 408.762,
+          "totalMs": 541.594,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 441.06,
+          "totalMs": 562.8530000000001,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 358.383,
+          "totalMs": 489.967,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 375.358,
+          "totalMs": 497.82300000000004,
+          "size": 102070,
+          "runner3": false
+        },
+        {
+          "code": 200,
+          "ttfbMs": 393.964,
+          "totalMs": 515.97,
+          "size": 102070,
+          "runner3": false
+        }
+      ],
+      "medianTtfbMs": 363.8,
+      "medianTotalMs": 494.5,
+      "medianBytes": 102070
+    },
+    "browser": {
+      "runs": [
+        {
+          "status": 200,
+          "wallMs": 1096,
+          "ttfb": 381.6000000000058,
+          "fcp": 496,
+          "lcp": 496,
+          "cls": 0,
+          "load": 489.6000000000058
+        },
+        {
+          "status": 200,
+          "wallMs": 1085,
+          "ttfb": 377.1000000000058,
+          "fcp": 484,
+          "lcp": 484,
+          "cls": 0,
+          "load": 477.3999999999942
+        },
+        {
+          "status": 200,
+          "wallMs": 1112,
+          "ttfb": 398.69999999998254,
+          "fcp": 516,
+          "lcp": 516,
+          "cls": 0,
+          "load": 505.69999999998254
+        },
+        {
+          "status": 200,
+          "wallMs": 1044,
+          "ttfb": 336.70000000001164,
+          "fcp": 444,
+          "lcp": 444,
+          "cls": 0,
+          "load": 434.9000000000233
+        },
+        {
+          "status": 200,
+          "wallMs": 1089,
+          "ttfb": 372,
+          "fcp": 492,
+          "lcp": 492,
+          "cls": 0,
+          "load": 482.6000000000058
+        },
+        {
+          "status": 200,
+          "wallMs": 1044,
+          "ttfb": 339,
+          "fcp": 448,
+          "lcp": 448,
+          "cls": 0,
+          "load": 438.69999999998254
+        },
+        {
+          "status": 200,
+          "wallMs": 1065,
+          "ttfb": 357.5,
+          "fcp": 460,
+          "lcp": 460,
+          "cls": 0,
+          "load": 456.20000000001164
+        }
+      ],
+      "medianTtfbMs": 372,
+      "medianFcpMs": 484,
+      "medianLcpMs": 484,
+      "medianCls": 0,
+      "medianLoadMs": 477.4,
+      "medianWallMs": 1085
+    },
+    "lighthouse": {
+      "runs": [
+        {
+          "score": 100,
+          "fcp": 943.0135,
+          "lcp": 943.0135,
+          "si": 1265.14526400003,
+          "tbt": null,
+          "cls": null,
+          "ttfb": 408
+        },
+        {
+          "score": 100,
+          "fcp": 944.9885,
+          "lcp": 944.9885,
+          "si": 1119.6959820000047,
+          "tbt": null,
+          "cls": null,
+          "ttfb": 300
+        },
+        {
+          "score": 100,
+          "fcp": 939.7575,
+          "lcp": 939.7575,
+          "si": 1097.0807019999943,
+          "tbt": null,
+          "cls": null,
+          "ttfb": 296
+        }
+      ],
+      "medianScore": 100,
+      "medianFcpMs": 943,
+      "medianLcpMs": 943,
+      "medianSpeedIndexMs": 1119.7,
+      "medianTbtMs": 0,
+      "medianCls": 0,
+      "medianServerResponseMs": 300
+    },
+    "checkedAt": "2026-08-20T16:02:23.161Z"
+  },
+  "ab": {
+    "status": "ready",
+    "site": "runner3-speed-clean-lab-1",
+    "url": "https://runner3-speed-clean-lab-1.wasmer.app",
+    "pluginVersion": "1.1.1",
+    "cloudflare": false,
+    "baseline": {
+      "curl": {
+        "runs": [
+          {
+            "code": 200,
+            "ttfbMs": 365.817,
+            "totalMs": 487.921,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 328.108,
+            "totalMs": 450.05699999999996,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 371.48199999999997,
+            "totalMs": 503.27500000000003,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 337.266,
+            "totalMs": 458.301,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 353.694,
+            "totalMs": 486.97200000000004,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 351.726,
+            "totalMs": 473.157,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 331.98,
+            "totalMs": 452.31100000000004,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 347.087,
+            "totalMs": 470.116,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 336.80199999999996,
+            "totalMs": 457.442,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 329.02500000000003,
+            "totalMs": 449.14,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 373.459,
+            "totalMs": 507.265,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 338.295,
+            "totalMs": 460.033,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 358.568,
+            "totalMs": 480.7,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 331.15,
+            "totalMs": 453.93699999999995,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          },
+          {
+            "code": 200,
+            "ttfbMs": 354.967,
+            "totalMs": 487.699,
+            "size": 102070,
+            "speed": null,
+            "speedVersion": null
+          }
+        ],
+        "states": {
+          "NONE": 15
+        },
+        "medianTtfbMs": 347.1,
+        "medianTotalMs": 470.1,
+        "medianBytes": 102070,
+        "hitMedianTtfbMs": null,
+        "hitMedianTotalMs": null
+      },
+      "browser": {
+        "runs": [
+          {
+            "status": 200,
+            "wallMs": 1103,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 388.20000000001164,
+            "domContentLoaded": 493.1000000000058,
+            "load": 493.8999999999942,
+            "fcp": 508,
+            "lcp": 508,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 1220,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 512.8000000000175,
+            "domContentLoaded": 612.1000000000058,
+            "load": 612.9000000000233,
+            "fcp": 620,
+            "lcp": 620,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 1092,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 375.19999999998254,
+            "domContentLoaded": 483.29999999998836,
+            "load": 484.1000000000058,
+            "fcp": 484,
+            "lcp": 484,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 1040,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 331.9000000000233,
+            "domContentLoaded": 431.9000000000233,
+            "load": 432.6000000000058,
+            "fcp": 440,
+            "lcp": 440,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 1045,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 337.30000000001746,
+            "domContentLoaded": 436.70000000001164,
+            "load": 437.3999999999942,
+            "fcp": 444,
+            "lcp": 444,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 1055,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 348.79999999998836,
+            "domContentLoaded": 447.8999999999942,
+            "load": 448.69999999998254,
+            "fcp": 456,
+            "lcp": 456,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 1069,
+            "speed": null,
+            "speedVersion": null,
+            "ttfb": 360.29999999998836,
+            "domContentLoaded": 460.79999999998836,
+            "load": 461.29999999998836,
+            "fcp": 468,
+            "lcp": 468,
+            "cls": 0
+          }
+        ],
+        "states": {
+          "NONE": 7
+        },
+        "medianTtfbMs": 360.3,
+        "medianFcpMs": 468,
+        "medianLcpMs": 468,
+        "medianCls": 0,
+        "medianDclMs": 460.8,
+        "medianLoadMs": 461.3,
+        "medianWallMs": 1069,
+        "hitMedianTtfbMs": null,
+        "hitMedianLcpMs": null
+      },
+      "lighthouse": {
+        "runs": [
+          {
+            "score": 100,
+            "fcp": 941.974,
+            "lcp": 941.974,
+            "si": 1051.0328060000206,
+            "tbt": null,
+            "cls": null,
+            "ttfb": 253
+          },
+          {
+            "score": 100,
+            "fcp": 941.6165,
+            "lcp": 941.6165,
+            "si": 1079.5030199999874,
+            "tbt": null,
+            "cls": null,
+            "ttfb": 271
+          },
+          {
+            "score": 100,
+            "fcp": 935.921,
+            "lcp": 935.921,
+            "si": 1036.5698559999528,
+            "tbt": null,
+            "cls": null,
+            "ttfb": 249
+          }
+        ],
+        "medianScore": 100,
+        "medianFcpMs": 941.6,
+        "medianLcpMs": 941.6,
+        "medianSpeedIndexMs": 1051,
+        "medianTbtMs": 0,
+        "medianCls": 0,
+        "medianServerResponseMs": 253
+      }
+    },
+    "optimized": {
+      "curl": {
+        "runs": [
+          {
+            "code": 200,
+            "ttfbMs": 170.965,
+            "totalMs": 320.29400000000004,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 158.621,
+            "totalMs": 295.238,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 175.549,
+            "totalMs": 324.899,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 158.115,
+            "totalMs": 299.053,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 158.046,
+            "totalMs": 294.173,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 158.37,
+            "totalMs": 295.502,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 157.659,
+            "totalMs": 293.872,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 158.698,
+            "totalMs": 298.168,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 159.082,
+            "totalMs": 302.97400000000005,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 171.677,
+            "totalMs": 321.221,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 157.091,
+            "totalMs": 296.066,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 158.172,
+            "totalMs": 294.862,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 171.77,
+            "totalMs": 321.035,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 171.24800000000002,
+            "totalMs": 320.2,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          },
+          {
+            "code": 200,
+            "ttfbMs": 172.445,
+            "totalMs": 328.964,
+            "size": 102070,
+            "speed": "HIT",
+            "speedVersion": "1.1.1"
+          }
+        ],
+        "states": {
+          "HIT": 15
+        },
+        "medianTtfbMs": 158.7,
+        "medianTotalMs": 299.1,
+        "medianBytes": 102070,
+        "hitMedianTtfbMs": 158.7,
+        "hitMedianTotalMs": 299.1
+      },
+      "browser": {
+        "runs": [
+          {
+            "status": 200,
+            "wallMs": 901,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 169.09999999997672,
+            "domContentLoaded": 292.4000000000233,
+            "load": 293.29999999998836,
+            "fcp": 292,
+            "lcp": 292,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 924,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 184.60000000003492,
+            "domContentLoaded": 314.6000000000349,
+            "load": 315.1000000000349,
+            "fcp": 300,
+            "lcp": 300,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 904,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 166.69999999995343,
+            "domContentLoaded": 293.19999999995343,
+            "load": 293.79999999998836,
+            "fcp": 300,
+            "lcp": 300,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 916,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 188.40000000002328,
+            "domContentLoaded": 306.20000000001164,
+            "load": 306.80000000004657,
+            "fcp": 320,
+            "lcp": 320,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 911,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 173.70000000001164,
+            "domContentLoaded": 302.5999999999767,
+            "load": 303.29999999998836,
+            "fcp": 308,
+            "lcp": 308,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 921,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 186.20000000001164,
+            "domContentLoaded": 314.0999999999767,
+            "load": 314.5999999999767,
+            "fcp": 300,
+            "lcp": 300,
+            "cls": 0
+          },
+          {
+            "status": 200,
+            "wallMs": 897,
+            "speed": "HIT",
+            "speedVersion": "1.1.1",
+            "ttfb": 168.10000000003492,
+            "domContentLoaded": 288.6000000000349,
+            "load": 289.4000000000233,
+            "fcp": 288,
+            "lcp": 288,
+            "cls": 0
+          }
+        ],
+        "states": {
+          "HIT": 7
+        },
+        "medianTtfbMs": 173.7,
+        "medianFcpMs": 300,
+        "medianLcpMs": 300,
+        "medianCls": 0,
+        "medianDclMs": 302.6,
+        "medianLoadMs": 303.3,
+        "medianWallMs": 911,
+        "hitMedianTtfbMs": 173.7,
+        "hitMedianLcpMs": 300
+      },
+      "lighthouse": {
+        "runs": [
+          {
+            "score": 100,
+            "fcp": 911.9715,
+            "lcp": 923.9715,
+            "si": 911.9715,
+            "tbt": null,
+            "cls": null,
+            "ttfb": 55
+          },
+          {
+            "score": 100,
+            "fcp": 913.5125,
+            "lcp": 926.0125,
+            "si": 913.5125,
+            "tbt": null,
+            "cls": null,
+            "ttfb": 58
+          },
+          {
+            "score": 100,
+            "fcp": 949.002,
+            "lcp": 949.002,
+            "si": 949.002,
+            "tbt": null,
+            "cls": null,
+            "ttfb": 57
+          }
+        ],
+        "medianScore": 100,
+        "medianFcpMs": 913.5,
+        "medianLcpMs": 926,
+        "medianSpeedIndexMs": 913.5,
+        "medianTbtMs": 0,
+        "medianCls": 0,
+        "medianServerResponseMs": 57
+      }
+    },
+    "optimizedWarm": {
+      "speed": "HIT",
+      "speedVersion": "1.1.1",
+      "bytes": 102070,
+      "layoutStabilizer": false,
+      "fontPreloadCount": 0
+    },
+    "delta": {
+      "curlTtfbMs": -188.4,
+      "curlTtfbPct": -54.3,
+      "browserTtfbMs": -186.6,
+      "browserTtfbPct": -51.8,
+      "browserFcpMs": -168,
+      "browserLcpMs": -168,
+      "browserCls": 0,
+      "browserLoadMs": -158,
+      "lighthouseScore": 0,
+      "lighthouseFcpMs": -28.1,
+      "lighthouseLcpMs": -15.6,
+      "lighthouseCls": 0,
+      "lighthouseServerResponseMs": -196
+    },
+    "safety": {
+      "installed": true,
+      "active": true,
+      "hit": true,
+      "queryBypass": true,
+      "apiBypass": true,
+      "adminBypass": true,
+      "off": true,
+      "productionUnchanged": true
+    },
+    "checkedAt": "2026-08-20T16:04:28.998Z",
+    "responseHeaders": [
+      "x-powered-by: PHP/8.3.31"
+    ]
+  },
+  "safety": {
+    "status": "ready",
+    "site": "runner3-speed-clean-lab-1",
+    "url": "https://runner3-speed-clean-lab-1.wasmer.app",
+    "pluginVersion": "1.1.1",
+    "currentHit": true,
+    "headHit": true,
+    "headEmptyBody": true,
+    "authCookieBypass": true,
+    "wooCartCookieBypass": true,
+    "wooSessionCookieBypass": true,
+    "cartPathBypass": true,
+    "checkoutPathBypass": true,
+    "accountPathBypass": true,
+    "wcApiPathBypass": true,
+    "deactivated": true,
+    "deactivateNoHit": true,
+    "reactivatedOff": true,
+    "finalNoHit": true,
+    "detail": "HEAD, auth/Woo cookie, dynamic path, deactivate and final OFF guards passed",
+    "checkedAt": "2026-08-20T16:04:50.564Z"
+  },
+  "final": {
+    "status": "PASS",
+    "site": {
+      "status": "COMPLETE",
+      "stage": "complete",
+      "siteName": "Runner3 Speed Clean Lab 1",
+      "siteSlug": "runner3-speed-clean-lab-1",
+      "appName": "runner3-speed-clean-lab-1",
+      "domainMode": "wasmer",
+      "siteUrl": "https://runner3-speed-clean-lab-1.wasmer.app/",
+      "dashboardUrl": "https://wasmer.io/apps/runner3wp0b90f6b4ab/runner3-speed-clean-lab-1",
+      "httpCode": 200,
+      "wpAdminReachable": true,
+      "wpApiReachable": true,
+      "reusedExistingApp": true,
+      "detail": null,
+      "updatedAt": "2026-08-20T16:00:48.138Z"
+    },
+    "theme": "astra",
+    "demo": {
+      "pages": 5,
+      "posts": 8,
+      "upstreamFetch": {
+        "pages": 0,
+        "posts": 3
+      }
+    },
+    "pluginVersion": "1.1.1",
+    "states": {
+      "A_no_plugin": {
+        "curlTtfbMs": 363.8,
+        "browserTtfbMs": 372,
+        "browserFcpMs": 484,
+        "browserLcpMs": 484,
+        "lighthouseScore": 100,
+        "lighthouseLcpMs": 943,
+        "cls": 0
+      },
+      "B_active_off": {
+        "curlTtfbMs": 347.1,
+        "browserTtfbMs": 360.3,
+        "browserFcpMs": 468,
+        "browserLcpMs": 468,
+        "lighthouseScore": 100,
+        "lighthouseLcpMs": 941.6,
+        "cls": 0
+      },
+      "C_performance_on": {
+        "curlTtfbMs": 158.7,
+        "browserTtfbMs": 173.7,
+        "browserFcpMs": 300,
+        "browserLcpMs": 300,
+        "lighthouseScore": 100,
+        "lighthouseLcpMs": 926,
+        "cls": 0
+      }
+    },
+    "bcDelta": {
+      "curlTtfbMs": -188.4,
+      "curlTtfbPct": -54.3,
+      "browserTtfbMs": -186.6,
+      "browserTtfbPct": -51.8,
+      "browserFcpMs": -168,
+      "browserLcpMs": -168,
+      "browserCls": 0,
+      "browserLoadMs": -158,
+      "lighthouseScore": 0,
+      "lighthouseFcpMs": -28.1,
+      "lighthouseLcpMs": -15.6,
+      "lighthouseCls": 0,
+      "lighthouseServerResponseMs": -196
+    },
+    "safety": {
+      "status": "ready",
+      "site": "runner3-speed-clean-lab-1",
+      "url": "https://runner3-speed-clean-lab-1.wasmer.app",
+      "pluginVersion": "1.1.1",
+      "currentHit": true,
+      "headHit": true,
+      "headEmptyBody": true,
+      "authCookieBypass": true,
+      "wooCartCookieBypass": true,
+      "wooSessionCookieBypass": true,
+      "cartPathBypass": true,
+      "checkoutPathBypass": true,
+      "accountPathBypass": true,
+      "wcApiPathBypass": true,
+      "deactivated": true,
+      "deactivateNoHit": true,
+      "reactivatedOff": true,
+      "finalNoHit": true,
+      "detail": "HEAD, auth/Woo cookie, dynamic path, deactivate and final OFF guards passed",
+      "checkedAt": "2026-08-20T16:04:50.564Z"
+    },
+    "checkedAt": "2026-08-20T16:04:51.723017+00:00"
+  },
+  "recordedAt": "2026-08-20T16:04:52.628692+00:00"
 }
