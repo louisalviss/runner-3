@@ -28,7 +28,7 @@ INBOX_DIR = ROOT / 'ops/audio-library/chatgpt-inbox'
 OUTBOX_DIR = ROOT / 'ops/audio-library/chatgpt-outbox'
 MAX_ITEMS = int(os.environ.get('AUDIO_LIBRARY_EXTRACT_MAX_ITEMS', '3'))
 MAX_RAW_CHARS = int(os.environ.get('AUDIO_LIBRARY_MAX_RAW_CHARS', '120000'))
-UA = 'Mozilla/5.0 (compatible; Runner3AudioExtractor/2.0; +https://github.com/louisalviss/runner-3)'
+UA = 'Mozilla/5.0 (compatible; Runner3AudioExtractor/2.1; +https://github.com/louisalviss/runner-3)'
 
 
 def clean_text(text: str) -> str:
@@ -149,16 +149,50 @@ def reddit_rss_extract(canonical_url: str):
     raise RuntimeError('Reddit RSS failed: ' + '; '.join(errors))
 
 
-def extract_reddit(url: str):
-    canonical, first = resolve_url(url)
-    try:
-        return (*reddit_json_extract(canonical), canonical)
-    except Exception as json_error:
+def reddit_reader_extract(url: str):
+    errors = []
+    for prefix in ['https://r.jina.ai/https://', 'https://r.jina.ai/http://']:
+        target = prefix + url.split('://', 1)[-1]
         try:
-            title, text, label = reddit_rss_extract(canonical)
-            return title, text, label, canonical
-        except Exception as rss_error:
-            raise RuntimeError(f'Reddit extract failed: JSON={json_error}; RSS={rss_error}; final={canonical}')
+            r = requests.get(target, headers={'User-Agent': UA, 'Accept': 'text/plain'}, timeout=60)
+            if r.status_code != 200 or len(r.text) < 800:
+                errors.append(f'{r.status_code}/{len(r.text)}')
+                continue
+            raw = r.text
+            title_match = re.search(r'(?mi)^Title:\s*(.+)$', raw)
+            source_match = re.search(r'(?mi)^URL Source:\s*(https?://\S+)', raw)
+            title = clean_text(title_match.group(1)) if title_match else 'Reddit'
+            canonical = source_match.group(1).strip() if source_match else url
+            text = clean_text(raw)
+            # Remove Reader metadata from narration source, but keep the actual Reddit body/comments.
+            text = re.sub(r'(?mi)^(Title|URL Source|Published Time|Markdown Content):\s*.*$', '', text)
+            text = clean_text(text)
+            if len(text) >= 800:
+                return title, text, 'Reddit', canonical
+            errors.append('reader-thin')
+        except Exception as e:
+            errors.append(str(e))
+    raise RuntimeError('Reddit reader fallback failed: ' + '; '.join(errors))
+
+
+def extract_reddit(url: str):
+    canonical, _first = resolve_url(url)
+    json_error = None
+    rss_error = None
+    try:
+        title, text, label = reddit_json_extract(canonical)
+        return title, text, label, canonical
+    except Exception as e:
+        json_error = e
+    try:
+        title, text, label = reddit_rss_extract(canonical)
+        return title, text, label, canonical
+    except Exception as e:
+        rss_error = e
+    try:
+        return reddit_reader_extract(url)
+    except Exception as reader_error:
+        raise RuntimeError(f'Reddit extract failed: JSON={json_error}; RSS={rss_error}; Reader={reader_error}; final={canonical}')
 
 
 def parse_vtt(text: str):
