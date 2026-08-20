@@ -1,0 +1,86 @@
+name: Audio Library Current Item Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-current-item-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audio-library-current-item-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: runner3-wp-media
+      ITEM_ID: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Read item and media objects from R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/audio-verify ops/audio-library
+          item_key="audio-library/items/${ITEM_ID}.json"
+          media_key="audio-library/media/${ITEM_ID}/episode.mp3"
+          script_key="audio-library/media/${ITEM_ID}/script.txt"
+          npx -y wrangler@4.123.0 r2 object get "${BUCKET}/${item_key}" --file=/tmp/audio-verify/item.json --remote >/tmp/audio-verify/item.log 2>&1 || true
+          npx -y wrangler@4.123.0 r2 object get "${BUCKET}/${media_key}" --file=/tmp/audio-verify/episode.mp3 --remote >/tmp/audio-verify/media.log 2>&1 || true
+          npx -y wrangler@4.123.0 r2 object get "${BUCKET}/${script_key}" --file=/tmp/audio-verify/script.txt --remote >/tmp/audio-verify/script.log 2>&1 || true
+          python3 - <<'PY'
+          import datetime,json,os
+          from pathlib import Path
+          item_path=Path('/tmp/audio-verify/item.json')
+          item={}
+          if item_path.exists() and item_path.stat().st_size:
+              try: item=json.loads(item_path.read_text(encoding='utf-8'))
+              except Exception: item={}
+          mp3=Path('/tmp/audio-verify/episode.mp3')
+          script=Path('/tmp/audio-verify/script.txt')
+          out={
+            'status':'ready',
+            'itemId':os.environ['ITEM_ID'],
+            'itemStatus':item.get('status'),
+            'title':item.get('title'),
+            'durationSeconds':item.get('durationSeconds'),
+            'hasAudioUrl':bool(item.get('audioUrl')),
+            'hasTranscriptUrl':bool(item.get('transcriptUrl')),
+            'audioUrl':item.get('audioUrl') if item.get('status')=='ready' else None,
+            'transcriptUrl':item.get('transcriptUrl') if item.get('status')=='ready' else None,
+            'episodeObjectExists':mp3.exists() and mp3.stat().st_size>1500,
+            'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,
+            'scriptObjectExists':script.exists() and script.stat().st_size>300,
+            'scriptBytes':script.stat().st_size if script.exists() else 0,
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/audio-library/current-item-verify-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+
+      - name: Publish safe verification checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/current-item-verify-status.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Audio item verification [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
