@@ -2,7 +2,7 @@ import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_BUNDLE } from './snapshot.gener
 
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
-const CACHE_VERSION = 'runner5-opt-v5';
+const CACHE_VERSION = 'runner5-opt-v6';
 const EDGE_CSS_PATH = '/__edge/runner5.css';
 const META_DESCRIPTION = 'Runner5 Restore Lab Demo — WordPress restore verification articles and case studies.';
 const SYSTEM_FONT_STACK = '-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif';
@@ -56,6 +56,8 @@ function optimizedCss(incomingOrigin) {
   css = css.replace(/font-display\s*:\s*swap\s*;/gi, 'font-display:optional;');
   css += `\n/* Runner5 Lighthouse stability/accessibility overrides */\n` +
     `body,button,input,select,textarea,h1,h2,h3,h4,h5,h6,p,a,li,span,time{font-family:${SYSTEM_FONT_STACK}!important}` +
+    `.site-header{position:fixed!important;top:0!important;width:100%!important;z-index:1000!important}` +
+    `body.home.blog:not(.has-header-image):not(.has-header-video) #content{padding-top:105px!important}` +
     `.entry-meta,.entry-meta a,.entry-meta .byline a,.entry-meta .posted-on a{color:#555!important}` +
     `.site-info,.site-info a,.site-info .copyright{color:#d0d0d0!important}` +
     `img,svg,video{height:auto}`;
@@ -107,6 +109,7 @@ function snapshotResponse(request, incoming) {
     'cache-control': 'public, max-age=60, stale-while-revalidate=600',
     'x-edge-mode': 'snapshot', 'x-edge-cache': 'SNAPSHOT',
     'x-edge-snapshot-built-at': SNAPSHOT_BUILT_AT || 'unknown', 'x-content-type-options': 'nosniff',
+    'x-runner5-opt': CACHE_VERSION,
   });
   return new Response(request.method === 'HEAD' ? null : html, { status: 200, headers });
 }
@@ -117,6 +120,7 @@ function cssBundleResponse(request, incoming) {
     'cache-control': 'public, max-age=86400, stale-while-revalidate=604800',
     'x-edge-mode': 'snapshot-asset', 'x-edge-cache': 'SNAPSHOT',
     'x-edge-snapshot-built-at': SNAPSHOT_BUILT_AT || 'unknown', 'x-content-type-options': 'nosniff',
+    'x-runner5-opt': CACHE_VERSION,
   });
   return new Response(request.method === 'HEAD' ? null : body, { status: 200, headers });
 }
@@ -127,21 +131,21 @@ export default {
     if (canUsePublicEdge(request, incoming) && incoming.pathname === EDGE_CSS_PATH && STYLE_BUNDLE) return cssBundleResponse(request, incoming);
     if (!canUsePublicEdge(request, incoming)) {
       const response = await proxyOrigin(request, incoming); const headers = new Headers(response.headers);
-      headers.set('x-edge-mode', 'bypass'); headers.set('x-edge-cache', 'BYPASS');
+      headers.set('x-edge-mode', 'bypass'); headers.set('x-edge-cache', 'BYPASS'); headers.set('x-runner5-opt', CACHE_VERSION);
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     }
     if (request.method === 'HEAD') {
       const response = await proxyOrigin(request, incoming); const headers = new Headers(response.headers);
-      headers.set('x-edge-mode', 'proxy'); headers.set('x-edge-cache', 'BYPASS');
+      headers.set('x-edge-mode', 'proxy'); headers.set('x-edge-cache', 'BYPASS'); headers.set('x-runner5-opt', CACHE_VERSION);
       return new Response(null, { status: response.status, statusText: response.statusText, headers });
     }
     const key = cacheKey(incoming); const cache = caches.default; const hit = await cache.match(key);
     if (hit) {
-      const headers = new Headers(hit.headers); headers.set('x-edge-mode', 'cache'); headers.set('x-edge-cache', 'HIT');
+      const headers = new Headers(hit.headers); headers.set('x-edge-mode', 'cache'); headers.set('x-edge-cache', 'HIT'); headers.set('x-runner5-opt', CACHE_VERSION);
       return new Response(hit.body, { status: hit.status, statusText: hit.statusText, headers });
     }
     const response = await proxyOrigin(request, incoming); const headers = new Headers(response.headers);
-    headers.set('x-edge-mode', 'cache'); headers.set('x-edge-cache', 'MISS');
+    headers.set('x-edge-mode', 'cache'); headers.set('x-edge-cache', 'MISS'); headers.set('x-runner5-opt', CACHE_VERSION);
     const staticAsset = isStaticPath(incoming.pathname);
     if (response.status === 200 && !headers.has('set-cookie')) {
       headers.set('cache-control', staticAsset ? 'public, max-age=86400, stale-while-revalidate=604800' : 'public, max-age=60, stale-while-revalidate=600');
