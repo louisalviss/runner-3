@@ -1,0 +1,154 @@
+name: Reddit Archive macOS Fastpath
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-archive-macos-fastpath.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reddit-archive-macos-fastpath
+  cancel-in-progress: true
+
+jobs:
+  extract:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      ITEM_ID: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
+      POST_ID: 1vsxt55
+      SOURCE_URL: https://www.reddit.com/r/AskReddit/s/k3EUqNBKsi
+      CANONICAL_URL: https://www.reddit.com/r/AskReddit/comments/1vsxt55/what_video_game_did_you_drop_laughably_quick/
+      CHATGPT_INBOX_PUBLIC_KEY: sYGZHQp2jOgHK7mnuF+Yij8rZOxYbgxKNOP4okx0k3E=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install -q requests 'cryptography>=45,<47'
+
+      - name: Fetch archived Reddit post/comments and encrypt raw source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64,datetime,json,os,secrets
+          from pathlib import Path
+          import requests
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+          ITEM=os.environ['ITEM_ID']; PID=os.environ['POST_ID']; SOURCE=os.environ['SOURCE_URL']; CANON=os.environ['CANONICAL_URL']; PUB=os.environ['CHATGPT_INBOX_PUBLIC_KEY']
+          UA='Runner3AudioArchiveReader/1.0 (+https://github.com/louisalviss/runner-3)'
+          session=requests.Session(); session.headers.update({'User-Agent':UA,'Accept':'application/json'})
+          diagnostics=[]; post=None; comment_rows=[]; transport=None
+
+          def get_json(url, params=None, timeout=60):
+              try:
+                  r=session.get(url,params=params,timeout=timeout)
+                  try: data=r.json()
+                  except Exception: data=None
+                  diagnostics.append({'host':requests.utils.urlparse(r.url).hostname,'status':r.status_code,'bytes':len(r.content)})
+                  return r.status_code,data
+              except Exception as e:
+                  diagnostics.append({'host':requests.utils.urlparse(url).hostname,'error':type(e).__name__})
+                  return None,None
+
+          def collect_comments(obj, out):
+              if isinstance(obj,dict):
+                  body=obj.get('body')
+                  if isinstance(body,str) and body.strip() and body not in {'[deleted]','[removed]'}:
+                      out.append({'body':body.strip(),'score':obj.get('score'),'id':obj.get('id')})
+                  for v in obj.values(): collect_comments(v,out)
+              elif isinstance(obj,list):
+                  for v in obj: collect_comments(v,out)
+
+          # Arctic Shift: direct ID lookup + comment tree.
+          s,pdata=get_json('https://arctic-shift.photon-reddit.com/api/posts/ids',{'ids':PID})
+          if s==200 and isinstance(pdata,dict):
+              rows=pdata.get('data') or pdata.get('posts') or []
+              if isinstance(rows,list) and rows: post=rows[0]
+          s,cdata=get_json('https://arctic-shift.photon-reddit.com/api/comments/tree',{'link_id':'t3_'+PID,'limit':'9999'})
+          if s==200 and cdata is not None:
+              collect_comments(cdata,comment_rows)
+          if post or comment_rows:
+              transport='arctic-shift'
+
+          # PullPush fallback if Arctic Shift has not ingested enough yet.
+          if not post:
+              s,pdata=get_json('https://api.pullpush.io/reddit/search/submission/',{'ids':PID,'size':10})
+              if s==200 and isinstance(pdata,dict):
+                  rows=pdata.get('data') or []
+                  if isinstance(rows,list) and rows: post=rows[0]; transport=transport or 'pullpush'
+          if len(comment_rows)<3:
+              s,cdata=get_json('https://api.pullpush.io/reddit/search/comment/',{'link_id':PID,'size':100,'sort':'desc','sort_type':'score'})
+              if s==200 and isinstance(cdata,dict):
+                  extra=[]; collect_comments(cdata.get('data') or [],extra); comment_rows.extend(extra)
+                  if extra: transport=(transport+'+pullpush') if transport else 'pullpush'
+
+          # Deduplicate comments while preserving first-seen order.
+          seen=set(); comments=[]
+          for row in comment_rows:
+              body=' '.join(str(row.get('body') or '').split())
+              if len(body)<20 or body in seen: continue
+              seen.add(body); comments.append({'body':body,'score':row.get('score')})
+          # Prefer higher-score comments when score exists, otherwise archive order.
+          if comments and sum(isinstance(x.get('score'),(int,float)) for x in comments) >= max(3,len(comments)//3):
+              comments.sort(key=lambda x: x.get('score') if isinstance(x.get('score'),(int,float)) else -10**9, reverse=True)
+          comments=comments[:180]
+
+          title='What video game did you drop laughably quick?'; selftext=''
+          if isinstance(post,dict):
+              title=str(post.get('title') or title).strip(); selftext=str(post.get('selftext') or '').strip()
+          parts=['[Post title]\n'+title]
+          if selftext: parts.append('[Post]\n'+selftext)
+          for row in comments:
+              score=row.get('score'); prefix=f'[Comment score {score}] ' if isinstance(score,(int,float)) else '[Comment] '
+              parts.append(prefix+row['body'])
+          raw='\n\n'.join(parts).strip()
+          staged=False
+
+          if len(comments)>=3 and len(raw)>=800:
+              payload={
+                'id':ITEM,'sourceUrl':SOURCE,'canonicalUrl':CANON,'sourceLabel':'Reddit','title':title,
+                'rawText':raw[:180000],'rawTruncated':len(raw)>180000,
+                'extractedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'extractTransport':transport or 'reddit-archive',
+                'editorPolicy':'RAW_SOURCE_ONLY_NO_TRANSLATION_NO_SUMMARY_NO_LLM',
+              }
+              recipient=X25519PublicKey.from_public_bytes(base64.b64decode(PUB)); eph=X25519PrivateKey.generate(); shared=eph.exchange(recipient)
+              key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-audio-library-inbox-v1').derive(shared)
+              nonce=secrets.token_bytes(12); plain=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+              cipher=ChaCha20Poly1305(key).encrypt(nonce,plain,ITEM.encode())
+              env={'v':1,'id':ITEM,'ephemeralPublicKey':base64.b64encode(eph.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)).decode(),'nonce':base64.b64encode(nonce).decode(),'ciphertext':base64.b64encode(cipher).decode()}
+              p=Path('ops/audio-library/chatgpt-inbox'); p.mkdir(parents=True,exist_ok=True); (p/f'{ITEM}.json').write_text(json.dumps(env,separators=(',',':'))+'\n',encoding='utf-8')
+              staged=True
+
+          out={'status':'ready','itemId':ITEM,'transport':transport,'postFound':bool(post),'commentCount':len(comments),'rawChars':len(raw),'staged':staged,'diagnostics':diagnostics,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          Path('ops/audio-library/reddit-archive-fastpath-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+
+      - name: Publish encrypted inbox and checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-archive-fastpath-status.json
+          git add "ops/audio-library/chatgpt-inbox/${ITEM_ID}.json" 2>/dev/null || true
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Reddit archive fastpath [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
