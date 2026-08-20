@@ -1,0 +1,89 @@
+name: Reddit FxReddit macOS Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-rxddit-macos-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reddit-rxddit-macos-probe
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve via FxReddit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import html,json,re,urllib.error,urllib.request
+          from pathlib import Path
+
+          url='https://rxddit.com/r/AskReddit/s/k3EUqNBKsi'
+          headers={
+            'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/116.0',
+            'Accept':'text/html,application/xhtml+xml,*/*',
+            'Accept-Language':'en-US,en;q=0.5',
+          }
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener=urllib.request.build_opener(NoRedirect)
+          req=urllib.request.Request(url,headers=headers)
+          status=None; location=''; body=''; final=url
+          try:
+              r=opener.open(req,timeout=30)
+              status=r.status; final=r.geturl(); location=r.headers.get('Location',''); body=r.read().decode('utf-8','replace')
+          except urllib.error.HTTPError as e:
+              status=e.code; final=e.geturl(); location=e.headers.get('Location',''); body=e.read().decode('utf-8','replace')
+          except Exception as e:
+              out={'status':'ready','resolved':False,'error':type(e).__name__}
+              p=Path('ops/audio-library/reddit-rxddit-probe-status.json'); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(out,indent=2)+'\n'); print(json.dumps(out)); raise SystemExit
+
+          candidate=location or ''
+          canonical=None
+          if candidate:
+              from urllib.parse import urlparse,urlunparse
+              u=urlparse(candidate)
+              if '/comments/' in u.path:
+                  canonical=urlunparse(u._replace(scheme='https',netloc='www.reddit.com',query='',fragment='')).rstrip('/')+'/'
+          if not canonical:
+              text=html.unescape(body).replace('\\u002F','/').replace('\\/','/')
+              m=re.search(r'(?:https?://(?:www\.)?(?:reddit\.com|rxddit\.com))(?P<p>/r/[^\s\"<>]+/comments/[a-z0-9]+(?:/[^\s\"<>?]*)?)',text,re.I)
+              if m: canonical='https://www.reddit.com'+m.group('p').rstrip('/')+'/'
+
+          out={
+            'status':'ready',
+            'resolved':bool(canonical),
+            'httpStatus':status,
+            'hasLocation':bool(location),
+            'canonicalUrl':canonical,
+            'bytes':len(body),
+          }
+          p=Path('ops/audio-library/reddit-rxddit-probe-status.json'); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out))
+          PY
+
+      - name: Publish result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-rxddit-probe-status.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish FxReddit resolver probe [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
