@@ -1,0 +1,130 @@
+name: Runner5 V100 Preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/triggers/runner5-v100-preview.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-v100-preview
+  cancel-in-progress: false
+
+jobs:
+  deploy_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: runner5-restore-gateway-v100
+      TARGET_URL: https://runner5-restore-gateway-v100.pages.dev/
+      PSI_URL: https://runner5-restore-gateway-v100.pages.dev/
+      PSI_UI_OUT: /tmp/runner5-v100-psi.json
+      PSI_UI_SCREENSHOT: /tmp/runner5-v100-psi.png
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Ensure Pages project
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,urllib.request,urllib.error
+          token=os.environ['CLOUDFLARE_API_TOKEN']; account=os.environ['CLOUDFLARE_ACCOUNT_ID']; project=os.environ['CF_PAGES_PROJECT']
+          base='https://api.cloudflare.com/client/v4'; h={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          q=urllib.request.Request(f'{base}/accounts/{account}/pages/projects/{project}',headers=h)
+          try:
+            with urllib.request.urlopen(q,timeout=20) as r:
+              if r.status==200: print('project_exists'); raise SystemExit(0)
+          except urllib.error.HTTPError as e:
+            if e.code!=404: raise
+          body=json.dumps({'name':project,'production_branch':'main'}).encode()
+          q=urllib.request.Request(f'{base}/accounts/{account}/pages/projects',headers=h,data=body,method='POST')
+          with urllib.request.urlopen(q,timeout=30) as r:
+            data=json.loads(r.read().decode()); assert data.get('success'), data
+          print('project_created')
+          PY
+
+      - name: Deploy V100 gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd edge/runner5-v100-gateway
+          npx --yes wrangler@4.102.0 pages deploy ./dist --project-name "$CF_PAGES_PROJECT" --branch main --commit-dirty=true
+
+      - name: Verify V100 identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          const base=process.env.TARGET_URL.replace(/\/$/,'');
+          let out={status:'failed',url:base+'/',health:null,http:null,marker:false,v100:null};
+          for(let i=0;i<18;i++){
+            try{
+              const h=await fetch(base+'/__runner5/v100/health');
+              const r=await fetch(base+'/',{headers:{'user-agent':'Runner5V100Verify/1.0'}}); const t=await r.text();
+              out={status:(h.status===200&&r.status===200&&/Restore Lab/.test(t)&&r.headers.get('x-runner5-v100'))?'ready':'failed',url:base+'/',health:h.status,http:r.status,marker:/Restore Lab/.test(t),v100:r.headers.get('x-runner5-v100')};
+              if(out.status==='ready') break;
+            }catch(e){out.detail=String(e.message||e)}
+            await new Promise(r=>setTimeout(r,4000));
+          }
+          require('fs').writeFileSync('/tmp/v100-verify.json',JSON.stringify(out,null,2)+'\n'); console.log(JSON.stringify(out,null,2));
+          if(out.status!=='ready') process.exit(3);
+          NODE
+
+      - name: Run local Lighthouse candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$CHROME"; export CHROME_PATH="$CHROME"
+          npx --yes lighthouse@13.4.1 "$TARGET_URL" --output=json --output-path=/tmp/v100-lh.json --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/v100-lh.json')); a=d['audits']
+          out={'status':'ready','categories':{k:round(v['score']*100) for k,v in d['categories'].items()},'metrics':{k:a[k].get('displayValue') for k in ('first-contentful-paint','largest-contentful-paint','total-blocking-time','cumulative-layout-shift','speed-index')},'failed':{k:{'score':v.get('score'),'title':v.get('title')} for k,v in a.items() if v.get('score') not in (1,None) and k in ('button-name','color-contrast','heading-order','meta-description','cls-culprits-insight','render-blocking-insight','cache-insight','legacy-javascript-insight','unused-css-rules')}}
+          open('/tmp/v100-local.json','w').write(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
+          PY
+
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Run Google PageSpeed UI
+        continue-on-error: true
+        run: node scripts/pagespeed-ui-audit.mjs
+
+      - name: Persist candidate result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,pathlib,time
+          def load(p):
+            try:return json.loads(pathlib.Path(p).read_text())
+            except:return None
+          out={'status':'ready','siteUrl':'https://runner5-restore-gateway-v100.pages.dev/','verify':load('/tmp/v100-verify.json'),'local':load('/tmp/v100-local.json'),'pagespeed':load('/tmp/runner5-v100-psi.json'),'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          if not out['verify'] or out['verify'].get('status')!='ready': out['status']='failed'
+          pathlib.Path('/tmp/v100-final.json').write_text(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
+          PY
+          cp /tmp/v100-final.json /tmp/v100-safe.json
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/pagespeed/runner5-v100/runs; cp /tmp/v100-safe.json ops/pagespeed/runner5-v100/latest.json; cp /tmp/v100-safe.json "ops/pagespeed/runner5-v100/runs/${GITHUB_RUN_ID}.json"; git add ops/pagespeed/runner5-v100
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner5 V100 candidate: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
