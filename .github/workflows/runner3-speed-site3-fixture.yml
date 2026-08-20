@@ -1,0 +1,203 @@
+name: Runner3 Speed Site3 Deterministic Rich Fixture
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-fixture.yml'
+      - 'scripts/runner3-speed-site3-realistic-seed.mjs'
+      - 'scripts/runner3-speed-site3-preaudit.mjs'
+      - 'wordpress/runner3-speed/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WP_SITE_SLUG: runner3-speed-site3-realistic
+
+concurrency:
+  group: runner3-speed-site3-realistic
+  cancel-in-progress: true
+
+jobs:
+  rich-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Static checks and package plugin
+        run: |
+          set -euo pipefail
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          php -l wordpress/runner3-speed/uninstall.php
+          node --check scripts/runner3-speed-site3-realistic-seed.mjs
+          node --check scripts/runner3-speed-site3-preaudit.mjs
+          node --check scripts/runner3-speed-ab-benchmark.mjs
+          node --check scripts/runner3-speed-safety-matrix.mjs
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
+          test -s /tmp/runner3-speed.zip
+
+      - name: Decrypt Wasmer account
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install benchmark and image tooling
+        run: |
+          npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+          python -m pip install --quiet pillow
+
+      - name: Verify direct WordPress host is ready
+        run: |
+          set -euo pipefail
+          cat >/tmp/site3-realistic.request.json <<'JSON'
+          {"site_name":"Runner3 Speed Site 3 Realistic","site_slug":"runner3-speed-site3-realistic","app_name":"runner3-speed-site3-realistic","domain_mode":"wasmer"}
+          JSON
+          SITE_FACTORY_REQUEST=/tmp/site3-realistic.request.json node scripts/provision-wordpress-site-v15.mjs
+          cp /tmp/site-factory-v15-runner3-speed-site3-realistic.json ops/site-factory/runner3-speed-site3-realistic.json
+          python - <<'PY'
+          import json
+          r=json.load(open('ops/site-factory/runner3-speed-site3-realistic.json'))
+          assert r['status']=='COMPLETE' and r['wpAdminReachable'] and r['wpApiReachable'] and r['httpCode']==200, r
+          print(json.dumps({'status':'PASS','siteUrl':r['siteUrl'],'reusedExistingApp':r['reusedExistingApp']},indent=2))
+          PY
+
+      - name: Generate 12 local high-resolution benchmark images
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/runner3-site3-media
+          python - <<'PY'
+          from PIL import Image,ImageDraw,ImageFilter
+          import random, os
+          random.seed(7331)
+          for i in range(12):
+              w,h=(2400,1400) if i==0 else (1600,1000)
+              base=Image.new('RGB',(w,h),(208-i*5%70,196+i*7%50,176+i*11%60))
+              noise=Image.effect_noise((w,h),38).convert('L')
+              tint=Image.merge('RGB',(noise,noise,noise))
+              base=Image.blend(base,tint,0.16)
+              d=ImageDraw.Draw(base,'RGBA')
+              for j in range(34):
+                  x1=random.randint(-200,w-100); y1=random.randint(-150,h-80)
+                  x2=x1+random.randint(160,760); y2=y1+random.randint(120,520)
+                  d.rectangle((x1,y1,x2,y2),fill=(40+13*j%170,55+17*j%150,68+23*j%140,random.randint(35,105)))
+              d.rectangle((0,int(h*.72),w,h),fill=(18,24,30,120))
+              d.text((int(w*.05),int(h*.79)),f'NORTHLINE / PROJECT {i+1:02d}',fill=(245,245,240,235))
+              q=94 if i==0 else 91
+              base.save(f'/tmp/runner3-site3-media/project-{i:02d}.jpg','JPEG',quality=q,optimize=False,progressive=True)
+          print([(x,os.path.getsize('/tmp/runner3-site3-media/'+x)) for x in sorted(os.listdir('/tmp/runner3-site3-media'))])
+          PY
+          test "$(find /tmp/runner3-site3-media -name '*.jpg' | wc -l)" -eq 12
+
+      - name: Build realistic Astra site with local media and sample data
+        run: |
+          set -euo pipefail
+          SITE3_MEDIA_DIR=/tmp/runner3-site3-media node scripts/runner3-speed-site3-realistic-seed.mjs
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-seed.json'))
+          assert r['status']=='READY', r
+          assert r['theme']=='astra' and len(r['pages'])>=6 and len(r['posts'])>=12 and len(r['media'])>=12, r
+          print(json.dumps({'status':'PASS','theme':r['theme'],'plugins':r['plugins'],'pages':len(r['pages']),'posts':len(r['posts']),'media':len(r['media'])},indent=2))
+          PY
+
+      - name: State A - rich full site with no Runner3 Speed
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/runner3-speed-site3-preaudit.mjs').read_text()
+          old="if(r.pages<5||r.localMedia<8||r.images<4||r.stylesheets<4||r.scripts<4||!r.elementor||!r.astra)"
+          new="if(r.pages<6||r.posts<10||r.localMedia<12||r.images<7||r.stylesheets<3||r.scripts<3||!r.astra)"
+          assert old in s
+          Path('/tmp/runner3-speed-site3-fixture-preaudit.mjs').write_text(s.replace(old,new))
+          PY
+          node --check /tmp/runner3-speed-site3-fixture-preaudit.mjs
+          node /tmp/runner3-speed-site3-fixture-preaudit.mjs
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-a.json'))
+          assert r['status']=='ready' and r['pluginAbsent'] is True and r['cloudflare'] is False, r
+          q=r['richness']
+          assert q['pages']>=6 and q['posts']>=10 and q['localMedia']>=12 and q['images']>=7 and q['astra'], r
+          print(json.dumps({'status':'PASS','richness':q,'browser':{k:v for k,v in r['browser'].items() if k!='runs'},'lighthouse':r['lighthouse']},indent=2))
+          PY
+
+      - name: States B/C - plugin active OFF versus Performance ON
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/runner3-speed-ab-benchmark.mjs').read_text()
+          s=s.replace("lighthouseRuns('off',3)","lighthouseRuns('off',5)").replace("lighthouseRuns('on',3)","lighthouseRuns('on',5)")
+          Path('/tmp/runner3-speed-site3-fixture-ab.mjs').write_text(s)
+          PY
+          RUNNER3_PLUGIN_ZIP=/tmp/runner3-speed.zip node /tmp/runner3-speed-site3-fixture-ab.mjs
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-ab.json')); b,o=r['baseline'],r['optimized']
+          assert r['status']=='ready' and r['cloudflare'] is False, r
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['curl']['runs']), r
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['browser']['runs']), r
+          assert o['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'], r
+          assert o['lighthouse']['medianScore'] >= b['lighthouse']['medianScore']-1, r
+          print(json.dumps({'status':'PASS','version':r['pluginVersion'],'B_OFF':{k:v for k,v in b['browser'].items() if k!='runs'},'C_ON':{k:v for k,v in o['browser'].items() if k!='runs'},'lighthouseOFF':b['lighthouse'],'lighthouseON':o['lighthouse'],'delta':r['delta']},indent=2))
+          PY
+
+      - name: Safety matrix
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-safety-matrix.mjs
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          assert r['status']=='ready', r
+          for k in ['currentHit','headHit','headEmptyBody','authCookieBypass','wooCartCookieBypass','wooSessionCookieBypass','cartPathBypass','checkoutPathBypass','accountPathBypass','wcApiPathBypass','deactivated','deactivateNoHit','reactivatedOff','finalNoHit']: assert r[k], (k,r)
+          print(json.dumps({'status':'PASS','detail':r['detail']},indent=2))
+          PY
+
+      - name: Aggregate final result
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,datetime
+          seed=json.load(open('/tmp/runner3-speed-site3-seed.json')); a=json.load(open('/tmp/runner3-speed-site3-a.json')); bc=json.load(open('/tmp/runner3-speed-ab.json')); sx=json.load(open('/tmp/runner3-speed-safety-matrix.json')); b,c=bc['baseline'],bc['optimized']
+          report={'status':'PASS','fixture':{'theme':seed['theme'],'plugins':seed['plugins'],'pages':len(seed['pages']),'posts':len(seed['posts']),'media':len(seed['media'])},'richness':a['richness'],'pluginVersion':bc['pluginVersion'],'states':{'A_no_plugin':{'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs'],'serverResponseMs':a['lighthouse']['medianServerResponseMs']},'B_active_off':{'browserTtfbMs':b['browser']['medianTtfbMs'],'browserFcpMs':b['browser']['medianFcpMs'],'browserLcpMs':b['browser']['medianLcpMs'],'lighthouseScore':b['lighthouse']['medianScore'],'lighthouseLcpMs':b['lighthouse']['medianLcpMs'],'serverResponseMs':b['lighthouse']['medianServerResponseMs']},'C_performance_on':{'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs'],'serverResponseMs':c['lighthouse']['medianServerResponseMs']}},'bcDelta':bc['delta'],'safety':sx,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          json.dump(report,open('/tmp/runner3-speed-site3-fixture-report.json','w'),indent=2); print(json.dumps(report,indent=2))
+          PY
+
+      - name: Persist rich-fixture checkpoint
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,datetime
+          def load(p):
+              if not os.path.exists(p): return None
+              try:return json.load(open(p))
+              except Exception as e:return {'status':'unreadable','error':str(e)}
+          final=load('/tmp/runner3-speed-site3-fixture-report.json')
+          x={'status':'PASS' if (final or {}).get('status')=='PASS' else 'PARTIAL_OR_FAILED','site':load('/tmp/site-factory-v15-runner3-speed-site3-realistic.json'),'seed':load('/tmp/runner3-speed-site3-seed.json'),'stateA':load('/tmp/runner3-speed-site3-a.json'),'ab':load('/tmp/runner3-speed-ab.json'),'safety':load('/tmp/runner3-speed-safety-matrix.json'),'final':final,'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          json.dump(x,open('ops/site-factory/runner3-speed-site3-fixture.latest.json','w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-site3-fixture-bot'
+          git config user.email 'runner3-speed-site3-fixture-bot@users.noreply.github.com'
+          git add ops/site-factory/runner3-speed-site3-fixture.latest.json
+          git commit -m 'test: record rich site3 fixture evidence' || exit 0
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/runner3-site3-media /tmp/runner3-speed.zip /tmp/wasmer-account.json /tmp/runner3-speed-site3-fixture-preaudit.mjs /tmp/runner3-speed-site3-fixture-ab.mjs
