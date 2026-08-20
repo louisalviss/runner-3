@@ -1,0 +1,52 @@
+name: Audio Library Items Audit Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-items-audit-now.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Read current Library items
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(python -c "import json; print(json.load(open('ops/audio-library/status.json'))['url'])")"
+          code="$(curl -sS -o /tmp/items.json -w '%{http_code}' "$url/api/items")"
+          python - "$code" <<'PY'
+          import datetime,json,sys
+          from pathlib import Path
+          code=int(sys.argv[1])
+          raw=Path('/tmp/items.json').read_text(errors='replace') if Path('/tmp/items.json').exists() else ''
+          items=[]
+          if code==200:
+              try: items=(json.loads(raw).get('items') or [])
+              except Exception: items=[]
+          safe=[]
+          for x in items[:30]:
+              safe.append({k:x.get(k) for k in ('id','sourceUrl','sourceLabel','title','status','createdAt','updatedAt','audioUrl')})
+          out={'status':'ready','httpStatus':code,'count':len(items),'items':safe,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          Path('ops/audio-library/items-audit-now.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+      - name: Persist audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/items-audit-now.json
+          git commit -m 'Publish Audio Library items audit [skip ci]' || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
