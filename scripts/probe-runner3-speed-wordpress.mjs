@@ -6,10 +6,12 @@ const zip = process.env.RUNNER3_PLUGIN_ZIP || '/tmp/runner3-speed.zip';
 const mode = process.env.RUNNER3_PROBE_MODE || 'full';
 const state = JSON.parse(fs.readFileSync(`ops/site-factory/${slug}.json`, 'utf8'));
 const account = JSON.parse(fs.readFileSync('/tmp/wasmer-account.json', 'utf8'));
+const pluginSource = fs.readFileSync('wordpress/runner3-speed/runner3-speed.php', 'utf8');
+const expectedVersion = (pluginSource.match(/\* Version:\s*([^\r\n]+)/i)?.[1] || '').trim();
 const base = String(state.siteUrl || '').replace(/\/$/, '');
 const dashboard = state.dashboardUrl || `https://wasmer.io/apps/${encodeURIComponent(state.owner)}/${encodeURIComponent(state.appName)}`;
 const out = '/tmp/runner3-speed-probe.json';
-const result = { status:'starting', mode, installed:false, active:false, hit:false, queryBypass:false, apiBypass:false, adminBypass:false, off:false, productionUnchanged:false, detail:null };
+const result = { status:'starting', mode, expectedVersion, installed:false, active:false, hit:false, queryBypass:false, apiBypass:false, adminBypass:false, off:false, productionUnchanged:false, detail:null };
 const save = () => fs.writeFileSync(out, JSON.stringify({ ...result, updatedAt:new Date().toISOString() }, null, 2) + '\n');
 
 async function login(page) {
@@ -77,6 +79,10 @@ async function install(wp) {
   }
   const existing = await row(wp);
   if (!(await existing.count())) throw new Error('runner3_speed_install_missing');
+  if (expectedVersion) {
+    const rowText = await existing.innerText();
+    if (!rowText.includes(`Version ${expectedVersion}`)) throw new Error(`plugin_version_mismatch:expected_${expectedVersion}`);
+  }
   result.installed = true; save();
 }
 
@@ -167,7 +173,7 @@ try {
     result.status = 'cleanup_ready'; result.detail = 'forced OFF'; save();
   } else {
     await install(wp); await activate(wp); await toggle(wp, true); await verifyOn(wp); await toggle(wp, false); await verifyOff(); await production();
-    result.status = 'ready'; result.detail = 'install/ON/HIT/bypass/OFF guards passed'; save();
+    result.status = 'ready'; result.detail = `install/ON/HIT/bypass/OFF guards passed on ${expectedVersion || 'current ZIP'}`; save();
   }
   console.log(JSON.stringify(result, null, 2));
 } catch (e) {
