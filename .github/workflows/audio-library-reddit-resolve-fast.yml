@@ -64,7 +64,6 @@ jobs:
                   if isinstance(candidate,dict) and 'results' in candidate:
                       result=candidate; break
               except Exception: pass
-          # Resolver diagnostics intentionally contain no plaintext source URL/canonical URL.
           out={
             'status':'ready',
             'workflowOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
@@ -80,3 +79,5 @@ jobs:
           git commit -m 'Publish Reddit fast resolver status [skip ci]'
           git pull --rebase origin main || true
           git push origin HEAD:main
+
+# trigger: 2026-08-20T00:47Z
