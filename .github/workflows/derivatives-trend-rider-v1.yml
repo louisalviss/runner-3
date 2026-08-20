@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'research/derivatives_trend_rider_v1.py'
+      - 'research/derivatives_trend_rider_v1_oiqty.py'
       - 'research/merge_derivatives_trend_rider.py'
       - '.github/workflows/derivatives-trend-rider-v1.yml'
   workflow_dispatch:
@@ -16,9 +17,9 @@ jobs:
     timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
-      - run: python -m py_compile research/derivatives_trend_rider_v1.py research/merge_derivatives_trend_rider.py
+      - run: python -m py_compile research/derivatives_trend_rider_v1.py research/derivatives_trend_rider_v1_oiqty.py research/merge_derivatives_trend_rider.py
       - run: pip install pandas numpy
-      - run: python research/derivatives_trend_rider_v1.py --year ${{ matrix.year }} --out out
+      - run: python research/derivatives_trend_rider_v1_oiqty.py --year ${{ matrix.year }} --out out
       - uses: actions/upload-artifact@v4
         with:
           name: derivatives-trend-${{ matrix.year }}
