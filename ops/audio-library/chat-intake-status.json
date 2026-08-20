@@ -1,8 +1,8 @@
 {
   "status": "ready",
   "workflowOutcome": "success",
-  "extractOutcome": "failure",
-  "sourceCommit": "c06b7f42f798a43492eccf6219fe5b86f4e8d579",
+  "extractOutcome": "success",
+  "sourceCommit": "1b3c8736d012ab485c8a300b6ef4c5938490263b",
   "processed": 1,
   "counts": {
     "duplicate": 1
@@ -10,6 +10,12 @@
   "itemIds": [
     "9fe80de0-6caa-5143-aaaa-f81b7a366f77"
   ],
-  "extractResults": [],
-  "updatedAt": "2026-08-20T00:02:44.056224+00:00"
+  "extractResults": [
+    {
+      "id": "9fe80de0-6caa-5143-aaaa-f81b7a366f77",
+      "status": "error",
+      "error": "Reddit extract failed: JSON=Reddit canonical URL did not resolve to comments thread; RSS=Reddit RSS failed: www.reddit.com:403/190240; old.reddit.com:Couldn't find a tree builder with the features you requested: xml. Do you need to install a parser library?; en.reddit.com:Couldn't find a tree builder with the features you requested: xml. Do you need to install a parser library?; final=https://www.reddit.com/r/AskReddit/s/k3EUqNBKsi"
+    }
+  ],
+  "updatedAt": "2026-08-20T00:05:39.694876+00:00"
 }
