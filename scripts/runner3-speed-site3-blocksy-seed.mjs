@@ -174,7 +174,7 @@ async function ensurePlugin(ctx, n, pluginSlug, prefix) {
   const plugins = await listPlugins(ctx, n);
   let plugin = Array.isArray(plugins) ? plugins.find(item => String(item.plugin || '').startsWith(prefix)) : null;
   if (!plugin) plugin = await api(ctx, n, '/wp/v2/plugins', { method: 'POST', json: { slug: pluginSlug, status: 'active' } });
-  else if (plugin.status !== 'active') plugin = await api(ctx, n, `/wp/v2/plugins/${encodeURIComponent(plugin.plugin)}`, { method: 'POST', json: { status: 'active' } });
+  else if (plugin.status !== 'active') plugin = await api(ctx, n, `/wp/v2/plugins/${plugin.plugin.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', json: { status: 'active' } });
   return plugin;
 }
 
@@ -183,9 +183,9 @@ async function removePlugin(ctx, n, prefix) {
   const plugin = Array.isArray(plugins) ? plugins.find(item => String(item.plugin || '').startsWith(prefix)) : null;
   if (!plugin) return false;
   if (plugin.status === 'active') {
-    await api(ctx, n, `/wp/v2/plugins/${encodeURIComponent(plugin.plugin)}`, { method: 'POST', json: { status: 'inactive' } });
+    await api(ctx, n, `/wp/v2/plugins/${plugin.plugin.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', json: { status: 'inactive' } });
   }
-  await api(ctx, n, `/wp/v2/plugins/${encodeURIComponent(plugin.plugin)}`, { method: 'DELETE' });
+  await api(ctx, n, `/wp/v2/plugins/${plugin.plugin.split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' });
   return true;
 }
 
