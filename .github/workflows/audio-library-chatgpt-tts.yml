@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   tts:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -30,17 +30,19 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           python -m pip install -q requests edge-tts 'cryptography>=45,<47'
-          if ! command -v ffmpeg >/dev/null 2>&1; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
+          if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
       - name: Decrypt and synthesize
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t files < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')
-          test "${#files[@]}" -gt 0
+          files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')"
+          test -n "$files"
           mkdir -p /tmp/chatgpt-payloads
-          python - "${files[@]}" <<'PY'
+          python - $files <<'PY'
           import base64,hashlib,json,os,sys
           from pathlib import Path
           from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
