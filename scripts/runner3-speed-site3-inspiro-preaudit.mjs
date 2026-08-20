@@ -87,7 +87,7 @@ async function publicSnapshot(browser){
     page.on('console',m=>{if(m.type()==='error') consoleErrors.push(m.text())});
     const resp=await page.goto(base+route,{waitUntil:'networkidle',timeout:90000}); await sleep(700);
     const dom=await page.evaluate(()=>({title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*="elementor-"],.elementor').length,htmlBytes:new TextEncoder().encode(document.documentElement.outerHTML).length}));
-    routeRows.push({route,status:resp?.status()||0,...dom,failedRequests:failed.filter(x=>!/(google-analytics|doubleclick|gravatar|youtube|vimeo)/i.test(x.url)).slice(0,20),consoleErrors:consoleErrors.filter(x=>!/favicon|ERR_BLOCKED_BY_CLIENT/i.test(x)).slice(0,20)}); await ctx.close();
+    routeRows.push({route,status:resp?.status()||0,...dom,failedRequests:failed.filter(x=>x.url.startsWith(base)).slice(0,20),consoleErrors:consoleErrors.filter(x=>!/favicon|ERR_BLOCKED_BY_CLIENT/i.test(x)).slice(0,20)}); await ctx.close();
   }
   return {pages:pages.map(x=>({id:x.id,slug:x.slug,title:x.title?.rendered||''})).sort((a,b)=>a.slug.localeCompare(b.slug)),posts:posts.map(x=>({id:x.id,slug:x.slug,title:x.title?.rendered||'',featured_media:x.featured_media||0})).sort((a,b)=>a.slug.localeCompare(b.slug)),media:media.map(x=>({id:x.id,slug:x.slug,source_url:x.source_url||''})).sort((a,b)=>a.id-b.id),routes:routeRows};
 }
