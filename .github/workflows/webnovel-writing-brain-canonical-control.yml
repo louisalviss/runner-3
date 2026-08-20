@@ -1,0 +1,79 @@
+name: webnovel-writing-brain-canonical-control
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/webnovel-writing-brain-canonical-control.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  track:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_WORKFLOW: webnovel-writing-brain-canonical.yml
+      STATUS_FILE: ops/webnovel-writing-brain-canonical-run.json
+      TARGET_TAG: webnovel-writing-brain-canonical-v1-2026-08-20
+      TARGET_ASSET: webnovel-writing-brain-canonical-v1-2026-08-20.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve latest canonical run
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=""
+          for i in $(seq 1 40); do
+            run_id=$(gh run list --workflow "$TARGET_WORKFLOW" --limit 20 --json databaseId,createdAt --jq 'sort_by(.createdAt) | reverse | .[0].databaseId' 2>/dev/null || true)
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
+            sleep 3
+          done
+          test -n "$run_id" && test "$run_id" != "null"
+          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "Tracking run $run_id"
+      - name: Watch and persist status
+        shell: bash
+        run: |
+          set +e
+          gh run watch "$RUN_ID" --exit-status
+          rc=$?
+          status=$(gh run view "$RUN_ID" --json status --jq '.status' 2>/dev/null || echo unknown)
+          conclusion=$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion // "unknown"' 2>/dev/null || echo unknown)
+          release_ok=false
+          asset_size=0
+          if [ "$conclusion" = "success" ]; then
+            asset_size=$(gh release view "$TARGET_TAG" --json assets --jq '.assets[]? | select(.name==env.TARGET_ASSET) | .size' 2>/dev/null | head -n1)
+            [ -n "$asset_size" ] || asset_size=0
+            if [ "$asset_size" -gt 0 ] 2>/dev/null; then release_ok=true; fi
+          fi
+          export RC="$rc" STATUS="$status" CONCLUSION="$conclusion" RELEASE_OK="$release_ok" ASSET_SIZE="$asset_size"
+          mkdir -p ops
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          data={'schema':'webnovel-writing-brain-canonical-run-v1','run_id':int(os.environ['RUN_ID']),'status':os.environ['STATUS'],'conclusion':os.environ['CONCLUSION'],'release_ok':os.environ['RELEASE_OK'].lower()=='true','asset_size_bytes':int(os.environ['ASSET_SIZE'] or 0),'watch_rc':int(os.environ['RC']),'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit status
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Record canonical Writing Brain run status [skip ci]'
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
