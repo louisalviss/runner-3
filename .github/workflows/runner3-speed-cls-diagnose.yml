@@ -31,8 +31,8 @@ jobs:
           echo '::add-mask::'"$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
-      - name: Install browser automation
-        run: npm install --no-save playwright-core@1.58.2
+      - name: Install diagnostic tooling
+        run: npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
       - name: Force Runner3 Speed OFF
         env:
           RUNNER3_PROBE_MODE: off
