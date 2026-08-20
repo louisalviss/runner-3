@@ -1,0 +1,56 @@
+name: webnovel-writing-brain-canonical-live
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/webnovel-writing-brain-canonical-live.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_WORKFLOW: webnovel-writing-brain-canonical.yml
+      STATUS_FILE: ops/webnovel-writing-brain-canonical-live.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Snapshot latest canonical run
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow "$TARGET_WORKFLOW" --limit 20 --json databaseId,createdAt --jq 'sort_by(.createdAt) | reverse | .[0].databaseId')
+          test -n "$run_id" && test "$run_id" != "null"
+          status=$(gh run view "$run_id" --json status --jq '.status')
+          conclusion=$(gh run view "$run_id" --json conclusion --jq '.conclusion // ""')
+          head_sha=$(gh run view "$run_id" --json headSha --jq '.headSha')
+          export RUN_ID="$run_id" STATUS="$status" CONCLUSION="$conclusion" HEAD_SHA="$head_sha"
+          mkdir -p ops
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          data={'schema':'webnovel-writing-brain-canonical-live-v1','run_id':int(os.environ['RUN_ID']),'status':os.environ['STATUS'],'conclusion':os.environ['CONCLUSION'] or None,'head_sha':os.environ['HEAD_SHA'],'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          git commit -m 'Snapshot canonical Writing Brain run [skip ci]'
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
