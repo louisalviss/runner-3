@@ -8,6 +8,7 @@ on:
       - '.github/workflows/audio-library-chatgpt-inbox.yml'
       - 'scripts/audio_library_extract_for_chatgpt.py'
       - 'scripts/audio_library_resolve_short_urls.py'
+      - 'scripts/audio_library_resolve_reddit_metadata.py'
       - 'scripts/audio_library_resolve_reddit_via_curlx.py'
   schedule:
     - cron: '*/5 * * * *'
@@ -63,6 +64,14 @@ jobs:
           set -euo pipefail
           python scripts/audio_library_resolve_short_urls.py | tee /tmp/audio-short-url-result.json
 
+      - name: Resolve Reddit share links through metadata APIs
+        id: metadata
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audio_library_resolve_reddit_metadata.py | tee /tmp/audio-reddit-metadata-result.json
+
       - name: Resolve remaining Reddit short URLs through curl-x
         id: fallback
         continue-on-error: true
@@ -83,6 +92,7 @@ jobs:
         if: always()
         env:
           RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
+          METADATA_OUTCOME: ${{ steps.metadata.outcome }}
           FALLBACK_OUTCOME: ${{ steps.fallback.outcome }}
           EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
         shell: bash
@@ -100,18 +110,17 @@ jobs:
           out={
             'status':'ready',
             'resolveOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
+            'metadataOutcome':os.environ.get('METADATA_OUTCOME','unknown'),
             'fallbackOutcome':os.environ.get('FALLBACK_OUTCOME','unknown'),
             'extractOutcome':os.environ.get('EXTRACT_OUTCOME','unknown'),
             'resolver':load('/tmp/audio-short-url-result.json'),
+            'metadata':load('/tmp/audio-reddit-metadata-result.json'),
             'fallback':load('/tmp/audio-short-url-fallback-result.json'),
             'extractor':load('/tmp/audio-chatgpt-inbox-result.json'),
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
           Path('ops/audio-library/chatgpt-inbox-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 
-          # Split only ciphertext into small public chunks so ChatGPT can retrieve
-          # the complete encrypted envelope through the GitHub connector without
-          # any plaintext source ever being committed.
           inbox_dir=Path('ops/audio-library/chatgpt-inbox')
           chunks_root=Path('ops/audio-library/chatgpt-inbox-chunks')
           chunk_size=6000
