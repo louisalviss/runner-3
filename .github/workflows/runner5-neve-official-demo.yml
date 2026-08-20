@@ -53,6 +53,20 @@ jobs:
           test -x "$CHROME_PATH" || { echo "Chrome executable unavailable: $CHROME_PATH" >&2; exit 4; }
           echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
 
+      - name: Patch final Neve confirmation click
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/runner5-neve-default-official-import.mjs')
+          s = p.read_text()
+          old = """else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {\n      if (await clickAny(wp, [/^Start Import$/i], 700)) started = true;\n    }"""
+          new = """else if (/Start Import\\?/i.test(text) || /This will override theme settings and add content/i.test(text)) {\n      const confirm = wp.getByRole('button', { name: /^Start Import$/i }).last();\n      if (await confirm.isVisible({ timeout: 1200 }).catch(() => false)) {\n        try { await confirm.click({ force: true, timeout: 3000 }); }\n        catch { await confirm.evaluate((el) => el.click()); }\n        started = true;\n        await wp.waitForTimeout(1500);\n      }\n    }"""
+          if old not in s:
+              raise SystemExit('confirmation patch target missing')
+          p.write_text(s.replace(old, new))
+          PY
+
       - name: Import official free Neve Default starter site
         run: node scripts/runner5-neve-default-official-import.mjs
 
