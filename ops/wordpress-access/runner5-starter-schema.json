@@ -1,0 +1,205 @@
+{
+  "status": "READY",
+  "routes": {
+    "/zipwp/v1/site": {
+      "namespace": "zipwp/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "template": {
+              "type": "string",
+              "required": true
+            }
+          }
+        }
+      ],
+      "_links": {
+        "self": [
+          {
+            "href": "https://runner5-restore-lab-1.wasmer.app/wp-json/zipwp/v1/site"
+          }
+        ]
+      }
+    },
+    "/zipwp/v1/ai-site": {
+      "namespace": "zipwp/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "template": {
+              "type": "string",
+              "required": true
+            },
+            "business_name": {
+              "type": "string",
+              "required": false
+            }
+          }
+        }
+      ],
+      "_links": {
+        "self": [
+          {
+            "href": "https://runner5-restore-lab-1.wasmer.app/wp-json/zipwp/v1/ai-site"
+          }
+        ]
+      }
+    },
+    "/zipwp/v1/wxr": {
+      "namespace": "zipwp/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "template": {
+              "type": "string",
+              "required": true
+            },
+            "business_name": {
+              "type": "string",
+              "required": false
+            },
+            "business_description": {
+              "type": "string",
+              "required": false
+            },
+            "language": {
+              "type": "string",
+              "required": false
+            }
+          }
+        }
+      ],
+      "_links": {
+        "self": [
+          {
+            "href": "https://runner5-restore-lab-1.wasmer.app/wp-json/zipwp/v1/wxr"
+          }
+        ]
+      }
+    },
+    "/zipwp/v1/import-status": {
+      "namespace": "zipwp/v1",
+      "methods": [
+        "GET"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "args": []
+        }
+      ],
+      "_links": {
+        "self": [
+          {
+            "href": "https://runner5-restore-lab-1.wasmer.app/wp-json/zipwp/v1/import-status"
+          }
+        ]
+      }
+    },
+    "/zipwp/v1/all-templates": {
+      "namespace": "zipwp/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "business_name": {
+              "type": "string",
+              "required": false
+            },
+            "per_page": {
+              "type": "integer",
+              "required": false
+            },
+            "page": {
+              "type": "integer",
+              "required": false
+            },
+            "page_builder": {
+              "type": "string",
+              "required": false
+            },
+            "keyword": {
+              "type": "string",
+              "required": false
+            },
+            "sort": {
+              "type": "object",
+              "required": false
+            }
+          }
+        }
+      ],
+      "_links": {
+        "self": [
+          {
+            "href": "https://runner5-restore-lab-1.wasmer.app/wp-json/zipwp/v1/all-templates"
+          }
+        ]
+      }
+    },
+    "/zipwp/v1/templates": {
+      "namespace": "zipwp/v1",
+      "methods": [
+        "POST"
+      ],
+      "endpoints": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "args": {
+            "business_name": {
+              "type": "string",
+              "required": false
+            },
+            "keywords": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "required": false
+            },
+            "page_builder": {
+              "type": "string",
+              "required": false
+            }
+          }
+        }
+      ],
+      "_links": {
+        "self": [
+          {
+            "href": "https://runner5-restore-lab-1.wasmer.app/wp-json/zipwp/v1/templates"
+          }
+        ]
+      }
+    }
+  },
+  "detail": null,
+  "updatedAt": "2026-08-20T11:51:58.905Z"
+}
