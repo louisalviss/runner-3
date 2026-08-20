@@ -15,4 +15,4 @@ const replacement=`if(!await card.isVisible({timeout:3000}).catch(()=>false)){
   if(!await card.isVisible({timeout:1000}).catch(()=>false))throw new Error('official_photography_studio_card_missing_after_scroll:'+(await bodyText(wp)).slice(-1500));`;
 if(!s.includes(needle))throw new Error('patch_target_missing');
 s=s.replace(needle,replacement);
-const tmp='/tmp/runner5-neve-ui-patched.mjs';fs.writeFileSync(tmp,s);await import(pathToFileURL(tmp).href);
+const tmp='scripts/runner5-neve-ui-patched.runtime.mjs';fs.writeFileSync(tmp,s);await import(pathToFileURL(process.cwd()+'/'+tmp).href);
