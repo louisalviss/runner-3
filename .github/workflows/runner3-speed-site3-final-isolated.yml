@@ -1,0 +1,230 @@
+name: Runner3 Speed Site3 Final Isolated A/B/C
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-final-isolated.yml'
+
+permissions:
+  contents: write
+
+env:
+  WP_SITE_SLUG: runner3-speed-site3-realistic
+  WP_APP_NAME: runner3-speed-site3-realistic
+
+concurrency:
+  group: runner3-speed-site3-final-isolated
+  cancel-in-progress: false
+
+jobs:
+  isolated-abc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare tooling and plugin
+        run: |
+          set -euo pipefail
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          php -l wordpress/runner3-speed/uninstall.php
+          node --check scripts/runner3-speed-site3-blocksy-seed.mjs
+          node --check scripts/runner3-speed-site3-blocksy-preaudit.mjs
+          node --check scripts/runner3-speed-ab-benchmark.mjs
+          node --check scripts/runner3-speed-safety-matrix.mjs
+          npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
+          python -m pip install --quiet pillow
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
+          test -s /tmp/runner3-speed.zip
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Provision direct WordPress host
+        run: |
+          set -euo pipefail
+          cat >/tmp/site3-realistic.request.json <<'JSON'
+          {"site_name":"Runner3 Speed Site 3 Realistic","site_slug":"runner3-speed-site3-realistic","app_name":"runner3-speed-site3-realistic","domain_mode":"wasmer"}
+          JSON
+          SITE_FACTORY_REQUEST=/tmp/site3-realistic.request.json node scripts/provision-wordpress-site-v15.mjs
+          test -s /tmp/site-factory-v15-runner3-speed-site3-realistic.json
+          cp /tmp/site-factory-v15-runner3-speed-site3-realistic.json ops/site-factory/runner3-speed-site3-realistic.json
+          python - <<'PY'
+          import json
+          r=json.load(open('ops/site-factory/runner3-speed-site3-realistic.json'))
+          assert r['status']=='COMPLETE' and r['wpAdminReachable'] and r['wpApiReachable'], r
+          assert r['httpCode'] and r['httpCode'] < 500, r
+          print(json.dumps({'status':'PASS','siteUrl':r['siteUrl'],'reusedExistingApp':r['reusedExistingApp']},indent=2))
+          PY
+
+      - name: Generate deterministic fixture media
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/runner3-site3-media
+          mkdir -p /tmp/runner3-site3-media
+          python - <<'PY'
+          from PIL import Image,ImageDraw
+          import random,os
+          random.seed(7331)
+          for i in range(18):
+              w,h=(2400,1400) if i==0 else (1600,1000)
+              img=Image.new('RGB',(w,h),(208-i*5%70,196+i*7%50,176+i*11%60))
+              noise=Image.effect_noise((w,h),38).convert('L')
+              tint=Image.merge('RGB',(noise,noise,noise))
+              img=Image.blend(img,tint,0.16)
+              d=ImageDraw.Draw(img,'RGBA')
+              for j in range(34):
+                  x1=random.randint(-200,w-100); y1=random.randint(-150,h-80)
+                  x2=x1+random.randint(160,760); y2=y1+random.randint(120,520)
+                  d.rectangle((x1,y1,x2,y2),fill=(40+13*j%170,55+17*j%150,68+23*j%140,random.randint(35,105)))
+              d.rectangle((0,int(h*.72),w,h),fill=(18,24,30,120))
+              d.text((int(w*.05),int(h*.79)),f'NORTHLINE / PROJECT {i+1:02d}',fill=(245,245,240,235))
+              img.save(f'/tmp/runner3-site3-media/runner3-project-{i+1:02d}.jpg','JPEG',quality=94 if i==0 else 91,optimize=False,progressive=True)
+          print({'images':len(os.listdir('/tmp/runner3-site3-media'))})
+          PY
+          test "$(find /tmp/runner3-site3-media -name '*.jpg' | wc -l)" -eq 18
+
+      - name: Reset and seed Blocksy + Elementor fixture
+        run: |
+          set -euo pipefail
+          SITE3_MEDIA_DIR=/tmp/runner3-site3-media node scripts/runner3-speed-site3-blocksy-seed.mjs
+          test -s /tmp/runner3-speed-site3-seed.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-seed.json'))
+          assert r['status']=='READY', r
+          assert r['theme']=='blocksy' and r['plugins'].get('elementor')=='active', r
+          assert len(r['pages'])==8 and len(r['posts'])==18 and len(r['media'])==18, r
+          assert r['verify']['featuredPosts']==18 and r['verify']['sections']>=6 and r['menu']['items']>=5, r
+          print(json.dumps({'status':'PASS','theme':r['theme'],'pages':len(r['pages']),'posts':len(r['posts']),'media':len(r['media']),'menu':r['menu']},indent=2))
+          PY
+
+      - name: State A - no plugin
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-site3-blocksy-preaudit.mjs
+          test -s /tmp/runner3-speed-site3-a.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-a.json'))
+          assert r['status']=='ready' and r['pluginAbsent'] is True and r['cloudflare'] is False, r
+          q=r['richness']
+          assert q['pages']==8 and q['posts']==18 and q['localMedia']==18 and q['featuredPosts']==18, r
+          assert q['images']>=8 and q['navLinks']>=5 and q['sections']>=6 and q['elementorActive'] and q['blocksy'], r
+          print(json.dumps({'status':'PASS','curlTtfbMs':r['curl']['medianTtfbMs'],'browserTtfbMs':r['browser']['medianTtfbMs'],'browserFcpMs':r['browser']['medianFcpMs'],'browserLcpMs':r['browser']['medianLcpMs'],'lighthouseScore':r['lighthouse']['medianScore'],'lighthouseLcpMs':r['lighthouse']['medianLcpMs']},indent=2))
+          PY
+
+      - name: States B/C - active OFF then Performance ON
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-ab-benchmark.mjs
+          test -s /tmp/runner3-speed-ab.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-ab.json'))
+          assert r['status']=='ready' and r['cloudflare'] is False, r
+          b,c=r['baseline'],r['optimized']
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in c['curl']['runs']), r
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in c['browser']['runs']), r
+          assert c['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'], r
+          print(json.dumps({'status':'PASS','version':r['pluginVersion'],'B_browserTtfbMs':b['browser']['medianTtfbMs'],'C_browserTtfbMs':c['browser']['medianTtfbMs'],'B_lighthouse':b['lighthouse']['medianScore'],'C_lighthouse':c['lighthouse']['medianScore'],'delta':r['delta']},indent=2))
+          PY
+
+      - name: Safety matrix
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-safety-matrix.mjs
+          test -s /tmp/runner3-speed-safety-matrix.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          assert r['status']=='ready', r
+          for k in ['currentHit','headHit','headEmptyBody','authCookieBypass','wooCartCookieBypass','wooSessionCookieBypass','cartPathBypass','checkoutPathBypass','accountPathBypass','wcApiPathBypass','deactivated','deactivateNoHit','reactivatedOff','finalNoHit']:
+              assert r[k], (k,r)
+          print(json.dumps({'status':'PASS','detail':r['detail']},indent=2))
+          PY
+
+      - name: Aggregate verdict
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,datetime
+          seed=json.load(open('/tmp/runner3-speed-site3-seed.json'))
+          a=json.load(open('/tmp/runner3-speed-site3-a.json'))
+          bc=json.load(open('/tmp/runner3-speed-ab.json'))
+          sx=json.load(open('/tmp/runner3-speed-safety-matrix.json'))
+          site=json.load(open('ops/site-factory/runner3-speed-site3-realistic.json'))
+          b,c=bc['baseline'],bc['optimized']
+          gates={
+            'B_off_browser_ttfb_within_20pct_of_A': b['browser']['medianTtfbMs'] <= a['browser']['medianTtfbMs']*1.20,
+            'B_off_lighthouse_score_within_2_of_A': b['lighthouse']['medianScore'] >= a['lighthouse']['medianScore']-2,
+            'C_browser_ttfb_better_than_B': c['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'],
+            'C_lighthouse_not_worse_than_B_by_more_than_1': c['lighthouse']['medianScore'] >= b['lighthouse']['medianScore']-1,
+            'safety_ready': sx['status']=='ready'
+          }
+          report={
+            'status':'PASS' if all(gates.values()) else 'FAIL',
+            'gates':gates,
+            'site':site,
+            'starterImport':seed['starterImport'],
+            'fixture':{'theme':seed['theme'],'plugins':seed['plugins'],'pages':len(seed['pages']),'posts':len(seed['posts']),'media':len(seed['media']),'menu':seed['menu']},
+            'richness':a['richness'],
+            'pluginVersion':bc['pluginVersion'],
+            'states':{
+              'A_no_plugin':{'curlTtfbMs':a['curl']['medianTtfbMs'],'browserTtfbMs':a['browser']['medianTtfbMs'],'browserFcpMs':a['browser']['medianFcpMs'],'browserLcpMs':a['browser']['medianLcpMs'],'lighthouseScore':a['lighthouse']['medianScore'],'lighthouseLcpMs':a['lighthouse']['medianLcpMs']},
+              'B_active_off':{'curlTtfbMs':b['curl']['medianTtfbMs'],'browserTtfbMs':b['browser']['medianTtfbMs'],'browserFcpMs':b['browser']['medianFcpMs'],'browserLcpMs':b['browser']['medianLcpMs'],'lighthouseScore':b['lighthouse']['medianScore'],'lighthouseLcpMs':b['lighthouse']['medianLcpMs']},
+              'C_performance_on':{'curlTtfbMs':c['curl']['medianTtfbMs'],'browserTtfbMs':c['browser']['medianTtfbMs'],'browserFcpMs':c['browser']['medianFcpMs'],'browserLcpMs':c['browser']['medianLcpMs'],'lighthouseScore':c['lighthouse']['medianScore'],'lighthouseLcpMs':c['lighthouse']['medianLcpMs']}
+            },
+            'bcDelta':bc['delta'],'safety':sx,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          json.dump(report,open('/tmp/runner3-speed-site3-isolated-report.json','w'),indent=2)
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Persist isolated checkpoint
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,datetime
+          def load(path):
+              if not os.path.exists(path): return None
+              try:return json.load(open(path))
+              except Exception as e:return {'status':'unreadable','error':str(e)}
+          final=load('/tmp/runner3-speed-site3-isolated-report.json')
+          cp={
+            'status':(final or {}).get('status','PARTIAL_OR_FAILED'),
+            'runType':'isolated_sequential_abc',
+            'site':load('/tmp/site-factory-v15-runner3-speed-site3-realistic.json'),
+            'seed':load('/tmp/runner3-speed-site3-seed.json'),
+            'starterImport':(load('/tmp/runner3-speed-site3-seed.json') or {}).get('starterImport'),
+            'stateA':load('/tmp/runner3-speed-site3-a.json'),
+            'ab':load('/tmp/runner3-speed-ab.json'),
+            'safety':load('/tmp/runner3-speed-safety-matrix.json'),
+            'final':final,
+            'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(cp,open('ops/site-factory/runner3-speed-site3-isolated.latest.json','w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-site3-isolated-bot'
+          git config user.email 'runner3-speed-site3-isolated-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-site3-isolated.latest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'test: record isolated sequential Blocksy A-B-C evidence'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/runner3-site3-media /tmp/wasmer-account.json /tmp/runner3-speed.zip
