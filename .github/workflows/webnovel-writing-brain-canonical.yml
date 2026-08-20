@@ -48,11 +48,13 @@ jobs:
           mkdir -p source
           gh release download "$BASE_TAG" --pattern "$BASE_ASSET" --dir source
           actual_sha=$(sha256sum "source/$BASE_ASSET" | awk '{print $1}')
+          export ACTUAL_BASE_SHA="$actual_sha"
           echo "ACTUAL_BASE_SHA=$actual_sha" >> "$GITHUB_ENV"
           unzip -q source/$BASE_ASSET -d source/unpacked
           db=$(find source/unpacked -type f -name writing_brain.sqlite | head -n1)
           test -n "$db"
           base_dir=$(dirname "$db")
+          export BASE_DIR="$base_dir"
           echo "BASE_DIR=$base_dir" >> "$GITHUB_ENV"
           python - <<'PY'
           import sqlite3,os,json,pathlib,re
