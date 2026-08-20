@@ -29,7 +29,7 @@ def cconf(ms):
     bonus=(.065 if len({x['source'] for x in ms})>1 else 0)+min(.055,.018*math.log2(max(1,len(ms))))
     return round(min(.99,best+bonus),6)
 
-def build(base,outdir,max_neighbors=12):
+def build(base,outdir,max_neighbors=16):
     import joblib,numpy as np
     from scipy.sparse import hstack
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -43,15 +43,15 @@ def build(base,outdir,max_neighbors=12):
     rs=[dict(r) for r in con.execute('SELECT id,source,source_id,topic,kind,direction,confidence,source_quality,cross_source_support,text,evidence_surface,evidence_id,title,url,atoms_json FROM passages ORDER BY id')]
     assert len(rs)==21210 and sum(x['source']=='vidian' for x in rs)==11672 and sum(x['source']=='moxing' for x in rs)==9538
     assert not any(ZH.search(x['text'] or '') for x in rs if x['source']=='moxing')
-    dsu=DSU(len(rs));groups=collections.defaultdict(list);edge_sim={};accepted=0
+    dsu=DSU(len(rs));groups=collections.defaultdict(list);edge_sim={};accepted=0;cross_seen=[];cross_accepted=0
     for i,x in enumerate(rs):groups[(x['topic'],x['direction'])].append(i)
     for _,idxs in groups.items():
         if len(idxs)<2:continue
         docs=[rs[i]['text'] or '' for i in idxs]
-        w=TfidfVectorizer(strip_accents='unicode',ngram_range=(1,2),min_df=1,max_df=.995,max_features=36000,sublinear_tf=True).fit_transform(docs)
-        try:c=TfidfVectorizer(strip_accents='unicode',analyzer='char_wb',ngram_range=(3,5),min_df=2,max_df=.995,max_features=30000,sublinear_tf=True).fit_transform(docs)
+        w=TfidfVectorizer(strip_accents='unicode',ngram_range=(1,2),min_df=1,max_df=.995,max_features=42000,sublinear_tf=True).fit_transform(docs)
+        try:c=TfidfVectorizer(strip_accents='unicode',analyzer='char_wb',ngram_range=(3,5),min_df=2,max_df=.995,max_features=36000,sublinear_tf=True).fit_transform(docs)
         except ValueError:c=None
-        xmat=normalize(hstack([w*.74,c*.26],format='csr') if c is not None else w)
+        xmat=normalize(hstack([w*.72,c*.28],format='csr') if c is not None else w)
         k=min(max_neighbors,len(idxs));dist,nei=NearestNeighbors(metric='cosine',algorithm='brute',n_neighbors=k,n_jobs=-1).fit(xmat).kneighbors(xmat)
         aset=[atoms(rs[i]['atoms_json']) for i in idxs];ns=[norm(rs[i]['text']) for i in idxs];ls=[max(1,len(z)) for z in ns]
         for a in range(len(idxs)):
@@ -60,12 +60,19 @@ def build(base,outdir,max_neighbors=12):
                 if b<=a:continue
                 sim=1-float(dist[a,p]);gi,gj=idxs[a],idxs[b];ra,rb=rs[gi],rs[gj]
                 lr=min(ls[a],ls[b])/max(ls[a],ls[b]);ao=aover(aset[a],aset[b]);exact=bool(ns[a]) and ns[a]==ns[b];cross=ra['source']!=rb['source']
+                corroborated=bool(ra['cross_source_support']) and bool(rb['cross_source_support'])
+                if cross:
+                    cross_seen.append((sim,lr,ao,int(corroborated),ra['id'],rb['id']))
                 if exact:ok=True
-                elif cross:ok=(lr>=.42 and ao>=.34 and sim>=.70) or (lr>=.55 and ao>=.50 and sim>=.65)
+                elif cross:
+                    # Cross-source pairs are allowed only with multiple independent agreement signals.
+                    ok=(lr>=.45 and ao>=.34 and sim>=.55) or (corroborated and lr>=.55 and ao>=.50 and sim>=.47)
                 else:ok=(lr>=.55 and ao>=.34 and sim>=.82)
                 if ok:
                     edge_sim[tuple(sorted((gi,gj)))]=sim
-                    if dsu.union(gi,gj):accepted+=1
+                    if dsu.union(gi,gj):
+                        accepted+=1
+                        cross_accepted+=int(cross)
     cls=collections.defaultdict(list)
     for i in range(len(rs)):cls[dsu.find(i)].append(i)
     clusters=sorted(cls.values(),key=lambda xs:min(rs[i]['id'] for i in xs))
@@ -81,9 +88,13 @@ def build(base,outdir,max_neighbors=12):
         def score(gi):
             x=rs[gi];ln=len(clean(x['text']));concise=1/(1+max(0,ln-360)/720);central=sum(edge_sim.get(tuple(sorted((gi,j))),0.0) for j in midx if j!=gi)/max(1,len(midx)-1)
             return .42*float(x['confidence'] or .5)+.23*float(x['source_quality'] or .7)+.12*min(1,float(x['cross_source_support'] or 0)/4)+.08*concise+.15*central
-        rep_i=max(midx,key=score);rep=rs[rep_i];text=clean(rep['text']);title=TOPIC_VI.get(topic,'Kỹ thuật viết');kind=collections.Counter(x['kind'] for x in ms).most_common(1)[0][0]
+        candidates=sorted(midx,key=score,reverse=True)
+        rep_i=next((gi for gi in candidates if not ZH.search(rs[gi]['text'] or '')),candidates[0]);rep=rs[rep_i]
+        title=TOPIC_VI.get(topic,'Kỹ thuật viết');raw_text=clean(rep['text']);text=clean(ZH.sub('',raw_text))
+        if len(norm(text))<8:text=f'{title}: xem evidence gốc để kiểm tra ví dụ hoặc thuật ngữ nguồn.'
+        kind=collections.Counter(x['kind'] for x in ms).most_common(1)[0][0]
         mx=max([edge_sim.get(tuple(sorted((a,b))),0.0) for ai,a in enumerate(midx) for b in midx[ai+1:]] or [1.0]);rulehash=h('|'.join([topic,direction,norm(text),str(rep['id']),str(min(rs[i]['id'] for i in midx))]))
-        con.execute('INSERT INTO canonical_rules VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(rid,topic,direction,kind,title,text,cconf(ms),len(ms),src['vidian'],src['moxing'],len(src),int(len(src)>1),json.dumps(all_atoms,ensure_ascii=False),rep['id'],rulehash,'conservative-vietnamese-tfidf-v2.1',round(mx,6)))
+        con.execute('INSERT INTO canonical_rules VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(rid,topic,direction,kind,title,text,cconf(ms),len(ms),src['vidian'],src['moxing'],len(src),int(len(src)>1),json.dumps(all_atoms,ensure_ascii=False),rep['id'],rulehash,'conservative-vietnamese-tfidf-v2.3',round(mx,6)))
         con.execute('INSERT INTO canonical_fts(rowid,title,topic,direction,text) VALUES(?,?,?,?,?)',(rid,title,topic,direction,text))
         ranked=[]
         for gi in midx:
@@ -95,18 +106,20 @@ def build(base,outdir,max_neighbors=12):
     np.save(out/'canonical_vectors.npy',D,allow_pickle=False);np.save(out/'canonical_ids.npy',np.array(cids,dtype='int64'),allow_pickle=False);joblib.dump({'vectorizer':v,'svd':svd,'normalizer':nm},out/'canonical_semantic.joblib',compress=3)
     rules=con.execute('SELECT count(*) FROM canonical_rules').fetchone()[0];mapped=con.execute('SELECT count(*) FROM canonical_evidence').fetchone()[0];distinct=con.execute('SELECT count(distinct passage_id) FROM canonical_evidence').fetchone()[0];single=con.execute('SELECT count(*) FROM canonical_rules WHERE evidence_count=1').fetchone()[0]
     cjk=sum(bool(ZH.search(r[0] or '')) for r in con.execute('SELECT canonical_text FROM canonical_rules'))
-    preqa={'rules':rules,'mapped':mapped,'distinct_mapped':distinct,'cjk_rules':cjk,'max_cluster':max_cluster,'cross_source_rules':cross_rules,'accepted_merge_edges':accepted,'singletons':single}
+    top_cross=[{'sim':round(s,4),'length_ratio':round(lr,4),'atom_overlap':round(ao,4),'corroborated':bool(co),'a':a,'b':b} for s,lr,ao,co,a,b in sorted(cross_seen,reverse=True)[:12]]
+    preqa={'rules':rules,'mapped':mapped,'distinct_mapped':distinct,'cjk_rules':cjk,'max_cluster':max_cluster,'cross_source_rules':cross_rules,'accepted_merge_edges':accepted,'accepted_cross_edges':cross_accepted,'singletons':single,'top_cross_candidates':top_cross}
     print('CANONICAL_PRE_QA '+json.dumps(preqa,ensure_ascii=False),flush=True)
     assert mapped==21210,('mapped',mapped)
     assert distinct==21210,('distinct_mapped',distinct)
     assert cjk==0,('canonical_cjk_rows',cjk)
     assert 10000<rules<=21210,('canonical_rules',rules)
     assert max_cluster<=24,('max_cluster',max_cluster)
+    assert cross_rules>0,('cross_source_rules',cross_rules,top_cross)
     tstats=[dict(r) for r in con.execute('SELECT topic,count(*) rules,sum(evidence_count) evidence,sum(cross_source) cross_source_rules FROM canonical_rules GROUP BY topic ORDER BY rules DESC')]
-    qa={'schema':'webnovel-writing-brain-canonical-qa-v2.2','passages_total':21210,'canonical_rules':rules,'evidence_mapped':mapped,'singleton_rules':single,'multi_evidence_rules':rules-single,'evidence_collapsed':21210-rules,'cross_source_rules':cross_rules,'accepted_merge_edges':accepted,'max_cluster_size':max_cluster,'canonical_cjk_rows':cjk,'semantic_dimensions':dims,'semantic_features':int(X.shape[1]),'topic_stats':tstats,'contract':'Every evidence passage maps to exactly one conservative canonical rule; evidence is preserved; canonical rules are the default retrieval layer.'}
+    qa={'schema':'webnovel-writing-brain-canonical-qa-v2.3','passages_total':21210,'canonical_rules':rules,'evidence_mapped':mapped,'singleton_rules':single,'multi_evidence_rules':rules-single,'evidence_collapsed':21210-rules,'cross_source_rules':cross_rules,'accepted_merge_edges':accepted,'accepted_cross_edges':cross_accepted,'max_cluster_size':max_cluster,'canonical_cjk_rows':cjk,'semantic_dimensions':dims,'semantic_features':int(X.shape[1]),'top_cross_candidates':top_cross,'topic_stats':tstats,'contract':'Every evidence passage maps to exactly one conservative canonical rule; evidence is preserved; canonical rules are the default retrieval layer.'}
     (out/'canonical_qa.json').write_text(json.dumps(qa,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    mp=out/'manifest.json';man=json.loads(mp.read_text(encoding='utf-8'));man.update({'schema':'webnovel-writing-brain-canonical-v1','knowledge_mode':'canonical-first','default_retrieval_layer':'canonical_rules','evidence_fallback':'passages','canonical_layer':{'rules':rules,'evidence_passages':21210,'evidence_collapsed':21210-rules,'cross_source_rules':cross_rules,'merge_policy':'Conservative semantic clustering only inside identical canonical topic + directive direction. Cross-source merges require Vietnamese TF-IDF similarity plus shared craft atoms; thematic support_key alone is never treated as equivalence.','representative_policy':'Canonical text is an extractive Vietnamese formulation chosen from the strongest/most-central linked evidence; all evidence is retained.','tables':['canonical_rules','canonical_evidence','canonical_fts'],'semantic':'Vietnamese word TF-IDF(1,2)+SVD+cosine, up to 96d'}});mp.write_text(json.dumps(man,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    mp=out/'manifest.json';man=json.loads(mp.read_text(encoding='utf-8'));man.update({'schema':'webnovel-writing-brain-canonical-v1','knowledge_mode':'canonical-first','default_retrieval_layer':'canonical_rules','evidence_fallback':'passages','canonical_layer':{'rules':rules,'evidence_passages':21210,'evidence_collapsed':21210-rules,'cross_source_rules':cross_rules,'merge_policy':'Conservative semantic clustering only inside identical canonical topic + directive direction. Cross-source merges require Vietnamese semantic similarity plus compatible length and shared craft atoms; a lower similarity branch additionally requires prior cross-source corroboration. Thematic support_key alone is never treated as equivalence.','representative_policy':'Canonical text is an extractive Vietnamese formulation chosen from the strongest/most-central linked evidence; CJK is removed from canonical display while original evidence/provenance remains intact.','tables':['canonical_rules','canonical_evidence','canonical_fts'],'semantic':'Vietnamese word TF-IDF(1,2)+SVD+cosine, up to 96d'}});mp.write_text(json.dumps(man,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     con.execute('PRAGMA optimize');con.close();print(json.dumps(qa,ensure_ascii=False,indent=2))
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--base',required=True);ap.add_argument('--out',required=True);ap.add_argument('--max-neighbors',type=int,default=12);a=ap.parse_args();build(a.base,a.out,a.max_neighbors)
+    ap=argparse.ArgumentParser();ap.add_argument('--base',required=True);ap.add_argument('--out',required=True);ap.add_argument('--max-neighbors',type=int,default=16);a=ap.parse_args();build(a.base,a.out,a.max_neighbors)
 if __name__=='__main__':main()
