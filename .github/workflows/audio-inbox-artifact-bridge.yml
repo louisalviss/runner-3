@@ -1,0 +1,31 @@
+name: Encrypted Audio Inbox Artifact Bridge
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/audio-library/artifact-bridge-trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Verify encrypted inbox exists
+        run: test -s ops/audio-library/chatgpt-inbox/9fe80de0-6caa-5143-aaaa-f81b7a366f77.json
+
+      - name: Upload encrypted inbox artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-inbox-9fe80-encrypted
+          path: ops/audio-library/chatgpt-inbox/9fe80de0-6caa-5143-aaaa-f81b7a366f77.json
+          if-no-files-found: error
+          retention-days: 1
