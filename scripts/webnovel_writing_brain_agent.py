@@ -3,12 +3,15 @@
 import collections, math
 import webnovel_writing_brain as brain
 
-LOW_QUALITY_MOXING = ('天生的嫉妒心理','女性天生','男性天生','女人天生','男人天生')
+LOW_QUALITY_MOXING = (
+    '天生的嫉妒心理','女性天生','男性天生','女人天生','男人天生',
+    'tâm lý ghen tị bẩm sinh','phụ nữ bẩm sinh','nam giới bẩm sinh','đàn ông bẩm sinh','phụ nữ vốn dĩ','đàn ông vốn dĩ'
+)
 
 
 def acceptable(x):
-    text=(x.get('title','')+' '+x.get('text',''))
-    if x.get('source')=='moxing' and any(z in text for z in LOW_QUALITY_MOXING):
+    text=(x.get('title','')+' '+x.get('text','')).lower()
+    if x.get('source')=='moxing' and any(z.lower() in text for z in LOW_QUALITY_MOXING):
         return False
     return True
 
