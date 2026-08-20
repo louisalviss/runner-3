@@ -55,6 +55,8 @@ jobs:
           python -m pip install -q -U requests beautifulsoup4 pypdf yt-dlp playwright 'cryptography>=45,<47'
 
       - name: Resolve short source URLs
+        id: resolve
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -62,19 +64,48 @@ jobs:
 
       - name: Extract raw sources and encrypt for ChatGPT
         id: extract
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           python scripts/audio_library_extract_for_chatgpt.py | tee /tmp/audio-chatgpt-inbox-result.json
 
-      - name: Publish encrypted inbox only
+      - name: Publish encrypted inbox and checkpoint
+        if: always()
+        env:
+          RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
+          EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p ops/audio-library
+          python - <<'PY'
+          import datetime,json,os
+          from pathlib import Path
+          def load(path):
+              p=Path(path)
+              if not p.exists(): return None
+              try: return json.loads(p.read_text(encoding='utf-8'))
+              except Exception as e: return {'parseError':str(e)}
+          out={
+            'status':'ready',
+            'resolveOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
+            'extractOutcome':os.environ.get('EXTRACT_OUTCOME','unknown'),
+            'resolver':load('/tmp/audio-short-url-result.json'),
+            'extractor':load('/tmp/audio-chatgpt-inbox-result.json'),
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/audio-library/chatgpt-inbox-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/audio-library/chatgpt-inbox/*.json 2>/dev/null || true
+          git add ops/audio-library/chatgpt-inbox-status.json
           git diff --cached --quiet && exit 0
-          git commit -m 'Stage encrypted Audio Library sources for ChatGPT [skip ci]'
+          git commit -m 'Publish ChatGPT Audio inbox status [skip ci]'
           git pull --rebase origin main || true
           git push origin HEAD:main
+
+      - name: Fail when extraction stage crashed
+        if: steps.extract.outcome == 'failure'
+        run: exit 1
