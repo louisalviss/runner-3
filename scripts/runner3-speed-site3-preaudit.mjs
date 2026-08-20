@@ -110,9 +110,10 @@ try{
   const pages=await fetch(base+'/wp-json/wp/v2/pages?per_page=100&_fields=id,slug,title').then(r=>r.json()).catch(()=>[]);
   const media=await fetch(base+'/wp-json/wp/v2/media?per_page=100&_fields=id,source_url,media_type').then(r=>r.json()).catch(()=>[]);
   const posts=await fetch(base+'/wp-json/wp/v2/posts?per_page=100&_fields=id,slug,title').then(r=>r.json()).catch(()=>[]);
-  report.richness={htmlBytes:Buffer.byteLength(html),pages:Array.isArray(pages)?pages.length:0,posts:Array.isArray(posts)?posts.length:0,media:Array.isArray(media)?media.length:0,images:(html.match(/<img\b/gi)||[]).length,stylesheets:(html.match(/<link[^>]+rel=["']stylesheet["']/gi)||[]).length,scripts:(html.match(/<script\b/gi)||[]).length,navLinks:(html.match(/<nav[\s\S]*?<\/nav>/gi)||[]).join('').match(/<a\b/gi)?.length||0,elementor:/\belementor(?:-|_)/i.test(html),astra:/\bastra\b|\bast-/i.test(html)};
+  const localMedia=Array.isArray(media)?media.filter(x=>String(x?.source_url||'').startsWith(base)).length:0;
+  report.richness={htmlBytes:Buffer.byteLength(html),pages:Array.isArray(pages)?pages.length:0,posts:Array.isArray(posts)?posts.length:0,media:Array.isArray(media)?media.length:0,localMedia,images:(html.match(/<img\b/gi)||[]).length,stylesheets:(html.match(/<link[^>]+rel=["']stylesheet["']/gi)||[]).length,scripts:(html.match(/<script\b/gi)||[]).length,navLinks:(html.match(/<nav[\s\S]*?<\/nav>/gi)||[]).join('').match(/<a\b/gi)?.length||0,elementor:/\belementor(?:-|_)/i.test(html),astra:/\bastra\b|\bast-/i.test(html)};
   const r=report.richness;
-  if(r.pages<5||r.media<8||r.images<4||r.stylesheets<4||r.scripts<4||!r.elementor||!r.astra) throw new Error('site_not_realistic_enough:'+JSON.stringify(r));
+  if(r.pages<5||r.localMedia<8||r.images<4||r.stylesheets<4||r.scripts<4||!r.elementor||!r.astra) throw new Error('site_not_realistic_enough:'+JSON.stringify(r));
   report.curl=curlRuns(15); report.browser=await browserRuns(browser,7); report.lighthouse=lighthouseRuns(5);
   report.status='ready'; report.checkedAt=new Date().toISOString();
 }catch(e){report.status='failed';report.error=String(e?.message||e);report.checkedAt=new Date().toISOString();process.exitCode=1;}finally{fs.writeFileSync(out,JSON.stringify(report,null,2)+'\n');await adminCtx.close().catch(()=>{});await browser.close().catch(()=>{});}console.log(JSON.stringify(report,null,2));
