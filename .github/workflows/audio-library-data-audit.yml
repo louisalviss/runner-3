@@ -43,6 +43,7 @@ jobs:
               return result
           prefixes=['audio-library/items/','audio-library/media/','audio-library/trash/','audio-library/queue/']
           out={'status':'ready','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'prefixes':{}}
+          item_keys=[]
           for p in prefixes:
               rows=list_prefix(p)
               keys=[]
@@ -51,7 +52,41 @@ jobs:
                   elif isinstance(x,dict): keys.append(x.get('key') or x.get('name') or '')
               keys=[k for k in keys if k]
               out['prefixes'][p]={'count':len(keys),'sample':keys[:20]}
+              if p=='audio-library/items/': item_keys=keys[:20]
+          out['itemKeys']=item_keys
           os.makedirs('ops/audio-library',exist_ok=True)
+          with open('/tmp/audit-base.json','w') as f: json.dump(out,f,ensure_ascii=False,indent=2)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read and parse item metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/keys.txt
+          import json
+          for k in json.load(open('/tmp/audit-base.json')).get('itemKeys',[]): print(k)
+          PY
+          mkdir -p /tmp/audio-items
+          i=0
+          while IFS= read -r key; do
+            [ -n "$key" ] || continue
+            npx -y wrangler@4.123.0 r2 object get "$BUCKET/$key" --file="/tmp/audio-items/$i.json" --remote >/dev/null
+            i=$((i+1))
+          done < /tmp/keys.txt
+          python - <<'PY'
+          import json,glob,os
+          out=json.load(open('/tmp/audit-base.json'))
+          parsed=[]
+          for p in sorted(glob.glob('/tmp/audio-items/*.json')):
+              try:
+                  x=json.load(open(p))
+                  parsed.append({k:x.get(k) for k in ['id','title','status','sourceLabel','durationSeconds','audioUrl','deletedAt']})
+              except Exception as e:
+                  parsed.append({'parseError':str(e)[:200]})
+          out['itemsParsed']=parsed
+          out.pop('itemKeys',None)
           with open('ops/audio-library/data-audit.json','w') as f: json.dump(out,f,ensure_ascii=False,indent=2)
           PY
       - name: Publish safe audit
