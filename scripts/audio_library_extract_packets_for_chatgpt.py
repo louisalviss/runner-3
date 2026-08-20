@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# trigger: packetize-v1
 import json
 import os
 import subprocess
@@ -46,8 +47,6 @@ def ids_from_status():
     for section in ('resolver','fxheaders','metadata','fallback','extractor'):
         for row in ((data.get(section) or {}).get('results') or []):
             if isinstance(row,dict): add(row.get('id'))
-    for p in (ROOT/'ops/audio-library/chat-intake').glob('*.json') if (ROOT/'ops/audio-library/chat-intake').exists() else []:
-        pass
     return ids[:10]
 
 
