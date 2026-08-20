@@ -22,9 +22,9 @@ jobs:
         run: |
           set -euo pipefail
           base='https://runner3-audio-library.ducduy2411.workers.dev'
-          root_code="$(curl -sS -o /tmp/root.html -w '%{http_code}' "$base/")"
-          health_code="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$base/health")"
-          api_code="$(curl -sS -o /tmp/api.json -w '%{http_code}' "$base/api/items")"
+          curl -sS -o /tmp/root.html -w '%{http_code}' "$base/" > /tmp/root.code
+          curl -sS -o /tmp/health.json -w '%{http_code}' "$base/health" > /tmp/health.code
+          curl -sS -o /tmp/api.json -w '%{http_code}' "$base/api/items" > /tmp/api.code
           python - <<'PY'
           import json,re,datetime
           root=open('/tmp/root.html',errors='replace').read()
@@ -35,6 +35,9 @@ jobs:
               return s[:500]
           out={
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'rootCode':open('/tmp/root.code').read().strip(),
+            'healthCode':open('/tmp/health.code').read().strip(),
+            'apiCode':open('/tmp/api.code').read().strip(),
             'rootBytes':len(root.encode()),
             'rootHasLogin':'Audio Library' in root and ('type="password"' in root or 'name="password"' in root),
             'rootHasApp':'id="app"' in root,
