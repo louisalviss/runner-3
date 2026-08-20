@@ -26,6 +26,9 @@ class HeadEnhancer {
     );
     element.append(
       `<style id="runner5-v100-a11y">
+        /* Inspiro calculates this same spacing on document.ready. Reserve it in
+           first-paint CSS so the content does not shift after JavaScript starts. */
+        body.home.blog:not(.has-header-image):not(.has-header-video) #content { padding-top:105px; }
         .entry-meta .entry-author,
         .entry-meta .entry-date,
         .entry-meta time.entry-date { color:#595959 !important; }
@@ -56,7 +59,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/__runner5/v100/health') {
-      return Response.json({ ok: true, gateway: 'runner5-restore-gateway-v100', downstream: 'runner5-restore-proxy', candidate: 2 }, {
+      return Response.json({ ok: true, gateway: 'runner5-restore-gateway-v100', downstream: 'runner5-restore-proxy', candidate: 3 }, {
         headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' },
       });
     }
@@ -73,12 +76,10 @@ export default {
     const [downstream, cssResponse] = await Promise.all([downstreamPromise, cssPromise]);
     const type = downstream.headers.get('Content-Type') || '';
 
-    // Give immutable public assets a long browser cache. The WordPress origin and
-    // private/admin responses are still controlled by the downstream worker.
     if (request.method !== 'POST' && (LONG_CACHE_RE.test(url.pathname) || url.pathname.startsWith('/wp-content/') || url.pathname.startsWith('/wp-includes/'))) {
       return cloneWithHeaders(downstream, {
         'Cache-Control': 'public, max-age=31536000, immutable',
-        'X-Runner5-V100': 'candidate-2-asset',
+        'X-Runner5-V100': 'candidate-3-asset',
       });
     }
 
@@ -88,7 +89,7 @@ export default {
     if (cssResponse && cssResponse.ok) bundleCss = await cssResponse.text();
 
     const headers = new Headers(downstream.headers);
-    headers.set('X-Runner5-V100', 'candidate-2');
+    headers.set('X-Runner5-V100', 'candidate-3');
     let response = new Response(downstream.body, { status: downstream.status, statusText: downstream.statusText, headers });
     let rewriter = new HTMLRewriter()
       .on('head', new HeadEnhancer())
