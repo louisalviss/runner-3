@@ -111,9 +111,12 @@ async function configureAndTest(wp) {
   const placeholder = await wp.locator('#runner3-edge-secret').getAttribute('placeholder');
   if (!/Configured/i.test(placeholder || '')) throw new Error('secret_not_persisted');
   const test = wp.locator('input[type=submit],button').filter({ hasText: /send test event/i }).first();
-  const href = await test.getAttribute('formaction').catch(() => null);
-  if (href) await wp.goto(new URL(href, `${base}/wp-admin/`).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  else { await test.click(); await wp.waitForLoadState('domcontentloaded').catch(() => {}); }
+  const form = test.locator('xpath=ancestor::form[1]');
+  if (!(await form.count())) throw new Error('plugin_test_form_missing');
+  await Promise.all([
+    wp.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null),
+    form.evaluate((el) => el.submit()),
+  ]);
   await wp.waitForTimeout(900);
   const body = await wp.locator('body').innerText().catch(() => '');
   if (!/Connection test:\s*ok/i.test(body)) throw new Error('plugin_test_event_failed');
