@@ -6,6 +6,11 @@ on:
     paths:
       - 'wave-rider-verify/wr_crossasset_cache.py'
       - '.github/workflows/wr-crossasset-data-cache.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/wr_crossasset_cache.py'
+      - '.github/workflows/wr-crossasset-data-cache.yml'
   workflow_dispatch:
 
 permissions:
