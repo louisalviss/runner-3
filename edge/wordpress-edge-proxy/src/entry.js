@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import worker, { isPublicHtmlCacheCandidate } from './index.js';
 import { StaticResponsiveImageRewriter, StaticImagePreloadRewriter } from './responsive-images.js';
+import { maybeServeChangeEventApi } from './change-events.js';
 
 const R2_ORIGIN = 'https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
@@ -9,6 +10,7 @@ const HTML_CACHE_TAG = 'runner3-html';
 const LCP_R2_PREFIX = '/__runner3/r2-image/';
 const LCP_R2_NAME_RE = /^offset-demo-01-w(?:360|480|640)\.webp$/;
 const LCP_R2_KEY_PREFIX = 'sites/runner3-factory-smoke-2/responsive-v2/';
+const DEFAULT_SITE = 'runner3-factory-smoke-2';
 
 class HeadResourceHints {
   element(element) {
@@ -120,6 +122,8 @@ async function handlePurge(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
+    const eventResponse = await maybeServeChangeEventApi(request, env, incoming.pathname, { defaultSite: DEFAULT_SITE });
+    if (eventResponse) return eventResponse;
     if (incoming.pathname === PURGE_PATH) return handlePurge(request, env, ctx);
     if (incoming.pathname.startsWith(LCP_R2_PREFIX)) return sameOriginLcpImage(request, env, incoming);
     if (isPublicHtmlCacheCandidate(request)) return directPublicResponse(request, env, ctx);
