@@ -15,7 +15,8 @@ BUCKET = os.environ.get('AUDIO_LIBRARY_BUCKET', 'runner3-wp-media')
 STATUS = ROOT / 'ops/audio-library/chat-intake-status.json'
 ITEM_PREFIX = 'audio-library/items/'
 QUEUE_PREFIX = 'audio-library/queue/'
-UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+UA = 'Runner3AudioResolver/2.0'
+CURLX_API = 'https://www.curl-x.com/api/extract'
 
 
 def wrangler_get(key: str):
@@ -56,20 +57,103 @@ def is_reddit_short(url: str) -> bool:
 def normalize_reddit_candidate(value: str):
     if not value:
         return None
-    value = html.unescape(value).replace('\\u002F','/').replace('\\/','/')
-    m = re.search(r'https?://(?:www\.)?reddit\.com(?P<path>/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)', value, re.I)
-    if m:
-        return 'https://www.reddit.com' + m.group('path').rstrip('\\')
-    m = re.search(r'https?://(?:www\.)?curl-x\.com(?P<path>/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)', value, re.I)
-    if m:
-        return 'https://www.reddit.com' + m.group('path').rstrip('\\')
-    m = re.search(r'(?P<path>/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)', value, re.I)
-    if m:
-        return 'https://www.reddit.com' + m.group('path').rstrip('\\')
+    value = html.unescape(str(value)).replace('\\u002F','/').replace('\\/','/')
+    patterns = [
+        r'https?://(?:www\.)?reddit\.com(?P<path>/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)',
+        r'https?://(?:www\.)?reddit\.com(?P<path>/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)',
+        r'https?://(?:www\.)?curl-x\.com(?P<path>/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)',
+        r'(?P<path>/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)',
+        r'(?P<path>/comments/[a-z0-9]+(?:/[^\s"<>?]*)?)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, value, re.I)
+        if m:
+            return ('https://www.reddit.com' + m.group('path').rstrip('\\')).split('?')[0]
     return None
 
 
-def resolve_via_curlx(url: str):
+def subreddit_from_share(url: str):
+    m = re.search(r'/r/([^/]+)/s/', urlparse(url).path, re.I)
+    return m.group(1) if m else None
+
+
+def post_id_from_text(value: str):
+    text = html.unescape(str(value or '')).replace('\\u002F','/').replace('\\/','/')
+    for pat in [
+        r'/comments/([a-z0-9]+)',
+        r'"postId"\s*:\s*"([a-z0-9]+)"',
+        r'"redditPostId"\s*:\s*"([a-z0-9]+)"',
+        r'"id"\s*:\s*"t3_([a-z0-9]+)"',
+        r'"name"\s*:\s*"t3_([a-z0-9]+)"',
+    ]:
+        m = re.search(pat, text, re.I)
+        if m:
+            return m.group(1)
+    return None
+
+
+def canonical_from_payload(payload, original_url: str):
+    try:
+        text = json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        text = str(payload or '')
+    found = normalize_reddit_candidate(text)
+    if found:
+        return found
+    post_id = post_id_from_text(text)
+    subreddit = subreddit_from_share(original_url)
+    if post_id and subreddit:
+        return f'https://www.reddit.com/r/{subreddit}/comments/{post_id}/'
+    return None
+
+
+def resolve_via_curlx_api(url: str):
+    try:
+        r = requests.post(
+            CURLX_API,
+            json={'url': url},
+            headers={
+                'User-Agent': UA,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9',
+            },
+            timeout=75,
+            allow_redirects=True,
+        )
+    except Exception as e:
+        return None, f'curlx-api-request-{type(e).__name__}'
+
+    data = None
+    try:
+        data = r.json()
+    except Exception:
+        data = None
+
+    for candidate in [r.url, r.headers.get('location','')]:
+        found = normalize_reddit_candidate(candidate)
+        if found:
+            return found, f'curlx-api-url:{r.status_code}'
+
+    if data is not None:
+        found = canonical_from_payload(data, url)
+        if found:
+            code = data.get('code') if isinstance(data, dict) else None
+            return found, f'curlx-api-json:{r.status_code}:{code or "ok"}'
+
+    found = normalize_reddit_candidate(r.text or '')
+    if found:
+        return found, f'curlx-api-text:{r.status_code}'
+    post_id = post_id_from_text(r.text or '')
+    subreddit = subreddit_from_share(url)
+    if post_id and subreddit:
+        return f'https://www.reddit.com/r/{subreddit}/comments/{post_id}/', f'curlx-api-id:{r.status_code}'
+
+    code = data.get('code') if isinstance(data, dict) else None
+    return None, f'curlx-api-no-target:{r.status_code}:{code or "no-code"}:{len(r.text or "")}'
+
+
+def resolve_via_curlx_legacy(url: str):
     p = urlparse(url)
     target = 'https://www.curl-x.com' + p.path
     if p.query:
@@ -77,47 +161,30 @@ def resolve_via_curlx(url: str):
     try:
         r = requests.get(
             target,
-            headers={'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,*/*', 'Accept-Language': 'en-US,en;q=0.9'},
+            headers={'User-Agent': 'curl/8.10.1', 'Accept': '*/*'},
             timeout=60,
             allow_redirects=True,
         )
     except Exception as e:
-        return None, f'curlx-request-{type(e).__name__}'
+        return None, f'curlx-legacy-request-{type(e).__name__}'
 
-    for candidate in [r.url, r.headers.get('location','')]:
+    for candidate in [r.url, r.headers.get('location',''), r.text or '']:
         found = normalize_reddit_candidate(candidate)
         if found:
-            return found.split('?')[0], f'curlx-url:{r.status_code}'
+            return found, f'curlx-legacy:{r.status_code}'
+    post_id = post_id_from_text(r.text or '')
+    subreddit = subreddit_from_share(url)
+    if post_id and subreddit:
+        return f'https://www.reddit.com/r/{subreddit}/comments/{post_id}/', f'curlx-legacy-id:{r.status_code}'
+    return None, f'curlx-legacy-no-target:{r.status_code}:{len(r.text or "")}'
 
-    body = html.unescape(r.text or '')
-    body = body.replace('\\u002F','/').replace('\\/','/')
-    patterns = [
-        r'https?://(?:www\.)?reddit\.com/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?',
-        r'https?://(?:www\.)?curl-x\.com/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?',
-        r'/r/[^\s"<>]+/comments/[a-z0-9]+(?:/[^\s"<>?]*)?',
-    ]
-    for pat in patterns:
-        m = re.search(pat, body, re.I)
-        if m:
-            found = normalize_reddit_candidate(m.group(0))
-            if found:
-                return found.split('?')[0], f'curlx-html:{r.status_code}'
 
-    post_id = None
-    for pat in [r'"postId"\s*:\s*"([a-z0-9]+)"', r'"redditPostId"\s*:\s*"([a-z0-9]+)"', r'/comments/([a-z0-9]+)']:
-        m = re.search(pat, body, re.I)
-        if m:
-            post_id = m.group(1)
-            break
-    if post_id:
-        subreddit = None
-        sm = re.search(r'/r/([^/]+)/s/', p.path, re.I)
-        if sm:
-            subreddit = sm.group(1)
-        if subreddit:
-            return f'https://www.reddit.com/r/{subreddit}/comments/{post_id}/', f'curlx-id:{r.status_code}'
-
-    return None, f'curlx-no-target:{r.status_code}/{len(body)}:{r.url}'
+def resolve_via_curlx(url: str):
+    canonical, mode = resolve_via_curlx_api(url)
+    if canonical:
+        return canonical, mode
+    canonical2, mode2 = resolve_via_curlx_legacy(url)
+    return canonical2, mode + ';' + mode2
 
 
 def main():
@@ -147,7 +214,7 @@ def main():
         queue['sourceUrl'] = canonical
         queue['sharedUrl'] = src
         wrangler_put(f'{QUEUE_PREFIX}{item_id}.json', queue)
-        results.append({'id': item_id, 'status': 'resolved', 'mode': mode, 'canonicalUrl': canonical})
+        results.append({'id': item_id, 'status': 'resolved', 'mode': mode, 'canonicalResolved': True})
     print(json.dumps({'ok': True, 'results': results}, ensure_ascii=False))
 
 
