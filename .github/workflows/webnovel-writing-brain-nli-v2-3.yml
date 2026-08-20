@@ -1,0 +1,160 @@
+name: webnovel-writing-brain-nli-v2-3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/webnovel-nli-v2-3]
+    paths:
+      - 'scripts/webnovel_writing_brain_nli_v2_3.py'
+      - '.github/workflows/webnovel-writing-brain-nli-v2-3.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-nli-v2-3
+  cancel-in-progress: false
+
+env:
+  SOURCE_TAG: webnovel-writing-brain-context-v2-2-2026-08-20
+  SOURCE_ASSET: webnovel-writing-brain-context-v2-2-2026-08-20.zip
+  SOURCE_SHA256: 8b82c3c4407fd5aaa8f3fe1741beecf3f790ffc3ec9b0f7308c61f90171e0a47
+  TAG: webnovel-writing-brain-nli-v2-3-candidate-2026-08-20
+  ASSET: webnovel-writing-brain-nli-v2-3-candidate-2026-08-20.zip
+  STATUS_FILE: ops/webnovel-writing-brain-nli-v2-3-status.json
+  TOKENIZERS_PARALLELISM: 'false'
+  OMP_NUM_THREADS: '4'
+  MKL_NUM_THREADS: '4'
+
+jobs:
+  build-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+
+      - name: Install NLI and retrieval runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q --upgrade pip
+          python -m pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -q 'transformers>=4.48,<5' sentencepiece safetensors numpy scikit-learn joblib
+
+      - name: Download and audit Context V2.2 production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir source
+          actual=$(sha256sum "source/$SOURCE_ASSET" | awk '{print $1}')
+          test "$actual" = "$SOURCE_SHA256"
+          unzip -q "source/$SOURCE_ASSET" -d source/unpacked
+          db=$(find source/unpacked -type f -name writing_brain.sqlite | head -n1)
+          test -n "$db"
+          echo "SOURCE_DIR=$(dirname "$db")" >> "$GITHUB_ENV"
+          export DB="$db"
+          python - <<'PY'
+          import os,sqlite3
+          con=sqlite3.connect(os.environ['DB'])
+          assert con.execute('select count(*) from passages').fetchone()[0]==21210
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==16697
+          assert con.execute('select count(*) from canonical_relations').fetchone()[0]==26320
+          assert con.execute("select count(*) from canonical_relations where relation='review'").fetchone()[0]==2494
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          con.close();print({'source':'Context V2.2 production','audit':'pass'})
+          PY
+
+      - name: Build NLI V2.3 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python scripts/webnovel_writing_brain_nli_v2_3.py --source "$SOURCE_DIR" --out build/writing_brain --batch-size 20 | tee build/nli-v2-3-build.log
+          mkdir -p build/writing_brain/runtime
+          cp scripts/webnovel_writing_brain.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_canonical_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_context_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_nli_v2_3.py build/writing_brain/runtime/
+
+      - name: NLI QA and retrieval parity smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sqlite3,pathlib
+          root=pathlib.Path('build/writing_brain');qa=json.load(open(root/'nli_v2_3_qa.json',encoding='utf-8'))
+          assert qa['rules_total']==16697,qa
+          assert qa['relations_total']==26320,qa
+          assert qa['review_before']==2494,qa
+          assert qa['nli_rows']==2494,qa
+          assert qa['nonreview_rows_touched']==0,qa
+          assert qa['exact_true_conflict_sanity_failures']==0,qa
+          assert qa['review_resolved_rate']>=.45,qa
+          assert qa['overall_review_rate']<=.055,qa
+          assert qa['promotion_pass'] is True,qa
+          con=sqlite3.connect(root/'writing_brain.sqlite')
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==16697
+          assert con.execute('select count(*) from canonical_relations').fetchone()[0]==26320
+          assert con.execute('select count(*) from canonical_relation_nli').fetchone()[0]==2494
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          con.close();print(json.dumps(qa,ensure_ascii=False,indent=2))
+          PY
+          Q='mở đầu tiên hiệp, nhân vật chính thận trọng, progression có cost, không dump worldbuilding'
+          PYTHONPATH="$SOURCE_DIR/runtime" python "$SOURCE_DIR/runtime/webnovel_writing_brain_context_agent.py" query --index "$SOURCE_DIR" --q "$Q" --limit 15 --json-out build/v22-query.json >/dev/null
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_context_agent.py query --index build/writing_brain --q "$Q" --limit 15 --json-out build/v23-query.json >/dev/null
+          python - <<'PY'
+          import json
+          a=json.load(open('build/v22-query.json',encoding='utf-8'));b=json.load(open('build/v23-query.json',encoding='utf-8'))
+          assert [x['rule_id'] for x in a['hits']]==[x['rule_id'] for x in b['hits']]
+          print({'retrieval_parity_hits':len(b['hits'])})
+          PY
+
+      - name: Package and publish V2.3 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('build/writing_brain');asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():z.write(p,pathlib.Path('writing_brain')/p.relative_to(root))
+          h=hashlib.sha256()
+          with asset.open('rb') as f:
+              for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+          pkg={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':h.hexdigest()}
+          pathlib.Path('build/package.json').write_text(json.dumps(pkg,indent=2)+'\n');print(json.dumps(pkg,indent=2))
+          PY
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain NLI V2.3 Candidate — 2026-08-20' --notes 'Bidirectional multilingual NLI review resolver over Context V2.2. Only unresolved review relations are reconsidered; all rules, evidence and retrieval ranking are preserved.'
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Persist V2.3 candidate status
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ASSET_SIZE=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name==env.ASSET) | .size' | head -n1)
+          test -n "$ASSET_SIZE" && test "$ASSET_SIZE" -gt 0
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          qa=json.load(open('build/writing_brain/nli_v2_3_qa.json',encoding='utf-8'));pkg=json.load(open('build/package.json',encoding='utf-8'))
+          status={'schema':'webnovel-writing-brain-nli-v2.3-status','status':'completed','conclusion':'success','promotion_pass':qa['promotion_pass'],
+            'candidate_release_tag':os.environ['TAG'],'candidate_asset':os.environ['ASSET'],'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':pkg['sha256'],
+            'review_before':qa['review_before'],'review_after':qa['review_after'],'review_resolved':qa['review_resolved'],'review_resolved_rate':qa['review_resolved_rate'],
+            'overall_review_rate':qa['overall_review_rate'],'nli_decisions':qa['nli_decisions'],'final_relations':qa['final_relations'],'model_id':qa['model_id'],
+            'model_sanity':qa['model_sanity'],'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          p=pathlib.Path(os.environ['STATUS_FILE']);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n');print(json.dumps(status,ensure_ascii=False,indent=2))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE" && git commit -m 'Publish NLI V2.3 candidate status [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do git fetch origin "$GITHUB_REF_NAME"; git rebase "origin/$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0; git rebase --abort || true; sleep $((i*2)); done
+          exit 1
