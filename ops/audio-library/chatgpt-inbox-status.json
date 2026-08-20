@@ -1,6 +1,7 @@
 {
   "status": "ready",
   "resolveOutcome": "success",
+  "fallbackOutcome": "success",
   "extractOutcome": "failure",
   "resolver": {
     "ok": true,
@@ -12,8 +13,18 @@
       }
     ]
   },
+  "fallback": {
+    "ok": true,
+    "results": [
+      {
+        "id": "9fe80de0-6caa-5143-aaaa-f81b7a366f77",
+        "status": "unresolved",
+        "detail": "curlx-no-target:404/188982:https://www.curl-x.com/r/AskReddit/s/k3EUqNBKsi"
+      }
+    ]
+  },
   "extractor": {
     "parseError": "Expecting value: line 1 column 1 (char 0)"
   },
-  "updatedAt": "2026-08-20T00:16:59.888437+00:00"
+  "updatedAt": "2026-08-20T00:20:43.818549+00:00"
 }
