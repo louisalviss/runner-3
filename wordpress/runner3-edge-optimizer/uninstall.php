@@ -1,6 +1,0 @@
-<?php
-if(!defined('WP_UNINSTALL_PLUGIN'))exit;
-$dropin=WP_CONTENT_DIR.'/advanced-cache.php';if(is_file($dropin)){$head=@file_get_contents($dropin,false,null,0,4096);if(is_string($head)&&strpos($head,'RUNNER3_SPEED_DROPIN')!==false)@unlink($dropin);}
-$dir=WP_CONTENT_DIR.'/cache/runner3-speed';if(is_dir($dir)){$files=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($files as $file)$file->isDir()?@rmdir($file->getPathname()):@unlink($file->getPathname());@rmdir($dir);}
-delete_option('runner3_speed_enabled');delete_option('runner3_speed_status');delete_option('runner3_edge_optimizer_pending');
-$paths=[ABSPATH.'wp-config.php',dirname(ABSPATH).'/wp-config.php'];foreach($paths as $path){if(!is_file($path)||!is_readable($path)||!is_writable($path))continue;$content=file_get_contents($path);if(!is_string($content))continue;$updated=preg_replace("/\/\* RUNNER3_SPEED_WP_CACHE \*\/\s*define\(\s*['\"]WP_CACHE['\"]\s*,\s*true\s*\);\s*/",'', $content,1,$count);if($count===1&&is_string($updated)){$tmp=dirname($path).'/.runner3-uninstall-'.uniqid('',true).'.tmp';if(file_put_contents($tmp,$updated,LOCK_EX)!==false)@rename($tmp,$path);if(is_file($tmp))@unlink($tmp);}break;}
