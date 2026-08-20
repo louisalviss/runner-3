@@ -18,12 +18,15 @@ concurrency:
 jobs:
   enqueue:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       AUDIO_LIBRARY_BUCKET: runner3-wp-media
       AUDIO_LIBRARY_RETENTION_DAYS: '30'
+      CHATGPT_INBOX_PUBLIC_KEY: sYGZHQp2jOgHK7mnuF+Yij8rZOxYbgxKNOP4okx0k3E=
+      AUDIO_LIBRARY_EXTRACT_MAX_ITEMS: '3'
+      AUDIO_LIBRARY_MAX_RAW_CHARS: '120000'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,6 +39,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install source extraction dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q -U requests beautifulsoup4 pypdf yt-dlp 'cryptography>=45,<47'
 
       - name: Find new chat intake requests
         id: changed
@@ -58,10 +67,20 @@ jobs:
           mapfile -t files < /tmp/audio-chat-intake-files.txt
           python scripts/audio_library_chat_intake.py "${files[@]}" | tee /tmp/audio-chat-intake-result.json
 
-      - name: Publish chat intake checkpoint
+      - name: Extract raw source and encrypt for ChatGPT
+        id: extract
+        if: steps.enqueue.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audio_library_extract_for_chatgpt.py | tee /tmp/audio-chatgpt-inbox-result.json
+
+      - name: Publish checkpoint and encrypted inbox
         if: always() && steps.changed.outputs.count != '0'
         env:
           ENQUEUE_OUTCOME: ${{ steps.enqueue.outcome }}
+          EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
         shell: bash
         run: |
           set -euo pipefail
@@ -82,13 +101,22 @@ jobs:
               counts[status] = counts.get(status, 0) + 1
               if row.get('id'):
                   ids.append(row['id'])
+          extract_results = []
+          extract_path = Path('/tmp/audio-chatgpt-inbox-result.json')
+          if extract_path.exists():
+              try:
+                  extract_results = json.loads(extract_path.read_text(encoding='utf-8')).get('results', [])
+              except Exception:
+                  extract_results = []
           out = {
               'status': 'ready' if os.environ.get('ENQUEUE_OUTCOME') == 'success' else 'error',
               'workflowOutcome': os.environ.get('ENQUEUE_OUTCOME', 'unknown'),
+              'extractOutcome': os.environ.get('EXTRACT_OUTCOME', 'skipped'),
               'sourceCommit': os.environ.get('GITHUB_SHA', ''),
               'processed': len(results),
               'counts': counts,
               'itemIds': ids[:20],
+              'extractResults': extract_results[:10],
               'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
           Path('ops/audio-library/chat-intake-status.json').write_text(
@@ -98,10 +126,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/audio-library/chat-intake-status.json
-          git commit -m 'Publish Audio Library chat intake status' || exit 0
+          git add ops/audio-library/chatgpt-inbox/*.json 2>/dev/null || true
+          git commit -m 'Publish Audio Library chat intake and encrypted source' || exit 0
           git pull --rebase origin main || true
           git push origin HEAD:main || true
 
-      - name: Fail when enqueue failed
-        if: steps.enqueue.outcome == 'failure'
+      - name: Fail when enqueue or extract failed
+        if: steps.enqueue.outcome == 'failure' || steps.extract.outcome == 'failure'
         run: exit 1
