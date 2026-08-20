@@ -1,0 +1,82 @@
+name: Audio Library Reddit Resolve Fast
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-reddit-resolve-fast.yml'
+      - 'scripts/audio_library_resolve_reddit_via_curlx.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-audio-reddit-resolve-fast
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUDIO_LIBRARY_BUCKET: runner3-wp-media
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install resolver dependency
+        run: python -m pip install -q requests
+      - name: Resolve Reddit share link
+        id: resolve
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/audio_library_resolve_reddit_via_curlx.py 2>&1 | tee /tmp/reddit-resolve-fast.log
+      - name: Publish safe resolver checkpoint
+        if: always()
+        env:
+          RESOLVE_OUTCOME: ${{ steps.resolve.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/audio-library
+          python - <<'PY'
+          import datetime,json,os
+          from pathlib import Path
+          text=Path('/tmp/reddit-resolve-fast.log').read_text(encoding='utf-8',errors='replace') if Path('/tmp/reddit-resolve-fast.log').exists() else ''
+          result=None
+          for line in reversed(text.splitlines()):
+              line=line.strip()
+              if not line.startswith('{'): continue
+              try:
+                  candidate=json.loads(line)
+                  if isinstance(candidate,dict) and 'results' in candidate:
+                      result=candidate; break
+              except Exception: pass
+          # Resolver diagnostics intentionally contain no plaintext source URL/canonical URL.
+          out={
+            'status':'ready',
+            'workflowOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
+            'result':result or {'parseError':'no-result-json'},
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/audio-library/reddit-resolve-fast-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-resolve-fast-status.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Reddit fast resolver status [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
