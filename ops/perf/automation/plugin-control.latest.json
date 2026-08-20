@@ -1,18 +1,18 @@
 {
-  "status": "failed",
+  "status": "ready",
   "architecture": "WordPress plugin -> isolated control Worker -> R2 queue; production frontend Worker unchanged",
   "plugin": {
-    "status": "failed",
+    "status": "ready",
     "siteSlug": "runner3-factory-smoke-2",
     "installed": true,
     "active": true,
-    "configured": false,
-    "testEvent": false,
-    "detail": "locator.evaluate: TypeError: el.submit is not a function\n    at eval (eval at evaluate (:290:30), <anonymous>:1:12)\n    at UtilityScript.evaluate (<anonymous>:292:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)",
-    "updatedAt": "2026-08-20T00:37:21.022Z"
+    "configured": true,
+    "testEvent": true,
+    "detail": null,
+    "updatedAt": "2026-08-20T00:39:26.292Z"
   },
   "controlEndpoint": "https://runner3-wp-control.ducduy2411.workers.dev/v1/events",
   "productionFrontend": "https://runner3wp.pntr.dev/",
   "secretPersistedInRepo": false,
-  "checkedAt": "2026-08-20T00:37:21.191801+00:00"
+  "checkedAt": "2026-08-20T00:39:27.879564+00:00"
 }
