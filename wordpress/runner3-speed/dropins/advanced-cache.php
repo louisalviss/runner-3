@@ -1,9 +1,9 @@
 <?php
-/* RUNNER3_SPEED_DROPIN v1.1.0 */
+/* RUNNER3_SPEED_DROPIN v1.1.1 */
 if (!defined('ABSPATH')) return;
 
-$runner3_expected_version = '1.1.0';
-$runner3_cache_key_version = 'v110';
+$runner3_expected_version = '1.1.1';
+$runner3_cache_key_version = 'v111';
 $runner3_plugin = __DIR__ . '/plugins/runner3-speed/runner3-speed.php';
 if (!is_file($runner3_plugin)) return;
 
@@ -12,7 +12,10 @@ $runner3_flag = $runner3_dir . '/enabled.flag';
 if (!is_file($runner3_flag)) return;
 $runner3_flag_version = trim((string)@file_get_contents($runner3_flag, false, null, 0, 64));
 if ($runner3_flag_version !== $runner3_expected_version) {
-    if (!headers_sent()) header('X-Runner3-Speed: BYPASS-VERSION');
+    if (!headers_sent()) {
+        header('X-Runner3-Speed: BYPASS-VERSION');
+        header('X-Runner3-Speed-Version: '.$runner3_expected_version);
+    }
     return;
 }
 
