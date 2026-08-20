@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,10 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 BUCKET = 'runner3-wp-media'
 ITEM_PREFIX = 'audio-library/items/'
 STATUS_FILE = ROOT / 'ops/audio-library/status.json'
+WRANGLER_CONFIG = ROOT / 'apps/audio-library/wrangler.jsonc'
 LEGACY_STATUS_FILES = [
     ROOT / 'ops/audio-library/chat-intake-status.json',
     ROOT / 'ops/audio-library/chatgpt-inbox-status.json',
 ]
+ACTIVE_STATUSES = {'pending', 'waiting_chatgpt', 'processing'}
 
 
 def wrangler_get(key: str):
@@ -48,16 +51,30 @@ def wrangler_get(key: str):
         path.unlink(missing_ok=True)
 
 
-def runner_token():
-    raw = os.environ.get('CLOUDFLARE_API_TOKEN', '')
-    if not raw:
-        raise RuntimeError('CLOUDFLARE_API_TOKEN missing')
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
 def worker_url():
     data = json.loads(STATUS_FILE.read_text(encoding='utf-8'))
     return str(data['url']).rstrip('/')
+
+
+def library_access_hash():
+    text = WRANGLER_CONFIG.read_text(encoding='utf-8')
+    m = re.search(r'"LIBRARY_ACCESS_SHA256"\s*:\s*"([0-9a-f]{64})"', text, re.I)
+    if not m:
+        raise RuntimeError('LIBRARY_ACCESS_SHA256 not found')
+    return m.group(1).lower()
+
+
+def library_session_token():
+    raw = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+    if not raw:
+        raise RuntimeError('CLOUDFLARE_API_TOKEN missing')
+    runner_shared = hashlib.sha256(raw.encode()).hexdigest()
+    material = f'audio-library-session-v3\0{runner_shared}\0{library_access_hash()}'
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
+def already_staged(item_id: str) -> bool:
+    return (core.INBOX_DIR / f'{item_id}.json').exists() or (core.OUTBOX_DIR / f'{item_id}.json').exists()
 
 
 def resolve_reddit_share(item: dict):
@@ -88,34 +105,50 @@ def resolve_reddit_share(item: dict):
     return item
 
 
-def claim_pending_from_worker():
-    """Claim the authoritative R2 queue through the runner API.
+def active_items_from_worker():
+    """Read active Library items without claiming or mutating the queue.
 
-    UI-added links are created directly in R2 and may never appear in chat
-    intake status files, so status files cannot be the primary discovery path.
+    This is intentionally read-only. Extraction failures therefore remain
+    eligible for the next 5-minute run instead of being stranded in
+    `processing`. Existing inbox/outbox files are filtered before MAX_ITEMS so
+    they cannot starve newer work.
     """
-    items = []
-    headers = {'X-Runner-Token': runner_token(), 'User-Agent': core.UA}
-    base_url = worker_url()
-    for _ in range(core.MAX_ITEMS):
-        r = requests.get(base_url + '/api/runner/next', headers=headers, timeout=40)
-        if r.status_code == 204:
-            break
-        r.raise_for_status()
-        data = r.json() if r.content else {}
-        item = data.get('item') if isinstance(data, dict) else None
-        if not isinstance(item, dict) or not item.get('id'):
-            break
-        items.append(resolve_reddit_share(item))
-    return items
+    headers = {
+        'Authorization': 'Bearer ' + library_session_token(),
+        'User-Agent': core.UA,
+        'Accept': 'application/json',
+    }
+    r = requests.get(worker_url() + '/api/items', headers=headers, timeout=40)
+    r.raise_for_status()
+    data = r.json() if r.content else {}
+    rows = data.get('items') if isinstance(data, dict) else []
+    candidates = []
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get('id') or '')
+        if not item_id or item.get('audioUrl'):
+            continue
+        if str(item.get('status') or '') not in ACTIVE_STATUSES:
+            continue
+        if already_staged(item_id):
+            continue
+        candidates.append(item)
+
+    # Oldest first prevents a repeatedly failing new item from starving older
+    # queued work, while MAX_ITEMS still bounds each run.
+    candidates.sort(key=lambda x: str(x.get('createdAt') or ''))
+    return [resolve_reddit_share(x) for x in candidates[:core.MAX_ITEMS]]
 
 
 def collect_legacy_ids():
     out = []
+
     def add(value):
         value = str(value or '')
         if value and value not in out:
             out.append(value)
+
     for status_path in LEGACY_STATUS_FILES:
         if not status_path.exists():
             continue
@@ -137,9 +170,9 @@ def legacy_pending_items():
     items = []
     for item_id in collect_legacy_ids():
         item = wrangler_get(f'{ITEM_PREFIX}{item_id}.json')
-        if not item or item.get('audioUrl'):
+        if not item or item.get('audioUrl') or already_staged(item_id):
             continue
-        if str(item.get('status') or '') not in {'pending','waiting_chatgpt','processing'}:
+        if str(item.get('status') or '') not in ACTIVE_STATUSES:
             continue
         items.append(resolve_reddit_share(item))
         if len(items) >= core.MAX_ITEMS:
@@ -149,12 +182,12 @@ def legacy_pending_items():
 
 def pending_items_r2():
     try:
-        return claim_pending_from_worker()
+        return active_items_from_worker()
     except Exception as e:
         items = legacy_pending_items()
         if items:
             return items
-        raise RuntimeError(f'R2 queue claim failed: {type(e).__name__}: {str(e)[:220]}')
+        raise RuntimeError(f'Library item discovery failed: {type(e).__name__}: {str(e)[:220]}')
 
 
 core.pending_items = pending_items_r2
