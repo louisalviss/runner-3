@@ -1,0 +1,145 @@
+name: Facebook Post Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/facebook-post-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: |
+          python -m pip install -q 'playwright>=1.46,<2'
+          python -m playwright install chromium
+      - name: Probe Facebook direct
+        run: |
+          mkdir -p ops/facebook-probe
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          url='https://www.facebook.com/share/p/19Y24DbnyG/?'
+          out={'target':url,'route':'runner-direct'}
+          with sync_playwright() as p:
+              b=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              c=b.new_context(viewport={'width':1280,'height':1200},locale='en-US')
+              page=c.new_page()
+              try:
+                  resp=page.goto(url,wait_until='domcontentloaded',timeout=30000)
+                  page.wait_for_timeout(6000)
+                  # Best-effort expansion of content already accessible without auth.
+                  for pat in [r'See more',r'View more comments',r'More comments',r'View previous comments',r'Xem thêm',r'Xem thêm bình luận']:
+                      try:
+                          loc=page.get_by_text(re.compile(pat,re.I))
+                          for i in range(min(loc.count(),5)):
+                              try: loc.nth(i).click(timeout=1200)
+                              except: pass
+                      except: pass
+                  page.wait_for_timeout(2500)
+                  body=page.locator('body').inner_text(timeout=5000)
+                  article_text=[]
+                  for sel in ['[role="article"]','article']:
+                      try:
+                          vals=page.locator(sel).all_inner_texts()
+                          if vals: article_text.extend(vals)
+                      except: pass
+                  buttons=[]
+                  try: buttons=page.get_by_role('button').all_inner_texts()[:120]
+                  except: pass
+                  low=body.lower()
+                  out.update({
+                      'http_status': resp.status if resp else None,
+                      'final_url': page.url,
+                      'title': page.title(),
+                      'body_chars': len(body),
+                      'body_text': body[:16000],
+                      'article_count': len(article_text),
+                      'article_text': article_text[:20],
+                      'buttons': buttons,
+                      'login_wall': any(x in low for x in ['log in to facebook','log into facebook','email or phone','password']),
+                      'challenge': any(x in low for x in ['captcha','verify you are human','security check','access denied']),
+                      'comment_word_hits': low.count('comment') + low.count('bình luận'),
+                  })
+              except Exception as e:
+                  out['error']=f'{type(e).__name__}: {e}'
+                  out['final_url']=page.url
+              c.close(); b.close()
+          Path('ops/facebook-probe/direct.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+      - name: Install and connect WARP
+        continue-on-error: true
+        run: |
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cloudflare-warp
+          warp-cli --accept-tos registration new || true
+          warp-cli --accept-tos mode warp+doh || true
+          warp-cli --accept-tos connect || true
+          sleep 4
+      - name: Probe Facebook through WARP
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          url='https://www.facebook.com/share/p/19Y24DbnyG/?'
+          out={'target':url,'route':'runner-warp'}
+          with sync_playwright() as p:
+              b=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              c=b.new_context(viewport={'width':1280,'height':1200},locale='en-US')
+              page=c.new_page()
+              try:
+                  resp=page.goto(url,wait_until='domcontentloaded',timeout=30000)
+                  page.wait_for_timeout(6000)
+                  for pat in [r'See more',r'View more comments',r'More comments',r'View previous comments',r'Xem thêm',r'Xem thêm bình luận']:
+                      try:
+                          loc=page.get_by_text(re.compile(pat,re.I))
+                          for i in range(min(loc.count(),5)):
+                              try: loc.nth(i).click(timeout=1200)
+                              except: pass
+                      except: pass
+                  page.wait_for_timeout(2500)
+                  body=page.locator('body').inner_text(timeout=5000)
+                  article_text=[]
+                  for sel in ['[role="article"]','article']:
+                      try:
+                          vals=page.locator(sel).all_inner_texts()
+                          if vals: article_text.extend(vals)
+                      except: pass
+                  buttons=[]
+                  try: buttons=page.get_by_role('button').all_inner_texts()[:120]
+                  except: pass
+                  low=body.lower()
+                  out.update({'http_status':resp.status if resp else None,'final_url':page.url,'title':page.title(),'body_chars':len(body),'body_text':body[:16000],'article_count':len(article_text),'article_text':article_text[:20],'buttons':buttons,'login_wall':any(x in low for x in ['log in to facebook','log into facebook','email or phone','password']),'challenge':any(x in low for x in ['captcha','verify you are human','security check','access denied']),'comment_word_hits':low.count('comment')+low.count('bình luận')})
+              except Exception as e:
+                  out['error']=f'{type(e).__name__}: {e}'; out['final_url']=page.url
+              c.close(); b.close()
+          Path('ops/facebook-probe/warp.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+      - name: Persist probe result
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '4189826+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add ops/facebook-probe/direct.json ops/facebook-probe/warp.json
+          git commit -m 'Publish Facebook post probe result [skip ci]' || exit 0
+          git push origin HEAD:main
