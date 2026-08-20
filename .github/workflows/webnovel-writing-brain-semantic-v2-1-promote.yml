@@ -1,0 +1,140 @@
+name: webnovel-writing-brain-semantic-v2-1-promote
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/webnovel-writing-brain-semantic-v2-1-promote.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-semantic-v2-1-promote
+  cancel-in-progress: false
+
+env:
+  SOURCE_TAG: webnovel-writing-brain-semantic-v2-1-candidate-2026-08-20
+  SOURCE_ASSET: webnovel-writing-brain-semantic-v2-1-candidate-2026-08-20.zip
+  SOURCE_SHA256: c7376b5cf19dc6ce08fe011057aeb50f795f9ae05005736db43dc26c3050ee13
+  TARGET_TAG: webnovel-writing-brain-semantic-v2-1-2026-08-20
+  TARGET_ASSET: webnovel-writing-brain-semantic-v2-1-2026-08-20.zip
+  STATUS_FILE: ops/webnovel-writing-brain-semantic-v2-1-production-status.json
+  POINTER_FILE: ops/webnovel-writing-brain-default.json
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download candidate and audit contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p promote/unpacked
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir promote
+          echo "$SOURCE_SHA256  promote/$SOURCE_ASSET" | sha256sum -c -
+          unzip -q "promote/$SOURCE_ASSET" -d promote/unpacked
+          db=$(find promote/unpacked -type f -name writing_brain.sqlite | head -n1)
+          qa=$(find promote/unpacked -type f -name semantic_v2_qa.json | head -n1)
+          manifest=$(find promote/unpacked -type f -name manifest.json | head -n1)
+          test -n "$db" && test -n "$qa" && test -n "$manifest"
+          export DB="$db" QA="$qa" MANIFEST="$manifest"
+          python - <<'PY'
+          import json,os,sqlite3
+          qa=json.load(open(os.environ['QA'],encoding='utf-8'))
+          assert qa['promotion_pass'] is True, qa
+          assert qa['passages_total']==21210, qa
+          assert qa['passage_atomic_coverage']==21210, qa
+          assert qa['passage_evidence_coverage']==21210, qa
+          assert qa['atomic_rules']==23509, qa
+          assert 16000 <= qa['canonical_rules'] <= 17500, qa
+          assert qa['cross_source_rules'] >= 1000, qa
+          assert qa['max_cluster_size'] <= 16, qa
+          assert qa['canonical_cjk_rows']==0, qa
+          con=sqlite3.connect(os.environ['DB'])
+          assert con.execute('select count(*) from passages').fetchone()[0]==21210
+          assert con.execute('select count(*) from atomic_rules').fetchone()[0]==qa['atomic_rules']
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==qa['canonical_rules']
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          con.close()
+          print({'contract':'pass','canonical_rules':qa['canonical_rules'],'cross_source_rules':qa['cross_source_rules']})
+          PY
+
+      - name: Publish production release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "promote/$SOURCE_ASSET" "$TARGET_ASSET"
+          if ! gh release view "$TARGET_TAG" >/dev/null 2>&1; then
+            gh release create "$TARGET_TAG" \
+              --title 'Webnovel Writing Brain Semantic V2.1 — Production — 2026-08-20' \
+              --notes 'Production canonical release promoted from the audited V2.1 cohesion candidate. VN-first, semantic-canonical-first, all 21,210 source passages preserved as evidence.'
+          fi
+          gh release upload "$TARGET_TAG" "$TARGET_ASSET" --clobber
+          export ASSET_SIZE=$(gh release view "$TARGET_TAG" --json assets --jq '.assets[] | select(.name==env.TARGET_ASSET) | .size' | head -n1)
+          test -n "$ASSET_SIZE" && test "$ASSET_SIZE" -gt 0
+          echo "ASSET_SIZE=$ASSET_SIZE" >> "$GITHUB_ENV"
+
+      - name: Persist production status and pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          qa=$(find promote/unpacked -type f -name semantic_v2_qa.json | head -n1)
+          export QA="$qa"
+          python - <<'PY'
+          import datetime,hashlib,json,os,pathlib
+          qa=json.load(open(os.environ['QA'],encoding='utf-8'))
+          now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          target=pathlib.Path(os.environ['TARGET_ASSET'])
+          sha=hashlib.sha256(target.read_bytes()).hexdigest()
+          assert sha==os.environ['SOURCE_SHA256'],(sha,os.environ['SOURCE_SHA256'])
+          status={
+            'schema':'webnovel-writing-brain-semantic-v2.1-production-status',
+            'status':'completed','conclusion':'success','promotion_pass':True,
+            'release_tag':os.environ['TARGET_TAG'],'asset':os.environ['TARGET_ASSET'],
+            'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':sha,
+            'passages_total':qa['passages_total'],'atomic_rules':qa['atomic_rules'],
+            'canonical_rules':qa['canonical_rules'],'atomic_collapsed':qa['atomic_collapsed'],
+            'cross_source_rules':qa['cross_source_rules'],'conflict_candidates':qa['conflict_candidates'],
+            'max_cluster_size':qa['max_cluster_size'],'benchmark':qa['benchmark'],
+            'checked_at_utc':now
+          }
+          pointer={
+            'schema':'webnovel-writing-brain-default-v2.1',
+            'default_release_tag':os.environ['TARGET_TAG'],'default_asset':os.environ['TARGET_ASSET'],
+            'knowledge_mode':'semantic-canonical-first','language_mode':'vi-first',
+            'passages_total':qa['passages_total'],'atomic_rules':qa['atomic_rules'],
+            'canonical_rules':qa['canonical_rules'],'atomic_collapsed':qa['atomic_collapsed'],
+            'cross_source_rules':qa['cross_source_rules'],'conflict_candidates':qa['conflict_candidates'],
+            'max_cluster_size':qa['max_cluster_size'],'evidence_preserved':True,'promotion_pass':True,
+            'benchmark':{
+              'queries':qa['benchmark']['v1']['queries'],
+              'relevance_delta_vs_v1':qa['benchmark']['relevance_delta'],
+              'redundancy_improvement':qa['benchmark']['redundancy_improvement'],
+              'evidence_density_gain':qa['benchmark']['evidence_density_gain'],
+              'cross_source_hit_rate':qa['benchmark']['v2']['cross_source_hit_rate']
+            },
+            'updated_at_utc':now
+          }
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          pathlib.Path(os.environ['POINTER_FILE']).write_text(json.dumps(pointer,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(status,ensure_ascii=False,indent=2))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE" "$POINTER_FILE"
+          git commit -m 'Mark Semantic V2.1 canonical production [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
