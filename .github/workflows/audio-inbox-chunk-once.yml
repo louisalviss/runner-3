@@ -1,0 +1,66 @@
+name: Audio Inbox Chunk Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-inbox-chunk-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audio-inbox-chunk-once
+  cancel-in-progress: true
+
+jobs:
+  chunk:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    env:
+      ITEM_ID: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Split encrypted ciphertext only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          item=os.environ['ITEM_ID']
+          src=Path(f'ops/audio-library/chatgpt-inbox/{item}.json')
+          env=json.loads(src.read_text(encoding='utf-8'))
+          cipher=str(env['ciphertext'])
+          size=6000
+          chunks=[cipher[i:i+size] for i in range(0,len(cipher),size)]
+          out=Path(f'ops/audio-library/chatgpt-inbox-chunks/{item}')
+          out.mkdir(parents=True,exist_ok=True)
+          manifest={
+            'v':env['v'],'id':env['id'],
+            'ephemeralPublicKey':env['ephemeralPublicKey'],
+            'nonce':env['nonce'],
+            'chunkCount':len(chunks),'ciphertextChars':len(cipher),
+            'chunkSize':size,
+          }
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+          for i,chunk in enumerate(chunks):
+              (out/f'{i:03d}.txt').write_text(chunk+'\n',encoding='utf-8')
+          print(json.dumps({'ok':True,'chunkCount':len(chunks),'ciphertextChars':len(cipher)}))
+          PY
+
+      - name: Publish encrypted chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "ops/audio-library/chatgpt-inbox-chunks/${ITEM_ID}/"
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish encrypted Audio inbox chunks [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
