@@ -1,0 +1,49 @@
+name: Audio Library UI Syntax Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/audio-library/worker.js'
+      - '.github/workflows/audio-library-ui-syntax-probe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract browser script and syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('apps/audio-library/worker.js').read_text()
+          start=s.index('<script>')+len('<script>')
+          end=s.index('</script>',start)
+          Path('/tmp/audio-ui.js').write_text(s[start:end])
+          PY
+          set +e
+          node --check /tmp/audio-ui.js > /tmp/check.out 2>&1
+          code=$?
+          set -e
+          mkdir -p ops/audio-library
+          python - "$code" <<'PY'
+          import json,sys,datetime
+          code=int(sys.argv[1])
+          out={'status':'ready','syntaxOk':code==0,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          try: out['detail']=open('/tmp/check.out').read()[-4000:]
+          except: pass
+          open('ops/audio-library/ui-syntax-status.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/ui-syntax-status.json
+          git commit -m 'Publish Audio Library UI syntax status [skip ci]' || true
+          git push origin HEAD:main || true
