@@ -1,0 +1,1464 @@
+{
+  "status": "ready",
+  "url": "https://runner5-restore-gateway.pages.dev/",
+  "categories": {
+    "performance": 0.92,
+    "accessibility": 0.87,
+    "best-practices": 1,
+    "seo": 0.91,
+    "agentic-browsing": 0.41
+  },
+  "metrics": {
+    "first-contentful-paint": "1.9\u00a0s",
+    "largest-contentful-paint": "2.3\u00a0s",
+    "total-blocking-time": "80\u00a0ms",
+    "cumulative-layout-shift": "0.131",
+    "speed-index": "2.5\u00a0s"
+  },
+  "audits": {
+    "first-contentful-paint": {
+      "score": 0.88,
+      "displayValue": "1.9\u00a0s",
+      "title": "First Contentful Paint",
+      "description": "First Contentful Paint marks the time at which the first text or image is painted. [Learn more about the First Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/).",
+      "details": null
+    },
+    "largest-contentful-paint": {
+      "score": 0.93,
+      "displayValue": "2.3\u00a0s",
+      "title": "Largest Contentful Paint",
+      "description": "Largest Contentful Paint marks the time at which the largest text or image is painted. [Learn more about the Largest Contentful Paint metric](https://developer.chrome.com/docs/lighthouse/performance/lighthouse-largest-contentful-paint/)",
+      "details": null
+    },
+    "cumulative-layout-shift": {
+      "score": 0.81,
+      "displayValue": "0.131",
+      "title": "Cumulative Layout Shift",
+      "description": "Cumulative Layout Shift measures the movement of visible elements within the viewport. [Learn more about the Cumulative Layout Shift metric](https://web.dev/articles/cls).",
+      "details": {
+        "type": "debugdata",
+        "items": [
+          {
+            "cumulativeLayoutShiftMainFrame": 0.1312272174969623,
+            "newEngineResult": {
+              "cumulativeLayoutShift": 0.1312272174969623,
+              "cumulativeLayoutShiftMainFrame": 0.1312272174969623
+            },
+            "newEngineResultDiffered": false
+          }
+        ]
+      }
+    },
+    "image-size-responsive": {
+      "score": 1,
+      "displayValue": null,
+      "title": "Serves images with appropriate resolution",
+      "description": "Image natural dimensions should be proportional to the display size and the pixel ratio to maximize image clarity. [Learn how to provide responsive images](https://web.dev/articles/serve-responsive-images).",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "node",
+            "valueType": "node",
+            "label": ""
+          },
+          {
+            "key": "url",
+            "valueType": "url",
+            "label": "URL"
+          },
+          {
+            "key": "displayedSize",
+            "valueType": "text",
+            "label": "Displayed size"
+          },
+          {
+            "key": "actualSize",
+            "valueType": "text",
+            "label": "Actual size"
+          },
+          {
+            "key": "expectedSize",
+            "valueType": "text",
+            "label": "Expected size"
+          }
+        ],
+        "items": []
+      }
+    },
+    "layout-shifts": {
+      "score": 0,
+      "displayValue": "1 layout shift found",
+      "title": "Avoid large layout shifts",
+      "description": "These are the largest layout shifts observed on the page. Each table item represents a single layout shift, and shows the element that shifted the most. Below each item are possible root causes that led to the layout shift. Some of these layout shifts may not be included in the CLS metric value due to [windowing](https://web.dev/articles/cls#what_is_cls). [Learn how to improve CLS](https://web.dev/articles/optimize-cls)",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "node",
+            "valueType": "node",
+            "subItemsHeading": {
+              "key": "extra"
+            },
+            "label": "Element"
+          },
+          {
+            "key": "score",
+            "valueType": "numeric",
+            "subItemsHeading": {
+              "key": "cause",
+              "valueType": "text"
+            },
+            "granularity": 0.001,
+            "label": "Layout shift score"
+          }
+        ],
+        "items": [
+          {
+            "node": {
+              "type": "node",
+              "lhId": "page-1-DIV",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV",
+              "selector": "body.home > div#page > div.site-content-contain",
+              "boundingRect": {
+                "top": 0,
+                "bottom": 3780,
+                "left": 0,
+                "right": 412,
+                "width": 412,
+                "height": 3780
+              },
+              "snippet": "<div class=\"site-content-contain\">",
+              "nodeLabel": "Latest Posts\nRestore Lab Article 12\nby runner3wp0b90f6b4abMigration\nPosted on\nA\u2026"
+            },
+            "score": 0.1312272174969623
+          }
+        ]
+      }
+    },
+    "button-name": {
+      "score": 0,
+      "displayValue": null,
+      "title": "Buttons do not have an accessible name",
+      "description": "When a button doesn't have an accessible name, screen readers announce it as \"button\", making it unusable for users who rely on screen readers. [Learn how to make buttons more accessible](https://dequeuniversity.com/rules/axe/4.12/button-name).",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "node",
+            "valueType": "node",
+            "subItemsHeading": {
+              "key": "relatedNode",
+              "valueType": "node"
+            },
+            "label": "Failing Elements"
+          }
+        ],
+        "items": [
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-0-BUTTON",
+              "path": "1,HTML,1,BODY,2,DIV,1,HEADER,0,DIV,0,DIV,2,DIV,0,DIV,0,FORM,1,BUTTON",
+              "selector": "div.header-widgets-wrapper > div#sb-search > form#searchform > button.sb-search-button-open",
+              "boundingRect": {
+                "top": 30,
+                "bottom": 75,
+                "left": 298,
+                "right": 331,
+                "width": 33,
+                "height": 45
+              },
+              "snippet": "<button class=\"sb-search-button-open\" aria-expanded=\"false\">",
+              "nodeLabel": "div.header-widgets-wrapper > div#sb-search > form#searchform > button.sb-search-button-open",
+              "explanation": "Fix any of the following:\n  Element does not have inner text that is visible to screen readers\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
+            }
+          }
+        ],
+        "debugData": {
+          "type": "debugdata",
+          "impact": "critical",
+          "tags": [
+            "cat.name-role-value",
+            "wcag2a",
+            "wcag412",
+            "section508",
+            "section508.22.a",
+            "TTv5",
+            "TT6.a",
+            "EN-301-549",
+            "EN-9.4.1.2",
+            "ACT",
+            "RGAAv4",
+            "RGAA-11.9.1"
+          ]
+        }
+      }
+    },
+    "color-contrast": {
+      "score": 0,
+      "displayValue": null,
+      "title": "Background and foreground colors do not have a sufficient contrast ratio.",
+      "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.12/color-contrast).",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "node",
+            "valueType": "node",
+            "subItemsHeading": {
+              "key": "relatedNode",
+              "valueType": "node"
+            },
+            "label": "Failing Elements"
+          }
+        ],
+        "items": [
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-1-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,0,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-28 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 305,
+                "bottom": 325,
+                "left": 34,
+                "right": 216,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-3-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,0,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 305,
+                "bottom": 351,
+                "left": 112,
+                "right": 378,
+                "width": 266,
+                "height": 46
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:46+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-4-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,2,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-27 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 634,
+                "bottom": 654,
+                "left": 48,
+                "right": 230,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-5-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,2,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 662,
+                "bottom": 679,
+                "left": 85,
+                "right": 201,
+                "width": 117,
+                "height": 17
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:45+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-6-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,4,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-26 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 962,
+                "bottom": 982,
+                "left": 51,
+                "right": 232,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-7-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,4,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 991,
+                "bottom": 1008,
+                "left": 85,
+                "right": 201,
+                "width": 117,
+                "height": 17
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:44+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-8-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,6,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-25 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 1291,
+                "bottom": 1311,
+                "left": 34,
+                "right": 216,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-9-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,6,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 1291,
+                "bottom": 1337,
+                "left": 112,
+                "right": 378,
+                "width": 266,
+                "height": 46
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:44+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-10-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,8,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-24 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 1619,
+                "bottom": 1639,
+                "left": 48,
+                "right": 230,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-11-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,8,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 1648,
+                "bottom": 1665,
+                "left": 85,
+                "right": 201,
+                "width": 117,
+                "height": 17
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:43+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-12-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,10,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-23 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 1948,
+                "bottom": 1968,
+                "left": 51,
+                "right": 232,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-13-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,10,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 1977,
+                "bottom": 1994,
+                "left": 85,
+                "right": 201,
+                "width": 117,
+                "height": 17
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:42+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-14-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,12,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-22 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 2276,
+                "bottom": 2296,
+                "left": 34,
+                "right": 216,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-15-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,12,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 2276,
+                "bottom": 2322,
+                "left": 112,
+                "right": 378,
+                "width": 266,
+                "height": 46
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:41+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-16-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,14,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-21 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 2605,
+                "bottom": 2625,
+                "left": 48,
+                "right": 230,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-17-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,14,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 2634,
+                "bottom": 2651,
+                "left": 85,
+                "right": 201,
+                "width": 117,
+                "height": 17
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:41+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-18-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,16,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-20 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 2934,
+                "bottom": 2954,
+                "left": 51,
+                "right": 232,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-19-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,16,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 2962,
+                "bottom": 2979,
+                "left": 85,
+                "right": 201,
+                "width": 117,
+                "height": 17
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:40+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-20-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,18,ARTICLE,0,HEADER,1,DIV,0,SPAN",
+              "selector": "article#post-19 > header.entry-header > div.entry-meta > span.entry-author",
+              "boundingRect": {
+                "top": 3262,
+                "bottom": 3282,
+                "left": 34,
+                "right": 216,
+                "width": 181,
+                "height": 20
+              },
+              "snippet": "<span class=\"entry-author\">",
+              "nodeLabel": "by runner3wp0b90f6b4ab",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-21-TIME",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,18,ARTICLE,0,HEADER,1,DIV,2,SPAN,1,TIME",
+              "selector": "header.entry-header > div.entry-meta > span.entry-date > time.entry-date",
+              "boundingRect": {
+                "top": 3262,
+                "bottom": 3308,
+                "left": 112,
+                "right": 378,
+                "width": 266,
+                "height": 46
+              },
+              "snippet": "<time class=\"entry-date published\" datetime=\"2026-08-18T05:29:39+00:00\">",
+              "nodeLabel": "August 18, 2026",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.84 (foreground color: #999999, background color: #ffffff, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-2-BODY",
+                    "path": "1,HTML,1,BODY",
+                    "selector": "body.home",
+                    "boundingRect": {
+                      "top": 0,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 3780
+                    },
+                    "snippet": "<body class=\"home blog wp-embed-responsive wp-theme-inspiro hfeed has-sidebar inspiro--\u2026\">",
+                    "nodeLabel": "body.home"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-22-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,2,FOOTER,0,DIV,0,DIV,0,SPAN,0,SPAN",
+              "selector": "div.inner-wrap > div.site-info > span.copyright > span",
+              "boundingRect": {
+                "top": 3699,
+                "bottom": 3722,
+                "left": 30,
+                "right": 382,
+                "width": 352,
+                "height": 22
+              },
+              "snippet": "<span>",
+              "nodeLabel": "Copyright \u00a9 2026 Runner5 Restore Lab Demo",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 4.34 (foreground color: #78787f, background color: #101010, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-23-FOOTER",
+                    "path": "1,HTML,1,BODY,2,DIV,3,DIV,2,FOOTER",
+                    "selector": "body.home > div#page > div.site-content-contain > footer#colophon",
+                    "boundingRect": {
+                      "top": 3672,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 108
+                    },
+                    "snippet": "<footer id=\"colophon\" class=\"site-footer\" role=\"contentinfo\">",
+                    "nodeLabel": "Copyright \u00a9 2026 Runner5 Restore Lab Demo\nInspiro Theme by WPZOOM"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-24-SPAN",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,2,FOOTER,0,DIV,0,DIV,0,SPAN,1,SPAN",
+              "selector": "div.inner-wrap > div.site-info > span.copyright > span",
+              "boundingRect": {
+                "top": 3732,
+                "bottom": 3754,
+                "left": 30,
+                "right": 382,
+                "width": 352,
+                "height": 22
+              },
+              "snippet": "<span>",
+              "nodeLabel": "Inspiro Theme by WPZOOM",
+              "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 4.34 (foreground color: #78787f, background color: #101010, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4.5:1"
+            },
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "relatedNode": {
+                    "type": "node",
+                    "lhId": "1-23-FOOTER",
+                    "path": "1,HTML,1,BODY,2,DIV,3,DIV,2,FOOTER",
+                    "selector": "body.home > div#page > div.site-content-contain > footer#colophon",
+                    "boundingRect": {
+                      "top": 3672,
+                      "bottom": 3780,
+                      "left": 0,
+                      "right": 412,
+                      "width": 412,
+                      "height": 108
+                    },
+                    "snippet": "<footer id=\"colophon\" class=\"site-footer\" role=\"contentinfo\">",
+                    "nodeLabel": "Copyright \u00a9 2026 Runner5 Restore Lab Demo\nInspiro Theme by WPZOOM"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "debugData": {
+          "type": "debugdata",
+          "impact": "serious",
+          "tags": [
+            "cat.color",
+            "wcag2aa",
+            "wcag143",
+            "TTv5",
+            "TT13.c",
+            "EN-301-549",
+            "EN-9.1.4.3",
+            "ACT",
+            "RGAAv4",
+            "RGAA-3.2.1"
+          ]
+        }
+      }
+    },
+    "empty-heading": {
+      "score": null,
+      "displayValue": null,
+      "title": "All heading elements contain content.",
+      "description": "A heading with no content or inaccessible text prevent screen reader users from accessing information on the page's structure. [Learn more about headings](https://dequeuniversity.com/rules/axe/4.12/empty-heading).",
+      "details": null
+    },
+    "heading-order": {
+      "score": 0,
+      "displayValue": null,
+      "title": "Heading elements are not in a sequentially-descending order",
+      "description": "Properly ordered headings that do not skip levels convey the semantic structure of the page, making it easier to navigate and understand when using assistive technologies. [Learn more about heading order](https://dequeuniversity.com/rules/axe/4.12/heading-order).",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "node",
+            "valueType": "node",
+            "subItemsHeading": {
+              "key": "relatedNode",
+              "valueType": "node"
+            },
+            "label": "Failing Elements"
+          }
+        ],
+        "items": [
+          {
+            "node": {
+              "type": "node",
+              "lhId": "1-25-H3",
+              "path": "1,HTML,1,BODY,2,DIV,3,DIV,0,DIV,0,DIV,1,DIV,0,MAIN,0,ARTICLE,0,HEADER,0,H3",
+              "selector": "main#main > article#post-28 > header.entry-header > h3.entry-title",
+              "boundingRect": {
+                "top": 246,
+                "bottom": 280,
+                "left": 30,
+                "right": 382,
+                "width": 352,
+                "height": 34
+              },
+              "snippet": "<h3 class=\"entry-title\">",
+              "nodeLabel": "Restore Lab Article 12",
+              "explanation": "Fix any of the following:\n  Heading order invalid"
+            }
+          }
+        ],
+        "debugData": {
+          "type": "debugdata",
+          "impact": "moderate",
+          "tags": [
+            "cat.semantics",
+            "best-practice"
+          ]
+        }
+      }
+    },
+    "input-button-name": {
+      "score": null,
+      "displayValue": null,
+      "title": "Input buttons have discernible text.",
+      "description": "Adding discernable and accessible text to input buttons may help screen reader users understand the purpose of the input button. [Learn more about input buttons](https://dequeuniversity.com/rules/axe/4.12/input-button-name).",
+      "details": null
+    },
+    "unused-css-rules": {
+      "score": 0,
+      "displayValue": "Est savings of 17\u00a0KiB",
+      "title": "Reduce unused CSS",
+      "description": "Reduce unused rules from stylesheets and defer CSS not used for above-the-fold content to decrease bytes consumed by network activity. [Learn how to reduce unused CSS](https://developer.chrome.com/docs/lighthouse/performance/unused-css-rules/).",
+      "details": {
+        "type": "opportunity",
+        "headings": [
+          {
+            "key": "url",
+            "valueType": "url",
+            "label": "URL"
+          },
+          {
+            "key": "totalBytes",
+            "valueType": "bytes",
+            "label": "Transfer Size"
+          },
+          {
+            "key": "wastedBytes",
+            "valueType": "bytes",
+            "label": "Est Savings"
+          }
+        ],
+        "items": [
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/__edge/runner5.css",
+            "wastedBytes": 17221,
+            "wastedPercent": 86.00166937870446,
+            "totalBytes": 20024
+          }
+        ],
+        "overallSavingsMs": 0,
+        "overallSavingsBytes": 17221,
+        "sortedBy": [
+          "wastedBytes"
+        ],
+        "debugData": {
+          "type": "debugdata",
+          "metricSavings": {
+            "FCP": 150,
+            "LCP": 0
+          }
+        }
+      }
+    },
+    "meta-description": {
+      "score": 0,
+      "displayValue": null,
+      "title": "Document does not have a meta description",
+      "description": "Meta descriptions may be included in search results to concisely summarize page content. [Learn more about the meta description](https://developer.chrome.com/docs/lighthouse/seo/meta-description/).",
+      "details": null
+    },
+    "cache-insight": {
+      "score": 0,
+      "displayValue": "Est savings of 61\u00a0KiB",
+      "title": "Use efficient cache lifetimes",
+      "description": "A long cache lifetime can speed up repeat visits to your page. [Learn more about caching](https://developer.chrome.com/docs/performance/insights/cache).",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "url",
+            "valueType": "url",
+            "label": "Request"
+          },
+          {
+            "key": "cacheLifetimeMs",
+            "valueType": "ms",
+            "label": "Cache TTL",
+            "displayUnit": "duration"
+          },
+          {
+            "key": "totalBytes",
+            "valueType": "bytes",
+            "label": "Transfer Size",
+            "displayUnit": "kb",
+            "granularity": 1
+          }
+        ],
+        "items": [
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-content/fonts/inter/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 48973,
+            "wastedBytes": 19589.2
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-content/fonts/onest/gNMKW3F-SZuj7xmf-HY.woff2",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 32961,
+            "wastedBytes": 13184.400000000001
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-includes/js/jquery/jquery.min.js?ver=3.7.1",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 32253,
+            "wastedBytes": 12901.2
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/__edge/runner5.css",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 20567,
+            "wastedBytes": 8226.800000000001
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-includes/js/wp-emoji-release.min.js?ver=7.0.4",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 6009,
+            "wastedBytes": 2403.6
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-content/themes/inspiro/assets/js/minified/plugins.min.js?ver=2.2.3",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 5825,
+            "wastedBytes": 2330
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-includes/js/jquery/jquery-migrate.min.js?ver=3.4.1",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 5750,
+            "wastedBytes": 2300
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-content/themes/inspiro/assets/js/minified/scripts.min.js?ver=2.2.3",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 3432,
+            "wastedBytes": 1372.8000000000002
+          },
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-content/themes/inspiro/assets/js/inspiro-misc.js?ver=2.2.3",
+            "cacheLifetimeMs": 86400000,
+            "totalBytes": 1452,
+            "wastedBytes": 580.8000000000001
+          }
+        ],
+        "sortedBy": [
+          "wastedBytes"
+        ],
+        "skipSumming": [
+          "cacheLifetimeMs"
+        ],
+        "debugData": {
+          "type": "debugdata",
+          "wastedBytes": 62888.8
+        }
+      }
+    },
+    "legacy-javascript-insight": {
+      "score": 0.5,
+      "displayValue": "Est savings of 11\u00a0KiB",
+      "title": "Legacy JavaScript",
+      "description": "Polyfills and transforms enable older browsers to use new JavaScript features. However, many aren't necessary for modern browsers. Consider modifying your JavaScript build process to not transpile [Baseline](https://web.dev/articles/baseline-and-polyfills) features, unless you know you must support older browsers. [Learn why most sites can deploy ES6+ code without transpiling](https://developer.chrome.com/docs/performance/insights/legacy-javascript)",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "url",
+            "valueType": "url",
+            "subItemsHeading": {
+              "key": "location",
+              "valueType": "source-location"
+            },
+            "label": "URL"
+          },
+          {
+            "key": null,
+            "valueType": "code",
+            "subItemsHeading": {
+              "key": "signal"
+            },
+            "label": ""
+          },
+          {
+            "key": "wastedBytes",
+            "valueType": "bytes",
+            "label": "Wasted bytes"
+          }
+        ],
+        "items": [
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/wp-content/themes/inspiro/assets/js/minified/plugins.min.js?ver=2.2.3",
+            "wastedBytes": 11700,
+            "subItems": {
+              "type": "subitems",
+              "items": [
+                {
+                  "signal": "String.prototype.trim",
+                  "location": {
+                    "type": "source-location",
+                    "url": "https://runner5-restore-gateway.pages.dev/wp-content/themes/inspiro/assets/js/minified/plugins.min.js?ver=2.2.3",
+                    "urlProvider": "network",
+                    "line": 0,
+                    "column": 12810
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "debugData": {
+          "type": "debugdata",
+          "wastedBytes": 11700
+        }
+      }
+    },
+    "render-blocking-insight": {
+      "score": 0,
+      "displayValue": "Est savings of 840\u00a0ms",
+      "title": "Render-blocking requests",
+      "description": "Requests are blocking the page's initial render, which may delay LCP. [Deferring or inlining](https://developer.chrome.com/docs/performance/insights/render-blocking) can move these network requests out of the critical path.",
+      "details": {
+        "type": "table",
+        "headings": [
+          {
+            "key": "url",
+            "valueType": "url",
+            "label": "URL"
+          },
+          {
+            "key": "totalBytes",
+            "valueType": "bytes",
+            "label": "Transfer Size"
+          },
+          {
+            "key": "wastedMs",
+            "valueType": "timespanMs",
+            "label": "Duration"
+          }
+        ],
+        "items": [
+          {
+            "url": "https://runner5-restore-gateway.pages.dev/__edge/runner5.css",
+            "totalBytes": 20567,
+            "wastedMs": 316
+          }
+        ]
+      }
+    }
+  },
+  "checkedAt": "2026-08-20T00:17:31.236899Z"
+}
