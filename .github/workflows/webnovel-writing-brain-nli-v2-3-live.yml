@@ -37,3 +37,4 @@ jobs:
           git add "$STATUS_FILE" && git commit -m 'Snapshot NLI V2.3 run [skip ci]' || exit 0
           for i in 1 2 3 4 5; do git fetch origin "$GITHUB_REF_NAME"; git rebase "origin/$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0; git rebase --abort || true; sleep $((i*2)); done
           exit 1
+# refresh: 2026-08-20T17:12Z
