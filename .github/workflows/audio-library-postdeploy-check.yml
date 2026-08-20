@@ -1,0 +1,80 @@
+name: Audio Library Postdeploy Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-postdeploy-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save playwright-core@1.55.0
+      - name: Verify production
+        shell: bash
+        run: |
+          set -euo pipefail
+          shared="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | awk '{print $1}')"
+          access="$(python - <<'PY'
+          import re
+          s=open('apps/audio-library/wrangler.jsonc').read()
+          print(re.search(r'"LIBRARY_ACCESS_SHA256"\s*:\s*"([0-9a-f]+)"',s).group(1))
+          PY
+          )"
+          session="$(python - "$shared" "$access" <<'PY'
+          import hashlib,sys
+          print(hashlib.sha256(('audio-library-session-v3\0'+sys.argv[1]+'\0'+sys.argv[2]).encode()).hexdigest())
+          PY
+          )"
+          curl -fsS -H "Authorization: Bearer $session" 'https://runner3-audio-library.ducduy2411.workers.dev/?check=postdeploy' -o /tmp/root.html
+          python - <<'PY'
+          import re,pathlib,subprocess,json
+          html=pathlib.Path('/tmp/root.html').read_text(errors='replace')
+          scripts=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          checks=[]
+          for i,s in enumerate(scripts):
+              p=pathlib.Path(f'/tmp/p{i}.js');p.write_text(s)
+              cp=subprocess.run(['node','--check',str(p)],capture_output=True,text=True)
+              checks.append({'index':i,'ok':cp.returncode==0,'stderr':cp.stderr[-2000:]})
+          pathlib.Path('/tmp/script-check.json').write_text(json.dumps(checks))
+          PY
+          SESSION_TOKEN="$session" node <<'JS'
+          const { chromium } = require('playwright-core');
+          const fs=require('fs');
+          (async()=>{
+            const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+            const page=await browser.newPage({viewport:{width:390,height:844}});
+            const errors=[]; const responses=[];
+            page.on('pageerror',e=>errors.push(e.message));
+            page.on('response',r=>{const u=new URL(r.url());if(u.pathname.startsWith('/api/'))responses.push({path:u.pathname,status:r.status()})});
+            await page.setExtraHTTPHeaders({authorization:'Bearer '+process.env.SESSION_TOKEN});
+            await page.goto('https://runner3-audio-library.ducduy2411.workers.dev/?check=browser',{waitUntil:'networkidle',timeout:30000});
+            await page.waitForTimeout(1000);
+            const out={scriptChecks:JSON.parse(fs.readFileSync('/tmp/script-check.json','utf8')),itemCount:await page.locator('.item').count(),countText:await page.locator('#count').innerText().catch(()=>''),titles:await page.locator('.item h3').allInnerTexts(),errors,responses};
+            fs.writeFileSync('/tmp/postdeploy-check.json',JSON.stringify(out,null,2));
+            await browser.close();
+          })().catch(e=>{fs.writeFileSync('/tmp/postdeploy-check.json',JSON.stringify({fatal:String(e),stack:e.stack},null,2))});
+          JS
+          mkdir -p ops/audio-library
+          cp /tmp/postdeploy-check.json ops/audio-library/postdeploy-check.json
+      - name: Persist check
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add ops/audio-library/postdeploy-check.json
+          git commit -m 'Publish Audio Library postdeploy check [skip ci]' || exit 0
+          git push origin HEAD:main
