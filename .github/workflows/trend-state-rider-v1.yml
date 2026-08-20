@@ -1,0 +1,57 @@
+name: Trend State Rider v1
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/trend_state_rider_v1.py'
+      - 'wave-rider-verify/trend_state_rider_merge.py'
+      - '.github/workflows/trend-state-rider-v1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  yearly:
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        year: [2022, 2023, 2024, 2025, 2026]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: python3 -m py_compile wave-rider-verify/trend_state_rider_v1.py wave-rider-verify/trend_state_rider_merge.py
+      - name: Install dependency
+        run: python3 -m pip install --quiet requests
+      - name: Run frozen year
+        env:
+          YEAR: ${{ matrix.year }}
+          OUT_DIR: /tmp/tsr
+        run: python3 wave-rider-verify/trend_state_rider_v1.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trend-state-rider-${{ matrix.year }}
+          path: /tmp/tsr
+          retention-days: 14
+  merge:
+    needs: yearly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: trend-state-rider-*
+          path: /tmp/all
+      - name: Merge frozen validation
+        env:
+          INPUT_DIR: /tmp/all
+          OUT_DIR: /tmp/final
+        run: python3 wave-rider-verify/trend_state_rider_merge.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trend-state-rider-final
+          path: /tmp/final
+          retention-days: 30
