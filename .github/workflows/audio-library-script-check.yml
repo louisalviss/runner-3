@@ -1,0 +1,57 @@
+name: Audio Library Script Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-script-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check production inline scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shared="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | sha256sum | awk '{print $1}')"
+          access="$(python - <<'PY'
+          import re
+          s=open('apps/audio-library/wrangler.jsonc').read()
+          print(re.search(r'"LIBRARY_ACCESS_SHA256"\s*:\s*"([0-9a-f]+)"',s).group(1))
+          PY
+          )"
+          session="$(python - "$shared" "$access" <<'PY'
+          import hashlib,sys
+          print(hashlib.sha256(('audio-library-session-v3\0'+sys.argv[1]+'\0'+sys.argv[2]).encode()).hexdigest())
+          PY
+          )"
+          curl -fsS -H "Authorization: Bearer $session" 'https://runner3-audio-library.ducduy2411.workers.dev/?probe=syntax-check' -o /tmp/root.html
+          python - <<'PY'
+          import re,pathlib,subprocess,json
+          html=pathlib.Path('/tmp/root.html').read_text(errors='replace')
+          scripts=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          out=[]
+          for i,s in enumerate(scripts):
+              p=pathlib.Path(f'/tmp/s{i}.js');p.write_text(s)
+              cp=subprocess.run(['node','--check',str(p)],capture_output=True,text=True)
+              out.append({'index':i,'chars':len(s),'ok':cp.returncode==0,'stderr':cp.stderr[-4000:]})
+          pathlib.Path('ops/audio-library/script-check.json').write_text(json.dumps({'scriptCount':len(scripts),'checks':out},ensure_ascii=False,indent=2)+'\n')
+          PY
+      - name: Persist result
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add ops/audio-library/script-check.json
+          git commit -m 'Publish Audio Library script check [skip ci]' || exit 0
+          git push origin HEAD:main
