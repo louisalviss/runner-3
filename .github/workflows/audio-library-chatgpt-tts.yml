@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'ops/audio-library/chatgpt-outbox/*.json'
+      - 'ops/audio-library/chatgpt-outbox-chunks/**'
       - '.github/workflows/audio-library-chatgpt-tts.yml'
   pull_request:
     branches: [main]
     paths:
       - 'ops/audio-library/tts-trigger/**'
+      - 'ops/audio-library/chatgpt-outbox-chunks/**'
 
 permissions:
   contents: read
@@ -41,13 +43,36 @@ jobs:
           set -euo pipefail
           python -m pip install -q requests edge-tts 'cryptography>=45,<47'
           if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
+      - name: Reassemble encrypted outbox when chunked
+        shell: bash
+        run: |
+          set -euo pipefail
+          chunk_dir="ops/audio-library/chatgpt-outbox-chunks/${AUDIO_LIBRARY_CURRENT_ITEM}"
+          if [ -s "$chunk_dir/manifest.json" ]; then
+            python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          item=os.environ['AUDIO_LIBRARY_CURRENT_ITEM']
+          root=Path('ops/audio-library/chatgpt-outbox-chunks')/item
+          m=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+          if str(m.get('id')) != item: raise SystemExit('manifest id mismatch')
+          n=int(m['chunkCount'])
+          cipher=''.join((root/f'{i:03d}.txt').read_text(encoding='utf-8').strip() for i in range(n))
+          if len(cipher) != int(m['ciphertextChars']): raise SystemExit('ciphertext length mismatch')
+          if hashlib.sha256(cipher.encode()).hexdigest() != m['ciphertextSha256']: raise SystemExit('ciphertext hash mismatch')
+          env={'v':m.get('v',1),'id':item,'ephemeralPublicKey':m['ephemeralPublicKey'],'nonce':m['nonce'],'ciphertext':cipher}
+          Path('/tmp/chunked-outbox.json').write_text(json.dumps(env,separators=(',',':')),encoding='utf-8')
+          PY
+          fi
       - name: Decrypt and synthesize
         shell: bash
         run: |
           set -euo pipefail
-          files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')"
-          if [ -z "$files" ]; then
-            files="ops/audio-library/chatgpt-outbox/${AUDIO_LIBRARY_CURRENT_ITEM}.json"
+          if [ -s /tmp/chunked-outbox.json ]; then
+            files="/tmp/chunked-outbox.json"
+          else
+            files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')"
+            if [ -z "$files" ]; then files="ops/audio-library/chatgpt-outbox/${AUDIO_LIBRARY_CURRENT_ITEM}.json"; fi
           fi
           test -s "$files"
           mkdir -p /tmp/chatgpt-payloads
