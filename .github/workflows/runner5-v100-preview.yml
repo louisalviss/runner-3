@@ -64,6 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
           const base=process.env.TARGET_URL.replace(/\/$/,'');
           let out={status:'failed',url:base+'/',health:null,http:null,marker:false,v100:null};
           for(let i=0;i<18;i++){
@@ -75,7 +76,7 @@ jobs:
             }catch(e){out.detail=String(e.message||e)}
             await new Promise(r=>setTimeout(r,4000));
           }
-          require('fs').writeFileSync('/tmp/v100-verify.json',JSON.stringify(out,null,2)+'\n'); console.log(JSON.stringify(out,null,2));
+          fs.writeFileSync('/tmp/v100-verify.json',JSON.stringify(out,null,2)+'\n'); console.log(JSON.stringify(out,null,2));
           if(out.status!=='ready') process.exit(3);
           NODE
 
