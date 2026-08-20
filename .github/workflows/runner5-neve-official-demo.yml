@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'scripts/runner5-neve-official-ui-import.mjs'
-      - 'scripts/runner5-neve-ui-scroll-wrapper.mjs'
       - '.github/workflows/runner5-neve-official-demo.yml'
   workflow_dispatch:
 
@@ -48,12 +47,13 @@ jobs:
           npx playwright install --with-deps chromium
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
 
-      - name: Import official Neve Photography Studio demo
+      - name: Import official free Neve Default starter site
         shell: bash
         run: |
           set -euo pipefail
           sed -i 's/admin.php?page=tiob-starter-sites/admin.php?page=neve-onboarding/g' scripts/runner5-neve-official-ui-import.mjs
-          node scripts/runner5-neve-ui-scroll-wrapper.mjs
+          sed -i 's/Photography Studio/Default/g' scripts/runner5-neve-official-ui-import.mjs
+          node scripts/runner5-neve-official-ui-import.mjs
 
       - name: Persist safe import status
         if: always()
