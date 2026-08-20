@@ -15,8 +15,10 @@ BUCKET = os.environ.get('AUDIO_LIBRARY_BUCKET', 'runner3-wp-media')
 STATUS = ROOT / 'ops/audio-library/chat-intake-status.json'
 ITEM_PREFIX = 'audio-library/items/'
 QUEUE_PREFIX = 'audio-library/queue/'
-UA = 'Runner3AudioResolver/2.0'
+UA = 'Runner3AudioResolver/2.1 (+https://github.com/louisalviss/runner-3)'
 CURLX_API = 'https://www.curl-x.com/api/extract'
+DOMAINEE_API = 'https://api.domainee.dev/v1/tools/redirect-checker'
+REDIRECTCHECK_API = 'https://www.redirectcheck.org/api/check'
 
 
 def wrangler_get(key: str):
@@ -112,35 +114,25 @@ def resolve_via_curlx_api(url: str):
         r = requests.post(
             CURLX_API,
             json={'url': url},
-            headers={
-                'User-Agent': UA,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'Accept-Language': 'en-US,en;q=0.9',
-            },
+            headers={'User-Agent': UA,'Accept':'application/json','Content-Type':'application/json','Accept-Language':'en-US,en;q=0.9'},
             timeout=75,
             allow_redirects=True,
         )
     except Exception as e:
         return None, f'curlx-api-request-{type(e).__name__}'
-
-    data = None
     try:
         data = r.json()
     except Exception:
         data = None
-
     for candidate in [r.url, r.headers.get('location','')]:
         found = normalize_reddit_candidate(candidate)
         if found:
             return found, f'curlx-api-url:{r.status_code}'
-
     if data is not None:
         found = canonical_from_payload(data, url)
         if found:
             code = data.get('code') if isinstance(data, dict) else None
             return found, f'curlx-api-json:{r.status_code}:{code or "ok"}'
-
     found = normalize_reddit_candidate(r.text or '')
     if found:
         return found, f'curlx-api-text:{r.status_code}'
@@ -148,9 +140,51 @@ def resolve_via_curlx_api(url: str):
     subreddit = subreddit_from_share(url)
     if post_id and subreddit:
         return f'https://www.reddit.com/r/{subreddit}/comments/{post_id}/', f'curlx-api-id:{r.status_code}'
-
     code = data.get('code') if isinstance(data, dict) else None
     return None, f'curlx-api-no-target:{r.status_code}:{code or "no-code"}:{len(r.text or "")}'
+
+
+def resolve_via_domainee(url: str):
+    try:
+        r = requests.get(DOMAINEE_API, params={'url': url}, headers={'User-Agent': UA, 'Accept': 'application/json'}, timeout=60)
+    except Exception as e:
+        return None, f'domainee-request-{type(e).__name__}'
+    try:
+        data = r.json()
+    except Exception:
+        data = None
+    for source in [data, r.text, r.headers.get('location','')]:
+        found = canonical_from_payload(source, url) if source is not None else None
+        if found:
+            return found, f'domainee:{r.status_code}'
+    return None, f'domainee-no-target:{r.status_code}:{len(r.text or "")}'
+
+
+def resolve_via_redirectcheck(url: str):
+    attempts = [
+        ('post', {'url': url, 'method': 'GET', 'followMetaRefresh': True}),
+        ('get', None),
+    ]
+    errors=[]
+    for mode, body in attempts:
+        try:
+            if mode == 'post':
+                r=requests.post(REDIRECTCHECK_API, json=body, headers={'User-Agent': UA,'Accept':'application/json','Content-Type':'application/json'}, timeout=60)
+            else:
+                r=requests.get(REDIRECTCHECK_API, params={'url':url,'ua':'Googlebot'}, headers={'User-Agent':UA,'Accept':'application/json'}, timeout=60)
+        except Exception as e:
+            errors.append(f'{mode}:{type(e).__name__}')
+            continue
+        try:
+            data=r.json()
+        except Exception:
+            data=None
+        for source in [data, r.text, r.headers.get('location','')]:
+            found=canonical_from_payload(source,url) if source is not None else None
+            if found:
+                return found, f'redirectcheck-{mode}:{r.status_code}'
+        errors.append(f'{mode}:{r.status_code}/{len(r.text or "")}')
+    return None, 'redirectcheck-no-target:' + ','.join(errors)
 
 
 def resolve_via_curlx_legacy(url: str):
@@ -159,15 +193,9 @@ def resolve_via_curlx_legacy(url: str):
     if p.query:
         target += '?' + p.query
     try:
-        r = requests.get(
-            target,
-            headers={'User-Agent': 'curl/8.10.1', 'Accept': '*/*'},
-            timeout=60,
-            allow_redirects=True,
-        )
+        r = requests.get(target, headers={'User-Agent':'curl/8.10.1','Accept':'*/*'}, timeout=60, allow_redirects=True)
     except Exception as e:
         return None, f'curlx-legacy-request-{type(e).__name__}'
-
     for candidate in [r.url, r.headers.get('location',''), r.text or '']:
         found = normalize_reddit_candidate(candidate)
         if found:
@@ -180,11 +208,13 @@ def resolve_via_curlx_legacy(url: str):
 
 
 def resolve_via_curlx(url: str):
-    canonical, mode = resolve_via_curlx_api(url)
-    if canonical:
-        return canonical, mode
-    canonical2, mode2 = resolve_via_curlx_legacy(url)
-    return canonical2, mode + ';' + mode2
+    diagnostics=[]
+    for fn in [resolve_via_curlx_api, resolve_via_domainee, resolve_via_redirectcheck, resolve_via_curlx_legacy]:
+        canonical, mode = fn(url)
+        if canonical:
+            return canonical, mode
+        diagnostics.append(mode)
+    return None, ';'.join(diagnostics)
 
 
 def main():
@@ -204,13 +234,13 @@ def main():
             results.append({'id': item_id, 'status': 'skip'}); continue
         canonical, mode = resolve_via_curlx(src)
         if not canonical:
-            results.append({'id': item_id, 'status': 'unresolved', 'detail': mode}); continue
+            results.append({'id': item_id, 'status': 'unresolved', 'detail': mode[:900]}); continue
         item['sharedUrl'] = item.get('sharedUrl') or src
         item['sourceUrl'] = canonical
         item['canonicalUrl'] = canonical
         item['error'] = None
         wrangler_put(f'{ITEM_PREFIX}{item_id}.json', item)
-        queue = wrangler_get(f'{QUEUE_PREFIX}{item_id}.json') or {'id': item_id, 'createdAt': item.get('createdAt')}
+        queue = wrangler_get(f'{QUEUE_PREFIX}{item_id}.json') or {'id':item_id,'createdAt':item.get('createdAt')}
         queue['sourceUrl'] = canonical
         queue['sharedUrl'] = src
         wrangler_put(f'{QUEUE_PREFIX}{item_id}.json', queue)
