@@ -29,7 +29,10 @@ jobs:
           set -euo pipefail
           CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           test -n "$CHROME"
-          npx --yes lighthouse@13.4.1 https://runner5-restore-gateway.pages.dev/ --output=json --output-path=/tmp/lh.json --chrome-path="$CHROME" --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
+          export CHROME_PATH="$CHROME"
+          npx --yes lighthouse@13.4.1 https://runner5-restore-gateway.pages.dev/ \
+            --output=json --output-path=/tmp/lh.json \
+            --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
           python - <<'PY'
           import json, pathlib, datetime
           d=json.load(open('/tmp/lh.json')); audits=d.get('audits',{})
@@ -39,7 +42,6 @@ jobs:
             if k in audits:
               v=audits[k]
               chosen[k]={'score':v.get('score'),'displayValue':v.get('displayValue'),'title':v.get('title'),'details':v.get('details')}
-          # Also include failed audits with likely relevant terms.
           for k,v in audits.items():
             if v.get('score') not in (1,None) and any(x in k.lower() for x in ('button','contrast','heading','layout','shift','render','cache','legacy','unused','font','meta-description')):
               chosen.setdefault(k,{'score':v.get('score'),'displayValue':v.get('displayValue'),'title':v.get('title'),'details':v.get('details')})
@@ -48,9 +50,11 @@ jobs:
           print(json.dumps({'categories':out['categories'],'audits':{k:{'score':v.get('score'),'items':len((v.get('details') or {}).get('items') or [])} for k,v in chosen.items()}},indent=2))
           PY
       - name: Persist diagnostics
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -s /tmp/diag.json ]; then printf '{"status":"failed","detail":"raw_lighthouse_missing"}\n' >/tmp/diag.json; fi
           git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           cp /tmp/diag.json /tmp/diag-safe.json
           for attempt in 1 2 3; do
