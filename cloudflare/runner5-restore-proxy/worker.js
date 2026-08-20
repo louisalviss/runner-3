@@ -2,7 +2,7 @@ import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_BUNDLE } from './snapshot.gener
 
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
-const CACHE_VERSION = 'runner5-opt-v6';
+const CACHE_VERSION = 'runner5-opt-v7';
 const EDGE_CSS_PATH = '/__edge/runner5.css';
 const META_DESCRIPTION = 'Runner5 Restore Lab Demo — WordPress restore verification articles and case studies.';
 const SYSTEM_FONT_STACK = '-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif';
@@ -66,10 +66,8 @@ function optimizedCss(incomingOrigin) {
 function optimizeSnapshotHtml(source, incoming) {
   let html = rewriteOrigin(source || '', incoming.origin);
 
-  // Avoid a late web-font swap. System metrics are stable on the first paint.
   html = html.replace(/<link\b[^>]*\brel=["']preload["'][^>]*\bas=["']font["'][^>]*>/gi, '');
 
-  // Inline the small critical stylesheet so it cannot block first render on a second request.
   const css = optimizedCss(incoming.origin);
   let inlined = false;
   html = html.replace(/<link\b[^>]*>/gi, (tag) => {
@@ -85,19 +83,19 @@ function optimizeSnapshotHtml(source, incoming) {
     html = html.replace(/<\/head>/i, `<style id="runner5-critical-css">${css}</style></head>`);
   }
 
-  // Lighthouse SEO: provide a deterministic description for the restored demo home page.
   if (!/<meta\b[^>]*\bname=["']description["']/i.test(html)) {
     html = html.replace(/<\/head>/i, `<meta name="description" content="${META_DESCRIPTION}"></head>`);
   }
 
-  // Lighthouse accessibility: the theme's icon-only search button has no accessible name.
+  // Inspiro has used both search-icon and sb-search-button-open for its icon-only search control.
   html = html.replace(/<button\b[^>]*>/gi, (tag) => {
-    if (!/\bclass=["'][^"']*\bsearch-icon\b[^"']*["']/i.test(tag)) return tag;
+    const classMatch = tag.match(/\bclass=["']([^"']*)["']/i);
+    const classes = classMatch ? classMatch[1] : '';
+    if (!/(?:^|\s)(?:search-icon|sb-search-button-open)(?:\s|$)/i.test(classes)) return tag;
     if (/\baria-label\s*=|\baria-labelledby\s*=|\btitle\s*=/i.test(tag)) return tag;
-    return tag.replace(/^<button/i, '<button aria-label="Search"');
+    return tag.replace(/^<button/i, '<button aria-label="Search" title="Search"');
   });
 
-  // Lighthouse heading order: post cards are direct children of the page H1 and must start at H2.
   html = html.replace(/<h3(\s[^>]*\bclass=["'][^"']*\bentry-title\b[^"']*["'][^>]*)>([\s\S]*?)<\/h3>/gi, '<h2$1>$2</h2>');
 
   return html;
