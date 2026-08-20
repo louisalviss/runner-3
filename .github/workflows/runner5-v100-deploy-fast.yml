@@ -22,14 +22,14 @@ jobs:
           set -euo pipefail
           cd edge/runner5-v100-gateway
           npx --yes wrangler@4.102.0 pages deploy ./dist --project-name runner5-restore-gateway-v100 --branch main --commit-dirty=true
-      - name: Verify candidate 5
+      - name: Verify candidate 6
         shell: bash
         run: |
           set -euo pipefail
           for i in $(seq 1 20); do
             body="$(curl -fsS --max-time 10 https://runner5-restore-gateway-v100.pages.dev/__runner5/v100/health || true)"
             echo "$body"
-            echo "$body" | grep -q '"candidate":5' && exit 0
+            echo "$body" | grep -q '"candidate":6' && exit 0
             sleep 3
           done
           exit 2
