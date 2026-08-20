@@ -1,148 +1,19 @@
-name: Cloudflare WordPress Edge
+name: Cloudflare WordPress Edge (Legacy - Retired)
 
+# The old scheduled job deployed main's legacy wrangler.jsonc every 30 minutes.
+# Runner3WP production is now pinned to the tested V2 runtime and must only be
+# changed through the guarded V2 promotion/automation flow.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'edge/wordpress-edge-proxy/**'
-      - 'scripts/build-wordpress-edge-snapshot.mjs'
-      - 'scripts/deploy-wordpress-workers-cache.mjs'
-      - '.github/workflows/cloudflare-wordpress-edge.yml'
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: wordpress-cloudflare-edge
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  deploy:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CF_WORKER_NAME: wordpress-edge-proxy
-      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.jsonc
-      CF_EDGE_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev
-      CF_EDGE_OUT: /tmp/cloudflare-wordpress-edge.json
-      CF_SNAPSHOT_OUT: /tmp/runner3-edge-snapshot.json
-
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 2
-
-      - name: Validate snapshot-first edge
-        shell: bash
+      - name: Legacy deploy disabled
         run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'Cloudflare API token unavailable'; exit 3; }
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'Cloudflare account id unavailable'; exit 3; }
-          node --check edge/wordpress-edge-proxy/src/index.js
-          node --check edge/wordpress-edge-proxy/src/entry.js
-          node --check scripts/build-wordpress-edge-snapshot.mjs
-          node --check scripts/deploy-wordpress-workers-cache.mjs
-
-      - name: Build fresh snapshot, deploy Worker and verify edge safety
-        id: edge
-        continue-on-error: true
-        run: node scripts/deploy-wordpress-workers-cache.mjs
-
-      - name: Verify production Pages hostname uses snapshot-first Worker
-        id: production
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          node --input-type=module - <<'NODE'
-          import fs from 'node:fs';
-          const url='https://runner3wp.pntr.dev/';
-          const rows=[];
-          for(let i=0;i<5;i++){
-            const started=performance.now();
-            try {
-              const r=await fetch(url,{redirect:'manual',headers:{'user-agent':'Runner3SnapshotProductionProbe/1.0'}});
-              const body=await r.text();
-              rows.push({
-                run:i+1,
-                http:r.status,
-                ms:Math.round((performance.now()-started)*10)/10,
-                edgeMode:r.headers.get('x-edge-mode'),
-                edgeSnapshot:r.headers.get('x-edge-snapshot'),
-                snapshotBuiltAt:r.headers.get('x-edge-snapshot-built-at'),
-                cache:r.headers.get('cf-cache-status'),
-                age:r.headers.get('age'),
-                edgePolicy:r.headers.get('x-edge-cache-policy'),
-                noindex:/noindex/i.test(r.headers.get('x-robots-tag')||''),
-                responsive:/responsive-v2\/offset-demo-01-w(?:360|480|640)\.webp/i.test(body)&&/srcset=/i.test(body),
-              });
-            } catch(error) {
-              rows.push({run:i+1,http:0,ms:Math.round((performance.now()-started)*10)/10,error:String(error?.message||error)});
-            }
-            await new Promise(r=>setTimeout(r,250));
-          }
-          const snapshotRows=rows.filter(x=>x.http===200&&x.edgeMode==='snapshot'&&String(x.edgeSnapshot||'').toUpperCase()==='HIT');
-          const times=snapshotRows.map(x=>x.ms).sort((a,b)=>a-b);
-          const medianMs=times.length?times[Math.floor(times.length/2)]:null;
-          const pass=rows.every(x=>x.http===200)&&snapshotRows.length>=4&&rows.every(x=>x.noindex===true)&&rows.at(-1)?.responsive===true&&Number.isFinite(medianMs)&&medianMs<300;
-          const out={status:pass?'ok':'failed',target:url,architecture:'pages-gateway->snapshot-first-worker',snapshotReady:snapshotRows.length>=4,noindexReady:rows.every(x=>x.noindex===true),responsiveReady:rows.at(-1)?.responsive===true,medianMs,rows,checkedAt:new Date().toISOString()};
-          fs.mkdirSync('/tmp/runner3-perf',{recursive:true});
-          fs.writeFileSync('/tmp/runner3-perf/snapshot-first.json',JSON.stringify(out,null,2)+'\n');
-          console.log(JSON.stringify(out,null,2));
-          if(!pass) process.exit(7);
-          NODE
-
-      - name: Persist fresh snapshot-first verification
-        if: always() && github.event_name != 'schedule'
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s /tmp/cloudflare-wordpress-edge.json || echo '{"status":"runner_error","detail":"edge_result_missing"}' >/tmp/cloudflare-wordpress-edge.json
-          test -s /tmp/runner3-perf/snapshot-first.json || { mkdir -p /tmp/runner3-perf; echo '{"status":"runner_error","detail":"production_probe_missing"}' >/tmp/runner3-perf/snapshot-first.json; }
-          cp /tmp/cloudflare-wordpress-edge.json /tmp/edge-safe.json
-          cp /tmp/runner3-perf/snapshot-first.json /tmp/production-safe.json
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          for attempt in 1 2 3 4 5; do
-            git fetch origin main
-            git reset --hard origin/main
-            mkdir -p ops/cloudflare-edge/results/runs ops/perf
-            cp /tmp/edge-safe.json ops/cloudflare-edge/results/wordpress-edge-proxy.latest.json
-            cp /tmp/edge-safe.json "ops/cloudflare-edge/results/runs/wordpress-edge-proxy.${GITHUB_RUN_ID}.json"
-            cp /tmp/production-safe.json ops/perf/snapshot-first.latest.json
-            git add ops/cloudflare-edge/results ops/perf/snapshot-first.latest.json
-            if git diff --cached --quiet; then exit 0; fi
-            git commit -m "Persist snapshot-first WordPress edge: ${GITHUB_RUN_ID}"
-            if git push origin HEAD:main; then exit 0; fi
-            sleep $((attempt * 2))
-          done
-          exit 2
-
-      - name: Require snapshot-first production pass
-        if: always()
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          edge=json.load(open('/tmp/cloudflare-wordpress-edge.json'))
-          prod=json.load(open('/tmp/runner3-perf/snapshot-first.json'))
-          assert edge.get('status') == 'completed', json.dumps(edge,indent=2)
-          p=edge.get('probe',{})
-          for key in ('publicReady','policyReady','snapshotReady','coldFast','signedPurgeRequired','loginSafe','cookieSafe','responsiveReady','noindexReady'):
-              assert p.get(key) is True, key+' failed: '+json.dumps(edge,indent=2)
-          assert prod.get('status') == 'ok' and prod.get('snapshotReady') is True and prod.get('noindexReady') is True, json.dumps(prod,indent=2)
-          print(json.dumps({
-            'status':'completed',
-            'architecture':edge.get('architecture'),
-            'snapshot':edge.get('snapshot'),
-            'workerMedianSnapshotMs':p.get('medianSnapshotMs'),
-            'productionMedianMs':prod.get('medianMs'),
-            'noindex':prod.get('noindexReady'),
-          },indent=2))
-          PY
+          echo 'Legacy WordPress edge deploy is retired.'
+          echo 'Use the guarded Runner3WP V2 automation/promotion workflow instead.'
