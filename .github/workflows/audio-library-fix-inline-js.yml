@@ -1,0 +1,46 @@
+name: Audio Library Fix Inline JS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-fix-inline-js.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fix nested newline escaping
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('apps/audio-library/worker.js')
+          s=p.read_text()
+          old = r"const text=arr.map(i=>(i.title||'Audio')+'\n'+(i.audioUrl||i.sourceUrl)).join('\n\n');"
+          new = r"const text=arr.map(i=>(i.title||'Audio')+'\\n'+(i.audioUrl||i.sourceUrl)).join('\\n\\n');"
+          count=s.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one share-text pattern, found {count}')
+          s=s.replace(old,new)
+          p.write_text(s)
+          print('patched share newline escaping')
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/audio-library/worker.js
+          git commit -m 'Fix Audio Library inline share script syntax'
+          git pull --rebase origin main
+          git push origin HEAD:main
