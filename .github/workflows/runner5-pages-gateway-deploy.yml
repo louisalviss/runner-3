@@ -9,7 +9,7 @@ on:
       - '.github/workflows/runner5-pages-gateway-deploy.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: runner5-pages-gateway-production
@@ -22,13 +22,17 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GATEWAY_URL: https://runner5-restore-gateway.pages.dev/
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Validate Cloudflare credentials
         shell: bash
         run: |
+          set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing GitHub secret: CLOUDFLARE_API_TOKEN'; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing GitHub secret: CLOUDFLARE_ACCOUNT_ID'; exit 1; }
 
@@ -36,30 +40,62 @@ jobs:
         working-directory: edge/runner5-pages-gateway
         shell: bash
         run: |
+          set -euo pipefail
           npx --yes wrangler@latest pages deploy ./dist \
             --project-name=runner5-restore-gateway \
             --branch=main \
             --commit-hash="$GITHUB_SHA"
 
-      - name: Verify live Candidate 6
+      - name: Verify live Pages gateway
         shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
-          import json, time, urllib.request
-          url = 'https://runner5-restore-gateway.pages.dev/__runner5/pages-gateway/health'
-          last = None
-          for _ in range(12):
+          import json, os, time, urllib.request
+          base=os.environ['GATEWAY_URL']
+          health=base.rstrip('/') + '/__runner5/pages-gateway/health'
+          result={'status':'FAILED','url':base,'health':None,'homeHttp':None,'title':None,'detail':None,'updatedAt':None}
+          last=None
+          for _ in range(18):
               try:
-                  req = urllib.request.Request(url, headers={'Cache-Control':'no-cache','User-Agent':'Runner5DeployVerify/1.0'})
-                  with urllib.request.urlopen(req, timeout=10) as r:
-                      body = r.read().decode('utf-8')
-                      last = (r.status, body)
-                      data = json.loads(body)
-                      if r.status == 200 and data.get('ok') is True and data.get('candidate') == 6:
-                          print('PASS:', body)
-                          raise SystemExit(0)
+                  req=urllib.request.Request(health,headers={'Cache-Control':'no-cache','User-Agent':'Runner5PagesVerify/2.0'})
+                  with urllib.request.urlopen(req,timeout=12) as r:
+                      body=r.read().decode('utf-8'); data=json.loads(body); result['health']=data
+                  home_req=urllib.request.Request(base,headers={'Cache-Control':'no-cache','User-Agent':'Runner5PagesVerify/2.0'})
+                  with urllib.request.urlopen(home_req,timeout=20) as r:
+                      html=r.read(1000000).decode('utf-8','ignore'); result['homeHttp']=r.status
+                      import re
+                      m=re.search(r'<title[^>]*>(.*?)</title>',html,re.I|re.S); result['title']=m.group(1).strip() if m else None
+                  if data.get('ok') is True and data.get('version') == 8 and result['homeHttp']==200 and len(html)>1000:
+                      result['status']='READY'; break
               except Exception as e:
-                  last = repr(e)
+                  last=repr(e)
               time.sleep(5)
-          raise SystemExit(f'Live verification failed: {last!r}')
+          result['detail']=None if result['status']=='READY' else last
+          result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          open('/tmp/runner5-pages-gateway.json','w').write(json.dumps(result,indent=2))
+          print(json.dumps(result,indent=2))
+          if result['status']!='READY': raise SystemExit(2)
           PY
+
+      - name: Persist Pages gateway status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-pages-gateway.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$GATEWAY_URL" >/tmp/runner5-pages-gateway.json
+          cp /tmp/runner5-pages-gateway.json /tmp/runner5-pages-gateway-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/runner5-pages-gateway-safe.json ops/wordpress-access/runner5-pages-gateway.json
+            git add ops/wordpress-access/runner5-pages-gateway.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Pages gateway status'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
