@@ -82,3 +82,5 @@ jobs:
       - name: Fail when resolver crashed
         if: steps.resolver.outcome == 'failure'
         run: exit 1
+
+# trigger: curlx-api-resolver-v1
