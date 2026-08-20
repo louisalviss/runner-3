@@ -1,0 +1,182 @@
+name: Reddit Audio Fastpath macOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-audio-fastpath-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reddit-audio-fastpath-macos
+  cancel-in-progress: true
+
+jobs:
+  extract:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      ITEM_ID: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
+      SOURCE_URL: https://www.reddit.com/r/AskReddit/s/k3EUqNBKsi
+      CHATGPT_INBOX_PUBLIC_KEY: sYGZHQp2jOgHK7mnuF+Yij8rZOxYbgxKNOP4okx0k3E=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install crypto
+        run: python -m pip install -q 'cryptography>=45,<47'
+
+      - name: Resolve, extract and encrypt raw Reddit source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, datetime, html, json, os, re, secrets, urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes, serialization
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+          ITEM=os.environ['ITEM_ID']; SOURCE=os.environ['SOURCE_URL']; PUB=os.environ['CHATGPT_INBOX_PUBLIC_KEY']
+          FX_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/116.0'
+          headers={'User-Agent':FX_UA,'Accept':'application/json','Accept-Language':'en-US,en;q=0.5'}
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl): return None
+          no_redirect=urllib.request.build_opener(NoRedirect)
+
+          def get(url, follow=True, timeout=35):
+              req=urllib.request.Request(url,headers=headers)
+              opener=urllib.request.build_opener() if follow else no_redirect
+              try:
+                  r=opener.open(req,timeout=timeout)
+                  return r.status,r.geturl(),dict(r.headers),r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e:
+                  return e.code,e.geturl(),dict(e.headers),e.read().decode('utf-8','replace')
+
+          # 1) Resolve the opaque Reddit /s/ token through FxReddit's dedicated share route.
+          src=urllib.parse.urlparse(SOURCE)
+          rx=urllib.parse.urlunparse(src._replace(scheme='https',netloc='rxddit.com'))
+          st,final,h,b=get(rx,follow=False)
+          loc=h.get('Location') or h.get('location') or ''
+          canonical=None
+          if loc:
+              u=urllib.parse.urlparse(loc)
+              if '/comments/' in u.path:
+                  canonical=urllib.parse.urlunparse(u._replace(scheme='https',netloc='www.reddit.com',query='',fragment='')).rstrip('/')+'/'
+          if not canonical:
+              text=html.unescape(b).replace('\\u002F','/').replace('\\/','/')
+              m=re.search(r'(?:https?://(?:www\.)?(?:reddit\.com|rxddit\.com))(?P<p>/r/[^\s\"<>]+/comments/[a-z0-9]+(?:/[^\s\"<>?]*)?)',text,re.I)
+              if m: canonical='https://www.reddit.com'+m.group('p').rstrip('/')+'/'
+
+          diagnostics=[{'stage':'rxddit','status':st,'hasLocation':bool(loc),'bytes':len(b),'resolved':bool(canonical)}]
+          raw=''; title='Reddit'; json_status=[]
+
+          # 2) Once canonical is known, use Reddit's JSON thread format. Try the exact headers used by FxReddit.
+          if canonical:
+              p=urllib.parse.urlparse(canonical)
+              path=p.path.rstrip('/')
+              mid=re.search(r'/comments/([a-z0-9]+)',path,re.I)
+              urls=[
+                'https://www.reddit.com'+path+'.json?raw_json=1&limit=100&sort=top',
+                'https://old.reddit.com'+path+'.json?raw_json=1&limit=100&sort=top',
+              ]
+              if mid: urls.append('https://www.reddit.com/comments/'+mid.group(1)+'.json?raw_json=1&limit=100&sort=top')
+              data=None
+              for u in urls:
+                  s,f,hh,body=get(u,follow=True,timeout=45)
+                  json_status.append({'host':urllib.parse.urlparse(u).hostname,'status':s,'bytes':len(body)})
+                  if s != 200: continue
+                  try: candidate=json.loads(body)
+                  except Exception: continue
+                  if isinstance(candidate,list) and len(candidate)>=2:
+                      data=candidate; break
+              if data:
+                  post=data[0].get('data',{}).get('children',[{}])[0].get('data',{})
+                  title=str(post.get('title') or 'Reddit')
+                  selftext=str(post.get('selftext') or '').strip()
+                  comments=[]
+                  def walk(children,depth=0):
+                      if depth>3 or len(comments)>=160: return
+                      for child in children or []:
+                          if len(comments)>=160: return
+                          if child.get('kind')!='t1': continue
+                          d=child.get('data') or {}; body=str(d.get('body') or '').strip()
+                          if body and body not in {'[deleted]','[removed]'} and len(body)>=20:
+                              score=d.get('score'); prefix=f'[Comment score {score}] ' if isinstance(score,int) else '[Comment] '
+                              comments.append(prefix+body)
+                          replies=d.get('replies')
+                          if isinstance(replies,dict): walk((replies.get('data') or {}).get('children') or [],depth+1)
+                  walk((data[1].get('data') or {}).get('children') or [])
+                  parts=[]
+                  if selftext: parts.append('[Post]\n'+selftext)
+                  parts.extend(comments)
+                  raw='\n\n'.join(parts).strip()
+
+          diagnostics.append({'stage':'reddit-json','attempts':json_status,'rawChars':len(raw)})
+
+          # 3) Encrypt only if we actually extracted useful raw source.
+          inbox=Path('ops/audio-library/chatgpt-inbox')
+          inbox.mkdir(parents=True,exist_ok=True)
+          staged=False
+          if canonical and len(raw)>=400:
+              payload={
+                'id':ITEM,
+                'sourceUrl':SOURCE,
+                'canonicalUrl':canonical,
+                'sourceLabel':'Reddit',
+                'title':title,
+                'rawText':raw,
+                'rawTruncated':False,
+                'extractedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'extractTransport':'macos-rxddit-fxheaders',
+                'editorPolicy':'RAW_SOURCE_ONLY_NO_TRANSLATION_NO_SUMMARY_NO_LLM',
+              }
+              recipient=X25519PublicKey.from_public_bytes(base64.b64decode(PUB))
+              eph=X25519PrivateKey.generate(); shared=eph.exchange(recipient)
+              key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-audio-library-inbox-v1').derive(shared)
+              nonce=secrets.token_bytes(12); plain=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+              cipher=ChaCha20Poly1305(key).encrypt(nonce,plain,ITEM.encode())
+              env={
+                'v':1,'id':ITEM,
+                'ephemeralPublicKey':base64.b64encode(eph.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)).decode(),
+                'nonce':base64.b64encode(nonce).decode(),
+                'ciphertext':base64.b64encode(cipher).decode(),
+              }
+              (inbox/f'{ITEM}.json').write_text(json.dumps(env,separators=(',',':'))+'\n',encoding='utf-8')
+              staged=True
+
+          status={
+            'status':'ready',
+            'itemId':ITEM,
+            'canonicalResolved':bool(canonical),
+            'staged':staged,
+            'rawChars':len(raw),
+            'diagnostics':diagnostics,
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/audio-library/reddit-fastpath-status.json').write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(status,ensure_ascii=False))
+          PY
+
+      - name: Publish encrypted inbox and checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-fastpath-status.json
+          git add "ops/audio-library/chatgpt-inbox/${ITEM_ID}.json" 2>/dev/null || true
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Reddit Audio fastpath result [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
