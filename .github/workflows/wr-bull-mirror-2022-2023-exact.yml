@@ -5,6 +5,7 @@ on:
     paths:
       - 'wave-rider-verify/wr2223_exact_driver.py'
       - 'wave-rider-verify/wr_bull_mirror_2223.py'
+      - 'wave-rider-verify/wr_postmortem_stop_oos.py'
       - '.github/workflows/wr-bull-mirror-2022-2023-exact.yml'
 permissions:
   actions: read
@@ -58,6 +59,8 @@ jobs:
           merge-multiple: true
       - name: Run fixed bull mirror analysis
         run: python3 wave-rider-verify/wr_bull_mirror_2223.py
+      - name: Run frozen stop-band OOS postmortem
+        run: python3 wave-rider-verify/wr_postmortem_stop_oos.py
       - uses: actions/upload-artifact@v4
         with:
           name: wr-bull-mirror-2022-2023-final
