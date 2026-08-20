@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/audio-library-script-check.yml'
+      - 'apps/audio-library/worker.js'
   workflow_dispatch:
 
 permissions:
@@ -34,7 +35,7 @@ jobs:
           print(hashlib.sha256(('audio-library-session-v3\0'+sys.argv[1]+'\0'+sys.argv[2]).encode()).hexdigest())
           PY
           )"
-          curl -fsS -H "Authorization: Bearer $session" 'https://runner3-audio-library.ducduy2411.workers.dev/?probe=syntax-check' -o /tmp/root.html
+          curl -fsS -H "Authorization: Bearer $session" 'https://runner3-audio-library.ducduy2411.workers.dev/?probe=syntax-check-v2' -o /tmp/root.html
           python - <<'PY'
           import re,pathlib,subprocess,json
           html=pathlib.Path('/tmp/root.html').read_text(errors='replace')
