@@ -94,24 +94,27 @@ async function assertVersionAndActive(wp) {
 
 async function toggle(wp, want) {
   await wp.goto(`${base}/wp-admin/options-general.php?page=runner3-speed`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  const text = await wp.locator('body').innerText();
-  const on = /Performance\s*ON/i.test(text);
-  if (on === want) return;
-  const form = wp.locator('form').filter({ has: wp.locator('input[name="action"][value="runner3_speed_toggle"]') }).first();
+  let form = wp.locator('form').filter({ has: wp.locator('input[name="action"][value="runner3_speed_toggle"]') }).first();
   if (!(await form.count())) throw new Error('toggle_missing');
+  const value = await form.locator('input[name="enable"]').inputValue();
+  const on = value === '0';
+  if (on === want) return;
+  if ((value === '1') !== want) throw new Error(`toggle_state_mismatch:${value}:${want ? 'on' : 'off'}`);
   await Promise.all([
     wp.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null),
     form.evaluate(el => HTMLFormElement.prototype.submit.call(el)),
   ]);
   await sleep(900);
-  const after = await wp.locator('body').innerText();
-  if (want && !/Performance\s*ON/i.test(after)) throw new Error(`turn_on_failed:${after.slice(0, 300)}`);
-  if (!want && !/Performance\s*OFF/i.test(after)) throw new Error('turn_off_failed');
+  form = wp.locator('form').filter({ has: wp.locator('input[name="action"][value="runner3_speed_toggle"]') }).first();
+  if (!(await form.count())) throw new Error('toggle_missing_after_submit');
+  const afterValue = await form.locator('input[name="enable"]').inputValue();
+  const afterOn = afterValue === '0';
+  if (afterOn !== want) throw new Error(`toggle_failed:${afterValue}:${want ? 'on' : 'off'}`);
 }
 
 async function request(path = '/', init = {}) {
   const r = await fetch(new URL(path, `${base}/`), { redirect: 'manual', ...init });
-  const body = init.method === 'HEAD' ? '' : await r.text();
+  const body = await r.text();
   return {
     status: r.status,
     location: r.headers.get('location'),
