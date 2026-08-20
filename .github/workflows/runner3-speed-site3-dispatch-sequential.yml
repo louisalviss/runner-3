@@ -1,0 +1,21 @@
+name: Dispatch Runner3 Speed Site3 Sequential
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-dispatch-sequential.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch sequential benchmark only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run runner3-speed-site3-final-sequential.yml --repo "${GITHUB_REPOSITORY}" --ref runner3-speed-site3-realistic-20260821
