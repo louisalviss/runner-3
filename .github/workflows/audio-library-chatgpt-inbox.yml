@@ -2,6 +2,11 @@ name: Audio Library ChatGPT Source Inbox
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-chatgpt-inbox.yml'
+      - 'scripts/audio_library_extract_for_chatgpt.py'
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
