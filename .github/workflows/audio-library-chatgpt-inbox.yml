@@ -85,8 +85,13 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          python scripts/audio_library_extract_for_chatgpt.py | tee /tmp/audio-chatgpt-inbox-result.json
+          set +e
+          python scripts/audio_library_extract_for_chatgpt.py > /tmp/audio-chatgpt-inbox-result.json 2> /tmp/audio-chatgpt-inbox-stderr.log
+          code=$?
+          cat /tmp/audio-chatgpt-inbox-result.json || true
+          cat /tmp/audio-chatgpt-inbox-stderr.log >&2 || true
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
 
       - name: Publish encrypted inbox and checkpoint
         if: always()
@@ -95,28 +100,37 @@ jobs:
           METADATA_OUTCOME: ${{ steps.metadata.outcome }}
           FALLBACK_OUTCOME: ${{ steps.fallback.outcome }}
           EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
+          EXTRACT_EXIT_CODE: ${{ steps.extract.outputs.exit_code }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ops/audio-library
           python - <<'PY'
-          import datetime,json,os
+          import datetime,json,os,re
           from pathlib import Path
           def load(path):
               p=Path(path)
               if not p.exists(): return None
               try: return json.loads(p.read_text(encoding='utf-8'))
               except Exception as e: return {'parseError':str(e)}
+          stderr=''
+          sp=Path('/tmp/audio-chatgpt-inbox-stderr.log')
+          if sp.exists():
+              stderr=sp.read_text(encoding='utf-8',errors='replace')[-3000:]
+              stderr=re.sub(r'https?://\S+','[url-redacted]',stderr)
+              stderr=re.sub(r'(?i)(token|authorization|secret|key)\s*[=:]\s*\S+',r'\1=[redacted]',stderr)
           out={
             'status':'ready',
             'resolveOutcome':os.environ.get('RESOLVE_OUTCOME','unknown'),
             'metadataOutcome':os.environ.get('METADATA_OUTCOME','unknown'),
             'fallbackOutcome':os.environ.get('FALLBACK_OUTCOME','unknown'),
             'extractOutcome':os.environ.get('EXTRACT_OUTCOME','unknown'),
+            'extractExitCode':os.environ.get('EXTRACT_EXIT_CODE',''),
             'resolver':load('/tmp/audio-short-url-result.json'),
             'metadata':load('/tmp/audio-reddit-metadata-result.json'),
             'fallback':load('/tmp/audio-short-url-fallback-result.json'),
             'extractor':load('/tmp/audio-chatgpt-inbox-result.json'),
+            'extractStderr':stderr,
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
           Path('ops/audio-library/chatgpt-inbox-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
