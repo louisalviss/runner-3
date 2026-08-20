@@ -1,4 +1,4 @@
-# Runner5 Astra retheme trigger 2026-08-20
+# Runner5 Astra retheme v2
 name: Runner5 WordPress Retheme
 
 on:
@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/runner5-wordpress-retheme.mjs'
+      - 'scripts/runner5-wordpress-retheme-v2.mjs'
       - '.github/workflows/runner5-wordpress-retheme.yml'
   workflow_dispatch:
 
@@ -49,8 +50,8 @@ jobs:
           npx playwright install --with-deps chromium
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
 
-      - name: Apply WordPress no-index and Astra starter site
-        run: node scripts/runner5-wordpress-retheme.mjs
+      - name: Apply Astra and full starter site
+        run: node scripts/runner5-wordpress-retheme-v2.mjs
 
       - name: Persist safe retheme status
         if: always()
