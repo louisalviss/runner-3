@@ -1,0 +1,150 @@
+name: webnovel-writing-brain-context-v2-2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/webnovel-context-v2-2]
+    paths:
+      - 'scripts/webnovel_writing_brain_context_v2_2.py'
+      - 'scripts/webnovel_writing_brain_context_agent.py'
+      - '.github/workflows/webnovel-writing-brain-context-v2-2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-context-v2-2
+  cancel-in-progress: false
+
+env:
+  SOURCE_TAG: webnovel-writing-brain-semantic-v2-1-2026-08-20
+  SOURCE_ASSET: webnovel-writing-brain-semantic-v2-1-2026-08-20.zip
+  SOURCE_SHA256: c7376b5cf19dc6ce08fe011057aeb50f795f9ae05005736db43dc26c3050ee13
+  TAG: webnovel-writing-brain-context-v2-2-candidate-2026-08-20
+  ASSET: webnovel-writing-brain-context-v2-2-candidate-2026-08-20.zip
+  STATUS_FILE: ops/webnovel-writing-brain-context-v2-2-status.json
+
+jobs:
+  build-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+
+      - name: Download and audit Semantic V2.1 production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          gh release download "$SOURCE_TAG" --pattern "$SOURCE_ASSET" --dir source
+          actual=$(sha256sum "source/$SOURCE_ASSET" | awk '{print $1}')
+          test "$actual" = "$SOURCE_SHA256"
+          unzip -q "source/$SOURCE_ASSET" -d source/unpacked
+          db=$(find source/unpacked -type f -name writing_brain.sqlite | head -n1)
+          test -n "$db"
+          echo "SOURCE_DIR=$(dirname "$db")" >> "$GITHUB_ENV"
+          export DB="$db"
+          python - <<'PY'
+          import os,sqlite3
+          con=sqlite3.connect(os.environ['DB'])
+          assert con.execute('select count(*) from passages').fetchone()[0]==21210
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==16697
+          assert con.execute('select count(*) from canonical_conflicts').fetchone()[0]==26320
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          con.close();print({'source':'V2.1 production','audit':'pass'})
+          PY
+
+      - name: Build Context V2.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python scripts/webnovel_writing_brain_context_v2_2.py --source "$SOURCE_DIR" --out build/writing_brain | tee build/context-v2-2-build.log
+          mkdir -p build/writing_brain/runtime
+          cp scripts/webnovel_writing_brain.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_canonical_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_context_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_context_v2_2.py build/writing_brain/runtime/
+
+      - name: Context QA and retrieval parity smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sqlite3,pathlib
+          root=pathlib.Path('build/writing_brain');qa=json.load(open(root/'context_v2_2_qa.json',encoding='utf-8'))
+          assert qa['rules_total']==16697,qa
+          assert qa['raw_conflict_candidates']==26320,qa
+          assert sum(qa['classified'].values())==26320,qa
+          assert qa['promotion_pass'] is True,qa
+          assert qa['resolved_rate']>=.85,qa
+          assert qa['false_conflict_rate']>=.50,qa
+          assert qa['review_rate']<=.15,qa
+          assert qa['exact_true_conflict_sanity_failures']==0,qa
+          con=sqlite3.connect(root/'writing_brain.sqlite')
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==16697
+          assert con.execute('select count(*) from canonical_conflicts').fetchone()[0]==26320
+          assert con.execute('select count(*) from canonical_relations').fetchone()[0]==26320
+          assert con.execute('select count(*) from canonical_rule_context').fetchone()[0]==16697
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          con.close();print(json.dumps(qa,ensure_ascii=False,indent=2))
+          PY
+          Q='mở đầu tiên hiệp, nhân vật chính thận trọng, progression có cost, không dump worldbuilding'
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_canonical_agent.py query --index build/writing_brain --q "$Q" --limit 15 --json-out build/v21-query.json >/dev/null
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_context_agent.py query --index build/writing_brain --q "$Q" --limit 15 --json-out build/v22-query.json >/dev/null
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_context_agent.py direct --index build/writing_brain --brief "$Q" --limit 24 --json-out build/v22-direct.json >/dev/null
+          python - <<'PY'
+          import json
+          a=json.load(open('build/v21-query.json',encoding='utf-8'));b=json.load(open('build/v22-query.json',encoding='utf-8'));d=json.load(open('build/v22-direct.json',encoding='utf-8'))
+          assert [x['rule_id'] for x in a['hits']]==[x['rule_id'] for x in b['hits']]
+          assert all('context' in x and 'effective_direction' in x and 'relations' in x for x in b['hits'])
+          assert d['knowledge_layer']=='canonical_rules+context_relations'
+          assert all('conditional' in s for s in d['sections'])
+          print({'retrieval_parity_hits':len(b['hits']),'direct_sections':len(d['sections'])})
+          PY
+
+      - name: Package and publish V2.2 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('build/writing_brain');asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():z.write(p,pathlib.Path('writing_brain')/p.relative_to(root))
+          pkg={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          pathlib.Path('build/package.json').write_text(json.dumps(pkg,indent=2)+'\n');print(json.dumps(pkg,indent=2))
+          PY
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain Context V2.2 Candidate — 2026-08-20' --notes 'Context-aware conflict resolution over audited Semantic Canonical V2.1. Preserves all rules/evidence/raw candidates; re-infers Vietnamese stance and resolves true conflict vs conditional/complementary/direction-error relations.'
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Persist V2.2 status
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ASSET_SIZE=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name==env.ASSET) | .size' | head -n1)
+          test -n "$ASSET_SIZE" && test "$ASSET_SIZE" -gt 0
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          qa=json.load(open('build/writing_brain/context_v2_2_qa.json',encoding='utf-8'));pkg=json.load(open('build/package.json',encoding='utf-8'))
+          status={'schema':'webnovel-writing-brain-context-v2.2-status','status':'completed','conclusion':'success','promotion_pass':qa['promotion_pass'],
+            'candidate_release_tag':os.environ['TAG'],'candidate_asset':os.environ['ASSET'],'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':pkg['sha256'],
+            'rules_total':qa['rules_total'],'raw_conflict_candidates':qa['raw_conflict_candidates'],'classified':qa['classified'],'resolved_rate':qa['resolved_rate'],
+            'false_conflict_rate':qa['false_conflict_rate'],'review_rate':qa['review_rate'],'legacy_negative_direction_mismatches':qa['legacy_negative_direction_mismatches'],
+            'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          p=pathlib.Path(os.environ['STATUS_FILE']);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n');print(json.dumps(status,ensure_ascii=False,indent=2))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE" && git commit -m 'Publish Context V2.2 candidate status [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do git fetch origin "$GITHUB_REF_NAME"; git rebase "origin/$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0; git rebase --abort || true; sleep $((i*2)); done
+          exit 1
