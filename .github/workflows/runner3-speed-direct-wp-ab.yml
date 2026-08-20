@@ -53,6 +53,18 @@ jobs:
       - name: Install benchmark tooling
         run: npm install --no-save playwright-core@1.58.2 lighthouse@13.0.1
 
+      - name: Force clean OFF baseline
+        env:
+          RUNNER3_PROBE_MODE: off
+        run: |
+          set -euo pipefail
+          node scripts/probe-runner3-speed-wordpress.mjs
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-probe.json'))
+          assert r['status']=='cleanup_ready' and r['off'], r
+          PY
+
       - name: Run OFF vs ON benchmark
         env:
           RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
