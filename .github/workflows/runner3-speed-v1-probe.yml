@@ -1,0 +1,101 @@
+name: Runner3 Speed v1 Probe
+
+on:
+  pull_request:
+    paths:
+      - 'wordpress/runner3-edge-optimizer/**'
+      - 'scripts/probe-runner3-speed-wordpress.mjs'
+      - '.github/workflows/runner3-speed-v1-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-speed-v1-probe-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  WP_SITE_SLUG: runner3-factory-smoke-2
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          php -l wordpress/runner3-edge-optimizer/runner3-edge-optimizer.php
+          php -l wordpress/runner3-edge-optimizer/dropins/advanced-cache.php
+          php -l wordpress/runner3-edge-optimizer/uninstall.php
+          node --check scripts/probe-runner3-speed-wordpress.mjs
+
+      - name: Package plugin
+        run: |
+          set -euo pipefail
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-edge-optimizer)
+          test -s /tmp/runner3-speed.zip
+
+      - name: Decrypt Wasmer account state
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Probe install ON HIT bypass OFF
+        id: full
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
+          RUNNER3_PROBE_MODE: full
+        run: |
+          set +e
+          node scripts/probe-runner3-speed-wordpress.mjs
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-probe-full.json 2>/dev/null || true
+          exit 0
+
+      - name: Force OFF cleanup
+        if: always()
+        env:
+          RUNNER3_PROBE_MODE: off
+        run: |
+          set +e
+          node scripts/probe-runner3-speed-wordpress.mjs
+          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-cleanup.json 2>/dev/null || true
+          exit 0
+
+      - name: Enforce safety probe
+        if: always()
+        env:
+          FULL_RC: ${{ steps.full.outputs.rc }}
+        run: |
+          set -euo pipefail
+          test "${FULL_RC:-99}" = 0
+          python - <<'PY'
+          import json
+          full=json.load(open('/tmp/runner3-speed-probe-full.json'))
+          clean=json.load(open('/tmp/runner3-speed-cleanup.json'))
+          assert full['status']=='ready', full
+          for k in ['installed','active','hit','queryBypass','apiBypass','adminBypass','off','productionUnchanged']:
+              assert full[k], (k,full)
+          assert clean['status']=='cleanup_ready' and clean['off'], clean
+          print(json.dumps({'status':'PASS','probe':full,'cleanup':clean},indent=2))
+          PY
+
+      - name: Remove transient secrets
+        if: always()
+        run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip
