@@ -66,10 +66,20 @@ jobs:
           import datetime,json,os
           from pathlib import Path
           p=Path('/tmp/reddit-cloudflare-result.json')
-          try:
-              result=json.loads(p.read_text(encoding='utf-8')) if p.exists() else None
-          except Exception as e:
-              result={'parseError':type(e).__name__}
+          result=None
+          if p.exists():
+              raw=p.read_text(encoding='utf-8',errors='replace')
+              for line in reversed(raw.splitlines()):
+                  line=line.strip()
+                  if not line.startswith('{'):
+                      continue
+                  try:
+                      result=json.loads(line)
+                      break
+                  except Exception:
+                      pass
+              if result is None:
+                  result={'parseError':'no-json-object','tail':raw[-300:].replace('\n',' | ')}
           out={
             'status':'ready',
             'workflowOutcome':os.environ.get('RELAY_OUTCOME','unknown'),
