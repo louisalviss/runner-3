@@ -9,7 +9,7 @@ on:
       - '.github/workflows/audio-library-editorial-handoff.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   handoff:
@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -31,3 +34,24 @@ jobs:
           path: /tmp/audio-editorial-handoff.json
           if-no-files-found: error
           retention-days: 1
+      - name: Publish handoff checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/audio-library
+          cat > ops/audio-library/editorial-handoff-status.json <<EOF
+          {
+            "status": "ready",
+            "runId": ${GITHUB_RUN_ID},
+            "itemId": "9fe80de0-6caa-5143-aaaa-f81b7a366f77",
+            "artifactName": "audio-editorial-handoff-9fe80de0",
+            "sourceKind": "public-reddit-raw"
+          }
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/editorial-handoff-status.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish audio editorial handoff status [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
