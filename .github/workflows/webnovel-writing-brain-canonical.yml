@@ -20,7 +20,6 @@ concurrency:
 env:
   BASE_TAG: webnovel-writing-brain-vnfirst-v1-2026-08-20
   BASE_ASSET: webnovel-writing-brain-vnfirst-v1-2026-08-20.zip
-  BASE_SHA256: 6ee4fdd48640019ba09da03bcf7bfc45725445d3692ce63ecf9f25220e62b156
   TAG: webnovel-writing-brain-canonical-v1-2026-08-20
   ASSET: webnovel-writing-brain-canonical-v1-2026-08-20.zip
   STATUS_FILE: ops/webnovel-writing-brain-canonical-status.json
@@ -42,25 +41,34 @@ jobs:
       - name: Install canonical runtime
         run: python -m pip install --disable-pip-version-check numpy scipy scikit-learn joblib
 
-      - name: Download pinned VN-first brain
+      - name: Download and audit current VN-first brain
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p source
           gh release download "$BASE_TAG" --pattern "$BASE_ASSET" --dir source
-          echo "$BASE_SHA256  source/$BASE_ASSET" | sha256sum -c -
+          actual_sha=$(sha256sum "source/$BASE_ASSET" | awk '{print $1}')
+          echo "ACTUAL_BASE_SHA=$actual_sha" >> "$GITHUB_ENV"
           unzip -q source/$BASE_ASSET -d source/unpacked
           db=$(find source/unpacked -type f -name writing_brain.sqlite | head -n1)
           test -n "$db"
           base_dir=$(dirname "$db")
           echo "BASE_DIR=$base_dir" >> "$GITHUB_ENV"
           python - <<'PY'
-          import sqlite3,os
-          con=sqlite3.connect(os.path.join(os.environ['BASE_DIR'],'writing_brain.sqlite'))
+          import sqlite3,os,json,pathlib,re
+          root=pathlib.Path(os.environ['BASE_DIR'])
+          con=sqlite3.connect(root/'writing_brain.sqlite');con.row_factory=sqlite3.Row
           assert con.execute('select count(*) from passages').fetchone()[0]==21210
           assert con.execute("select count(*) from passages where source='vidian'").fetchone()[0]==11672
           assert con.execute("select count(*) from passages where source='moxing'").fetchone()[0]==9538
+          assert con.execute("select count(*) from passages where source='moxing' and language='vi'").fetchone()[0]==9538
+          z=re.compile(r'[\u3400-\u9fff]')
+          assert sum(bool(z.search(r['text'] or '')) for r in con.execute("select text from passages where source='moxing'"))==0
           con.close()
+          manifest=json.load(open(root/'manifest.json',encoding='utf-8'))
+          assert manifest.get('language_mode')=='vi-first',manifest.get('language_mode')
+          assert manifest.get('default_display_language')=='vi',manifest.get('default_display_language')
+          print({'base_sha256':os.environ['ACTUAL_BASE_SHA'],'content_contract_ok':True})
           PY
 
       - name: Build canonical knowledge layer
@@ -122,7 +130,7 @@ jobs:
           with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               for p in sorted(root.rglob('*')):
                   if p.is_file():z.write(p,pathlib.Path('writing_brain')/p.relative_to(root))
-          info={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          info={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest(),'base_asset_sha256':os.environ['ACTUAL_BASE_SHA']}
           pathlib.Path('build/package.json').write_text(json.dumps(info,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(info,indent=2))
           PY
@@ -143,7 +151,7 @@ jobs:
           import json,os,pathlib,datetime
           qa=json.load(open('build/writing_brain/canonical_qa.json',encoding='utf-8'));pkg=json.load(open('build/package.json',encoding='utf-8'))
           now=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          status={'schema':'webnovel-writing-brain-canonical-status-v1','workflow':'webnovel-writing-brain-canonical.yml','status':'completed','conclusion':'success','release_tag':os.environ['TAG'],'release_asset':os.environ['ASSET'],'release_ok':True,'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':pkg['sha256'],'passages_total':qa['passages_total'],'canonical_rules':qa['canonical_rules'],'evidence_collapsed':qa['evidence_collapsed'],'multi_evidence_rules':qa['multi_evidence_rules'],'cross_source_rules':qa['cross_source_rules'],'checked_at_utc':now,'contract':'Canonical-first complete: duplicate/near-equivalent knowledge is grouped into rules while all 21,210 evidence passages remain preserved.'}
+          status={'schema':'webnovel-writing-brain-canonical-status-v1','workflow':'webnovel-writing-brain-canonical.yml','status':'completed','conclusion':'success','release_tag':os.environ['TAG'],'release_asset':os.environ['ASSET'],'release_ok':True,'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':pkg['sha256'],'base_asset_sha256':pkg['base_asset_sha256'],'passages_total':qa['passages_total'],'canonical_rules':qa['canonical_rules'],'evidence_collapsed':qa['evidence_collapsed'],'multi_evidence_rules':qa['multi_evidence_rules'],'cross_source_rules':qa['cross_source_rules'],'checked_at_utc':now,'contract':'Canonical-first complete: duplicate/near-equivalent knowledge is grouped into rules while all 21,210 evidence passages remain preserved.'}
           default={'schema':'webnovel-writing-brain-default-v1','default_release_tag':os.environ['TAG'],'default_asset':os.environ['ASSET'],'knowledge_mode':'canonical-first','language_mode':'vi-first','passages_total':qa['passages_total'],'canonical_rules':qa['canonical_rules'],'evidence_preserved':True,'updated_at_utc':now}
           pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           pathlib.Path(os.environ['DEFAULT_FILE']).write_text(json.dumps(default,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
