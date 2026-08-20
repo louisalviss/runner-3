@@ -37,17 +37,45 @@ jobs:
           import json, pathlib, datetime
           d=json.load(open('/tmp/lh.json')); audits=d.get('audits',{})
           keys=['button-name','color-contrast','heading-order','meta-description','cumulative-layout-shift','largest-contentful-paint','first-contentful-paint','render-blocking-insight','cache-insight','legacy-javascript-insight','unused-css-rules','cls-culprits-insight','font-display-insight']
+          def compact(details):
+              rows=[]
+              def walk(x):
+                  if isinstance(x,dict):
+                      node=x.get('node')
+                      if isinstance(node,dict) and node.get('selector'):
+                          row={'selector':node.get('selector'),'snippet':node.get('snippet'),'nodeLabel':node.get('nodeLabel')}
+                          for k in ('score','wastedMs','wastedBytes','totalBytes','cause','url','cacheLifetimeMs','cacheLifetime'):
+                              if k in x: row[k]=x.get(k)
+                          subs=x.get('subItems')
+                          if isinstance(subs,dict):
+                              causes=[]
+                              for s in subs.get('items') or []:
+                                  if isinstance(s,dict):
+                                      for ck in ('cause','url','wastedMs','wastedBytes'):
+                                          if s.get(ck) is not None: causes.append({ck:s.get(ck)})
+                              if causes: row['subItems']=causes
+                          rows.append(row)
+                      elif x.get('url'):
+                          row={k:x.get(k) for k in ('url','wastedMs','wastedBytes','totalBytes','cacheLifetimeMs','cacheLifetime') if x.get(k) is not None}
+                          if len(row)>1: rows.append(row)
+                      for v in x.values(): walk(v)
+                  elif isinstance(x,list):
+                      for v in x: walk(v)
+              walk(details or {})
+              # stable dedupe
+              seen=set(); out=[]
+              for r in rows:
+                  key=json.dumps(r,sort_keys=True,default=str)
+                  if key not in seen: seen.add(key); out.append(r)
+              return out[:80]
           chosen={}
           for k in keys:
-            if k in audits:
-              v=audits[k]
-              chosen[k]={'score':v.get('score'),'displayValue':v.get('displayValue'),'title':v.get('title'),'details':v.get('details')}
-          for k,v in audits.items():
-            if v.get('score') not in (1,None) and any(x in k.lower() for x in ('button','contrast','heading','layout','shift','render','cache','legacy','unused','font','meta-description')):
-              chosen.setdefault(k,{'score':v.get('score'),'displayValue':v.get('displayValue'),'title':v.get('title'),'details':v.get('details')})
+              if k in audits:
+                  v=audits[k]
+                  chosen[k]={'score':v.get('score'),'displayValue':v.get('displayValue'),'title':v.get('title'),'items':compact(v.get('details'))}
           out={'status':'ready','url':d.get('finalUrl') or d.get('requestedUrl'),'categories':{k:v.get('score') for k,v in d.get('categories',{}).items()},'audits':chosen,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
           pathlib.Path('/tmp/diag.json').write_text(json.dumps(out,indent=2)+'\n')
-          print(json.dumps({'categories':out['categories'],'audits':{k:{'score':v.get('score'),'items':len((v.get('details') or {}).get('items') or [])} for k,v in chosen.items()}},indent=2))
+          print(json.dumps(out,indent=2))
           PY
       - name: Persist diagnostics
         if: always()
