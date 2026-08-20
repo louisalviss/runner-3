@@ -1,0 +1,65 @@
+name: WR Bull Mirror 2022 2023 Exact
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wave-rider-verify/wr2223_exact_driver.py'
+      - 'wave-rider-verify/wr_bull_mirror_2223.py'
+      - '.github/workflows/wr-bull-mirror-2022-2023-exact.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  shard:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download frozen universe inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: wr2515-5m-tv-tick-final
+          path: /tmp/base
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32158961561
+      - name: Fetch frozen engine sources
+        run: |
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8ae05d04764d28cd0705277951973376b04a7f53/wave-rider-verify/wr2515_tf_phase1.py' -o /tmp/zonec_hist.py
+      - name: Run frozen exact Zone C 10m historical shard
+        env:
+          TF_MIN: 10
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 16
+          BASE_DIR: /tmp/base
+          OUT_DIR: /tmp/out
+        run: python3 wave-rider-verify/wr2223_exact_driver.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr2223-zonec10-shard-${{ matrix.shard }}
+          path: /tmp/out
+          retention-days: 7
+  analyze:
+    needs: shard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all historical shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr2223-zonec10-shard-*
+          path: /tmp/all
+          merge-multiple: true
+      - name: Run fixed bull mirror analysis
+        run: python3 wave-rider-verify/wr_bull_mirror_2223.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-bull-mirror-2022-2023-final
+          path: /tmp/final
+          retention-days: 14
