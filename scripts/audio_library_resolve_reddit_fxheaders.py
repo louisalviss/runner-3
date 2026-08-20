@@ -96,14 +96,14 @@ def main():
             continue
         target=src if is_short(src) else (shared if is_short(shared) else '')
         if not target:
-            results.append({'id':item_id,'status':'skip'})
+            results.append({'id':item_id,'status':'skip','sourceUrl':src})
             continue
         try:
             r=requests.get(target,headers=HEADERS,timeout=40,allow_redirects=False)
             location=r.headers.get('location') or r.headers.get('Location')
             canonical=canonical_from_location(location,target)
             if not canonical:
-                results.append({'id':item_id,'status':'unresolved','httpStatus':r.status_code,'hasLocation':bool(location),'bytes':len(r.content)})
+                results.append({'id':item_id,'status':'unresolved','httpStatus':r.status_code,'hasLocation':bool(location),'bytes':len(r.content),'sourceUrl':src})
                 continue
             item['sharedUrl']=item.get('sharedUrl') or target
             item['sourceUrl']=canonical
@@ -116,7 +116,7 @@ def main():
             wrangler_put(f'{QUEUE_PREFIX}{item_id}.json',queue)
             results.append({'id':item_id,'status':'resolved','httpStatus':r.status_code,'mode':'fxreddit-header-fingerprint','canonicalResolved':True,'canonicalUrl':canonical})
         except Exception as e:
-            results.append({'id':item_id,'status':'error','error':type(e).__name__})
+            results.append({'id':item_id,'status':'error','error':type(e).__name__,'sourceUrl':src})
     print(json.dumps({'ok':True,'results':results},ensure_ascii=False))
 
 
