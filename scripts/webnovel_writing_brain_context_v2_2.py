@@ -56,7 +56,6 @@ def infer_context(text, legacy_direction):
     elif stance=='directive': mode='recommended'
     elif legacy_direction=='technique': mode='technique'
     else: mode='principle'
-    # A legacy negative label with no textual negative cue is suspicious and must not drive avoidance by itself.
     legacy_mismatch=int(legacy_direction=='negative' and stance!='negative')
     return {'stance':stance,'mode':mode,'neg':neg,'pos':pos,'ctx':ctx,'abs':ab,'legacy_mismatch':legacy_mismatch}
 
@@ -100,7 +99,6 @@ def build(srcdir,outdir):
     raw=[dict(r) for r in con.execute('SELECT * FROM canonical_conflicts ORDER BY id')]
     assert len(rules)==16697,len(rules)
     assert len(raw)==26320,len(raw)
-    rule_by={r['id']:r for r in rules}
 
     con.executescript('''
     DROP TABLE IF EXISTS canonical_rule_context;
@@ -120,8 +118,7 @@ def build(srcdir,outdir):
     CREATE INDEX idx_cr_rulea ON canonical_relations(rule_a,relation);
     CREATE INDEX idx_cr_ruleb ON canonical_relations(rule_b,relation);
     ''')
-    ctx={}
-    mismatch=0
+    ctx={}; mismatch=0
     for r in rules:
         c=infer_context(r['canonical_text'] or '',r['direction'] or 'principle');ctx[r['id']]={'text':r['canonical_text'] or '','ctx':c}
         mismatch+=c['legacy_mismatch']
@@ -136,17 +133,15 @@ def build(srcdir,outdir):
     for x in raw:
         a=ctx[x['rule_a']];b=ctx[x['rule_b']];rel,conf,reason,core,lex,co=classify(a,b,float(x['similarity']))
         rid+=1;counts[rel]+=1;by_topic[(x['topic'],rel)]+=1
-        con.execute('INSERT INTO canonical_relations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(
+        con.execute('INSERT INTO canonical_relations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(
           rid,x['id'],x['rule_a'],x['rule_b'],x['topic'],x['similarity'],rel,conf,core,lex,co,
           a['ctx']['stance'],b['ctx']['stance'],reason))
     con.commit()
 
     total=len(raw); resolved=con.execute("SELECT count(*) FROM canonical_relations WHERE relation!='review'").fetchone()[0]
     truec=counts['true_conflict']; cond=counts['conditional']; falsec=counts['complementary']+counts['direction_error']; review=counts['review']
-    # Sanity examples: exact/near-exact surface pairs with no opposite inferred stance should not remain true conflicts.
     bad_exact=con.execute('''SELECT count(*) FROM canonical_relations cr JOIN canonical_rules a ON a.id=cr.rule_a JOIN canonical_rules b ON b.id=cr.rule_b
       WHERE cr.relation='true_conflict' AND lower(trim(a.canonical_text))=lower(trim(b.canonical_text))''').fetchone()[0]
-    # A context layer is promotable only if it resolves most candidates without deleting provenance and exposes the over-flag problem.
     promotion=(total==26320 and len(rules)==16697 and bad_exact==0 and resolved/total>=.85 and falsec/total>=.50 and review/total<=.15)
     topic_summary={}
     for (t,rel),n in sorted(by_topic.items()): topic_summary.setdefault(t,{})[rel]=n
