@@ -1,13 +1,20 @@
 <?php
-/* RUNNER3_SPEED_DROPIN v1.0.1 */
+/* RUNNER3_SPEED_DROPIN v1.1.0 */
 if (!defined('ABSPATH')) return;
 
+$runner3_expected_version = '1.1.0';
+$runner3_cache_key_version = 'v110';
 $runner3_plugin = __DIR__ . '/plugins/runner3-speed/runner3-speed.php';
 if (!is_file($runner3_plugin)) return;
 
 $runner3_dir = __DIR__ . '/cache/runner3-speed';
 $runner3_flag = $runner3_dir . '/enabled.flag';
 if (!is_file($runner3_flag)) return;
+$runner3_flag_version = trim((string)@file_get_contents($runner3_flag, false, null, 0, 64));
+if ($runner3_flag_version !== $runner3_expected_version) {
+    if (!headers_sent()) header('X-Runner3-Speed: BYPASS-VERSION');
+    return;
+}
 
 $runner3_method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if ($runner3_method !== 'GET' && $runner3_method !== 'HEAD') return;
@@ -23,10 +30,13 @@ foreach (array_keys($_COOKIE ?? []) as $runner3_cookie) {
 
 $runner3_host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
 if ($runner3_host === '') return;
-$runner3_file = $runner3_dir . '/pages/' . hash('sha256', $runner3_host . "\n" . $runner3_path) . '.html';
+$runner3_file = $runner3_dir . '/pages/' . hash('sha256', $runner3_cache_key_version . "\n" . $runner3_host . "\n" . $runner3_path) . '.html';
 
 if (!is_file($runner3_file)) {
-    if (!headers_sent()) header('X-Runner3-Speed: MISS');
+    if (!headers_sent()) {
+        header('X-Runner3-Speed: MISS');
+        header('X-Runner3-Speed-Version: '.$runner3_expected_version);
+    }
     return;
 }
 
@@ -35,7 +45,10 @@ $runner3_size = @filesize($runner3_file);
 $runner3_head = @file_get_contents($runner3_file, false, null, 0, 4096);
 if (!$runner3_mtime || (time() - $runner3_mtime) > 3600 || $runner3_size === false || $runner3_size < 512 || !is_string($runner3_head) || stripos($runner3_head, '<html') === false) {
     @unlink($runner3_file);
-    if (!headers_sent()) header('X-Runner3-Speed: MISS');
+    if (!headers_sent()) {
+        header('X-Runner3-Speed: MISS');
+        header('X-Runner3-Speed-Version: '.$runner3_expected_version);
+    }
     return;
 }
 
@@ -43,7 +56,7 @@ if (!headers_sent()) {
     header('Content-Type: text/html; charset=UTF-8');
     header('Cache-Control: public, max-age=60, stale-while-revalidate=30');
     header('X-Runner3-Speed: HIT');
-    header('X-Runner3-Speed-Version: 1.0.1');
+    header('X-Runner3-Speed-Version: '.$runner3_expected_version);
 }
 if ($runner3_method === 'HEAD') exit;
 readfile($runner3_file);
