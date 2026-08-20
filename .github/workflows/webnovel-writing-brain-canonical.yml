@@ -1,0 +1,162 @@
+name: webnovel-writing-brain-canonical
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/webnovel_writing_brain_canonical_v2.py'
+      - 'scripts/webnovel_writing_brain_canonical_agent.py'
+      - 'scripts/webnovel_writing_brain_agent.py'
+      - '.github/workflows/webnovel-writing-brain-canonical.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-canonical-v1
+  cancel-in-progress: false
+
+env:
+  BASE_TAG: webnovel-writing-brain-vnfirst-v1-2026-08-20
+  BASE_ASSET: webnovel-writing-brain-vnfirst-v1-2026-08-20.zip
+  BASE_SHA256: 6ee4fdd48640019ba09da03bcf7bfc45725445d3692ce63ecf9f25220e62b156
+  TAG: webnovel-writing-brain-canonical-v1-2026-08-20
+  ASSET: webnovel-writing-brain-canonical-v1-2026-08-20.zip
+  STATUS_FILE: ops/webnovel-writing-brain-canonical-status.json
+  DEFAULT_FILE: ops/webnovel-writing-brain-default.json
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install canonical runtime
+        run: python -m pip install --disable-pip-version-check numpy scipy scikit-learn joblib
+
+      - name: Download pinned VN-first brain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          gh release download "$BASE_TAG" --pattern "$BASE_ASSET" --dir source
+          echo "$BASE_SHA256  source/$BASE_ASSET" | sha256sum -c -
+          unzip -q source/$BASE_ASSET -d source/unpacked
+          db=$(find source/unpacked -type f -name writing_brain.sqlite | head -n1)
+          test -n "$db"
+          base_dir=$(dirname "$db")
+          echo "BASE_DIR=$base_dir" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import sqlite3,os
+          con=sqlite3.connect(os.path.join(os.environ['BASE_DIR'],'writing_brain.sqlite'))
+          assert con.execute('select count(*) from passages').fetchone()[0]==21210
+          assert con.execute("select count(*) from passages where source='vidian'").fetchone()[0]==11672
+          assert con.execute("select count(*) from passages where source='moxing'").fetchone()[0]==9538
+          con.close()
+          PY
+
+      - name: Build canonical knowledge layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python scripts/webnovel_writing_brain_canonical_v2.py --base "$BASE_DIR" --out build/writing_brain --max-neighbors 12
+          mkdir -p build/writing_brain/runtime
+          cp scripts/webnovel_writing_brain.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_canonical_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_canonical_v2.py build/writing_brain/runtime/
+
+      - name: Canonical QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sqlite3,pathlib,re
+          root=pathlib.Path('build/writing_brain');qa=json.load(open(root/'canonical_qa.json',encoding='utf-8'))
+          assert qa['passages_total']==21210,qa
+          assert qa['evidence_mapped']==21210,qa
+          assert 10000 < qa['canonical_rules'] <= 21210,qa
+          assert qa['canonical_cjk_rows']==0,qa
+          assert qa['max_cluster_size']<=24,qa
+          con=sqlite3.connect(root/'writing_brain.sqlite')
+          assert con.execute('select count(*) from canonical_evidence').fetchone()[0]==21210
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          assert con.execute('select count(*) from canonical_rules where evidence_count>1').fetchone()[0]>0
+          assert con.execute('select count(*) from canonical_rules where cross_source=1').fetchone()[0]>0
+          con.close()
+          PY
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_agent.py query \
+            --index build/writing_brain --q 'mở đầu tiên hiệp, nhân vật chính thận trọng, progression rõ, tài nguyên và kỳ ngộ' \
+            --limit 15 --json-out build/canonical-query.json >/dev/null
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_agent.py checklist \
+            --index build/writing_brain --topic hook_opening --limit 12 --json-out build/canonical-checklist.json >/dev/null
+          python - <<'PY'
+          import json,re
+          z=re.compile(r'[\u3400-\u9fff]')
+          q=json.load(open('build/canonical-query.json',encoding='utf-8'))
+          assert q['schema']=='webnovel-writing-query-canonical-v1',q.get('schema')
+          assert len(q['hits'])>=8,len(q['hits'])
+          assert all('rule_id' in x and 'canonical_text' in x and 'evidence' in x for x in q['hits'])
+          assert not any(z.search(x['canonical_text']) for x in q['hits'])
+          c=json.load(open('build/canonical-checklist.json',encoding='utf-8'))
+          assert c['schema']=='webnovel-writing-checklist-canonical-v1',c.get('schema')
+          print({'query_hits':len(q['hits']),'checklist_items':len(c['items'])})
+          PY
+
+      - name: Package and publish canonical release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('build/writing_brain');asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():z.write(p,pathlib.Path('writing_brain')/p.relative_to(root))
+          info={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          pathlib.Path('build/package.json').write_text(json.dumps(info,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(info,indent=2))
+          PY
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain Canonical v1 — 2026-08-20' --notes 'Canonical-first Vietnamese Writing Brain. Raw evidence remains intact; semantically equivalent Vidian/Moxing passages are conservatively grouped into canonical rules.'
+          fi
+          gh release edit "$TAG" --notes 'Canonical-first VN Writing Brain derived from the 21,210-passage VN-first corpus. Every evidence passage maps to exactly one canonical rule. Only same-topic + same-direction evidence can merge; cross-source merge requires Vietnamese semantic similarity and shared craft concepts. Original passage evidence and Moxing Chinese provenance remain preserved. Standard query/direct/review/checklist now prefer canonical rules.'
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Persist canonical status and default pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          size=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name==env.ASSET) | .size' | head -n1)
+          test -n "$size" && test "$size" -gt 0
+          export ASSET_SIZE="$size"
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          qa=json.load(open('build/writing_brain/canonical_qa.json',encoding='utf-8'));pkg=json.load(open('build/package.json',encoding='utf-8'))
+          now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          status={'schema':'webnovel-writing-brain-canonical-status-v1','workflow':'webnovel-writing-brain-canonical.yml','status':'completed','conclusion':'success','release_tag':os.environ['TAG'],'release_asset':os.environ['ASSET'],'release_ok':True,'asset_size_bytes':int(os.environ['ASSET_SIZE']),'asset_sha256':pkg['sha256'],'passages_total':qa['passages_total'],'canonical_rules':qa['canonical_rules'],'evidence_collapsed':qa['evidence_collapsed'],'multi_evidence_rules':qa['multi_evidence_rules'],'cross_source_rules':qa['cross_source_rules'],'checked_at_utc':now,'contract':'Canonical-first complete: duplicate/near-equivalent knowledge is grouped into rules while all 21,210 evidence passages remain preserved.'}
+          default={'schema':'webnovel-writing-brain-default-v1','default_release_tag':os.environ['TAG'],'default_asset':os.environ['ASSET'],'knowledge_mode':'canonical-first','language_mode':'vi-first','passages_total':qa['passages_total'],'canonical_rules':qa['canonical_rules'],'evidence_preserved':True,'updated_at_utc':now}
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          pathlib.Path(os.environ['DEFAULT_FILE']).write_text(json.dumps(default,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(status,ensure_ascii=False,indent=2))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE" "$DEFAULT_FILE"
+          git commit -m 'Mark canonical Writing Brain as default [skip ci]'
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
