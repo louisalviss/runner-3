@@ -1,0 +1,144 @@
+name: Runner5 Pages Final
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-pages-final.yml'
+      - 'edge/runner5-pages-gateway/**'
+      - 'ops/triggers/runner5-pages-final.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-pages-final
+  cancel-in-progress: true
+
+jobs:
+  deploy_and_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: runner5-restore-gateway
+      PSI_URL: https://runner5-restore-gateway.pages.dev/
+      PSI_UI_OUT: /tmp/runner5-pages-psi.json
+      PSI_UI_SCREENSHOT: /tmp/runner5-pages-psi.png
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Preflight Pages permission and ensure project
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          token=os.environ.get('CLOUDFLARE_API_TOKEN',''); account=os.environ.get('CLOUDFLARE_ACCOUNT_ID',''); project=os.environ['CF_PAGES_PROJECT']
+          if not token or not account: raise SystemExit('cloudflare_credentials_missing')
+          base='https://api.cloudflare.com/client/v4'; headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          req=urllib.request.Request(f'{base}/accounts/{account}/pages/projects/{project}',headers=headers)
+          try:
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  data=json.loads(r.read().decode())
+                  if r.status==200 and data.get('success'):
+                      print('project_exists'); raise SystemExit(0)
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  print(e.read().decode(errors='replace')[:1000]); raise
+          body=json.dumps({'name':project,'production_branch':'main'}).encode()
+          req=urllib.request.Request(f'{base}/accounts/{account}/pages/projects',data=body,headers=headers,method='POST')
+          with urllib.request.urlopen(req,timeout=30) as r:
+              data=json.loads(r.read().decode())
+              if r.status not in (200,201) or not data.get('success'): raise SystemExit('pages_project_create_failed')
+          print('project_created')
+          PY
+
+      - name: Deploy Runner5 Pages gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd edge/runner5-pages-gateway
+          npx --yes wrangler@4.102.0 pages deploy ./dist --project-name "$CF_PAGES_PROJECT" --branch main --commit-dirty=true
+
+      - name: Verify Runner5 gateway identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          base=os.environ['PSI_URL'].rstrip('/')
+          def get(path):
+              req=urllib.request.Request(base+path,headers={'User-Agent':'Runner5FinalCheck/1.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:return r.status,dict(r.headers),r.read(1000000).decode('utf-8','replace'),r.geturl()
+              except urllib.error.HTTPError as e:return e.code,dict(e.headers),e.read(1000000).decode('utf-8','replace'),e.geturl()
+          health=home=None
+          for _ in range(18):
+              health=get('/__runner5/pages-gateway/health'); home=get('/')
+              if health[0]==200 and 'runner5-restore-gateway' in health[2] and home[0]==200 and ('Runner5 Restore Lab Demo' in home[2] or 'Restore Lab' in home[2]):break
+              time.sleep(4)
+          out={'status':'ready' if health and home and health[0]==200 and 'runner5-restore-gateway' in health[2] and home[0]==200 and ('Runner5 Restore Lab Demo' in home[2] or 'Restore Lab' in home[2]) else 'failed','url':base+'/','healthHttp':health[0] if health else None,'homeHttp':home[0] if home else None,'titleMarker':bool(home and ('Runner5 Restore Lab Demo' in home[2] or 'Restore Lab' in home[2])),'edgeProxy':home[1].get('X-Edge-Proxy') if home else None,'edgeMode':home[1].get('X-Edge-Mode') if home else None,'finalUrl':home[3] if home else None}
+          open('/tmp/runner5-pages-gateway.json','w').write(json.dumps(out,indent=2)+'\n'); print(json.dumps(out,indent=2))
+          if out['status']!='ready':raise SystemExit('runner5_pages_gateway_verify_failed')
+          PY
+
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Run Google PageSpeed on Runner5 gateway
+        id: psi
+        continue-on-error: true
+        run: node scripts/pagespeed-ui-audit.mjs
+
+      - name: Persist Runner5 final site and PageSpeed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, time
+          def load(p):
+              try:return json.loads(pathlib.Path(p).read_text())
+              except:return None
+          gateway=load('/tmp/runner5-pages-gateway.json') or {'status':'failed'}
+          psi=load('/tmp/runner5-pages-psi.json') or {'status':'failed','detail':'missing_pagespeed_result'}
+          out={'status':'ready' if gateway.get('status')=='ready' and psi.get('status')=='ready' else 'failed','siteUrl':gateway.get('url'),'gateway':gateway,'pagespeed':psi,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          pathlib.Path('/tmp/runner5-pages-final.json').write_text(json.dumps(out,indent=2)+'\n'); print(json.dumps({'status':out['status'],'siteUrl':out['siteUrl'],'resultUrl':psi.get('resultUrl'),'mobile':(psi.get('mobile') or {}).get('scores'),'desktop':(psi.get('desktop') or {}).get('scores'),'detail':psi.get('detail')},indent=2))
+          PY
+          cp /tmp/runner5-pages-final.json /tmp/runner5-pages-final-safe.json
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/pagespeed/runner5-pages-final/runs
+            cp /tmp/runner5-pages-final-safe.json ops/pagespeed/runner5-pages-final/latest.json
+            cp /tmp/runner5-pages-final-safe.json "ops/pagespeed/runner5-pages-final/runs/${GITHUB_RUN_ID}.json"
+            git add ops/pagespeed/runner5-pages-final
+            if git diff --cached --quiet; then break; fi
+            git commit -m "Persist Runner5 Pages final: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
+
+      - name: Require final PASS
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/runner5-pages-final.json'))
+          assert d.get('status')=='ready', json.dumps(d,indent=2)
+          assert d.get('siteUrl')
+          p=d.get('pagespeed') or {}
+          assert p.get('resultUrl') and '/analysis/' in p.get('resultUrl'), json.dumps(p,indent=2)
+          assert (p.get('mobile') or {}).get('scores',{}).get('performance') is not None
+          assert (p.get('desktop') or {}).get('scores',{}).get('performance') is not None
+          PY
