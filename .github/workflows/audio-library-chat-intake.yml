@@ -42,9 +42,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t files < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chat-intake/*.json')
-          printf '%s\n' "${files[@]}" | sed '/^$/d' > /tmp/audio-chat-intake-files.txt
+          git show --pretty='' --name-only "$GITHUB_SHA" \
+            | grep -E '^ops/audio-library/chat-intake/.*\.json$' \
+            | sort -u > /tmp/audio-chat-intake-files.txt || true
           echo "count=$(wc -l < /tmp/audio-chat-intake-files.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          cat /tmp/audio-chat-intake-files.txt
 
       - name: Enqueue URLs into shared Audio Library queue
         id: enqueue
