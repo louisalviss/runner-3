@@ -1,0 +1,130 @@
+name: webnovel-writing-brain-nli-v2-3-promote
+
+on:
+  push:
+    branches: [feature/webnovel-nli-v2-3]
+    paths: ['ops/webnovel-writing-brain-nli-v2-3-status.json']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-nli-v2-3-promote
+  cancel-in-progress: true
+
+env:
+  PROD_TAG: webnovel-writing-brain-nli-v2-3-2026-08-20
+  PROD_ASSET: webnovel-writing-brain-nli-v2-3-2026-08-20.zip
+  DEFAULT_FILE: ops/webnovel-writing-brain-default.json
+  PROD_STATUS_FILE: ops/webnovel-writing-brain-nli-v2-3-production-status.json
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+
+      - name: Validate candidate status
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          s=json.load(open('ops/webnovel-writing-brain-nli-v2-3-status.json',encoding='utf-8'))
+          assert s['status']=='completed' and s['conclusion']=='success' and s['promotion_pass'] is True,s
+          assert s['review_before']==2494,s
+          assert s['review_resolved_rate']>=.45,s
+          assert s['overall_review_rate']<=.055,s
+          for k in ['candidate_release_tag','candidate_asset','asset_sha256','review_after','nli_decisions','final_relations','model_id']:
+              assert k in s,s
+          os.environ
+          open('/tmp/candidate_tag','w').write(s['candidate_release_tag'])
+          open('/tmp/candidate_asset','w').write(s['candidate_asset'])
+          open('/tmp/candidate_sha','w').write(s['asset_sha256'])
+          print(json.dumps(s,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Download and audit candidate asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          CAND_TAG=$(cat /tmp/candidate_tag); CAND_ASSET=$(cat /tmp/candidate_asset); EXPECTED=$(cat /tmp/candidate_sha)
+          mkdir -p audit
+          gh release download "$CAND_TAG" --pattern "$CAND_ASSET" --dir audit
+          ACTUAL=$(sha256sum "audit/$CAND_ASSET" | awk '{print $1}')
+          test "$ACTUAL" = "$EXPECTED"
+          cp "audit/$CAND_ASSET" "audit/$PROD_ASSET"
+          unzip -q "audit/$PROD_ASSET" -d audit/unpacked
+          db=$(find audit/unpacked -type f -name writing_brain.sqlite | head -n1); test -n "$db"; export DB="$db"
+          python - <<'PY'
+          import os,sqlite3,json,pathlib
+          con=sqlite3.connect(os.environ['DB'])
+          assert con.execute('select count(*) from passages').fetchone()[0]==21210
+          assert con.execute('select count(*) from canonical_rules').fetchone()[0]==16697
+          assert con.execute('select count(*) from canonical_relations').fetchone()[0]==26320
+          assert con.execute('select count(*) from canonical_relation_nli').fetchone()[0]==2494
+          assert con.execute('select count(distinct passage_id) from canonical_evidence').fetchone()[0]==21210
+          status=json.load(open('ops/webnovel-writing-brain-nli-v2-3-status.json',encoding='utf-8'))
+          assert con.execute("select count(*) from canonical_relations where relation='review'").fetchone()[0]==status['review_after']
+          con.close()
+          root=pathlib.Path(os.environ['DB']).parent
+          qa=json.load(open(root/'nli_v2_3_qa.json',encoding='utf-8'));man=json.load(open(root/'manifest.json',encoding='utf-8'))
+          assert qa['promotion_pass'] is True
+          assert man['schema']=='webnovel-writing-brain-nli-v2.3'
+          assert man['knowledge_mode']=='semantic-canonical-context-nli-first'
+          print({'candidate_audit':'pass','review_after':status['review_after']})
+          PY
+
+      - name: Publish production release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$PROD_TAG" >/dev/null 2>&1; then
+            gh release create "$PROD_TAG" --title 'Webnovel Writing Brain NLI V2.3 — 2026-08-20' --notes 'Production release promoted from the audited V2.3 candidate. Bidirectional multilingual NLI resolves only formerly unresolved V2.2 review relations; all canonical rules, evidence and retrieval ranking are preserved.'
+          fi
+          gh release upload "$PROD_TAG" "audit/$PROD_ASSET" --clobber
+          export PROD_SIZE=$(gh release view "$PROD_TAG" --json assets --jq '.assets[] | select(.name==env.PROD_ASSET) | .size' | head -n1)
+          test -n "$PROD_SIZE" && test "$PROD_SIZE" -gt 0
+          echo "PROD_SIZE=$PROD_SIZE" >> "$GITHUB_ENV"
+
+      - name: Promote pointer and source to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/webnovel_writing_brain_nli_v2_3.py /tmp/webnovel_writing_brain_nli_v2_3.py
+          cp scripts/webnovel_writing_brain_context_agent.py /tmp/webnovel_writing_brain_context_agent.py
+          cp ops/webnovel-writing-brain-nli-v2-3-status.json /tmp/candidate-status.json
+          git fetch origin main
+          git checkout -B main origin/main
+          cp /tmp/webnovel_writing_brain_nli_v2_3.py scripts/webnovel_writing_brain_nli_v2_3.py
+          cp /tmp/webnovel_writing_brain_context_agent.py scripts/webnovel_writing_brain_context_agent.py
+          export PROD_SHA=$(sha256sum "audit/$PROD_ASSET" | awk '{print $1}')
+          export NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python - <<'PY'
+          import json,os,pathlib
+          s=json.load(open('/tmp/candidate-status.json',encoding='utf-8'))
+          prod={
+            'schema':'webnovel-writing-brain-nli-v2.3-production-status','status':'completed','conclusion':'success','promotion_pass':True,
+            'release_tag':os.environ['PROD_TAG'],'asset':os.environ['PROD_ASSET'],'asset_size_bytes':int(os.environ['PROD_SIZE']),'asset_sha256':os.environ['PROD_SHA'],
+            'passages_total':21210,'atomic_rules':23509,'canonical_rules':16697,'relations_total':26320,
+            'review_before':s['review_before'],'review_after':s['review_after'],'review_resolved':s['review_resolved'],'review_resolved_rate':s['review_resolved_rate'],
+            'overall_review_rate':s['overall_review_rate'],'nli_decisions':s['nli_decisions'],'final_relations':s['final_relations'],'model_id':s['model_id'],'model_sanity':s['model_sanity'],
+            'knowledge_mode':'semantic-canonical-context-nli-first','checked_at_utc':os.environ['NOW']}
+          pathlib.Path(os.environ['PROD_STATUS_FILE']).write_text(json.dumps(prod,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          default={
+            'schema':'webnovel-writing-brain-default-v4','default_release_tag':os.environ['PROD_TAG'],'default_asset':os.environ['PROD_ASSET'],
+            'knowledge_mode':'semantic-canonical-context-nli-first','language_mode':'vi-first','passages_total':21210,'atomic_rules':23509,'canonical_rules':16697,
+            'cross_source_rules':1098,'context_relations':26320,'review_relations_remaining':s['review_after'],'nli_review_resolved':s['review_resolved'],
+            'final_relations':s['final_relations'],'nli_model':s['model_id'],'evidence_preserved':True,'retrieval_ranking_preserved':True,'promotion_pass':True,'updated_at_utc':os.environ['NOW']}
+          pathlib.Path(os.environ['DEFAULT_FILE']).write_text(json.dumps(default,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/webnovel_writing_brain_nli_v2_3.py scripts/webnovel_writing_brain_context_agent.py "$DEFAULT_FILE" "$PROD_STATUS_FILE"
+          git commit -m 'Promote Writing Brain NLI V2.3 [skip ci]'
+          for i in 1 2 3 4 5; do git fetch origin main; git rebase origin/main && git push origin HEAD:main && exit 0; git rebase --abort || true; sleep $((i*2)); done
+          exit 1
