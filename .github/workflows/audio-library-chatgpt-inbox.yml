@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/audio-library-chatgpt-inbox.yml'
       - 'scripts/audio_library_extract_for_chatgpt.py'
+      - 'scripts/audio_library_extract_for_chatgpt_r2.py'
       - 'scripts/audio_library_resolve_short_urls.py'
       - 'scripts/audio_library_resolve_reddit_metadata.py'
       - 'scripts/audio_library_resolve_reddit_via_curlx.py'
@@ -86,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python scripts/audio_library_extract_for_chatgpt.py > /tmp/audio-chatgpt-inbox-result.json 2> /tmp/audio-chatgpt-inbox-stderr.log
+          python scripts/audio_library_extract_for_chatgpt_r2.py > /tmp/audio-chatgpt-inbox-result.json 2> /tmp/audio-chatgpt-inbox-stderr.log
           code=$?
           cat /tmp/audio-chatgpt-inbox-result.json || true
           cat /tmp/audio-chatgpt-inbox-stderr.log >&2 || true
