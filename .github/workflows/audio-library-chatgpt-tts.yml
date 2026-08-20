@@ -97,3 +97,5 @@ jobs:
               Path('/tmp/chatgpt-payloads/'+item_id+'.json').write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
           PY
           for f in /tmp/chatgpt-payloads/*.json; do python scripts/audio_library_tts_from_chatgpt.py "$f"; done
+
+# 2026-08-20: retrigger current ChatGPT-authored item after outbox creation
