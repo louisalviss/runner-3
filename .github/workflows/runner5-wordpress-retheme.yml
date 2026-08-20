@@ -1,4 +1,4 @@
-# Runner5 Astra retheme v2 latest
+# Runner5 Astra retheme v3
 name: Runner5 WordPress Retheme
 
 on:
@@ -7,6 +7,7 @@ on:
     paths:
       - 'scripts/runner5-wordpress-retheme.mjs'
       - 'scripts/runner5-wordpress-retheme-v2.mjs'
+      - 'scripts/runner5-wordpress-retheme-v3.mjs'
       - '.github/workflows/runner5-wordpress-retheme.yml'
   workflow_dispatch:
 
@@ -29,19 +30,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-
       - name: Decrypt Wasmer account state
         shell: bash
         run: |
           set -euo pipefail
           test -n "${AUTOMATION_KEY:-}" || { echo 'Missing automation key' >&2; exit 3; }
           echo '::add-mask::'"$AUTOMATION_KEY"
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -pass env:AUTOMATION_KEY \
-            -in ops/wasmer/state.automation.aes \
-            -out /tmp/wasmer-account.json
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
-
       - name: Install browser runtime
         shell: bash
         run: |
@@ -49,10 +45,8 @@ jobs:
           npm install --no-save playwright-core@1.58.2 playwright@1.58.2
           npx playwright install --with-deps chromium
           echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
-
       - name: Apply Astra and full starter site
-        run: node scripts/runner5-wordpress-retheme-v2.mjs
-
+        run: node scripts/runner5-wordpress-retheme-v3.mjs
       - name: Persist safe retheme status
         if: always()
         shell: bash
@@ -62,20 +56,14 @@ jobs:
           test -s "$status" || printf '{"status":"RUNNER_ERROR","detail":"status_missing"}\n' > "$status"
           cp "$status" /tmp/runner5-wordpress-retheme-safe.json
           rm -f /tmp/wasmer-account.json
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
-            git fetch origin main
-            git reset --hard origin/main
-            mkdir -p ops/wordpress-access
-            cp /tmp/runner5-wordpress-retheme-safe.json ops/wordpress-access/runner5-wordpress-retheme.json
-            git add ops/wordpress-access/runner5-wordpress-retheme.json
+            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/runner5-wordpress-retheme-safe.json ops/wordpress-access/runner5-wordpress-retheme.json; git add ops/wordpress-access/runner5-wordpress-retheme.json
             if git diff --cached --quiet; then break; fi
             git commit -m 'Persist Runner5 WordPress retheme status'
             if git push origin HEAD:main; then break; fi
             sleep 2
           done
-
       - name: Refresh optimized proxy and PageSpeed
         if: success()
         shell: bash
