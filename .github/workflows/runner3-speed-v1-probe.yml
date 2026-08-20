@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: runner3-speed-v1-probe-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   WP_SITE_SLUG: runner3-factory-smoke-2
