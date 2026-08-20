@@ -1,0 +1,66 @@
+name: Audio Library Data Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-data-audit.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: runner3-wp-media
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit R2 Audio Library prefixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request, datetime
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          bucket=os.environ['BUCKET']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets/{bucket}/objects'
+          def list_prefix(prefix):
+              url=base+'?'+urllib.parse.urlencode({'prefix':prefix,'limit':'1000'})
+              req=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'Accept':'application/json'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  data=json.load(r)
+              if not data.get('success'):
+                  raise RuntimeError(str(data.get('errors') or data)[:1000])
+              result=data.get('result') or []
+              if isinstance(result,dict):
+                  result=result.get('objects') or result.get('result') or []
+              return result
+          prefixes=['audio-library/items/','audio-library/media/','audio-library/trash/','audio-library/queue/']
+          out={'status':'ready','updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'prefixes':{}}
+          for p in prefixes:
+              rows=list_prefix(p)
+              keys=[]
+              for x in rows:
+                  if isinstance(x,str): keys.append(x)
+                  elif isinstance(x,dict): keys.append(x.get('key') or x.get('name') or '')
+              keys=[k for k in keys if k]
+              out['prefixes'][p]={'count':len(keys),'sample':keys[:20]}
+          os.makedirs('ops/audio-library',exist_ok=True)
+          with open('ops/audio-library/data-audit.json','w') as f: json.dump(out,f,ensure_ascii=False,indent=2)
+          PY
+      - name: Publish safe audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add ops/audio-library/data-audit.json
+          git commit -m 'Publish Audio Library data audit [skip ci]' || exit 0
+          git push origin HEAD:main
