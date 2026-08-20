@@ -2,6 +2,7 @@
 """Derivatives Trend Rider v1 — frozen strategy; data-layer repair only.
 Actual Binance USD-M derivatives positioning selects rare trend states; price only times entry.
 No Wave Rider C3/T-day reuse. Missing derivatives history => no signal.
+10m execution is deterministically resampled from native Binance 5m klines.
 """
 from __future__ import annotations
 import argparse, io, math, zipfile, urllib.request
@@ -34,23 +35,29 @@ def days(year):
     return pd.date_range(pd.Timestamp(f'{year}-01-01',tz='UTC'),end,freq='D')
 
 def load_kl(sym,interval,year):
+    # Binance does not publish native 10m archives. For 10m, fetch native 5m and
+    # aggregate fixed UTC-aligned pairs: open=first, high=max, low=min, close=last, quote volume=sum.
+    source_interval='5m' if interval=='10m' else interval
     arr=[]
     for ym in months(year):
-        d=read_zip(f'{ROOT}/monthly/klines/{sym}/{interval}/{sym}-{interval}-{ym}.zip')
+        d=read_zip(f'{ROOT}/monthly/klines/{sym}/{source_interval}/{sym}-{source_interval}-{ym}.zip')
         if d is None:continue
         d=d.iloc[:,:12]; d.columns=['ot','o','h','l','c','v','ct','qv','n','tbv','tbq','x']
         for c in ['ot','o','h','l','c','qv']:d[c]=pd.to_numeric(d[c],errors='coerce')
         arr.append(d[['ot','o','h','l','c','qv']])
-    # fill 2026 Aug partial daily tail
     if year==2026:
         for day in range(1,15):
-            ds=f'2026-08-{day:02d}'; d=read_zip(f'{ROOT}/daily/klines/{sym}/{interval}/{sym}-{interval}-{ds}.zip')
+            ds=f'2026-08-{day:02d}'; d=read_zip(f'{ROOT}/daily/klines/{sym}/{source_interval}/{sym}-{source_interval}-{ds}.zip')
             if d is None:continue
             d=d.iloc[:,:12]; d.columns=['ot','o','h','l','c','v','ct','qv','n','tbv','tbq','x']
             for c in ['ot','o','h','l','c','qv']:d[c]=pd.to_numeric(d[c],errors='coerce')
             arr.append(d[['ot','o','h','l','c','qv']])
     if not arr:return None
-    x=pd.concat(arr).drop_duplicates('ot').sort_values('ot'); x['dt']=pd.to_datetime(x.ot,unit='ms',utc=True,errors='coerce'); return x.dropna(subset=['dt']).set_index('dt')
+    x=pd.concat(arr).drop_duplicates('ot').sort_values('ot'); x['dt']=pd.to_datetime(x.ot,unit='ms',utc=True,errors='coerce'); x=x.dropna(subset=['dt']).set_index('dt')
+    if interval=='10m':
+        x=(x[['o','h','l','c','qv']].resample('10min',origin='epoch',label='left',closed='left')
+           .agg({'o':'first','h':'max','l':'min','c':'last','qv':'sum'}).dropna(subset=['o','h','l','c']))
+    return x
 
 def norm(s):return str(s).lower().replace('_','').replace('-','').replace(' ','')
 def findcol(df,alternatives):
@@ -112,7 +119,7 @@ def run(year,tf):
         a=load_kl(s,'1h',year); b=load_kl(s,tf,year)
         if a is None or b is None:
             diagnostics.append({'symbol':s,'tf':tf,'price_ok':False});continue
-        d,diag=derivatives_hourly(s,year,a); diag.update({'symbol':s,'tf':tf,'price_ok':True,'derivatives_ok':d is not None}) ;diagnostics.append(diag)
+        d,diag=derivatives_hourly(s,year,a); diag.update({'symbol':s,'tf':tf,'price_ok':True,'derivatives_ok':d is not None}); diagnostics.append(diag)
         if d is None or diag.get('usable_hour_rows',0)<24:continue
         der[s]=d; kt[s]=b
     if len(der)<6:return pd.DataFrame(),diagnostics
@@ -165,12 +172,14 @@ def run(year,tf):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--year',type=int,required=True); ap.add_argument('--out',required=True); a=ap.parse_args(); out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
+    # 5m already completed and failed comprehensively in run 32376461430. This repair run tests only the previously missing 10m branch.
     all=[];diags=[]
-    for tf in ['5m','10m']:
+    for tf in ['10m']:
         d,g=run(a.year,tf);diags+=g
         if len(d):all.append(d)
     x=pd.concat(all,ignore_index=True) if all else pd.DataFrame(); x.to_csv(out/'trades.csv',index=False); pd.DataFrame(diags).to_csv(out/'coverage.csv',index=False)
     eligible=len(set(pd.DataFrame(diags).query("derivatives_ok == True").symbol)) if diags and 'derivatives_ok' in pd.DataFrame(diags).columns else 0
-    print('year',a.year,'rows',len(x),'eligible_symbols',eligible)
+    print('year',a.year,'rows',len(x),'eligible_symbols',eligible,'timeframes',sorted(x.tf.unique()) if len(x) else [])
     if eligible<6:raise SystemExit(f'DATA_QUALITY_FAIL eligible_symbols={eligible}')
+    if len(x)==0 or set(x.tf.astype(str))!={'10m'}:raise SystemExit('DATA_QUALITY_FAIL missing_10m_trades')
 if __name__=='__main__':main()
