@@ -30,12 +30,10 @@ def source_balanced_pool(index,text,topic,per_source=40):
     terms=' '.join(brain.TOPIC_TERMS[topic][:10])
     pool=[]
     for src in ('vidian','moxing'):
-        # Retrieve independently so one source cannot crowd the other out before balancing.
         got=brain.search(index,text+' '+terms,per_source,topic,src)
         if not got:
             got=brain.search(index,terms,per_source,topic,src)
         pool.extend(got)
-    # Mixed retrieval supplies additional high-scoring candidates and consensus-rich items.
     pool.extend(brain.search(index,text+' '+terms,max(24,per_source//2),topic))
     return _dedup_pool(pool)
 
@@ -46,19 +44,16 @@ def balanced_take(pool,limit,used=None):
     pool.sort(key=lambda x:(x.get('cross_source_support',0)>0,x.get('score',0),x.get('confidence',0)),reverse=True)
     available={x['source'] for x in pool}
     keep=[]; counts=collections.Counter()
-    # First take the strongest item from each available source.
     for src in ('vidian','moxing'):
         for x in pool:
             if x['source']==src and x['passage_id'] not in used:
                 keep.append(x); used.add(x['passage_id']); counts[src]+=1; break
-    # Then fill with a soft 65% per-source ceiling while both sources have candidates.
     cap=max(2,math.ceil(limit*.65))
     for x in pool:
         if len(keep)>=limit: break
         if x['passage_id'] in used: continue
         if len(available)>1 and counts[x['source']]>=cap: continue
         keep.append(x);used.add(x['passage_id']);counts[x['source']]+=1
-    # Relax the ceiling only when needed to fill the packet.
     if len(keep)<limit:
         for x in pool:
             if len(keep)>=limit: break
@@ -82,9 +77,23 @@ def checklist(index,topic,limit=20):
     src=collections.Counter(x['source'] for x in keep)
     return {'schema':'webnovel-writing-checklist-v1.2','topic':topic,'items':keep,'sources':dict(src),'consensus_items':sum(x.get('cross_source_support',0)>0 for x in keep),'quality_layer':'balanced-per-source-retrieval-v1.2'}
 
-# Patch the base module globals used by direct/review/main.
 brain.evidence_for_topic=evidence_for_topic
 brain.checklist=checklist
 
 if __name__=='__main__':
+    import sys
+    idx=None
+    if '--index' in sys.argv:
+        try: idx=sys.argv[sys.argv.index('--index')+1]
+        except Exception: idx=None
+    if idx:
+        try:
+            import webnovel_writing_brain_canonical_agent as canonical
+            if canonical.has_canonical(idx):
+                canonical.main()
+                raise SystemExit(0)
+        except SystemExit:
+            raise
+        except Exception:
+            pass
     brain.main()
