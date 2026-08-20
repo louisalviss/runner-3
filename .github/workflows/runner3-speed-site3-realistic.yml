@@ -183,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json,os,datetime
+          import json,os,datetime,shutil
           def load(path):
               if not os.path.exists(path): return None
               try:return json.load(open(path))
@@ -193,12 +193,19 @@ jobs:
           fixture_cp={'status':(fixture or {}).get('status','PARTIAL_OR_FAILED'),'runType':'site3_real_starter_import','fixture':fixture,'site':load('/tmp/site-factory-v15-runner3-speed-site3-realistic.json'),'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           stage=open('/tmp/r3-stage.txt').read().strip() if os.path.exists('/tmp/r3-stage.txt') else 'unknown'
           ab_cp={'status':(final or {}).get('status','PARTIAL_OR_FAILED'),'runType':'site3_inspiro_clean_import_sequential_abc_functional','stage':stage,'baseline':load('/tmp/runner3-speed-site3-inspiro-a.json'),'ab':load('/tmp/runner3-speed-ab.json'),'safety':load('/tmp/runner3-speed-safety-matrix.json'),'functional':load('/tmp/runner3-speed-site3-inspiro-functional.json'),'final':final,'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
-          os.makedirs('ops/site-factory',exist_ok=True)
-          json.dump(fixture_cp,open('ops/site-factory/runner3-speed-site3-inspiro.latest.json','w'),indent=2)
-          json.dump(ab_cp,open('ops/site-factory/runner3-speed-site3-inspiro-ab.latest.json','w'),indent=2)
+          json.dump(fixture_cp,open('/tmp/persist-fixture.json','w'),indent=2)
+          json.dump(ab_cp,open('/tmp/persist-ab.json','w'),indent=2)
+          site=load('/tmp/site-factory-v15-runner3-speed-site3-realistic.json')
+          if site: json.dump(site,open('/tmp/persist-site.json','w'),indent=2)
           PY
           git config user.name 'runner3-speed-site3-inspiro-full-bot'
           git config user.email 'runner3-speed-site3-inspiro-full-bot@users.noreply.github.com'
+          git fetch origin runner3-speed-site3-realistic-20260821
+          git reset --hard origin/runner3-speed-site3-realistic-20260821
+          mkdir -p ops/site-factory
+          cp /tmp/persist-fixture.json ops/site-factory/runner3-speed-site3-inspiro.latest.json
+          cp /tmp/persist-ab.json ops/site-factory/runner3-speed-site3-inspiro-ab.latest.json
+          if [ -s /tmp/persist-site.json ]; then cp /tmp/persist-site.json ops/site-factory/runner3-speed-site3-realistic.json; fi
           git add -- ops/site-factory/runner3-speed-site3-inspiro.latest.json ops/site-factory/runner3-speed-site3-inspiro-ab.latest.json ops/site-factory/runner3-speed-site3-realistic.json
           if git diff --cached --quiet; then exit 0; fi
           git commit -m 'test: record clean Inspiro Site 3 full benchmark'
