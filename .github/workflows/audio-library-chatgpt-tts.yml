@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'ops/audio-library/chatgpt-outbox/*.json'
+      - '.github/workflows/audio-library-chatgpt-tts.yml'
 
 permissions:
   contents: read
@@ -19,6 +20,7 @@ jobs:
       AUDIO_LIBRARY_BUCKET: runner3-wp-media
       AUDIO_LIBRARY_VOICE: vi-VN-NamMinhNeural
       AUDIO_LIBRARY_VOICE_RATE: +3%
+      AUDIO_LIBRARY_CURRENT_ITEM: 9fe80de0-6caa-5143-aaaa-f81b7a366f77
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +42,10 @@ jobs:
         run: |
           set -euo pipefail
           files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'ops/audio-library/chatgpt-outbox/*.json')"
-          test -n "$files"
+          if [ -z "$files" ]; then
+            files="ops/audio-library/chatgpt-outbox/${AUDIO_LIBRARY_CURRENT_ITEM}.json"
+          fi
+          test -s "$files"
           mkdir -p /tmp/chatgpt-payloads
           python - $files <<'PY'
           import base64,hashlib,json,os,sys
