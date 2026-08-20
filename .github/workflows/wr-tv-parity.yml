@@ -10,6 +10,7 @@ on:
       - 'wave-rider-verify/wr_tv_recent_cases_exitreport.py'
       - 'wave-rider-verify/wr_tv_pivot_diagnostic.py'
       - 'wave-rider-verify/wr_tv_rightmost_final.py'
+      - 'wave-rider-verify/wr_tv_next5.py'
 permissions:
   contents: read
   actions: read
@@ -31,6 +32,8 @@ jobs:
         run: python3 wave-rider-verify/wr_tv_pivot_diagnostic.py
       - name: Assert final Pine rightmost parity
         run: python3 wave-rider-verify/wr_tv_rightmost_final.py
+      - name: Generate next five blind-check cases
+        run: python3 wave-rider-verify/wr_tv_next5.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -39,4 +42,5 @@ jobs:
             wave-rider-verify/output/tv-recent-cases
             wave-rider-verify/output/tv-pivot-diagnostic
             wave-rider-verify/output/tv-rightmost-final
+            wave-rider-verify/output/tv-next5
           retention-days: 14
