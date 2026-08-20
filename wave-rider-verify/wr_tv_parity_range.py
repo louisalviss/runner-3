@@ -19,26 +19,31 @@ def tv_fetch_range(symbol,session='regular',total=None):
     a=int((base.START-timedelta(days=150)).timestamp()); b=int((base.END+timedelta(days=5)).timestamp())
     send('create_series',[cs,'s1','s1','sym_1',base.TF,0,f'r,{a}:{b}'])
     rows={};info=None;done=False;deadline=time.time()+150
+    def take_series(container):
+        if not isinstance(container,dict): return
+        candidates=[]
+        for key in ('s1','sds_1'):
+            if isinstance(container.get(key),dict): candidates.append(container[key])
+        candidates += [v for v in container.values() if isinstance(v,dict) and isinstance(v.get('s'),list)]
+        for ser in candidates:
+            for item in ser.get('s',[]) or []:
+                v=item.get('v') if isinstance(item,dict) else None
+                if not v or len(v)<5:continue
+                try:
+                    ts=int(float(v[0]));rows[ts]=(float(v[1]),float(v[2]),float(v[3]),float(v[4]))
+                except Exception:pass
     while time.time()<deadline and not done:
         try: raw=ws.recv()
         except Exception: break
         for kind,msg in base.unpack(raw):
             if kind=='hb':
-                try: ws.send(base.frame('',[]).replace('{"m":"","p":[]}',msg))
+                try: ws.send(f'~m~{len(msg)}~m~{msg}')
                 except Exception: pass
                 continue
             m=msg.get('m');p=msg.get('p',[])
             if m=='symbol_resolved' and p and isinstance(p[-1],dict):info=p[-1]
-            if m=='timescale_update' and len(p)>1 and isinstance(p[1],dict):
-                ser=p[1].get('s1') or p[1].get('sds_1')
-                if isinstance(ser,dict):
-                    for item in ser.get('s',[]) or []:
-                        v=item.get('v') if isinstance(item,dict) else None
-                        if not v or len(v)<5:continue
-                        try:
-                            ts=int(float(v[0]));rows[ts]=(float(v[1]),float(v[2]),float(v[3]),float(v[4]))
-                        except Exception:pass
-            if m in ('series_error','symbol_error'):
+            if m in ('timescale_update','du') and len(p)>1: take_series(p[1])
+            if m in ('series_error','symbol_error','critical_error'):
                 raise RuntimeError(f'{symbol} {session} {m}: {p}')
             if m=='series_completed':done=True
     try:ws.close()
