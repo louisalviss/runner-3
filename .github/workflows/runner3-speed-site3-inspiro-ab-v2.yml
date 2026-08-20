@@ -6,6 +6,7 @@ on:
       - runner3-speed-site3-realistic-20260821
     paths:
       - '.github/workflows/runner3-speed-site3-inspiro-ab-v2.yml'
+      - 'scripts/runner3-speed-site3-clean-baseline.mjs'
   workflow_dispatch:
 
 permissions:
@@ -58,6 +59,20 @@ jobs:
           print({'fixture':'PASS','pages':len(x['pages']),'posts':len(x['posts']),'media':len(x['media'])})
           PY
           echo fixture_ok >/tmp/r3-stage.txt
+
+      - name: Force clean baseline
+        run: |
+          set -euo pipefail
+          echo clean_baseline >/tmp/r3-stage.txt
+          node scripts/runner3-speed-site3-clean-baseline.mjs
+          test -s /tmp/runner3-speed-site3-clean-baseline.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-clean-baseline.json'))
+          assert r['status']=='ready' and r['pluginAbsent'] and r['front200'] and r['noRunner3Header'], r
+          print({'cleanBaseline':'PASS','foundOldPlugin':r['found'],'deleted':r['deleted']})
+          PY
+          echo clean_baseline_ok >/tmp/r3-stage.txt
 
       - name: A no plugin
         run: |
@@ -176,7 +191,7 @@ jobs:
               except Exception as e:return {'status':'unreadable','error':str(e)}
           stage=open('/tmp/r3-stage.txt').read().strip() if os.path.exists('/tmp/r3-stage.txt') else 'unknown'
           final=load('/tmp/runner3-speed-site3-inspiro-ab-report.json')
-          cp={'status':(final or {}).get('status','PARTIAL_OR_FAILED'),'runType':'site3_inspiro_sequential_abc_functional','stage':stage,'baseline':load('/tmp/runner3-speed-site3-inspiro-a.json'),'ab':load('/tmp/runner3-speed-ab.json'),'safety':load('/tmp/runner3-speed-safety-matrix.json'),'functional':load('/tmp/runner3-speed-site3-inspiro-functional.json'),'final':final,'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          cp={'status':(final or {}).get('status','PARTIAL_OR_FAILED'),'runType':'site3_inspiro_sequential_abc_functional','stage':stage,'cleanBaseline':load('/tmp/runner3-speed-site3-clean-baseline.json'),'baseline':load('/tmp/runner3-speed-site3-inspiro-a.json'),'ab':load('/tmp/runner3-speed-ab.json'),'safety':load('/tmp/runner3-speed-safety-matrix.json'),'functional':load('/tmp/runner3-speed-site3-inspiro-functional.json'),'final':final,'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           os.makedirs('ops/site-factory',exist_ok=True)
           json.dump(cp,open('ops/site-factory/runner3-speed-site3-inspiro-ab.latest.json','w'),indent=2)
           PY
@@ -188,5 +203,3 @@ jobs:
       - name: Cleanup
         if: always()
         run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip
-
-# retry after persisting ops/site-factory/runner3-speed-site3-realistic.json
