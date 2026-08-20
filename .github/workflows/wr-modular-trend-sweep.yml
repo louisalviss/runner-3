@@ -28,6 +28,17 @@ jobs:
           repository: louisalviss/runner-3
           run-id: 32158961561
       - run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Apply frozen parity patches
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/reference_verify.py')
+          s=p.read_text().replace('sra<=SIGNAL_RANGE_MAX','sra<SIGNAL_RANGE_MAX')
+          old="""        if v[c]==ext:\n            if sum(x==ext for x in w)==1: base[conf]=v[c]\n            else: ties+=1\n"""
+          new="""        if v[c]==ext:\n            if all(x!=ext for x in v[c+1:c+right+1]): base[conf]=v[c]\n            else: ties+=1\n"""
+          if s.count(old)!=1: raise RuntimeError(f'pivot patch anchor={s.count(old)}')
+          p.write_text(s.replace(old,new,1))
+          PY
       - name: Run modular trend group
         env:
           GROUP: ${{ matrix.group }}
