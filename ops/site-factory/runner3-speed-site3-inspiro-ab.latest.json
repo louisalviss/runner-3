@@ -1,11 +1,26 @@
 {
   "status": "PARTIAL_OR_FAILED",
-  "runType": "site3_inspiro_sequential_abc_functional",
-  "stage": "state_a",
-  "baseline": null,
+  "runType": "site3_inspiro_sequential_abc_functional_v3",
+  "stage": "A",
+  "baseline": {
+    "status": "failed",
+    "state": "A_NO_PLUGIN",
+    "site": "runner3-speed-site3-realistic",
+    "url": "https://runner3-speed-site3-realistic.wasmer.app",
+    "pluginAbsent": false,
+    "themeInspiro": false,
+    "elementorActive": true,
+    "cloudflare": null,
+    "snapshot": null,
+    "curl": null,
+    "browser": null,
+    "lighthouse": null,
+    "checkedAt": "2026-08-20T23:49:43.944Z",
+    "error": "Error: runner3_speed_present_clean_baseline_invalid\n    at file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-inspiro-preaudit.mjs:101:34"
+  },
   "ab": null,
   "safety": null,
   "functional": null,
   "final": null,
-  "recordedAt": "2026-08-20T23:44:28.114183+00:00"
+  "recordedAt": "2026-08-20T23:49:44.238069+00:00"
 }
