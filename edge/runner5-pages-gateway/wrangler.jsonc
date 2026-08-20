@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runner5-restore-gateway",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-20",
+  "services": [
+    {
+      "binding": "EDGE",
+      "service": "runner5-restore-proxy"
+    }
+  ]
+}
