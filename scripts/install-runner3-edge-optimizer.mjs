@@ -89,7 +89,10 @@ async function ensureActive(wp) {
   if (/\bactive\b/.test(classes)) return;
   const activate = row.locator('a').filter({ hasText: /^Activate$/i }).first();
   if (!(await activate.count())) throw new Error('plugin_activate_control_missing');
-  await activate.click(); await wp.waitForLoadState('domcontentloaded').catch(() => {}); await wp.waitForTimeout(1000);
+  const href = await activate.getAttribute('href');
+  if (!href) throw new Error('plugin_activate_href_missing');
+  await wp.goto(new URL(href, `${base}/wp-admin/`).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await wp.waitForTimeout(1000);
   const row2 = await pluginRow(wp); const cls2 = await row2.getAttribute('class') || '';
   if (!/\bactive\b/.test(cls2)) throw new Error('plugin_not_active_after_activation');
 }
@@ -108,7 +111,10 @@ async function configureAndTest(wp) {
   const placeholder = await wp.locator('#runner3-edge-secret').getAttribute('placeholder');
   if (!/Configured/i.test(placeholder || '')) throw new Error('secret_not_persisted');
   const test = wp.locator('input[type=submit],button').filter({ hasText: /send test event/i }).first();
-  await test.click(); await wp.waitForLoadState('domcontentloaded').catch(() => {}); await wp.waitForTimeout(900);
+  const href = await test.getAttribute('formaction').catch(() => null);
+  if (href) await wp.goto(new URL(href, `${base}/wp-admin/`).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  else { await test.click(); await wp.waitForLoadState('domcontentloaded').catch(() => {}); }
+  await wp.waitForTimeout(900);
   const body = await wp.locator('body').innerText().catch(() => '');
   if (!/Connection test:\s*ok/i.test(body)) throw new Error('plugin_test_event_failed');
 }
