@@ -17,12 +17,12 @@ env:
 
 concurrency:
   group: runner3-speed-direct-wp-lab
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   ab:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -83,12 +83,31 @@ jobs:
           assert r['cloudflare'] is False, r
           assert r['pluginVersion'], r
           b=r['baseline']; o=r['optimized']
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['curl']['runs']), ('curl_not_all_current_hits',r)
+          assert all(x.get('speed')=='HIT' and x.get('speedVersion')==r['pluginVersion'] for x in o['browser']['runs']), ('browser_not_all_current_hits',r)
           assert o['lighthouse']['medianScore'] >= b['lighthouse']['medianScore'], ('score_regression',r)
           assert o['lighthouse']['medianCls'] <= b['lighthouse']['medianCls'] + 0.001, ('cls_regression',r)
           assert o['lighthouse']['medianLcpMs'] <= b['lighthouse']['medianLcpMs'] + 100, ('lh_lcp_regression',r)
           assert o['browser']['medianLcpMs'] <= b['browser']['medianLcpMs'] + 75, ('browser_lcp_regression',r)
           assert o['browser']['medianTtfbMs'] < b['browser']['medianTtfbMs'], ('ttfb_not_improved',r)
           print(json.dumps(r,indent=2))
+          PY
+
+      - name: Full install ON HIT bypass OFF safety probe
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
+          RUNNER3_PROBE_MODE: full
+        run: |
+          set -euo pipefail
+          node scripts/probe-runner3-speed-wordpress.mjs
+          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-probe-full.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-probe-full.json'))
+          assert r['status']=='ready', r
+          for k in ['installed','active','hit','queryBypass','apiBypass','adminBypass','off','productionUnchanged']:
+              assert r[k], (k,r)
+          print(json.dumps({'status':'PASS','probe':r},indent=2))
           PY
 
       - name: Force Runner3 Speed OFF
@@ -98,14 +117,18 @@ jobs:
         run: |
           set +e
           node scripts/probe-runner3-speed-wordpress.mjs
+          cp /tmp/runner3-speed-probe.json /tmp/runner3-speed-cleanup.json 2>/dev/null || true
           exit 0
 
-      - name: Upload benchmark result
+      - name: Upload validation results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: runner3-speed-direct-wp-ab
-          path: /tmp/runner3-speed-ab.json
+          name: runner3-speed-direct-wp-validation
+          path: |
+            /tmp/runner3-speed-ab.json
+            /tmp/runner3-speed-probe-full.json
+            /tmp/runner3-speed-cleanup.json
           if-no-files-found: warn
           retention-days: 7
 
