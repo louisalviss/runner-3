@@ -3,8 +3,8 @@
   "resolveOutcome": "success",
   "metadataOutcome": "success",
   "fallbackOutcome": "success",
-  "extractOutcome": "failure",
-  "extractExitCode": "1",
+  "extractOutcome": "success",
+  "extractExitCode": "0",
   "resolver": {
     "ok": true,
     "results": [
@@ -33,8 +33,14 @@
     ]
   },
   "extractor": {
-    "parseError": "Expecting value: line 1 column 1 (char 0)"
+    "ok": true,
+    "results": [
+      {
+        "id": "9fe80de0-6caa-5143-aaaa-f81b7a366f77",
+        "status": "skip_existing"
+      }
+    ]
   },
-  "extractStderr": "Traceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt.py\", line 384, in <module>\n    main()\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt.py\", line 345, in main\n    items = pending_items()\n            ^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt.py\", line 318, in pending_items\n    r.raise_for_status()\n  File \"/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/site-packages/requests/models.py\", line 1167, in raise_for_status\n    raise HTTPError(http_error_msg, response=self)\nrequests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: [url-redacted]\n",
-  "updatedAt": "2026-08-20T08:02:06.822541+00:00"
+  "extractStderr": "",
+  "updatedAt": "2026-08-20T08:32:46.466768+00:00"
 }
