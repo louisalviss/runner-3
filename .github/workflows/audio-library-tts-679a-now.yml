@@ -1,0 +1,116 @@
+name: Audio Library TTS 679a Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-tts-679a-now.yml'
+      - 'ops/audio-library/chatgpt-outbox/679a0c83-4d20-4d83-bc50-6413923f0175.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  AUDIO_LIBRARY_BUCKET: runner3-wp-media
+  AUDIO_LIBRARY_VOICE: vi-VN-NamMinhNeural
+  AUDIO_LIBRARY_VOICE_RATE: +3%
+  ITEM_ID: 679a0c83-4d20-4d83-bc50-6413923f0175
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install -q requests edge-tts 'cryptography>=45,<47'
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
+      - name: Decrypt ChatGPT payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,json,os,zlib
+          from pathlib import Path
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          item=os.environ['ITEM_ID']
+          env=json.loads(Path(f'ops/audio-library/chatgpt-outbox/{item}.json').read_text(encoding='utf-8'))
+          seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).digest()
+          private=X25519PrivateKey.from_private_bytes(seed)
+          eph=X25519PublicKey.from_public_bytes(base64.b64decode(env['ephemeralPublicKey']))
+          shared=private.exchange(eph)
+          key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-audio-library-chatgpt-v1').derive(shared)
+          plain=ChaCha20Poly1305(key).decrypt(base64.b64decode(env['nonce']),base64.b64decode(env['ciphertext']),item.encode())
+          payload=json.loads(plain)
+          if str(payload.get('id')) != item: raise SystemExit('payload id mismatch')
+          if not payload.get('script') and payload.get('scriptZlibB64'):
+              payload['script']=zlib.decompress(base64.b64decode(payload.pop('scriptZlibB64'))).decode('utf-8')
+          if len(str(payload.get('script') or '')) < 300: raise SystemExit('script missing or too short')
+          Path('/tmp/payload.json').write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
+          PY
+      - name: Synthesize Nam Minh
+        id: synth
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python scripts/audio_library_tts_from_chatgpt.py /tmp/payload.json 2>&1 | tee /tmp/synth.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+      - name: Publish safe status
+        if: always()
+        env:
+          SYNTH_OUTCOME: ${{ steps.synth.outcome }}
+          SYNTH_EXIT_CODE: ${{ steps.synth.outputs.exit_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          item_key="audio-library/items/${ITEM_ID}.json"
+          media_key="audio-library/media/${ITEM_ID}/episode.mp3"
+          script_key="audio-library/media/${ITEM_ID}/script.txt"
+          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${item_key}" --file=/tmp/item.json --remote >/dev/null 2>&1 || true
+          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${media_key}" --file=/tmp/episode.mp3 --remote >/dev/null 2>&1 || true
+          npx -y wrangler@4.123.0 r2 object get "${AUDIO_LIBRARY_BUCKET}/${script_key}" --file=/tmp/script.txt --remote >/dev/null 2>&1 || true
+          python - <<'PY'
+          import datetime,json,os,re
+          from pathlib import Path
+          item={}
+          p=Path('/tmp/item.json')
+          if p.exists() and p.stat().st_size:
+              try:item=json.loads(p.read_text(encoding='utf-8'))
+              except Exception: pass
+          mp3=Path('/tmp/episode.mp3'); script=Path('/tmp/script.txt')
+          log=''
+          lp=Path('/tmp/synth.log')
+          if lp.exists(): log=lp.read_text(errors='replace')[-2200:]
+          log=re.sub(r'https?://\S+','[url-redacted]',log)
+          log=re.sub(r'(?i)(token|authorization|secret|key)\s*[=:]\s*\S+',r'\1=[redacted]',log)
+          out={'status':'ready','runId':int(os.environ['GITHUB_RUN_ID']),'itemId':os.environ['ITEM_ID'],'synthOutcome':os.environ.get('SYNTH_OUTCOME'),'synthExitCode':os.environ.get('SYNTH_EXIT_CODE'),'itemStatus':item.get('status'),'title':item.get('title'),'durationSeconds':item.get('durationSeconds'),'hasAudioUrl':bool(item.get('audioUrl')),'hasTranscriptUrl':bool(item.get('transcriptUrl')),'episodeBytes':mp3.stat().st_size if mp3.exists() else 0,'scriptBytes':script.stat().st_size if script.exists() else 0,'errorTail':log if os.environ.get('SYNTH_OUTCOME')!='success' else '', 'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          Path('ops/audio-library/oneoff-679a-tts-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/oneoff-679a-tts-status.json
+          git commit -m 'Publish UI Reddit 679a TTS status [skip ci]' || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
+      - name: Fail if synthesis failed
+        if: steps.synth.outcome == 'failure'
+        run: exit 1
