@@ -1,0 +1,36 @@
+name: Audio Library Editorial Handoff
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/audio_library_editorial_handoff.py'
+      - '.github/workflows/audio-library-editorial-handoff.yml'
+
+permissions:
+  contents: read
+
+actions:
+  # marker only
+
+jobs:
+  handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -q -U requests beautifulsoup4 pypdf yt-dlp 'cryptography>=45,<47'
+      - name: Extract public Reddit source
+        run: python scripts/audio_library_editorial_handoff.py
+      - name: Upload editorial handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-editorial-handoff-9fe80de0
+          path: /tmp/audio-editorial-handoff.json
+          if-no-files-found: error
+          retention-days: 1
