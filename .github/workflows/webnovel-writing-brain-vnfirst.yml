@@ -1,0 +1,186 @@
+name: webnovel-writing-brain-vnfirst
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/webnovel_writing_brain_vnfirst.py'
+      - 'scripts/webnovel_writing_brain.py'
+      - 'scripts/webnovel_writing_brain_agent.py'
+      - '.github/workflows/webnovel-writing-brain-vnfirst.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webnovel-writing-brain-vnfirst-v1
+  cancel-in-progress: false
+
+env:
+  BASE_TAG: webnovel-writing-brain-v1-2026-08-17
+  BASE_ASSET: webnovel-writing-brain-v1-2026-08-17.zip
+  BASE_SHA256: 47234d96931c4249ae778d63f396fbee93c9d6f01b319426bdc3133859f1e3d2
+  TRANS_TAG: moxing-vi-translation-v1-2026-08-17
+  TRANS_ASSET: moxing-vi-translation-v1-2026-08-17.zip
+  TAG: webnovel-writing-brain-vnfirst-v1-2026-08-20
+  ASSET: webnovel-writing-brain-vnfirst-v1-2026-08-20.zip
+  STATUS_FILE: ops/webnovel-writing-brain-vnfirst-status.json
+  MODEL_ID: DanVP/MoxhiMT-60
+  MODEL_REVISION: 3ae60c790cf21deebeab8e1a82f4024fbdc1fc87
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install index runtime
+        run: python -m pip install --disable-pip-version-check numpy scikit-learn joblib
+
+      - name: Download pinned base brain and Vietnamese translation layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source translation
+          gh release download "$BASE_TAG" --pattern "$BASE_ASSET" --dir source
+          echo "$BASE_SHA256  source/$BASE_ASSET" | sha256sum -c -
+          unzip -q source/$BASE_ASSET -d source/unpacked
+          test -f source/unpacked/writing_brain/writing_brain.sqlite
+
+          gh release download "$TRANS_TAG" --pattern "$TRANS_ASSET" --dir translation
+          unzip -q translation/$TRANS_ASSET -d translation/unpacked
+          test -f translation/unpacked/moxing_vi_translation/translations.jsonl
+          python - <<'PY'
+          import json
+          p='translation/unpacked/moxing_vi_translation/translations.jsonl'
+          n=sum(1 for x in open(p,encoding='utf-8') if x.strip())
+          assert n==9538,n
+          print({'translation_rows':n})
+          PY
+
+      - name: Build Vietnamese-first index
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python scripts/webnovel_writing_brain_vnfirst.py \
+            --base source/unpacked/writing_brain \
+            --translations translation/unpacked/moxing_vi_translation/translations.jsonl \
+            --out build/writing_brain \
+            --model-id "$MODEL_ID" \
+            --model-revision "$MODEL_REVISION" \
+            --source-sha256 "$BASE_SHA256"
+          mkdir -p build/writing_brain/runtime
+          cp scripts/webnovel_writing_brain.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_agent.py build/writing_brain/runtime/
+          cp scripts/webnovel_writing_brain_vnfirst.py build/writing_brain/runtime/
+
+      - name: VN-first QA and retrieval smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,sqlite3,re,pathlib
+          root=pathlib.Path('build/writing_brain')
+          qa=json.load(open(root/'vnfirst_qa.json',encoding='utf-8'))
+          assert qa['passages_total']==21210,qa
+          assert qa['moxing']==9538 and qa['vidian']==11672,qa
+          assert qa['moxing_translated']==9538 and qa['missing']==0 and qa['sha_bad']==0 and qa['evidence_bad']==0 and qa['empty_vi']==0,qa
+          assert qa['default_moxing_rows_with_cjk']==0,qa
+          con=sqlite3.connect(root/'writing_brain.sqlite'); con.row_factory=sqlite3.Row
+          cols={r[1] for r in con.execute('pragma table_info(passages)')}
+          for c in ['text_zh','evidence_surface_zh','title_zh','text_vi_raw','language','translation_model']:
+              assert c in cols,c
+          assert con.execute("select count(*) from passages where source='moxing' and language='vi'").fetchone()[0]==9538
+          assert con.execute("select count(*) from passages where source='vidian' and language='vi'").fetchone()[0]==11672
+          con.close()
+          PY
+          PYTHONPATH=build/writing_brain/runtime python build/writing_brain/runtime/webnovel_writing_brain_agent.py query \
+            --index build/writing_brain --q 'mở đầu tiên hiệp, nhân vật chính thận trọng, progression rõ, tài nguyên và kỳ ngộ' \
+            --limit 20 --json-out build/smoke-query.json >/dev/null
+          python - <<'PY'
+          import json,re
+          z=re.compile(r'[\u3400-\u9fff]')
+          x=json.load(open('build/smoke-query.json',encoding='utf-8'))
+          assert len(x['hits'])>=10,len(x['hits'])
+          assert {'vidian','moxing'} <= {h['source'] for h in x['hits']},{h['source'] for h in x['hits']}
+          for h in x['hits']:
+              if h['source']=='moxing':
+                  assert not z.search(h.get('text','')),h['passage_id']
+                  assert not z.search(h.get('title','')),h['passage_id']
+                  assert 'text_zh' not in h and 'title_zh' not in h,h.keys()
+          print({'hits':len(x['hits']),'sources':sorted({h['source'] for h in x['hits']})})
+          PY
+
+      - name: Package and publish durable VN-first release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json,os
+          root=pathlib.Path('build/writing_brain'); asset=pathlib.Path(os.environ['ASSET'])
+          with zipfile.ZipFile(asset,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file(): z.write(p,p.as_posix())
+          info={'name':asset.name,'size_bytes':asset.stat().st_size,'sha256':hashlib.sha256(asset.read_bytes()).hexdigest()}
+          pathlib.Path('build/package.json').write_text(json.dumps(info,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(info,indent=2))
+          PY
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title 'Webnovel Writing Brain VN-first v1 — 2026-08-20' --notes 'VN-first fused Writing Brain: Vidian + all 9,538 retained Moxing passages in Vietnamese default retrieval/display, while Chinese originals remain provenance-only.'
+          fi
+          gh release edit "$TAG" --notes 'VN-first fused Writing Brain with 21,210 retained passages: 11,672 Vidian + 9,538 Moxing. All Moxing passages use Vietnamese for default FTS/semantic retrieval and display. Original Chinese text/title and raw MT remain provenance/audit-only. Source URLs and evidence hashes are preserved.'
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Persist success status
+        shell: bash
+        run: |
+          set -euo pipefail
+          size=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name==env.ASSET) | .size' | head -n1)
+          test -n "$size" && test "$size" -gt 0
+          digest=$(python - <<'PY'
+          import json
+          print(json.load(open('build/package.json'))['sha256'])
+          PY
+          )
+          mkdir -p ops
+          export ASSET_SIZE="$size" ASSET_DIGEST="$digest"
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          qa=json.load(open('build/writing_brain/vnfirst_qa.json',encoding='utf-8'))
+          data={
+            'schema':'webnovel-writing-brain-vnfirst-status-v1',
+            'workflow':'webnovel-writing-brain-vnfirst.yml',
+            'status':'completed','conclusion':'success',
+            'release_tag':os.environ['TAG'],'release_asset':os.environ['ASSET'],
+            'release_ok':True,'asset_size_bytes':int(os.environ['ASSET_SIZE']),
+            'asset_sha256':os.environ['ASSET_DIGEST'],
+            'passages_total':qa['passages_total'],'vidian':qa['vidian'],'moxing':qa['moxing'],
+            'moxing_translated':qa['moxing_translated'],'default_moxing_rows_with_cjk':qa['default_moxing_rows_with_cjk'],
+            'checked_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'contract':'VN-first Writing Brain complete: standard retrieval/display uses Vietnamese; Moxing Chinese originals are provenance-only.'
+          }
+          pathlib.Path(os.environ['STATUS_FILE']).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add "$STATUS_FILE"
+          git commit -m 'Mark VN-first Writing Brain complete [skip ci]'
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort || true
+            sleep $((i*2))
+          done
+          exit 1
