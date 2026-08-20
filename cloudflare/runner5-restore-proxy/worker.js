@@ -2,17 +2,13 @@ import { HOME_SNAPSHOT, SNAPSHOT_BUILT_AT, STYLE_BUNDLE } from './snapshot.gener
 
 const UPSTREAM = 'https://runner5-restore-lab-1.wasmer.app';
 const UPSTREAM_HTTP = 'http://runner5-restore-lab-1.wasmer.app';
-const CACHE_VERSION = 'runner5-opt-v7';
+const CACHE_VERSION = 'runner5-opt-v8';
 const EDGE_CSS_PATH = '/__edge/runner5.css';
-const META_DESCRIPTION = 'Runner5 Restore Lab Demo — WordPress restore verification articles and case studies.';
+const META_DESCRIPTION = 'Nourish Studio — Runner5 Demo, a visual WordPress nutrition coaching sample site.';
 const SYSTEM_FONT_STACK = '-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif';
 
 function isAdminPath(pathname) {
-  return pathname === '/wp-login.php' ||
-    pathname.startsWith('/wp-admin/') ||
-    pathname.startsWith('/wp-json/') ||
-    pathname === '/xmlrpc.php' ||
-    pathname === '/wp-cron.php';
+  return pathname === '/wp-login.php' || pathname.startsWith('/wp-admin/') || pathname.startsWith('/wp-json/') || pathname === '/xmlrpc.php' || pathname === '/wp-cron.php';
 }
 function isStaticPath(pathname) {
   return /\.(?:css|js|mjs|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|mp4|webm|pdf)$/i.test(pathname);
@@ -54,18 +50,16 @@ async function proxyOrigin(request, incoming) {
 function optimizedCss(incomingOrigin) {
   let css = rewriteOrigin(STYLE_BUNDLE || '', incomingOrigin);
   css = css.replace(/font-display\s*:\s*swap\s*;/gi, 'font-display:optional;');
-  css += `\n/* Runner5 Lighthouse stability/accessibility overrides */\n` +
+  css += `\n/* Runner5 Astra stability/accessibility overrides */\n` +
     `body,button,input,select,textarea,h1,h2,h3,h4,h5,h6,p,a,li,span,time{font-family:${SYSTEM_FONT_STACK}!important}` +
-    `.site-header{position:fixed!important;top:0!important;width:100%!important;z-index:1000!important}` +
-    `body.home.blog:not(.has-header-image):not(.has-header-video) #content{padding-top:105px!important}` +
     `.entry-meta,.entry-meta a,.entry-meta .byline a,.entry-meta .posted-on a{color:#555!important}` +
-    `.site-info,.site-info a,.site-info .copyright{color:#d0d0d0!important}` +
+    `.site-footer,.site-footer a,.site-footer .copyright{color:#d0d0d0!important}` +
+    `.entry-content a:not(.wp-element-button):not(.r5-btn){text-decoration:underline;text-underline-offset:3px}` +
     `img,svg,video{height:auto}`;
   return css;
 }
 function optimizeSnapshotHtml(source, incoming) {
   let html = rewriteOrigin(source || '', incoming.origin);
-
   html = html.replace(/<link\b[^>]*\brel=["']preload["'][^>]*\bas=["']font["'][^>]*>/gi, '');
 
   const css = optimizedCss(incoming.origin);
@@ -79,25 +73,17 @@ function optimizeSnapshotHtml(source, incoming) {
     }
     return tag;
   });
-  if (!inlined && css && /<\/head>/i.test(html)) {
-    html = html.replace(/<\/head>/i, `<style id="runner5-critical-css">${css}</style></head>`);
-  }
+  if (!inlined && css && /<\/head>/i.test(html)) html = html.replace(/<\/head>/i, `<style id="runner5-critical-css">${css}</style></head>`);
+  if (!/<meta\b[^>]*\bname=["']description["']/i.test(html)) html = html.replace(/<\/head>/i, `<meta name="description" content="${META_DESCRIPTION}"></head>`);
 
-  if (!/<meta\b[^>]*\bname=["']description["']/i.test(html)) {
-    html = html.replace(/<\/head>/i, `<meta name="description" content="${META_DESCRIPTION}"></head>`);
-  }
-
-  // Inspiro has used both search-icon and sb-search-button-open for its icon-only search control.
   html = html.replace(/<button\b[^>]*>/gi, (tag) => {
     const classMatch = tag.match(/\bclass=["']([^"']*)["']/i);
     const classes = classMatch ? classMatch[1] : '';
-    if (!/(?:^|\s)(?:search-icon|sb-search-button-open)(?:\s|$)/i.test(classes)) return tag;
+    if (!/(?:^|\s)(?:search-icon|sb-search-button-open|ast-search-menu-icon)(?:\s|$)/i.test(classes)) return tag;
     if (/\baria-label\s*=|\baria-labelledby\s*=|\btitle\s*=/i.test(tag)) return tag;
     return tag.replace(/^<button/i, '<button aria-label="Search" title="Search"');
   });
-
   html = html.replace(/<h3(\s[^>]*\bclass=["'][^"']*\bentry-title\b[^"']*["'][^>]*)>([\s\S]*?)<\/h3>/gi, '<h2$1>$2</h2>');
-
   return html;
 }
 function snapshotResponse(request, incoming) {
