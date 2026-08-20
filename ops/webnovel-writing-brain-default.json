@@ -1,24 +1,24 @@
 {
-  "schema": "webnovel-writing-brain-default-v2.1",
-  "default_release_tag": "webnovel-writing-brain-semantic-v2-1-2026-08-20",
-  "default_asset": "webnovel-writing-brain-semantic-v2-1-2026-08-20.zip",
-  "knowledge_mode": "semantic-canonical-first",
+  "schema": "webnovel-writing-brain-default-v3",
+  "default_release_tag": "webnovel-writing-brain-context-v2-2-2026-08-20",
+  "default_asset": "webnovel-writing-brain-context-v2-2-2026-08-20.zip",
+  "knowledge_mode": "semantic-canonical-context-first",
   "language_mode": "vi-first",
   "passages_total": 21210,
   "atomic_rules": 23509,
   "canonical_rules": 16697,
-  "atomic_collapsed": 6812,
   "cross_source_rules": 1098,
-  "conflict_candidates": 26320,
-  "max_cluster_size": 16,
+  "raw_conflict_candidates": 26320,
+  "context_relations": 26320,
+  "relations": {
+    "complementary": 21345,
+    "conditional": 2339,
+    "true_conflict": 132,
+    "review": 2494,
+    "direction_error": 10
+  },
+  "legacy_negative_direction_mismatches": 523,
   "evidence_preserved": true,
   "promotion_pass": true,
-  "benchmark": {
-    "queries": 68,
-    "relevance_delta_vs_v1": -0.003758,
-    "redundancy_improvement": 0.007466,
-    "evidence_density_gain": 1.279412,
-    "cross_source_hit_rate": 0.617647
-  },
-  "updated_at_utc": "2026-08-20T13:49:24.221843+00:00"
+  "updated_at_utc": "2026-08-20T14:10:06.615920+00:00"
 }
