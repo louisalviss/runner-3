@@ -15,6 +15,8 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Probe production UI
@@ -25,25 +27,54 @@ jobs:
           curl -sS -o /tmp/root.html -w '%{http_code}' "$base/" > /tmp/root.code
           curl -sS -o /tmp/health.json -w '%{http_code}' "$base/health" > /tmp/health.code
           curl -sS -o /tmp/api.json -w '%{http_code}' "$base/api/items" > /tmp/api.code
+          python - <<'PY' > /tmp/session.txt
+          import hashlib,json,os,re
+          shared=hashlib.sha256(os.environ['CLOUDFLARE_API_TOKEN'].encode()).hexdigest()
+          cfg=open('apps/audio-library/wrangler.jsonc').read()
+          m=re.search(r'"LIBRARY_ACCESS_SHA256"\s*:\s*"([0-9a-f]{64})"',cfg)
+          if not m: raise SystemExit('missing access hash')
+          access=m.group(1)
+          token=hashlib.sha256(('audio-library-session-v2\0'+shared+'\0'+access).encode()).hexdigest()
+          print(token)
+          PY
+          session="$(cat /tmp/session.txt)"
+          curl -sS -H "Authorization: Bearer $session" -o /tmp/auth-api.json -w '%{http_code}' "$base/api/items" > /tmp/auth-api.code
+          curl -sS -H "Cookie: audio_library_session=$session" -o /tmp/auth-root.html -w '%{http_code}' "$base/" > /tmp/auth-root.code
           python - <<'PY'
           import json,re,datetime
           root=open('/tmp/root.html',errors='replace').read()
           health=open('/tmp/health.json',errors='replace').read()
           api=open('/tmp/api.json',errors='replace').read()
+          auth_api=open('/tmp/auth-api.json',errors='replace').read()
+          auth_root=open('/tmp/auth-root.html',errors='replace').read()
           def safe(s):
               s=re.sub(r'(?i)(password|token|cookie)[^<\n]{0,120}',r'\1=[REDACTED]',s)
               return s[:500]
+          item_count=None
+          titles=[]
+          try:
+              d=json.loads(auth_api)
+              arr=d.get('items') or []
+              item_count=len(arr)
+              titles=[str(x.get('title') or x.get('sourceLabel') or '')[:120] for x in arr[:10]]
+          except Exception:
+              pass
           out={
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'rootCode':open('/tmp/root.code').read().strip(),
             'healthCode':open('/tmp/health.code').read().strip(),
             'apiCode':open('/tmp/api.code').read().strip(),
-            'rootBytes':len(root.encode()),
+            'authApiCode':open('/tmp/auth-api.code').read().strip(),
+            'authRootCode':open('/tmp/auth-root.code').read().strip(),
+            'authItemCount':item_count,
+            'authTitles':titles,
             'rootHasLogin':'Audio Library' in root and ('type="password"' in root or 'name="password"' in root),
             'rootHasApp':'id="app"' in root,
+            'authRootHasApp':'id="app"' in auth_root,
             'rootPreview':safe(root),
             'healthPreview':safe(health),
             'apiPreview':safe(api),
+            'authApiPreview':safe(auth_api),
           }
           open('ops/audio-library/ui-probe.json','w').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
           PY
