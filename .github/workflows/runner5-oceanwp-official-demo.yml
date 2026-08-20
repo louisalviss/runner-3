@@ -53,7 +53,7 @@ jobs:
           test -x "$CHROME_PATH" || { echo "Chrome executable unavailable: $CHROME_PATH" >&2; exit 4; }
           echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
 
-      - name: Patch WordPress 7.1 noindex handling
+      - name: Patch WordPress 7.1 noindex handling and OceanWP nonce route
         shell: bash
         run: |
           python3 - <<'PY'
@@ -64,7 +64,9 @@ jobs:
           new='''async function setNoindex(wp) {\n  stage('confirm_noindex');\n  await wp.goto(`${base}/wp-admin/options-reading.php`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});\n  const target = wp.locator('input[name="blog_public"][value="0"],input#blog-norobots,input#blog_public,input[name="blog_public"]').first();\n  if (await target.count()) {\n    const type = String(await target.getAttribute('type') || '').toLowerCase();\n    if (type === 'radio') { if (!await target.isChecked().catch(() => false)) await target.check().catch(() => target.click({force:true}).catch(() => {})); }\n    else if (!await target.isChecked().catch(() => false)) await target.check().catch(() => target.click({force:true}).catch(() => {}));\n    const submit = wp.locator('#submit,input[type=submit],button[type=submit]').first();\n    if (await submit.count()) { await submit.click().catch(() => {}); await wp.waitForLoadState('domcontentloaded').catch(() => {}); }\n  }\n  const probe = await wp.evaluate(async () => {\n    try { const r = await fetch('/?native-noindex=' + Date.now(), { cache: 'no-store' }); return { html: await r.text(), xr: r.headers.get('x-robots-tag') || '' }; }\n    catch { return { html: '', xr: '' }; }\n  }).catch(() => ({html:'',xr:''}));\n  result.noindex = /noindex/i.test(String(probe.xr)) || /<meta[^>]+name=["']robots["'][^>]+noindex/i.test(String(probe.html)) || /noindex[^>]+nofollow/i.test(String(probe.html));\n  save();\n}'''
           if old not in s:
             raise SystemExit('setNoindex patch target missing')
-          p.write_text(s.replace(old,new))
+          s=s.replace(old,new)
+          s=s.replace('admin.php?page=oceanwp-panel', 'admin.php?page=oceanwp#install-demo')
+          p.write_text(s)
           PY
 
       - name: Import official OceanWP demo
