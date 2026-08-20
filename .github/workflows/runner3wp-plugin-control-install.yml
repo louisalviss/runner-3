@@ -1,0 +1,170 @@
+name: Runner3WP Plugin + Control Install
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3wp-plugin-control-install.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-plugin-control-install
+  cancel-in-progress: false
+
+env:
+  FEATURE_BRANCH: runner3wp-edge-optimizer-auto-20260820
+  WP_SITE_SLUG: runner3-factory-smoke-2
+  CONTROL_ENDPOINT: https://runner3-wp-control.ducduy2411.workers.dev/v1/events
+  CONTROL_HEALTH: https://runner3-wp-control.ducduy2411.workers.dev/health
+  PROD_URL: https://runner3wp.pntr.dev/
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FEATURE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check edge/runner3-wp-control/src/index.js
+          php -l wordpress/runner3-edge-optimizer/runner3-edge-optimizer.php
+          node --check scripts/install-runner3-edge-optimizer.mjs
+
+      - name: Deploy isolated control Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.124.0 deploy --config edge/runner3-wp-control/wrangler.jsonc
+
+      - name: Create and provision dedicated automation secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret="$(openssl rand -hex 48)"
+          echo '::add-mask::'"$secret"
+          echo "RUNNER3_AUTOMATION_SECRET=$secret" >> "$GITHUB_ENV"
+          printf '%s' "$secret" | npx --yes wrangler@4.124.0 secret put RUNNER3_AUTOMATION_SECRET --config edge/runner3-wp-control/wrangler.jsonc
+
+      - name: Verify control Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS "$CONTROL_HEALTH" | grep -q '"ok":true'; then ok=1; break; fi
+            sleep 3
+          done
+          test "$ok" = 1
+          code="$(curl -sS -o /tmp/unsigned.json -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{"op":"peek"}' "$CONTROL_ENDPOINT")"
+          test "$code" = 401
+
+      - name: Package plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd wordpress && zip -qr /tmp/runner3-edge-optimizer.zip runner3-edge-optimizer)
+          test -s /tmp/runner3-edge-optimizer.zip
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Install browser automation
+        run: npm install --no-save playwright-core@1.58.2
+
+      - name: Install activate configure and test plugin
+        shell: bash
+        env:
+          RUNNER3_PLUGIN_ZIP: /tmp/runner3-edge-optimizer.zip
+          RUNNER3_CONTROL_ENDPOINT: ${{ env.CONTROL_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          node scripts/install-runner3-edge-optimizer.mjs
+          node -e "const d=require('/tmp/runner3-edge-optimizer-install.json'); if(d.status!=='ready'||!d.installed||!d.active||!d.configured||!d.testEvent) process.exit(9)"
+
+      - name: Verify plugin event reached control queue and ACK probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import crypto from 'crypto';
+          const endpoint=process.env.CONTROL_ENDPOINT;
+          const secret=process.env.RUNNER3_AUTOMATION_SECRET;
+          async function call(body){
+            const raw=JSON.stringify(body); const ts=String(Math.floor(Date.now()/1000));
+            const sig=crypto.createHmac('sha256',secret).update(`${ts}\n${raw}`).digest('base64');
+            const r=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','x-runner3-timestamp':ts,'x-runner3-signature':sig},body:raw});
+            const text=await r.text(); if(!r.ok) throw new Error(`control ${r.status}: ${text}`); return JSON.parse(text);
+          }
+          const peek=await call({op:'peek'});
+          const p=peek.pending;
+          if(!p || !Array.isArray(p.reasons) || !p.reasons.includes('manual_test')) throw new Error('manual_test event missing');
+          if(!String(p.source||'').startsWith('runner3-edge-optimizer/')) throw new Error('plugin source marker missing');
+          const ack=await call({op:'ack',revision:p.revision});
+          if(!ack.acknowledged) throw new Error('probe ack failed');
+          console.log(JSON.stringify({pluginEvent:true,source:p.source,reasons:p.reasons,urls:p.urls,acknowledged:true}));
+          NODE
+
+      - name: Confirm production frontend remains V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          bust="__runner3_plugin_verify=$(date +%s%N)"
+          curl -fsS -D /tmp/prod.h -o /tmp/prod.html "$PROD_URL?$bust"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/prod.h
+          grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/prod.h
+          grep -Eq '/__runner3/r2-image/offset-demo-01-w(360|480|640)\.webp' /tmp/prod.html
+
+      - name: Persist safe install evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/evidence
+          python - <<'PY'
+          import json, pathlib, datetime
+          p=pathlib.Path('/tmp/runner3-edge-optimizer-install.json')
+          plugin=json.loads(p.read_text()) if p.exists() else {'status':'missing'}
+          out={
+            'status':'ready' if plugin.get('status')=='ready' else 'failed',
+            'architecture':'WordPress plugin -> isolated control Worker -> R2 queue; production frontend Worker unchanged',
+            'plugin':plugin,
+            'controlEndpoint':'https://runner3-wp-control.ducduy2411.workers.dev/v1/events',
+            'productionFrontend':'https://runner3wp.pntr.dev/',
+            'secretPersistedInRepo':False,
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          pathlib.Path('/tmp/evidence/plugin-control.latest.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+          rm -f /tmp/wasmer-account.json /tmp/runner3-edge-optimizer.zip
+          git fetch origin "$FEATURE_BRANCH"
+          git reset --hard "origin/$FEATURE_BRANCH"
+          mkdir -p ops/perf/automation
+          cp /tmp/evidence/plugin-control.latest.json ops/perf/automation/plugin-control.latest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/perf/automation/plugin-control.latest.json
+          git commit -m 'ops: persist Runner3 Edge Optimizer install evidence [skip ci]' || exit 0
+          git push origin HEAD:"$FEATURE_BRANCH"
