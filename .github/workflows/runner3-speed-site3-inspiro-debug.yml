@@ -1,0 +1,43 @@
+name: Runner3 Speed Site3 Inspiro Debug
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-inspiro-debug.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture diagnostics
+        run: |
+          set +e
+          node --version >/tmp/node_version.txt 2>&1
+          which google-chrome >/tmp/chrome.txt 2>&1
+          node --check scripts/runner3-speed-site3-inspiro-preaudit.mjs >/tmp/precheck.txt 2>&1
+          echo $? >/tmp/precheck.code
+          node --check scripts/runner3-speed-site3-inspiro-functional.mjs >/tmp/funcheck.txt 2>&1
+          echo $? >/tmp/funcheck.code
+          python - <<'PY'
+          import json,os
+          def read(p):
+              try:return open(p).read()
+              except:return ''
+          r={'node':read('/tmp/node_version.txt'),'chrome':read('/tmp/chrome.txt'),'preauditCheckCode':read('/tmp/precheck.code').strip(),'preauditCheck':read('/tmp/precheck.txt'),'functionalCheckCode':read('/tmp/funcheck.code').strip(),'functionalCheck':read('/tmp/funcheck.txt')}
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(r,open('ops/site-factory/runner3-speed-site3-inspiro-debug.latest.json','w'),indent=2)
+          print(json.dumps(r,indent=2))
+          PY
+      - name: Persist
+        run: |
+          git config user.name 'runner3-speed-site3-debug-bot'
+          git config user.email 'runner3-speed-site3-debug-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-site3-inspiro-debug.latest.json
+          git commit -m 'test: record Inspiro preaudit diagnostics'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
