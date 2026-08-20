@@ -1,0 +1,79 @@
+name: Audio Library Reddit JSON Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-reddit-json-probe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe Reddit JSON-first paths
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,re,urllib.request,urllib.error
+          source='https://www.reddit.com/r/AskReddit/s/k3EUqNBKsi'
+          ua='Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
+          paths=[
+            source+'.json?raw_json=1&limit=100&sort=top',
+            source+'/.json?raw_json=1&limit=100&sort=top',
+            source.replace('www.reddit.com','old.reddit.com')+'.json?raw_json=1&limit=100&sort=top',
+          ]
+          out=[]
+          for url in paths:
+            row={'variant':len(out)+1}
+            try:
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'application/json,text/plain,*/*'})
+              with urllib.request.urlopen(req,timeout=35) as r:
+                body=r.read(2_000_000)
+                text=body.decode('utf-8','replace')
+                row.update(status=r.status,contentType=r.headers.get('content-type',''),bytes=len(body),finalHasComments='/comments/' in r.geturl())
+                try:
+                  data=json.loads(text)
+                  row['json']=isinstance(data,(list,dict))
+                  if isinstance(data,list) and data:
+                    post=((data[0] or {}).get('data') or {}).get('children') or []
+                    if post:
+                      d=(post[0] or {}).get('data') or {}
+                      row['postId']=d.get('id')
+                      row['hasTitle']=bool(d.get('title'))
+                      row['numComments']=d.get('num_comments')
+                except Exception as e:
+                  row['json']=False
+                  row['parseError']=type(e).__name__
+            except urllib.error.HTTPError as e:
+              body=e.read(500000)
+              row.update(status=e.code,bytes=len(body),contentType=e.headers.get('content-type',''),json=False)
+            except Exception as e:
+              row.update(error=type(e).__name__)
+            out.append(row)
+          print(json.dumps({'status':'ready','sourceKind':'reddit-share-shortlink','results':out},ensure_ascii=False))
+          open('/tmp/reddit-json-probe.json','w').write(json.dumps({'status':'ready','sourceKind':'reddit-share-shortlink','results':out},ensure_ascii=False,indent=2)+'\n')
+          PY
+      - name: Publish probe status
+        shell: bash
+        run: |
+          mkdir -p ops/audio-library
+          cp /tmp/reddit-json-probe.json ops/audio-library/reddit-json-probe-status.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/reddit-json-probe-status.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish Reddit JSON probe status [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
