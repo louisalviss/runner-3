@@ -35,6 +35,8 @@ jobs:
         with: {fetch-depth: 0}
       - uses: actions/setup-python@v5
         with: {python-version: '3.11'}
+      - name: Install lightweight retrieval runtime
+        run: python -m pip install --disable-pip-version-check 'numpy<3' 'scikit-learn<2' 'joblib<2'
 
       - name: Download and audit Semantic V2.1 production
         shell: bash
