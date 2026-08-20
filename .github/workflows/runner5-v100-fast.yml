@@ -16,16 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { ref: main }
-      - name: Wait for candidate 3 deployment
+      - name: Wait for candidate 4 deployment
         shell: bash
         run: |
           set -euo pipefail
           for i in $(seq 1 30); do
             body="$(curl -fsS --max-time 10 https://runner5-restore-gateway-v100.pages.dev/__runner5/v100/health || true)"
-            if echo "$body" | grep -q '"candidate":3'; then echo "$body"; exit 0; fi
+            if echo "$body" | grep -q '"candidate":4'; then echo "$body"; exit 0; fi
             sleep 4
           done
-          echo 'candidate3_not_live'; exit 2
+          echo 'candidate4_not_live'; exit 2
       - name: Lighthouse mobile and desktop
         shell: bash
         run: |
@@ -35,7 +35,7 @@ jobs:
           npx --yes lighthouse@13.4.1 https://runner5-restore-gateway-v100.pages.dev/ --preset=desktop --output=json --output-path=/tmp/d.json --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' --quiet
           python - <<'PY'
           import json,pathlib,datetime
-          out={'status':'ready','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
+          out={'status':'ready','candidate':4,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
           for name,p in [('mobile','/tmp/m.json'),('desktop','/tmp/d.json')]:
             d=json.load(open(p));a=d['audits'];out[name]={'performance':round(d['categories']['performance']['score']*100),'accessibility':round(d['categories']['accessibility']['score']*100),'bestPractices':round(d['categories']['best-practices']['score']*100),'seo':round(d['categories']['seo']['score']*100),'fcp':a['first-contentful-paint'].get('numericValue'),'lcp':a['largest-contentful-paint'].get('numericValue'),'tbt':a['total-blocking-time'].get('numericValue'),'cls':a['cumulative-layout-shift'].get('numericValue'),'si':a['speed-index'].get('numericValue')}
           pathlib.Path('/tmp/out.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))
@@ -45,6 +45,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s /tmp/out.json || printf '{"status":"failed"}\n' >/tmp/out.json
+          test -s /tmp/out.json || printf '{"status":"failed","candidate":4}\n' >/tmp/out.json
           cp /tmp/out.json /tmp/safe.json;git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for a in 1 2 3;do git fetch origin main;git reset --hard origin/main;mkdir -p ops/pagespeed;cp /tmp/safe.json ops/pagespeed/runner5-v100-fast.json;git add ops/pagespeed/runner5-v100-fast.json;if git diff --cached --quiet;then exit 0;fi;git commit -m 'diag: persist Runner5 V100 fast audit';if git push origin HEAD:main;then exit 0;fi;sleep 2;done;exit 2
