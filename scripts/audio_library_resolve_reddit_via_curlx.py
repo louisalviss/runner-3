@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Resolver order: Reddit redirect -> curl-x /api/extract -> public redirect services -> legacy curl-x.
 import html
 import json
 import os
@@ -133,7 +134,6 @@ def resolve_via_reddit_manual(url: str):
             found=normalize_reddit_candidate(absolute)
             if found:
                 return found, f'reddit-manual:{r.status_code}:location'
-        # Some edge responses contain the destination in a tiny HTML/JSON wrapper.
         found=normalize_reddit_candidate(r.text or '')
         if found:
             return found, f'reddit-manual:{r.status_code}:body'
