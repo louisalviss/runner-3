@@ -6,7 +6,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -15,7 +15,7 @@ BUCKET = os.environ.get('AUDIO_LIBRARY_BUCKET', 'runner3-wp-media')
 STATUS = ROOT / 'ops/audio-library/chat-intake-status.json'
 ITEM_PREFIX = 'audio-library/items/'
 QUEUE_PREFIX = 'audio-library/queue/'
-UA = 'Runner3AudioResolver/2.1 (+https://github.com/louisalviss/runner-3)'
+UA = 'Runner3AudioResolver/2.2 (+https://github.com/louisalviss/runner-3)'
 CURLX_API = 'https://www.curl-x.com/api/extract'
 DOMAINEE_API = 'https://api.domainee.dev/v1/tools/redirect-checker'
 REDIRECTCHECK_API = 'https://www.redirectcheck.org/api/check'
@@ -109,6 +109,38 @@ def canonical_from_payload(payload, original_url: str):
     return None
 
 
+def resolve_via_reddit_manual(url: str):
+    diagnostics=[]
+    uas=[
+        UA,
+        'PullMD/1.0 (URL-to-Markdown service)',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    ]
+    for ua in uas:
+        try:
+            r=requests.get(
+                url,
+                headers={'User-Agent':ua,'Accept':'text/html,application/xhtml+xml,*/*','Accept-Language':'en-US,en;q=0.9'},
+                timeout=35,
+                allow_redirects=False,
+            )
+        except Exception as e:
+            diagnostics.append(type(e).__name__)
+            continue
+        location=r.headers.get('location','')
+        if location:
+            absolute=urljoin(url,location)
+            found=normalize_reddit_candidate(absolute)
+            if found:
+                return found, f'reddit-manual:{r.status_code}:location'
+        # Some edge responses contain the destination in a tiny HTML/JSON wrapper.
+        found=normalize_reddit_candidate(r.text or '')
+        if found:
+            return found, f'reddit-manual:{r.status_code}:body'
+        diagnostics.append(f'{r.status_code}:{"loc" if location else "noloc"}:{len(r.text or "")}')
+    return None, 'reddit-manual-no-target:' + ','.join(diagnostics)
+
+
 def resolve_via_curlx_api(url: str):
     try:
         r = requests.post(
@@ -161,17 +193,14 @@ def resolve_via_domainee(url: str):
 
 
 def resolve_via_redirectcheck(url: str):
-    attempts = [
-        ('post', {'url': url, 'method': 'GET', 'followMetaRefresh': True}),
-        ('get', None),
-    ]
+    attempts = [('post', {'url':url,'method':'GET','followMetaRefresh':True}),('get',None)]
     errors=[]
     for mode, body in attempts:
         try:
             if mode == 'post':
-                r=requests.post(REDIRECTCHECK_API, json=body, headers={'User-Agent': UA,'Accept':'application/json','Content-Type':'application/json'}, timeout=60)
+                r=requests.post(REDIRECTCHECK_API,json=body,headers={'User-Agent':UA,'Accept':'application/json','Content-Type':'application/json'},timeout=60)
             else:
-                r=requests.get(REDIRECTCHECK_API, params={'url':url,'ua':'Googlebot'}, headers={'User-Agent':UA,'Accept':'application/json'}, timeout=60)
+                r=requests.get(REDIRECTCHECK_API,params={'url':url,'ua':'Googlebot'},headers={'User-Agent':UA,'Accept':'application/json'},timeout=60)
         except Exception as e:
             errors.append(f'{mode}:{type(e).__name__}')
             continue
@@ -179,7 +208,7 @@ def resolve_via_redirectcheck(url: str):
             data=r.json()
         except Exception:
             data=None
-        for source in [data, r.text, r.headers.get('location','')]:
+        for source in [data,r.text,r.headers.get('location','')]:
             found=canonical_from_payload(source,url) if source is not None else None
             if found:
                 return found, f'redirectcheck-{mode}:{r.status_code}'
@@ -209,7 +238,7 @@ def resolve_via_curlx_legacy(url: str):
 
 def resolve_via_curlx(url: str):
     diagnostics=[]
-    for fn in [resolve_via_curlx_api, resolve_via_domainee, resolve_via_redirectcheck, resolve_via_curlx_legacy]:
+    for fn in [resolve_via_reddit_manual, resolve_via_curlx_api, resolve_via_domainee, resolve_via_redirectcheck, resolve_via_curlx_legacy]:
         canonical, mode = fn(url)
         if canonical:
             return canonical, mode
@@ -234,7 +263,7 @@ def main():
             results.append({'id': item_id, 'status': 'skip'}); continue
         canonical, mode = resolve_via_curlx(src)
         if not canonical:
-            results.append({'id': item_id, 'status': 'unresolved', 'detail': mode[:900]}); continue
+            results.append({'id': item_id, 'status': 'unresolved', 'detail': mode[:1000]}); continue
         item['sharedUrl'] = item.get('sharedUrl') or src
         item['sourceUrl'] = canonical
         item['canonicalUrl'] = canonical
