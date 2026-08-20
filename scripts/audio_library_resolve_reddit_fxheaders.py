@@ -57,7 +57,7 @@ def collect_ids():
         try: data=json.loads(p.read_text(encoding='utf-8'))
         except Exception: continue
         for i in data.get('itemIds') or []: add(i)
-        for section in ('resolver','metadata','fallback','extractor'):
+        for section in ('resolver','fxheaders','metadata','fallback','extractor'):
             obj=data.get(section) or {}
             for row in obj.get('results') or []:
                 if isinstance(row,dict): add(row.get('id'))
@@ -67,6 +67,11 @@ def collect_ids():
 def is_short(url):
     p=urlparse(url)
     return (p.hostname or '').lower().endswith('reddit.com') and '/s/' in p.path
+
+
+def is_canonical(url):
+    p=urlparse(url)
+    return (p.hostname or '').lower().endswith('reddit.com') and '/comments/' in p.path
 
 
 def canonical_from_location(location,base):
@@ -86,6 +91,9 @@ def main():
         if not item: continue
         src=str(item.get('sourceUrl') or '')
         shared=str(item.get('sharedUrl') or '')
+        if is_canonical(src):
+            results.append({'id':item_id,'status':'canonical','canonicalUrl':src})
+            continue
         target=src if is_short(src) else (shared if is_short(shared) else '')
         if not target:
             results.append({'id':item_id,'status':'skip'})
@@ -106,7 +114,7 @@ def main():
             queue['sharedUrl']=item['sharedUrl']
             queue['sourceUrl']=canonical
             wrangler_put(f'{QUEUE_PREFIX}{item_id}.json',queue)
-            results.append({'id':item_id,'status':'resolved','httpStatus':r.status_code,'mode':'fxreddit-header-fingerprint','canonicalResolved':True})
+            results.append({'id':item_id,'status':'resolved','httpStatus':r.status_code,'mode':'fxreddit-header-fingerprint','canonicalResolved':True,'canonicalUrl':canonical})
         except Exception as e:
             results.append({'id':item_id,'status':'error','error':type(e).__name__})
     print(json.dumps({'ok':True,'results':results},ensure_ascii=False))
