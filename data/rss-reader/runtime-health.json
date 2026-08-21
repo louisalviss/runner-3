@@ -2,10 +2,10 @@
   "version": 1,
   "collector": "runner-3",
   "scope": "ai-rss-reader-ingestion",
-  "runStartedAt": "2026-08-20T23:49:39Z",
-  "runFinishedAt": "2026-08-20T23:49:56Z",
-  "logicalSourceCount": 13,
-  "runner3LogicalSources": 11,
+  "runStartedAt": "2026-08-21T00:40:38Z",
+  "runFinishedAt": "2026-08-21T00:40:54Z",
+  "logicalSourceCount": 15,
+  "runner3LogicalSources": 13,
   "chatgptDirectSources": [
     "hoquoctuan",
     "vnhacker"
@@ -13,7 +13,7 @@
   "status": "healthy",
   "ingestionOk": true,
   "gate": {
-    "core10": {
+    "core12": {
       "ok": true,
       "problems": []
     },
@@ -30,7 +30,7 @@
     "core": {
       "script": "rss_reader_collect_v2.py",
       "exitCode": 0,
-      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"10-runner3-sources\", \"status\": \"healthy\", \"ok\": 10, \"failed\": 0, \"health\": \"data/rss-reader/health.json\"}",
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"10-runner3-sources\", \"status\": \"healthy\", \"ok\": 12, \"failed\": 0, \"health\": \"data/rss-reader/health.json\"}",
       "stderr": ""
     },
     "vohoanghac": {
