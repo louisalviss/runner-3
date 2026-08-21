@@ -2,6 +2,7 @@ name: X ChatGPT Inbox
 
 on:
   push:
+    branches: [main]
     paths:
       - 'ops/x-reader/requests/**/*.json'
       - 'ops/x-reader/requests/*.json'
@@ -40,7 +41,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             find ops/x-reader/requests -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sort > /tmp/x-request-files.txt || true
           else
-            git show --pretty='' --name-only "$GITHUB_SHA" \
+            git show --pretty='' --name-only --diff-filter=AM "$GITHUB_SHA" \
               | grep -E '^ops/x-reader/requests/.*\.json$' \
               | sort -u > /tmp/x-request-files.txt || true
           fi
