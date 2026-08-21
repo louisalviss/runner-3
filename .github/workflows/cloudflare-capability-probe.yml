@@ -2,7 +2,8 @@ name: Cloudflare Capability Probe
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - '.github/workflows/cloudflare-capability-probe.yml'
   workflow_dispatch:
@@ -11,13 +12,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: cloudflare-capability-probe
+  group: cloudflare-capability-probe-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -25,63 +26,190 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
 
-      - name: Probe non-destructive Cloudflare capabilities
+      - name: Probe Cloudflare read/write capabilities safely
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, urllib.request, urllib.error, datetime
-          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
-          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          import datetime, json, os, pathlib, subprocess, tempfile, urllib.error, urllib.parse, urllib.request
+
+          token = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+          account = os.environ.get('CLOUDFLARE_ACCOUNT_ID', '')
+          run_id = os.environ.get('GITHUB_RUN_ID', 'local')
           if not token or not account:
               raise SystemExit('cloudflare_credentials_missing')
-          base='https://api.cloudflare.com/client/v4'
-          def get(path):
-              req=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+token})
+
+          base = 'https://api.cloudflare.com/client/v4'
+          headers = {'Authorization': 'Bearer ' + token}
+
+          def api(method, path, payload=None):
+              body = None
+              h = dict(headers)
+              if payload is not None:
+                  body = json.dumps(payload).encode()
+                  h['Content-Type'] = 'application/json'
+              req = urllib.request.Request(base + path, data=body, headers=h, method=method)
               try:
-                  with urllib.request.urlopen(req,timeout=20) as r:
-                      return r.status,json.loads(r.read().decode())
+                  with urllib.request.urlopen(req, timeout=25) as r:
+                      raw = r.read().decode()
+                      try:
+                          data = json.loads(raw) if raw else {}
+                      except Exception:
+                          data = {}
+                      return r.status, data
               except urllib.error.HTTPError as e:
-                  try: data=json.loads(e.read().decode())
-                  except Exception: data={}
-                  return e.code,data
-          code,data=get('/zones?per_page=50')
-          zones=data.get('result') or [] if data.get('success') else []
-          names=sorted(str(z.get('name') or '') for z in zones if z.get('name'))
-          pntr=[z for z in zones if str(z.get('name') or '').lower()=='pntr.dev']
+                  try:
+                      data = json.loads(e.read().decode())
+                  except Exception:
+                      data = {}
+                  return e.code, data
+              except Exception:
+                  return 0, {}
 
-          c,d=get(f'/accounts/{account}/workers/scripts')
-          scripts=d.get('result') or [] if d.get('success') else []
-          worker_names=sorted(str(x.get('id') or x.get('name') or '') for x in scripts if (x.get('id') or x.get('name')))
+          def success(code, data):
+              return 200 <= code < 300 and bool(data.get('success', True))
 
-          p,pd=get(f'/accounts/{account}/pages/projects?per_page=50')
-          projects=pd.get('result') or [] if pd.get('success') else []
-          project_names=sorted(str(x.get('name') or x.get('id') or '') for x in projects if (x.get('name') or x.get('id')))
-          page_errors=[]
-          for e in (pd.get('errors') or []):
-              if isinstance(e,dict):
-                  page_errors.append({'code':e.get('code'),'message':str(e.get('message') or '')[:300]})
+          def error_codes(data):
+              return [
+                  e.get('code') for e in (data.get('errors') or [])
+                  if isinstance(e, dict) and e.get('code') is not None
+              ][:5]
 
-          out={
-            'status':'ok' if code==200 and data.get('success') and c==200 and d.get('success') and p==200 and pd.get('success') else 'partial',
-            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
-            'zonesHttp':code,
-            'zonesReadable':bool(data.get('success')),
-            'zoneNames':names,
-            'pntrZoneVisible':bool(pntr),
-            'workersHttp':c,
-            'workersReadable':bool(d.get('success')),
-            'wordpressEdgeProxyVisible':'wordpress-edge-proxy' in worker_names,
-            'pagesHttp':p,
-            'pagesReadable':bool(pd.get('success')),
-            'pagesProjectNames':project_names,
-            'pagesErrors':page_errors,
+          def base_state(code, data):
+              return {
+                  'read': success(code, data),
+                  'readHttp': code,
+                  'readErrorCodes': error_codes(data),
+                  'writeCreate': False,
+                  'writeHttp': None,
+                  'writeErrorCodes': [],
+                  'cleanupDelete': False,
+                  'deleteHttp': None,
+                  'deleteErrorCodes': [],
+              }
+
+          services = {}
+
+          zc, zd = api('GET', '/zones?page=1&per_page=20')
+          services['zones'] = {
+              'read': success(zc, zd),
+              'readHttp': zc,
+              'readErrorCodes': error_codes(zd),
           }
-          os.makedirs('/tmp/cloudflare-capability',exist_ok=True)
-          open('/tmp/cloudflare-capability/latest.json','w').write(json.dumps(out,indent=2)+'\n')
-          print(json.dumps({k:out[k] for k in ('status','zonesReadable','zoneNames','pntrZoneVisible','workersReadable','wordpressEdgeProxyVisible','pagesHttp','pagesReadable','pagesProjectNames','pagesErrors')},indent=2))
+
+          read_paths = {
+              'workers': f'/accounts/{account}/workers/scripts',
+              'pages': f'/accounts/{account}/pages/projects',
+              'kv': f'/accounts/{account}/storage/kv/namespaces?page=1&per_page=20',
+              'r2': f'/accounts/{account}/r2/buckets?per_page=20',
+              'd1': f'/accounts/{account}/d1/database?page=1&per_page=20',
+          }
+          for name, path in read_paths.items():
+              code, data = api('GET', path)
+              services[name] = base_state(code, data)
+
+          suffix = ''.join(ch for ch in str(run_id) if ch.isdigit())[-12:] or 'probe'
+
+          # Workers: upload a valid temporary module part, then delete it.
+          worker_name = f'cap-probe-{suffix}'
+          worker_file = pathlib.Path(tempfile.gettempdir()) / f'{worker_name}.js'
+          worker_file.write_text('export default { async fetch() { return new Response("ok") } };\n')
+          response_file = pathlib.Path(tempfile.gettempdir()) / f'{worker_name}.json'
+          cmd = [
+              'curl', '-sS', '-o', str(response_file), '-w', '%{http_code}', '-X', 'PUT',
+              f'{base}/accounts/{account}/workers/scripts/{worker_name}',
+              '-H', f'Authorization: Bearer {token}',
+              '-F', 'metadata={"main_module":"worker.js"};type=application/json',
+              '-F', f'worker.js=@{worker_file};filename=worker.js;type=application/javascript+module',
+          ]
+          try:
+              proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+              wc = int(proc.stdout.strip()[-3:]) if proc.stdout.strip()[-3:].isdigit() else 0
+              try:
+                  wd = json.loads(response_file.read_text()) if response_file.exists() else {}
+              except Exception:
+                  wd = {}
+          except Exception:
+              wc, wd = 0, {}
+          services['workers']['writeHttp'] = wc
+          services['workers']['writeCreate'] = success(wc, wd)
+          services['workers']['writeErrorCodes'] = error_codes(wd)
+          if services['workers']['writeCreate']:
+              code, data = api('DELETE', f'/accounts/{account}/workers/scripts/{worker_name}')
+              services['workers']['deleteHttp'] = code
+              services['workers']['cleanupDelete'] = success(code, data)
+              services['workers']['deleteErrorCodes'] = error_codes(data)
+
+          # KV: create/delete an empty temporary namespace.
+          kv_title = f'cap-probe-{suffix}'
+          code, data = api('POST', f'/accounts/{account}/storage/kv/namespaces', {'title': kv_title})
+          services['kv']['writeHttp'] = code
+          services['kv']['writeCreate'] = success(code, data)
+          services['kv']['writeErrorCodes'] = error_codes(data)
+          kv_id = ((data.get('result') or {}).get('id') if isinstance(data.get('result'), dict) else None)
+          if services['kv']['writeCreate'] and kv_id:
+              code, data = api('DELETE', f'/accounts/{account}/storage/kv/namespaces/{urllib.parse.quote(str(kv_id))}')
+              services['kv']['deleteHttp'] = code
+              services['kv']['cleanupDelete'] = success(code, data)
+              services['kv']['deleteErrorCodes'] = error_codes(data)
+
+          # R2: create/delete an empty temporary bucket.
+          r2_name = f'cap-probe-{suffix}'.lower()
+          code, data = api('POST', f'/accounts/{account}/r2/buckets', {'name': r2_name})
+          services['r2']['writeHttp'] = code
+          services['r2']['writeCreate'] = success(code, data)
+          services['r2']['writeErrorCodes'] = error_codes(data)
+          if services['r2']['writeCreate']:
+              code, data = api('DELETE', f'/accounts/{account}/r2/buckets/{urllib.parse.quote(r2_name)}')
+              services['r2']['deleteHttp'] = code
+              services['r2']['cleanupDelete'] = success(code, data)
+              services['r2']['deleteErrorCodes'] = error_codes(data)
+
+          # D1: create/delete an empty temporary database.
+          d1_name = f'cap-probe-{suffix}'
+          code, data = api('POST', f'/accounts/{account}/d1/database', {'name': d1_name})
+          services['d1']['writeHttp'] = code
+          services['d1']['writeCreate'] = success(code, data)
+          services['d1']['writeErrorCodes'] = error_codes(data)
+          d1_id = ((data.get('result') or {}).get('uuid') if isinstance(data.get('result'), dict) else None)
+          if services['d1']['writeCreate'] and d1_id:
+              code, data = api('DELETE', f'/accounts/{account}/d1/database/{urllib.parse.quote(str(d1_id))}')
+              services['d1']['deleteHttp'] = code
+              services['d1']['cleanupDelete'] = success(code, data)
+              services['d1']['deleteErrorCodes'] = error_codes(data)
+
+          # Pages: create/delete an empty project; no deployment/content is uploaded.
+          pages_name = f'cap-probe-{suffix}'.lower()
+          code, data = api('POST', f'/accounts/{account}/pages/projects', {'name': pages_name, 'production_branch': 'main'})
+          services['pages']['writeHttp'] = code
+          services['pages']['writeCreate'] = success(code, data)
+          services['pages']['writeErrorCodes'] = error_codes(data)
+          if services['pages']['writeCreate']:
+              code, data = api('DELETE', f'/accounts/{account}/pages/projects/{urllib.parse.quote(pages_name)}')
+              services['pages']['deleteHttp'] = code
+              services['pages']['cleanupDelete'] = success(code, data)
+              services['pages']['deleteErrorCodes'] = error_codes(data)
+
+          cleanup_ok = all(
+              (not state.get('writeCreate')) or state.get('cleanupDelete')
+              for name, state in services.items() if name != 'zones'
+          )
+          out = {
+              'status': 'ok',
+              'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+              'credentialUsable': any(state.get('read') for state in services.values()),
+              'cleanupOk': cleanup_ok,
+              'services': services,
+          }
+          os.makedirs('/tmp/cloudflare-capability', exist_ok=True)
+          with open('/tmp/cloudflare-capability/latest.json', 'w') as f:
+              json.dump(out, f, indent=2)
+              f.write('\n')
+          print(json.dumps(out, indent=2))
+          if not cleanup_ok:
+              raise SystemExit('temporary_resource_cleanup_failed')
           PY
 
       - name: Persist safe capability result
@@ -93,15 +221,16 @@ jobs:
           cp /tmp/cloudflare-capability/latest.json /tmp/cloudflare-capability-safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          branch="${GITHUB_REF_NAME}"
           for attempt in 1 2 3 4; do
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin "${branch}"
+            git reset --hard "origin/${branch}"
             mkdir -p ops/cloudflare-capability
             cp /tmp/cloudflare-capability-safe.json ops/cloudflare-capability/latest.json
             git add ops/cloudflare-capability/latest.json
             if git diff --cached --quiet; then exit 0; fi
             git commit -m "Persist Cloudflare capability: ${GITHUB_RUN_ID}"
-            if git push origin HEAD:main; then exit 0; fi
+            if git push origin "HEAD:${branch}"; then exit 0; fi
             sleep 2
           done
           exit 3

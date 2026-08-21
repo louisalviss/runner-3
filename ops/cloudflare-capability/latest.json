@@ -1,20 +1,76 @@
 {
-  "status": "partial",
-  "checkedAt": "2026-08-21T22:12:42.395937Z",
-  "zonesHttp": 200,
-  "zonesReadable": true,
-  "zoneNames": [],
-  "pntrZoneVisible": false,
-  "workersHttp": 200,
-  "workersReadable": true,
-  "wordpressEdgeProxyVisible": true,
-  "pagesHttp": 400,
-  "pagesReadable": false,
-  "pagesProjectNames": [],
-  "pagesErrors": [
-    {
-      "code": 8000024,
-      "message": "Invalid list options provided. Review the `page` or `per_page` parameter."
+  "status": "ok",
+  "checkedAt": "2026-08-21T22:18:34.081537Z",
+  "credentialUsable": true,
+  "cleanupOk": true,
+  "services": {
+    "zones": {
+      "read": true,
+      "readHttp": 200,
+      "readErrorCodes": []
+    },
+    "workers": {
+      "read": true,
+      "readHttp": 200,
+      "readErrorCodes": [],
+      "writeCreate": true,
+      "writeHttp": 200,
+      "writeErrorCodes": [],
+      "cleanupDelete": true,
+      "deleteHttp": 200,
+      "deleteErrorCodes": []
+    },
+    "pages": {
+      "read": true,
+      "readHttp": 200,
+      "readErrorCodes": [],
+      "writeCreate": true,
+      "writeHttp": 200,
+      "writeErrorCodes": [],
+      "cleanupDelete": true,
+      "deleteHttp": 200,
+      "deleteErrorCodes": []
+    },
+    "kv": {
+      "read": false,
+      "readHttp": 401,
+      "readErrorCodes": [
+        10000
+      ],
+      "writeCreate": false,
+      "writeHttp": 401,
+      "writeErrorCodes": [
+        10000
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
+      "deleteErrorCodes": []
+    },
+    "r2": {
+      "read": true,
+      "readHttp": 200,
+      "readErrorCodes": [],
+      "writeCreate": true,
+      "writeHttp": 200,
+      "writeErrorCodes": [],
+      "cleanupDelete": true,
+      "deleteHttp": 200,
+      "deleteErrorCodes": []
+    },
+    "d1": {
+      "read": false,
+      "readHttp": 401,
+      "readErrorCodes": [
+        10000
+      ],
+      "writeCreate": false,
+      "writeHttp": 401,
+      "writeErrorCodes": [
+        10000
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
+      "deleteErrorCodes": []
     }
-  ]
+  }
 }
