@@ -1,15 +1,55 @@
 {
   "version": 1,
   "policy": "lazy-selected-analysis-fetch; parallel-batch; raw-text-artifact-ttl-7d; repo-stores-pointer-only",
-  "updatedAt": "2026-08-21T02:37:51Z",
-  "latestRequestId": "test-hqt-lazy-20260821-0937",
-  "latestRunId": 32440506141,
-  "latestArtifactName": "rss-analysis-test-hqt-lazy-20260821-0937-32440506141",
-  "requestedCount": 1,
+  "updatedAt": "2026-08-21T18:00:27Z",
+  "latestRequestId": "rss-deep-15-17-20260822",
+  "latestRunId": 32508663101,
+  "latestArtifactName": "rss-analysis-rss-deep-15-17-20260822-32508663101",
+  "requestedCount": 2,
   "cacheHitCount": 0,
-  "fetchedCount": 1,
+  "fetchedCount": 2,
   "errorCount": 0,
   "entries": {
+    "https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/": {
+      "displayIndex": 15,
+      "sourceKey": "fulcrum",
+      "sourceName": "Fulcrum",
+      "canonicalUrl": "https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/",
+      "title": "The “Karenni Model”: Wartime Governance in Contested Territory",
+      "publishedAt": "2026-08-21T06:00:00Z",
+      "contentHash": null,
+      "itemType": "article",
+      "runId": 32508663101,
+      "requestId": "rss-deep-15-17-20260822",
+      "artifactName": "rss-analysis-rss-deep-15-17-20260822-32508663101",
+      "route": "direct",
+      "coverage": "best_accessible",
+      "chars": 23267,
+      "rawTextSha256": "sha256:c6ea4cb3a7a2fdb8908775dd3cd856507299fdd63ab4cd46d22bba3f734e70df",
+      "fetchedAt": "2026-08-21T18:00:27Z",
+      "expiresAt": "2026-08-28T18:00:27Z",
+      "status": "ready"
+    },
+    "https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age": {
+      "displayIndex": 17,
+      "sourceKey": "noema",
+      "sourceName": "Noema",
+      "canonicalUrl": "https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age",
+      "title": "Introducing Noema Issue VII: The Next Axial Age",
+      "publishedAt": "2026-08-21T15:27:34Z",
+      "contentHash": null,
+      "itemType": "article",
+      "runId": 32508663101,
+      "requestId": "rss-deep-15-17-20260822",
+      "artifactName": "rss-analysis-rss-deep-15-17-20260822-32508663101",
+      "route": "direct",
+      "coverage": "best_accessible",
+      "chars": 15940,
+      "rawTextSha256": "sha256:673cc2148103d3a6ad01492fd32094ea49248abd6de4d0ebfc37a42d5822911a",
+      "fetchedAt": "2026-08-21T18:00:26Z",
+      "expiresAt": "2026-08-28T18:00:26Z",
+      "status": "ready"
+    },
     "https://hoquoctuan.substack.com/p/oc-cham-168-cao-buoc-ai-gian-lan": {
       "displayIndex": 1,
       "sourceKey": "hoquoctuan",
@@ -72,17 +112,26 @@
     }
   },
   "latestRequest": {
-    "requestId": "test-hqt-lazy-20260821-0937",
+    "requestId": "rss-deep-15-17-20260822",
     "cacheHits": [],
     "fetched": [
       {
-        "displayIndex": 1,
-        "sourceKey": "hoquoctuan",
-        "canonicalUrl": "https://hoquoctuan.substack.com/p/oc-cham-168-cao-buoc-ai-gian-lan",
-        "route": "jina-live",
-        "chars": 22943,
-        "rawTextSha256": "sha256:0de49ab3f4cbe42c2b92ad3547bffefb40746bcc8c2bbd9c6d714386a780d183",
-        "artifactName": "rss-analysis-test-hqt-lazy-20260821-0937-32440506141"
+        "displayIndex": 17,
+        "sourceKey": "noema",
+        "canonicalUrl": "https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age",
+        "route": "direct",
+        "chars": 15940,
+        "rawTextSha256": "sha256:673cc2148103d3a6ad01492fd32094ea49248abd6de4d0ebfc37a42d5822911a",
+        "artifactName": "rss-analysis-rss-deep-15-17-20260822-32508663101"
+      },
+      {
+        "displayIndex": 15,
+        "sourceKey": "fulcrum",
+        "canonicalUrl": "https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/",
+        "route": "direct",
+        "chars": 23267,
+        "rawTextSha256": "sha256:c6ea4cb3a7a2fdb8908775dd3cd856507299fdd63ab4cd46d22bba3f734e70df",
+        "artifactName": "rss-analysis-rss-deep-15-17-20260822-32508663101"
       }
     ],
     "errors": []
