@@ -1,0 +1,96 @@
+name: Runner3 Speed v1.2.1 Safe Frontend Fix
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-v121-safe-frontend-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove naive first-image LCP heuristic
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('wordpress/runner3-speed/runner3-speed.php')
+          s=p.read_text()
+          s=s.replace('Version: 1.2.0','Version: 1.2.1')
+          s=s.replace("const VERSION = '1.2.0';","const VERSION = '1.2.1';")
+          s=s.replace("const CACHE_KEY_VERSION = 'v120';","const CACHE_KEY_VERSION = 'v121';")
+          start=s.index('    private static function safe_frontend_optimize($html) {')
+          end=s.index('\n    public static function capture($html) {', start)
+          fn=r'''    private static function safe_frontend_optimize($html) {
+        if (!is_string($html) || $html === '' || !class_exists('WP_HTML_Tag_Processor')) return $html;
+
+        // Keep WordPress/theme image loading heuristics intact. Guessing LCP from
+        // DOM order is unsafe: the first <img> is often a logo while the real
+        // hero/LCP image appears later. Runner3 must not lazy-load or reprioritize
+        // images without page-specific evidence.
+        $p = new WP_HTML_Tag_Processor($html);
+        while ($p->next_tag('iframe')) {
+            if ($p->get_attribute('loading') === null) $p->set_attribute('loading', 'lazy');
+        }
+        $html = $p->get_updated_html();
+
+        // Conservative connection hints only. Limit to three external origins
+        // already referenced by critical page markup; no CSS/JS order changes.
+        $site_host = strtolower((string)wp_parse_url(home_url('/'), PHP_URL_HOST));
+        $origins = [];
+        if (preg_match_all('/<(?:script|link|img|iframe)\\b[^>]+(?:src|href)=["\\'](https?:\\/\\/[^"\\']+)["\\']/i', $html, $m)) {
+            foreach ($m[1] as $url) {
+                $scheme = strtolower((string)wp_parse_url($url, PHP_URL_SCHEME));
+                $host = strtolower((string)wp_parse_url($url, PHP_URL_HOST));
+                if (!$host || $host === $site_host || !in_array($scheme, ['http','https'], true)) continue;
+                $origins[$scheme.'://'.$host] = true;
+                if (count($origins) >= 3) break;
+            }
+        }
+        $hints = [];
+        foreach (array_keys($origins) as $origin) {
+            $e = esc_url($origin);
+            $host = (string)wp_parse_url($e, PHP_URL_HOST);
+            if ($e === '' || $host === '') continue;
+            $hints[] = '<link rel="preconnect" href="'.esc_attr($e).'" crossorigin data-runner3-speed="preconnect">';
+            $hints[] = '<link rel="dns-prefetch" href="//'.esc_attr($host).'" data-runner3-speed="dns">';
+        }
+        if ($hints && stripos($html, '</head>') !== false) {
+            $html = preg_replace('/<\\/head>/i', implode('', $hints).'</head>', $html, 1);
+        }
+        return $html;
+    }
+'''
+          s=s[:start]+fn+s[end:]
+          s=s.replace('✓ Safe Frontend Core: LCP priority + lazy media + connection hints','✓ Safe Frontend Core: lazy iframes + conservative connection hints')
+          p.write_text(s)
+
+          p=Path('wordpress/runner3-speed/dropins/advanced-cache.php')
+          s=p.read_text()
+          s=s.replace('RUNNER3_SPEED_DROPIN v1.2.0','RUNNER3_SPEED_DROPIN v1.2.1')
+          s=s.replace("$runner3_expected_version = '1.2.0';","$runner3_expected_version = '1.2.1';")
+          s=s.replace("$runner3_cache_key_version = 'v120';","$runner3_cache_key_version = 'v121';")
+          p.write_text(s)
+          PY
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q 'Version: 1.2.1' wordpress/runner3-speed/runner3-speed.php
+          grep -q "const CACHE_KEY_VERSION = 'v121'" wordpress/runner3-speed/runner3-speed.php
+          ! grep -q "fetchpriority','high" wordpress/runner3-speed/runner3-speed.php
+      - name: Commit v1.2.1
+        run: |
+          set -euo pipefail
+          git config user.name 'runner3-speed-v121-bot'
+          git config user.email 'runner3-speed-v121-bot@users.noreply.github.com'
+          git add -- wordpress/runner3-speed/runner3-speed.php wordpress/runner3-speed/dropins/advanced-cache.php
+          git commit -m 'fix: remove unsafe first-image LCP heuristic'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
