@@ -31,7 +31,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare corrected official PSI UI harness
+      - name: Prepare corrected official PSI UI harness for v1.2.0
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -49,6 +49,8 @@ jobs:
           node --check scripts/runner3-speed-site3-psi-ui-abc.mjs
           php -l wordpress/runner3-speed/runner3-speed.php
           php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q 'Version: 1.2.0' wordpress/runner3-speed/runner3-speed.php
+          grep -q 'WP_HTML_Tag_Processor' wordpress/runner3-speed/runner3-speed.php
           grep -q "no-cache, must-revalidate, max-age=0" wordpress/runner3-speed/dropins/advanced-cache.php
           npm install --no-save playwright-core@1.58.2
           (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
@@ -67,6 +69,7 @@ jobs:
           import json
           r=json.load(open('/tmp/runner3-speed-site3-psi-ui-abc.json'))
           assert r['status']=='PASS',r
+          assert r['pluginVersion']=='1.2.0',r
           assert r['finalState']['pluginInstalled'] and r['finalState']['pluginActive'] and not r['finalState']['performanceOn'],r
           for state in ['A_NO_PLUGIN','B_ACTIVE_OFF','C_PERFORMANCE_ON']:
               assert r['states'][state]['mobile']['successfulRuns']==5,r
@@ -93,7 +96,7 @@ jobs:
           mkdir -p ops/site-factory
           cp /tmp/r3-psi-ui/runner3-speed-site3-psi-ui-abc.latest.json ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json
           git add -- ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json
-          if ! git diff --cached --quiet; then git commit -m 'test: record corrected official PSI UI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+          if ! git diff --cached --quiet; then git commit -m 'test: record v1.2.0 official PSI UI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
 
       - name: Cleanup
         if: always()
