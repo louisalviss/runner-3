@@ -14,61 +14,77 @@ permissions:
 jobs:
   extract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Extract embedded Lighthouse metrics from one report
+      - name: Recompute all existing PSI reports from embedded Lighthouse JSON
         run: |
           set -euo pipefail
           python - <<'PY'
-          import urllib.request,re,json,html as htmlmod
-          base='https://pagespeed.web.dev/analysis/https-runner3-speed-site3-realistic-wasmer-app/5ed7pocrl4?hl=en'
-          out={}
+          import urllib.request,re,json,html as htmlmod,statistics,time
+          src=json.load(open('ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json'))
+          states=['A_NO_PLUGIN','B_ACTIVE_OFF','C_PERFORMANCE_ON']
           def norm(s):
               s=htmlmod.unescape(s)
-              # The PSI page nests Lighthouse JSON inside JS string literals.
-              for _ in range(4):
+              for _ in range(5):
                   prev=s
                   s=s.replace('\\x22','"').replace('\\x27',"'").replace('\\x3d','=').replace('\\x26','&')
                   s=s.replace('\\\\"','"').replace('\\"','"').replace('\\n','\n').replace('\\t','\t')
                   if s==prev: break
               return s
-          for device in ('mobile','desktop'):
-              url=base+'&form_factor='+device
-              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
-              raw=urllib.request.urlopen(req,timeout=60).read().decode('utf-8','replace')
-              text=norm(raw)
-              def vals(audit_id):
-                  arr=[]
-                  for m in re.finditer(re.escape(audit_id),text,re.I):
-                      chunk=text[m.start():m.start()+5000]
-                      nm=re.search(r'"numericValue"\s*:\s*([0-9.]+)',chunk)
-                      dv=re.search(r'"displayValue"\s*:\s*"([^"]+)"',chunk)
-                      if nm:
-                          v=float(nm.group(1))
-                          if not any(abs(v-x['numericValue'])<0.001 for x in arr):
-                              arr.append({'numericValue':v,'displayValue':dv.group(1) if dv else None,'pos':m.start()})
-                  return arr
-              perf=[]
+          def metric(text,key):
+              out=[]
+              rx=re.compile(r'"'+re.escape(key)+r'"\s*:\s*\{')
+              for m in rx.finditer(text):
+                  chunk=text[m.start():m.start()+6000]
+                  nm=re.search(r'"numericValue"\s*:\s*([0-9.]+)',chunk)
+                  if nm: out.append(float(nm.group(1)))
+              return out
+          def scores(text):
+              out=[]
               for m in re.finditer(r'"performance"\s*:\s*\{',text):
-                  chunk=text[m.start():m.start()+1500]
+                  chunk=text[m.start():m.start()+1800]
                   sm=re.search(r'"score"\s*:\s*([0-9.]+)',chunk)
                   if sm:
                       v=float(sm.group(1))
-                      if 0<=v<=1 and not any(abs(v-x['score'])<1e-9 for x in perf): perf.append({'score':v,'pos':m.start()})
-              out[device]={
-                  'url':url,'bytes':len(raw),
-                  'fcp':vals('first-contentful-paint'),
-                  'lcp':vals('largest-contentful-paint'),
-                  'tbt':vals('total-blocking-time'),
-                  'speedIndex':vals('speed-index'),
-                  'performanceScores':perf,
-                  'lighthouseVersions':sorted(set(re.findall(r'"lighthouseVersion"\s*:\s*"([^"]+)"',text))),
-                  'containsMobileUrl':'form_factor=mobile' in text,
-                  'containsDesktopUrl':'form_factor=desktop' in text,
-              }
+                      if 0<=v<=1: out.append(v)
+              return out
+          def med(a): return statistics.median(a) if a else None
+          out={'source':'existing Google PSI report IDs; parsed from embedded Lighthouse JSON','mapping':'embedded result 1=desktop, result 2=mobile','states':{},'errors':[]}
+          for state in states:
+              rows=[]
+              reports=src['states'][state].get('reports') or src['states'][state].get('partialReports') or []
+              for r in reports[:5]:
+                  url=r['reportUrl']
+                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+                  try:
+                      raw=urllib.request.urlopen(req,timeout=75).read().decode('utf-8','replace')
+                      text=norm(raw)
+                      sc=scores(text); fcp=metric(text,'first-contentful-paint'); lcp=metric(text,'largest-contentful-paint'); tbt=metric(text,'total-blocking-time'); si=metric(text,'speed-index')
+                      if min(len(sc),len(fcp),len(lcp),len(tbt),len(si))<2:
+                          raise RuntimeError(f'expected_two_embedded_results sc={len(sc)} fcp={len(fcp)} lcp={len(lcp)} tbt={len(tbt)} si={len(si)}')
+                      row={'index':r['index'],'reportUrl':url,
+                           'desktop':{'score':round(sc[0]*100),'fcpMs':fcp[0],'lcpMs':lcp[0],'tbtMs':tbt[0],'speedIndexMs':si[0]},
+                           'mobile':{'score':round(sc[1]*100),'fcpMs':fcp[1],'lcpMs':lcp[1],'tbtMs':tbt[1],'speedIndexMs':si[1]},
+                           'embeddedCounts':{'scores':len(sc),'fcp':len(fcp),'lcp':len(lcp)}}
+                      rows.append(row)
+                  except Exception as e:
+                      out['errors'].append({'state':state,'index':r.get('index'),'url':url,'error':str(e)})
+                  time.sleep(.7)
+              s={'reports':rows}
+              for dev in ('mobile','desktop'):
+                  rr=[x[dev] for x in rows]
+                  s[dev]={'runs':len(rr),'score':med([x['score'] for x in rr]),'minScore':min([x['score'] for x in rr]) if rr else None,'maxScore':max([x['score'] for x in rr]) if rr else None,
+                          'fcpMs':round(med([x['fcpMs'] for x in rr]),1) if rr else None,'lcpMs':round(med([x['lcpMs'] for x in rr]),1) if rr else None,
+                          'tbtMs':round(med([x['tbtMs'] for x in rr]),1) if rr else None,'speedIndexMs':round(med([x['speedIndexMs'] for x in rr]),1) if rr else None}
+              out['states'][state]=s
+          def delta(a,b,dev):
+              x=out['states'][a][dev]; y=out['states'][b][dev]
+              return {'scoreFrom':x['score'],'scoreTo':y['score'],'scoreDelta':y['score']-x['score'],'fcpDeltaMs':round(y['fcpMs']-x['fcpMs'],1),'lcpDeltaMs':round(y['lcpMs']-x['lcpMs'],1)}
+          out['delta']={'A_to_C':{d:delta('A_NO_PLUGIN','C_PERFORMANCE_ON',d) for d in ('mobile','desktop')},'B_to_C':{d:delta('B_ACTIVE_OFF','C_PERFORMANCE_ON',d) for d in ('mobile','desktop')}}
+          out['status']='PASS' if not out['errors'] and all(out['states'][s][d]['runs']==5 for s in states for d in ('mobile','desktop')) else 'PARTIAL'
           open('/tmp/psi-raw-extract.json','w').write(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2))
           PY
@@ -83,4 +99,4 @@ jobs:
           mkdir -p ops/site-factory
           cp /tmp/psi-raw-extract.json ops/site-factory/runner3-speed-psi-raw-extract.json
           git add -- ops/site-factory/runner3-speed-psi-raw-extract.json
-          if ! git diff --cached --quiet; then git commit -m 'test: record raw PSI embedded metrics' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+          if ! git diff --cached --quiet; then git commit -m 'test: recompute all PSI embedded Lighthouse results' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
