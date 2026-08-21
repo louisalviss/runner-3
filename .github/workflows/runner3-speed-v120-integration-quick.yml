@@ -53,11 +53,15 @@ jobs:
           s=open(p).read()
           s=s.replace("const result={status:'starting',contentExact:false,routesPass:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};","const result={status:'starting',contentExact:false,routesPass:false,safeFrontend:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};")
           old="""const dom=await p.evaluate(()=>({title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer')}));"""
-          new="""const dom=await p.evaluate(()=>{const imgs=[...document.images];const first=imgs[0]||null;const frames=[...document.querySelectorAll('iframe')];return{title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:imgs.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),firstImageLoading:first?.getAttribute('loading')||null,firstImagePriority:first?.getAttribute('fetchpriority')||null,lcpPreloads:document.querySelectorAll('link[data-runner3-speed=\"lcp\"][rel=\"preload\"][as=\"image\"]').length,iframes:frames.length,iframesHaveLoading:frames.every(x=>x.hasAttribute('loading'))};});"""
+          new="""const dom=await p.evaluate(()=>{const imgs=[...document.images];const first=imgs[0]||null;return{title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:imgs.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),firstImageLoading:first?.getAttribute('loading')||null,firstImagePriority:first?.getAttribute('fetchpriority')||null,lcpPreloads:document.querySelectorAll('link[data-runner3-speed=\"lcp\"][rel=\"preload\"][as=\"image\"]').length};});"""
           if old not in s: raise SystemExit('dom probe target missing')
           s=s.replace(old,new)
+          old_mid="""const second=await get(route);const cacheReady="""
+          new_mid="""const second=await get(route);const staticIframeTags=second.body.match(/<iframe\\b[^>]*>/gi)||[];const staticIframeSafe=staticIframeTags.every(tag=>/\\bloading\\s*=/.test(tag));const cacheReady="""
+          if old_mid not in s: raise SystemExit('iframe response insertion target missing')
+          s=s.replace(old_mid,new_mid)
           old2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,noFailedRequests:failed.length===0};"""
-          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,safeFirstImage:dom.images===0||(dom.firstImageLoading==='eager'&&dom.firstImagePriority==='high'&&dom.lcpPreloads>=1),safeIframes:dom.iframesHaveLoading,noFailedRequests:failed.length===0};"""
+          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,safeFirstImage:dom.images===0||(dom.firstImageLoading==='eager'&&dom.firstImagePriority==='high'&&dom.lcpPreloads>=1),safeIframes:staticIframeSafe,staticIframeCount:staticIframeTags.length,noFailedRequests:failed.length===0};"""
           if old2 not in s: raise SystemExit('route check target missing')
           s=s.replace(old2,new2)
           s=s.replace("result.routesPass=result.routeChecks.every(x=>x.pass);","result.routesPass=result.routeChecks.every(x=>x.pass);result.safeFrontend=result.routeChecks.every(x=>x.safeFirstImage&&x.safeIframes);")
@@ -90,7 +94,7 @@ jobs:
           git config user.name runner3-speed-v120-integration-bot
           git config user.email runner3-speed-v120-integration-bot@users.noreply.github.com
           git fetch origin runner3-speed-site3-realistic-20260821
-          git reset --hard origin/runner3-speed-site3-realistic-20260821
+          git reset --hard origin runner3-speed-site3-realistic-20260821
           mkdir -p ops/site-factory
           cp /tmp/r3/runner3-speed-v120-integration.latest.json ops/site-factory/runner3-speed-v120-integration.latest.json
           git add -- ops/site-factory/runner3-speed-v120-integration.latest.json
