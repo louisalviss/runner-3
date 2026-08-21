@@ -1,0 +1,56 @@
+name: Runner3 Speed Site3 Live Probe
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-live-probe.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-speed-site3-live-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe public Site 3
+        run: |
+          set -euo pipefail
+          BASE='https://runner3-speed-site3-realistic.wasmer.app'
+          curl -fsSL --max-time 30 "$BASE/wp-json/wp/v2/media?per_page=100&_fields=id,slug,source_url" -o /tmp/media.json
+          curl -fsSL --max-time 30 "$BASE/wp-json/wp/v2/pages?per_page=100&_fields=id,slug" -o /tmp/pages.json
+          curl -fsSL --max-time 30 "$BASE/wp-json/wp/v2/posts?per_page=100&_fields=id,slug,featured_media" -o /tmp/posts.json
+          curl -sSIL --max-time 30 "$BASE/" -o /tmp/headers.txt
+          curl -fsSL --max-time 30 "$BASE/" -o /tmp/home.html
+          python - <<'PY'
+          import json,re,datetime
+          media=json.load(open('/tmp/media.json'));pages=json.load(open('/tmp/pages.json'));posts=json.load(open('/tmp/posts.json'))
+          h=open('/tmp/headers.txt',errors='ignore').read();html=open('/tmp/home.html',errors='ignore').read()
+          speed=None;version=None
+          for line in h.splitlines():
+              if line.lower().startswith('x-runner3-speed:'): speed=line.split(':',1)[1].strip()
+              if line.lower().startswith('x-runner3-speed-version:'): version=line.split(':',1)[1].strip()
+          ids={int(x['id']) for x in media}; featured=[int(x.get('featured_media') or 0) for x in posts if int(x.get('featured_media') or 0)>0]
+          r={'status':'READY','pages':len(pages),'posts':len(posts),'media':len(media),'featuredPosts':len(featured),'featuredResolved':sum(1 for x in featured if x in ids),'homeBytes':len(html.encode()),'homeImages':len(re.findall(r'<img\b',html,re.I)),'elementorMarkers':len(re.findall(r'elementor-',html,re.I)),'runner3Header':speed,'runner3Version':version,'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          json.dump(r,open('/tmp/live.json','w'),indent=2);print(json.dumps(r,indent=2))
+          PY
+      - name: Persist probe
+        run: |
+          set -euo pipefail
+          git config user.name 'runner3-speed-site3-live-probe-bot'
+          git config user.email 'runner3-speed-site3-live-probe-bot@users.noreply.github.com'
+          git fetch origin runner3-speed-site3-realistic-20260821
+          git reset --hard origin/runner3-speed-site3-realistic-20260821
+          mkdir -p ops/site-factory
+          cp /tmp/live.json ops/site-factory/runner3-speed-site3-live.latest.json
+          git add -- ops/site-factory/runner3-speed-site3-live.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record Site 3 live probe' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
