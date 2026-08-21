@@ -1,0 +1,70 @@
+name: X Fast Direct Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/x-fast-direct/**'
+      - '.github/workflows/x-fast-direct-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-x-fast-direct-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          export NO_COLOR=1
+          npx -y wrangler@4.123.0 deploy --config apps/x-fast-direct/wrangler.jsonc | tee /tmp/x-fast-direct-deploy.log
+          url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/x-fast-direct-deploy.log | tail -n 1 || true)"
+          test -n "$url"
+          echo "WORKER_URL=$url" >> "$GITHUB_ENV"
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error "$WORKER_URL/health" | grep -q 'runner3-x-fast-direct'
+      - name: Publish endpoint status
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/x-fast
+          python - <<'PY'
+          import datetime,json,os
+          out={
+            'status':'ready',
+            'url':os.environ['WORKER_URL'],
+            'mode':'direct-worker',
+            'primary':'FxTwitter API',
+            'fallback':'X HTML -> GitHub Actions x-fast',
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          open('ops/x-fast/direct-status.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/x-fast/direct-status.json
+          git commit -m 'Publish X Fast direct endpoint [skip ci]' || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
