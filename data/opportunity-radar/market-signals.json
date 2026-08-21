@@ -1,264 +1,53 @@
 {
   "schema_version": 2.0,
   "purpose": "Opportunity Radar V2 raw intake — MARKET_PRICING only; not a trade recommendation",
-  "generated_at": "2026-08-21T08:40:10.467504+07:00",
-  "source_session_date": "2026-08-20",
+  "generated_at": "2026-08-22T06:03:17.103100+07:00",
+  "source_session_date": "2026-08-21",
   "complete": true,
   "stats": {
-    "listed_securities": 13168,
-    "common_like_universe": 5772,
-    "snapshot_rows": 7195,
+    "listed_securities": 13169,
+    "common_like_universe": 5771,
+    "snapshot_rows": 7182,
     "snapshot_error": null,
-    "history_requested": 2784,
-    "history_returned": 2784,
+    "history_requested": 2808,
+    "history_returned": 2808,
     "history_coverage": 1.0,
     "signal_count": 80,
-    "volume_confirmed": 32
+    "volume_confirmed": 14
   },
   "signals": [
     {
-      "intake_id": "PRICE|KLAR|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|AAP|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "KLAR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "KLAR",
-      "market_reaction": "1D -4.96%; 5D -32.30%; sector-relative 5D -29.22pp; volume 2.76x 20D; price 14.00",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Klarna Group plc Ordinary Shares",
-        "exchange": "NYSE",
-        "sector": "Finance",
-        "industry": "Finance: Consumer Services",
-        "market_cap": 9879022986.0,
-        "raw_priority": 79.3,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|AAP|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "AAP triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "AAP triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "AAP",
-      "market_reaction": "1D -24.55%; 5D -26.10%; sector-relative 5D -24.09pp; volume 12.08x 20D; price 42.39",
+      "market_reaction": "1D 0.45%; 5D -24.70%; sector-relative 5D -23.83pp; volume 2.00x 20D; price 42.58",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "Advance Auto Parts Inc.",
         "exchange": "NYSE",
         "sector": "Consumer Discretionary",
         "industry": "Auto & Home Supply Stores",
-        "market_cap": 2559707815.0,
-        "raw_priority": 78.9,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|BLZE|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "BLZE triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "BLZE",
-      "market_reaction": "1D -3.79%; 5D -20.51%; sector-relative 5D -16.08pp; volume 3.03x 20D; price 16.24",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Backblaze Inc. Class A Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Computer Software: Prepackaged Software",
-        "market_cap": 1005256000.0,
-        "raw_priority": 78.0,
+        "market_cap": 2571180909.0,
+        "raw_priority": 78.1,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|AMRC|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "AMRC triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "AMRC",
-      "market_reaction": "1D -12.47%; 5D -20.15%; sector-relative 5D -18.15pp; volume 2.69x 20D; price 22.19",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Ameresco Inc. Class A Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Engineering & Construction",
-        "market_cap": 1177539222.0,
-        "raw_priority": 76.1,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|MRNA|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "MRNA triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "MRNA",
-      "market_reaction": "1D -23.55%; 5D 109.46%; sector-relative 5D 107.98pp; volume 6.55x 20D; price 133.32",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Moderna Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Biological Products (No Diagnostic Substances)",
-        "market_cap": 53226128721.0,
-        "raw_priority": 75.0,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|FTK|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "FTK triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "FTK",
-      "market_reaction": "1D -0.68%; 5D -27.35%; sector-relative 5D -24.30pp; volume 1.71x 20D; price 25.00",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Flotek Industries Inc. Common Stock",
-        "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Major Chemicals",
-        "market_cap": 905510725.0,
-        "raw_priority": 74.8,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|WMT|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "WMT triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "WMT",
-      "market_reaction": "1D -9.15%; 5D -10.27%; sector-relative 5D -8.26pp; volume 3.81x 20D; price 103.84",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Walmart Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Consumer Discretionary",
-        "industry": "Department/Specialty Retail Stores",
-        "market_cap": 826366939455.0,
-        "raw_priority": 73.8,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|YSS|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "YSS triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "YSS",
-      "market_reaction": "1D -9.63%; 5D -20.07%; sector-relative 5D -17.03pp; volume 1.69x 20D; price 9.20",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "York Space Systems Inc. Common Stock",
-        "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Military/Government/Technical",
-        "market_cap": 1263689966.0,
-        "raw_priority": 73.7,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|LZB|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|LZB|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
@@ -267,708 +56,381 @@
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "LZB",
-      "market_reaction": "1D -0.77%; 5D -19.34%; sector-relative 5D -17.34pp; volume 2.02x 20D; price 33.65",
+      "market_reaction": "1D 0.18%; 5D -19.45%; sector-relative 5D -18.58pp; volume 1.91x 20D; price 33.71",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "La-Z-Boy Incorporated Common Stock",
         "exchange": "NYSE",
         "sector": "Consumer Discretionary",
         "industry": "Home Furnishings",
-        "market_cap": 1347775744.0,
-        "raw_priority": 73.6,
+        "market_cap": 1350178910.0,
+        "raw_priority": 73.2,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|WOLF|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|SA|2026-08-21|1D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "WOLF triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "SA triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "WOLF",
-      "market_reaction": "1D -9.42%; 5D -16.38%; sector-relative 5D -11.95pp; volume 2.01x 20D; price 26.35",
+      "affected_assets": "SA",
+      "market_reaction": "1D -9.35%; 5D -10.02%; sector-relative 5D -16.92pp; volume 4.49x 20D; price 30.16",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Wolfspeed Inc. Common Stock New",
+        "name": "Seabridge Gold Inc. Common Shares New",
         "exchange": "NYSE",
-        "sector": "Technology",
-        "industry": "Semiconductors",
-        "market_cap": 1369464861.0,
-        "raw_priority": 73.1,
+        "sector": "Basic Materials",
+        "industry": "Precious Metals",
+        "market_cap": 3253395875.0,
+        "raw_priority": 72.1,
         "raw_triggers": [
           "1D_SHOCK",
-          "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|AADX|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|BABA|2026-08-21|1D_SHOCK",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "AADX triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "BABA triggered market-pricing anomaly: 1D_SHOCK",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "AADX",
-      "market_reaction": "1D -10.25%; 5D -17.55%; sector-relative 5D -14.51pp; volume 2.64x 20D; price 15.50",
+      "affected_assets": "BABA",
+      "market_reaction": "1D -8.57%; 5D -3.61%; sector-relative 5D -2.74pp; volume 3.09x 20D; price 119.34",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Applied Aerospace & Defense Inc. Common Stock",
+        "name": "Alibaba Group Holding Limited American Depositary Shares each representing eight Ordinary share",
         "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Military/Government/Technical",
-        "market_cap": 2672099529.0,
-        "raw_priority": 72.7,
+        "sector": "Consumer Discretionary",
+        "industry": "Business Services",
+        "market_cap": 278508056388.0,
+        "raw_priority": 71.9,
         "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
+          "1D_SHOCK"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|LYTS|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|LYTS|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "LYTS triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "LYTS triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "LYTS",
-      "market_reaction": "1D -14.30%; 5D -16.99%; sector-relative 5D -14.99pp; volume 5.34x 20D; price 20.62",
+      "market_reaction": "1D -1.36%; 5D -18.18%; sector-relative 5D -17.31pp; volume 3.58x 20D; price 20.34",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "LSI Industries Inc. Common Stock",
         "exchange": "NASDAQ",
         "sector": "Consumer Discretionary",
         "industry": "Building Products",
-        "market_cap": 757009770.0,
-        "raw_priority": 71.3,
+        "market_cap": 746730297.0,
+        "raw_priority": 71.8,
         "raw_triggers": [
-          "1D_SHOCK",
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|CYD|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|HUT|2026-08-21|1D_SHOCK",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "CYD triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "HUT triggered market-pricing anomaly: 1D_SHOCK",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "CYD",
-      "market_reaction": "1D -10.89%; 5D -15.04%; sector-relative 5D -11.99pp; volume 2.75x 20D; price 38.71",
+      "affected_assets": "HUT",
+      "market_reaction": "1D -8.79%; 5D -5.36%; sector-relative 5D -2.83pp; volume 1.95x 20D; price 80.86",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "China Yuchai International Limited Common Stock",
-        "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Industrial Machinery/Components",
-        "market_cap": 1452334245.0,
-        "raw_priority": 71.1,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|RERE|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "RERE triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "RERE",
-      "market_reaction": "1D -11.11%; 5D -11.30%; sector-relative 5D -9.30pp; volume 5.79x 20D; price 4.08",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "ATRenew Inc. American Depositary Shares (every three of which representing two Class A ordinary shares)",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Other Specialty Stores",
-        "market_cap": 894601184.0,
+        "name": "Hut 8 Corp. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Finance",
+        "industry": "Finance: Consumer Services",
+        "market_cap": 9966760582.0,
         "raw_priority": 71.0,
         "raw_triggers": [
           "1D_SHOCK"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|MAIR|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|MRCY|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "MAIR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "MRCY triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "MAIR",
-      "market_reaction": "1D -6.45%; 5D -17.04%; sector-relative 5D -13.99pp; volume 1.94x 20D; price 26.25",
+      "affected_assets": "MRCY",
+      "market_reaction": "1D -3.05%; 5D -17.78%; sector-relative 5D -14.50pp; volume 1.57x 20D; price 91.36",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Madison Air Solutions Corporation Class A Common Stock",
-        "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Pollution Control Equipment",
-        "market_cap": 13170218565.0,
-        "raw_priority": 70.9,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|STLD|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "STLD triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "STLD",
-      "market_reaction": "1D -5.20%; 5D -15.94%; sector-relative 5D -12.90pp; volume 1.99x 20D; price 219.00",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Steel Dynamics Inc.",
-        "exchange": "NASDAQ",
-        "sector": "Industrials",
-        "industry": "Steel/Iron Ore",
-        "market_cap": 31388851272.0,
-        "raw_priority": 70.2,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|VIK|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "VIK triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "VIK",
-      "market_reaction": "1D -0.26%; 5D -14.68%; sector-relative 5D -12.68pp; volume 3.57x 20D; price 90.53",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Viking Holdings Ltd Ordinary Shares",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Marine Transportation",
-        "market_cap": 40357010111.0,
-        "raw_priority": 69.5,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|COTY|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "COTY triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "COTY",
-      "market_reaction": "1D -9.24%; 5D 0.00%; sector-relative 5D 2.00pp; volume 1.63x 20D; price 2.75",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Coty Inc. Class A Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Package Goods/Cosmetics",
-        "market_cap": 2421282705.0,
-        "raw_priority": 68.7,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|LXRX|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "LXRX triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "LXRX",
-      "market_reaction": "1D -9.54%; 5D -6.84%; sector-relative 5D -8.32pp; volume 1.68x 20D; price 2.18",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Lexicon Pharmaceuticals Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Pharmaceutical Preparations",
-        "market_cap": 970003936.0,
-        "raw_priority": 68.4,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|SSYS|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "SSYS triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "SSYS",
-      "market_reaction": "1D -8.60%; 5D -12.37%; sector-relative 5D -7.95pp; volume 4.18x 20D; price 7.86",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Stratasys Ltd. Ordinary Shares (Israel)",
+        "name": "Mercury Systems Inc Common Stock",
         "exchange": "NASDAQ",
         "sector": "Technology",
-        "industry": "Computer peripheral equipment",
-        "market_cap": 677316157.0,
-        "raw_priority": 68.2,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|FG|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "FG triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "FG",
-      "market_reaction": "1D -3.90%; 5D -17.52%; sector-relative 5D -14.44pp; volume 1.56x 20D; price 22.64",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "F&G Annuities & Life Inc. Common Stock",
-        "exchange": "NYSE",
-        "sector": "Finance",
-        "industry": "Life Insurance",
-        "market_cap": 2964373132.0,
-        "raw_priority": 67.9,
+        "industry": "Electrical Products",
+        "market_cap": 5494037111.0,
+        "raw_priority": 70.0,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|KSS|2026-08-20|1D_SHOCK",
+      "intake_id": "PRICE|NUAI|2026-08-21|1D_SHOCK",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "KSS triggered market-pricing anomaly: 1D_SHOCK",
+      "event_economic_change": "NUAI triggered market-pricing anomaly: 1D_SHOCK",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "KSS",
-      "market_reaction": "1D -8.01%; 5D -11.67%; sector-relative 5D -9.67pp; volume 1.86x 20D; price 17.33",
+      "affected_assets": "NUAI",
+      "market_reaction": "1D -12.84%; 5D -4.24%; sector-relative 5D -6.80pp; volume 1.56x 20D; price 4.86",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Kohl's Corporation Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Department/Specialty Retail Stores",
-        "market_cap": 1965221879.0,
-        "raw_priority": 67.0,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ATAT|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ATAT triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ATAT",
-      "market_reaction": "1D -7.43%; 5D 3.57%; sector-relative 5D 5.57pp; volume 2.67x 20D; price 34.25",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Atour Lifestyle Holdings Limited American Depositary Shares",
+        "name": "New Era Energy & Digital Inc. Common Stock",
         "exchange": "NASDAQ",
-        "sector": "Consumer Discretionary",
-        "industry": "Hotels/Resorts",
-        "market_cap": 4659479463.0,
-        "raw_priority": 66.5,
+        "sector": "Energy",
+        "industry": "Oil & Gas Production",
+        "market_cap": 517345591.0,
+        "raw_priority": 69.4,
         "raw_triggers": [
           "1D_SHOCK"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|AERO|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|CIFR|2026-08-21|1D_SHOCK",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "AERO triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "CIFR triggered market-pricing anomaly: 1D_SHOCK",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "AERO",
-      "market_reaction": "1D -7.33%; 5D -16.21%; sector-relative 5D -14.21pp; volume 1.88x 20D; price 13.28",
+      "affected_assets": "CIFR",
+      "market_reaction": "1D -8.40%; 5D -11.71%; sector-relative 5D -9.17pp; volume 1.53x 20D; price 15.77",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Grupo Aeromexico S.A.B. de C.V. American Depositary Shares (each representing ten (10) Common Shares)",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Air Freight/Delivery Services",
-        "market_cap": 1937597272.0,
-        "raw_priority": 65.9,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|SEI|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "SEI triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "SEI",
-      "market_reaction": "1D -7.76%; 5D -9.45%; sector-relative 5D -7.45pp; volume 1.51x 20D; price 54.24",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Solaris Energy Infrastructure Inc. Class A Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Oil and Gas Field Machinery",
-        "market_cap": 4152961102.0,
-        "raw_priority": 65.4,
+        "name": "Cipher Digital Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Finance",
+        "industry": "Finance: Consumer Services",
+        "market_cap": 6542959332.0,
+        "raw_priority": 67.5,
         "raw_triggers": [
           "1D_SHOCK"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|PRG|2026-08-20|1D_SHOCK",
+      "intake_id": "PRICE|JBSS|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "PRG triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "PRG",
-      "market_reaction": "1D -7.62%; 5D -10.71%; sector-relative 5D -8.70pp; volume 1.84x 20D; price 38.20",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "PROG Holdings Inc. Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Diversified Commercial Services",
-        "market_cap": 1521568381.0,
-        "raw_priority": 64.6,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|JBSS|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "JBSS triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "event_economic_change": "JBSS triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "JBSS",
-      "market_reaction": "1D -6.81%; 5D -12.61%; sector-relative 5D -12.51pp; volume 2.12x 20D; price 75.76",
+      "market_reaction": "1D -2.69%; 5D -15.02%; sector-relative 5D -15.32pp; volume 2.03x 20D; price 73.72",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "John B. Sanfilippo & Son Inc. Common Stock",
         "exchange": "NASDAQ",
         "sector": "Consumer Staples",
         "industry": "Specialty Foods",
-        "market_cap": 885602202.0,
-        "raw_priority": 63.9,
+        "market_cap": 862043419.0,
+        "raw_priority": 65.9,
         "raw_triggers": [
+          "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|BHVN|2026-08-20|SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|SWMR|2026-08-21|1D_SHOCK",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "BHVN triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "event_economic_change": "SWMR triggered market-pricing anomaly: 1D_SHOCK",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "BHVN",
-      "market_reaction": "1D -4.53%; 5D -9.09%; sector-relative 5D -10.57pp; volume 2.22x 20D; price 13.50",
+      "affected_assets": "SWMR",
+      "market_reaction": "1D -7.45%; 5D 2.14%; sector-relative 5D 5.42pp; volume 1.73x 20D; price 42.49",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Biohaven Ltd. Common Shares",
-        "exchange": "NYSE",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Pharmaceutical Preparations",
-        "market_cap": 2039091044.0,
-        "raw_priority": 61.8,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|SIG|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "SIG triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "SIG",
-      "market_reaction": "1D -4.95%; 5D -12.47%; sector-relative 5D -10.46pp; volume 1.59x 20D; price 81.02",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Signet Jewelers Limited Common Shares",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Consumer Specialties",
-        "market_cap": 3186499019.0,
-        "raw_priority": 61.0,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|UTI|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "UTI triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "UTI",
-      "market_reaction": "1D -5.68%; 5D -11.30%; sector-relative 5D -10.98pp; volume 1.73x 20D; price 22.92",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Universal Technical Institute Inc Common Stock",
-        "exchange": "NYSE",
-        "sector": "Real Estate",
-        "industry": "Other Consumer Services",
-        "market_cap": 1262782695.0,
-        "raw_priority": 60.5,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|GFR|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "GFR triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "GFR",
-      "market_reaction": "1D 3.07%; 5D -6.46%; sector-relative 5D -10.58pp; volume 3.64x 20D; price 6.37",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Greenfire Resources Ltd. Common Shares",
-        "exchange": "NYSE",
-        "sector": "Energy",
-        "industry": "Oil & Gas Production",
-        "market_cap": 798979730.0,
-        "raw_priority": 59.4,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": true,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|MOG.B|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "MOG.B triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "MOG.B",
-      "market_reaction": "1D -7.99%; 5D -6.68%; volume 1.73x 20D; price 384.33",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Moog Inc. Class B Common Stock",
-        "exchange": "NYSE",
-        "sector": "",
-        "industry": "",
-        "market_cap": null,
-        "raw_priority": 59.3,
+        "name": "Swarmer Inc Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Computer Software: Prepackaged Software",
+        "market_cap": 677162323.0,
+        "raw_priority": 62.8,
         "raw_triggers": [
           "1D_SHOCK"
         ],
         "volume_confirmation": true,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|FN|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|BKV|2026-08-21|1D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "BKV triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "BKV",
+      "market_reaction": "1D -7.28%; 5D -9.47%; sector-relative 5D -12.03pp; volume 1.61x 20D; price 24.20",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "BKV Corporation Common Stock",
+        "exchange": "NYSE",
+        "sector": "Energy",
+        "industry": "Oil & Gas Production",
+        "market_cap": 2648395486.0,
+        "raw_priority": 62.4,
+        "raw_triggers": [
+          "1D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": true,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|USAR|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "USAR triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "USAR",
+      "market_reaction": "1D 12.57%; 5D -3.70%; sector-relative 5D -10.60pp; volume 1.73x 20D; price 19.26",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "USA Rare Earth Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Basic Materials",
+        "industry": "Metal Mining",
+        "market_cap": 4713309107.0,
+        "raw_priority": 61.3,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": true,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|NEWP|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "NEWP triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "NEWP",
+      "market_reaction": "1D -3.65%; 5D -3.51%; sector-relative 5D -10.41pp; volume 1.94x 20D; price 6.60",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "New Pacific Metals Corp. Common Shares",
+        "exchange": "AMEX",
+        "sector": "Basic Materials",
+        "industry": "Precious Metals",
+        "market_cap": 1221461043.0,
+        "raw_priority": 58.0,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": true,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FN|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
@@ -977,28 +439,58 @@
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "FN",
-      "market_reaction": "1D -2.13%; 5D -21.47%; sector-relative 5D -21.03pp; volume 1.15x 20D; price 444.87",
+      "market_reaction": "1D -1.84%; 5D -23.42%; sector-relative 5D -20.23pp; volume 1.13x 20D; price 436.67",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "Fabrinet Ordinary Shares",
         "exchange": "NYSE",
         "sector": "Utilities",
         "industry": "Telecommunications Equipment",
-        "market_cap": 15941855948.0,
-        "raw_priority": 74.1,
+        "market_cap": 15648010063.0,
+        "raw_priority": 74.0,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|WYFI|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|KLAR|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "KLAR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "KLAR",
+      "market_reaction": "1D 2.36%; 5D -31.07%; sector-relative 5D -28.54pp; volume 1.11x 20D; price 14.33",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Klarna Group plc Ordinary Shares",
+        "exchange": "NYSE",
+        "sector": "Finance",
+        "industry": "Finance: Consumer Services",
+        "market_cap": 10111885671.0,
+        "raw_priority": 73.3,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|WYFI|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
@@ -1007,149 +499,58 @@
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "WYFI",
-      "market_reaction": "1D -1.03%; 5D -25.02%; sector-relative 5D -21.94pp; volume 1.32x 20D; price 21.16",
+      "market_reaction": "1D -2.08%; 5D -29.81%; sector-relative 5D -27.28pp; volume 0.96x 20D; price 20.72",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "WhiteFiber Inc. Ordinary Shares",
         "exchange": "NASDAQ",
         "sector": "Finance",
         "industry": "Finance: Consumer Services",
-        "market_cap": 822026177.0,
-        "raw_priority": 73.9,
+        "market_cap": 804933005.0,
+        "raw_priority": 72.0,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|FSLY|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|AEHR|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "FSLY triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "AEHR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "FSLY",
-      "market_reaction": "1D -4.02%; 5D -24.35%; sector-relative 5D -19.92pp; volume 0.87x 20D; price 22.71",
+      "affected_assets": "AEHR",
+      "market_reaction": "1D -4.00%; 5D -24.12%; sector-relative 5D -21.62pp; volume 0.74x 20D; price 101.73",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Fastly Inc. Class A Common Stock",
+        "name": "Aehr Test Systems Common Stock",
         "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Computer Software: Prepackaged Software",
-        "market_cap": 3617703000.0,
-        "raw_priority": 72.6,
+        "sector": "Industrials",
+        "industry": "Electrical Products",
+        "market_cap": 3318478379.0,
+        "raw_priority": 71.9,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|IQ|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "IQ triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "IQ",
-      "market_reaction": "1D -8.85%; 5D -24.26%; sector-relative 5D -22.26pp; volume 1.42x 20D; price 1.03",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "iQIYI Inc. American Depositary Shares",
-        "exchange": "NASDAQ",
-        "sector": "Consumer Discretionary",
-        "industry": "Consumer Electronics/Video Chains",
-        "market_cap": 993975477.0,
-        "raw_priority": 72.1,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|UCTT|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "UCTT triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "UCTT",
-      "market_reaction": "1D -2.67%; 5D -21.42%; sector-relative 5D -16.99pp; volume 0.78x 20D; price 73.01",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Ultra Clean Holdings Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Semiconductors",
-        "market_cap": 3305675887.0,
-        "raw_priority": 71.7,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ENVX|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ENVX triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ENVX",
-      "market_reaction": "1D -3.82%; 5D -26.19%; sector-relative 5D -21.15pp; volume 0.87x 20D; price 3.27",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Enovix Corporation Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Miscellaneous",
-        "industry": "Industrial Machinery/Components",
-        "market_cap": 717596709.0,
-        "raw_priority": 70.8,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|RXT|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|RXT|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
@@ -1158,1108 +559,58 @@
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "RXT",
-      "market_reaction": "1D -4.97%; 5D -24.42%; sector-relative 5D -19.99pp; volume 0.82x 20D; price 3.25",
+      "market_reaction": "1D 2.15%; 5D -21.14%; sector-relative 5D -17.85pp; volume 1.10x 20D; price 3.32",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "Rackspace Technology Inc. Common Stock",
         "exchange": "NASDAQ",
         "sector": "Technology",
         "industry": "Computer Software: Programming Data Processing",
-        "market_cap": 828336763.0,
-        "raw_priority": 70.3,
+        "market_cap": 846177862.0,
+        "raw_priority": 71.8,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|QNT|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|NBIS|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "QNT triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "NBIS triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "QNT",
-      "market_reaction": "1D -1.96%; 5D -19.85%; sector-relative 5D -15.42pp; volume 0.82x 20D; price 54.90",
+      "affected_assets": "NBIS",
+      "market_reaction": "1D -0.45%; 5D -21.09%; sector-relative 5D -17.80pp; volume 0.69x 20D; price 219.13",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Quantinuum Inc. Class A Common Stock",
+        "name": "Nebius Group N.V. Class A Ordinary Shares",
         "exchange": "NASDAQ",
         "sector": "Technology",
-        "industry": "EDP Services",
-        "market_cap": 14455616996.0,
-        "raw_priority": 69.8,
+        "industry": "Computer Software: Programming Data Processing",
+        "market_cap": 59571633920.0,
+        "raw_priority": 71.7,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|XE|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "XE triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "XE",
-      "market_reaction": "1D -7.86%; 5D -19.53%; sector-relative 5D -16.49pp; volume 0.87x 20D; price 18.29",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "X-Energy Inc. Class A Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Industrials",
-        "industry": "Metal Fabrications",
-        "market_cap": 7432436115.0,
-        "raw_priority": 69.7,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|FCEL|2026-08-20|1D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "FCEL triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "FCEL",
-      "market_reaction": "1D -9.56%; 5D -9.73%; sector-relative 5D -13.85pp; volume 1.24x 20D; price 18.36",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "FuelCell Energy Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Energy",
-        "industry": "Industrial Machinery/Components",
-        "market_cap": 1467959039.0,
-        "raw_priority": 69.6,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|JBLU|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "JBLU triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "JBLU",
-      "market_reaction": "1D -3.27%; 5D -18.28%; sector-relative 5D -16.27pp; volume 0.84x 20D; price 4.74",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "JetBlue Airways Corporation Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Consumer Discretionary",
-        "industry": "Air Freight/Delivery Services",
-        "market_cap": 1788459738.0,
-        "raw_priority": 68.0,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|EROC|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "EROC triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "EROC",
-      "market_reaction": "1D -9.40%; 5D -16.92%; sector-relative 5D -21.04pp; volume 1.31x 20D; price 13.01",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "ERock Inc. Class A Common Stock",
-        "exchange": "NYSE",
-        "sector": "Energy",
-        "industry": "Industrial Machinery/Components",
-        "market_cap": 2854395041.0,
-        "raw_priority": 67.9,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ONT|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ONT triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ONT",
-      "market_reaction": "1D -11.79%; 5D -16.23%; sector-relative 5D -14.23pp; volume 1.39x 20D; price 14.66",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Onterris Inc. Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Professional Services",
-        "market_cap": 514821436.0,
-        "raw_priority": 67.6,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|EOSE|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "EOSE triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "EOSE",
-      "market_reaction": "1D -7.49%; 5D -16.83%; sector-relative 5D -11.79pp; volume 1.32x 20D; price 3.46",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Eos Energy Enterprises Inc. Class A Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Miscellaneous",
-        "industry": "Industrial Machinery/Components",
-        "market_cap": 1260020394.0,
-        "raw_priority": 67.5,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|INIO|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "INIO triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "INIO",
-      "market_reaction": "1D -8.80%; 5D -16.61%; sector-relative 5D -14.60pp; volume 1.24x 20D; price 23.00",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "INNIO N.V. Ordinary Shares",
-        "exchange": "NASDAQ",
-        "sector": "Consumer Discretionary",
-        "industry": "Metal Fabrications",
-        "market_cap": 17250000000.0,
-        "raw_priority": 66.8,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|CRSR|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "CRSR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "CRSR",
-      "market_reaction": "1D -3.88%; 5D -18.88%; sector-relative 5D -14.46pp; volume 0.80x 20D; price 10.91",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Corsair Gaming Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Computer peripheral equipment",
-        "market_cap": 1180210623.0,
-        "raw_priority": 66.7,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ATRO|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ATRO triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ATRO",
-      "market_reaction": "1D -6.87%; 5D -17.87%; sector-relative 5D -14.83pp; volume 0.92x 20D; price 76.06",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Astronics Corporation Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Industrials",
-        "industry": "Military/Government/Technical",
-        "market_cap": 3271269408.0,
-        "raw_priority": 66.5,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|AVAV|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "AVAV triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "AVAV",
-      "market_reaction": "1D -7.50%; 5D -15.65%; sector-relative 5D -12.60pp; volume 1.38x 20D; price 159.79",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "AeroVironment Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Industrials",
-        "industry": "Aerospace",
-        "market_cap": 8120945651.0,
-        "raw_priority": 66.5,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|MTRN|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "MTRN triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "MTRN",
-      "market_reaction": "1D -5.10%; 5D -17.58%; sector-relative 5D -14.54pp; volume 0.90x 20D; price 232.72",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Materion Corporation",
-        "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Industrial Specialties",
-        "market_cap": 4848424482.0,
-        "raw_priority": 66.5,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ALOY|2026-08-20|1D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ALOY triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ALOY",
-      "market_reaction": "1D -11.51%; 5D -14.52%; sector-relative 5D -18.52pp; volume 0.88x 20D; price 11.07",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "REalloys Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Basic Materials",
-        "industry": "Metal Mining",
-        "market_cap": 763693197.0,
-        "raw_priority": 66.2,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|EIKN|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "EIKN triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "EIKN",
-      "market_reaction": "1D -10.49%; 5D 4.07%; sector-relative 5D 2.58pp; volume 1.29x 20D; price 10.75",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Eikon Therapeutics Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Biological Products (No Diagnostic Substances)",
-        "market_cap": 582274073.0,
-        "raw_priority": 66.1,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|CRWD|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "CRWD triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "CRWD",
-      "market_reaction": "1D -5.60%; 5D -15.60%; sector-relative 5D -11.17pp; volume 1.20x 20D; price 190.34",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "CrowdStrike Holdings Inc. Class A Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Computer Software: Prepackaged Software",
-        "market_cap": 193815471355.0,
-        "raw_priority": 65.4,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|TTMI|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "TTMI triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "TTMI",
-      "market_reaction": "1D -1.72%; 5D -17.64%; sector-relative 5D -13.21pp; volume 0.55x 20D; price 114.38",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "TTM Technologies Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Electrical Products",
-        "market_cap": 12049803064.0,
-        "raw_priority": 65.3,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|MNPR|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "MNPR triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "MNPR",
-      "market_reaction": "1D -10.47%; 5D 0.43%; sector-relative 5D -1.06pp; volume 0.74x 20D; price 110.88",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Monopar Therapeutics Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Pharmaceutical Preparations",
-        "market_cap": 744245631.0,
-        "raw_priority": 65.2,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|FRVO|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "FRVO triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "FRVO",
-      "market_reaction": "1D -4.66%; 5D -16.34%; sector-relative 5D -15.90pp; volume 1.12x 20D; price 17.00",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Fervo Energy Company Class A common stock",
-        "exchange": "NASDAQ",
-        "sector": "Utilities",
-        "industry": "Electric Utilities: Central",
-        "market_cap": 5010974383.0,
-        "raw_priority": 65.1,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|SPRY|2026-08-20|1D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "SPRY triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "SPRY",
-      "market_reaction": "1D -13.71%; 5D -9.75%; sector-relative 5D -11.24pp; volume 0.92x 20D; price 5.51",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "ARS Pharmaceuticals Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Pharmaceutical Preparations",
-        "market_cap": 547457623.0,
-        "raw_priority": 65.1,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|HYLN|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "HYLN triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "HYLN",
-      "market_reaction": "1D -8.17%; 5D -18.00%; sector-relative 5D -16.00pp; volume 0.92x 20D; price 3.37",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Hyliion Holdings Corp. Class A Common Stock",
-        "exchange": "AMEX",
-        "sector": "Consumer Discretionary",
-        "industry": "Construction/Ag Equipment/Trucks",
-        "market_cap": 601872625.0,
-        "raw_priority": 65.1,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|UMAC|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "UMAC triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "UMAC",
-      "market_reaction": "1D -8.20%; 5D -4.63%; sector-relative 5D -0.20pp; volume 1.19x 20D; price 25.98",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Unusual Machines Inc. Common Stock",
-        "exchange": "AMEX",
-        "sector": "Technology",
-        "industry": "Radio And Television Broadcasting And Communications Equipment",
-        "market_cap": 1297870000.0,
-        "raw_priority": 64.9,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ICHR|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ICHR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ICHR",
-      "market_reaction": "1D -3.82%; 5D -17.31%; sector-relative 5D -12.88pp; volume 0.76x 20D; price 58.87",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Ichor Holdings Ordinary Shares",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Semiconductors",
-        "market_cap": 2204930461.0,
-        "raw_priority": 64.8,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|RYZ|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "RYZ triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "RYZ",
-      "market_reaction": "1D -6.43%; 5D -16.25%; sector-relative 5D -13.21pp; volume 1.40x 20D; price 24.17",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Ryerson Holding Corporation Common Stock",
-        "exchange": "NYSE",
-        "sector": "Industrials",
-        "industry": "Metal Fabrications",
-        "market_cap": 1254390443.0,
-        "raw_priority": 64.8,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ALK|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ALK triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ALK",
-      "market_reaction": "1D -2.55%; 5D -15.41%; sector-relative 5D -13.41pp; volume 1.19x 20D; price 40.18",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Alaska Air Group Inc. Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Air Freight/Delivery Services",
-        "market_cap": 4484213362.0,
-        "raw_priority": 64.6,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|RH|2026-08-20|1D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "RH triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "RH",
-      "market_reaction": "1D -7.98%; 5D -12.89%; sector-relative 5D -10.89pp; volume 1.31x 20D; price 156.41",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "RH Common Stock",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Other Specialty Stores",
-        "market_cap": 2956300561.0,
-        "raw_priority": 64.6,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|APMD|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "APMD triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "APMD",
-      "market_reaction": "1D -10.86%; 5D -0.83%; sector-relative 5D -2.31pp; volume 0.70x 20D; price 28.55",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Apnimed Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Pharmaceutical Preparations",
-        "market_cap": 1084889722.0,
-        "raw_priority": 64.4,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|BIRK|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "BIRK triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "BIRK",
-      "market_reaction": "1D -4.37%; 5D -15.73%; sector-relative 5D -13.73pp; volume 1.06x 20D; price 34.55",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Birkenstock Holding plc Ordinary Shares",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Shoe Manufacturing",
-        "market_cap": 6146024077.0,
-        "raw_priority": 64.3,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|NCLH|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "NCLH triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "NCLH",
-      "market_reaction": "1D -3.40%; 5D -14.32%; sector-relative 5D -12.32pp; volume 1.40x 20D; price 16.75",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Norwegian Cruise Line Holdings Ltd. Ordinary Shares",
-        "exchange": "NYSE",
-        "sector": "Consumer Discretionary",
-        "industry": "Marine Transportation",
-        "market_cap": 7691396421.0,
-        "raw_priority": 64.3,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|KALU|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "KALU triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "KALU",
-      "market_reaction": "1D -3.70%; 5D -17.29%; sector-relative 5D -14.25pp; volume 0.72x 20D; price 151.15",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Kaiser Aluminum Corporation Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Industrials",
-        "industry": "Metal Fabrications",
-        "market_cap": 2471165256.0,
-        "raw_priority": 64.2,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|PENG|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "PENG triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "PENG",
-      "market_reaction": "1D -3.42%; 5D -16.03%; sector-relative 5D -11.60pp; volume 0.91x 20D; price 51.14",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Penguin Solutions Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Semiconductors",
-        "market_cap": 2620551627.0,
-        "raw_priority": 64.2,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|PRME|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "PRME triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "PRME",
-      "market_reaction": "1D -8.47%; 5D 2.21%; sector-relative 5D 0.73pp; volume 1.46x 20D; price 3.24",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Prime Medicine Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Biological Products (No Diagnostic Substances)",
-        "market_cap": 587661013.0,
-        "raw_priority": 64.2,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|EQPT|2026-08-20|1D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "EQPT triggered market-pricing anomaly: 1D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "EQPT",
-      "market_reaction": "1D -7.16%; 5D -14.67%; sector-relative 5D -12.66pp; volume 1.44x 20D; price 18.27",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "EquipmentShare.com Inc Class A Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Consumer Discretionary",
-        "industry": "Diversified Commercial Services",
-        "market_cap": 4629178844.0,
-        "raw_priority": 64.0,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|SHAZ|2026-08-20|1D_SHOCK+5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "SHAZ triggered market-pricing anomaly: 1D_SHOCK, 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "SHAZ",
-      "market_reaction": "1D -7.03%; 5D -15.51%; sector-relative 5D -11.08pp; volume 0.96x 20D; price 60.85",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "SharonAI Holdings Inc. Class A Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "EDP Services",
-        "market_cap": 2178643279.0,
-        "raw_priority": 63.9,
-        "raw_triggers": [
-          "1D_SHOCK",
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|CADL|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "CADL triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "CADL",
-      "market_reaction": "1D -8.52%; 5D 4.66%; sector-relative 5D 3.18pp; volume 1.23x 20D; price 12.35",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Candel Therapeutics Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Biological Products (No Diagnostic Substances)",
-        "market_cap": 945004278.0,
-        "raw_priority": 63.8,
-        "raw_triggers": [
-          "1D_SHOCK"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|LAC|2026-08-20|SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "LAC triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "LAC",
-      "market_reaction": "1D -1.00%; 5D -13.41%; sector-relative 5D -17.41pp; volume 1.45x 20D; price 2.97",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Lithium Americas Corp. Common Shares",
-        "exchange": "NYSE",
-        "sector": "Basic Materials",
-        "industry": "Metal Mining",
-        "market_cap": 1078237541.0,
-        "raw_priority": 63.8,
-        "raw_triggers": [
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|ALGM|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "ALGM triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "ALGM",
-      "market_reaction": "1D -3.02%; 5D -15.73%; sector-relative 5D -11.30pp; volume 0.95x 20D; price 37.19",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Allegro MicroSystems Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Semiconductors",
-        "market_cap": 6932292091.0,
-        "raw_priority": 63.6,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|OUST|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|OUST|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
@@ -2268,28 +619,985 @@
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "OUST",
-      "market_reaction": "1D -5.27%; 5D -15.91%; sector-relative 5D -12.87pp; volume 0.82x 20D; price 37.95",
+      "market_reaction": "1D 1.24%; 5D -21.13%; sector-relative 5D -18.63pp; volume 0.75x 20D; price 38.42",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "Ouster Inc. Common Stock",
         "exchange": "NASDAQ",
         "sector": "Industrials",
         "industry": "Industrial Machinery/Components",
-        "market_cap": 2736663037.0,
+        "market_cap": 2770555834.0,
+        "raw_priority": 71.7,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|TTMI|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "TTMI triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "TTMI",
+      "market_reaction": "1D -3.36%; 5D -21.04%; sector-relative 5D -17.76pp; volume 0.70x 20D; price 110.54",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "TTM Technologies Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Electrical Products",
+        "market_cap": 11645263427.0,
+        "raw_priority": 71.7,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|SHAZ|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "SHAZ triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "SHAZ",
+      "market_reaction": "1D -2.93%; 5D -22.75%; sector-relative 5D -19.47pp; volume 0.63x 20D; price 59.07",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "SharonAI Holdings Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "EDP Services",
+        "market_cap": 2114913040.0,
+        "raw_priority": 71.3,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FEIM|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "FEIM triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "FEIM",
+      "market_reaction": "1D -5.87%; 5D -21.64%; sector-relative 5D -19.15pp; volume 0.95x 20D; price 61.69",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Frequency Electronics Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Industrials",
+        "industry": "Electrical Products",
+        "market_cap": 675864783.0,
+        "raw_priority": 71.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|MXL|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "MXL triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "MXL",
+      "market_reaction": "1D 2.04%; 5D -21.49%; sector-relative 5D -18.20pp; volume 0.55x 20D; price 66.61",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "MaxLinear Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 6041073453.0,
+        "raw_priority": 71.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AMRC|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AMRC triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AMRC",
+      "market_reaction": "1D -3.65%; 5D -23.37%; sector-relative 5D -22.50pp; volume 0.98x 20D; price 21.38",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Ameresco Inc. Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Consumer Discretionary",
+        "industry": "Engineering & Construction",
+        "market_cap": 1134555591.0,
+        "raw_priority": 70.8,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|ENVX|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ENVX triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ENVX",
+      "market_reaction": "1D 3.36%; 5D -23.01%; sector-relative 5D -19.63pp; volume 0.75x 20D; price 3.38",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Enovix Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Miscellaneous",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 741736048.0,
+        "raw_priority": 70.2,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|BW|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "BW triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "BW",
+      "market_reaction": "1D -1.78%; 5D -19.53%; sector-relative 5D -17.04pp; volume 1.09x 20D; price 8.28",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Babcock & Wilcox Enterprises Inc. Common Stock",
+        "exchange": "NYSE",
+        "sector": "Industrials",
+        "industry": "Building Products",
+        "market_cap": 1233430746.0,
+        "raw_priority": 70.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FTK|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "FTK triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "FTK",
+      "market_reaction": "1D -1.32%; 5D -31.15%; sector-relative 5D -28.65pp; volume 0.80x 20D; price 24.67",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Flotek Industries Inc. Common Stock",
+        "exchange": "NYSE",
+        "sector": "Industrials",
+        "industry": "Major Chemicals",
+        "market_cap": 893557983.0,
+        "raw_priority": 70.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|UMAC|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "UMAC triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "UMAC",
+      "market_reaction": "1D 5.58%; 5D -19.47%; sector-relative 5D -16.18pp; volume 0.82x 20D; price 27.43",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Unusual Machines Inc. Common Stock",
+        "exchange": "AMEX",
+        "sector": "Technology",
+        "industry": "Radio And Television Broadcasting And Communications Equipment",
+        "market_cap": 1370306932.0,
+        "raw_priority": 69.6,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AEVA|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AEVA triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AEVA",
+      "market_reaction": "1D -3.07%; 5D -21.43%; sector-relative 5D -20.57pp; volume 0.57x 20D; price 18.29",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Aeva Technologies Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Consumer Discretionary",
+        "industry": "Auto Parts:O.E.M.",
+        "market_cap": 1274918314.0,
+        "raw_priority": 69.4,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|WOLF|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "WOLF triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "WOLF",
+      "market_reaction": "1D -2.24%; 5D -18.97%; sector-relative 5D -15.68pp; volume 0.77x 20D; price 25.76",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Wolfspeed Inc. Common Stock New",
+        "exchange": "NYSE",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 1338801322.0,
+        "raw_priority": 68.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|DQ|2026-08-21|1D_SHOCK",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "DQ triggered market-pricing anomaly: 1D_SHOCK",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "DQ",
+      "market_reaction": "1D -9.35%; 5D -7.24%; sector-relative 5D -3.96pp; volume 1.35x 20D; price 13.58",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "DAQO New Energy Corp. American Depositary Shares each representing five ordinary shares",
+        "exchange": "NYSE",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 918906140.0,
+        "raw_priority": 67.0,
+        "raw_triggers": [
+          "1D_SHOCK"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AVAV|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AVAV triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AVAV",
+      "market_reaction": "1D 0.27%; 5D -16.90%; sector-relative 5D -14.41pp; volume 0.98x 20D; price 160.22",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "AeroVironment Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Industrials",
+        "industry": "Aerospace",
+        "market_cap": 8142799375.0,
+        "raw_priority": 66.4,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|MTRN|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "MTRN triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "MTRN",
+      "market_reaction": "1D -0.33%; 5D -18.08%; sector-relative 5D -15.58pp; volume 0.56x 20D; price 231.96",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Materion Corporation",
+        "exchange": "NYSE",
+        "sector": "Industrials",
+        "industry": "Industrial Specialties",
+        "market_cap": 4832590851.0,
+        "raw_priority": 65.6,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|SHLS|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "SHLS triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "SHLS",
+      "market_reaction": "1D -3.80%; 5D -16.04%; sector-relative 5D -12.75pp; volume 1.37x 20D; price 7.09",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Shoals Technologies Group Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 1194088145.0,
+        "raw_priority": 65.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|RH|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "RH triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "RH",
+      "market_reaction": "1D -2.05%; 5D -15.71%; sector-relative 5D -14.84pp; volume 1.28x 20D; price 153.21",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "RH Common Stock",
+        "exchange": "NYSE",
+        "sector": "Consumer Discretionary",
+        "industry": "Other Specialty Stores",
+        "market_cap": 2895817460.0,
+        "raw_priority": 65.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FSLY|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "FSLY triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "FSLY",
+      "market_reaction": "1D 9.86%; 5D -16.64%; sector-relative 5D -13.35pp; volume 0.83x 20D; price 24.95",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Fastly Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Computer Software: Prepackaged Software",
+        "market_cap": 3974535000.0,
+        "raw_priority": 65.2,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|IOVA|2026-08-21|1D_SHOCK",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "IOVA triggered market-pricing anomaly: 1D_SHOCK",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "IOVA",
+      "market_reaction": "1D -7.79%; 5D 18.77%; sector-relative 5D 16.95pp; volume 1.41x 20D; price 8.29",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Iovance Biotherapeutics Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Health Care",
+        "industry": "Biotechnology: Biological Products (No Diagnostic Substances)",
+        "market_cap": 3755133171.0,
+        "raw_priority": 65.0,
+        "raw_triggers": [
+          "1D_SHOCK"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|ALGM|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ALGM triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ALGM",
+      "market_reaction": "1D -0.08%; 5D -16.29%; sector-relative 5D -13.00pp; volume 1.02x 20D; price 37.16",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Allegro MicroSystems Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 6926700029.0,
+        "raw_priority": 64.9,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|STUB|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "STUB triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "STUB",
+      "market_reaction": "1D -2.20%; 5D -17.33%; sector-relative 5D -16.46pp; volume 0.83x 20D; price 6.68",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "StubHub Holdings Inc. Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Consumer Discretionary",
+        "industry": "Services-Misc. Amusement & Recreation",
+        "market_cap": 2552360973.0,
+        "raw_priority": 64.9,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AADX|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AADX triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AADX",
+      "market_reaction": "1D -3.48%; 5D -16.52%; sector-relative 5D -14.02pp; volume 1.20x 20D; price 14.96",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Applied Aerospace & Defense Inc. Common Stock",
+        "exchange": "NYSE",
+        "sector": "Industrials",
+        "industry": "Military/Government/Technical",
+        "market_cap": 2579007029.0,
+        "raw_priority": 64.6,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AAOI|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AAOI triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AAOI",
+      "market_reaction": "1D -3.32%; 5D -16.94%; sector-relative 5D -13.66pp; volume 0.61x 20D; price 124.82",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Applied Optoelectronics Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 10555932162.0,
+        "raw_priority": 64.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|CEVA|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "CEVA triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "CEVA",
+      "market_reaction": "1D -0.50%; 5D -15.90%; sector-relative 5D -12.61pp; volume 1.29x 20D; price 27.99",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "CEVA Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Computer Software: Programming Data Processing",
+        "market_cap": 788032475.0,
+        "raw_priority": 64.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|PENG|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "PENG triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "PENG",
+      "market_reaction": "1D 2.89%; 5D -17.52%; sector-relative 5D -14.24pp; volume 0.48x 20D; price 52.62",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Penguin Solutions Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 2696390821.0,
+        "raw_priority": 64.4,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|LWLG|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "LWLG triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "LWLG",
+      "market_reaction": "1D 1.48%; 5D -18.23%; sector-relative 5D -15.74pp; volume 0.55x 20D; price 6.19",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Lightwave Logic Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Industrials",
+        "industry": "Containers/Packaging",
+        "market_cap": 954295308.0,
+        "raw_priority": 64.1,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|SEI|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "SEI triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "SEI",
+      "market_reaction": "1D -1.77%; 5D -15.83%; sector-relative 5D -14.96pp; volume 0.87x 20D; price 53.28",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Solaris Energy Infrastructure Inc. Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Consumer Discretionary",
+        "industry": "Oil and Gas Field Machinery",
+        "market_cap": 4079457366.0,
+        "raw_priority": 64.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|BLZE|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "BLZE triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "BLZE",
+      "market_reaction": "1D -2.71%; 5D -16.93%; sector-relative 5D -13.64pp; volume 0.72x 20D; price 15.80",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Backblaze Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Computer Software: Prepackaged Software",
+        "market_cap": 978020000.0,
+        "raw_priority": 63.9,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|CRWV|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "CRWV triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "CRWV",
+      "market_reaction": "1D -2.13%; 5D -16.54%; sector-relative 5D -13.25pp; volume 0.62x 20D; price 87.85",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "CoreWeave Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Computer Software: Prepackaged Software",
+        "market_cap": 48452490486.0,
+        "raw_priority": 63.9,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AMPX|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AMPX triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AMPX",
+      "market_reaction": "1D 1.37%; 5D -17.35%; sector-relative 5D -13.97pp; volume 0.55x 20D; price 10.34",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Amprius Technologies Inc. Common Stock",
+        "exchange": "NYSE",
+        "sector": "Miscellaneous",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 1510473590.0,
+        "raw_priority": 63.9,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|IPGP|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "IPGP triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "IPGP",
+      "market_reaction": "1D -1.57%; 5D -14.61%; sector-relative 5D -11.32pp; volume 1.48x 20D; price 73.26",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "IPG Photonics Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 3116080327.0,
+        "raw_priority": 63.6,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|HYLN|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "HYLN triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "HYLN",
+      "market_reaction": "1D -1.19%; 5D -17.98%; sector-relative 5D -17.11pp; volume 0.66x 20D; price 3.33",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Hyliion Holdings Corp. Class A Common Stock",
+        "exchange": "AMEX",
+        "sector": "Consumer Discretionary",
+        "industry": "Construction/Ag Equipment/Trucks",
+        "market_cap": 594728736.0,
         "raw_priority": 63.6,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|NXT|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|ATRO|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ATRO triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ATRO",
+      "market_reaction": "1D 2.55%; 5D -16.53%; sector-relative 5D -14.04pp; volume 0.78x 20D; price 78.00",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Astronics Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Industrials",
+        "industry": "Military/Government/Technical",
+        "market_cap": 3354706992.0,
+        "raw_priority": 63.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|NXT|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
@@ -2298,113 +1606,792 @@
       "first_order_impact": "",
       "second_order_lead": "",
       "affected_assets": "NXT",
-      "market_reaction": "1D -4.62%; 5D -15.96%; sector-relative 5D -11.53pp; volume 0.72x 20D; price 87.86",
+      "market_reaction": "1D -1.91%; 5D -15.07%; sector-relative 5D -11.78pp; volume 1.01x 20D; price 86.18",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
         "name": "Nextpower Inc. Class A Common Stock",
         "exchange": "NASDAQ",
         "sector": "Technology",
         "industry": "Semiconductors",
-        "market_cap": 13330955627.0,
-        "raw_priority": 63.4,
+        "market_cap": 13076050034.0,
+        "raw_priority": 63.5,
         "raw_triggers": [
           "5D_SHOCK",
           "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
       }
     },
     {
-      "intake_id": "PRICE|QMCO|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "intake_id": "PRICE|FG|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
       "input_lane": "MARKET_PRICING",
       "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
       "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "QMCO triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "event_economic_change": "FG triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
       "measurable_variable": "",
       "first_order_impact": "",
       "second_order_lead": "",
-      "affected_assets": "QMCO",
-      "market_reaction": "1D -5.97%; 5D -16.98%; sector-relative 5D -12.55pp; volume 0.60x 20D; price 20.49",
+      "affected_assets": "FG",
+      "market_reaction": "1D -0.31%; 5D -17.69%; sector-relative 5D -15.15pp; volume 0.61x 20D; price 22.57",
       "mispricing_hypothesis": "",
       "route_engine": "Shock / Narrative Mispricing",
       "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
       "source": {
-        "name": "Quantum Corporation Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Electronic Components",
-        "market_cap": 807510920.0,
-        "raw_priority": 63.2,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|NET|2026-08-20|5D_SHOCK+SECTOR_UNDERPERFORM",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "NET triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "NET",
-      "market_reaction": "1D -4.44%; 5D -15.69%; sector-relative 5D -11.26pp; volume 0.76x 20D; price 278.91",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Cloudflare Inc. Class A Common Stock",
+        "name": "F&G Annuities & Life Inc. Common Stock",
         "exchange": "NYSE",
-        "sector": "Technology",
-        "industry": "Computer Software: Prepackaged Software",
-        "market_cap": 99314193311.0,
-        "raw_priority": 63.2,
-        "raw_triggers": [
-          "5D_SHOCK",
-          "SECTOR_UNDERPERFORM"
-        ],
-        "volume_confirmation": false,
-        "last_date": "2026-08-20"
-      }
-    },
-    {
-      "intake_id": "PRICE|SANA|2026-08-20|1D_SHOCK",
-      "input_lane": "MARKET_PRICING",
-      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
-      "verification": "MARKET_DATA_VERIFIED",
-      "event_economic_change": "SANA triggered market-pricing anomaly: 1D_SHOCK",
-      "measurable_variable": "",
-      "first_order_impact": "",
-      "second_order_lead": "",
-      "affected_assets": "SANA",
-      "market_reaction": "1D -8.78%; 5D 1.91%; sector-relative 5D 0.43pp; volume 1.04x 20D; price 3.74",
-      "mispricing_hypothesis": "",
-      "route_engine": "Shock / Narrative Mispricing",
-      "lead_decision": "",
-      "last_checked": "2026-08-21T08:40:10.467504+07:00",
-      "source": {
-        "name": "Sana Biotechnology Inc. Common Stock",
-        "exchange": "NASDAQ",
-        "sector": "Health Care",
-        "industry": "Biotechnology: Biological Products (No Diagnostic Substances)",
-        "market_cap": 1119608782.0,
+        "sector": "Finance",
+        "industry": "Life Insurance",
+        "market_cap": 2955207667.0,
         "raw_priority": 63.1,
         "raw_triggers": [
-          "1D_SHOCK"
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
         ],
         "volume_confirmation": false,
-        "last_date": "2026-08-20"
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|LAC|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "LAC triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "LAC",
+      "market_reaction": "1D 5.72%; 5D -7.10%; sector-relative 5D -14.00pp; volume 1.29x 20D; price 3.14",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Lithium Americas Corp. Common Shares",
+        "exchange": "NYSE",
+        "sector": "Basic Materials",
+        "industry": "Metal Mining",
+        "market_cap": 1139954841.0,
+        "raw_priority": 63.1,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FCEL|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "FCEL triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "FCEL",
+      "market_reaction": "1D 6.43%; 5D -12.65%; sector-relative 5D -15.21pp; volume 0.86x 20D; price 19.54",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "FuelCell Energy Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Energy",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 1562304990.0,
+        "raw_priority": 62.6,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|INIO|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "INIO triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "INIO",
+      "market_reaction": "1D 0.70%; 5D -15.57%; sector-relative 5D -14.70pp; volume 0.76x 20D; price 23.16",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "INNIO N.V. Ordinary Shares",
+        "exchange": "NASDAQ",
+        "sector": "Consumer Discretionary",
+        "industry": "Metal Fabrications",
+        "market_cap": 17370000000.0,
+        "raw_priority": 62.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|MAIR|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "MAIR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "MAIR",
+      "market_reaction": "1D -0.99%; 5D -16.91%; sector-relative 5D -14.42pp; volume 0.40x 20D; price 25.99",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Madison Air Solutions Corporation Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Industrials",
+        "industry": "Pollution Control Equipment",
+        "market_cap": 13039770686.0,
+        "raw_priority": 62.5,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|MTSI|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "MTSI triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "MTSI",
+      "market_reaction": "1D 0.16%; 5D -15.75%; sector-relative 5D -12.46pp; volume 0.55x 20D; price 266.61",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "MACOM Technology Solutions Holdings Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 20361253914.0,
+        "raw_priority": 62.2,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|KN|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "KN triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "KN",
+      "market_reaction": "1D -2.03%; 5D -13.48%; sector-relative 5D -13.78pp; volume 1.15x 20D; price 33.32",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Knowles Corporation Common Stock",
+        "exchange": "NYSE",
+        "sector": "Consumer Staples",
+        "industry": "Consumer Electronics/Appliances",
+        "market_cap": 2845872062.0,
+        "raw_priority": 62.2,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|EROC|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "EROC triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "EROC",
+      "market_reaction": "1D 8.61%; 5D -15.49%; sector-relative 5D -18.05pp; volume 0.89x 20D; price 14.13",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "ERock Inc. Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Energy",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 3100123130.0,
+        "raw_priority": 62.1,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|TSEM|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "TSEM triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "TSEM",
+      "market_reaction": "1D -0.53%; 5D -16.16%; sector-relative 5D -12.87pp; volume 0.39x 20D; price 222.59",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Tower Semiconductor Ltd. Ordinary Shares",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 25159570290.0,
+        "raw_priority": 62.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FBIN|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "FBIN triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "FBIN",
+      "market_reaction": "1D -1.00%; 5D -6.92%; sector-relative 5D -13.82pp; volume 0.82x 20D; price 44.53",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Fortune Brands Innovations Inc. Common Stock",
+        "exchange": "NYSE",
+        "sector": "Basic Materials",
+        "industry": "Forest Products",
+        "market_cap": 5315611871.0,
+        "raw_priority": 62.0,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|FPS|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "FPS triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "FPS",
+      "market_reaction": "1D -0.54%; 5D -16.34%; sector-relative 5D -18.90pp; volume 0.34x 20D; price 33.18",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Forgent Power Solutions Inc. Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Energy",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 10100950537.0,
+        "raw_priority": 62.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|LAES|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "LAES triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "LAES",
+      "market_reaction": "1D 1.60%; 5D -15.61%; sector-relative 5D -12.33pp; volume 0.84x 20D; price 2.54",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "SEALSQ Corp Ordinary Shares",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 565845957.0,
+        "raw_priority": 61.8,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|BRUN|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "BRUN triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "BRUN",
+      "market_reaction": "1D 0.59%; 5D -14.91%; sector-relative 5D -11.63pp; volume 0.89x 20D; price 19.51",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Boost Run Inc. Class A Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "EDP Services",
+        "market_cap": 1550799974.0,
+        "raw_priority": 61.3,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|ALOY|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ALOY triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ALOY",
+      "market_reaction": "1D 12.92%; 5D -15.08%; sector-relative 5D -21.98pp; volume 0.84x 20D; price 12.50",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "REalloys Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Basic Materials",
+        "industry": "Metal Mining",
+        "market_cap": 862345525.0,
+        "raw_priority": 61.2,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|AIP|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "AIP triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "AIP",
+      "market_reaction": "1D -0.29%; 5D -15.64%; sector-relative 5D -12.36pp; volume 0.82x 20D; price 23.89",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Arteris Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 1174243717.0,
+        "raw_priority": 61.0,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|LINC|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "LINC triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "LINC",
+      "market_reaction": "1D -1.68%; 5D -14.09%; sector-relative 5D -13.75pp; volume 0.97x 20D; price 25.72",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Lincoln Educational Services Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Real Estate",
+        "industry": "Other Consumer Services",
+        "market_cap": 815876440.0,
+        "raw_priority": 61.0,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|NB|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "NB triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "NB",
+      "market_reaction": "1D 8.16%; 5D -9.20%; sector-relative 5D -16.10pp; volume 1.00x 20D; price 4.64",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "NioCorp Developments Ltd. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Basic Materials",
+        "industry": "Metal Mining",
+        "market_cap": 675523903.0,
+        "raw_priority": 61.0,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|ALNT|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ALNT triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ALNT",
+      "market_reaction": "1D -3.61%; 5D -13.98%; sector-relative 5D -11.48pp; volume 1.22x 20D; price 95.84",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Allient Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Industrials",
+        "industry": "Electrical Products",
+        "market_cap": 1629520654.0,
+        "raw_priority": 60.9,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|KALU|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "KALU triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "KALU",
+      "market_reaction": "1D 1.99%; 5D -15.17%; sector-relative 5D -12.68pp; volume 0.75x 20D; price 154.16",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Kaiser Aluminum Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Industrials",
+        "industry": "Metal Fabrications",
+        "market_cap": 2520376023.0,
+        "raw_priority": 60.8,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|MEI|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "MEI triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "MEI",
+      "market_reaction": "1D -1.31%; 5D -16.69%; sector-relative 5D -13.40pp; volume 0.57x 20D; price 14.28",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Methode Electronics Inc. Common Stock",
+        "exchange": "NYSE",
+        "sector": "Technology",
+        "industry": "Electrical Products",
+        "market_cap": 506537390.0,
+        "raw_priority": 60.6,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|ALGN|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ALGN triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ALGN",
+      "market_reaction": "1D 2.27%; 5D -10.35%; sector-relative 5D -12.17pp; volume 1.05x 20D; price 162.55",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Align Technology Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Health Care",
+        "industry": "Industrial Specialties",
+        "market_cap": 11547527943.0,
+        "raw_priority": 60.5,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|ICHR|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "ICHR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "ICHR",
+      "market_reaction": "1D 2.26%; 5D -15.27%; sector-relative 5D -11.99pp; volume 0.55x 20D; price 60.20",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Ichor Holdings Ordinary Shares",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Semiconductors",
+        "market_cap": 2254744586.0,
+        "raw_priority": 60.3,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|TLN|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "TLN triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "TLN",
+      "market_reaction": "1D -0.80%; 5D -13.31%; sector-relative 5D -10.12pp; volume 0.97x 20D; price 314.46",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Talen Energy Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Utilities",
+        "industry": "Electric Utilities: Central",
+        "market_cap": 15067117885.0,
+        "raw_priority": 60.3,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|BE|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "BE triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "BE",
+      "market_reaction": "1D -0.51%; 5D -12.39%; sector-relative 5D -14.95pp; volume 0.44x 20D; price 201.45",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Bloom Energy Corporation Class A Common Stock",
+        "exchange": "NYSE",
+        "sector": "Energy",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 59332533852.0,
+        "raw_priority": 60.3,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|CRSR|2026-08-21|5D_SHOCK+SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "CRSR triggered market-pricing anomaly: 5D_SHOCK, SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "CRSR",
+      "market_reaction": "1D 0.18%; 5D -15.86%; sector-relative 5D -12.57pp; volume 0.52x 20D; price 10.93",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Corsair Gaming Inc. Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Computer peripheral equipment",
+        "market_cap": 1182374162.0,
+        "raw_priority": 60.2,
+        "raw_triggers": [
+          "5D_SHOCK",
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
+      }
+    },
+    {
+      "intake_id": "PRICE|VICR|2026-08-21|SECTOR_UNDERPERFORM",
+      "input_lane": "MARKET_PRICING",
+      "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
+      "verification": "MARKET_DATA_VERIFIED",
+      "event_economic_change": "VICR triggered market-pricing anomaly: SECTOR_UNDERPERFORM",
+      "measurable_variable": "",
+      "first_order_impact": "",
+      "second_order_lead": "",
+      "affected_assets": "VICR",
+      "market_reaction": "1D -3.42%; 5D -14.57%; sector-relative 5D -11.28pp; volume 0.56x 20D; price 200.54",
+      "mispricing_hypothesis": "",
+      "route_engine": "Shock / Narrative Mispricing",
+      "lead_decision": "",
+      "last_checked": "2026-08-22T06:03:17.103100+07:00",
+      "source": {
+        "name": "Vicor Corporation Common Stock",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Industrial Machinery/Components",
+        "market_cap": 9246244035.0,
+        "raw_priority": 60.2,
+        "raw_triggers": [
+          "SECTOR_UNDERPERFORM"
+        ],
+        "volume_confirmation": false,
+        "last_date": "2026-08-21"
       }
     }
   ]
