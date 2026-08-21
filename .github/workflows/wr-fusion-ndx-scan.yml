@@ -1,0 +1,109 @@
+name: WR Fusion NDX 5m10m Viability
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-fusion-ndx-scan.yml'
+      - 'wave-rider-verify/wr_fusion_ndx_scan.py'
+      - 'wave-rider-verify/wr_dukascopy_expanded_matrix.py'
+      - 'wave-rider-verify/wr_tv_parity.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        symbol: [AAPL,ABNB,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,APP,ARM,ASML,AVGO,AXON,BKNG,BKR,CCEP,CDNS,CEG,CHTR,CMCSA,COST,CPRT,CRWD,CSCO,CSGP,CSX,CTAS,CTSH,DASH,DDOG,DXCM,EA,EXC,FANG,FAST,FER,FTNT,GEHC,GILD,GOOG,GOOGL,HON,IDXX,INSM,INTC,INTU,ISRG,KDP,KHC,KLAC,LIN,LRCX,MAR,MCHP,MDLZ,MELI,META,MNST,MPWR,MRVL,MSFT,MSTR,MU,NFLX,NVDA,NXPI,ODFL,ORLY,PANW,PAYX,PCAR,PDD,PEP,PLTR,PYPL,QCOM,REGN,ROP,ROST,SBUX,SHOP,SNDK,SNPS,STX,TMUS,TRI,TSLA,TTWO,TXN,VRSK,VRTX,WBD,WDAY,WDC,WMT,XEL,ZS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run 5m 10m core-universe scan
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          WR_OUT: /tmp/wr-fusion-ndx
+        run: python3 wave-rider-verify/wr_fusion_ndx_scan.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-fusion-ndx-${{ matrix.symbol }}
+          path: /tmp/wr-fusion-ndx
+          retention-days: 14
+  merge:
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-fusion-ndx-*
+          path: /tmp/all
+      - name: Build viability surface and concurrency-normalized portfolios
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,collections,statistics,math
+          root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          summaries=[]; trades=[]
+          for p in root.rglob('summary-*.json'):
+            try:summaries.append(json.loads(p.read_text()))
+            except:pass
+          for p in root.rglob('trades-*.jsonl'):
+            for line in p.read_text().splitlines():
+              if line.strip():
+                try:trades.append(json.loads(line))
+                except:pass
+          def netr(t,bps):
+            d=abs(float(t['e'])-float(t['s']))
+            return float(t['R'])-(0 if d<=0 else (float(t['e'])/d)*(bps/10000.0))
+          surface={}
+          for bps in [0,0.25,0.5,0.75,1,1.5,2,3,5]:
+            rows=[]
+            for s in summaries:
+              if s.get('status') not in ('OK','SHORT_HISTORY'):continue
+              k=str(float(bps))
+              m=s.get('cost_grid',{}).get(k) or (s.get('gross') if bps==0 else None)
+              if m: rows.append((s['symbol'],s['tf'],m.get('net_R',0),m.get('avg_R'),m.get('PF'),m.get('n',0)))
+            surface[str(bps)]={'cases':len(rows),'positive_cases':sum(x[2]>0 for x in rows),'total_R':sum(x[2] for x in rows),'trades':sum(x[5] for x in rows)}
+          # Simple chronological capacity model. Treat signal->exit as occupying one risk slot.
+          def portfolio(bps,risk_pct,max_slots):
+            xs=[]
+            for t in trades:
+              try:xs.append((int(t['signal']),int(t['exit']),netr(t,bps),t.get('symbol'),t.get('tf')))
+              except:pass
+            xs.sort();active=[];eq=100.0;peak=100.0;mdd=0.0;accepted=0;skipped=0;yearR=collections.defaultdict(float)
+            import datetime
+            for st,en,r,sym,tf in xs:
+              active=[x for x in active if x>st]
+              if len(active)>=max_slots:
+                skipped+=1;continue
+              active.append(en);accepted+=1
+              pnl=r*risk_pct;eq+=pnl;peak=max(peak,eq);mdd=min(mdd,eq-peak)
+              y=datetime.datetime.utcfromtimestamp(st/1000).year;yearR[y]+=r
+            return {'accepted':accepted,'skipped_capacity':skipped,'end_return_pct_simple':eq-100,'max_drawdown_pct_simple':mdd,'R_total':sum(yearR.values()),'R_by_year':dict(sorted(yearR.items()))}
+          ports={}
+          for bps in [0.25,0.5,0.75,1,1.5,2]:
+            ports[str(bps)]={'risk_0.5_cap5pct':portfolio(bps,0.5,10),'risk_1_cap5pct':portfolio(bps,1.0,5)}
+          # Pepperstone commission-only floor: $0.02/share/side, no spread markup; underlying spread excluded.
+          pp=[]
+          for s in summaries:
+            p=s.get('pepperstone_commission_floor')
+            if p and p.get('n',0):pp.append((s['symbol'],s['tf'],p['net_R'],p['n']))
+          report={'purpose':'Fusion guaranteed Nasdaq-100 core universe 5m/10m viability; current-constituent tradability screen, not survivorship-bias-free OOS','summary_count':len(summaries),'available_cases':sum(s.get('status') in ('OK','SHORT_HISTORY') for s in summaries),'unavailable_cases':sum(s.get('status')=='UNAVAILABLE' for s in summaries),'surface':surface,'portfolios':ports,'pepperstone_commission_only_floor':{'cases':len(pp),'positive_cases':sum(x[2]>0 for x in pp),'total_R_before_underlying_spread':sum(x[2] for x in pp)},'summaries':summaries}
+          (out/'fusion-ndx-viability.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps({k:report[k] for k in ('summary_count','available_cases','unavailable_cases')},indent=2));print('SURFACE',json.dumps(surface));print('PEPPER',report['pepperstone_commission_only_floor'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-fusion-ndx-final
+          path: /tmp/final
+          retention-days: 30
