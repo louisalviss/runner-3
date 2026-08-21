@@ -1,11 +1,11 @@
-name: Runner3 Speed Site3 Functional v8
+name: Runner3 Speed Site3 Functional v1.2.0
 
 on:
   push:
     branches:
       - runner3-speed-site3-realistic-20260821
     paths:
-      - '.github/workflows/runner3-speed-site3-functional-v8.yml'
+      - 'ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json'
   workflow_dispatch:
 
 permissions:
@@ -16,11 +16,11 @@ env:
   CHROME_PATH: /usr/bin/google-chrome
 
 concurrency:
-  group: runner3-speed-site3-functional-v8
+  group: runner3-speed-site3-functional-v120
   cancel-in-progress: true
 
 jobs:
-  functional-v8:
+  functional-v120:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -29,16 +29,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Prepare
+      - name: Prepare v1.2.0 functional harness
         run: |
           set -euo pipefail
+          python - <<'PY'
+          p='scripts/runner3-speed-site3-functional-v8.mjs'
+          s=open(p).read()
+          s=s.replace("const result={status:'starting',contentExact:false,routesPass:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};",
+                      "const result={status:'starting',contentExact:false,routesPass:false,safeFrontend:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};")
+          old="""const dom=await p.evaluate(()=>({title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer')}));"""
+          new="""const dom=await p.evaluate(()=>{const imgs=[...document.images];const first=imgs[0]||null;const frames=[...document.querySelectorAll('iframe')];return{title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:imgs.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),firstImageLoading:first?.getAttribute('loading')||null,firstImagePriority:first?.getAttribute('fetchpriority')||null,lcpPreloads:document.querySelectorAll('link[data-runner3-speed=\"lcp\"][rel=\"preload\"][as=\"image\"]').length,iframes:frames.length,iframesLazy:frames.every(x=>x.getAttribute('loading')==='lazy')};});"""
+          if old not in s: raise SystemExit('dom probe target missing')
+          s=s.replace(old,new)
+          old2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,noFailedRequests:failed.length===0};"""
+          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,safeFirstImage:dom.images===0||(dom.firstImageLoading==='eager'&&dom.firstImagePriority==='high'&&dom.lcpPreloads>=1),safeIframes:dom.iframesLazy,noFailedRequests:failed.length===0};"""
+          if old2 not in s: raise SystemExit('route check target missing')
+          s=s.replace(old2,new2)
+          s=s.replace("result.routesPass=result.routeChecks.every(x=>x.pass);","result.routesPass=result.routeChecks.every(x=>x.pass);result.safeFrontend=result.routeChecks.every(x=>x.safeFirstImage&&x.safeIframes);")
+          s=s.replace("result.gates={contentExact:result.contentExact,routesPass:result.routesPass,queryBypass:result.queryBypass,apiBypass:result.apiBypass,autoPurge:result.autoPurge,purgeProbeRestored:result.purgeProbeRestored,finalOff:result.finalOff};",
+                      "result.gates={contentExact:result.contentExact,routesPass:result.routesPass,safeFrontend:result.safeFrontend,queryBypass:result.queryBypass,apiBypass:result.apiBypass,autoPurge:result.autoPurge,purgeProbeRestored:result.purgeProbeRestored,finalOff:result.finalOff};")
+          open(p,'w').write(s)
+          PY
           node --check scripts/runner3-speed-site3-functional-v8.mjs
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q 'Version: 1.2.0' wordpress/runner3-speed/runner3-speed.php
           npm install --no-save playwright-core@1.58.2
           test -n "${AUTOMATION_KEY:-}"
           echo '::add-mask::'"$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
-      - name: Run corrected functional lifecycle
+      - name: Run full functional and Safe Frontend regression
         run: |
           set -euo pipefail
           node scripts/runner3-speed-site3-functional-v8.mjs
@@ -47,6 +68,7 @@ jobs:
           import json
           r=json.load(open('/tmp/runner3-speed-site3-functional-v8.json'))
           assert r['status']=='PASS',r
+          assert r['safeFrontend'] is True,r
           assert all(r['gates'].values()),r
           print(json.dumps(r,indent=2))
           PY
@@ -59,15 +81,17 @@ jobs:
           p='/tmp/runner3-speed-site3-functional-v8.json'
           r=json.load(open(p)) if os.path.exists(p) else {'status':'MISSING'}
           r['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          os.makedirs('ops/site-factory',exist_ok=True)
-          json.dump(r,open('ops/site-factory/runner3-speed-site3-functional-v8.latest.json','w'),indent=2)
+          os.makedirs('/tmp/r3-v120',exist_ok=True)
+          json.dump(r,open('/tmp/r3-v120/runner3-speed-site3-functional-v120.latest.json','w'),indent=2)
           PY
-          git config user.name 'runner3-speed-site3-functional-v8-bot'
-          git config user.email 'runner3-speed-site3-functional-v8-bot@users.noreply.github.com'
+          git config user.name 'runner3-speed-site3-functional-v120-bot'
+          git config user.email 'runner3-speed-site3-functional-v120-bot@users.noreply.github.com'
           git fetch origin runner3-speed-site3-realistic-20260821
           git reset --hard origin/runner3-speed-site3-realistic-20260821
-          git add -- ops/site-factory/runner3-speed-site3-functional-v8.latest.json
-          if ! git diff --cached --quiet; then git commit -m 'test: record Site 3 functional v8 evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+          mkdir -p ops/site-factory
+          cp /tmp/r3-v120/runner3-speed-site3-functional-v120.latest.json ops/site-factory/runner3-speed-site3-functional-v120.latest.json
+          git add -- ops/site-factory/runner3-speed-site3-functional-v120.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record Runner3 Speed v1.2.0 functional evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
       - name: Cleanup
         if: always()
         run: rm -f /tmp/wasmer-account.json
