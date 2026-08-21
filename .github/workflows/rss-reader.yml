@@ -10,7 +10,6 @@ on:
       - "scripts/rss_reader_collect_v2.py"
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
-      - "scripts/rss_vhh_prefetch.py"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -40,38 +39,12 @@ jobs:
           cache: pip
 
       - name: Install collector dependencies
-        run: python -m pip install "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
+        run: python -m pip install --disable-pip-version-check -q "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
 
       - name: Run canonical RSS ingestion gate
         id: rss
         continue-on-error: true
         run: python scripts/rss_reader_run.py
-
-      - name: Prefetch new VHH canonical articles
-        id: vhh_prefetch
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          rm -rf /tmp/rss-vhh-prefetch
-          python scripts/rss_vhh_prefetch.py --run-id "${{ github.run_id }}" --max-items 3 | tee /tmp/rss-vhh-prefetch.log
-          rc=${PIPESTATUS[0]}
-          if [[ -s /tmp/rss-vhh-prefetch/payload.json ]]; then
-            echo "has_payload=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_payload=false" >> "$GITHUB_OUTPUT"
-          fi
-          exit "$rc"
-
-      - name: Upload VHH prefetched article payload
-        if: always() && steps.vhh_prefetch.outputs.has_payload == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rss-vhh-prefetch-${{ github.run_id }}
-          path: /tmp/rss-vhh-prefetch/payload.json
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 6
 
       - name: Upload per-run health
         if: always()
@@ -85,7 +58,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Persist source mirrors, health and VHH prefetch index
+      - name: Persist source mirrors and latest health snapshots
         if: always() && steps.checkout.outcome == 'success'
         shell: bash
         run: |
@@ -97,14 +70,13 @@ jobs:
           [[ -f data/rss-reader/health.json ]] && git add data/rss-reader/health.json
           [[ -f data/rss-reader/substack-health.json ]] && git add data/rss-reader/substack-health.json
           [[ -f data/rss-reader/runtime-health.json ]] && git add data/rss-reader/runtime-health.json
-          [[ -f data/rss-reader/vhh-prefetch-index.json ]] && git add data/rss-reader/vhh-prefetch-index.json
 
           if git diff --cached --quiet; then
-            echo "No RSS mirror, health or VHH prefetch-index changes"
+            echo "No RSS mirror or health changes"
             exit 0
           fi
 
-          git commit -m "Update Runner3 RSS mirrors, health and VHH prefetch index [skip ci]"
+          git commit -m "Update Runner3 RSS mirrors and health [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
 
@@ -115,5 +87,4 @@ jobs:
           set -euo pipefail
           outcome='${{ steps.rss.outcome }}'
           echo "rss=$outcome"
-          echo "vhh_prefetch=${{ steps.vhh_prefetch.outcome }}"
           [[ "$outcome" == "success" ]]
