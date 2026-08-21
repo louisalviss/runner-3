@@ -6,6 +6,7 @@ on:
       - runner3-speed-site3-realistic-20260821
     paths:
       - 'ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json'
+      - '.github/workflows/runner3-speed-site3-functional-v8.yml'
   workflow_dispatch:
 
 permissions:
@@ -97,3 +98,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: rm -f /tmp/wasmer-account.json
+
+# manual-trigger: 2026-08-22T05:28+07:00
