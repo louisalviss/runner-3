@@ -1,0 +1,62 @@
+name: Runner3 PSI Existing Report Parse
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-psi-report-parse.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-speed-psi-report-parse
+  cancel-in-progress: true
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch existing report HTML
+        run: |
+          set -euo pipefail
+          base='https://pagespeed.web.dev/analysis/https-runner3-speed-site3-realistic-wasmer-app/5ed7pocrl4?hl=en'
+          for device in mobile desktop; do
+            curl -L --compressed --max-time 45 -A 'Mozilla/5.0' "$base&form_factor=$device" -o "/tmp/$device.html"
+            wc -c "/tmp/$device.html"
+          done
+          python - <<'PY'
+          import re,json
+          out={}
+          for d in ('mobile','desktop'):
+              s=open('/tmp/'+d+'.html',errors='ignore').read()
+              out[d]={
+                'bytes':len(s),
+                'gauges':re.findall(r'lh-gauge__percentage[^>]*>\s*([^<]+)',s)[:30],
+                'captured':re.findall(r'Captured at[^<]{0,120}',s,re.I)[:10],
+                'form_factor_mentions':re.findall(r'.{0,100}form_factor.{0,160}',s,re.I)[:20],
+                'performance_mentions':re.findall(r'.{0,100}Performance.{0,180}',s,re.I)[:30],
+                'lighthouse_mentions':re.findall(r'.{0,100}Lighthouse.{0,180}',s,re.I)[:20]
+              }
+          open('/tmp/psi-html-diag.json','w').write(json.dumps(out,indent=2))
+          PY
+          cat /tmp/psi-html-diag.json
+      - name: Persist
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s /tmp/psi-html-diag.json || echo '{"error":"missing"}' >/tmp/psi-html-diag.json
+          git config user.name 'runner3-speed-psi-report-parse-bot'
+          git config user.email 'runner3-speed-psi-report-parse-bot@users.noreply.github.com'
+          git fetch origin runner3-speed-site3-realistic-20260821
+          git reset --hard origin/runner3-speed-site3-realistic-20260821
+          mkdir -p ops/site-factory
+          cp /tmp/psi-html-diag.json ops/site-factory/runner3-speed-psi-html-diag.json
+          git add -- ops/site-factory/runner3-speed-psi-html-diag.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record PSI HTML diagnostic' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
