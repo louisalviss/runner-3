@@ -1,15 +1,35 @@
 {
   "version": 1,
   "policy": "lazy-selected-analysis-fetch; parallel-batch; raw-text-artifact-ttl-7d; repo-stores-pointer-only",
-  "updatedAt": "2026-08-21T01:58:33Z",
-  "latestRequestId": "test-lazy-20260821-0844",
-  "latestRunId": 32437590881,
-  "latestArtifactName": "rss-analysis-test-lazy-20260821-0844-32437590881",
-  "requestedCount": 2,
+  "updatedAt": "2026-08-21T02:37:51Z",
+  "latestRequestId": "test-hqt-lazy-20260821-0937",
+  "latestRunId": 32440506141,
+  "latestArtifactName": "rss-analysis-test-hqt-lazy-20260821-0937-32440506141",
+  "requestedCount": 1,
   "cacheHitCount": 0,
-  "fetchedCount": 2,
+  "fetchedCount": 1,
   "errorCount": 0,
   "entries": {
+    "https://hoquoctuan.substack.com/p/oc-cham-168-cao-buoc-ai-gian-lan": {
+      "displayIndex": 1,
+      "sourceKey": "hoquoctuan",
+      "sourceName": "Hồ Quốc Tuấn / Đọc Chậm",
+      "canonicalUrl": "https://hoquoctuan.substack.com/p/oc-cham-168-cao-buoc-ai-gian-lan",
+      "title": "Đọc Chậm 16/8: Cáo buộc \"Đại gian lận trung chuyển\" - Nên hiểu sao về việc Việt Nam vào vùng ngắm \"Tier 2\" của Mỹ?",
+      "publishedAt": "2026-08-15T00:00:00Z",
+      "contentHash": null,
+      "itemType": "article",
+      "runId": 32440506141,
+      "requestId": "test-hqt-lazy-20260821-0937",
+      "artifactName": "rss-analysis-test-hqt-lazy-20260821-0937-32440506141",
+      "route": "jina-live",
+      "coverage": "best_accessible",
+      "chars": 22943,
+      "rawTextSha256": "sha256:0de49ab3f4cbe42c2b92ad3547bffefb40746bcc8c2bbd9c6d714386a780d183",
+      "fetchedAt": "2026-08-21T02:37:51Z",
+      "expiresAt": "2026-08-28T02:37:51Z",
+      "status": "ready"
+    },
     "https://www.quantamagazine.org/are-we-thinking-correctly-about-ai-intelligence-20260820/": {
       "displayIndex": 2,
       "sourceKey": "quanta",
@@ -52,26 +72,17 @@
     }
   },
   "latestRequest": {
-    "requestId": "test-lazy-20260821-0844",
+    "requestId": "test-hqt-lazy-20260821-0937",
     "cacheHits": [],
     "fetched": [
       {
-        "displayIndex": 2,
-        "sourceKey": "quanta",
-        "canonicalUrl": "https://www.quantamagazine.org/are-we-thinking-correctly-about-ai-intelligence-20260820/",
-        "route": "direct",
-        "chars": 49846,
-        "rawTextSha256": "sha256:e647c380bc31ff7d07aad62e8361e67b21295ff2f310260c923939c4770f9bd8",
-        "artifactName": "rss-analysis-test-lazy-20260821-0844-32437590881"
-      },
-      {
         "displayIndex": 1,
-        "sourceKey": "vohoanghac",
-        "canonicalUrl": "https://vohoanghac.com/p/ngam-ve-du-lieu-qua-khu-va-thuc-te",
-        "route": "direct",
-        "chars": 5473,
-        "rawTextSha256": "sha256:6e50f975287fa11e20b0800f6b33f9c083cc972ac1eaf70b4d27c2ed3bbc0129",
-        "artifactName": "rss-analysis-test-lazy-20260821-0844-32437590881"
+        "sourceKey": "hoquoctuan",
+        "canonicalUrl": "https://hoquoctuan.substack.com/p/oc-cham-168-cao-buoc-ai-gian-lan",
+        "route": "jina-live",
+        "chars": 22943,
+        "rawTextSha256": "sha256:0de49ab3f4cbe42c2b92ad3547bffefb40746bcc8c2bbd9c6d714386a780d183",
+        "artifactName": "rss-analysis-test-hqt-lazy-20260821-0937-32440506141"
       }
     ],
     "errors": []
