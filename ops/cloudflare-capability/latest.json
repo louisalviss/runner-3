@@ -1,20 +1,83 @@
 {
-  "status": "partial",
-  "checkedAt": "2026-08-21T22:12:42.395937Z",
-  "zonesHttp": 200,
-  "zonesReadable": true,
-  "zoneNames": [],
-  "pntrZoneVisible": false,
-  "workersHttp": 200,
-  "workersReadable": true,
-  "wordpressEdgeProxyVisible": true,
-  "pagesHttp": 400,
-  "pagesReadable": false,
-  "pagesProjectNames": [],
-  "pagesErrors": [
-    {
-      "code": 8000024,
-      "message": "Invalid list options provided. Review the `page` or `per_page` parameter."
+  "status": "ok",
+  "checkedAt": "2026-08-21T22:17:07.346032Z",
+  "credentialUsable": true,
+  "cleanupOk": true,
+  "services": {
+    "zones": {
+      "read": true,
+      "readHttp": 200,
+      "count": 0,
+      "errorCodes": []
+    },
+    "workers": {
+      "read": true,
+      "readHttp": 200,
+      "count": 15,
+      "errorCodes": [],
+      "writeCreate": false,
+      "cleanupDelete": false,
+      "writeHttp": 400,
+      "deleteHttp": null,
+      "writeErrorCodes": [
+        10021
+      ]
+    },
+    "pages": {
+      "read": false,
+      "readHttp": 400,
+      "count": null,
+      "errorCodes": [
+        8000024
+      ],
+      "writeCreate": true,
+      "cleanupDelete": true,
+      "writeHttp": 200,
+      "deleteHttp": 200,
+      "writeErrorCodes": [],
+      "deleteErrorCodes": []
+    },
+    "kv": {
+      "read": false,
+      "readHttp": 401,
+      "count": null,
+      "errorCodes": [
+        10000
+      ],
+      "writeCreate": false,
+      "cleanupDelete": false,
+      "writeHttp": 401,
+      "deleteHttp": null,
+      "writeErrorCodes": [
+        10000
+      ]
+    },
+    "r2": {
+      "read": true,
+      "readHttp": 200,
+      "count": 1,
+      "errorCodes": [],
+      "writeCreate": true,
+      "cleanupDelete": true,
+      "writeHttp": 200,
+      "deleteHttp": 200,
+      "writeErrorCodes": [],
+      "deleteErrorCodes": []
+    },
+    "d1": {
+      "read": false,
+      "readHttp": 401,
+      "count": null,
+      "errorCodes": [
+        10000
+      ],
+      "writeCreate": false,
+      "cleanupDelete": false,
+      "writeHttp": 401,
+      "deleteHttp": null,
+      "writeErrorCodes": [
+        10000
+      ]
     }
-  ]
+  }
 }
