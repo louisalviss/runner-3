@@ -11,10 +11,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: runner3-speed-psi-ui-diag
+  cancel-in-progress: true
+
 jobs:
   diag:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,24 +34,28 @@ jobs:
           const out={};
           for(const device of ['mobile','desktop']){
             const ctx=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1000}});const p=await ctx.newPage();
-            await p.goto(base+'&form_factor='+device,{waitUntil:'domcontentloaded',timeout:120000});
-            await p.waitForFunction(()=>[...document.querySelectorAll('.lh-gauge__percentage')].some(x=>(x.textContent||'').trim()),null,{timeout:180000});
-            await new Promise(r=>setTimeout(r,3000));
-            out[device]=await p.evaluate(()=>{
-              const gauges=[...document.querySelectorAll('.lh-gauge__percentage')].map((el,i)=>{const r=el.getBoundingClientRect();let a=el;const chain=[];for(let n=0;n<5&&a;n++,a=a.parentElement){chain.push({tag:a.tagName,cls:a.className||'',id:a.id||'',hidden:a.hidden,ariaHidden:a.getAttribute('aria-hidden'),display:getComputedStyle(a).display,visibility:getComputedStyle(a).visibility,width:a.getBoundingClientRect().width,height:a.getBoundingClientRect().height})}return{i,text:(el.textContent||'').trim(),visible:!!(r.width&&r.height)&&getComputedStyle(el).visibility!=='hidden'&&getComputedStyle(el).display!=='none',chain}});
-              const tabs=[...document.querySelectorAll('[role="tab"],button')].map((el,i)=>({i,text:(el.textContent||'').trim(),role:el.getAttribute('role'),selected:el.getAttribute('aria-selected'),controls:el.getAttribute('aria-controls'),cls:el.className||''})).filter(x=>/mobile|desktop/i.test(x.text));
-              const panels=[...document.querySelectorAll('[role="tabpanel"]')].map((el,i)=>({i,id:el.id,hidden:el.hidden,ariaHidden:el.getAttribute('aria-hidden'),text:(el.innerText||'').slice(0,500),gauges:[...el.querySelectorAll('.lh-gauge__percentage')].map(x=>(x.textContent||'').trim()),display:getComputedStyle(el).display,visibility:getComputedStyle(el).visibility}));
-              return{url:location.href,title:document.title,gauges,tabs,panels,bodyHead:(document.body.innerText||'').slice(0,2000)};
-            });
+            try{
+              await p.goto(base+'&form_factor='+device,{waitUntil:'domcontentloaded',timeout:120000});
+              await new Promise(r=>setTimeout(r,12000));
+              out[device]=await p.evaluate(()=>{
+                const gauges=[...document.querySelectorAll('.lh-gauge__percentage')].map((el,i)=>{const r=el.getBoundingClientRect();let a=el;const chain=[];for(let n=0;n<6&&a;n++,a=a.parentElement){chain.push({tag:a.tagName,cls:a.className||'',id:a.id||'',hidden:a.hidden,ariaHidden:a.getAttribute('aria-hidden'),display:getComputedStyle(a).display,visibility:getComputedStyle(a).visibility,width:a.getBoundingClientRect().width,height:a.getBoundingClientRect().height})}return{i,text:(el.textContent||'').trim(),visible:!!(r.width&&r.height)&&getComputedStyle(el).visibility!=='hidden'&&getComputedStyle(el).display!=='none',chain}});
+                const tabs=[...document.querySelectorAll('[role="tab"],button,a')].map((el,i)=>({i,text:(el.textContent||'').trim(),role:el.getAttribute('role'),selected:el.getAttribute('aria-selected'),controls:el.getAttribute('aria-controls'),href:el.getAttribute('href'),cls:el.className||''})).filter(x=>/mobile|desktop/i.test(x.text));
+                const panels=[...document.querySelectorAll('[role="tabpanel"],section,main')].map((el,i)=>({i,tag:el.tagName,id:el.id,role:el.getAttribute('role'),hidden:el.hidden,ariaHidden:el.getAttribute('aria-hidden'),text:(el.innerText||'').slice(0,700),gauges:[...el.querySelectorAll('.lh-gauge__percentage')].map(x=>(x.textContent||'').trim()),display:getComputedStyle(el).display,visibility:getComputedStyle(el).visibility})).filter(x=>x.gauges.length||/mobile|desktop|performance/i.test(x.text));
+                const scripts=[...document.scripts].map((s,i)=>({i,type:s.type||'',id:s.id||'',len:(s.textContent||'').length,head:(s.textContent||'').slice(0,500)})).filter(x=>/lighthouse|form_factor|performance|loadingExperience/i.test(x.head));
+                return{url:location.href,title:document.title,gauges,tabs,panels,scripts,bodyHead:(document.body.innerText||'').slice(0,3000)};
+              });
+            }catch(e){out[device]={error:String(e?.stack||e),url:p.url()}}
             await ctx.close();
           }
           await browser.close();fs.writeFileSync('/tmp/diag.json',JSON.stringify(out,null,2));
           JS
-          node /tmp/diag.mjs
+          node /tmp/diag.mjs || true
+          test -s /tmp/diag.json || echo '{"error":"diag_missing"}' >/tmp/diag.json
           cat /tmp/diag.json
       - name: Persist
         if: always()
         run: |
+          set -euo pipefail
           git config user.name 'runner3-speed-psi-ui-diag-bot'
           git config user.email 'runner3-speed-psi-ui-diag-bot@users.noreply.github.com'
           git fetch origin runner3-speed-site3-realistic-20260821
