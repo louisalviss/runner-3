@@ -5,7 +5,7 @@
   "snapshot": {
     "status": "ready",
     "origin": "https://runner3-factory-smoke-2.wasmer.app",
-    "builtAt": "2026-08-21T01:20:15.456Z",
+    "builtAt": "2026-08-21T02:38:38.621Z",
     "pages": 16,
     "bytes": 367037,
     "paths": [
@@ -67,66 +67,66 @@
     }
   },
   "regression": {
-    "pass": false,
+    "pass": true,
     "baseline": {
       "runs": [
         {
-          "fcp": 1417.7620000000002,
-          "lcp": 1554.0380000000002,
-          "tbt": 192,
+          "fcp": 1172.699,
+          "lcp": 1275.699,
+          "tbt": 1057,
           "cls": 0,
-          "perf": 0.96
+          "perf": 0.77
         },
         {
-          "fcp": 909.019,
-          "lcp": 1059.019,
+          "fcp": 909.823,
+          "lcp": 1059.8229999999999,
           "tbt": 0,
           "cls": 0,
           "perf": 1
         },
         {
-          "fcp": 911.745,
-          "lcp": 1061.745,
-          "tbt": 0,
+          "fcp": 1396.137,
+          "lcp": 1797.2894999999999,
+          "tbt": 48.53899999999999,
           "cls": 0,
-          "perf": 1
+          "perf": 0.99
         }
       ],
       "median": {
-        "fcp": 911.745,
-        "lcp": 1061.745,
-        "tbt": 0,
+        "fcp": 1172.699,
+        "lcp": 1275.699,
+        "tbt": 48.53899999999999,
         "cls": 0,
-        "perf": 1
+        "perf": 0.99
       }
     },
     "candidate": {
       "runs": [
         {
-          "fcp": 1150.341,
-          "lcp": 1441.341,
+          "fcp": 1118.0594999999998,
+          "lcp": 1473.5784999999998,
           "tbt": 0,
           "cls": 0,
           "perf": 1
         },
         {
-          "fcp": 1025.9720000000002,
-          "lcp": 1501.0410000000002,
+          "fcp": 1057.884,
+          "lcp": 1323.406,
           "tbt": 0,
           "cls": 0,
           "perf": 1
         },
         {
-          "fcp": 1040.6425,
-          "lcp": 1593.2849999999999,
+          "fcp": 1069.6640000000002,
+          "lcp": 1344.9480000000003,
           "tbt": 0,
           "cls": 0,
           "perf": 1
         }
       ],
       "median": {
-        "fcp": 1040.6425,
-        "lcp": 1501.0410000000002,
+        "fcp": 1069.6640000000002,
+        "lcp": 1344.9480000000003,
         "tbt": 0,
         "cls": 0,
         "perf": 1
@@ -154,9 +154,9 @@
   "outcomes": {
     "v2deploy": "success",
     "guard": "success",
-    "lighthouse": "failure",
-    "proddeploy": "skipped",
-    "prodverify": "skipped"
+    "lighthouse": "success",
+    "proddeploy": "success",
+    "prodverify": "success"
   },
-  "checkedAt": "2026-08-21T01:21:55.287564+00:00"
+  "checkedAt": "2026-08-21T02:40:37.522809+00:00"
 }
