@@ -1,0 +1,112 @@
+name: Bootstrap Runner3 RSS Fast Lane
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rss-fastlane-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-rss-fastlane-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_VERSION: '4.125.0'
+      R2_BUCKET: runner3-rss-fastlane-artifacts
+      R2_RULE: runner3-rss-fastlane-ttl
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create R2 bucket and lifecycle if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd cloudflare/rss-fastlane
+          npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket list | grep -Fq "${R2_BUCKET}" || \
+            npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket create "${R2_BUCKET}"
+          npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket lifecycle list "${R2_BUCKET}" | grep -Fq "${R2_RULE}" || \
+            npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket lifecycle add "${R2_BUCKET}" "${R2_RULE}" "rss-analysis/" --expire-days 7
+
+      - name: Deploy Worker
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd cloudflare/rss-fastlane
+          npx --yes "wrangler@${WRANGLER_VERSION}" deploy --config wrangler.jsonc 2>&1 | tee /tmp/deploy.log
+          url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/deploy.log | tail -1 | sed 's/[[:cntrl:]]//g')"
+          [[ -n "$url" ]]
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify health and real extraction
+        shell: bash
+        env:
+          FASTLANE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 "${FASTLANE_URL}/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/health.json'))
+          assert d.get('ok') is True and d.get('r2Bound') is True, d
+          PY
+          python - <<'PY'
+          import json, os, time, urllib.request
+          endpoint=os.environ['FASTLANE_URL'].rstrip('/')+'/v1/rss/selected-analysis'
+          payload={'requestId':'bootstrap-'+os.environ['GITHUB_RUN_ID'],'items':[
+            {'displayIndex':15,'sourceKey':'fulcrum','sourceName':'Fulcrum','canonicalUrl':'https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/','title':'The Karenni Model','itemType':'article'},
+            {'displayIndex':17,'sourceKey':'noema','sourceName':'Noema','canonicalUrl':'https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age','title':'Introducing Noema Issue VII','itemType':'article'}]}
+          req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),method='POST',headers={'Content-Type':'application/json'})
+          t=time.monotonic()
+          with urllib.request.urlopen(req,timeout=35) as r: d=json.loads(r.read())
+          wall=round((time.monotonic()-t)*1000)
+          assert d.get('fetchedCount')==2 and d.get('errorCount')==0, d
+          assert d.get('artifact',{}).get('stored') is True, d
+          safe={'ok':d.get('ok'),'requestId':d.get('requestId'),'serviceVersion':d.get('serviceVersion'),'workerElapsedMs':d.get('elapsedMs'),'wallMs':wall,'fetchedCount':d.get('fetchedCount'),'errorCount':d.get('errorCount'),'artifact':d.get('artifact'),'fetched':[{'displayIndex':x.get('displayIndex'),'sourceKey':x.get('sourceKey'),'route':x.get('route'),'chars':x.get('chars'),'truncated':x.get('truncated')} for x in d.get('fetched',[])]}
+          open('/tmp/test.json','w').write(json.dumps(safe,ensure_ascii=False,indent=2)+'\n')
+          PY
+
+      - name: Persist proof
+        if: always() && steps.deploy.outputs.url != ''
+        shell: bash
+        env:
+          FASTLANE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime,json,os
+          def read(p):
+            try:return json.load(open(p))
+            except:return None
+          d={'status':'ok' if read('/tmp/test.json') else 'deploy-only','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),'workerUrl':os.environ['FASTLANE_URL'],'runId':int(os.environ['GITHUB_RUN_ID']),'health':read('/tmp/health.json'),'test':read('/tmp/test.json'),'runner':'ubuntu-24.04-arm'}
+          open('/tmp/status.json','w').write(json.dumps(d,ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for i in 1 2 3 4; do
+            git fetch origin main && git reset --hard origin/main
+            mkdir -p ops/rss-fastlane && cp /tmp/status.json ops/rss-fastlane/latest.json
+            git add ops/rss-fastlane/latest.json
+            git diff --cached --quiet && exit 0
+            git commit -m "Persist RSS fast lane verification: ${GITHUB_RUN_ID} [skip ci]"
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 4
