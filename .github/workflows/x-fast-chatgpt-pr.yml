@@ -1,0 +1,59 @@
+name: X Fast ChatGPT PR Bridge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'jobs/x-fast/*.json'
+      - 'jobs/x-fast/**/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Resolve X Fast job file
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          JOB_FILE="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- 'jobs/x-fast/*.json' 'jobs/x-fast/**/*.json' | tail -n 1 || true)"
+          if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
+            echo "No valid X Fast job JSON found in PR diff: $JOB_FILE" >&2
+            exit 2
+          fi
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using X Fast job: $JOB_FILE"
+
+      - name: Validate X Fast job
+        run: python3 x_fast.py '${{ steps.job.outputs.job_file }}' --validate-only
+
+      - name: Crawl X fast
+        shell: bash
+        run: |
+          set +e
+          python3 x_fast.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+          code=$?
+          set -e
+          test -f crawl_output/manifest.json
+          cat crawl_output/manifest.json
+          exit "$code"
+
+      - name: Upload X Fast output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-fast-chatgpt-${{ github.run_id }}
+          path: crawl_output/
+          if-no-files-found: warn
+          retention-days: 3
