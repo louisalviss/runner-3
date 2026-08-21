@@ -45,11 +45,9 @@ jobs:
           base = 'https://api.cloudflare.com/client/v4'
           headers = {'Authorization': 'Bearer ' + token}
 
-          def api(method, path, payload=None, extra_headers=None):
+          def api(method, path, payload=None):
               body = None
               h = dict(headers)
-              if extra_headers:
-                  h.update(extra_headers)
               if payload is not None:
                   body = json.dumps(payload).encode()
                   h['Content-Type'] = 'application/json'
@@ -75,55 +73,47 @@ jobs:
               return 200 <= code < 300 and bool(data.get('success', True))
 
           def error_codes(data):
-              out = []
-              for e in (data.get('errors') or []):
-                  if isinstance(e, dict) and e.get('code') is not None:
-                      out.append(e.get('code'))
-              return out[:5]
+              return [
+                  e.get('code') for e in (data.get('errors') or [])
+                  if isinstance(e, dict) and e.get('code') is not None
+              ][:5]
 
-          def count_result(data, r2=False):
-              result = data.get('result')
-              if r2 and isinstance(result, dict):
-                  buckets = result.get('buckets')
-                  return len(buckets) if isinstance(buckets, list) else None
-              return len(result) if isinstance(result, list) else None
+          def base_state(code, data):
+              return {
+                  'read': success(code, data),
+                  'readHttp': code,
+                  'readErrorCodes': error_codes(data),
+                  'writeCreate': False,
+                  'writeHttp': None,
+                  'writeErrorCodes': [],
+                  'cleanupDelete': False,
+                  'deleteHttp': None,
+                  'deleteErrorCodes': [],
+              }
 
           services = {}
 
-          # Zone read is useful for custom-domain routing but not required for workers.dev.
           zc, zd = api('GET', '/zones?page=1&per_page=20')
           services['zones'] = {
               'read': success(zc, zd),
               'readHttp': zc,
-              'count': count_result(zd),
-              'errorCodes': error_codes(zd),
+              'readErrorCodes': error_codes(zd),
           }
 
-          probes = {
+          read_paths = {
               'workers': f'/accounts/{account}/workers/scripts',
-              'pages': f'/accounts/{account}/pages/projects?page=1&per_page=20',
+              'pages': f'/accounts/{account}/pages/projects',
               'kv': f'/accounts/{account}/storage/kv/namespaces?page=1&per_page=20',
               'r2': f'/accounts/{account}/r2/buckets?per_page=20',
               'd1': f'/accounts/{account}/d1/database?page=1&per_page=20',
           }
-          read_data = {}
-          for name, path in probes.items():
+          for name, path in read_paths.items():
               code, data = api('GET', path)
-              read_data[name] = (code, data)
-              services[name] = {
-                  'read': success(code, data),
-                  'readHttp': code,
-                  'count': count_result(data, r2=(name == 'r2')),
-                  'errorCodes': error_codes(data),
-                  'writeCreate': False,
-                  'cleanupDelete': False,
-                  'writeHttp': None,
-                  'deleteHttp': None,
-              }
+              services[name] = base_state(code, data)
 
           suffix = ''.join(ch for ch in str(run_id) if ch.isdigit())[-12:] or 'probe'
 
-          # Workers: upload a temporary module with multipart/form-data, then delete it.
+          # Workers: upload a valid temporary module part, then delete it.
           worker_name = f'cap-probe-{suffix}'
           worker_file = pathlib.Path(tempfile.gettempdir()) / f'{worker_name}.js'
           worker_file.write_text('export default { async fetch() { return new Response("ok") } };\n')
@@ -133,7 +123,7 @@ jobs:
               f'{base}/accounts/{account}/workers/scripts/{worker_name}',
               '-H', f'Authorization: Bearer {token}',
               '-F', 'metadata={"main_module":"worker.js"};type=application/json',
-              '-F', f'worker.js=@{worker_file};type=application/javascript+module',
+              '-F', f'worker.js=@{worker_file};filename=worker.js;type=application/javascript+module',
           ]
           try:
               proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
@@ -148,69 +138,69 @@ jobs:
           services['workers']['writeCreate'] = success(wc, wd)
           services['workers']['writeErrorCodes'] = error_codes(wd)
           if services['workers']['writeCreate']:
-              dc, dd = api('DELETE', f'/accounts/{account}/workers/scripts/{worker_name}')
-              services['workers']['deleteHttp'] = dc
-              services['workers']['cleanupDelete'] = success(dc, dd)
-              services['workers']['deleteErrorCodes'] = error_codes(dd)
+              code, data = api('DELETE', f'/accounts/{account}/workers/scripts/{worker_name}')
+              services['workers']['deleteHttp'] = code
+              services['workers']['cleanupDelete'] = success(code, data)
+              services['workers']['deleteErrorCodes'] = error_codes(data)
 
           # KV: create/delete an empty temporary namespace.
           kv_title = f'cap-probe-{suffix}'
-          kc, kd = api('POST', f'/accounts/{account}/storage/kv/namespaces', {'title': kv_title})
-          services['kv']['writeHttp'] = kc
-          services['kv']['writeCreate'] = success(kc, kd)
-          services['kv']['writeErrorCodes'] = error_codes(kd)
-          kv_id = ((kd.get('result') or {}).get('id') if isinstance(kd.get('result'), dict) else None)
+          code, data = api('POST', f'/accounts/{account}/storage/kv/namespaces', {'title': kv_title})
+          services['kv']['writeHttp'] = code
+          services['kv']['writeCreate'] = success(code, data)
+          services['kv']['writeErrorCodes'] = error_codes(data)
+          kv_id = ((data.get('result') or {}).get('id') if isinstance(data.get('result'), dict) else None)
           if services['kv']['writeCreate'] and kv_id:
-              dc, dd = api('DELETE', f'/accounts/{account}/storage/kv/namespaces/{urllib.parse.quote(str(kv_id))}')
-              services['kv']['deleteHttp'] = dc
-              services['kv']['cleanupDelete'] = success(dc, dd)
-              services['kv']['deleteErrorCodes'] = error_codes(dd)
+              code, data = api('DELETE', f'/accounts/{account}/storage/kv/namespaces/{urllib.parse.quote(str(kv_id))}')
+              services['kv']['deleteHttp'] = code
+              services['kv']['cleanupDelete'] = success(code, data)
+              services['kv']['deleteErrorCodes'] = error_codes(data)
 
           # R2: create/delete an empty temporary bucket.
           r2_name = f'cap-probe-{suffix}'.lower()
-          rc, rd = api('POST', f'/accounts/{account}/r2/buckets', {'name': r2_name})
-          services['r2']['writeHttp'] = rc
-          services['r2']['writeCreate'] = success(rc, rd)
-          services['r2']['writeErrorCodes'] = error_codes(rd)
+          code, data = api('POST', f'/accounts/{account}/r2/buckets', {'name': r2_name})
+          services['r2']['writeHttp'] = code
+          services['r2']['writeCreate'] = success(code, data)
+          services['r2']['writeErrorCodes'] = error_codes(data)
           if services['r2']['writeCreate']:
-              dc, dd = api('DELETE', f'/accounts/{account}/r2/buckets/{urllib.parse.quote(r2_name)}')
-              services['r2']['deleteHttp'] = dc
-              services['r2']['cleanupDelete'] = success(dc, dd)
-              services['r2']['deleteErrorCodes'] = error_codes(dd)
+              code, data = api('DELETE', f'/accounts/{account}/r2/buckets/{urllib.parse.quote(r2_name)}')
+              services['r2']['deleteHttp'] = code
+              services['r2']['cleanupDelete'] = success(code, data)
+              services['r2']['deleteErrorCodes'] = error_codes(data)
 
           # D1: create/delete an empty temporary database.
           d1_name = f'cap-probe-{suffix}'
-          dc1, dd1 = api('POST', f'/accounts/{account}/d1/database', {'name': d1_name})
-          services['d1']['writeHttp'] = dc1
-          services['d1']['writeCreate'] = success(dc1, dd1)
-          services['d1']['writeErrorCodes'] = error_codes(dd1)
-          d1_id = ((dd1.get('result') or {}).get('uuid') if isinstance(dd1.get('result'), dict) else None)
+          code, data = api('POST', f'/accounts/{account}/d1/database', {'name': d1_name})
+          services['d1']['writeHttp'] = code
+          services['d1']['writeCreate'] = success(code, data)
+          services['d1']['writeErrorCodes'] = error_codes(data)
+          d1_id = ((data.get('result') or {}).get('uuid') if isinstance(data.get('result'), dict) else None)
           if services['d1']['writeCreate'] and d1_id:
-              dc, dd = api('DELETE', f'/accounts/{account}/d1/database/{urllib.parse.quote(str(d1_id))}')
-              services['d1']['deleteHttp'] = dc
-              services['d1']['cleanupDelete'] = success(dc, dd)
-              services['d1']['deleteErrorCodes'] = error_codes(dd)
+              code, data = api('DELETE', f'/accounts/{account}/d1/database/{urllib.parse.quote(str(d1_id))}')
+              services['d1']['deleteHttp'] = code
+              services['d1']['cleanupDelete'] = success(code, data)
+              services['d1']['deleteErrorCodes'] = error_codes(data)
 
-          # Pages: create/delete an empty direct-upload project. This only runs as a capability test.
+          # Pages: create/delete an empty project; no deployment/content is uploaded.
           pages_name = f'cap-probe-{suffix}'.lower()
-          pc, pd = api('POST', f'/accounts/{account}/pages/projects', {'name': pages_name, 'production_branch': 'main'})
-          services['pages']['writeHttp'] = pc
-          services['pages']['writeCreate'] = success(pc, pd)
-          services['pages']['writeErrorCodes'] = error_codes(pd)
+          code, data = api('POST', f'/accounts/{account}/pages/projects', {'name': pages_name, 'production_branch': 'main'})
+          services['pages']['writeHttp'] = code
+          services['pages']['writeCreate'] = success(code, data)
+          services['pages']['writeErrorCodes'] = error_codes(data)
           if services['pages']['writeCreate']:
-              dc, dd = api('DELETE', f'/accounts/{account}/pages/projects/{urllib.parse.quote(pages_name)}')
-              services['pages']['deleteHttp'] = dc
-              services['pages']['cleanupDelete'] = success(dc, dd)
-              services['pages']['deleteErrorCodes'] = error_codes(dd)
+              code, data = api('DELETE', f'/accounts/{account}/pages/projects/{urllib.parse.quote(pages_name)}')
+              services['pages']['deleteHttp'] = code
+              services['pages']['cleanupDelete'] = success(code, data)
+              services['pages']['deleteErrorCodes'] = error_codes(data)
 
           cleanup_ok = all(
-              (not v.get('writeCreate')) or v.get('cleanupDelete')
-              for k, v in services.items() if k != 'zones'
+              (not state.get('writeCreate')) or state.get('cleanupDelete')
+              for name, state in services.items() if name != 'zones'
           )
           out = {
               'status': 'ok',
               'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
-              'credentialUsable': any(v.get('read') for v in services.values()),
+              'credentialUsable': any(state.get('read') for state in services.values()),
               'cleanupOk': cleanup_ok,
               'services': services,
           }
