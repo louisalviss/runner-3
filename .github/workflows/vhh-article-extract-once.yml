@@ -1,0 +1,81 @@
+name: VHH Article Extract Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vhh-article-extract-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install extraction tooling
+        run: |
+          python3 -m pip install -q 'requests>=2.32,<3' 'beautifulsoup4>=4.12,<5' 'playwright>=1.46,<2'
+          mkdir -p evidence
+      - name: Extract canonical article with multiple live routes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, re, requests
+          from bs4 import BeautifulSoup
+          from playwright.sync_api import sync_playwright
+
+          target='https://vohoanghac.com/p/chuyen-xay-ra-voi-dcds-2026'
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
+          ev=pathlib.Path('evidence'); meta={'target':target,'routes':[]}
+
+          # 1) Direct canonical HTML.
+          try:
+              r=requests.get(target,headers={'User-Agent':ua},timeout=25,allow_redirects=True)
+              soup=BeautifulSoup(r.text,'html.parser')
+              for x in soup(['script','style','noscript','svg']): x.decompose()
+              text='\n'.join(line.strip() for line in soup.get_text('\n').splitlines() if line.strip())
+              (ev/'direct.txt').write_text(text,encoding='utf-8')
+              (ev/'direct.html').write_text(r.text,encoding='utf-8')
+              meta['routes'].append({'route':'direct','status':r.status_code,'final':r.url,'chars':len(text),'html_chars':len(r.text)})
+          except Exception as e:
+              meta['routes'].append({'route':'direct','error':f'{type(e).__name__}: {e}'})
+
+          # 2) Jina Reader as no-cache live transport.
+          try:
+              ju='https://r.jina.ai/https://vohoanghac.com/p/chuyen-xay-ra-voi-dcds-2026'
+              r=requests.get(ju,headers={'User-Agent':ua,'X-No-Cache':'true','DNT':'1'},timeout=40)
+              (ev/'jina.md').write_text(r.text,encoding='utf-8')
+              meta['routes'].append({'route':'jina-live','status':r.status_code,'chars':len(r.text)})
+          except Exception as e:
+              meta['routes'].append({'route':'jina-live','error':f'{type(e).__name__}: {e}'})
+
+          # 3) Real Chrome DOM, for JS-rendered/custom-domain behavior.
+          try:
+              with sync_playwright() as p:
+                  b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+                  c=b.new_context(user_agent=ua,viewport={'width':1280,'height':1600})
+                  page=c.new_page(); resp=page.goto(target,wait_until='domcontentloaded',timeout=30000); page.wait_for_timeout(5000)
+                  text=page.locator('body').inner_text(timeout=8000)
+                  html=page.content()
+                  (ev/'browser.txt').write_text(text,encoding='utf-8')
+                  (ev/'browser.html').write_text(html,encoding='utf-8')
+                  meta['routes'].append({'route':'chrome','status':resp.status if resp else None,'final':page.url,'title':page.title(),'chars':len(text),'html_chars':len(html)})
+                  c.close(); b.close()
+          except Exception as e:
+              meta['routes'].append({'route':'chrome','error':f'{type(e).__name__}: {e}'})
+
+          # Metadata only to logs; full text remains artifact-only.
+          (ev/'meta.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(meta,ensure_ascii=False))
+          PY
+      - name: Upload private short-lived extraction artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vhh-dcds-2026-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1
