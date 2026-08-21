@@ -1,0 +1,38 @@
+{
+  "status": "FAIL",
+  "siteUrl": "https://runner3-speed-site3-realistic.wasmer.app/",
+  "pluginVersion": "1.1.1",
+  "protocol": {
+    "provider": "Google PageSpeed Insights UI",
+    "reportsPerState": 5,
+    "devices": [
+      "mobile",
+      "desktop"
+    ],
+    "sameReportIdForBothDevices": true,
+    "statistic": "median"
+  },
+  "states": {
+    "A_NO_PLUGIN": {
+      "precheck": {
+        "status": 200,
+        "speed": null,
+        "version": null
+      }
+    }
+  },
+  "delta": {},
+  "finalState": {
+    "pluginInstalled": true,
+    "pluginActive": true,
+    "performanceOn": false,
+    "front": {
+      "status": 200,
+      "speed": null,
+      "version": null
+    }
+  },
+  "error": "locator.waitFor: Timeout 240000ms exceeded.\nCall log:\n  - waiting for locator('.lh-gauge__percentage').first() to be visible\n    412 \u00d7 locator resolved to hidden <div class=\"lh-gauge__percentage\">32</div>\n\n    at analyzeOnce (/home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-ui-abc.mjs:33:705)\n    at async psiState (/home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-ui-abc.mjs:35:85)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-ui-abc.mjs:39:163",
+  "checkedAt": "2026-08-21T01:17:33.290Z",
+  "recordedAt": "2026-08-21T01:17:43.316079+00:00"
+}
