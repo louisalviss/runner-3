@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Compatibility/hardening entrypoint for the 10 core RSS collectors.
+"""Compatibility/hardening entrypoint for the 12 core RSS collectors.
 
 RSS feeds can bump an existing item's pubDate/updated timestamp without creating
 new content (Tinhte does this when an old thread resurfaces). Reader identity is
@@ -12,13 +12,36 @@ existing canonical identity while still refreshing title/description/thumbnail
 from the latest RSS payload. If a feed later supplies an earlier timestamp, the
 earlier value wins as a correction.
 
-It also enforces the canonical health gate: this entrypoint succeeds only when
-all 10 Runner3 core sources are healthy. A degraded 9/10 (or lower) run must
-fail the workflow instead of being reported as success.
+It also extends the legacy base collector with Scientific American and Quanta,
+and enforces the canonical health gate: this entrypoint succeeds only when all
+12 Runner3 core sources are healthy. A degraded 11/12 (or lower) run must fail
+the workflow instead of being reported as success.
 """
 
 import rss_reader_collect as base
 
+
+EXTRA_SOURCES = [
+    {
+        "key": "scientificamerican",
+        "name": "Scientific American",
+        "urls": [
+            "https://rss.sciam.com/ScientificAmerican-Global",
+            "http://rss.sciam.com/ScientificAmerican-Global",
+        ],
+    },
+    {
+        "key": "quanta",
+        "name": "Quanta Magazine",
+        "urls": [
+            "https://api.quantamagazine.org/feed/",
+            "https://www.quantamagazine.org/feed/",
+        ],
+    },
+]
+
+_existing_source_keys = {source["key"] for source in base.SOURCES}
+base.SOURCES.extend(source for source in EXTRA_SOURCES if source["key"] not in _existing_source_keys)
 
 _base_merge_items = base.merge_items
 
