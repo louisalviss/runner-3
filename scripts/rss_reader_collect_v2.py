@@ -14,9 +14,13 @@ earlier value wins as a correction.
 
 It also extends the legacy base collector with Scientific American and Quanta,
 and enforces the canonical health gate: this entrypoint succeeds only when all
-12 Runner3 core sources are healthy. A degraded 11/12 (or lower) run must fail
-the workflow instead of being reported as success.
+12 Runner3 core RSS sources are healthy. A degraded 11/12 (or lower) run must
+fail the workflow instead of being reported as success.
 """
+
+import contextlib
+import io
+import json
 
 import rss_reader_collect as base
 
@@ -76,10 +80,19 @@ def _stable_merge_items(old_items, new_items):
 
 
 def _main_with_complete_health_gate():
-    # base.main() performs collection and writes the per-run health file.
-    base.main()
+    # The legacy base collector still owns parsing/mirror writes. Suppress its
+    # legacy 10-source status line, then normalize the health metadata here.
+    with contextlib.redirect_stdout(io.StringIO()):
+        base.main()
+
     health = base.load_json(base.HEALTH_PATH, {})
     expected = len(base.SOURCES)
+    health["version"] = max(int(health.get("version") or 0), 4)
+    health["scope"] = f"{expected}-runner3-rss-sources"
+    health["sourceCount"] = expected
+    health["directSources"] = ["hoquoctuan", "vnhacker"]
+    base.write_json(base.HEALTH_PATH, health)
+
     complete = (
         health.get("status") == "healthy"
         and health.get("okCount") == expected
@@ -88,6 +101,20 @@ def _main_with_complete_health_gate():
         and all(
             (health.get("sources") or {}).get(source["key"], {}).get("ok") is True
             for source in base.SOURCES
+        )
+    )
+
+    print(
+        json.dumps(
+            {
+                "collector": "runner-3",
+                "scope": health["scope"],
+                "status": health.get("status"),
+                "ok": health.get("okCount"),
+                "failed": health.get("failedCount"),
+                "health": str(base.HEALTH_PATH.relative_to(base.ROOT)),
+            },
+            ensure_ascii=False,
         )
     )
     return 0 if complete else 2
