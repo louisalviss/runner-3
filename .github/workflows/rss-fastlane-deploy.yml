@@ -1,0 +1,208 @@
+name: Runner3 RSS Cloudflare Fast Lane
+
+on:
+  push:
+    branches:
+      - main
+      - feat/rss-cloudflare-fastlane
+    paths:
+      - 'cloudflare/rss-fastlane/**'
+      - '.github/workflows/rss-fastlane-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-rss-fastlane-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_VERSION: '4.125.0'
+      R2_BUCKET: runner3-rss-fastlane-artifacts
+      R2_LIFECYCLE_RULE: runner3-rss-fastlane-ttl
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || { echo 'CLOUDFLARE_API_TOKEN missing'; exit 2; }
+          [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]] || { echo 'CLOUDFLARE_ACCOUNT_ID missing'; exit 2; }
+          npx --yes "wrangler@${WRANGLER_VERSION}" --version
+
+      - name: Ensure R2 artifact bucket and 7-day lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd cloudflare/rss-fastlane
+          if npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket list 2>&1 | grep -Fq "${R2_BUCKET}"; then
+            echo "R2 bucket already exists: ${R2_BUCKET}"
+          else
+            npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket create "${R2_BUCKET}"
+          fi
+
+          if npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket lifecycle list "${R2_BUCKET}" 2>&1 | grep -Fq "${R2_LIFECYCLE_RULE}"; then
+            echo "Lifecycle already exists: ${R2_LIFECYCLE_RULE}"
+          else
+            npx --yes "wrangler@${WRANGLER_VERSION}" r2 bucket lifecycle add \
+              "${R2_BUCKET}" "${R2_LIFECYCLE_RULE}" "rss-analysis/" --expire-days 7
+          fi
+
+      - name: Deploy Worker
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd cloudflare/rss-fastlane
+          npx --yes "wrangler@${WRANGLER_VERSION}" deploy --config wrangler.jsonc 2>&1 | tee /tmp/rss-fastlane-deploy.log
+          url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/rss-fastlane-deploy.log | tail -n 1 | sed 's/[[:cntrl:]]//g')"
+          [[ -n "$url" ]] || { echo 'Could not determine workers.dev deployment URL'; cat /tmp/rss-fastlane-deploy.log; exit 3; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed URL: $url"
+
+      - name: Health check
+        shell: bash
+        env:
+          FASTLANE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 "${FASTLANE_URL}/health" | tee /tmp/rss-fastlane-health.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/rss-fastlane-health.json'))
+          assert d.get('ok') is True, d
+          assert d.get('r2Bound') is True, d
+          assert d.get('service') == 'runner3-rss-fastlane', d
+          print(json.dumps({'health':'ok','version':d.get('version'),'r2Bound':d.get('r2Bound')}, ensure_ascii=False))
+          PY
+
+      - name: End-to-end Fulcrum and Noema test
+        shell: bash
+        env:
+          FASTLANE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, time, urllib.request
+
+          endpoint=os.environ['FASTLANE_URL'].rstrip('/') + '/v1/rss/selected-analysis'
+          payload={
+            'requestId':'verify-fulcrum-noema-' + os.environ.get('GITHUB_RUN_ID','local'),
+            'items':[
+              {
+                'displayIndex':15,
+                'sourceKey':'fulcrum',
+                'sourceName':'Fulcrum',
+                'canonicalUrl':'https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/',
+                'title':'The Karenni Model: Wartime Governance in Contested Territory',
+                'publishedAt':'2026-08-21T06:00:00Z',
+                'contentHash':None,
+                'itemType':'article',
+              },
+              {
+                'displayIndex':17,
+                'sourceKey':'noema',
+                'sourceName':'Noema',
+                'canonicalUrl':'https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age',
+                'title':'Introducing Noema Issue VII: The Next Axial Age',
+                'publishedAt':'2026-08-21T15:27:34Z',
+                'contentHash':None,
+                'itemType':'article',
+              },
+            ],
+          }
+          body=json.dumps(payload).encode()
+          req=urllib.request.Request(endpoint, data=body, method='POST', headers={'Content-Type':'application/json','User-Agent':'runner3-fastlane-verifier/1.0'})
+          started=time.monotonic()
+          with urllib.request.urlopen(req, timeout=35) as r:
+            result=json.loads(r.read().decode())
+          wall_ms=round((time.monotonic()-started)*1000)
+          assert result.get('fetchedCount') == 2, result
+          assert result.get('errorCount') == 0, result
+          assert result.get('artifact',{}).get('stored') is True, result
+          fetched=[{
+            'displayIndex':x.get('displayIndex'),
+            'sourceKey':x.get('sourceKey'),
+            'route':x.get('route'),
+            'chars':x.get('chars'),
+            'truncated':x.get('truncated'),
+          } for x in result.get('fetched',[])]
+          safe={
+            'ok':result.get('ok'),
+            'requestId':result.get('requestId'),
+            'serviceVersion':result.get('serviceVersion'),
+            'workerElapsedMs':result.get('elapsedMs'),
+            'wallMs':wall_ms,
+            'fetchedCount':result.get('fetchedCount'),
+            'errorCount':result.get('errorCount'),
+            'artifact':{
+              'key':result.get('artifact',{}).get('key'),
+              'stored':result.get('artifact',{}).get('stored'),
+              'expiresAt':result.get('artifact',{}).get('expiresAt'),
+            },
+            'fetched':fetched,
+          }
+          open('/tmp/rss-fastlane-test.json','w').write(json.dumps(safe, ensure_ascii=False, indent=2)+'\n')
+          print(json.dumps(safe, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Persist deployment verification
+        if: always() && steps.deploy.outputs.url != ''
+        shell: bash
+        env:
+          FASTLANE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os
+          def read(path):
+              try:
+                  return json.load(open(path))
+              except Exception:
+                  return None
+          out={
+            'status':'ok' if read('/tmp/rss-fastlane-test.json') else 'deploy-only',
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+            'workerUrl':os.environ.get('FASTLANE_URL'),
+            'branch':os.environ.get('GITHUB_REF_NAME'),
+            'sourceSha':os.environ.get('GITHUB_SHA'),
+            'runId':int(os.environ.get('GITHUB_RUN_ID','0') or 0),
+            'health':read('/tmp/rss-fastlane-health.json'),
+            'test':read('/tmp/rss-fastlane-test.json'),
+          }
+          open('/tmp/rss-fastlane-status.json','w').write(json.dumps(out, ensure_ascii=False, indent=2)+'\n')
+          PY
+
+          branch="${GITHUB_REF_NAME}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin "${branch}"
+            git reset --hard "origin/${branch}"
+            mkdir -p ops/rss-fastlane
+            cp /tmp/rss-fastlane-status.json ops/rss-fastlane/latest.json
+            git add ops/rss-fastlane/latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist RSS fast lane verification: ${GITHUB_RUN_ID} [skip ci]"
+            if git push origin "HEAD:${branch}"; then exit 0; fi
+            sleep 2
+          done
+          exit 4
