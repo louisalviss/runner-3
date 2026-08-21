@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Retrigger clean WR Market State OOS run after repository ownership repair.
 from __future__ import annotations
 import json, math, os, sys
 from pathlib import Path
