@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Single canonical Runner3 entrypoint for AI RSS Reader ingestion.
 
-Runs the 10 RSS-only sources and Võ Hoàng Hạc hybrid collector, then enforces
+Runs the 12 RSS-only sources and Võ Hoàng Hạc hybrid collector, then enforces
 one explicit machine-readable health gate. It never advances reader-state.json.
 Hồ Quốc Tuấn and vnhacker remain ChatGPT-direct sources at render time.
 """
@@ -31,8 +31,10 @@ CORE_KEYS = [
     "economist",
     "theatlantic",
     "grimlogs",
+    "scientificamerican",
+    "quanta",
 ]
-LOGICAL_SOURCE_COUNT = 13
+LOGICAL_SOURCE_COUNT = 15
 
 
 def now_iso():
@@ -110,7 +112,7 @@ def validate_state(state):
         problems.append(f"reader-state sourceCount={state.get('sourceCount')} expected={LOGICAL_SOURCE_COUNT}")
     sources = state.get("sources")
     if not isinstance(sources, dict) or len(sources) != LOGICAL_SOURCE_COUNT:
-        problems.append("reader-state does not contain exactly 13 logical source cursors")
+        problems.append("reader-state does not contain exactly 15 logical source cursors")
     return not problems, problems
 
 
@@ -136,12 +138,12 @@ def main():
         "runStartedAt": started,
         "runFinishedAt": now_iso(),
         "logicalSourceCount": LOGICAL_SOURCE_COUNT,
-        "runner3LogicalSources": 11,
+        "runner3LogicalSources": 13,
         "chatgptDirectSources": ["hoquoctuan", "vnhacker"],
         "status": "healthy" if ingestion_ok else "failed",
         "ingestionOk": ingestion_ok,
         "gate": {
-            "core10": {"ok": core_ok, "problems": core_problems},
+            "core12": {"ok": core_ok, "problems": core_problems},
             "vohoanghacHybrid": {"ok": vhh_ok, "problems": vhh_problems},
             "readerStateShape": {"ok": state_ok, "problems": state_problems},
         },
