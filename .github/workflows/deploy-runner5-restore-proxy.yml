@@ -28,59 +28,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build fresh visual homepage snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os, time, urllib.request
-          origin=os.environ['ORIGIN_URL']
-          last=None
-          for attempt in range(12):
-              try:
-                  req=urllib.request.Request(origin,headers={'User-Agent':'Mozilla/5.0 Runner5VisualSnapshot/1.0','Accept':'text/html','Cache-Control':'no-cache'})
-                  with urllib.request.urlopen(req,timeout=35) as r:
-                      html=r.read().decode('utf-8','ignore')
-                  if len(html)>10000 and 'r5-hero' in html and 'Nourish Studio' in html:
-                      built=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
-                      out='// Generated immediately before Cloudflare deployment. Do not hand-edit.\n'
-                      out+=f'export const SNAPSHOT_BUILT_AT = {json.dumps(built)};\n'
-                      out+=f'export const HOME_SNAPSHOT = {json.dumps(html)};\n'
-                      out+='export const STYLE_BUNDLE = "";\n'
-                      open('cloudflare/runner5-restore-proxy/snapshot.generated.js','w').write(out)
-                      print(json.dumps({'status':'READY','htmlBytes':len(html.encode()),'imageCount':html.count('<img'),'builtAt':built},indent=2))
-                      raise SystemExit(0)
-                  last=f'marker_missing bytes={len(html)} hero={"r5-hero" in html} title={"Nourish Studio" in html}'
-              except Exception as e:
-                  last=repr(e)
-              time.sleep(5)
-          raise SystemExit(f'visual snapshot unavailable: {last}')
-          PY
-
-      - name: Deploy optimized Worker
+      - name: Deploy layout-safe Worker
         shell: bash
         run: |
           set -euo pipefail
           npx --yes wrangler@4 deploy --config cloudflare/runner5-restore-proxy/wrangler.jsonc
 
-      - name: Verify visual proxy
+      - name: Verify OceanWP proxy
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, time, urllib.request
-          url=os.environ['PROXY_URL']; result={'status':'FAILED','url':url,'http':None,'visualDemo':False,'imageCount':0,'edgeMode':None,'edgeCache':None,'firstMs':None,'warmMs':None,'detail':None}; timings=[]; err=None
+          url=os.environ['PROXY_URL']
+          result={
+              'status':'FAILED','url':url,'http':None,'oceanwp':False,
+              'imageCount':0,'edgeMode':None,'edgeCache':None,
+              'firstMs':None,'warmMs':None,'detail':None
+          }
+          timings=[]; err=None
           for _ in range(12):
               try:
-                  t=time.perf_counter(); req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 Runner5VisualVerify/1.0','Cache-Control':'no-cache'})
+                  t=time.perf_counter()
+                  req=urllib.request.Request(url,headers={
+                      'User-Agent':'Mozilla/5.0 Runner5OceanWPVerify/1.0',
+                      'Cache-Control':'no-cache'
+                  })
                   with urllib.request.urlopen(req,timeout=25) as r:
-                      body=r.read(1800000).decode('utf-8','ignore'); timings.append(round((time.perf_counter()-t)*1000,1)); result['http']=r.status; result['visualDemo']='r5-hero' in body and 'Nourish Studio' in body; result['imageCount']=body.count('<img'); result['edgeMode']=r.headers.get('x-edge-mode'); result['edgeCache']=r.headers.get('x-edge-cache')
-                  if result['http']==200 and result['visualDemo'] and result['imageCount']>=4 and result['edgeMode']=='snapshot' and len(timings)>=2:
+                      body=r.read(2500000).decode('utf-8','ignore')
+                      timings.append(round((time.perf_counter()-t)*1000,1))
+                      result['http']=r.status
+                      result['oceanwp']=('/wp-content/themes/oceanwp/' in body or 'oceanwp' in body.lower())
+                      result['imageCount']=body.count('<img')
+                      result['edgeMode']=r.headers.get('x-edge-mode')
+                      result['edgeCache']=r.headers.get('x-edge-cache')
+                  if result['http']==200 and result['oceanwp'] and result['imageCount']>=5 and len(timings)>=2:
                       result['status']='READY'; break
-              except Exception as e: err=str(e)
+              except Exception as e:
+                  err=str(e)
               time.sleep(3)
-          result['firstMs']=timings[0] if timings else None; result['warmMs']=timings[-1] if len(timings)>1 else None; result['detail']=None if result['status']=='READY' else err; result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
-          open('/tmp/runner5-proxy.json','w').write(json.dumps(result,indent=2)); print(json.dumps(result,indent=2))
+          result['firstMs']=timings[0] if timings else None
+          result['warmMs']=timings[-1] if len(timings)>1 else None
+          result['detail']=None if result['status']=='READY' else err
+          result['updatedAt']=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+          open('/tmp/runner5-proxy.json','w').write(json.dumps(result,indent=2))
+          print(json.dumps(result,indent=2))
           if result['status']!='READY': raise SystemExit(2)
           PY
 
@@ -91,9 +83,14 @@ jobs:
           set -euo pipefail
           test -s /tmp/runner5-proxy.json || printf '{"status":"FAILED","url":"%s","detail":"missing_status"}\n' "$PROXY_URL" > /tmp/runner5-proxy.json
           cp /tmp/runner5-proxy.json /tmp/runner5-proxy-safe.json
-          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
-            git fetch origin main; git reset --hard origin/main; mkdir -p ops/wordpress-access; cp /tmp/runner5-proxy-safe.json ops/wordpress-access/runner5-restore-proxy.json; git add ops/wordpress-access/runner5-restore-proxy.json
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/runner5-proxy-safe.json ops/wordpress-access/runner5-restore-proxy.json
+            git add ops/wordpress-access/runner5-restore-proxy.json
             if git diff --cached --quiet; then exit 0; fi
             git commit -m 'Persist Runner5 restore proxy status'
             if git push origin HEAD:main; then exit 0; fi
