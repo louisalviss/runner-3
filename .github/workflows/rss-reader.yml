@@ -10,6 +10,8 @@ on:
       - "scripts/rss_reader_collect_v2.py"
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
+      - "scripts/rss_selected_fetch.py"
+      - "data/rss-reader/analysis-request.json"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -18,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: runner3-ai-rss-reader
+  group: runner3-ai-rss-reader-${{ github.event_name == 'push' && github.sha || 'scheduled' }}
   cancel-in-progress: true
 
 jobs:
@@ -88,3 +90,108 @@ jobs:
           outcome='${{ steps.rss.outcome }}'
           echo "rss=$outcome"
           [[ "$outcome" == "success" ]]
+
+  selected-analysis:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check analysis request exists
+        id: request_file
+        shell: bash
+        run: |
+          if [[ -f data/rss-reader/analysis-request.json ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Python
+        if: steps.request_file.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install extraction dependencies
+        if: steps.request_file.outputs.exists == 'true'
+        run: python -m pip install --disable-pip-version-check -q "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
+
+      - name: Read request id
+        if: steps.request_file.outputs.exists == 'true'
+        id: request
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          try:
+              obj=json.load(open('data/rss-reader/analysis-request.json', encoding='utf-8'))
+              rid=str(obj.get('requestId') or 'unknown').replace('\n','-').replace('\r','-')
+          except Exception:
+              rid='unknown'
+          print('id='+rid)
+          PY
+
+      - name: Fetch selected canonical articles in one parallel batch
+        if: steps.request_file.outputs.exists == 'true'
+        id: selected_fetch
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          rm -rf /tmp/rss-analysis-fetch
+          python scripts/rss_selected_fetch.py \
+            --request data/rss-reader/analysis-request.json \
+            --run-id "${{ github.run_id }}" | tee /tmp/rss-analysis-fetch.log
+          rc=${PIPESTATUS[0]}
+          if [[ -s /tmp/rss-analysis-fetch/payload.json ]]; then
+            echo "has_payload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_payload=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$rc"
+
+      - name: Upload selected article payload
+        if: always() && steps.selected_fetch.outputs.has_payload == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-analysis-${{ steps.request.outputs.id }}-${{ github.run_id }}
+          path: /tmp/rss-analysis-fetch/payload.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+      - name: Persist analysis cache pointer index
+        if: always() && steps.request_file.outputs.exists == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f data/rss-reader/analysis-cache-index.json ]]; then
+            echo "No analysis cache index generated"
+            exit 0
+          fi
+          git config user.name "runner3-rss-bot"
+          git config user.email "runner3-rss-bot@users.noreply.github.com"
+          git add data/rss-reader/analysis-cache-index.json
+          if git diff --cached --quiet; then
+            echo "No analysis cache pointer changes"
+            exit 0
+          fi
+          git commit -m "Update RSS analysis cache pointers [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Report selected-analysis outcome
+        if: always()
+        shell: bash
+        run: |
+          echo "request_exists=${{ steps.request_file.outputs.exists }}"
+          echo "selected_fetch=${{ steps.selected_fetch.outcome }}"
+          # Per-item failures are recorded in analysis-cache-index.json.
+          # Partial batch success remains usable and does not fail RSS freshness.
+          exit 0
