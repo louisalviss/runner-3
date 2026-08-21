@@ -42,6 +42,38 @@ Collectors MUST NOT modify it. State advances only after ChatGPT completes and r
 
 Scientific American and Quanta were onboarded with a current-high-water baseline so enabling them does not dump historical backlog. Use full-day/history or explicit replay to inspect earlier items.
 
+## Selected-analysis fast lane
+
+Full article text is **lazy/on-demand**, not prefetched for every RSS item.
+
+When the user selects numbered RSS items for deep analysis, ChatGPT should:
+
+1. resolve the exact numbered items from the render manifest;
+2. check `data/rss-reader/analysis-cache-index.json` for a valid TTL/hash-matching cache pointer;
+3. try normal canonical web access in parallel for selected items that are not cache hits;
+4. group only the blocked/partial items into **one** Runner3 request at `data/rss-reader/analysis-request.json`;
+5. let `.github/workflows/rss-selected-analysis.yml` fetch those canonical URLs in one parallel batch;
+6. read the resulting GitHub artifact and verify URL/hash before analysis.
+
+Runtime components:
+
+- `scripts/rss_selected_fetch.py` — generic parallel extractor for selected canonical URLs;
+- `.github/workflows/rss-selected-analysis.yml` — triggered by updates to `analysis-request.json`;
+- `analysis-cache-index.json` — pointer/hash/TTL metadata only;
+- GitHub Actions artifact — raw extracted text, retention 7 days.
+
+Important properties:
+
+- raw copyrighted article text is never committed to the repository;
+- cache is keyed by canonical URL and optionally content hash;
+- one selection such as `1 4 5` creates at most one Runner batch for items that actually need Runner fallback;
+- cache hits avoid a new Runner queue entirely;
+- batch fetches run in parallel;
+- per-item failures are explicit and do not silently substitute another article;
+- analysis fetching never advances RSS reader state.
+
+The old `rss_vhh_prefetch.py` / `vhh-prefetch-index.json` may remain temporarily as historical/bootstrap cache, but the scheduled RSS workflow no longer auto-prefetches VHH articles. New analysis acquisition uses the generic lazy selected-analysis path.
+
 ## Scientific American
 
 Runner3 source key: `scientificamerican`.
