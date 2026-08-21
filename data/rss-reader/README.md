@@ -52,13 +52,13 @@ When the user selects numbered RSS items for deep analysis, ChatGPT should:
 2. check `data/rss-reader/analysis-cache-index.json` for a valid TTL/hash-matching cache pointer;
 3. try normal canonical web access in parallel for selected items that are not cache hits;
 4. group only the blocked/partial items into **one** Runner3 request at `data/rss-reader/analysis-request.json`;
-5. let `.github/workflows/rss-selected-analysis.yml` fetch those canonical URLs in one parallel batch;
+5. let the `selected-analysis` job inside `.github/workflows/rss-reader.yml` fetch those canonical URLs in one parallel batch;
 6. read the resulting GitHub artifact and verify URL/hash before analysis.
 
 Runtime components:
 
 - `scripts/rss_selected_fetch.py` — generic parallel extractor for selected canonical URLs;
-- `.github/workflows/rss-selected-analysis.yml` — triggered by updates to `analysis-request.json`;
+- `.github/workflows/rss-reader.yml` → `selected-analysis` job — on-demand batch job that runs in parallel with normal RSS ingestion for push events;
 - `analysis-cache-index.json` — pointer/hash/TTL metadata only;
 - GitHub Actions artifact — raw extracted text, retention 7 days.
 
@@ -70,9 +70,10 @@ Important properties:
 - cache hits avoid a new Runner queue entirely;
 - batch fetches run in parallel;
 - per-item failures are explicit and do not silently substitute another article;
-- analysis fetching never advances RSS reader state.
+- analysis fetching never advances RSS reader state;
+- request-triggered runs use a unique concurrency group so a scheduled RSS run does not cancel an active selected-analysis request.
 
-The old `rss_vhh_prefetch.py` / `vhh-prefetch-index.json` may remain temporarily as historical/bootstrap cache, but the scheduled RSS workflow no longer auto-prefetches VHH articles. New analysis acquisition uses the generic lazy selected-analysis path.
+Legacy VHH-specific prefetch code/index/artifacts are non-canonical and are not auto-refreshed. New analysis acquisition uses the generic lazy selected-analysis path for every source.
 
 ## Scientific American
 
