@@ -1,0 +1,67 @@
+name: Runner3 Speed Site3 Functional v8
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-site3-functional-v8.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WP_SITE_SLUG: runner3-speed-site3-realistic
+  CHROME_PATH: /usr/bin/google-chrome
+
+jobs:
+  functional-v8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare
+        run: |
+          set -euo pipefail
+          node --check scripts/runner3-speed-site3-functional-v8.mjs
+          npm install --no-save playwright-core@1.58.2
+          test -n "${AUTOMATION_KEY:-}"
+          echo '::add-mask::'"$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+      - name: Run corrected functional lifecycle
+        run: |
+          set -euo pipefail
+          node scripts/runner3-speed-site3-functional-v8.mjs
+          test -s /tmp/runner3-speed-site3-functional-v8.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/runner3-speed-site3-functional-v8.json'))
+          assert r['status']=='PASS',r
+          assert all(r['gates'].values()),r
+          print(json.dumps(r,indent=2))
+          PY
+      - name: Persist
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,datetime
+          p='/tmp/runner3-speed-site3-functional-v8.json'
+          r=json.load(open(p)) if os.path.exists(p) else {'status':'MISSING'}
+          r['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          os.makedirs('ops/site-factory',exist_ok=True)
+          json.dump(r,open('ops/site-factory/runner3-speed-site3-functional-v8.latest.json','w'),indent=2)
+          PY
+          git config user.name 'runner3-speed-site3-functional-v8-bot'
+          git config user.email 'runner3-speed-site3-functional-v8-bot@users.noreply.github.com'
+          git add -- ops/site-factory/runner3-speed-site3-functional-v8.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record Site 3 functional v8 evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/wasmer-account.json
