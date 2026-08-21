@@ -1,0 +1,74 @@
+name: X Fast Readable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/x-readable/**/*.json'
+      - 'jobs/x-readable/*.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: x-readable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve job file
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/x-readable/*.json' 'jobs/x-readable/**/*.json' | tail -n 1 || true)"
+          if [ -z "$JOB_FILE" ] || [ ! -f "$JOB_FILE" ]; then
+            echo "No valid X readable job JSON found: $JOB_FILE" >&2
+            exit 2
+          fi
+          stem="$(basename "$JOB_FILE" .json)"
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "stem=$stem" >> "$GITHUB_OUTPUT"
+
+      - name: Validate
+        run: python3 x_fast.py '${{ steps.job.outputs.job_file }}' --validate-only
+
+      - name: Crawl
+        shell: bash
+        run: |
+          set +e
+          python3 x_fast.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+          code=$?
+          set -e
+          test -f crawl_output/manifest.json
+          exit $code
+
+      - name: Persist readable result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f crawl_output/manifest.json ]; then
+            exit 0
+          fi
+          dest="results/x-fast/${{ steps.job.outputs.stem }}"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          cp -R crawl_output/. "$dest/"
+          git config user.name "runner-3-bot"
+          git config user.email "runner-3-bot@users.noreply.github.com"
+          git add "$dest"
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Store X Fast result: ${{ steps.job.outputs.stem }}"
+          git push origin HEAD:main
