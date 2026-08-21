@@ -53,11 +53,11 @@ jobs:
           s=open(p).read()
           s=s.replace("const result={status:'starting',contentExact:false,routesPass:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};","const result={status:'starting',contentExact:false,routesPass:false,safeFrontend:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};")
           old="""const dom=await p.evaluate(()=>({title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer')}));"""
-          new="""const dom=await p.evaluate(()=>{const imgs=[...document.images];const first=imgs[0]||null;const frames=[...document.querySelectorAll('iframe')];return{title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:imgs.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),firstImageLoading:first?.getAttribute('loading')||null,firstImagePriority:first?.getAttribute('fetchpriority')||null,lcpPreloads:document.querySelectorAll('link[data-runner3-speed=\"lcp\"][rel=\"preload\"][as=\"image\"]').length,iframes:frames.length,iframesLazy:frames.every(x=>x.getAttribute('loading')==='lazy')};});"""
+          new="""const dom=await p.evaluate(()=>{const imgs=[...document.images];const first=imgs[0]||null;const frames=[...document.querySelectorAll('iframe')];return{title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:imgs.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),firstImageLoading:first?.getAttribute('loading')||null,firstImagePriority:first?.getAttribute('fetchpriority')||null,lcpPreloads:document.querySelectorAll('link[data-runner3-speed=\"lcp\"][rel=\"preload\"][as=\"image\"]').length,iframes:frames.length,iframesHaveLoading:frames.every(x=>x.hasAttribute('loading'))};});"""
           if old not in s: raise SystemExit('dom probe target missing')
           s=s.replace(old,new)
           old2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,noFailedRequests:failed.length===0};"""
-          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,safeFirstImage:dom.images===0||(dom.firstImageLoading==='eager'&&dom.firstImagePriority==='high'&&dom.lcpPreloads>=1),safeIframes:dom.iframesLazy,noFailedRequests:failed.length===0};"""
+          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,safeFirstImage:dom.images===0||(dom.firstImageLoading==='eager'&&dom.firstImagePriority==='high'&&dom.lcpPreloads>=1),safeIframes:dom.iframesHaveLoading,noFailedRequests:failed.length===0};"""
           if old2 not in s: raise SystemExit('route check target missing')
           s=s.replace(old2,new2)
           s=s.replace("result.routesPass=result.routeChecks.every(x=>x.pass);","result.routesPass=result.routeChecks.every(x=>x.pass);result.safeFrontend=result.routeChecks.every(x=>x.safeFirstImage&&x.safeIframes);")
@@ -82,8 +82,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json,os,datetime
-          def load(p):
-              return json.load(open(p)) if os.path.exists(p) else {'status':'MISSING'}
+          def load(p): return json.load(open(p)) if os.path.exists(p) else {'status':'MISSING'}
           out={'deploy':load('/tmp/runner3-speed-site3-deploy-v120.json'),'functional':load('/tmp/runner3-speed-site3-functional-v8.json'),'recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
           out['status']='PASS' if out['deploy'].get('status')=='PASS' and out['functional'].get('status')=='PASS' else 'FAIL'
           os.makedirs('/tmp/r3',exist_ok=True);json.dump(out,open('/tmp/r3/runner3-speed-v120-integration.latest.json','w'),indent=2)
