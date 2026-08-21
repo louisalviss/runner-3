@@ -1,4 +1,4 @@
-# Direct-origin repair trigger r2 2026-08-21
+# Direct-origin repair trigger r3 2026-08-21
 name: Runner5 OceanWP Origin Repair
 
 on:
@@ -27,33 +27,52 @@ jobs:
         with:
           ref: main
 
+      - name: Initialize repair status
+        shell: bash
+        run: |
+          printf '{"status":"RUNNING","stage":"checkout","detail":null}\n' > /tmp/runner5-oceanwp-origin-repair.json
+
       - name: Decrypt Wasmer account state
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${AUTOMATION_KEY:-}" || { echo 'Missing automation key' >&2; exit 3; }
+          printf '{"status":"RUNNING","stage":"decrypt_wasmer","detail":null}\n' > /tmp/runner5-oceanwp-origin-repair.json
+          test -n "${AUTOMATION_KEY:-}" || { printf '{"status":"RUNNER_ERROR","stage":"decrypt_wasmer","detail":"missing_automation_key"}\n' > /tmp/runner5-oceanwp-origin-repair.json; exit 3; }
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
             -pass env:AUTOMATION_KEY \
             -in ops/wasmer/state.automation.aes \
-            -out /tmp/wasmer-account.json
+            -out /tmp/wasmer-account.json || { printf '{"status":"RUNNER_ERROR","stage":"decrypt_wasmer","detail":"decrypt_failed"}\n' > /tmp/runner5-oceanwp-origin-repair.json; exit 3; }
           chmod 600 /tmp/wasmer-account.json
 
       - name: Prepare browser runtime
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save playwright-core@1.58.2
+          printf '{"status":"RUNNING","stage":"browser_runtime","detail":null}\n' > /tmp/runner5-oceanwp-origin-repair.json
+          npm install --no-save playwright-core@1.58.2 || { printf '{"status":"RUNNER_ERROR","stage":"browser_runtime","detail":"playwright_core_install_failed"}\n' > /tmp/runner5-oceanwp-origin-repair.json; exit 4; }
           CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
           if [ -z "$CHROME_PATH" ]; then
-            npm install --no-save playwright@1.58.2
-            npx playwright install --with-deps chromium
+            npm install --no-save playwright@1.58.2 || { printf '{"status":"RUNNER_ERROR","stage":"browser_runtime","detail":"playwright_install_failed"}\n' > /tmp/runner5-oceanwp-origin-repair.json; exit 4; }
+            npx playwright install --with-deps chromium || { printf '{"status":"RUNNER_ERROR","stage":"browser_runtime","detail":"chromium_install_failed"}\n' > /tmp/runner5-oceanwp-origin-repair.json; exit 4; }
             CHROME_PATH="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
           fi
-          test -x "$CHROME_PATH" || { echo "Chrome executable unavailable: $CHROME_PATH" >&2; exit 4; }
+          test -x "$CHROME_PATH" || { printf '{"status":"RUNNER_ERROR","stage":"browser_runtime","detail":"chrome_unavailable"}\n' > /tmp/runner5-oceanwp-origin-repair.json; exit 4; }
           echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
 
       - name: Audit and repair direct WordPress origin
-        run: node scripts/runner5-oceanwp-origin-repair.mjs
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! node --check scripts/runner5-oceanwp-origin-repair.mjs >/tmp/node-check.log 2>&1; then
+            python3 - <<'PY'
+          import json
+          d={'status':'RUNNER_ERROR','stage':'script_syntax','detail':open('/tmp/node-check.log').read()[:4000]}
+          open('/tmp/runner5-oceanwp-origin-repair.json','w').write(json.dumps(d,indent=2))
+          PY
+            cat /tmp/node-check.log
+            exit 5
+          fi
+          node scripts/runner5-oceanwp-origin-repair.mjs
 
       - name: Upload visual QA
         if: always()
@@ -71,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           status=/tmp/runner5-oceanwp-origin-repair.json
-          test -s "$status" || printf '{"status":"RUNNER_ERROR","detail":"status_missing"}\n' > "$status"
+          test -s "$status" || printf '{"status":"RUNNER_ERROR","stage":"unknown","detail":"status_missing"}\n' > "$status"
           cp "$status" /tmp/runner5-oceanwp-origin-repair-safe.json
           rm -f /tmp/wasmer-account.json
           git config user.name 'github-actions[bot]'
