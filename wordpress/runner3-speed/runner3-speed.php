@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Runner3 Speed
  * Description: One-click, fail-safe page acceleration with safe frontend optimizations.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Runner3
  */
 if (!defined('ABSPATH')) exit;
 
 final class Runner3_Speed {
-    const VERSION = '1.2.0';
-    const CACHE_KEY_VERSION = 'v120';
+    const VERSION = '1.2.1';
+    const CACHE_KEY_VERSION = 'v121';
     const ENABLED = 'runner3_speed_enabled';
     const STATUS = 'runner3_speed_status';
     const DROPIN_MARKER = 'RUNNER3_SPEED_DROPIN';
@@ -46,7 +46,7 @@ final class Runner3_Speed {
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="runner3_speed_toggle"><input type="hidden" name="enable" value="'.($on?'0':'1').'">';
         wp_nonce_field('runner3_speed_toggle'); submit_button($on ? 'Turn OFF' : 'Turn ON', $on ? 'secondary' : 'primary', 'submit', false); echo '</form></div>';
         echo '<hr style="margin:22px 0"><p><strong>Status:</strong> '.esc_html($detail).'</p>';
-        echo '<p>✓ Guest page cache<br>✓ Login/Admin/API bypass<br>✓ Cart/Checkout/session bypass<br>✓ Auto purge after content changes<br>✓ Safe LCP image priority + preload<br>✓ Safe lazy-load for below-fold images/iframes<br>✓ Preconnect critical third-party origins<br>✓ Version-locked cache files<br>✓ OFF = normal WordPress path</p>';
+        echo '<p>✓ Guest page cache<br>✓ Login/Admin/API bypass<br>✓ Cart/Checkout/session bypass<br>✓ Auto purge after content changes<br>✓ Safe lazy-load for iframes when unset<br>✓ Conservative preconnect for third-party origins<br>✓ Version-locked cache files<br>✓ OFF = normal WordPress path</p>';
         echo '</div></div>';
     }
 
@@ -174,43 +174,39 @@ final class Runner3_Speed {
 
     private static function safe_frontend_optimize($html) {
         if (!is_string($html) || $html === '' || !class_exists('WP_HTML_Tag_Processor')) return $html;
-        $p = new WP_HTML_Tag_Processor($html); $first = null; $i = 0;
-        while ($p->next_tag('img')) {
-            $src = trim((string)$p->get_attribute('src'));
-            if ($src === '' || stripos($src, 'data:') === 0 || stripos($src, 'blob:') === 0) continue;
-            $i++;
-            if ($i === 1) {
-                $first = $src; $p->set_attribute('loading','eager'); $p->set_attribute('fetchpriority','high');
-                if ($p->get_attribute('decoding') === null) $p->set_attribute('decoding','async');
-            } else {
-                if ($p->get_attribute('loading') === null) $p->set_attribute('loading','lazy');
-                if ($p->get_attribute('decoding') === null) $p->set_attribute('decoding','async');
-            }
-        }
-        $html = $p->get_updated_html();
+
+        // Preserve WordPress/theme image loading and priority decisions. DOM order
+        // is not a reliable LCP signal (the first image is commonly a logo).
         $p = new WP_HTML_Tag_Processor($html);
-        while ($p->next_tag('iframe')) if ($p->get_attribute('loading') === null) $p->set_attribute('loading','lazy');
+        while ($p->next_tag('iframe')) {
+            if ($p->get_attribute('loading') === null) $p->set_attribute('loading', 'lazy');
+        }
         $html = $p->get_updated_html();
 
-        $hints = [];
-        if ($first) {
-            $href = esc_url($first);
-            if ($href !== '') $hints[] = '<link rel="preload" as="image" href="'.esc_attr($href).'" fetchpriority="high" data-runner3-speed="lcp">';
-        }
-        $site_host = strtolower((string)wp_parse_url(home_url('/'), PHP_URL_HOST)); $origins = [];
+        // Add only conservative connection hints for origins already referenced
+        // by page markup. Never reorder, combine, defer, or delay CSS/JS here.
+        $site_host = strtolower((string)wp_parse_url(home_url('/'), PHP_URL_HOST));
+        $origins = [];
         if (preg_match_all('/<(?:script|link|img|iframe)\b[^>]+(?:src|href)=["\'](https?:\/\/[^"\']+)["\']/i', $html, $m)) {
             foreach ($m[1] as $url) {
-                $scheme = strtolower((string)wp_parse_url($url, PHP_URL_SCHEME)); $host = strtolower((string)wp_parse_url($url, PHP_URL_HOST));
-                if (!$host || $host === $site_host || !in_array($scheme,['http','https'],true)) continue;
-                $origins[$scheme.'://'.$host] = true; if (count($origins) >= 3) break;
+                $scheme = strtolower((string)wp_parse_url($url, PHP_URL_SCHEME));
+                $host = strtolower((string)wp_parse_url($url, PHP_URL_HOST));
+                if (!$host || $host === $site_host || !in_array($scheme, ['http','https'], true)) continue;
+                $origins[$scheme.'://'.$host] = true;
+                if (count($origins) >= 3) break;
             }
         }
+        $hints = [];
         foreach (array_keys($origins) as $origin) {
-            $e = esc_url($origin); $host = (string)wp_parse_url($e, PHP_URL_HOST); if ($e === '' || $host === '') continue;
+            $e = esc_url($origin);
+            $host = (string)wp_parse_url($e, PHP_URL_HOST);
+            if ($e === '' || $host === '') continue;
             $hints[] = '<link rel="preconnect" href="'.esc_attr($e).'" crossorigin data-runner3-speed="preconnect">';
             $hints[] = '<link rel="dns-prefetch" href="//'.esc_attr($host).'" data-runner3-speed="dns">';
         }
-        if ($hints && stripos($html, '</head>') !== false) $html = preg_replace('/<\/head>/i', implode('', $hints).'</head>', $html, 1);
+        if ($hints && stripos($html, '</head>') !== false) {
+            $html = preg_replace('/<\/head>/i', implode('', $hints).'</head>', $html, 1);
+        }
         return $html;
     }
 
