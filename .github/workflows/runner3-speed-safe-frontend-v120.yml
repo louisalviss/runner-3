@@ -1,0 +1,129 @@
+name: Runner3 Speed Safe Frontend v1.2.0
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-safe-frontend-v120.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch safe frontend optimizer
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('wordpress/runner3-speed/runner3-speed.php')
+          s=p.read_text()
+          s=s.replace('Version: 1.1.1','Version: 1.2.0')
+          s=s.replace("const VERSION = '1.1.1';","const VERSION = '1.2.0';")
+          s=s.replace("const CACHE_KEY_VERSION = 'v111';","const CACHE_KEY_VERSION = 'v120';")
+          s=s.replace('✓ Auto purge after content changes<br>✓ Version-locked cache files<br>✓ OFF = normal WordPress path', '✓ Auto purge after content changes<br>✓ Safe LCP image priority + preload<br>✓ Safe lazy-load for below-fold media<br>✓ Preconnect for critical third-party origins<br>✓ Version-locked cache files<br>✓ OFF = normal WordPress path')
+          old="""    public static function capture($html) {
+        if (!is_string($html) || strlen($html) < 512 || stripos($html, '<html') === false || http_response_code() !== 200) return $html;
+        foreach (headers_list() as $header) {
+            if (stripos($header, 'set-cookie:') === 0) return $html;
+            if (stripos($header, 'cache-control:') === 0 && preg_match('/\\b(?:private|no-store|no-cache)\\b/i', $header)) return $html;
+        }
+        $file = self::cache_file_for_request();
+"""
+          new="""    private static function optimize_html($html) {
+        if (!is_string($html) || $html === '' || !class_exists('WP_HTML_Tag_Processor')) return $html;
+
+        $processor = new WP_HTML_Tag_Processor($html);
+        $first_image = null;
+        $image_index = 0;
+        while ($processor->next_tag('img')) {
+            $src = trim((string)$processor->get_attribute('src'));
+            if ($src === '' || stripos($src, 'data:') === 0 || stripos($src, 'blob:') === 0) continue;
+            $image_index++;
+            if ($image_index === 1) {
+                $first_image = $src;
+                $processor->set_attribute('loading', 'eager');
+                $processor->set_attribute('fetchpriority', 'high');
+                if ($processor->get_attribute('decoding') === null) $processor->set_attribute('decoding', 'async');
+            } else {
+                if ($processor->get_attribute('loading') === null) $processor->set_attribute('loading', 'lazy');
+                if ($processor->get_attribute('decoding') === null) $processor->set_attribute('decoding', 'async');
+            }
+        }
+        $html = $processor->get_updated_html();
+
+        $processor = new WP_HTML_Tag_Processor($html);
+        while ($processor->next_tag('iframe')) {
+            if ($processor->get_attribute('loading') === null) $processor->set_attribute('loading', 'lazy');
+        }
+        $html = $processor->get_updated_html();
+
+        $hints = [];
+        if ($first_image) {
+            $href = esc_url($first_image);
+            if ($href !== '') $hints[] = '<link rel=\"preload\" as=\"image\" href=\"'.esc_attr($href).'\" fetchpriority=\"high\" data-runner3-speed=\"lcp\">';
+        }
+
+        $site_host = strtolower((string)wp_parse_url(home_url('/'), PHP_URL_HOST));
+        $origins = [];
+        if (preg_match_all('/<(?:script|link|img|iframe)\\b[^>]+(?:src|href)=[\"\\'](https?:\\/\\/[^\"\\']+)[\"\\']/i', $html, $matches)) {
+            foreach ($matches[1] as $url) {
+                $scheme = strtolower((string)wp_parse_url($url, PHP_URL_SCHEME));
+                $host = strtolower((string)wp_parse_url($url, PHP_URL_HOST));
+                if (!$host || $host === $site_host || ($scheme !== 'http' && $scheme !== 'https')) continue;
+                $origin = $scheme.'://'.$host;
+                $origins[$origin] = true;
+                if (count($origins) >= 3) break;
+            }
+        }
+        foreach (array_keys($origins) as $origin) {
+            $e = esc_url($origin);
+            if ($e === '') continue;
+            $hints[] = '<link rel=\"preconnect\" href=\"'.esc_attr($e).'\" crossorigin data-runner3-speed=\"preconnect\">';
+            $hints[] = '<link rel=\"dns-prefetch\" href=\"//'.esc_attr((string)wp_parse_url($e, PHP_URL_HOST)).'\" data-runner3-speed=\"dns\">';
+        }
+        if ($hints && stripos($html, '</head>') !== false) $html = preg_replace('/<\\/head>/i', implode('', $hints).'</head>', $html, 1);
+        return $html;
+    }
+
+    public static function capture($html) {
+        if (!is_string($html) || strlen($html) < 512 || stripos($html, '<html') === false || http_response_code() !== 200) return $html;
+        foreach (headers_list() as $header) {
+            if (stripos($header, 'set-cookie:') === 0) return $html;
+            if (stripos($header, 'cache-control:') === 0 && preg_match('/\\b(?:private|no-store|no-cache)\\b/i', $header)) return $html;
+        }
+        $html = self::optimize_html($html);
+        $file = self::cache_file_for_request();
+"""
+          if old not in s:
+              raise SystemExit('capture insertion point not found')
+          p.write_text(s.replace(old,new))
+
+          p=Path('wordpress/runner3-speed/dropins/advanced-cache.php')
+          d=p.read_text()
+          d=d.replace('RUNNER3_SPEED_DROPIN v1.1.1','RUNNER3_SPEED_DROPIN v1.2.0')
+          d=d.replace("$runner3_expected_version = '1.1.1';","$runner3_expected_version = '1.2.0';")
+          d=d.replace("$runner3_cache_key_version = 'v111';","$runner3_cache_key_version = 'v120';")
+          p.write_text(d)
+          PY
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q 'Version: 1.2.0' wordpress/runner3-speed/runner3-speed.php
+          grep -q 'WP_HTML_Tag_Processor' wordpress/runner3-speed/runner3-speed.php
+          grep -q 'fetchpriority' wordpress/runner3-speed/runner3-speed.php
+          grep -q 'loading.*lazy' wordpress/runner3-speed/runner3-speed.php
+      - name: Commit plugin v1.2.0
+        run: |
+          set -euo pipefail
+          git config user.name 'runner3-speed-safe-front-bot'
+          git config user.email 'runner3-speed-safe-front-bot@users.noreply.github.com'
+          git add -- wordpress/runner3-speed/runner3-speed.php wordpress/runner3-speed/dropins/advanced-cache.php
+          git commit -m 'feat: add safe frontend optimization core v1.2.0'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
