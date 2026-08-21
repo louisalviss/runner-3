@@ -1,83 +1,76 @@
 {
   "status": "ok",
-  "checkedAt": "2026-08-21T22:17:07.346032Z",
+  "checkedAt": "2026-08-21T22:18:34.081537Z",
   "credentialUsable": true,
   "cleanupOk": true,
   "services": {
     "zones": {
       "read": true,
       "readHttp": 200,
-      "count": 0,
-      "errorCodes": []
+      "readErrorCodes": []
     },
     "workers": {
       "read": true,
       "readHttp": 200,
-      "count": 15,
-      "errorCodes": [],
-      "writeCreate": false,
-      "cleanupDelete": false,
-      "writeHttp": 400,
-      "deleteHttp": null,
-      "writeErrorCodes": [
-        10021
-      ]
+      "readErrorCodes": [],
+      "writeCreate": true,
+      "writeHttp": 200,
+      "writeErrorCodes": [],
+      "cleanupDelete": true,
+      "deleteHttp": 200,
+      "deleteErrorCodes": []
     },
     "pages": {
-      "read": false,
-      "readHttp": 400,
-      "count": null,
-      "errorCodes": [
-        8000024
-      ],
+      "read": true,
+      "readHttp": 200,
+      "readErrorCodes": [],
       "writeCreate": true,
-      "cleanupDelete": true,
       "writeHttp": 200,
-      "deleteHttp": 200,
       "writeErrorCodes": [],
+      "cleanupDelete": true,
+      "deleteHttp": 200,
       "deleteErrorCodes": []
     },
     "kv": {
       "read": false,
       "readHttp": 401,
-      "count": null,
-      "errorCodes": [
+      "readErrorCodes": [
         10000
       ],
       "writeCreate": false,
-      "cleanupDelete": false,
       "writeHttp": 401,
-      "deleteHttp": null,
       "writeErrorCodes": [
         10000
-      ]
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
+      "deleteErrorCodes": []
     },
     "r2": {
       "read": true,
       "readHttp": 200,
-      "count": 1,
-      "errorCodes": [],
+      "readErrorCodes": [],
       "writeCreate": true,
-      "cleanupDelete": true,
       "writeHttp": 200,
-      "deleteHttp": 200,
       "writeErrorCodes": [],
+      "cleanupDelete": true,
+      "deleteHttp": 200,
       "deleteErrorCodes": []
     },
     "d1": {
       "read": false,
       "readHttp": 401,
-      "count": null,
-      "errorCodes": [
+      "readErrorCodes": [
         10000
       ],
       "writeCreate": false,
-      "cleanupDelete": false,
       "writeHttp": 401,
-      "deleteHttp": null,
       "writeErrorCodes": [
         10000
-      ]
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
+      "deleteErrorCodes": []
     }
   }
 }
