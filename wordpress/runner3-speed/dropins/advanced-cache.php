@@ -57,7 +57,11 @@ if (!$runner3_mtime || (time() - $runner3_mtime) > 3600 || $runner3_size === fal
 
 if (!headers_sent()) {
     header('Content-Type: text/html; charset=UTF-8');
-    header('Cache-Control: public, max-age=60, stale-while-revalidate=30');
+    // Runner3 owns the page cache. Do not create a second browser/proxy HTML
+    // cache that cannot be purged immediately after WordPress content changes.
+    header('Cache-Control: no-cache, must-revalidate, max-age=0');
+    header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
+    if ($runner3_size !== false) header('Content-Length: '.(string)$runner3_size);
     header('X-Runner3-Speed: HIT');
     header('X-Runner3-Speed-Version: '.$runner3_expected_version);
 }
