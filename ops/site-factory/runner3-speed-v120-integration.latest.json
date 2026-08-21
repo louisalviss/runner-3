@@ -1,0 +1,55 @@
+{
+  "deploy": {
+    "status": "PASS",
+    "expectedVersion": "1.2.0",
+    "installed": true,
+    "active": true,
+    "performanceOn": false,
+    "front": {
+      "status": 200,
+      "speed": null,
+      "version": null
+    },
+    "error": null,
+    "checkedAt": "2026-08-21T03:18:24.961Z"
+  },
+  "functional": {
+    "status": "FAIL",
+    "contentExact": true,
+    "routesPass": false,
+    "safeFrontend": false,
+    "queryBypass": true,
+    "apiBypass": true,
+    "autoPurge": false,
+    "purgeProbeRestored": false,
+    "finalOff": false,
+    "routeChecks": [
+      {
+        "route": "/",
+        "status200": true,
+        "firstSpeed": "HIT",
+        "secondSpeed": "HIT",
+        "cacheReady": true,
+        "titleSame": true,
+        "h1Same": true,
+        "imagesSame": true,
+        "linksSame": true,
+        "themeMarker": true,
+        "elementorPresent": true,
+        "elementorNotReduced": true,
+        "navPresent": true,
+        "footerPresent": true,
+        "safeFirstImage": true,
+        "safeIframes": false,
+        "noFailedRequests": true,
+        "pass": false
+      }
+    ],
+    "purgeProbe": null,
+    "gates": null,
+    "error": "Error: route_regression:/:{\"route\":\"/\",\"status200\":true,\"firstSpeed\":\"HIT\",\"secondSpeed\":\"HIT\",\"cacheReady\":true,\"titleSame\":true,\"h1Same\":true,\"imagesSame\":true,\"linksSame\":true,\"themeMarker\":true,\"elementorPresent\":true,\"elementorNotReduced\":true,\"navPresent\":true,\"footerPresent\":true,\"safeFirstImage\":true,\"safeIframes\":false,\"noFailedRequests\":true,\"pass\":false}\n    at file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-functional-v8.mjs:37:2207",
+    "checkedAt": "2026-08-21T03:18:44.010Z"
+  },
+  "recordedAt": "2026-08-21T03:18:45.999871+00:00",
+  "status": "FAIL"
+}
