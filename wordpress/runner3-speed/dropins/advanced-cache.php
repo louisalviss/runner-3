@@ -1,9 +1,9 @@
 <?php
-/* RUNNER3_SPEED_DROPIN v1.1.1 */
+/* RUNNER3_SPEED_DROPIN v1.2.0 */
 if (!defined('ABSPATH')) return;
 
-$runner3_expected_version = '1.1.1';
-$runner3_cache_key_version = 'v111';
+$runner3_expected_version = '1.2.0';
+$runner3_cache_key_version = 'v120';
 $runner3_plugin = __DIR__ . '/plugins/runner3-speed/runner3-speed.php';
 if (!is_file($runner3_plugin)) return;
 
@@ -57,8 +57,6 @@ if (!$runner3_mtime || (time() - $runner3_mtime) > 3600 || $runner3_size === fal
 
 if (!headers_sent()) {
     header('Content-Type: text/html; charset=UTF-8');
-    // Runner3 owns the page cache. Do not create a second browser/proxy HTML
-    // cache that cannot be purged immediately after WordPress content changes.
     header('Cache-Control: no-cache, must-revalidate, max-age=0');
     header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
     if ($runner3_size !== false) header('Content-Length: '.(string)$runner3_size);
