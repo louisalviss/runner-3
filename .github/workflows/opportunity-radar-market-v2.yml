@@ -1,0 +1,84 @@
+name: Runner3 Opportunity Radar Market V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/opportunity_radar_market_v2.py
+      - .github/workflows/opportunity-radar-market-v2.yml
+  schedule:
+    # 22:45 UTC Mon-Fri = 05:45 Asia/Ho_Chi_Minh next day Tue-Sat.
+    # Runs after each regular US trading session.
+    - cron: '45 22 * * 1-5'
+
+concurrency:
+  group: runner3-opportunity-radar-market-v2
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install market scanner dependencies
+        run: python -m pip install 'pandas>=2.2,<3' 'requests>=2.32,<3' 'yfinance>=0.2.65,<0.3' 'curl-cffi>=0.7,<1'
+
+      - name: Run Opportunity Radar V2 market scanner
+        run: python scripts/opportunity_radar_market_v2.py
+
+      - name: Stage market outputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: opportunity-radar-market-v2
+          path: |
+            data/opportunity-radar/market-signals.json
+            data/opportunity-radar/market-health.json
+          if-no-files-found: error
+          retention-days: 1
+
+  persist:
+    needs: scan
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore market outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: opportunity-radar-market-v2
+          path: data/opportunity-radar
+
+      - name: Commit current market packet
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json
+          if git diff --cached --quiet; then
+            echo 'No market output changes.'
+            exit 0
+          fi
+          git commit -m 'Update Opportunity Radar V2 market signals [skip ci]'
+          for attempt in 1 2 3; do
+            git pull --rebase origin main && git push origin main && exit 0
+            echo "Push attempt $attempt failed; retrying..."
+            sleep $((attempt * 3))
+          done
+          exit 1
