@@ -1,5 +1,5 @@
 name: Audio Library Current Raw Artifact
-# trigger: current-raw-v1
+# trigger: vhh-dcds-2026
 
 on:
   push:
@@ -25,27 +25,28 @@ jobs:
           python-version: '3.12'
       - name: Install extraction dependencies
         run: python -m pip install -q requests beautifulsoup4 pypdf 'cryptography>=45,<47'
-      - name: Extract current public Reddit source
+      - name: Extract current VHH canonical article
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/audio-current-raw ops/audio-library
+          mkdir -p /tmp/vhh-current-raw data/rss-reader/probes
           python - <<'PY'
           import json,sys
           from pathlib import Path
           sys.path.insert(0,'scripts')
           import audio_library_extract_for_chatgpt as a
-          url='https://www.reddit.com/r/AskReddit/comments/1vsxt55/what_video_game_did_you_drop_laughably_quick/'
-          title,text,label,canonical=a.extract_reddit(url)
+          url='https://vohoanghac.com/p/chuyen-xay-ra-voi-dcds-2026'
+          title,text,label,canonical=a.extract_web(url)
           out={'title':title,'sourceLabel':label,'canonicalUrl':canonical,'rawText':text}
-          Path('/tmp/audio-current-raw/source.json').write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
-          meta={'status':'ready','runId':'${{ github.run_id }}','artifactName':'audio-current-raw-${{ github.run_id }}','title':title,'chars':len(text),'updatedAt':'${{ github.event.head_commit.timestamp }}'}
-          Path('ops/audio-library/current-raw-artifact-status.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          Path('/tmp/vhh-current-raw/source.json').write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
+          meta={'status':'ready','runId':'${{ github.run_id }}','artifactName':'vhh-dcds-2026-${{ github.run_id }}','title':title,'chars':len(text),'canonicalUrl':canonical,'updatedAt':'${{ github.event.head_commit.timestamp }}'}
+          Path('data/rss-reader/probes/vhh-dcds-2026-pointer.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'title':title,'chars':len(text),'canonical':canonical},ensure_ascii=False))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: audio-current-raw-${{ github.run_id }}
-          path: /tmp/audio-current-raw/source.json
+          name: vhh-dcds-2026-${{ github.run_id }}
+          path: /tmp/vhh-current-raw/source.json
           retention-days: 1
           if-no-files-found: error
       - name: Publish artifact pointer
@@ -54,7 +55,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ops/audio-library/current-raw-artifact-status.json
-          git commit -m 'Publish current Audio raw artifact pointer [skip ci]' || exit 0
+          git add data/rss-reader/probes/vhh-dcds-2026-pointer.json
+          git commit -m 'Publish VHH raw artifact pointer [skip ci]' || exit 0
           git pull --rebase origin main || true
           git push origin HEAD:main || true
