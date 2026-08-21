@@ -12,6 +12,7 @@ on:
     # Runs after each regular US trading session.
     - cron: '45 22 * * 1-5'
 
+# Bootstrap trigger after the workflow exists on main.
 concurrency:
   group: runner3-opportunity-radar-market-v2
   cancel-in-progress: false
