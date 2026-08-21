@@ -1,0 +1,82 @@
+name: Runner-3 X Post Reader
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'X/Twitter post URL'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-post-reader.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  read-x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DEFAULT_X_URL: 'https://x.com/shiv_thought/status/2090422046518063265'
+      INPUT_X_URL: ${{ github.event.inputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve X post
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.request, datetime, pathlib
+          url = (os.environ.get('INPUT_X_URL') or '').strip() or os.environ['DEFAULT_X_URL']
+          m = re.search(r'/status/(\d+)', url)
+          if not m:
+              raise SystemExit('No tweet/status id in URL')
+          tid = m.group(1)
+          handle_m = re.search(r'(?:x|twitter)\.com/([^/]+)/status/', url)
+          handle = handle_m.group(1) if handle_m else 'i'
+          headers = {'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/127 Safari/537.36','Accept':'*/*'}
+          endpoints = [
+              ('fxtwitter', f'https://api.fxtwitter.com/status/{tid}'),
+              ('vxtwitter', f'https://api.vxtwitter.com/{handle}/status/{tid}'),
+              ('jina_x_https', f'https://r.jina.ai/https://x.com/{handle}/status/{tid}'),
+              ('jina_x_http', f'https://r.jina.ai/http://x.com/{handle}/status/{tid}'),
+              ('syndication', f'https://cdn.syndication.twimg.com/tweet-result?id={tid}&lang=en'),
+          ]
+          attempts=[]; winner=None
+          for name, ep in endpoints:
+              try:
+                  req=urllib.request.Request(ep, headers=headers)
+                  with urllib.request.urlopen(req, timeout=25) as r:
+                      raw=r.read(800000).decode('utf-8','replace')
+                      rec={'source':name,'url':ep,'status':r.status,'content_type':r.headers.get('content-type',''),'chars':len(raw),'body':raw}
+                      attempts.append(rec)
+                      if r.status==200 and len(raw.strip())>30 and winner is None: winner=rec
+              except Exception as e:
+                  attempts.append({'source':name,'url':ep,'error':repr(e)})
+          out={'requested_url':url,'tweet_id':tid,'handle':handle,'captured_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'winner':winner,'attempts':attempts}
+          p=pathlib.Path('ops/x-scan'); p.mkdir(parents=True, exist_ok=True)
+          (p/f'{tid}.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'tweet_id':tid,'winner': winner and winner['source'], 'attempts':[{k:v for k,v in x.items() if k!='body'} for x in attempts]},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Publish result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/x-scan/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Publish Runner-3 X scan result [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
