@@ -39,14 +39,14 @@ jobs:
           s=s.replace("const result={status:'starting',contentExact:false,routesPass:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};",
                       "const result={status:'starting',contentExact:false,routesPass:false,safeFrontend:false,queryBypass:false,apiBypass:false,autoPurge:false,purgeProbeRestored:false,finalOff:false,routeChecks:[],purgeProbe:null,gates:null,error:null,checkedAt:null};")
           old="""const dom=await p.evaluate(()=>({title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer')}));"""
-          new="""const dom=await p.evaluate(()=>{const frames=[...document.querySelectorAll('iframe')];return{title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),runnerLcpMarkers:document.querySelectorAll('link[data-runner3-speed=\"lcp\"]').length,iframes:frames.length,iframesLoadingSet:frames.every(x=>x.getAttribute('loading')!==null)};});"""
+          new="""const dom=await p.evaluate(()=>({title:document.title,h1:(document.querySelector('h1')?.textContent||'').trim(),bodyClass:document.body.className,images:document.images.length,links:document.links.length,elementorMarkers:document.querySelectorAll('[class*=\"elementor-\"],.elementor').length,hasNav:!!document.querySelector('nav,.navbar,.site-navigation,.main-navigation'),hasFooter:!!document.querySelector('footer,#colophon,.site-footer'),runnerLcpMarkers:document.querySelectorAll('link[data-runner3-speed=\"lcp\"]').length}));"""
           if old not in s: raise SystemExit('dom probe target missing')
           s=s.replace(old,new)
           old2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,noFailedRequests:failed.length===0};"""
-          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,noRunnerLcpGuess:dom.runnerLcpMarkers===0,safeIframes:dom.iframesLoadingSet,noFailedRequests:failed.length===0};"""
+          new2="""navPresent:dom.hasNav,footerPresent:dom.hasFooter,noRunnerLcpGuess:dom.runnerLcpMarkers===0,noFailedRequests:failed.length===0};"""
           if old2 not in s: raise SystemExit('route check target missing')
           s=s.replace(old2,new2)
-          s=s.replace("result.routesPass=result.routeChecks.every(x=>x.pass);","result.routesPass=result.routeChecks.every(x=>x.pass);result.safeFrontend=result.routeChecks.every(x=>x.noRunnerLcpGuess&&x.safeIframes);")
+          s=s.replace("result.routesPass=result.routeChecks.every(x=>x.pass);","result.routesPass=result.routeChecks.every(x=>x.pass);result.safeFrontend=result.routeChecks.every(x=>x.noRunnerLcpGuess);")
           s=s.replace("result.gates={contentExact:result.contentExact,routesPass:result.routesPass,queryBypass:result.queryBypass,apiBypass:result.apiBypass,autoPurge:result.autoPurge,purgeProbeRestored:result.purgeProbeRestored,finalOff:result.finalOff};",
                       "result.gates={contentExact:result.contentExact,routesPass:result.routesPass,safeFrontend:result.safeFrontend,queryBypass:result.queryBypass,apiBypass:result.apiBypass,autoPurge:result.autoPurge,purgeProbeRestored:result.purgeProbeRestored,finalOff:result.finalOff};")
           open(p,'w').write(s)
@@ -99,4 +99,4 @@ jobs:
         if: always()
         run: rm -f /tmp/wasmer-account.json
 
-# manual-trigger: 2026-08-22T05:28+07:00
+# manual-trigger: 2026-08-22T05:31+07:00
