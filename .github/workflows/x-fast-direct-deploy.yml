@@ -40,11 +40,25 @@ jobs:
           url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/x-fast-direct-deploy.log | tail -n 1 || true)"
           test -n "$url"
           echo "WORKER_URL=$url" >> "$GITHUB_ENV"
-      - name: Smoke test
+      - name: Smoke test and benchmark
         shell: bash
         run: |
           set -euo pipefail
           curl --fail --silent --show-error "$WORKER_URL/health" | grep -q 'runner3-x-fast-direct'
+          encoded="$(python - <<'PY'
+          from urllib.parse import quote
+          print(quote('https://x.com/super4defi/status/2090398570524635587', safe=''))
+          PY
+          )"
+          curl --fail --silent --show-error "$WORKER_URL/?url=$encoded" > /tmp/x-fast-benchmark.json
+          python - <<'PY'
+          import json
+          p='/tmp/x-fast-benchmark.json'
+          data=json.load(open(p,encoding='utf-8'))
+          if not data.get('ok'):
+              raise SystemExit(f"benchmark failed: {data}")
+          print(f"X Fast direct engine={data.get('engine')} elapsed_ms={data.get('elapsed_ms')}")
+          PY
       - name: Publish endpoint status
         shell: bash
         run: |
@@ -52,12 +66,20 @@ jobs:
           mkdir -p ops/x-fast
           python - <<'PY'
           import datetime,json,os
+          bench=json.load(open('/tmp/x-fast-benchmark.json',encoding='utf-8'))
           out={
             'status':'ready',
             'url':os.environ['WORKER_URL'],
             'mode':'direct-worker',
-            'primary':'FxTwitter API',
-            'fallback':'X HTML -> GitHub Actions x-fast',
+            'version':2,
+            'primary':'FxTwitter API + X HTML hedged race',
+            'fallback':'GitHub Actions x-fast',
+            'benchmark':{
+              'status_id':bench.get('post_id'),
+              'engine':bench.get('engine'),
+              'elapsed_ms':bench.get('elapsed_ms'),
+              'ok':bench.get('ok'),
+            },
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
           open('ops/x-fast/direct-status.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
