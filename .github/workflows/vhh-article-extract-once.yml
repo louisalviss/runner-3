@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   extract:
@@ -19,12 +19,12 @@ jobs:
       - name: Install extraction tooling
         run: |
           python3 -m pip install -q 'requests>=2.32,<3' 'beautifulsoup4>=4.12,<5' 'playwright>=1.46,<2'
-          mkdir -p evidence
+          mkdir -p evidence data/rss-reader/probes
       - name: Extract canonical article with multiple live routes
         shell: bash
         run: |
           python3 - <<'PY'
-          import json, pathlib, re, requests
+          import json, pathlib, requests
           from bs4 import BeautifulSoup
           from playwright.sync_api import sync_playwright
 
@@ -32,7 +32,6 @@ jobs:
           ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
           ev=pathlib.Path('evidence'); meta={'target':target,'routes':[]}
 
-          # 1) Direct canonical HTML.
           try:
               r=requests.get(target,headers={'User-Agent':ua},timeout=25,allow_redirects=True)
               soup=BeautifulSoup(r.text,'html.parser')
@@ -44,7 +43,6 @@ jobs:
           except Exception as e:
               meta['routes'].append({'route':'direct','error':f'{type(e).__name__}: {e}'})
 
-          # 2) Jina Reader as no-cache live transport.
           try:
               ju='https://r.jina.ai/https://vohoanghac.com/p/chuyen-xay-ra-voi-dcds-2026'
               r=requests.get(ju,headers={'User-Agent':ua,'X-No-Cache':'true','DNT':'1'},timeout=40)
@@ -53,7 +51,6 @@ jobs:
           except Exception as e:
               meta['routes'].append({'route':'jina-live','error':f'{type(e).__name__}: {e}'})
 
-          # 3) Real Chrome DOM, for JS-rendered/custom-domain behavior.
           try:
               with sync_playwright() as p:
                   b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
@@ -68,7 +65,6 @@ jobs:
           except Exception as e:
               meta['routes'].append({'route':'chrome','error':f'{type(e).__name__}: {e}'})
 
-          # Metadata only to logs; full text remains artifact-only.
           (ev/'meta.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(meta,ensure_ascii=False))
           PY
@@ -79,3 +75,26 @@ jobs:
           name: vhh-dcds-2026-${{ github.run_id }}
           path: evidence/
           retention-days: 1
+      - name: Publish run locator metadata only
+        if: always()
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path('evidence/meta.json')
+          meta=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {'routes':[]}
+          meta['run_id']=int(os.environ['RUN_ID'])
+          meta['run_attempt']=int(os.environ['RUN_ATTEMPT'])
+          pathlib.Path('data/rss-reader/probes/vhh-dcds-2026-run.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          git config user.name 'runner3-vhh-probe'
+          git config user.email 'runner3-vhh-probe@users.noreply.github.com'
+          git add data/rss-reader/probes/vhh-dcds-2026-run.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish VHH article extract run locator [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
