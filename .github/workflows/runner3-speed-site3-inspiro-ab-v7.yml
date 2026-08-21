@@ -34,6 +34,14 @@ jobs:
       - name: Prepare corrected PSI harness
         run: |
           set -euo pipefail
+          python - <<'PY'
+          p='scripts/runner3-speed-site3-psi-abc.mjs'
+          s=open(p).read()
+          start=s.index('async function psiState(name)')
+          end=s.index('\nconst pct=',start)
+          new="""async function psiState(name){const raw={mobile:[],desktop:[]};result.protocol.execution='5 paired rounds; mobile+desktop parallel within each round; rounds sequential';for(let i=1;i<=5;i++){const [m,d]=await Promise.all([psiOnce('mobile',i),psiOnce('desktop',i)]);raw.mobile.push(m);raw.desktop.push(d);console.log(`${name} round ${i}/5 mobile=${m.score} desktop=${d.score}`);save();if(i<5)await sleep(2500)}result.states[name]={...(result.states[name]||{}),mobile:summarize(raw.mobile),desktop:summarize(raw.desktop)};save()}"""
+          open(p,'w').write(s[:start]+new+s[end:])
+          PY
           node --check scripts/runner3-speed-site3-psi-abc.mjs
           php -l wordpress/runner3-speed/runner3-speed.php
           npm install --no-save playwright-core@1.58.2
@@ -54,6 +62,9 @@ jobs:
           r=json.load(open('/tmp/runner3-speed-site3-psi-abc.json'))
           assert r['status']=='PASS',r
           assert r['finalState']['pluginInstalled'] and r['finalState']['pluginActive'] and not r['finalState']['performanceOn'],r
+          for state in ['A_NO_PLUGIN','B_ACTIVE_OFF','C_PERFORMANCE_ON']:
+              for strategy in ['mobile','desktop']:
+                  assert r['states'][state][strategy]['successfulRuns']==5,r
           print(json.dumps({'status':r['status'],'protocol':r['protocol'],'delta':r['delta'],'finalState':r['finalState']},indent=2))
           PY
 
