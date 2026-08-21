@@ -1,0 +1,86 @@
+name: Runner3 Speed PSI Raw Extract
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-psi-raw-extract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract embedded Lighthouse metrics from one report
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import urllib.request,re,json,html as htmlmod
+          base='https://pagespeed.web.dev/analysis/https-runner3-speed-site3-realistic-wasmer-app/5ed7pocrl4?hl=en'
+          out={}
+          def norm(s):
+              s=htmlmod.unescape(s)
+              # The PSI page nests Lighthouse JSON inside JS string literals.
+              for _ in range(4):
+                  prev=s
+                  s=s.replace('\\x22','"').replace('\\x27',"'").replace('\\x3d','=').replace('\\x26','&')
+                  s=s.replace('\\\\"','"').replace('\\"','"').replace('\\n','\n').replace('\\t','\t')
+                  if s==prev: break
+              return s
+          for device in ('mobile','desktop'):
+              url=base+'&form_factor='+device
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+              raw=urllib.request.urlopen(req,timeout=60).read().decode('utf-8','replace')
+              text=norm(raw)
+              def vals(audit_id):
+                  arr=[]
+                  for m in re.finditer(re.escape(audit_id),text,re.I):
+                      chunk=text[m.start():m.start()+5000]
+                      nm=re.search(r'"numericValue"\s*:\s*([0-9.]+)',chunk)
+                      dv=re.search(r'"displayValue"\s*:\s*"([^"]+)"',chunk)
+                      if nm:
+                          v=float(nm.group(1))
+                          if not any(abs(v-x['numericValue'])<0.001 for x in arr):
+                              arr.append({'numericValue':v,'displayValue':dv.group(1) if dv else None,'pos':m.start()})
+                  return arr
+              perf=[]
+              for m in re.finditer(r'"performance"\s*:\s*\{',text):
+                  chunk=text[m.start():m.start()+1500]
+                  sm=re.search(r'"score"\s*:\s*([0-9.]+)',chunk)
+                  if sm:
+                      v=float(sm.group(1))
+                      if 0<=v<=1 and not any(abs(v-x['score'])<1e-9 for x in perf): perf.append({'score':v,'pos':m.start()})
+              out[device]={
+                  'url':url,'bytes':len(raw),
+                  'fcp':vals('first-contentful-paint'),
+                  'lcp':vals('largest-contentful-paint'),
+                  'tbt':vals('total-blocking-time'),
+                  'speedIndex':vals('speed-index'),
+                  'performanceScores':perf,
+                  'lighthouseVersions':sorted(set(re.findall(r'"lighthouseVersion"\s*:\s*"([^"]+)"',text))),
+                  'containsMobileUrl':'form_factor=mobile' in text,
+                  'containsDesktopUrl':'form_factor=desktop' in text,
+              }
+          open('/tmp/psi-raw-extract.json','w').write(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Persist
+        if: always()
+        run: |
+          set -euo pipefail
+          git config user.name 'runner3-speed-psi-raw-bot'
+          git config user.email 'runner3-speed-psi-raw-bot@users.noreply.github.com'
+          git fetch origin runner3-speed-site3-realistic-20260821
+          git reset --hard origin/runner3-speed-site3-realistic-20260821
+          mkdir -p ops/site-factory
+          cp /tmp/psi-raw-extract.json ops/site-factory/runner3-speed-psi-raw-extract.json
+          git add -- ops/site-factory/runner3-speed-psi-raw-extract.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record raw PSI embedded metrics' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
