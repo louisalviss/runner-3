@@ -1,0 +1,39 @@
+name: Runner3 Speed v1.2.0 Static Validation
+on:
+  push:
+    branches: [runner3-speed-site3-realistic-20260821]
+    paths: ['.github/workflows/runner3-speed-v120-static.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q 'Version: 1.2.0' wordpress/runner3-speed/runner3-speed.php
+          grep -q "const CACHE_KEY_VERSION = 'v120'" wordpress/runner3-speed/runner3-speed.php
+          grep -q 'WP_HTML_Tag_Processor' wordpress/runner3-speed/runner3-speed.php
+          grep -q "fetchpriority','high'" wordpress/runner3-speed/runner3-speed.php
+          grep -q "loading','lazy'" wordpress/runner3-speed/runner3-speed.php
+          grep -q "no-cache, must-revalidate, max-age=0" wordpress/runner3-speed/dropins/advanced-cache.php
+          printf '{"status":"PASS","version":"1.2.0","checks":["php-lint-main","php-lint-dropin","version","cache-key","html-tag-processor","lcp-priority","lazy-load","server-owned-cache"]}\n' >/tmp/v120-static.json
+      - name: Persist
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/v120-static.json ]; then printf '{"status":"FAIL"}\n' >/tmp/v120-static.json; fi
+          git config user.name runner3-speed-v120-static-bot
+          git config user.email runner3-speed-v120-static-bot@users.noreply.github.com
+          git fetch origin runner3-speed-site3-realistic-20260821
+          git reset --hard origin/runner3-speed-site3-realistic-20260821
+          mkdir -p ops/site-factory
+          cp /tmp/v120-static.json ops/site-factory/runner3-speed-v120-static.latest.json
+          git add -- ops/site-factory/runner3-speed-v120-static.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record Runner3 Speed v1.2.0 static evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
