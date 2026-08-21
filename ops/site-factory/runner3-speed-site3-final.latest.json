@@ -1,0 +1,107 @@
+{
+  "status": "PASS",
+  "runType": "site3_inspiro_final_abc_safety_functional",
+  "siteUrl": "https://runner3-speed-site3-realistic.wasmer.app/",
+  "plugin": {
+    "name": "Runner3 Speed",
+    "version": "1.1.1",
+    "finalState": "active_performance_off"
+  },
+  "fixture": {
+    "theme": "inspiro",
+    "demo": "Architecture (Lite) / Elementor",
+    "pages": 6,
+    "posts": 9,
+    "media": 22,
+    "featuredPosts": 9,
+    "featuredResolved": 9,
+    "homepageImages": 13,
+    "elementorMarkers": 743,
+    "officialImporter": true
+  },
+  "states": {
+    "A_no_plugin": {
+      "curlTtfbMs": 312.6,
+      "browserTtfbMs": 327.5,
+      "browserFcpMs": 540,
+      "browserLcpMs": 540,
+      "browserCls": 0.114,
+      "browserLoadMs": 640.6,
+      "lighthouseScore": 68,
+      "lighthouseLcpMs": 5627.4,
+      "lighthouseServerResponseMs": 333
+    },
+    "B_active_performance_off": {
+      "curlTtfbMs": 337.6,
+      "browserTtfbMs": 326.6,
+      "browserFcpMs": 552,
+      "browserLcpMs": 552,
+      "browserCls": 0.114,
+      "lighthouseScore": 55,
+      "lighthouseLcpMs": 14228.7,
+      "lighthouseServerResponseMs": 331
+    },
+    "C_performance_on": {
+      "curlTtfbMs": 100.4,
+      "browserTtfbMs": 111.4,
+      "browserFcpMs": 420,
+      "browserLcpMs": 420,
+      "browserCls": 0.114,
+      "lighthouseScore": 55,
+      "lighthouseLcpMs": 14759.8,
+      "lighthouseServerResponseMs": 36,
+      "curlHits": "15/15",
+      "browserHits": "7/7"
+    }
+  },
+  "bcDelta": {
+    "curlTtfbPct": -70.3,
+    "browserTtfbPct": -65.9,
+    "browserFcpMs": -132,
+    "browserLcpMs": -132,
+    "browserLoadMs": -175.2,
+    "lighthouseScore": 0,
+    "lighthouseServerResponseMs": -295
+  },
+  "safety": {
+    "status": "PASS",
+    "headHit": true,
+    "headEmptyBody": true,
+    "authCookieBypass": true,
+    "wooCartCookieBypass": true,
+    "wooSessionCookieBypass": true,
+    "cartPathBypass": true,
+    "checkoutPathBypass": true,
+    "accountPathBypass": true,
+    "wcApiPathBypass": true,
+    "deactivateNoHit": true,
+    "reactivateOffNoHit": true
+  },
+  "functional": {
+    "status": "PASS",
+    "contentExact": true,
+    "routesPass": true,
+    "routesChecked": 6,
+    "cacheLifecycle": "STORE_or_HIT_then_HIT",
+    "queryBypass": true,
+    "apiBypass": true,
+    "autoPurge": true,
+    "autoPurgeObserved": "STORE_then_HIT_after_save_post",
+    "purgeProbeRestored": true,
+    "finalOff": true
+  },
+  "verdict": {
+    "performance": "PASS",
+    "safety": "PASS",
+    "functionalIntegrity": "PASS",
+    "cacheInvalidation": "PASS",
+    "overall": "PASS"
+  },
+  "notes": [
+    "Canonical baseline is ops/site-factory/runner3-speed-site3-inspiro-baseline.locked.json.",
+    "Functional final evidence is ops/site-factory/runner3-speed-site3-functional-v8.latest.json.",
+    "A/B/C and safety evidence is ops/site-factory/runner3-speed-site3-inspiro-v7.latest.json.",
+    "Lighthouse LCP showed severe runner/network variance in B/C while server response, curl, and browser medians were stable; do not use the Lighthouse LCP delta from this run as evidence of a plugin regression."
+  ],
+  "checkedAt": "2026-08-21T00:41:49.539Z"
+}
