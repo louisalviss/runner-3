@@ -31,7 +31,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare
+      - name: Prepare corrected PSI harness
         run: |
           set -euo pipefail
           node --check scripts/runner3-speed-site3-psi-abc.mjs
