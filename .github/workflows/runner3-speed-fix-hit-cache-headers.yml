@@ -1,0 +1,63 @@
+name: Runner3 Speed Fix HIT Cache Headers
+
+on:
+  push:
+    branches:
+      - runner3-speed-site3-realistic-20260821
+    paths:
+      - '.github/workflows/runner3-speed-fix-hit-cache-headers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch cache ownership and version
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('wordpress/runner3-speed/runner3-speed.php')
+          s=p.read_text()
+          s=s.replace('Version: 1.1.1','Version: 1.1.2')
+          s=s.replace("const VERSION = '1.1.1';","const VERSION = '1.1.2';")
+          s=s.replace("const CACHE_KEY_VERSION = 'v111';","const CACHE_KEY_VERSION = 'v112';")
+          p.write_text(s)
+
+          p=Path('wordpress/runner3-speed/dropins/advanced-cache.php')
+          s=p.read_text()
+          s=s.replace('RUNNER3_SPEED_DROPIN v1.1.1','RUNNER3_SPEED_DROPIN v1.1.2')
+          s=s.replace("$runner3_expected_version = '1.1.1';","$runner3_expected_version = '1.1.2';")
+          s=s.replace("$runner3_cache_key_version = 'v111';","$runner3_cache_key_version = 'v112';")
+          old="""    header('Content-Type: text/html; charset=UTF-8');
+    header('Cache-Control: public, max-age=60, stale-while-revalidate=30');
+    header('X-Runner3-Speed: HIT');"""
+          new="""    header('Content-Type: text/html; charset=UTF-8');
+    // Runner3 owns the page cache. Do not create an independent browser/proxy
+    // HTML cache that cannot be purged when WordPress content changes.
+    header('Cache-Control: no-cache, must-revalidate, max-age=0');
+    header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
+    if ($runner3_size !== false) header('Content-Length: '.(string)$runner3_size);
+    header('X-Runner3-Speed: HIT');"""
+          if old not in s:
+              raise SystemExit('target cache header block not found')
+          p.write_text(s.replace(old,new))
+          PY
+          php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q 'Version: 1.1.2' wordpress/runner3-speed/runner3-speed.php
+          grep -q "no-cache, must-revalidate, max-age=0" wordpress/runner3-speed/dropins/advanced-cache.php
+      - name: Commit patch
+        run: |
+          set -euo pipefail
+          git config user.name 'runner3-speed-fix-bot'
+          git config user.email 'runner3-speed-fix-bot@users.noreply.github.com'
+          git add -- wordpress/runner3-speed/runner3-speed.php wordpress/runner3-speed/dropins/advanced-cache.php
+          git commit -m 'fix: keep HTML cache server-owned and purgeable'
+          git push origin HEAD:runner3-speed-site3-realistic-20260821
