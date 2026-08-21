@@ -1,4 +1,4 @@
-name: Runner3 Speed Site3 Functional Final
+name: Runner3 Speed Site3 Official PSI A-B-C
 
 on:
   push:
@@ -20,11 +20,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  functional-final:
+  psi-abc:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      RUNNER3_PLUGIN_ZIP: /tmp/runner3-speed.zip
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,50 +34,50 @@ jobs:
       - name: Prepare
         run: |
           set -euo pipefail
-          node --check scripts/runner3-speed-site3-functional-v8.mjs
+          node --check scripts/runner3-speed-site3-psi-abc.mjs
           php -l wordpress/runner3-speed/runner3-speed.php
           npm install --no-save playwright-core@1.58.2
+          (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
+          test -s /tmp/runner3-speed.zip
           test -n "${AUTOMATION_KEY:-}"
           echo '::add-mask::'"$AUTOMATION_KEY"
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
 
-      - name: Run corrected cache lifecycle and auto-purge tests
+      - name: Run official PageSpeed Insights A-B-C
         run: |
           set -euo pipefail
-          node scripts/runner3-speed-site3-functional-v8.mjs
-          test -s /tmp/runner3-speed-site3-functional-v8.json
+          node scripts/runner3-speed-site3-psi-abc.mjs
+          test -s /tmp/runner3-speed-site3-psi-abc.json
           python - <<'PY'
           import json
-          r=json.load(open('/tmp/runner3-speed-site3-functional-v8.json'))
+          r=json.load(open('/tmp/runner3-speed-site3-psi-abc.json'))
           assert r['status']=='PASS',r
-          assert all(r['gates'].values()),r
-          assert all(x['pass'] for x in r['routeChecks']),r
-          print(json.dumps(r,indent=2))
+          assert r['finalState']['pluginInstalled'] and r['finalState']['pluginActive'] and not r['finalState']['performanceOn'],r
+          print(json.dumps({'status':r['status'],'protocol':r['protocol'],'delta':r['delta'],'finalState':r['finalState']},indent=2))
           PY
 
-      - name: Persist final functional evidence
+      - name: Persist PSI evidence
         if: always()
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,os,datetime
-          p='/tmp/runner3-speed-site3-functional-v8.json'
+          p='/tmp/runner3-speed-site3-psi-abc.json'
           r=json.load(open(p)) if os.path.exists(p) else {'status':'MISSING'}
-          r['runType']='site3_inspiro_functional_final_v8'
           r['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          os.makedirs('/tmp/r3-final',exist_ok=True)
-          json.dump(r,open('/tmp/r3-final/runner3-speed-site3-functional-v8.latest.json','w'),indent=2)
+          os.makedirs('/tmp/r3-psi',exist_ok=True)
+          json.dump(r,open('/tmp/r3-psi/runner3-speed-site3-psi-abc.latest.json','w'),indent=2)
           PY
-          git config user.name 'runner3-speed-site3-final-bot'
-          git config user.email 'runner3-speed-site3-final-bot@users.noreply.github.com'
+          git config user.name 'runner3-speed-site3-psi-bot'
+          git config user.email 'runner3-speed-site3-psi-bot@users.noreply.github.com'
           git fetch origin runner3-speed-site3-realistic-20260821
           git reset --hard origin/runner3-speed-site3-realistic-20260821
           mkdir -p ops/site-factory
-          cp /tmp/r3-final/runner3-speed-site3-functional-v8.latest.json ops/site-factory/runner3-speed-site3-functional-v8.latest.json
-          git add -- ops/site-factory/runner3-speed-site3-functional-v8.latest.json
-          if ! git diff --cached --quiet; then git commit -m 'test: record final Site 3 functional evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+          cp /tmp/r3-psi/runner3-speed-site3-psi-abc.latest.json ops/site-factory/runner3-speed-site3-psi-abc.latest.json
+          git add -- ops/site-factory/runner3-speed-site3-psi-abc.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record official PSI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/wasmer-account.json
+        run: rm -f /tmp/wasmer-account.json /tmp/runner3-speed.zip
