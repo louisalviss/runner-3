@@ -1,0 +1,844 @@
+{
+  "runner": "runner-3",
+  "tweet_url": "https://x.com/lonely__mh/status/2090443980555403636?s=12",
+  "tweet_id": "2090443980555403636",
+  "fetched_at": "2026-08-21T03:56:33.233779+00:00",
+  "agent_reach_doctor": "Agent Reach 状态\n========================================\n图例：✅ 可用  [!] 已装但需配置/登录  [X] 未安装\n\n✅ 装好即用：\n  [!]  GitHub 仓库和代码 — gh CLI 可执行，但未检测到显式认证配置。运行 `gh auth \nlogin` 完成登录；Doctor 不会自动执行 `gh auth status`。\n  [!]  YouTube 视频和字幕 — yt-dlp 已安装但未配置 JS runtime。运行：\n  mkdir -p /home/runner/.config/yt-dlp && { grep -qxF -- '--js-runtimes node' \n/home/runner/.config/yt-dlp/config 2>/dev/null || printf '%s\\n' '--js-runtimes \nnode' >> /home/runner/.config/yt-dlp/config; }\n  ✅ V2EX 节点、主题与回复 — 公开 API \n可用（热门主题、节点浏览、主题详情、用户信息）\n  ✅ RSS/Atom 订阅源 — 可读取 RSS/Atom 源\n  [X]  全网语义搜索 — 需要 mcporter + Exa MCP。安装：\n  npm install -g mcporter\n  mcporter config add exa https://mcp.exa.ai/mcp --scope home\n  ✅ 任意网页 — 通过 Jina Reader 读取任意网页（curl https://r.jina.ai/URL）\n\n可选渠道（已安装）：\n  ✅ B站视频、字幕和搜索 — B站搜索 API 可达（仅搜索，curl \n直连）。完整功能建议安装 bili-cli：pipx install bilibili-cli （当前后端：B站搜索\nAPI）\n\n状态：4/15 个渠道可用\n还有 8 个可选渠道可以解锁（Twitter/X 推文、Reddit 帖子和评论、Facebook \n帖子、主页和群组、Instagram \n用户、主页和指定用户帖子、小红书笔记、小宇宙播客转文字、雪球股票行情与社区动态、\nLinkedIn 职业社交），告诉你的 Agent「帮我装 XXX」即可\n",
+  "attempts": {
+    "twitter_cli": {
+      "rc": 99,
+      "error": "twitter-cli unavailable or explicit credentials not configured\n",
+      "data": null
+    },
+    "fxtwitter": {
+      "rc": 0,
+      "error": "",
+      "data": {
+        "code": 200,
+        "message": "OK",
+        "tweet": {
+          "url": "https://x.com/Lonely__MH/status/2090443980555403636",
+          "id": "2090443980555403636",
+          "text": "🎉iOS开发者的福音！\n\nDeepseek Harness  iOS 模拟器 + 真机自动化插件它来了！\n\n安装👉：dsh plugin --profile web add @zseven-w/dsh-ios@latest\n\n作者高产似母牛🐮\n\n有兴趣的快去体验！\n\n传送门👉 https://github.com/ZSeven-W/dsh-ios",
+          "raw_text": {
+            "text": "🎉iOS开发者的福音！\n\nDeepseek Harness  iOS 模拟器 + 真机自动化插件它来了！\n\n安装👉：dsh plugin --profile web add @zseven-w/dsh-ios@latest\n\n作者高产似母牛🐮\n\n有兴趣的快去体验！\n\n传送门👉 https://t.co/c4Glvet6VU",
+            "display_text_range": [
+              0,
+              162
+            ],
+            "facets": [
+              {
+                "type": "url",
+                "indices": [
+                  139,
+                  162
+                ],
+                "original": "https://t.co/c4Glvet6VU",
+                "replacement": "https://github.com/ZSeven-W/dsh-ios",
+                "display": "github.com/ZSeven-W/dsh-i…"
+              }
+            ]
+          },
+          "author": {
+            "screen_name": "Lonely__MH",
+            "url": "https://x.com/Lonely__MH",
+            "id": "2926712868",
+            "followers": 22793,
+            "following": 782,
+            "likes": 13401,
+            "media_count": 1820,
+            "name": "Lonely",
+            "description": "👨‍💻 独立开发者 | AI Builder | 互联网打杂 \n💻 Hermes Agent & AI 工具实战测评\n💡 聊聊前沿 AI 资讯、写写小白硬核教程\n世界是个巨大草台班子，你我皆在台上\n格言：生命不息，Bug不止\n📮 商务DM",
+            "raw_description": {
+              "text": "👨‍💻 独立开发者 | AI Builder | 互联网打杂 \n💻 Hermes Agent & AI 工具实战测评\n💡 聊聊前沿 AI 资讯、写写小白硬核教程\n世界是个巨大草台班子，你我皆在台上\n格言：生命不息，Bug不止\n📮 商务DM",
+              "facets": []
+            },
+            "location": "AI 科技",
+            "banner_url": "https://pbs.twimg.com/profile_banners/2926712868/1451226903",
+            "avatar_url": "https://pbs.twimg.com/profile_images/1141385957234470912/iJMy6F7u_200x200.jpg",
+            "joined": "Thu Dec 11 11:57:05 +0000 2014",
+            "protected": false,
+            "website": null,
+            "verification": {
+              "verified": true,
+              "verified_at": null,
+              "type": "individual"
+            },
+            "avatar_color": null
+          },
+          "replies": 21,
+          "retweets": 35,
+          "likes": 149,
+          "bookmarks": 200,
+          "quotes": 0,
+          "created_at": "Thu Aug 20 14:20:58 +0000 2026",
+          "created_timestamp": 1787235658,
+          "possibly_sensitive": false,
+          "views": 25660,
+          "is_note_tweet": false,
+          "community_note": null,
+          "lang": "zh",
+          "replying_to": null,
+          "replying_to_status": null,
+          "quote": {
+            "url": "https://x.com/FiniYang/status/2090428916804849763",
+            "id": "2090428916804849763",
+            "text": "这是我们的第 4 个 DeepSeek Harness 插件 🥳\niOS 模拟器 + 真机自动化插件 dsh-ios 🐳📱\n让 DSH 中的 Agent 直接查看并操作 iOS 模拟器和真机\n构建并运行 App，完成点击、滑动、输入等操作\n还能检查进程、调用栈和内存泄漏\n\n⚙️ 内置 21 个 Agent 工具\n实时画面显示在侧边栏，支持人机协同操作 🤗\n支持 SwiftUI 预览热重载\n在 DSH 中就能完成 iOS 开发、调试和自动化\n欢迎使用：https://github.com/ZSeven-W/dsh-ios\n\n演示视频前半段为模拟器，后半段为真机\n快速安装见评论区 ⬇️\n#deepseek #harness #dsh #plugin #ios #agent",
+            "raw_text": {
+              "text": "这是我们的第 4 个 DeepSeek Harness 插件 🥳\niOS 模拟器 + 真机自动化插件 dsh-ios 🐳📱\n让 DSH 中的 Agent 直接查看并操作 iOS 模拟器和真机\n构建并运行 App，完成点击、滑动、输入等操作\n还能检查进程、调用栈和内存泄漏\n\n⚙️ 内置 21 个 Agent 工具\n实时画面显示在侧边栏，支持人机协同操作 🤗\n支持 SwiftUI 预览热重载\n在 DSH 中就能完成 iOS 开发、调试和自动化\n欢迎使用：https://t.co/KeqXWCHkq8\n\n演示视频前半段为模拟器，后半段为真机\n快速安装见评论区 ⬇️\n#deepseek #harness #dsh #plugin #ios #agent",
+              "display_text_range": [
+                0,
+                330
+              ],
+              "facets": [
+                {
+                  "type": "bold",
+                  "indices": [
+                    52,
+                    59
+                  ]
+                },
+                {
+                  "type": "media",
+                  "indices": [
+                    182,
+                    205
+                  ],
+                  "id": "2090427240404357122",
+                  "display": "pic.x.com/Lvt15lcaBJ",
+                  "original": "https://t.co/Lvt15lcaBJ",
+                  "replacement": "https://x.com/FiniYang/status/2090428916804849763/video/1"
+                },
+                {
+                  "type": "url",
+                  "indices": [
+                    227,
+                    250
+                  ],
+                  "original": "https://t.co/KeqXWCHkq8",
+                  "replacement": "https://github.com/ZSeven-W/dsh-ios",
+                  "display": "github.com/ZSeven-W/dsh-i…"
+                },
+                {
+                  "type": "hashtag",
+                  "indices": [
+                    283,
+                    292
+                  ],
+                  "original": "deepseek"
+                },
+                {
+                  "type": "hashtag",
+                  "indices": [
+                    293,
+                    301
+                  ],
+                  "original": "harness"
+                },
+                {
+                  "type": "hashtag",
+                  "indices": [
+                    302,
+                    306
+                  ],
+                  "original": "dsh"
+                },
+                {
+                  "type": "hashtag",
+                  "indices": [
+                    307,
+                    314
+                  ],
+                  "original": "plugin"
+                },
+                {
+                  "type": "hashtag",
+                  "indices": [
+                    315,
+                    319
+                  ],
+                  "original": "ios"
+                },
+                {
+                  "type": "hashtag",
+                  "indices": [
+                    320,
+                    326
+                  ],
+                  "original": "agent"
+                }
+              ]
+            },
+            "author": {
+              "screen_name": "FiniYang",
+              "url": "https://x.com/FiniYang",
+              "id": "4004131634",
+              "followers": 6159,
+              "following": 3535,
+              "likes": 10905,
+              "media_count": 780,
+              "name": "Fini.Yang",
+              "description": "👨‍💻 大型企业 Agent 架构师｜企业级 Agent 平台 × AI-Native 研发协作\n🛠️ OpenPencil / Zode / Jian 开源作者\n🤖 Agent Architect · AI Builder · Open Source",
+              "raw_description": {
+                "text": "👨‍💻 大型企业 Agent 架构师｜企业级 Agent 平台 × AI-Native 研发协作\n🛠️ OpenPencil / Zode / Jian 开源作者\n🤖 Agent Architect · AI Builder · Open Source",
+                "facets": []
+              },
+              "location": "",
+              "banner_url": "https://pbs.twimg.com/profile_banners/4004131634/1506521657",
+              "avatar_url": "https://pbs.twimg.com/profile_images/2052051895683084288/ZehEoMjv_200x200.jpg",
+              "joined": "Sat Oct 24 16:39:58 +0000 2015",
+              "protected": false,
+              "website": {
+                "url": "https://www.zseven.tech/",
+                "display_url": "zseven.tech"
+              },
+              "verification": {
+                "verified": true,
+                "verified_at": null,
+                "type": "individual"
+              },
+              "avatar_color": null
+            },
+            "replies": 51,
+            "retweets": 58,
+            "likes": 403,
+            "bookmarks": 395,
+            "quotes": 13,
+            "created_at": "Thu Aug 20 13:21:06 +0000 2026",
+            "created_timestamp": 1787232066,
+            "possibly_sensitive": false,
+            "views": 66943,
+            "is_note_tweet": true,
+            "community_note": null,
+            "lang": "zh",
+            "replying_to": null,
+            "replying_to_status": null,
+            "media": {
+              "all": [
+                {
+                  "id": "2090427240404357122",
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                  "thumbnail_url": "https://pbs.twimg.com/amplify_video_thumb/2090427240404357122/img/DIjl6F83D9N44s-e.jpg",
+                  "duration": 68.083,
+                  "width": 2560,
+                  "height": 1440,
+                  "format": "video/mp4",
+                  "type": "video",
+                  "formats": [
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                      "container": "m3u8"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                      "bitrate": 256000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                      "bitrate": 832000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                      "bitrate": 2176000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                      "bitrate": 10368000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    }
+                  ],
+                  "publisher": null,
+                  "variants": [
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                      "bitrate": 0,
+                      "content_type": "application/x-mpegURL"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                      "bitrate": 256000,
+                      "content_type": "video/mp4"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                      "bitrate": 832000,
+                      "content_type": "video/mp4"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                      "bitrate": 2176000,
+                      "content_type": "video/mp4"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                      "bitrate": 10368000,
+                      "content_type": "video/mp4"
+                    }
+                  ]
+                }
+              ],
+              "videos": [
+                {
+                  "id": "2090427240404357122",
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                  "thumbnail_url": "https://pbs.twimg.com/amplify_video_thumb/2090427240404357122/img/DIjl6F83D9N44s-e.jpg",
+                  "duration": 68.083,
+                  "width": 2560,
+                  "height": 1440,
+                  "format": "video/mp4",
+                  "type": "video",
+                  "formats": [
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                      "container": "m3u8"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                      "bitrate": 256000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                      "bitrate": 832000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                      "bitrate": 2176000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                      "bitrate": 10368000,
+                      "container": "mp4",
+                      "codec": "h264"
+                    }
+                  ],
+                  "publisher": null,
+                  "variants": [
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                      "bitrate": 0,
+                      "content_type": "application/x-mpegURL"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                      "bitrate": 256000,
+                      "content_type": "video/mp4"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                      "bitrate": 832000,
+                      "content_type": "video/mp4"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                      "bitrate": 2176000,
+                      "content_type": "video/mp4"
+                    },
+                    {
+                      "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                      "bitrate": 10368000,
+                      "content_type": "video/mp4"
+                    }
+                  ]
+                }
+              ]
+            },
+            "source": "Twitter Web App",
+            "twitter_card": "player",
+            "color": null,
+            "provider": "twitter",
+            "reposted_by": null
+          },
+          "source": "Twitter for iPhone",
+          "card": {
+            "url": "https://github.com/ZSeven-W/dsh-ios",
+            "title": "GitHub - ZSeven-W/dsh-ios: DeepSeek Harness (DSH) plugin: a live iOS Simulator — and a USB-connec...",
+            "description": "DeepSeek Harness (DSH) plugin: a live iOS Simulator — and a USB-connected iPhone — inside the conversation. 21 agent tools for booting, building, driving the UI by accessibility identity, OCR text ...",
+            "domain": "github.com",
+            "image": {
+              "width": 800,
+              "height": 419,
+              "url": "https://pbs.twimg.com/card_img/2090428919900237824/1NCRfNlT?format=jpg&name=800x419"
+            }
+          },
+          "color": null,
+          "provider": "twitter",
+          "reposted_by": null
+        }
+      }
+    },
+    "vxtwitter": {
+      "rc": 0,
+      "error": "",
+      "data": {
+        "allSameType": true,
+        "article": null,
+        "combinedMediaUrl": null,
+        "communityNote": null,
+        "conversationID": "2090443980555403636",
+        "date": "Thu Aug 20 14:20:58 +0000 2026",
+        "date_epoch": 1787235658,
+        "fetched_on": 1787284593,
+        "hasMedia": true,
+        "hashtags": [],
+        "lang": "zh",
+        "likes": 149,
+        "mediaURLs": [
+          "https://pbs.twimg.com/card_img/2090428919900237824/1NCRfNlT?format=jpg&name=800x419"
+        ],
+        "media_extended": [
+          {
+            "size": {
+              "height": 419,
+              "width": 800
+            },
+            "type": "image",
+            "url": "https://pbs.twimg.com/card_img/2090428919900237824/1NCRfNlT?format=jpg&name=800x419"
+          }
+        ],
+        "pollData": {
+          "options": []
+        },
+        "possibly_sensitive": false,
+        "qrt": {
+          "allSameType": true,
+          "article": null,
+          "combinedMediaUrl": null,
+          "communityNote": null,
+          "conversationID": "2090428916804849763",
+          "date": "Thu Aug 20 13:21:06 +0000 2026",
+          "date_epoch": 1787232066,
+          "fetched_on": 1787284593,
+          "hasMedia": true,
+          "hashtags": [],
+          "lang": "zh",
+          "likes": 403,
+          "mediaURLs": [
+            "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4"
+          ],
+          "media_extended": [
+            {
+              "altText": null,
+              "duration_millis": 68083,
+              "id_str": "2090427240404357122",
+              "size": {
+                "height": 1440,
+                "width": 2560
+              },
+              "thumbnail_url": "https://pbs.twimg.com/amplify_video_thumb/2090427240404357122/img/DIjl6F83D9N44s-e.jpg",
+              "type": "video",
+              "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4"
+            }
+          ],
+          "pollData": null,
+          "possibly_sensitive": false,
+          "qrtURL": "https://twitter.com/i/status/2089196036850110608",
+          "replies": 51,
+          "replyingTo": null,
+          "replyingToID": null,
+          "retweetURL": null,
+          "retweets": 58,
+          "text": "这是我们的第 4 个 DeepSeek Harness 插件 🥳\niOS 模拟器 + 真机自动化插件 dsh-ios 🐳📱\n让 DSH 中的 Agent 直接查看并操作 iOS 模拟器和真机\n构建并运行 App，完成点击、滑动、输入等操作\n还能检查进程、调用栈和内存泄漏\n\n⚙️ 内置 21 个 Agent 工具\n实时画面显示在侧边栏，支持人机协同操作 🤗\n支持 SwiftUI 预览热重载\n在 DSH 中就能完成 iOS 开发、调试和自动化\n欢迎使用：https://t.co/KeqXWCHkq8\n\n演示视频前半段为模拟器，后半段为真机\n快速安装见评论区 ⬇️\n#deepseek #harness #dsh #plugin #ios #agent",
+          "translation": null,
+          "tweetID": "2090428916804849763",
+          "tweetURL": "https://twitter.com/FiniYang/status/2090428916804849763",
+          "user_name": "Fini.Yang",
+          "user_profile_image_url": "https://pbs.twimg.com/profile_images/2052051895683084288/ZehEoMjv_normal.jpg",
+          "user_screen_name": "FiniYang"
+        },
+        "qrtURL": "https://twitter.com/i/status/2090428916804849763",
+        "replies": 21,
+        "replyingTo": null,
+        "replyingToID": null,
+        "retweet": null,
+        "retweetURL": null,
+        "retweets": 35,
+        "text": "🎉iOS开发者的福音！\n\nDeepseek Harness  iOS 模拟器 + 真机自动化插件它来了！\n\n安装👉：dsh plugin --profile web add @zseven-w/dsh-ios@latest\n\n作者高产似母牛🐮\n\n有兴趣的快去体验！\n\n传送门👉 https://github.com/ZSeven-W/dsh-ios",
+        "translation": null,
+        "tweetID": "2090443980555403636",
+        "tweetURL": "https://twitter.com/Lonely__MH/status/2090443980555403636",
+        "user_name": "Lonely",
+        "user_profile_image_url": "https://pbs.twimg.com/profile_images/1141385957234470912/iJMy6F7u_normal.jpg",
+        "user_screen_name": "Lonely__MH"
+      }
+    }
+  },
+  "selected_source": "fxtwitter",
+  "selected": {
+    "code": 200,
+    "message": "OK",
+    "tweet": {
+      "url": "https://x.com/Lonely__MH/status/2090443980555403636",
+      "id": "2090443980555403636",
+      "text": "🎉iOS开发者的福音！\n\nDeepseek Harness  iOS 模拟器 + 真机自动化插件它来了！\n\n安装👉：dsh plugin --profile web add @zseven-w/dsh-ios@latest\n\n作者高产似母牛🐮\n\n有兴趣的快去体验！\n\n传送门👉 https://github.com/ZSeven-W/dsh-ios",
+      "raw_text": {
+        "text": "🎉iOS开发者的福音！\n\nDeepseek Harness  iOS 模拟器 + 真机自动化插件它来了！\n\n安装👉：dsh plugin --profile web add @zseven-w/dsh-ios@latest\n\n作者高产似母牛🐮\n\n有兴趣的快去体验！\n\n传送门👉 https://t.co/c4Glvet6VU",
+        "display_text_range": [
+          0,
+          162
+        ],
+        "facets": [
+          {
+            "type": "url",
+            "indices": [
+              139,
+              162
+            ],
+            "original": "https://t.co/c4Glvet6VU",
+            "replacement": "https://github.com/ZSeven-W/dsh-ios",
+            "display": "github.com/ZSeven-W/dsh-i…"
+          }
+        ]
+      },
+      "author": {
+        "screen_name": "Lonely__MH",
+        "url": "https://x.com/Lonely__MH",
+        "id": "2926712868",
+        "followers": 22793,
+        "following": 782,
+        "likes": 13401,
+        "media_count": 1820,
+        "name": "Lonely",
+        "description": "👨‍💻 独立开发者 | AI Builder | 互联网打杂 \n💻 Hermes Agent & AI 工具实战测评\n💡 聊聊前沿 AI 资讯、写写小白硬核教程\n世界是个巨大草台班子，你我皆在台上\n格言：生命不息，Bug不止\n📮 商务DM",
+        "raw_description": {
+          "text": "👨‍💻 独立开发者 | AI Builder | 互联网打杂 \n💻 Hermes Agent & AI 工具实战测评\n💡 聊聊前沿 AI 资讯、写写小白硬核教程\n世界是个巨大草台班子，你我皆在台上\n格言：生命不息，Bug不止\n📮 商务DM",
+          "facets": []
+        },
+        "location": "AI 科技",
+        "banner_url": "https://pbs.twimg.com/profile_banners/2926712868/1451226903",
+        "avatar_url": "https://pbs.twimg.com/profile_images/1141385957234470912/iJMy6F7u_200x200.jpg",
+        "joined": "Thu Dec 11 11:57:05 +0000 2014",
+        "protected": false,
+        "website": null,
+        "verification": {
+          "verified": true,
+          "verified_at": null,
+          "type": "individual"
+        },
+        "avatar_color": null
+      },
+      "replies": 21,
+      "retweets": 35,
+      "likes": 149,
+      "bookmarks": 200,
+      "quotes": 0,
+      "created_at": "Thu Aug 20 14:20:58 +0000 2026",
+      "created_timestamp": 1787235658,
+      "possibly_sensitive": false,
+      "views": 25660,
+      "is_note_tweet": false,
+      "community_note": null,
+      "lang": "zh",
+      "replying_to": null,
+      "replying_to_status": null,
+      "quote": {
+        "url": "https://x.com/FiniYang/status/2090428916804849763",
+        "id": "2090428916804849763",
+        "text": "这是我们的第 4 个 DeepSeek Harness 插件 🥳\niOS 模拟器 + 真机自动化插件 dsh-ios 🐳📱\n让 DSH 中的 Agent 直接查看并操作 iOS 模拟器和真机\n构建并运行 App，完成点击、滑动、输入等操作\n还能检查进程、调用栈和内存泄漏\n\n⚙️ 内置 21 个 Agent 工具\n实时画面显示在侧边栏，支持人机协同操作 🤗\n支持 SwiftUI 预览热重载\n在 DSH 中就能完成 iOS 开发、调试和自动化\n欢迎使用：https://github.com/ZSeven-W/dsh-ios\n\n演示视频前半段为模拟器，后半段为真机\n快速安装见评论区 ⬇️\n#deepseek #harness #dsh #plugin #ios #agent",
+        "raw_text": {
+          "text": "这是我们的第 4 个 DeepSeek Harness 插件 🥳\niOS 模拟器 + 真机自动化插件 dsh-ios 🐳📱\n让 DSH 中的 Agent 直接查看并操作 iOS 模拟器和真机\n构建并运行 App，完成点击、滑动、输入等操作\n还能检查进程、调用栈和内存泄漏\n\n⚙️ 内置 21 个 Agent 工具\n实时画面显示在侧边栏，支持人机协同操作 🤗\n支持 SwiftUI 预览热重载\n在 DSH 中就能完成 iOS 开发、调试和自动化\n欢迎使用：https://t.co/KeqXWCHkq8\n\n演示视频前半段为模拟器，后半段为真机\n快速安装见评论区 ⬇️\n#deepseek #harness #dsh #plugin #ios #agent",
+          "display_text_range": [
+            0,
+            330
+          ],
+          "facets": [
+            {
+              "type": "bold",
+              "indices": [
+                52,
+                59
+              ]
+            },
+            {
+              "type": "media",
+              "indices": [
+                182,
+                205
+              ],
+              "id": "2090427240404357122",
+              "display": "pic.x.com/Lvt15lcaBJ",
+              "original": "https://t.co/Lvt15lcaBJ",
+              "replacement": "https://x.com/FiniYang/status/2090428916804849763/video/1"
+            },
+            {
+              "type": "url",
+              "indices": [
+                227,
+                250
+              ],
+              "original": "https://t.co/KeqXWCHkq8",
+              "replacement": "https://github.com/ZSeven-W/dsh-ios",
+              "display": "github.com/ZSeven-W/dsh-i…"
+            },
+            {
+              "type": "hashtag",
+              "indices": [
+                283,
+                292
+              ],
+              "original": "deepseek"
+            },
+            {
+              "type": "hashtag",
+              "indices": [
+                293,
+                301
+              ],
+              "original": "harness"
+            },
+            {
+              "type": "hashtag",
+              "indices": [
+                302,
+                306
+              ],
+              "original": "dsh"
+            },
+            {
+              "type": "hashtag",
+              "indices": [
+                307,
+                314
+              ],
+              "original": "plugin"
+            },
+            {
+              "type": "hashtag",
+              "indices": [
+                315,
+                319
+              ],
+              "original": "ios"
+            },
+            {
+              "type": "hashtag",
+              "indices": [
+                320,
+                326
+              ],
+              "original": "agent"
+            }
+          ]
+        },
+        "author": {
+          "screen_name": "FiniYang",
+          "url": "https://x.com/FiniYang",
+          "id": "4004131634",
+          "followers": 6159,
+          "following": 3535,
+          "likes": 10905,
+          "media_count": 780,
+          "name": "Fini.Yang",
+          "description": "👨‍💻 大型企业 Agent 架构师｜企业级 Agent 平台 × AI-Native 研发协作\n🛠️ OpenPencil / Zode / Jian 开源作者\n🤖 Agent Architect · AI Builder · Open Source",
+          "raw_description": {
+            "text": "👨‍💻 大型企业 Agent 架构师｜企业级 Agent 平台 × AI-Native 研发协作\n🛠️ OpenPencil / Zode / Jian 开源作者\n🤖 Agent Architect · AI Builder · Open Source",
+            "facets": []
+          },
+          "location": "",
+          "banner_url": "https://pbs.twimg.com/profile_banners/4004131634/1506521657",
+          "avatar_url": "https://pbs.twimg.com/profile_images/2052051895683084288/ZehEoMjv_200x200.jpg",
+          "joined": "Sat Oct 24 16:39:58 +0000 2015",
+          "protected": false,
+          "website": {
+            "url": "https://www.zseven.tech/",
+            "display_url": "zseven.tech"
+          },
+          "verification": {
+            "verified": true,
+            "verified_at": null,
+            "type": "individual"
+          },
+          "avatar_color": null
+        },
+        "replies": 51,
+        "retweets": 58,
+        "likes": 403,
+        "bookmarks": 395,
+        "quotes": 13,
+        "created_at": "Thu Aug 20 13:21:06 +0000 2026",
+        "created_timestamp": 1787232066,
+        "possibly_sensitive": false,
+        "views": 66943,
+        "is_note_tweet": true,
+        "community_note": null,
+        "lang": "zh",
+        "replying_to": null,
+        "replying_to_status": null,
+        "media": {
+          "all": [
+            {
+              "id": "2090427240404357122",
+              "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+              "thumbnail_url": "https://pbs.twimg.com/amplify_video_thumb/2090427240404357122/img/DIjl6F83D9N44s-e.jpg",
+              "duration": 68.083,
+              "width": 2560,
+              "height": 1440,
+              "format": "video/mp4",
+              "type": "video",
+              "formats": [
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                  "container": "m3u8"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                  "bitrate": 256000,
+                  "container": "mp4",
+                  "codec": "h264"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                  "bitrate": 832000,
+                  "container": "mp4",
+                  "codec": "h264"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                  "bitrate": 2176000,
+                  "container": "mp4",
+                  "codec": "h264"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                  "bitrate": 10368000,
+                  "container": "mp4",
+                  "codec": "h264"
+                }
+              ],
+              "publisher": null,
+              "variants": [
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                  "bitrate": 0,
+                  "content_type": "application/x-mpegURL"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                  "bitrate": 256000,
+                  "content_type": "video/mp4"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                  "bitrate": 832000,
+                  "content_type": "video/mp4"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                  "bitrate": 2176000,
+                  "content_type": "video/mp4"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                  "bitrate": 10368000,
+                  "content_type": "video/mp4"
+                }
+              ]
+            }
+          ],
+          "videos": [
+            {
+              "id": "2090427240404357122",
+              "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+              "thumbnail_url": "https://pbs.twimg.com/amplify_video_thumb/2090427240404357122/img/DIjl6F83D9N44s-e.jpg",
+              "duration": 68.083,
+              "width": 2560,
+              "height": 1440,
+              "format": "video/mp4",
+              "type": "video",
+              "formats": [
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                  "container": "m3u8"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                  "bitrate": 256000,
+                  "container": "mp4",
+                  "codec": "h264"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                  "bitrate": 832000,
+                  "container": "mp4",
+                  "codec": "h264"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                  "bitrate": 2176000,
+                  "container": "mp4",
+                  "codec": "h264"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                  "bitrate": 10368000,
+                  "container": "mp4",
+                  "codec": "h264"
+                }
+              ],
+              "publisher": null,
+              "variants": [
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/pl/aN6AQeQrOOnKxkIw.m3u8?tag=29&v=cfc",
+                  "bitrate": 0,
+                  "content_type": "application/x-mpegURL"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/480x270/0rc8mx-gnVelvJ_X.mp4?tag=29",
+                  "bitrate": 256000,
+                  "content_type": "video/mp4"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/640x360/PYtgtjfHr91McD7u.mp4?tag=29",
+                  "bitrate": 832000,
+                  "content_type": "video/mp4"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/1280x720/EqHNhxfBPcBU9W0U.mp4?tag=29",
+                  "bitrate": 2176000,
+                  "content_type": "video/mp4"
+                },
+                {
+                  "url": "https://video.twimg.com/amplify_video/2090427240404357122/vid/avc1/2560x1440/HdImnD9xvmMqdQrO.mp4?tag=29",
+                  "bitrate": 10368000,
+                  "content_type": "video/mp4"
+                }
+              ]
+            }
+          ]
+        },
+        "source": "Twitter Web App",
+        "twitter_card": "player",
+        "color": null,
+        "provider": "twitter",
+        "reposted_by": null
+      },
+      "source": "Twitter for iPhone",
+      "card": {
+        "url": "https://github.com/ZSeven-W/dsh-ios",
+        "title": "GitHub - ZSeven-W/dsh-ios: DeepSeek Harness (DSH) plugin: a live iOS Simulator — and a USB-connec...",
+        "description": "DeepSeek Harness (DSH) plugin: a live iOS Simulator — and a USB-connected iPhone — inside the conversation. 21 agent tools for booting, building, driving the UI by accessibility identity, OCR text ...",
+        "domain": "github.com",
+        "image": {
+          "width": 800,
+          "height": 419,
+          "url": "https://pbs.twimg.com/card_img/2090428919900237824/1NCRfNlT?format=jpg&name=800x419"
+        }
+      },
+      "color": null,
+      "provider": "twitter",
+      "reposted_by": null
+    }
+  }
+}
