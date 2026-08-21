@@ -31,19 +31,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare official PSI UI harness
+      - name: Prepare corrected official PSI UI harness
         run: |
           set -euo pipefail
           python - <<'PY'
           p='scripts/runner3-speed-site3-psi-ui-abc.mjs'
           s=open(p).read()
           s=s.replace("const input=p.locator('input').filter({has:p.locator('xpath=..')}).first();","const input=p.locator('input:visible').first();")
-          s=s.replace("page.locator('.lh-gauge__percentage').first().waitFor({state:'visible',timeout:180000})","page.locator('.lh-gauge__percentage').first().waitFor({state:'attached',timeout:180000})")
-          s=s.replace("p.locator('.lh-gauge__percentage').first().waitFor({state:'visible',timeout:240000})","p.locator('.lh-gauge__percentage').first().waitFor({state:'attached',timeout:240000})")
+          s=s.replace("page.locator('.lh-gauge__percentage').first().waitFor({state:'visible',timeout:180000})","page.locator('.lh-gauge__percentage:visible').first().waitFor({state:'visible',timeout:180000})")
+          s=s.replace("page.locator('.lh-gauge__percentage').first().waitFor({state:'attached',timeout:180000})","page.locator('.lh-gauge__percentage:visible').first().waitFor({state:'visible',timeout:180000})")
+          s=s.replace("p.locator('.lh-gauge__percentage').first().waitFor({state:'visible',timeout:240000})","p.locator('.lh-gauge__percentage:visible').first().waitFor({state:'visible',timeout:240000})")
+          s=s.replace("p.locator('.lh-gauge__percentage').first().waitFor({state:'attached',timeout:240000})","p.locator('.lh-gauge__percentage:visible').first().waitFor({state:'visible',timeout:240000})")
+          s=s.replace("const scores=[...document.querySelectorAll('.lh-gauge__percentage')].map(x=>(x.textContent||'').trim()).filter(Boolean);","const scores=[...document.querySelectorAll('.lh-gauge__percentage')].filter(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(x).visibility!=='hidden'&&getComputedStyle(x).display!=='none'}).map(x=>(x.textContent||'').trim()).filter(Boolean);")
+          s=s.replace("const metrics=[...document.querySelectorAll('.lh-metric')].map(el=>({title:(el.querySelector('.lh-metric__title')?.textContent||'').trim(),value:(el.querySelector('.lh-metric__value')?.textContent||'').trim()}));","const metrics=[...document.querySelectorAll('.lh-metric')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden'&&getComputedStyle(el).display!=='none'}).map(el=>({title:(el.querySelector('.lh-metric__title')?.textContent||'').trim(),value:(el.querySelector('.lh-metric__value')?.textContent||'').trim()}));")
           open(p,'w').write(s)
           PY
           node --check scripts/runner3-speed-site3-psi-ui-abc.mjs
           php -l wordpress/runner3-speed/runner3-speed.php
+          php -l wordpress/runner3-speed/dropins/advanced-cache.php
+          grep -q "no-cache, must-revalidate, max-age=0" wordpress/runner3-speed/dropins/advanced-cache.php
           npm install --no-save playwright-core@1.58.2
           (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
           test -s /tmp/runner3-speed.zip
@@ -87,7 +93,7 @@ jobs:
           mkdir -p ops/site-factory
           cp /tmp/r3-psi-ui/runner3-speed-site3-psi-ui-abc.latest.json ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json
           git add -- ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json
-          if ! git diff --cached --quiet; then git commit -m 'test: record official PSI UI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+          if ! git diff --cached --quiet; then git commit -m 'test: record corrected official PSI UI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
 
       - name: Cleanup
         if: always()
