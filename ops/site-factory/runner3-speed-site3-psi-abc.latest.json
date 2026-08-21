@@ -14,7 +14,8 @@
       "B_ACTIVE_OFF",
       "C_PERFORMANCE_ON"
     ],
-    "statistic": "median"
+    "statistic": "median",
+    "execution": "5 paired rounds; mobile+desktop parallel within each round; rounds sequential"
   },
   "states": {
     "A_NO_PLUGIN": {
@@ -36,7 +37,7 @@
       "version": null
     }
   },
-  "error": "Error: psi_mobile_1_failed:TypeError: r.ok is not a function\n    at psiOnce (file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:33:1367)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async psiState (file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:34:142)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:39:97",
-  "checkedAt": "2026-08-21T01:02:53.819Z",
-  "recordedAt": "2026-08-21T01:03:03.997795+00:00"
+  "error": "Error: psi_mobile_1_failed:HTTP 429: {\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"Quota exceeded for quota metric 'Queries' and limit 'Queries per day' of service 'pagespeedonline.googleapis.com' for consumer 'project_number:583797351490'.\",\n    \"errors\": [\n      {\n        \"message\": \"Quota exceeded for quota metric 'Queries' and li\n    at psiOnce (file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:33:1365)\n    at async Promise.all (index 0)\n    at async psiState (file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:34:204)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:39:97",
+  "checkedAt": "2026-08-21T01:09:33.857Z",
+  "recordedAt": "2026-08-21T01:09:43.134672+00:00"
 }
