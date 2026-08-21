@@ -1,0 +1,42 @@
+{
+  "status": "FAIL",
+  "siteUrl": "https://runner3-speed-site3-realistic.wasmer.app/",
+  "pluginVersion": "1.1.1",
+  "protocol": {
+    "provider": "Google PageSpeed Insights API v5",
+    "runsPerStrategyPerState": 5,
+    "strategies": [
+      "mobile",
+      "desktop"
+    ],
+    "states": [
+      "A_NO_PLUGIN",
+      "B_ACTIVE_OFF",
+      "C_PERFORMANCE_ON"
+    ],
+    "statistic": "median"
+  },
+  "states": {
+    "A_NO_PLUGIN": {
+      "precheck": {
+        "status": 200,
+        "speed": null,
+        "version": null
+      }
+    }
+  },
+  "delta": {},
+  "finalState": {
+    "pluginInstalled": true,
+    "pluginActive": true,
+    "performanceOn": false,
+    "front": {
+      "status": 200,
+      "speed": null,
+      "version": null
+    }
+  },
+  "error": "Error: psi_mobile_1_failed:TypeError: r.ok is not a function\n    at psiOnce (file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:33:1367)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async psiState (file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:34:142)\n    at async file:///home/runner/work/runner-3/runner-3/scripts/runner3-speed-site3-psi-abc.mjs:39:97",
+  "checkedAt": "2026-08-21T01:02:53.819Z",
+  "recordedAt": "2026-08-21T01:03:03.997795+00:00"
+}
