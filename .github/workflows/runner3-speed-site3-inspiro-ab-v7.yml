@@ -1,4 +1,4 @@
-name: Runner3 Speed Site3 Official PSI A-B-C
+name: Runner3 Speed Site3 Official PSI UI A-B-C
 
 on:
   push:
@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  psi-abc:
+  psi-ui-abc:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -31,18 +31,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare corrected PSI harness
+      - name: Prepare official PSI UI harness
         run: |
           set -euo pipefail
           python - <<'PY'
-          p='scripts/runner3-speed-site3-psi-abc.mjs'
-          s=open(p).read()
-          start=s.index('async function psiState(name)')
-          end=s.index('\nconst pct=',start)
-          new="""async function psiState(name){const raw={mobile:[],desktop:[]};result.protocol.execution='5 paired rounds; mobile+desktop parallel within each round; rounds sequential';for(let i=1;i<=5;i++){const [m,d]=await Promise.all([psiOnce('mobile',i),psiOnce('desktop',i)]);raw.mobile.push(m);raw.desktop.push(d);console.log(`${name} round ${i}/5 mobile=${m.score} desktop=${d.score}`);save();if(i<5)await sleep(2500)}result.states[name]={...(result.states[name]||{}),mobile:summarize(raw.mobile),desktop:summarize(raw.desktop)};save()}"""
-          open(p,'w').write(s[:start]+new+s[end:])
+          p='scripts/runner3-speed-site3-psi-ui-abc.mjs'
+          s=open(p).read().replace("const input=p.locator('input').filter({has:p.locator('xpath=..')}).first();","const input=p.locator('input:visible').first();")
+          open(p,'w').write(s)
           PY
-          node --check scripts/runner3-speed-site3-psi-abc.mjs
+          node --check scripts/runner3-speed-site3-psi-ui-abc.mjs
           php -l wordpress/runner3-speed/runner3-speed.php
           npm install --no-save playwright-core@1.58.2
           (cd wordpress && zip -qr /tmp/runner3-speed.zip runner3-speed)
@@ -52,42 +49,42 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in ops/wasmer/state.automation.aes -out /tmp/wasmer-account.json
           chmod 600 /tmp/wasmer-account.json
 
-      - name: Run official PageSpeed Insights A-B-C
+      - name: Run PageSpeed Insights UI A-B-C
         run: |
           set -euo pipefail
-          node scripts/runner3-speed-site3-psi-abc.mjs
-          test -s /tmp/runner3-speed-site3-psi-abc.json
+          node scripts/runner3-speed-site3-psi-ui-abc.mjs
+          test -s /tmp/runner3-speed-site3-psi-ui-abc.json
           python - <<'PY'
           import json
-          r=json.load(open('/tmp/runner3-speed-site3-psi-abc.json'))
+          r=json.load(open('/tmp/runner3-speed-site3-psi-ui-abc.json'))
           assert r['status']=='PASS',r
           assert r['finalState']['pluginInstalled'] and r['finalState']['pluginActive'] and not r['finalState']['performanceOn'],r
           for state in ['A_NO_PLUGIN','B_ACTIVE_OFF','C_PERFORMANCE_ON']:
-              for strategy in ['mobile','desktop']:
-                  assert r['states'][state][strategy]['successfulRuns']==5,r
+              assert r['states'][state]['mobile']['successfulRuns']==5,r
+              assert r['states'][state]['desktop']['successfulRuns']==5,r
           print(json.dumps({'status':r['status'],'protocol':r['protocol'],'delta':r['delta'],'finalState':r['finalState']},indent=2))
           PY
 
-      - name: Persist PSI evidence
+      - name: Persist PSI UI evidence
         if: always()
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,os,datetime
-          p='/tmp/runner3-speed-site3-psi-abc.json'
+          p='/tmp/runner3-speed-site3-psi-ui-abc.json'
           r=json.load(open(p)) if os.path.exists(p) else {'status':'MISSING'}
           r['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
-          os.makedirs('/tmp/r3-psi',exist_ok=True)
-          json.dump(r,open('/tmp/r3-psi/runner3-speed-site3-psi-abc.latest.json','w'),indent=2)
+          os.makedirs('/tmp/r3-psi-ui',exist_ok=True)
+          json.dump(r,open('/tmp/r3-psi-ui/runner3-speed-site3-psi-ui-abc.latest.json','w'),indent=2)
           PY
-          git config user.name 'runner3-speed-site3-psi-bot'
-          git config user.email 'runner3-speed-site3-psi-bot@users.noreply.github.com'
+          git config user.name 'runner3-speed-site3-psi-ui-bot'
+          git config user.email 'runner3-speed-site3-psi-ui-bot@users.noreply.github.com'
           git fetch origin runner3-speed-site3-realistic-20260821
           git reset --hard origin/runner3-speed-site3-realistic-20260821
           mkdir -p ops/site-factory
-          cp /tmp/r3-psi/runner3-speed-site3-psi-abc.latest.json ops/site-factory/runner3-speed-site3-psi-abc.latest.json
-          git add -- ops/site-factory/runner3-speed-site3-psi-abc.latest.json
-          if ! git diff --cached --quiet; then git commit -m 'test: record official PSI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
+          cp /tmp/r3-psi-ui/runner3-speed-site3-psi-ui-abc.latest.json ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json
+          git add -- ops/site-factory/runner3-speed-site3-psi-ui-abc.latest.json
+          if ! git diff --cached --quiet; then git commit -m 'test: record official PSI UI A-B-C evidence' && git push origin HEAD:runner3-speed-site3-realistic-20260821; fi
 
       - name: Cleanup
         if: always()
