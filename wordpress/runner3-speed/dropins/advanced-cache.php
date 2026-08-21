@@ -1,9 +1,9 @@
 <?php
-/* RUNNER3_SPEED_DROPIN v1.2.0 */
+/* RUNNER3_SPEED_DROPIN v1.2.1 */
 if (!defined('ABSPATH')) return;
 
-$runner3_expected_version = '1.2.0';
-$runner3_cache_key_version = 'v120';
+$runner3_expected_version = '1.2.1';
+$runner3_cache_key_version = 'v121';
 $runner3_plugin = __DIR__ . '/plugins/runner3-speed/runner3-speed.php';
 if (!is_file($runner3_plugin)) return;
 
