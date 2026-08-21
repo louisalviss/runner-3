@@ -1,5 +1,7 @@
 const ALLOWED_HOSTS = new Set(['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com']);
-const USER_AGENT = 'runner3-x-fast-direct/1.0 (+https://github.com/louisalviss/runner-3)';
+const USER_AGENT = 'runner3-x-fast-direct/2.0 (+https://github.com/louisalviss/runner-3)';
+const FX_TIMEOUT_MS = 2200;
+const X_HTML_TIMEOUT_MS = 3200;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -97,6 +99,7 @@ async function fetchFx(handle, id) {
   const response = await fetch(endpoint, {
     headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
     redirect: 'follow',
+    signal: AbortSignal.timeout(FX_TIMEOUT_MS),
   });
   const data = await response.json().catch(() => null);
   const tweet = data?.tweet || data?.status || null;
@@ -134,6 +137,7 @@ async function fetchXHtml(canonical, handle, id) {
       'accept-language': 'en-US,en;q=0.9',
     },
     redirect: 'follow',
+    signal: AbortSignal.timeout(X_HTML_TIMEOUT_MS),
   });
   const html = await readLimited(response);
   const meta = extractMeta(html);
@@ -161,7 +165,7 @@ export default {
     const requestUrl = new URL(request.url);
     if (request.method !== 'GET') return json({ ok: false, error: 'GET only' }, 405);
     if (requestUrl.pathname === '/health') {
-      return json({ ok: true, service: 'runner3-x-fast-direct', version: 1 });
+      return json({ ok: true, service: 'runner3-x-fast-direct', version: 2 });
     }
 
     const raw = requestUrl.searchParams.get('url');
@@ -174,27 +178,25 @@ export default {
       return json({ ok: false, error: error.message }, 400);
     }
 
-    const errors = [];
-    for (const loader of [
-      () => fetchFx(parsed.handle, parsed.id),
-      () => fetchXHtml(parsed.canonical, parsed.handle, parsed.id),
-    ]) {
-      try {
-        const result = await loader();
-        return json({ ...result, requested_url: raw, elapsed_ms: Date.now() - started });
-      } catch (error) {
-        errors.push(String(error?.message || error));
-      }
-    }
+    const candidates = [
+      fetchFx(parsed.handle, parsed.id),
+      fetchXHtml(parsed.canonical, parsed.handle, parsed.id),
+    ];
 
-    return json({
-      ok: false,
-      requested_url: raw,
-      post_id: parsed.id,
-      canonical_url: parsed.canonical,
-      elapsed_ms: Date.now() - started,
-      errors,
-      fallback: 'runner-3 GitHub Actions x-fast',
-    }, 502);
+    try {
+      const result = await Promise.any(candidates);
+      return json({ ...result, requested_url: raw, elapsed_ms: Date.now() - started });
+    } catch (aggregate) {
+      const errors = Array.from(aggregate?.errors || []).map((error) => String(error?.message || error));
+      return json({
+        ok: false,
+        requested_url: raw,
+        post_id: parsed.id,
+        canonical_url: parsed.canonical,
+        elapsed_ms: Date.now() - started,
+        errors,
+        fallback: 'runner-3 GitHub Actions x-fast',
+      }, 502);
+    }
   },
 };

@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -15,6 +16,7 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.3
 ALLOWED_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
 IMAGE_HINTS = ("pbs.twimg.com/media/", ".jpg", ".jpeg", ".png", ".webp")
 VIDEO_HINTS = ("video.twimg.com/", ".mp4")
+SOURCE_TIMEOUT_SECONDS = 6
 
 
 def now_iso():
@@ -31,7 +33,7 @@ def parse_x_url(url):
     return m.group(1), m.group(2), f"https://x.com/{m.group(1)}/status/{m.group(2)}"
 
 
-def fetch_json(url, timeout=20):
+def fetch_json(url, timeout=SOURCE_TIMEOUT_SECONDS):
     req = Request(url, headers={"User-Agent": UA, "Accept": "application/json,text/plain,*/*"})
     try:
         with urlopen(req, timeout=timeout) as r:
@@ -173,7 +175,16 @@ def main():
         "syndication": f"https://cdn.syndication.twimg.com/tweet-result?id={tweet_id}&lang=en",
         "conversation": f"https://api.fxtwitter.com/2/conversation/{tweet_id}",
     }
-    fetched = {name: fetch_json(endpoint) for name, endpoint in endpoints.items()}
+    fetched = {}
+    with ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
+        futures = {pool.submit(fetch_json, endpoint): name for name, endpoint in endpoints.items()}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                fetched[name] = future.result()
+            except Exception as exc:
+                fetched[name] = {"ok": False, "status": None, "url": endpoints[name], "error": str(exc), "data": None}
+
     priority = ("legacy", "vx", "syndication", "conversation")
     payloads = [
         fetched[name]["data"]
