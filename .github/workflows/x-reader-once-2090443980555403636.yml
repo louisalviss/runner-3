@@ -1,0 +1,122 @@
+name: X Reader Once 2090443980555403636
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-reader-once-2090443980555403636.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  read-x:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TWEET_URL: 'https://x.com/lonely__mh/status/2090443980555403636?s=12'
+      TWEET_ID: '2090443980555403636'
+      TWEET_USER: 'lonely__mh'
+      TWITTER_AUTH_TOKEN: ${{ secrets.TWITTER_AUTH_TOKEN }}
+      TWITTER_CT0: ${{ secrets.TWITTER_CT0 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Agent Reach and Twitter backend
+        shell: bash
+        run: |
+          set +e
+          python3 -m pip install -q 'git+https://github.com/Panniantong/Agent-Reach.git' twitter-cli 2>/tmp/install.err
+          agent-reach doctor >/tmp/agent-reach-doctor.txt 2>&1
+          printf 'install_rc=%s\n' "$?" >/tmp/install-status.txt
+
+      - name: Read tweet through Runner-3
+        shell: bash
+        run: |
+          set +e
+          mkdir -p data/x-reader
+
+          TW_RC=99
+          if command -v twitter >/dev/null 2>&1 && [ -n "${TWITTER_AUTH_TOKEN:-}" ] && [ -n "${TWITTER_CT0:-}" ]; then
+            twitter tweet "$TWEET_URL" --json --full-text >/tmp/twitter.json 2>/tmp/twitter.err
+            TW_RC=$?
+          else
+            printf 'twitter-cli unavailable or explicit credentials not configured\n' >/tmp/twitter.err
+          fi
+
+          curl -fsSL --compressed --max-time 25 \
+            -A 'runner-3-x-reader/1.0' \
+            "https://api.fxtwitter.com/${TWEET_USER}/status/${TWEET_ID}" \
+            -o /tmp/fxtwitter.json 2>/tmp/fxtwitter.err
+          FX_RC=$?
+
+          curl -fsSL --compressed --max-time 25 \
+            -A 'runner-3-x-reader/1.0' \
+            "https://api.vxtwitter.com/${TWEET_USER}/status/${TWEET_ID}" \
+            -o /tmp/vxtwitter.json 2>/tmp/vxtwitter.err
+          VX_RC=$?
+
+          export TW_RC FX_RC VX_RC
+          python3 - <<'PY'
+          import json, os, pathlib, datetime
+
+          def text(path):
+              p=pathlib.Path(path)
+              return p.read_text(errors='replace') if p.exists() else ''
+
+          def obj(path):
+              p=pathlib.Path(path)
+              if not p.exists() or p.stat().st_size == 0:
+                  return None
+              try:
+                  return json.loads(p.read_text(errors='replace'))
+              except Exception as e:
+                  return {'_parse_error': str(e), '_raw_prefix': p.read_text(errors='replace')[:4000]}
+
+          twitter=obj('/tmp/twitter.json')
+          fx=obj('/tmp/fxtwitter.json')
+          vx=obj('/tmp/vxtwitter.json')
+
+          selected=None
+          selected_source=None
+          if isinstance(twitter, dict) and twitter:
+              selected=twitter; selected_source='twitter-cli'
+          elif isinstance(fx, dict) and (fx.get('tweet') or fx.get('status')):
+              selected=fx; selected_source='fxtwitter'
+          elif isinstance(vx, dict) and vx:
+              selected=vx; selected_source='vxtwitter'
+
+          out={
+              'runner':'runner-3',
+              'tweet_url':os.environ['TWEET_URL'],
+              'tweet_id':os.environ['TWEET_ID'],
+              'fetched_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'agent_reach_doctor':text('/tmp/agent-reach-doctor.txt')[-12000:],
+              'attempts':{
+                  'twitter_cli':{'rc':int(os.environ['TW_RC']), 'error':text('/tmp/twitter.err')[-4000:], 'data':twitter},
+                  'fxtwitter':{'rc':int(os.environ['FX_RC']), 'error':text('/tmp/fxtwitter.err')[-4000:], 'data':fx},
+                  'vxtwitter':{'rc':int(os.environ['VX_RC']), 'error':text('/tmp/vxtwitter.err')[-4000:], 'data':vx},
+              },
+              'selected_source':selected_source,
+              'selected':selected,
+          }
+          pathlib.Path('data/x-reader/2090443980555403636.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps({'selected_source':selected_source,'has_result':selected is not None},ensure_ascii=False))
+          PY
+
+      - name: Commit result
+        shell: bash
+        run: |
+          set -e
+          git config user.name 'runner3-x-reader'
+          git config user.email 'runner3-x-reader@users.noreply.github.com'
+          git add data/x-reader/2090443980555403636.json
+          git commit -m 'Runner-3: read X status 2090443980555403636 [skip ci]' || exit 0
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 1
