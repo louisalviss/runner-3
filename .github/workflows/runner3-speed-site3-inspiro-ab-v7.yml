@@ -36,7 +36,10 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           p='scripts/runner3-speed-site3-psi-ui-abc.mjs'
-          s=open(p).read().replace("const input=p.locator('input').filter({has:p.locator('xpath=..')}).first();","const input=p.locator('input:visible').first();")
+          s=open(p).read()
+          s=s.replace("const input=p.locator('input').filter({has:p.locator('xpath=..')}).first();","const input=p.locator('input:visible').first();")
+          s=s.replace("page.locator('.lh-gauge__percentage').first().waitFor({state:'visible',timeout:180000})","page.locator('.lh-gauge__percentage').first().waitFor({state:'attached',timeout:180000})")
+          s=s.replace("p.locator('.lh-gauge__percentage').first().waitFor({state:'visible',timeout:240000})","p.locator('.lh-gauge__percentage').first().waitFor({state:'attached',timeout:240000})")
           open(p,'w').write(s)
           PY
           node --check scripts/runner3-speed-site3-psi-ui-abc.mjs
