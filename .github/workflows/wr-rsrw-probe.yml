@@ -1,0 +1,77 @@
+name: WR RS BTC Probe
+
+on:
+  push:
+    branches: [wr-rsrw-research-20260822]
+    paths:
+      - ".github/workflows/wr-rsrw-probe.yml"
+      - "apps/wave-rider-rsrw/rsrw_crypto_probe.py"
+      - "apps/wave-rider-rsrw/trigger.txt"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wr-rsrw-research-20260822
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-rsrw-research-20260822
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests websocket-client
+
+      - name: Fetch frozen canonical crypto engine
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wr-canonical
+          BASE="https://raw.githubusercontent.com/louisalviss/runner-3/d1e7e6e5dcfdc3423860fdce7f1ad84f652fe1eb/wave-rider-verify"
+          curl -fsSL "$BASE/wr_canonical_crypto_5m.py" -o /tmp/wr-canonical/wr_canonical_crypto_5m.py
+          curl -fsSL "$BASE/wr_tv_parity.py" -o /tmp/wr-canonical/wr_tv_parity.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
+          python -m py_compile /tmp/wr-canonical/wr_canonical_crypto_5m.py /tmp/wr-canonical/wr_tv_parity.py /tmp/reference_verify.py
+
+      - name: Assert canonical four-window oracle
+        env:
+          WR_OUT: /tmp/wr-oracle
+        run: python /tmp/wr-canonical/wr_canonical_crypto_5m.py oracle
+
+      - name: Run RS/BTC filtered backtest
+        env:
+          WR_CANON_DIR: /tmp/wr-canonical
+          WR_RSRW_OUT: apps/wave-rider-rsrw/output
+          WR_RSRW_SYMBOLS: SOLUSDT,ETHUSDT,XRPUSDT
+          WR_RSRW_LENGTHS: 10,21,50
+          WR_RSRW_USE_SLOPE: "1"
+        run: python apps/wave-rider-rsrw/rsrw_crypto_probe.py
+
+      - name: Upload RS/BTC output
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-rsrw-probe-${{ github.run_id }}
+          path: apps/wave-rider-rsrw/output/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Persist compact result on research branch
+        if: success()
+        run: |
+          set -euo pipefail
+          cp apps/wave-rider-rsrw/output/result.json apps/wave-rider-rsrw/result.json
+          git config user.name "wr-rsrw-research[bot]"
+          git config user.email "wr-rsrw-research[bot]@users.noreply.github.com"
+          git add apps/wave-rider-rsrw/result.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "research: persist RS/BTC probe result [skip ci]"
+          git push origin HEAD:wr-rsrw-research-20260822
