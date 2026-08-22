@@ -79,12 +79,17 @@ jobs:
           urls = re.findall(r'https://[A-Za-z0-9.-]+\.workers\.dev', deploy_log)
           base = next((u.rstrip('/') for u in urls if 'runner3-core.' in u), None)
           if not base:
-              # Known account workers.dev route; only used if Wrangler output format changes.
               base = 'https://runner3-core.ducduy2411.workers.dev'
+
+          browser_ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
           def request_json(path, method='GET', payload=None):
               data = json.dumps(payload).encode() if payload is not None else None
-              headers = {'Accept':'application/json'}
+              headers = {
+                  'Accept': 'application/json',
+                  'User-Agent': browser_ua,
+                  'Cache-Control': 'no-cache',
+              }
               if data is not None:
                   headers['Content-Type'] = 'application/json'
               req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
@@ -120,6 +125,7 @@ jobs:
               'url': base,
               'd1DatabaseId': pathlib.Path('/tmp/d1-id').read_text().strip(),
               'deployUrlSource': 'wrangler-output' if any('runner3-core.' in u for u in urls) else 'known-fallback',
+              'smokeUserAgent': 'browser-compatible',
               'health': health,
               'postEvent': posted,
               'latest': {
