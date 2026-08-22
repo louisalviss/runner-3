@@ -1,0 +1,58 @@
+name: Runner5 Live WordPress Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-live-wordpress-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Probe live WordPress
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://runner5-restore-lab-1.wasmer.app'
+          tmp=/tmp/runner5-live.html
+          code=$(curl -L -sS -o "$tmp" -w '%{http_code}' --connect-timeout 15 --max-time 45 "$base/" || true)
+          rest=$(curl -L -sS -o /tmp/wpjson -w '%{http_code}' --connect-timeout 15 --max-time 45 "$base/wp-json/" || true)
+          admin=$(curl -L -sS -o /dev/null -w '%{http_code}' --connect-timeout 15 --max-time 45 "$base/wp-admin/" || true)
+          bytes=$(wc -c < "$tmp" 2>/dev/null || echo 0)
+          ocean=false; astra=false; kadence=false; wp=false
+          grep -Eqi 'oceanwp|oceanwp-style|oceanwp-theme' "$tmp" && ocean=true || true
+          grep -Eqi 'astra|ast-' "$tmp" && astra=true || true
+          grep -Eqi 'kadence|kb-' "$tmp" && kadence=true || true
+          grep -Eqi 'wp-content|wp-includes' "$tmp" && wp=true || true
+          title=$(sed -n 's:.*<title>\(.*\)</title>.*:\1:p' "$tmp" | head -1 | sed 's/"/\\"/g')
+          mkdir -p ops/wordpress-access
+          printf '{\n  "status":"%s",\n  "siteUrl":"%s/",\n  "http":%s,\n  "restHttp":%s,\n  "adminHttp":%s,\n  "wordpress":%s,\n  "oceanwpMarker":%s,\n  "astraMarker":%s,\n  "kadenceMarker":%s,\n  "homepageBytes":%s,\n  "title":"%s",\n  "checkedAt":"%s"\n}\n' \
+            "$( [ "$code" = 200 ] && [ "$rest" = 200 ] && [ "$wp" = true ] && echo PASS || echo FAIL )" \
+            "$base" "${code:-0}" "${rest:-0}" "${admin:-0}" "$wp" "$ocean" "$astra" "$kadence" "$bytes" "$title" "$(date -u +%FT%TZ)" \
+            > ops/wordpress-access/runner5-live-verify.json
+      - name: Persist verify status
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ops/wordpress-access/runner5-live-verify.json /tmp/runner5-live-verify.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            cp /tmp/runner5-live-verify.json ops/wordpress-access/runner5-live-verify.json
+            git add ops/wordpress-access/runner5-live-verify.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'Persist Runner5 live WordPress verification'
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
