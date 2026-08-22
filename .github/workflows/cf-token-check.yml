@@ -22,7 +22,7 @@ jobs:
         with:
           ref: main
 
-      - name: Measure Cloudflare Worker usage
+      - name: Measure Cloudflare free-tier usage
         shell: bash
         run: |
           set -euo pipefail
@@ -40,6 +40,7 @@ jobs:
 
           now = datetime.datetime.now(datetime.timezone.utc)
           start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+          today = now.date().isoformat()
 
           def request_json(url, method='GET', payload=None):
               body = json.dumps(payload).encode() if payload is not None else None
@@ -57,28 +58,26 @@ jobs:
               except Exception as e:
                   return 0, {'error': str(e)[:500]}
 
-          # Inventory current scripts and Pages projects.
-          sc, sd = request_json(f'{base}/accounts/{account}/workers/scripts')
-          scripts = []
-          if 200 <= sc < 300 and isinstance(sd.get('result'), list):
-              for item in sd['result']:
-                  if isinstance(item, dict):
-                      name = item.get('id') or item.get('name')
-                  else:
-                      name = str(item)
-                  if name:
-                      scripts.append(str(name))
+          def list_result(path, name_keys=('name','title','id','uuid')):
+              code, data = request_json(base + path)
+              out = []
+              if 200 <= code < 300 and isinstance(data.get('result'), list):
+                  for item in data['result']:
+                      if isinstance(item, dict):
+                          value = next((item.get(k) for k in name_keys if item.get(k)), None)
+                      else:
+                          value = item
+                      if value is not None:
+                          out.append(str(value))
+              return code, out
 
-          pc, pd = request_json(f'{base}/accounts/{account}/pages/projects')
-          pages = []
-          if 200 <= pc < 300 and isinstance(pd.get('result'), list):
-              for item in pd['result']:
-                  if isinstance(item, dict) and item.get('name'):
-                      pages.append(str(item['name']))
+          sc, scripts = list_result(f'/accounts/{account}/workers/scripts', ('id','name'))
+          pc, pages = list_result(f'/accounts/{account}/pages/projects', ('name','id'))
+          kc, kv_namespaces = list_result(f'/accounts/{account}/storage/kv/namespaces?page=1&per_page=1000', ('title','id'))
+          dc, d1_databases = list_result(f'/accounts/{account}/d1/database?page=1&per_page=1000', ('name','uuid'))
 
-          # Official Workers Analytics GraphQL dataset. This is read-only.
           query = '''
-          query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string) {
+          query Usage($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date) {
             viewer {
               accounts(filter: {accountTag: $accountTag}) {
                 workersInvocationsAdaptive(
@@ -88,6 +87,20 @@ jobs:
                   dimensions { scriptName status }
                   sum { requests errors subrequests }
                 }
+                kvOperationsAdaptiveGroups(
+                  limit: 10000,
+                  filter: {date_geq: $dateStart, date_leq: $dateEnd}
+                ) {
+                  dimensions { actionType }
+                  sum { requests }
+                }
+                d1AnalyticsAdaptiveGroups(
+                  limit: 10000,
+                  filter: {date_geq: $dateStart, date_leq: $dateEnd}
+                ) {
+                  dimensions { databaseId }
+                  sum { readQueries writeQueries rowsRead rowsWritten }
+                }
               }
             }
           }
@@ -96,62 +109,110 @@ jobs:
               'accountTag': account,
               'datetimeStart': start.isoformat().replace('+00:00','Z'),
               'datetimeEnd': now.isoformat().replace('+00:00','Z'),
+              'dateStart': today,
+              'dateEnd': today,
           }
           gc, gd = request_json(base + '/graphql', 'POST', {'query': query, 'variables': variables})
-
-          analytics_errors = gd.get('errors') or [] if isinstance(gd, dict) else []
-          rows = []
+          gql_errors = gd.get('errors') or [] if isinstance(gd, dict) else []
+          account_data = {}
           try:
-              rows = gd['data']['viewer']['accounts'][0]['workersInvocationsAdaptive'] or []
+              account_data = gd['data']['viewer']['accounts'][0] or {}
           except Exception:
-              rows = []
+              account_data = {}
 
+          worker_rows = account_data.get('workersInvocationsAdaptive') or []
           per_script = {}
           total_requests = total_errors = total_subrequests = 0
-          for row in rows:
+          for row in worker_rows:
               dims = row.get('dimensions') or {}
               sums = row.get('sum') or {}
               name = str(dims.get('scriptName') or '(unknown)')
-              requests = int(sums.get('requests') or 0)
-              errors = int(sums.get('errors') or 0)
-              subrequests = int(sums.get('subrequests') or 0)
-              state = per_script.setdefault(name, {'requests': 0, 'errors': 0, 'subrequests': 0})
-              state['requests'] += requests
-              state['errors'] += errors
-              state['subrequests'] += subrequests
-              total_requests += requests
-              total_errors += errors
-              total_subrequests += subrequests
-
-          ranked = [
+              reqs = int(sums.get('requests') or 0)
+              errs = int(sums.get('errors') or 0)
+              subs = int(sums.get('subrequests') or 0)
+              state = per_script.setdefault(name, {'requests':0,'errors':0,'subrequests':0})
+              state['requests'] += reqs
+              state['errors'] += errs
+              state['subrequests'] += subs
+              total_requests += reqs
+              total_errors += errs
+              total_subrequests += subs
+          worker_ranked = [
               {'script': name, **vals}
               for name, vals in sorted(per_script.items(), key=lambda kv: kv[1]['requests'], reverse=True)
           ]
 
-          free_daily_limit = 100000
+          kv_totals = {'read':0,'write':0,'delete':0,'list':0,'other':0}
+          for row in account_data.get('kvOperationsAdaptiveGroups') or []:
+              action = str((row.get('dimensions') or {}).get('actionType') or 'other').lower()
+              reqs = int((row.get('sum') or {}).get('requests') or 0)
+              if action in kv_totals:
+                  kv_totals[action] += reqs
+              else:
+                  kv_totals['other'] += reqs
+
+          d1_totals = {'readQueries':0,'writeQueries':0,'rowsRead':0,'rowsWritten':0}
+          d1_by_db = {}
+          for row in account_data.get('d1AnalyticsAdaptiveGroups') or []:
+              dims = row.get('dimensions') or {}
+              sums = row.get('sum') or {}
+              dbid = str(dims.get('databaseId') or '(unknown)')
+              state = d1_by_db.setdefault(dbid, {'readQueries':0,'writeQueries':0,'rowsRead':0,'rowsWritten':0})
+              for key in d1_totals:
+                  value = int(sums.get(key) or 0)
+                  state[key] += value
+                  d1_totals[key] += value
+
+          limits = {
+              'workersRequestsPerDay': 100000,
+              'kvReadsPerDay': 100000,
+              'kvWritesPerDay': 1000,
+              'kvDeletesPerDay': 1000,
+              'kvListsPerDay': 1000,
+              'd1RowsReadPerDay': 5000000,
+              'd1RowsWrittenPerDay': 100000,
+          }
+
+          def pct(value, limit):
+              return round(value / limit * 100, 2) if limit else None
+
           out = {
               'checkedAt': now.isoformat().replace('+00:00','Z'),
-              'window': {
-                  'startUtc': variables['datetimeStart'],
-                  'endUtc': variables['datetimeEnd'],
-              },
-              'workersFreeDailyRequestLimit': free_daily_limit,
+              'window': {'startUtc': variables['datetimeStart'], 'endUtc': variables['datetimeEnd'], 'dateUtc': today},
+              'freeTierLimits': limits,
               'inventory': {
-                  'workersHttp': sc,
-                  'workers': scripts,
-                  'pagesHttp': pc,
-                  'pagesProjects': pages,
+                  'workersHttp': sc, 'workers': scripts,
+                  'pagesHttp': pc, 'pagesProjects': pages,
+                  'kvHttp': kc, 'kvNamespaces': kv_namespaces,
+                  'd1Http': dc, 'd1Databases': d1_databases,
               },
-              'analytics': {
+              'graphql': {
                   'http': gc,
-                  'ok': gc == 200 and not analytics_errors and bool(rows),
-                  'errors': [str(e.get('message') if isinstance(e, dict) else e)[:500] for e in analytics_errors[:10]],
-                  'rowCount': len(rows),
-                  'requestsToday': total_requests if rows else None,
-                  'requestLimitPct': round(total_requests / free_daily_limit * 100, 2) if rows else None,
-                  'errorsToday': total_errors if rows else None,
-                  'subrequestsToday': total_subrequests if rows else None,
-                  'byScript': ranked,
+                  'errors': [str(e.get('message') if isinstance(e, dict) else e)[:500] for e in gql_errors[:10]],
+              },
+              'workers': {
+                  'requestsToday': total_requests,
+                  'requestLimitPct': pct(total_requests, limits['workersRequestsPerDay']),
+                  'errorsToday': total_errors,
+                  'subrequestsToday': total_subrequests,
+                  'byScript': worker_ranked,
+              },
+              'kv': {
+                  'operationsToday': kv_totals,
+                  'limitPct': {
+                      'read': pct(kv_totals['read'], limits['kvReadsPerDay']),
+                      'write': pct(kv_totals['write'], limits['kvWritesPerDay']),
+                      'delete': pct(kv_totals['delete'], limits['kvDeletesPerDay']),
+                      'list': pct(kv_totals['list'], limits['kvListsPerDay']),
+                  },
+              },
+              'd1': {
+                  'totalsToday': d1_totals,
+                  'limitPct': {
+                      'rowsRead': pct(d1_totals['rowsRead'], limits['d1RowsReadPerDay']),
+                      'rowsWritten': pct(d1_totals['rowsWritten'], limits['d1RowsWrittenPerDay']),
+                  },
+                  'byDatabaseId': d1_by_db,
               },
           }
 
