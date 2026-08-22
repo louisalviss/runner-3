@@ -19,15 +19,32 @@ jobs:
       CF_MODEL: '@cf/qwen/qwen3-30b-a3b-fp8'
     steps:
       - uses: actions/checkout@v4
+      - name: Initialize status
+        shell: bash
+        run: |
+          mkdir -p story_pipeline/benchmark_output
+          printf '{"state":"started","sha":"%s"}\n' "$GITHUB_SHA" > story_pipeline/benchmark_output/run_status.json
       - name: Check secrets are configured
+        id: secrets
         shell: bash
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo 'Missing CLOUDFLARE_ACCOUNT_ID' && exit 10)
           test -n "$CLOUDFLARE_API_TOKEN" || (echo 'Missing CLOUDFLARE_API_TOKEN' && exit 11)
       - name: Run AI editor benchmark
+        id: editor
         run: python story_pipeline/cloudflare_editor.py
       - name: Verify preservation
+        id: verify
         run: python story_pipeline/cloudflare_verify.py
+      - name: Write final status
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.secrets.outcome }}" != "success" ]; then state="missing_or_invalid_secrets";
+          elif [ "${{ steps.editor.outcome }}" != "success" ]; then state="editor_failed";
+          elif [ "${{ steps.verify.outcome }}" != "success" ]; then state="verify_failed";
+          else state="success"; fi
+          printf '{"state":"%s","sha":"%s","secrets":"%s","editor":"%s","verify":"%s"}\n' "$state" "$GITHUB_SHA" "${{ steps.secrets.outcome }}" "${{ steps.editor.outcome }}" "${{ steps.verify.outcome }}" > story_pipeline/benchmark_output/run_status.json
       - name: Package comparison
         if: always()
         shell: bash
@@ -36,15 +53,16 @@ jobs:
           cp -f story_pipeline/benchmark_input/*.txt story_pipeline/benchmark_artifact/before/ || true
           cp -f story_pipeline/benchmark_output/*.txt story_pipeline/benchmark_artifact/after/ || true
           cp -f story_pipeline/benchmark_output/*.json story_pipeline/benchmark_artifact/ || true
-      - name: Commit benchmark output
-        if: success()
+      - name: Commit benchmark output/status
+        if: always()
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add story_pipeline/benchmark_output
+          git add -f story_pipeline/benchmark_output
           git diff --cached --quiet && exit 0
-          git commit -m 'Save Cloudflare benchmark output'
+          git commit -m 'Save Cloudflare benchmark output/status'
+          git pull --rebase origin main
           git push
       - name: Upload benchmark artifact
         if: always()
