@@ -1,0 +1,45 @@
+name: WR Market State Freeze
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-market-state-freeze.yml'
+      - 'wave-rider-verify/wr_market_state_freeze.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download canonical pre-holdout market-state features
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-market-state-*
+          path: /tmp/train
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32533359788
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy scikit-learn joblib
+      - name: Build frozen HGB q70 model
+        run: python3 wave-rider-verify/wr_market_state_freeze.py --input /tmp/train --output /tmp/freeze
+      - name: Persist immutable freeze files on main
+        run: |
+          mkdir -p wave-rider-verify/frozen-market-state
+          cp /tmp/freeze/market_state_hgb_q70.joblib.b64 wave-rider-verify/frozen-market-state/
+          cp /tmp/freeze/market_state_hgb_q70_manifest.json wave-rider-verify/frozen-market-state/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wave-rider-verify/frozen-market-state/
+          if git diff --cached --quiet; then
+            echo 'Freeze files already identical.'
+          else
+            git commit -m 'research: freeze market-state forward holdout model'
+            git push
+          fi
