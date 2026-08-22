@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   read-x:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 4
     steps:
       - name: Fetch exact X status
