@@ -1,0 +1,87 @@
+name: Runner5 Baseline PRE Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/pagespeed/runner5-baseline-pre.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-baseline-pre-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PSI_URL: https://runner5-restore-lab-1.wasmer.app/
+      PSI_UI_OUT: /tmp/runner5-baseline-pre-pagespeed.json
+      PSI_UI_SCREENSHOT: /tmp/runner5-baseline-pre-mobile.png
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Capture direct-origin TTFB distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess, statistics, time
+          url='https://runner5-restore-lab-1.wasmer.app/?pre_ttfb=1'
+          rows=[]
+          for i in range(9):
+              out=subprocess.check_output(['curl','-L','-sS','-o','/dev/null','-w','%{http_code} %{time_starttransfer} %{time_total}',f'{url}&r={i}&t={time.time_ns()}'],text=True).strip().split()
+              rows.append({'http':int(out[0]),'ttfbMs':round(float(out[1])*1000,1),'totalMs':round(float(out[2])*1000,1)})
+              time.sleep(.4)
+          vals=[r['ttfbMs'] for r in rows if r['http']==200]
+          d={'status':'ready' if len(vals)>=7 else 'failed','target':url.split('?')[0],'label':'PRE','samples':rows,'ttfbMedianMs':round(statistics.median(vals),1) if vals else None,'ttfbP75Ms':round(sorted(vals)[int((len(vals)-1)*.75)],1) if vals else None,'checkedAt':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+          open('/tmp/runner5-baseline-pre-ttfb.json','w').write(json.dumps(d,indent=2))
+          print(json.dumps(d,indent=2))
+          PY
+
+      - name: Install PageSpeed browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Run PageSpeed UI against unoptimized origin
+        id: psi
+        continue-on-error: true
+        run: node scripts/pagespeed-ui-audit.mjs
+
+      - name: Persist PRE snapshot
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-baseline-pre-pagespeed.json || printf '{"status":"failed","target":"%s","detail":"missing PSI UI result"}\n' "$PSI_URL" > /tmp/runner5-baseline-pre-pagespeed.json
+          test -s /tmp/runner5-baseline-pre-ttfb.json || printf '{"status":"failed","detail":"missing TTFB result"}\n' > /tmp/runner5-baseline-pre-ttfb.json
+          cp /tmp/runner5-baseline-pre-pagespeed.json /tmp/pre-psi-safe.json
+          cp /tmp/runner5-baseline-pre-ttfb.json /tmp/pre-ttfb-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pagespeed/runner5-baseline-pre/runs
+            cp /tmp/pre-psi-safe.json ops/pagespeed/runner5-baseline-pre/pagespeed-latest.json
+            cp /tmp/pre-ttfb-safe.json ops/pagespeed/runner5-baseline-pre/ttfb-latest.json
+            cp /tmp/pre-psi-safe.json "ops/pagespeed/runner5-baseline-pre/runs/${GITHUB_RUN_ID}-pagespeed.json"
+            cp /tmp/pre-ttfb-safe.json "ops/pagespeed/runner5-baseline-pre/runs/${GITHUB_RUN_ID}-ttfb.json"
+            printf '{"label":"PRE","target":"%s","baseline":"Astra + Elementor + Digital Agency","runId":"%s"}\n' "$PSI_URL" "$GITHUB_RUN_ID" > ops/pagespeed/runner5-baseline-pre/checkpoint.json
+            git add ops/pagespeed/runner5-baseline-pre
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner5 PRE baseline audit: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 2
