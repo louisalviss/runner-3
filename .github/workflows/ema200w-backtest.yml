@@ -1,0 +1,44 @@
+name: EMA200W standalone backtest
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'research/ema200w_20260823/**'
+      - '.github/workflows/ema200w-backtest.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pandas numpy requests
+
+      - name: Run causal PIT backtest
+        env:
+          BACKTEST_OUT: artifacts/ema200w_20260823
+        run: python research/ema200w_20260823/backtest.py
+
+      - name: Show report
+        if: success()
+        run: cat artifacts/ema200w_20260823/report.md
+
+      - name: Upload results
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ema200w-backtest-results
+          path: artifacts/ema200w_20260823/
+          if-no-files-found: error
+          retention-days: 14
