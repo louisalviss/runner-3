@@ -7,6 +7,12 @@ on:
       - 'ops/audio-library/reddit-read-request.json'
       - 'scripts/reddit_read_request.py'
       - '.github/workflows/reddit-read-request.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/audio-library/reddit-read-request.json'
+      - 'scripts/reddit_read_request.py'
+      - '.github/workflows/reddit-read-request.yml'
   workflow_dispatch:
 
 permissions:
