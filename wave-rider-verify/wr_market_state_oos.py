@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Retrigger clean WR Market State OOS run after repository ownership repair.
+# Clean WR Market State OOS collector. Features must be frozen at the signal candle only.
 from __future__ import annotations
 import json, math, os, sys
 from pathlib import Path
@@ -55,24 +55,27 @@ def run_tf(symbol,tf,raw_df,instrument,manifest):
     bars=exp.to_bars(df,base.Bar,tf)
     trades,_raw=base.run_case(ref,bars,exp.provider_info(symbol),exp.STATE_START.to_pydatetime(),anchor='start',use_session=True)
     ff=feature_frame(df,tf,tz)
-    n=0
+    n=0; missing=0
     with (OUT/f'features-{symbol}-{tf}m.jsonl').open('w') as fh:
         for t in trades:
+            # WR records signal at signal-candle CLOSE. Pandas/Dukascopy bars are indexed by candle OPEN.
+            # Therefore the only causally valid feature row is exactly one target timeframe before signal.
             sig=pd.Timestamp(int(t['signal']),unit='ms',tz='UTC')
-            candidates=[sig, sig-pd.Timedelta(minutes=tf)]
-            row=None;fts=None
-            for ts in candidates:
-                if ts in ff.index:
-                    rr=ff.loc[ts]
-                    if isinstance(rr,pd.DataFrame):rr=rr.iloc[-1]
-                    if rr[FEATURES].notna().all(): row=ts;fts=rr;break
-            if fts is None:continue
+            row=sig-pd.Timedelta(minutes=tf)
+            if not row < sig:
+                raise AssertionError(f'non-causal feature timestamp {symbol} {tf}m row={row} signal={sig}')
+            if row not in ff.index:
+                missing+=1; continue
+            rr=ff.loc[row]
+            if isinstance(rr,pd.DataFrame): rr=rr.iloc[-1]
+            if not rr[FEATURES].notna().all():
+                missing+=1; continue
             rec={'symbol':symbol,'tf':tf,'signal':int(t['signal']),'exit':int(t['exit']),'R':float(t['R']),
                  'net_1bps':float(t['R'])-cost_r(t,1.0),'net_2bps':float(t['R'])-cost_r(t,2.0),
-                 'year':sig.year,'feature_bar':row.isoformat()}
-            for k in FEATURES:rec[k]=float(fts[k])
+                 'year':sig.year,'feature_bar':row.isoformat(),'feature_lag_minutes':tf}
+            for k in FEATURES:rec[k]=float(rr[k])
             fh.write(json.dumps(rec)+'\n');n+=1
-    print('FEATURES',symbol,tf,n,flush=True);return n
+    print('FEATURES',symbol,tf,n,'MISSING_SIGNAL_BAR_FEATURES',missing,flush=True);return n
 
 def run_symbol(symbol):
     instrument=exp.resolve_symbol(symbol)
