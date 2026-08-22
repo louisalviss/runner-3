@@ -1,0 +1,162 @@
+name: Maintenance · Workflow Audit Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/maintenance-workflow-audit-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: maintenance-workflow-audit-once
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Scan every active workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          root = Path('.github/workflows')
+          files = sorted([*root.glob('*.yml'), *root.glob('*.yaml')])
+
+          def first_name(text, path):
+              m = re.search(r'(?m)^name:\s*["\']?(.+?)["\']?\s*$', text)
+              return (m.group(1).strip().strip('"\'') if m else path.stem)
+
+          def triggers(text):
+              out=[]
+              m = re.search(r'(?ms)^on:\s*\n(?P<body>(?:^[ \t]+.*\n?)*)', text)
+              body = m.group('body') if m else ''
+              for k in ['schedule','push','workflow_dispatch','workflow_run','pull_request','pull_request_target','repository_dispatch']:
+                  if re.search(r'(?m)^\s{2,}'+re.escape(k)+r'\s*:', body):
+                      out.append(k)
+              inline = re.search(r'(?m)^on:\s*\[([^\]]+)\]', text)
+              if inline:
+                  for x in inline.group(1).split(','):
+                      x=x.strip().strip('"\'')
+                      if x and x not in out: out.append(x)
+              return out
+
+          def cron_interval(expr):
+              p=expr.split()
+              if len(p)<5: return None
+              minute,hour=p[0],p[1]
+              m=re.fullmatch(r'\*/(\d+)',minute)
+              if m and hour=='*': return int(m.group(1))
+              if minute=='*' and hour=='*': return 1
+              if hour=='*':
+                  if re.fullmatch(r'\d+',minute): return 60
+                  if re.fullmatch(r'[\d,]+',minute):
+                      n=len(set(minute.split(',')))
+                      return max(1,60//max(1,n))
+              h=re.fullmatch(r'\*/(\d+)',hour)
+              if h and re.fullmatch(r'\d+',minute): return int(h.group(1))*60
+              if re.fullmatch(r'[\d,]+',hour) and re.fullmatch(r'\d+',minute):
+                  hs=sorted({int(x) for x in hour.split(',')})
+                  if len(hs)>1:
+                      gaps=[(hs[(i+1)%len(hs)]-hs[i])%24 for i in range(len(hs))]
+                      gaps=[g for g in gaps if g]
+                      return min(gaps)*60 if gaps else 1440
+                  return 1440
+              return None
+
+          rows=[]
+          for path in files:
+              text=path.read_text(encoding='utf-8',errors='replace')
+              crons=re.findall(r'cron:\s*["\']([^"\']+)["\']',text)
+              intervals=[x for x in (cron_interval(c) for c in crons) if x is not None]
+              interval=min(intervals) if intervals else None
+              tr=triggers(text)
+              low=text.lower()
+              heavy=[k for k in ['playwright','chromium','google-chrome','chrome','selenium','ffmpeg','remotion','lighthouse','docker build','npm install','apt-get install'] if k in low]
+              writes=bool(re.search(r'(?m)\bgit\s+push\b',text))
+              commits=bool(re.search(r'(?m)\bgit\s+commit\b',text))
+              conc='concurrency:' in text
+              cancel=bool(re.search(r'cancel-in-progress:\s*true',text,re.I))
+              timeouts=[int(x) for x in re.findall(r'timeout-minutes:\s*(\d+)',text)]
+              has_path_filter=bool(re.search(r'(?m)^\s+paths(?:-ignore)?:\s*$',text))
+              schedule='schedule' in tr or bool(crons)
+              risk='low'
+              reasons=[]
+              if interval is not None and interval < 15:
+                  risk='critical'; reasons.append(f'cron interval ~{interval}m')
+              elif interval is not None and interval < 60:
+                  risk='high'; reasons.append(f'cron interval ~{interval}m')
+              elif interval is not None and interval < 180:
+                  risk='medium'; reasons.append(f'cron interval ~{interval}m')
+              if schedule and heavy and (interval is None or interval <= 60):
+                  if risk in ('low','medium'): risk='high'
+                  reasons.append('scheduled heavy tooling')
+              if schedule and not conc and interval is not None and interval < 180:
+                  if risk=='low': risk='medium'
+                  reasons.append('scheduled without concurrency')
+              if writes and 'push' in tr and not has_path_filter:
+                  if risk=='low': risk='high'
+                  elif risk=='medium': risk='high'
+                  reasons.append('git push + broad push trigger')
+              elif writes and 'push' in tr:
+                  reasons.append('git push + path-filtered push trigger')
+              if 'workflow_run' in tr:
+                  reasons.append('workflow_run chain')
+              rows.append({
+                  'file':str(path),'name':first_name(text,path),'triggers':tr,'crons':crons,
+                  'min_interval_minutes':interval,'concurrency':conc,'cancel_in_progress':cancel,
+                  'timeouts_minutes':timeouts,'heavy_keywords':heavy,'git_commit':commits,'git_push':writes,
+                  'push_has_path_filter':has_path_filter,'risk':risk,'reasons':reasons,
+              })
+
+          rank={'critical':0,'high':1,'medium':2,'low':3}
+          rows.sort(key=lambda r:(rank[r['risk']], r['min_interval_minutes'] if r['min_interval_minutes'] is not None else 10**9, r['file']))
+          summary={
+              'active_workflows':len(rows),
+              'scheduled':sum(bool(r['crons']) or 'schedule' in r['triggers'] for r in rows),
+              'under_60m':sum(r['min_interval_minutes'] is not None and r['min_interval_minutes']<60 for r in rows),
+              'under_15m':sum(r['min_interval_minutes'] is not None and r['min_interval_minutes']<15 for r in rows),
+              'critical':sum(r['risk']=='critical' for r in rows),
+              'high':sum(r['risk']=='high' for r in rows),
+              'medium':sum(r['risk']=='medium' for r in rows),
+              'with_git_push':sum(r['git_push'] for r in rows),
+              'scheduled_without_concurrency':sum((bool(r['crons']) or 'schedule' in r['triggers']) and not r['concurrency'] for r in rows),
+          }
+          Path('ops/workflow-audit.json').write_text(json.dumps({'summary':summary,'workflows':rows},ensure_ascii=False,indent=2),encoding='utf-8')
+          md=['# Runner-3 GitHub Actions audit','',f"Scanned **{summary['active_workflows']}** active workflows.",'',
+              f"- Scheduled: **{summary['scheduled']}**",f"- Cron <60m: **{summary['under_60m']}**",f"- Cron <15m: **{summary['under_15m']}**",
+              f"- Critical/high/medium: **{summary['critical']} / {summary['high']} / {summary['medium']}**",
+              f"- Scheduled without concurrency: **{summary['scheduled_without_concurrency']}**",'',
+              '| Risk | Workflow | Interval | Cron | Concurrency | Heavy | Git push | Reasons |','|---|---|---:|---|---|---|---|---|']
+          for r in rows:
+              cron='<br>'.join(r['crons']) or '-'
+              interval=str(r['min_interval_minutes']) if r['min_interval_minutes'] is not None else '-'
+              heavy=', '.join(r['heavy_keywords']) or '-'
+              reasons='; '.join(r['reasons']) or '-'
+              md.append(f"| {r['risk']} | `{r['file'].split('/')[-1]}` | {interval} | {cron} | {r['concurrency']} / cancel={r['cancel_in_progress']} | {heavy} | {r['git_push']} | {reasons} |")
+          Path('ops/workflow-audit.md').write_text('\n'.join(md)+'\n',encoding='utf-8')
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Persist audit report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/workflow-audit.json ops/workflow-audit.md
+          git commit -m 'Publish workflow audit report [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
