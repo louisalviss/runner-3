@@ -1,0 +1,89 @@
+name: WR + RS US Stocks 10m
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-rs-stock10.yml'
+      - 'apps/wave-rider-rsrw/crossasset_rs_stock10.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-rs-stock10-20260823
+  cancel-in-progress: true
+
+env:
+  WR_CROSSASSET_HELPER: /tmp/crossasset
+  WR_RS_SHARDS: '8'
+
+jobs:
+  shard:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen cross-asset data loader
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - name: Reuse prior Fusion/Nasdaq 5m+10m WR trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-fusion-ndx-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32507430808
+      - name: Apply frozen Stock/US500 RS50 gate on 10m WR trades
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_OUT: /tmp/out
+          WR_RS_SHARD: ${{ matrix.shard }}
+        run: python apps/wave-rider-rsrw/crossasset_rs_stock10.py shard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-stock10-shard-${{ matrix.shard }}
+          path: /tmp/out
+          retention-days: 14
+
+  merge:
+    needs: shard
+    if: always() && needs.shard.result == 'success'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy
+      - name: Fetch helper for module import
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-rs-stock10-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge exact aggregate and Long/Short decomposition
+        env:
+          WR_RS_OUT: /tmp/out
+          WR_RS_MERGE_ROOT: /tmp/all
+        run: python apps/wave-rider-rsrw/crossasset_rs_stock10.py merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-stock10-final-${{ github.run_id }}
+          path: /tmp/out
+          retention-days: 30
