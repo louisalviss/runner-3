@@ -1,4 +1,4 @@
-name: CF Token Check
+name: CF Usage Diagnostic
 
 on:
   workflow_dispatch:
@@ -13,6 +13,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -21,46 +22,164 @@ jobs:
         with:
           ref: main
 
-      - name: Check Cloudflare permissions
+      - name: Measure Cloudflare Worker usage
+        shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import os, urllib.request, urllib.error, json, datetime
-          token=os.environ['CF_TOKEN']
-          account=os.environ['CF_ACCOUNT']
-          tests={
-            'workers':f'/accounts/{account}/workers/scripts',
-            'pages':f'/accounts/{account}/pages/projects',
-            'kv':f'/accounts/{account}/storage/kv/namespaces',
-            'r2':f'/accounts/{account}/r2/buckets',
-            'd1':f'/accounts/{account}/d1/database'
+          import datetime, json, os, urllib.error, urllib.request
+
+          token = os.environ['CF_TOKEN']
+          account = os.environ['CF_ACCOUNT']
+          base = 'https://api.cloudflare.com/client/v4'
+          headers = {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
           }
-          out={'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),'services':{}}
-          for k,p in tests.items():
-            req=urllib.request.Request('https://api.cloudflare.com/client/v4'+p,headers={'Authorization':'Bearer '+token})
-            try:
-              with urllib.request.urlopen(req,timeout=20) as r:
-                out['services'][k]={'http':r.status,'ok':200 <= r.status < 300}
-            except urllib.error.HTTPError as e:
-              out['services'][k]={'http':e.code,'ok':False}
-            except Exception:
-              out['services'][k]={'http':0,'ok':False}
-          os.makedirs('/tmp/cf-token-check',exist_ok=True)
-          with open('/tmp/cf-token-check/latest.json','w') as f:
-            json.dump(out,f,indent=2); f.write('\n')
-          print(json.dumps(out,indent=2))
+
+          now = datetime.datetime.now(datetime.timezone.utc)
+          start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+          def request_json(url, method='GET', payload=None):
+              body = json.dumps(payload).encode() if payload is not None else None
+              req = urllib.request.Request(url, data=body, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      raw = r.read().decode()
+                      return r.status, json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  try:
+                      data = json.loads(e.read().decode())
+                  except Exception:
+                      data = {}
+                  return e.code, data
+              except Exception as e:
+                  return 0, {'error': str(e)[:500]}
+
+          # Inventory current scripts and Pages projects.
+          sc, sd = request_json(f'{base}/accounts/{account}/workers/scripts')
+          scripts = []
+          if 200 <= sc < 300 and isinstance(sd.get('result'), list):
+              for item in sd['result']:
+                  if isinstance(item, dict):
+                      name = item.get('id') or item.get('name')
+                  else:
+                      name = str(item)
+                  if name:
+                      scripts.append(str(name))
+
+          pc, pd = request_json(f'{base}/accounts/{account}/pages/projects')
+          pages = []
+          if 200 <= pc < 300 and isinstance(pd.get('result'), list):
+              for item in pd['result']:
+                  if isinstance(item, dict) and item.get('name'):
+                      pages.append(str(item['name']))
+
+          # Official Workers Analytics GraphQL dataset. This is read-only.
+          query = '''
+          query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string) {
+            viewer {
+              accounts(filter: {accountTag: $accountTag}) {
+                workersInvocationsAdaptive(
+                  limit: 10000,
+                  filter: {datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd}
+                ) {
+                  dimensions { scriptName status }
+                  sum { requests errors subrequests }
+                }
+              }
+            }
+          }
+          '''
+          variables = {
+              'accountTag': account,
+              'datetimeStart': start.isoformat().replace('+00:00','Z'),
+              'datetimeEnd': now.isoformat().replace('+00:00','Z'),
+          }
+          gc, gd = request_json(base + '/graphql', 'POST', {'query': query, 'variables': variables})
+
+          analytics_errors = gd.get('errors') or [] if isinstance(gd, dict) else []
+          rows = []
+          try:
+              rows = gd['data']['viewer']['accounts'][0]['workersInvocationsAdaptive'] or []
+          except Exception:
+              rows = []
+
+          per_script = {}
+          total_requests = total_errors = total_subrequests = 0
+          for row in rows:
+              dims = row.get('dimensions') or {}
+              sums = row.get('sum') or {}
+              name = str(dims.get('scriptName') or '(unknown)')
+              requests = int(sums.get('requests') or 0)
+              errors = int(sums.get('errors') or 0)
+              subrequests = int(sums.get('subrequests') or 0)
+              state = per_script.setdefault(name, {'requests': 0, 'errors': 0, 'subrequests': 0})
+              state['requests'] += requests
+              state['errors'] += errors
+              state['subrequests'] += subrequests
+              total_requests += requests
+              total_errors += errors
+              total_subrequests += subrequests
+
+          ranked = [
+              {'script': name, **vals}
+              for name, vals in sorted(per_script.items(), key=lambda kv: kv[1]['requests'], reverse=True)
+          ]
+
+          free_daily_limit = 100000
+          out = {
+              'checkedAt': now.isoformat().replace('+00:00','Z'),
+              'window': {
+                  'startUtc': variables['datetimeStart'],
+                  'endUtc': variables['datetimeEnd'],
+              },
+              'workersFreeDailyRequestLimit': free_daily_limit,
+              'inventory': {
+                  'workersHttp': sc,
+                  'workers': scripts,
+                  'pagesHttp': pc,
+                  'pagesProjects': pages,
+              },
+              'analytics': {
+                  'http': gc,
+                  'ok': gc == 200 and not analytics_errors and bool(rows),
+                  'errors': [str(e.get('message') if isinstance(e, dict) else e)[:500] for e in analytics_errors[:10]],
+                  'rowCount': len(rows),
+                  'requestsToday': total_requests if rows else None,
+                  'requestLimitPct': round(total_requests / free_daily_limit * 100, 2) if rows else None,
+                  'errorsToday': total_errors if rows else None,
+                  'subrequestsToday': total_subrequests if rows else None,
+                  'byScript': ranked,
+              },
+          }
+
+          os.makedirs('/tmp/cf-usage', exist_ok=True)
+          with open('/tmp/cf-usage/latest.json', 'w') as f:
+              json.dump(out, f, indent=2)
+              f.write('\n')
+          print(json.dumps(out, indent=2))
           PY
 
-      - name: Persist safe result
+      - name: Persist safe usage result
+        if: always()
+        shell: bash
         run: |
           set -euo pipefail
+          test -s /tmp/cf-usage/latest.json || printf '{"status":"failed","detail":"usage_result_missing"}\n' >/tmp/cf-usage/latest.json
+          cp /tmp/cf-usage/latest.json /tmp/cf-usage-safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin main
-          git reset --hard origin/main
-          mkdir -p ops/cloudflare-capability
-          cp /tmp/cf-token-check/latest.json ops/cloudflare-capability/token-check.json
-          git add ops/cloudflare-capability/token-check.json
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Persist CF token check: ${GITHUB_RUN_ID}"
-          git push origin HEAD:main
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/cloudflare-capability
+            cp /tmp/cf-usage-safe.json ops/cloudflare-capability/usage.json
+            git add ops/cloudflare-capability/usage.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist CF usage diagnostic: ${GITHUB_RUN_ID} [skip ci]"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
