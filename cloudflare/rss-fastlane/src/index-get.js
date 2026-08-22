@@ -15,6 +15,15 @@ export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
 
+    if (request.method === 'GET' && incoming.pathname === '/health') {
+      return json({
+        ok: true,
+        service: 'runner3-rss-fastlane',
+        entrypoint: 'index-get.js',
+        r2Bound: Boolean(env.RSS_ARTIFACTS),
+      }, 200);
+    }
+
     if (request.method === 'GET' && incoming.pathname === '/v1/rss/fetch') {
       const sourceKey = String(incoming.searchParams.get('sourceKey') || '').trim().toLowerCase();
       const canonicalUrl = String(incoming.searchParams.get('url') || '').trim();
