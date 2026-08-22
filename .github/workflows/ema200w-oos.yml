@@ -1,0 +1,55 @@
+name: EMA200W frozen OOS 2025-2026
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'research/ema200w_20260823/oos_2025_2026.py'
+      - '.github/workflows/ema200w-oos.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  oos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pandas numpy pyarrow requests 'huggingface_hub[hf_xet]'
+
+      - name: Run frozen OOS
+        env:
+          OOS_OUT: research/ema200w_20260823/oos_2025_2026
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+        run: python research/ema200w_20260823/oos_2025_2026.py
+
+      - name: Persist result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/ema200w_20260823/oos_2025_2026/
+          git commit -m 'Add EMA200W frozen OOS results [skip ci]' || exit 0
+          for i in 1 2 3 4; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            git rebase --abort || true
+            sleep $((i*5))
+          done
+          exit 1
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ema200w-oos-2025-2026
+          path: research/ema200w_20260823/oos_2025_2026/
+          if-no-files-found: warn
+          retention-days: 14
