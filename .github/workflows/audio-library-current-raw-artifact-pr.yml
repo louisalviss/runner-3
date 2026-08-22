@@ -33,11 +33,12 @@ jobs:
           from pathlib import Path
           sys.path.insert(0,'scripts')
           import audio_library_extract_for_chatgpt as a
-          url='https://www.reddit.com/r/AskReddit/comments/1vsxt55/what_video_game_did_you_drop_laughably_quick/'
+          req=json.loads(Path('ops/audio-library/reddit-read-request.json').read_text(encoding='utf-8'))
+          url=str(req['url'])
           title,text,label,canonical=a.extract_reddit(url)
-          out={'title':title,'sourceLabel':label,'canonicalUrl':canonical,'rawText':text}
+          out={'inputUrl':url,'title':title,'sourceLabel':label,'canonicalUrl':canonical,'rawText':text}
           Path('/tmp/audio-current-raw/source.json').write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
-          print(json.dumps({'status':'ready','title':title,'chars':len(text),'canonicalUrl':canonical},ensure_ascii=False))
+          print(json.dumps({'status':'ready','inputUrl':url,'title':title,'chars':len(text),'canonicalUrl':canonical},ensure_ascii=False))
           PY
       - uses: actions/upload-artifact@v4
         with:
