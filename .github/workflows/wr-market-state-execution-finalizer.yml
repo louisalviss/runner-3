@@ -43,6 +43,11 @@ jobs:
             for ln in p.read_text().splitlines():
               if ln.strip(): rows.append(json.loads(ln))
           ex=pd.DataFrame(rows)
+          # US equities in this frozen 68-stock universe trade on the standard $0.01 minimum price increment.
+          # Collector artifacts currently omit `tick`; inject it here for the slippage stress only.
+          tick_source='collector' if 'tick' in ex.columns else 'US_EQUITY_STANDARD_0.01'
+          if 'tick' not in ex.columns:
+            ex['tick']=0.01
           orig=pd.read_csv('/tmp/orig/q70_selected.csv')
           keys=['symbol','tf','signal','exit']
           if orig.duplicated(keys).any(): raise RuntimeError('canonical duplicate keys')
@@ -54,7 +59,7 @@ jobs:
           parity={'canonical_rows':len(orig),'execution_rows':len(ex),'matched_selected':int((s['_merge']=='both').sum()),'missing_selected':len(missing),'max_abs_R_diff':float(rdiff.max(skipna=True)),'max_abs_net1_diff':float(n1.max(skipna=True)),'max_abs_net2_diff':float(n2.max(skipna=True))}
           parity['pass']=bool(len(orig)==3657 and len(ex)==19683 and len(missing)==0 and parity['max_abs_R_diff']<1e-10 and parity['max_abs_net1_diff']<1e-10 and parity['max_abs_net2_diff']<1e-10)
           if not parity['pass']:
-            (out/'execution-gate.json').write_text(json.dumps({'status':'FAIL_SELECTOR_PARITY','parity':parity},indent=2)); print(json.dumps(parity,indent=2)); raise RuntimeError('selector parity failed')
+            (out/'execution-gate.json').write_text(json.dumps({'status':'FAIL_SELECTOR_PARITY','parity':parity,'tick_source':tick_source},indent=2)); print(json.dumps(parity,indent=2)); raise RuntimeError('selector parity failed')
           s=s.drop(columns=['_merge']); valid=s.dropna(subset=['observed_roundtrip_spread_bps','ratio','tick','e','s']).copy()
           def met(v):
             a=np.asarray(v,float);gp=a[a>0].sum();gl=-a[a<0].sum();eq=np.cumsum(a);pk=np.maximum.accumulate(np.r_[0,eq])[1:]
@@ -62,7 +67,7 @@ jobs:
           def nv(df,slip,comm):
             dist=(df.e-df.s).abs(); return df.R_exec-df.ratio*df.observed_roundtrip_spread_bps/10000-(2*slip*df.tick)/dist-df.ratio*comm/10000
           normal=met(nv(valid,.1,.5)); stress=met(nv(valid,.5,1.0)); extreme=met(nv(valid,1.0,2.0)); spread=valid.observed_roundtrip_spread_bps.to_numpy(float)
-          report={'status':'WR_MARKET_STATE_EXECUTION_GATE_COMPLETE','parity':parity,'selected_n':len(s),'selected_valid_spread_n':len(valid),'observed_spread_bps':{'median':float(np.median(spread)),'p95':float(np.quantile(spread,.95)),'p99':float(np.quantile(spread,.99))},'normal':normal,'stress':stress,'extreme':extreme}
+          report={'status':'WR_MARKET_STATE_EXECUTION_GATE_COMPLETE','parity':parity,'tick_source':tick_source,'selected_n':len(s),'selected_valid_spread_n':len(valid),'observed_spread_bps':{'median':float(np.median(spread)),'p95':float(np.quantile(spread,.95)),'p99':float(np.quantile(spread,.99))},'normal':normal,'stress':stress,'extreme':extreme}
           report['proxy_verdict']='PASS_EXECUTION_PROXY' if normal['R']>0 and (normal['PF'] or 0)>1.2 and stress['R']>0 and (stress['PF'] or 0)>1.1 else 'FAIL_EXECUTION_PROXY'
           report['extreme_survival']=bool(extreme['R']>0 and (extreme['PF'] or 0)>1.0)
           (out/'q70_execution_rows.csv').write_text(s.to_csv(index=False)); (out/'execution-gate.json').write_text(json.dumps(report,indent=2)); print(json.dumps(report,indent=2))
