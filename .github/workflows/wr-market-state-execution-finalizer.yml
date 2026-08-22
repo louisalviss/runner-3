@@ -1,0 +1,75 @@
+name: WR Market State Execution Finalizer
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-market-state-execution-finalizer.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Download execution artifacts from completed matrix run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-market-exec-*
+          path: /tmp/all
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32566943369
+      - name: Download canonical q70 selector
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-market-state-portfolio-gate-final
+          path: /tmp/orig
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32542005535
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy
+      - name: Final parity and execution report
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          import numpy as np,pandas as pd
+          root=pathlib.Path('/tmp/all');out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          rows=[]
+          for p in root.rglob('exec-*.jsonl'):
+            for ln in p.read_text().splitlines():
+              if ln.strip(): rows.append(json.loads(ln))
+          ex=pd.DataFrame(rows)
+          orig=pd.read_csv('/tmp/orig/q70_selected.csv')
+          keys=['symbol','tf','signal','exit']
+          if orig.duplicated(keys).any(): raise RuntimeError('canonical duplicate keys')
+          if ex.duplicated(keys).any(): raise RuntimeError('execution duplicate keys')
+          keep=['symbol','tf','signal','exit','side','R','reason','e','s','ratio','entry_spread_bps','exit_spread_bps','observed_roundtrip_spread_bps','tick']
+          s=orig.merge(ex[keep],on=keys,how='left',suffixes=('_orig','_exec'),validate='one_to_one',indicator=True)
+          missing=s[s['_merge']!='both']
+          rdiff=(s['R_orig']-s['R_exec']).abs(); n1=(s['net_1bps']-(s['R_exec']-s['ratio']/10000)).abs(); n2=(s['net_2bps']-(s['R_exec']-2*s['ratio']/10000)).abs()
+          parity={'canonical_rows':len(orig),'execution_rows':len(ex),'matched_selected':int((s['_merge']=='both').sum()),'missing_selected':len(missing),'max_abs_R_diff':float(rdiff.max(skipna=True)),'max_abs_net1_diff':float(n1.max(skipna=True)),'max_abs_net2_diff':float(n2.max(skipna=True))}
+          parity['pass']=bool(len(orig)==3657 and len(ex)==19683 and len(missing)==0 and parity['max_abs_R_diff']<1e-10 and parity['max_abs_net1_diff']<1e-10 and parity['max_abs_net2_diff']<1e-10)
+          if not parity['pass']:
+            (out/'execution-gate.json').write_text(json.dumps({'status':'FAIL_SELECTOR_PARITY','parity':parity},indent=2)); print(json.dumps(parity,indent=2)); raise RuntimeError('selector parity failed')
+          s=s.drop(columns=['_merge']); valid=s.dropna(subset=['observed_roundtrip_spread_bps','ratio','tick','e','s']).copy()
+          def met(v):
+            a=np.asarray(v,float);gp=a[a>0].sum();gl=-a[a<0].sum();eq=np.cumsum(a);pk=np.maximum.accumulate(np.r_[0,eq])[1:]
+            return {'n':len(a),'R':float(a.sum()),'PF':float(gp/gl) if gl>0 else None,'max_DD_R':float((eq-pk).min()) if len(a) else 0.0}
+          def nv(df,slip,comm):
+            dist=(df.e-df.s).abs(); return df.R_exec-df.ratio*df.observed_roundtrip_spread_bps/10000-(2*slip*df.tick)/dist-df.ratio*comm/10000
+          normal=met(nv(valid,.1,.5)); stress=met(nv(valid,.5,1.0)); extreme=met(nv(valid,1.0,2.0)); spread=valid.observed_roundtrip_spread_bps.to_numpy(float)
+          report={'status':'WR_MARKET_STATE_EXECUTION_GATE_COMPLETE','parity':parity,'selected_n':len(s),'selected_valid_spread_n':len(valid),'observed_spread_bps':{'median':float(np.median(spread)),'p95':float(np.quantile(spread,.95)),'p99':float(np.quantile(spread,.99))},'normal':normal,'stress':stress,'extreme':extreme}
+          report['proxy_verdict']='PASS_EXECUTION_PROXY' if normal['R']>0 and (normal['PF'] or 0)>1.2 and stress['R']>0 and (stress['PF'] or 0)>1.1 else 'FAIL_EXECUTION_PROXY'
+          report['extreme_survival']=bool(extreme['R']>0 and (extreme['PF'] or 0)>1.0)
+          (out/'q70_execution_rows.csv').write_text(s.to_csv(index=False)); (out/'execution-gate.json').write_text(json.dumps(report,indent=2)); print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-market-state-execution-finalizer
+          path: /tmp/final
+          retention-days: 30
