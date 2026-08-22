@@ -6,6 +6,11 @@ on:
     paths:
       - '.github/workflows/reddit-rxddit-macos-probe.yml'
       - 'ops/audio-library/reddit-read-request.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/audio-library/triggers/reddit-current-macos.txt'
+      - '.github/workflows/reddit-rxddit-macos-probe.yml'
   workflow_dispatch:
 
 permissions:
