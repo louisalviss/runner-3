@@ -1,18 +1,17 @@
-name: WR RS Only BTC Full Universe
+name: WR RS Standalone Full Universe
 
 on:
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/wr-rsrw-probe.yml"
-      - "apps/wave-rider-rsrw/rsrw_crypto_universe.py"
-      - "apps/wave-rider-rsrw/rs_only_crypto_universe.py"
+      - "apps/wave-rider-rsrw/rs_standalone_universe.py"
 
 permissions:
   contents: read
 
 concurrency:
-  group: wr-rs-only-universe-20260822
+  group: wr-rs-standalone-20260822
   cancel-in-progress: true
 
 jobs:
@@ -68,20 +67,19 @@ jobs:
           curl -fsSL "$BASE/wr_canonical_crypto_5m.py" -o /tmp/wr-canonical/wr_canonical_crypto_5m.py
           curl -fsSL "$BASE/wr_tv_parity.py" -o /tmp/wr-canonical/wr_tv_parity.py
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
-      - name: Run full-universe RS-only/BTC shard
+      - name: Run RS standalone full-universe shard
         env:
           WR_CANON_DIR: /tmp/wr-canonical
-          WR_RSRW_OUT: /tmp/wr-rs-only
-          WR_RSRW_LENGTHS: 10,21,50
-          WR_RSRW_USE_SLOPE: "1"
-          WR_RSRW_SHARD: ${{ matrix.shard }}
-          WR_RSRW_SHARDS: "8"
-        run: python apps/wave-rider-rsrw/rs_only_crypto_universe.py shard
+          WR_RS_STANDALONE_OUT: /tmp/wr-rs-standalone
+          WR_RS_LENGTHS: 10,21,50
+          WR_RS_SHARD: ${{ matrix.shard }}
+          WR_RS_SHARDS: "8"
+        run: python apps/wave-rider-rsrw/rs_standalone_universe.py shard
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: wr-rs-only-universe-shard-${{ matrix.shard }}
-          path: /tmp/wr-rs-only/
+          name: wr-rs-standalone-shard-${{ matrix.shard }}
+          path: /tmp/wr-rs-standalone/
           retention-days: 14
           if-no-files-found: error
 
@@ -99,19 +97,19 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
-          pattern: wr-rs-only-universe-shard-*
+          pattern: wr-rs-standalone-shard-*
           path: /tmp/all
           merge-multiple: false
-      - name: Merge RS-only universe results
+      - name: Merge RS standalone results
         env:
-          WR_RSRW_MERGE_ROOT: /tmp/all
-          WR_RSRW_FINAL_OUT: /tmp/final
-          WR_RSRW_LENGTHS: 10,21,50
-          WR_RSRW_SHARDS: "8"
-        run: python apps/wave-rider-rsrw/rs_only_crypto_universe.py merge
+          WR_RS_MERGE_ROOT: /tmp/all
+          WR_RS_FINAL_OUT: /tmp/final
+          WR_RS_LENGTHS: 10,21,50
+          WR_RS_SHARDS: "8"
+        run: python apps/wave-rider-rsrw/rs_standalone_universe.py merge
       - uses: actions/upload-artifact@v4
         with:
-          name: wr-rs-only-universe-final-${{ github.run_id }}
+          name: wr-rs-standalone-final-${{ github.run_id }}
           path: /tmp/final/
           retention-days: 30
           if-no-files-found: error
