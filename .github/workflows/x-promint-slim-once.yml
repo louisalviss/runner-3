@@ -1,4 +1,4 @@
-name: X promint slim once
+name: X direct slim once
 
 on:
   push:
@@ -23,11 +23,11 @@ jobs:
           mkdir -p runner-output
           curl -fsSL --max-time 15 \
             -H 'User-Agent: runner-3-x-fast/1.0' \
-            'https://api.fxtwitter.com/promint_x/status/2091186667604385878' \
-            -o runner-output/promint_x-2091186667604385878-fxtwitter.json
+            'https://api.fxtwitter.com/bkdgiffug/status/2091073890059718861' \
+            -o runner-output/bkdgiffug-2091073890059718861-fxtwitter.json
           python3 - <<'PY'
           import json
-          p='runner-output/promint_x-2091186667604385878-fxtwitter.json'
+          p='runner-output/bkdgiffug-2091073890059718861-fxtwitter.json'
           d=json.load(open(p,encoding='utf-8'))
           if int(d.get('code',0)) != 200:
               raise SystemExit(d)
@@ -39,7 +39,8 @@ jobs:
               'likes': t.get('likes'),
               'retweets': t.get('retweets'),
               'replies': t.get('replies'),
-              'views': t.get('views')
+              'views': t.get('views'),
+              'quote': t.get('quote')
           }, ensure_ascii=False, indent=2))
           PY
       - name: Persist result
@@ -48,9 +49,9 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add runner-output/promint_x-2091186667604385878-fxtwitter.json
+          git add runner-output/bkdgiffug-2091073890059718861-fxtwitter.json
           git diff --cached --quiet && exit 0
-          git commit -m 'Store promint X result [skip ci]'
+          git commit -m 'Store bkdgiffug X result [skip ci]'
           for n in 1 2 3; do
             git pull --rebase origin main || true
             git push origin HEAD:main && exit 0
