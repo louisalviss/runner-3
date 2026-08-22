@@ -1,11 +1,6 @@
-name: WR Dukascopy Expanded Matrix
+name: WR Dukascopy Expanded Matrix (MANUAL)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/wr-dukascopy-expanded-matrix.yml'
-      - 'wave-rider-verify/wr_dukascopy_expanded_matrix.py'
-      - 'wave-rider-verify/wr_tv_parity.py'
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -24,8 +19,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pandas websocket-client requests dukascopy-python
-      - name: Fetch frozen WR 2.5.13 reference
-        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Use consolidated WR 2.5.13 reference
+        run: cp wave-rider-verify/reference_verify.py /tmp/reference_verify.py
       - name: Run 3m core robustness
         env:
           SYMBOL: ${{ matrix.symbol }}
@@ -51,8 +46,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pandas websocket-client requests dukascopy-python
-      - name: Fetch frozen WR 2.5.13 reference
-        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Use consolidated WR 2.5.13 reference
+        run: cp wave-rider-verify/reference_verify.py /tmp/reference_verify.py
       - name: Run stock 3m 5m 10m bundle
         env:
           SYMBOL: ${{ matrix.symbol }}
@@ -86,7 +81,7 @@ jobs:
               except Exception: pass
           rows.sort(key=lambda x:(x.get('group',''),x.get('symbol',''),x.get('tf','')))
           status=collections.Counter(x.get('status','UNKNOWN') for x in rows)
-          report={'purpose':'WR 2.5.13 expanded robustness: core 3m + broad tradable stocks 3m/5m/10m','no_tuning':True,'results_count':len(rows),'status_counts':dict(status),'results':rows}
+          report={'purpose':'WR 2.5.13 expanded robustness using consolidated rightmost-tie reference','no_tuning':True,'results_count':len(rows),'status_counts':dict(status),'results':rows}
           (out/'expanded-matrix.json').write_text(json.dumps(report,indent=2))
           print('MERGED',len(rows),dict(status))
           PY
