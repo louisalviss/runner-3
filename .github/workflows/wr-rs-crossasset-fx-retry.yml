@@ -1,0 +1,59 @@
+name: WR + RS Cross-Asset FX Retry
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-rs-crossasset-fx-retry.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  WR_RS_EMA: '50'
+  WR_CROSSASSET_HELPER: /tmp/crossasset
+
+jobs:
+  fx:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen cross-asset data loader
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - name: Reuse prior WR 5m FX trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-duka-fx-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32441456269
+      - name: Normalize legacy FX trade filenames
+        shell: bash
+        run: |
+          set -euo pipefail
+          for s in EURUSD GBPUSD USDJPY AUDUSD USDCAD USDCHF NZDUSD EURJPY GBPJPY EURGBP; do
+            src=$(find /tmp/source -type f -name "trades-${s}.jsonl" | head -1 || true)
+            if [ -n "$src" ]; then
+              cp "$src" "$(dirname "$src")/trades-${s}-5m.jsonl"
+            fi
+          done
+          find /tmp/source -type f -name 'trades-*-5m.jsonl' -print
+      - name: Apply transferred RS50 gate to WR trades
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_GROUP_OUT: /tmp/out
+        run: python apps/wave-rider-rsrw/crossasset_rs_mix.py fx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-group-fx-retry
+          path: /tmp/out
+          retention-days: 30
