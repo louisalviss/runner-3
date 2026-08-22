@@ -74,7 +74,15 @@ jobs:
           payload={'requestId':'bootstrap-'+os.environ['GITHUB_RUN_ID'],'items':[
             {'displayIndex':15,'sourceKey':'fulcrum','sourceName':'Fulcrum','canonicalUrl':'https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/','title':'The Karenni Model','itemType':'article'},
             {'displayIndex':17,'sourceKey':'noema','sourceName':'Noema','canonicalUrl':'https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age','title':'Introducing Noema Issue VII','itemType':'article'}]}
-          req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),method='POST',headers={'Content-Type':'application/json'})
+          req=urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode(),
+            method='POST',
+            headers={
+              'Content-Type':'application/json',
+              'User-Agent':'runner3-fastlane-verifier/1.0',
+            },
+          )
           t=time.monotonic()
           with urllib.request.urlopen(req,timeout=35) as r: d=json.loads(r.read())
           wall=round((time.monotonic()-t)*1000)
