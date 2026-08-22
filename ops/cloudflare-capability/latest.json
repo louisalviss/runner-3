@@ -1,6 +1,6 @@
 {
   "status": "ok",
-  "checkedAt": "2026-08-21T22:20:23.888482Z",
+  "checkedAt": "2026-08-22T16:02:17.283308Z",
   "credentialUsable": true,
   "cleanupOk": true,
   "services": {
@@ -10,63 +10,75 @@
       "readErrorCodes": []
     },
     "workers": {
-      "read": true,
-      "readHttp": 200,
-      "readErrorCodes": [],
-      "writeCreate": true,
-      "writeHttp": 200,
-      "writeErrorCodes": [],
-      "cleanupDelete": true,
-      "deleteHttp": 200,
+      "read": false,
+      "readHttp": 404,
+      "readErrorCodes": [
+        7003
+      ],
+      "writeCreate": false,
+      "writeHttp": 404,
+      "writeErrorCodes": [
+        7003
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
       "deleteErrorCodes": []
     },
     "pages": {
-      "read": true,
-      "readHttp": 200,
-      "readErrorCodes": [],
-      "writeCreate": true,
-      "writeHttp": 200,
-      "writeErrorCodes": [],
-      "cleanupDelete": true,
-      "deleteHttp": 200,
+      "read": false,
+      "readHttp": 404,
+      "readErrorCodes": [
+        7003
+      ],
+      "writeCreate": false,
+      "writeHttp": 404,
+      "writeErrorCodes": [
+        7003
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
       "deleteErrorCodes": []
     },
     "kv": {
       "read": false,
-      "readHttp": 401,
+      "readHttp": 404,
       "readErrorCodes": [
-        10000
+        7003
       ],
       "writeCreate": false,
-      "writeHttp": 401,
+      "writeHttp": 404,
       "writeErrorCodes": [
-        10000
+        7003
       ],
       "cleanupDelete": false,
       "deleteHttp": null,
       "deleteErrorCodes": []
     },
     "r2": {
-      "read": true,
-      "readHttp": 200,
-      "readErrorCodes": [],
-      "writeCreate": true,
-      "writeHttp": 200,
-      "writeErrorCodes": [],
-      "cleanupDelete": true,
-      "deleteHttp": 200,
+      "read": false,
+      "readHttp": 404,
+      "readErrorCodes": [
+        7003
+      ],
+      "writeCreate": false,
+      "writeHttp": 404,
+      "writeErrorCodes": [
+        7003
+      ],
+      "cleanupDelete": false,
+      "deleteHttp": null,
       "deleteErrorCodes": []
     },
     "d1": {
       "read": false,
-      "readHttp": 401,
+      "readHttp": 404,
       "readErrorCodes": [
-        10000
+        7003
       ],
       "writeCreate": false,
-      "writeHttp": 401,
+      "writeHttp": 404,
       "writeErrorCodes": [
-        10000
+        7003
       ],
       "cleanupDelete": false,
       "deleteHttp": null,
