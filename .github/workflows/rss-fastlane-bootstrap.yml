@@ -69,20 +69,12 @@ jobs:
           assert d.get('ok') is True and d.get('r2Bound') is True, d
           PY
           python - <<'PY'
-          import json, os, time, urllib.request
+          import json, os, time, urllib.request, urllib.parse
           endpoint=os.environ['FASTLANE_URL'].rstrip('/')+'/v1/rss/selected-analysis'
           payload={'requestId':'bootstrap-'+os.environ['GITHUB_RUN_ID'],'items':[
             {'displayIndex':15,'sourceKey':'fulcrum','sourceName':'Fulcrum','canonicalUrl':'https://fulcrum.sg/the-karenni-model-wartime-governance-in-contested-territory/','title':'The Karenni Model','itemType':'article'},
             {'displayIndex':17,'sourceKey':'noema','sourceName':'Noema','canonicalUrl':'https://www.noemamag.com/introducing-noema-issue-vii-the-next-axial-age','title':'Introducing Noema Issue VII','itemType':'article'}]}
-          req=urllib.request.Request(
-            endpoint,
-            data=json.dumps(payload).encode(),
-            method='POST',
-            headers={
-              'Content-Type':'application/json',
-              'User-Agent':'runner3-fastlane-verifier/1.0',
-            },
-          )
+          req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),method='POST',headers={'Content-Type':'application/json','User-Agent':'runner3-fastlane-verifier/1.0'})
           t=time.monotonic()
           with urllib.request.urlopen(req,timeout=35) as r: d=json.loads(r.read())
           wall=round((time.monotonic()-t)*1000)
@@ -90,7 +82,24 @@ jobs:
           assert d.get('artifact',{}).get('stored') is True, d
           safe={'ok':d.get('ok'),'requestId':d.get('requestId'),'serviceVersion':d.get('serviceVersion'),'workerElapsedMs':d.get('elapsedMs'),'wallMs':wall,'fetchedCount':d.get('fetchedCount'),'errorCount':d.get('errorCount'),'artifact':d.get('artifact'),'fetched':[{'displayIndex':x.get('displayIndex'),'sourceKey':x.get('sourceKey'),'route':x.get('route'),'chars':x.get('chars'),'truncated':x.get('truncated')} for x in d.get('fetched',[])]}
           open('/tmp/test.json','w').write(json.dumps(safe,ensure_ascii=False,indent=2)+'\n')
+          key=d['artifact']['key']
+          artifact_url=os.environ['FASTLANE_URL'].rstrip('/')+'/v1/rss/artifact?key='+urllib.parse.quote(key,safe='')
+          areq=urllib.request.Request(artifact_url,headers={'User-Agent':'runner3-fastlane-verifier/1.0'})
+          with urllib.request.urlopen(areq,timeout=20) as r: raw=r.read()
+          obj=json.loads(raw)
+          assert len(obj.get('items',[]))==2, obj.keys()
+          assert all(len(x.get('rawText',''))>1000 for x in obj['items'])
+          open('/tmp/rss-fastlane-artifact.json','wb').write(raw)
           PY
+
+      - name: Upload extracted RSS artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-fastlane-extracted-${{ github.run_id }}
+          path: /tmp/rss-fastlane-artifact.json
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Persist proof
         if: always() && steps.deploy.outputs.url != ''
@@ -104,7 +113,7 @@ jobs:
           def read(p):
             try:return json.load(open(p))
             except:return None
-          d={'status':'ok' if read('/tmp/test.json') else 'deploy-only','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),'workerUrl':os.environ['FASTLANE_URL'],'runId':int(os.environ['GITHUB_RUN_ID']),'health':read('/tmp/health.json'),'test':read('/tmp/test.json'),'runner':'ubuntu-24.04-arm'}
+          d={'status':'ok' if read('/tmp/test.json') else 'deploy-only','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),'workerUrl':os.environ['FASTLANE_URL'],'runId':int(os.environ['GITHUB_RUN_ID']),'health':read('/tmp/health.json'),'test':read('/tmp/test.json'),'artifactReadable':read('/tmp/rss-fastlane-artifact.json') is not None,'runner':'ubuntu-24.04-arm'}
           open('/tmp/status.json','w').write(json.dumps(d,ensure_ascii=False,indent=2)+'\n')
           PY
           git config user.name 'github-actions[bot]'
