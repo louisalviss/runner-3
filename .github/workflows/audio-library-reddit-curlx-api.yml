@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'scripts/audio_library_resolve_reddit_via_curlx_api.py'
+      - 'scripts/reddit_read_request.py'
+      - 'ops/audio-library/reddit-read-request.json'
       - '.github/workflows/audio-library-reddit-curlx-api.yml'
   schedule:
     - cron: '*/10 * * * *'
@@ -47,10 +49,16 @@ jobs:
         continue-on-error: true
         run: python scripts/audio_library_resolve_reddit_via_curlx_api.py | tee /tmp/curlx-api-result.json
 
+      - name: Process queued Reddit read request
+        id: reader
+        continue-on-error: true
+        run: python scripts/reddit_read_request.py
+
       - name: Publish safe checkpoint
         if: always()
         env:
           RESOLVER_OUTCOME: ${{ steps.resolver.outcome }}
+          READER_OUTCOME: ${{ steps.reader.outcome }}
         shell: bash
         run: |
           set -euo pipefail
@@ -66,6 +74,7 @@ jobs:
           out={
             'status':'ready',
             'workflowOutcome':os.environ.get('RESOLVER_OUTCOME','unknown'),
+            'readerOutcome':os.environ.get('READER_OUTCOME','unknown'),
             'result':result,
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
@@ -74,8 +83,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/audio-library/reddit-curlx-api-status.json
+          git add ops/audio-library/reddit-read-result.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
-          git commit -m 'Publish Reddit curl-x API resolver status [skip ci]'
+          git commit -m 'Publish Reddit resolver/read status [skip ci]'
           git pull --rebase origin main || true
           git push origin HEAD:main
 
@@ -83,4 +93,4 @@ jobs:
         if: steps.resolver.outcome == 'failure'
         run: exit 1
 
-# trigger: curlx-api-resolver-v1
+# trigger: curlx-api-resolver-v2-with-reader
