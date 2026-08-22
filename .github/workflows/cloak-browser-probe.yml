@@ -6,6 +6,11 @@ on:
     paths:
       - 'jobs/cloak-browser/*.json'
       - 'jobs/cloak-browser/**/*.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'jobs/cloak-browser/*.json'
+      - 'jobs/cloak-browser/**/*.json'
   workflow_dispatch:
     inputs:
       job_file:
@@ -38,11 +43,14 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             JOB_FILE='${{ inputs.job_file }}'
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            JOB_FILE="$(find jobs/cloak-browser -type f -name '*.json' | sort | tail -n 1)"
           else
             JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/cloak-browser/*.json' 'jobs/cloak-browser/**/*.json' | tail -n 1 || true)"
           fi
           test -n "$JOB_FILE" && test -f "$JOB_FILE"
           echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using probe job: $JOB_FILE"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -150,11 +158,13 @@ jobs:
           slug = job_path.stem
           dest = Path('runner-output/cloak-browser') / f'{slug}.json'
           dest.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+          print('CLOAK_PROBE_RESULT_START')
           print(json.dumps(result, ensure_ascii=False, indent=2))
+          print('CLOAK_PROBE_RESULT_END')
           PY
 
       - name: Persist probe result
-        if: always()
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
