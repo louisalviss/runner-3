@@ -2,18 +2,30 @@ name: CF Token Check
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cf-token-check.yml'
+
+permissions:
+  contents: write
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Check Cloudflare permissions
-        env:
-          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          set -euo pipefail
           python3 - <<'PY'
-          import os, urllib.request, json
+          import os, urllib.request, urllib.error, json, datetime
           token=os.environ['CF_TOKEN']
           account=os.environ['CF_ACCOUNT']
           tests={
@@ -23,13 +35,32 @@ jobs:
             'r2':f'/accounts/{account}/r2/buckets',
             'd1':f'/accounts/{account}/d1/database'
           }
-          out={}
+          out={'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),'services':{}}
           for k,p in tests.items():
             req=urllib.request.Request('https://api.cloudflare.com/client/v4'+p,headers={'Authorization':'Bearer '+token})
             try:
-              with urllib.request.urlopen(req) as r:
-                out[k]=r.status
-            except Exception as e:
-              out[k]=getattr(e,'code',0)
+              with urllib.request.urlopen(req,timeout=20) as r:
+                out['services'][k]={'http':r.status,'ok':200 <= r.status < 300}
+            except urllib.error.HTTPError as e:
+              out['services'][k]={'http':e.code,'ok':False}
+            except Exception:
+              out['services'][k]={'http':0,'ok':False}
+          os.makedirs('/tmp/cf-token-check',exist_ok=True)
+          with open('/tmp/cf-token-check/latest.json','w') as f:
+            json.dump(out,f,indent=2); f.write('\n')
           print(json.dumps(out,indent=2))
           PY
+
+      - name: Persist safe result
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p ops/cloudflare-capability
+          cp /tmp/cf-token-check/latest.json ops/cloudflare-capability/token-check.json
+          git add ops/cloudflare-capability/token-check.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist CF token check: ${GITHUB_RUN_ID}"
+          git push origin HEAD:main
