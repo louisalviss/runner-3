@@ -8,7 +8,7 @@ on:
       - '.github/workflows/ema200w-backtest.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   backtest:
@@ -42,3 +42,16 @@ jobs:
           path: artifacts/ema200w_20260823/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Persist compact results to repository
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/ema200w_20260823/
+          if git diff --cached --quiet; then
+            echo "No result changes"
+            exit 0
+          fi
+          git commit -m "Add EMA200W backtest results [skip ci]"
+          git push
