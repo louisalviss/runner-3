@@ -1,0 +1,178 @@
+name: CloakBrowser Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/cloak-browser/*.json'
+      - 'jobs/cloak-browser/**/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to CloakBrowser probe job JSON'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloak-browser-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOAKBROWSER_VERSION: '146.0.7680.177.5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve job
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/cloak-browser/*.json' 'jobs/cloak-browser/**/*.json' | tail -n 1 || true)"
+          fi
+          test -n "$JOB_FILE" && test -f "$JOB_FILE"
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache CloakBrowser binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cloakbrowser
+          key: cloakbrowser-linux-${{ env.CLOAKBROWSER_VERSION }}
+
+      - name: Install browser dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'cloakbrowser==0.5.3'
+          python -m playwright install --with-deps chromium
+          CLOAKBROWSER_VERSION="$CLOAKBROWSER_VERSION" python -m cloakbrowser install
+
+      - name: Compare stock Playwright and CloakBrowser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runner-output/cloak-browser
+          xvfb-run -a python - '${{ steps.job.outputs.job_file }}' <<'PY'
+          import json, sys, time, traceback
+          from pathlib import Path
+          from urllib.parse import urlparse
+          from playwright.sync_api import sync_playwright
+          from cloakbrowser import launch as cloak_launch
+
+          job_path = Path(sys.argv[1])
+          job = json.loads(job_path.read_text(encoding='utf-8'))
+          targets = job.get('targets') or []
+          allowed = {'bot.sannysoft.com', 'deviceandbrowserinfo.com', 'example.com'}
+          if not targets or any(urlparse(u).scheme != 'https' or urlparse(u).hostname not in allowed for u in targets):
+              raise SystemExit('probe targets must be approved public diagnostic URLs')
+
+          js = '''() => ({
+            webdriver: navigator.webdriver,
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            languages: navigator.languages,
+            plugins: navigator.plugins.length,
+            hasChrome: !!window.chrome,
+            hardwareConcurrency: navigator.hardwareConcurrency,
+            deviceMemory: navigator.deviceMemory ?? null,
+            screen: [screen.width, screen.height, screen.colorDepth, screen.pixelDepth]
+          })'''
+
+          def visit(browser, engine):
+              out = {'engine': engine, 'targets': []}
+              for url in targets:
+                  item = {'url': url}
+                  t0 = time.perf_counter()
+                  try:
+                      page = browser.new_page(viewport={'width': 1365, 'height': 768})
+                      resp = page.goto(url, wait_until='domcontentloaded', timeout=45000)
+                      page.wait_for_timeout(4000)
+                      item['status'] = resp.status if resp else None
+                      item['title'] = page.title()
+                      item['signals'] = page.evaluate(js)
+                      text = page.locator('body').inner_text(timeout=10000)
+                      item['body_excerpt'] = text[:6000]
+                      item['body_chars'] = len(text)
+                      page.close()
+                      item['ok'] = True
+                  except Exception as e:
+                      item['ok'] = False
+                      item['error'] = f'{type(e).__name__}: {e}'
+                  item['seconds'] = round(time.perf_counter() - t0, 3)
+                  out['targets'].append(item)
+              return out
+
+          result = {
+              'job': str(job_path),
+              'cloak_binary_version': '146.0.7680.177.5',
+              'started_epoch': time.time(),
+              'results': [],
+          }
+
+          t0 = time.perf_counter()
+          try:
+              with sync_playwright() as p:
+                  b = p.chromium.launch(headless=False)
+                  stock = visit(b, 'stock-playwright')
+                  b.close()
+              stock['total_seconds'] = round(time.perf_counter() - t0, 3)
+              result['results'].append(stock)
+          except Exception as e:
+              result['results'].append({'engine':'stock-playwright','fatal':f'{type(e).__name__}: {e}','trace':traceback.format_exc()[-3000:]})
+
+          t0 = time.perf_counter()
+          try:
+              b = cloak_launch(browser_version='146.0.7680.177.5', headless=False, humanize=True)
+              cloak = visit(b, 'cloakbrowser')
+              b.close()
+              cloak['total_seconds'] = round(time.perf_counter() - t0, 3)
+              result['results'].append(cloak)
+          except Exception as e:
+              result['results'].append({'engine':'cloakbrowser','fatal':f'{type(e).__name__}: {e}','trace':traceback.format_exc()[-3000:]})
+
+          result['finished_epoch'] = time.time()
+          slug = job_path.stem
+          dest = Path('runner-output/cloak-browser') / f'{slug}.json'
+          dest.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Persist probe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add runner-output/cloak-browser || true
+          git diff --cached --quiet && exit 0
+          git commit -m 'Store CloakBrowser probe result [skip ci]'
+          for n in 1 2 3; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep "$n"
+          done
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloak-browser-probe-${{ github.run_id }}
+          path: runner-output/cloak-browser/
+          retention-days: 3
