@@ -1,0 +1,89 @@
+name: X status once 2091186667604385878
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-status-once-2091186667604385878.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe X status
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q 'playwright>=1.46,<2' requests
+          mkdir -p evidence
+          python3 - <<'PY'
+          import json, pathlib, requests, re
+          from playwright.sync_api import sync_playwright
+
+          status_id='2091186667604385878'
+          xurl='https://x.com/promint_x/status/'+status_id
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151 Safari/537.36'
+          out={'status_id':status_id,'url':xurl,'attempts':[]}
+
+          # Direct HTTP to X
+          try:
+            r=requests.get(xurl,headers={'User-Agent':ua,'Accept-Language':'en-US,en;q=0.9'},timeout=20,allow_redirects=True)
+            out['attempts'].append({'method':'x_http','status':r.status_code,'final_url':r.url,'bytes':len(r.content),'text_prefix':r.text[:4000]})
+          except Exception as e:
+            out['attempts'].append({'method':'x_http','error':repr(e)})
+
+          # Official publish/oEmbed endpoint
+          try:
+            o='https://publish.twitter.com/oembed'
+            r=requests.get(o,params={'url':xurl,'omit_script':'1','dnt':'1'},headers={'User-Agent':ua},timeout=20)
+            item={'method':'official_oembed','status':r.status_code,'final_url':r.url,'bytes':len(r.content),'text_prefix':r.text[:10000]}
+            try:item['json']=r.json()
+            except:pass
+            out['attempts'].append(item)
+          except Exception as e:
+            out['attempts'].append({'method':'official_oembed','error':repr(e)})
+
+          # Browser render on X
+          try:
+            with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              c=b.new_context(viewport={'width':1280,'height':1600},user_agent=ua,locale='en-US')
+              page=c.new_page()
+              resp=page.goto(xurl,wait_until='domcontentloaded',timeout=30000)
+              page.wait_for_timeout(7000)
+              text=page.locator('body').inner_text(timeout=5000)
+              html=page.content()
+              pathlib.Path('evidence/x-page.html').write_text(html,encoding='utf-8')
+              page.screenshot(path='evidence/x-page.png',full_page=True)
+              out['attempts'].append({'method':'x_browser','status':resp.status if resp else None,'final_url':page.url,'title':page.title(),'body_chars':len(text),'text_prefix':text[:12000]})
+              c.close(); b.close()
+          except Exception as e:
+            out['attempts'].append({'method':'x_browser','error':repr(e)})
+
+          # Public metadata fallback, only if X/oEmbed do not expose usable tweet text.
+          try:
+            r=requests.get('https://api.fxtwitter.com/status/'+status_id,headers={'User-Agent':ua},timeout=20)
+            item={'method':'fxtwitter_fallback','status':r.status_code,'bytes':len(r.content),'text_prefix':r.text[:12000]}
+            try:item['json']=r.json()
+            except:pass
+            out['attempts'].append(item)
+          except Exception as e:
+            out['attempts'].append({'method':'fxtwitter_fallback','error':repr(e)})
+
+          pathlib.Path('evidence/result.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('RUNNER_X_RESULT_START')
+          print(json.dumps(out,ensure_ascii=False))
+          print('RUNNER_X_RESULT_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: x-status-2091186667604385878-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
