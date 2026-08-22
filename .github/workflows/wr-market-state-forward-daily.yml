@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -q pandas numpy scikit-learn joblib
+      - run: pip install -q pandas numpy 'scikit-learn==1.7.2' 'joblib==1.5.2'
       - name: Append only to frozen forward ledger
         run: |
           test -f wave-rider-verify/frozen-market-state/market_state_hgb_q70_manifest.json
