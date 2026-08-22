@@ -1,37 +1,32 @@
-name: WR RS BTC Probe
+name: WR RS BTC Full Universe
 
 on:
   pull_request:
     branches: [main]
     paths:
       - ".github/workflows/wr-rsrw-probe.yml"
-      - "apps/wave-rider-rsrw/rsrw_crypto_probe.py"
-      - "apps/wave-rider-rsrw/trigger.txt"
+      - "apps/wave-rider-rsrw/rsrw_crypto_universe.py"
 
 permissions:
   contents: read
 
 concurrency:
-  group: wr-rsrw-research-20260822
+  group: wr-rsrw-universe-20260822
   cancel-in-progress: true
 
 jobs:
-  probe:
+  oracle:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           ref: wr-rsrw-research-20260822
           fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install requests websocket-client
-
+      - run: pip install requests websocket-client
       - name: Fetch frozen canonical crypto engine
         run: |
           set -euo pipefail
@@ -41,25 +36,81 @@ jobs:
           curl -fsSL "$BASE/wr_tv_parity.py" -o /tmp/wr-canonical/wr_tv_parity.py
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
           python -m py_compile /tmp/wr-canonical/wr_canonical_crypto_5m.py /tmp/wr-canonical/wr_tv_parity.py /tmp/reference_verify.py
-
       - name: Assert canonical four-window oracle
         env:
           WR_OUT: /tmp/wr-oracle
         run: python /tmp/wr-canonical/wr_canonical_crypto_5m.py oracle
 
-      - name: Run RS/BTC filtered backtest
+  shard:
+    needs: oracle
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-rsrw-research-20260822
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests websocket-client
+      - name: Fetch frozen canonical crypto engine
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wr-canonical
+          BASE="https://raw.githubusercontent.com/louisalviss/runner-3/d1e7e6e5dcfdc3423860fdce7f1ad84f652fe1eb/wave-rider-verify"
+          curl -fsSL "$BASE/wr_canonical_crypto_5m.py" -o /tmp/wr-canonical/wr_canonical_crypto_5m.py
+          curl -fsSL "$BASE/wr_tv_parity.py" -o /tmp/wr-canonical/wr_tv_parity.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
+      - name: Run full-universe RS/BTC shard
         env:
           WR_CANON_DIR: /tmp/wr-canonical
-          WR_RSRW_OUT: apps/wave-rider-rsrw/output
-          WR_RSRW_SYMBOLS: SOLUSDT,ETHUSDT,XRPUSDT
+          WR_RSRW_OUT: /tmp/wr-rsrw
           WR_RSRW_LENGTHS: 10,21,50
           WR_RSRW_USE_SLOPE: "1"
-        run: python apps/wave-rider-rsrw/rsrw_crypto_probe.py
-
-      - name: Upload RS/BTC output
-        uses: actions/upload-artifact@v4
+          WR_RSRW_SHARD: ${{ matrix.shard }}
+          WR_RSRW_SHARDS: "8"
+        run: python apps/wave-rider-rsrw/rsrw_crypto_universe.py shard
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: wr-rsrw-probe-${{ github.run_id }}
-          path: apps/wave-rider-rsrw/output/
+          name: wr-rsrw-universe-shard-${{ matrix.shard }}
+          path: /tmp/wr-rsrw/
           retention-days: 14
+          if-no-files-found: error
+
+  merge:
+    needs: shard
+    if: always() && needs.shard.result != 'cancelled'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wr-rsrw-research-20260822
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-rsrw-universe-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge universe results
+        env:
+          WR_RSRW_MERGE_ROOT: /tmp/all
+          WR_RSRW_FINAL_OUT: /tmp/final
+          WR_RSRW_LENGTHS: 10,21,50
+          WR_RSRW_SHARDS: "8"
+        run: python apps/wave-rider-rsrw/rsrw_crypto_universe.py merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rsrw-universe-final-${{ github.run_id }}
+          path: /tmp/final/
+          retention-days: 30
           if-no-files-found: error
