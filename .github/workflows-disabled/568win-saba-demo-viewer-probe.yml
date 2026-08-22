@@ -1,0 +1,120 @@
+name: 568Win Public Sportsbook Demo SABA Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/568win-saba-demo-viewer-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -q playwright
+          mkdir -p evidence
+          google-chrome --version
+      - name: Inspect public demo only
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,pathlib
+          from playwright.sync_api import sync_playwright
+          out=pathlib.Path('evidence')
+          kw=re.compile(r'saba|outright|future|top\s*4|relegat|goal.?scorer|golden boot|winner|champion',re.I)
+          net=[]; hits=[]; result={}
+          with sync_playwright() as p:
+              browser=p.chromium.launch(channel='chrome',headless=True)
+              ctx=browser.new_context(locale='en-US',viewport={'width':1440,'height':900})
+              def rq(r):
+                  if r.resource_type in ('document','xhr','fetch'):
+                      net.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:12000]})
+              def rs(r):
+                  if r.request.resource_type in ('document','xhr','fetch'):
+                      net.append({'kind':'response','status':r.status,'type':r.request.resource_type,'url':r.url})
+                      try:
+                          if 'json' in (r.headers.get('content-type') or '').lower():
+                              t=r.text()
+                              if len(t)<2500000 and kw.search(t):
+                                  m=kw.search(t); hits.append({'url':r.url,'status':r.status,'snippet':t[max(0,m.start()-700):min(len(t),m.end()+3500)]})
+                      except Exception: pass
+              ctx.on('request',rq);ctx.on('response',rs)
+              pg=ctx.new_page()
+              try:
+                  r=pg.goto('https://demo.568win.com/',wait_until='domcontentloaded',timeout=35000)
+                  pg.wait_for_timeout(12000)
+                  result={'status':r.status if r else None,'url':pg.url,'title':pg.title()}
+                  text=pg.locator('body').inner_text(timeout=8000)
+                  result['text']=text[:50000]
+                  result['keyword_lines']=[x[:1500] for x in text.splitlines() if kw.search(x)][:100]
+                  controls=pg.locator('a,button,[role=button],div,span').evaluate_all("els=>els.map(e=>({tag:e.tagName,text:(e.innerText||e.textContent||'').trim(),href:e.href||'',cls:e.className||''})).filter(x=>x.text||x.href)")
+                  result['interesting_controls']=[x for x in controls if kw.search((x.get('text') or '')+' '+(x.get('href') or ''))][:150]
+                  result['frames']=[{'name':f.name,'url':f.url} for f in pg.frames]
+                  pg.screenshot(path=str(out/'demo-home.png'),full_page=False)
+
+                  # Ordinary public UI only: select visible SABA if present.
+                  saba=pg.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*SABA(?:\s+SPORTS)?\s*$',re.I))
+                  result['saba_controls']=saba.count()
+                  for i in range(min(saba.count(),30)):
+                      el=saba.nth(i)
+                      try:
+                          if not el.is_visible(): continue
+                          result['saba_control']={'tag':el.evaluate('e=>e.tagName'),'text':el.inner_text()[:300],'html':el.evaluate('e=>e.outerHTML')[:5000]}
+                          el.click(timeout=6000)
+                          pg.wait_for_timeout(10000)
+                          result['after_saba_url']=pg.url
+                          t=pg.locator('body').inner_text(timeout=8000)
+                          result['after_saba_text']=t[:50000]
+                          pg.screenshot(path=str(out/'after-saba.png'),full_page=False)
+                          break
+                      except Exception as e: result.setdefault('saba_errors',[]).append(repr(e)[:500])
+
+                  # Ordinary public UI only: Outright/Futures.
+                  cand=pg.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*(Outright|Outrights|Futures?)\s*$',re.I))
+                  result['outright_controls']=cand.count()
+                  for i in range(min(cand.count(),40)):
+                      el=cand.nth(i)
+                      try:
+                          if not el.is_visible(): continue
+                          result['outright_control']={'tag':el.evaluate('e=>e.tagName'),'text':el.inner_text()[:300],'html':el.evaluate('e=>e.outerHTML')[:5000]}
+                          el.click(timeout=6000); pg.wait_for_timeout(10000)
+                          result['after_outright_url']=pg.url
+                          t=pg.locator('body').inner_text(timeout=8000)
+                          result['after_outright_text']=t[:80000]
+                          for line in t.splitlines():
+                              if kw.search(line): hits.append({'url':pg.url,'status':'visible','snippet':line[:2000]})
+                          pg.screenshot(path=str(out/'after-outright.png'),full_page=False)
+                          break
+                      except Exception as e: result.setdefault('outright_errors',[]).append(repr(e)[:500])
+              except Exception as e: result['error']=repr(e)
+              browser.close()
+          out.joinpath('result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          out.joinpath('network.json').write_text(json.dumps(net,ensure_ascii=False,indent=2))
+          out.joinpath('hits.json').write_text(json.dumps(hits,ensure_ascii=False,indent=2))
+          print('RESULT',json.dumps({k:result.get(k) for k in ['status','url','title','keyword_lines','interesting_controls','frames','saba_controls','saba_control','after_saba_url','outright_controls','outright_control','after_outright_url','error']},ensure_ascii=False)[:30000])
+          if result.get('after_saba_text'): print('AFTER_SABA',result['after_saba_text'][:15000])
+          if result.get('after_outright_text'): print('AFTER_OUTRIGHT',result['after_outright_text'][:30000])
+          print('HITS',len(hits))
+          for h in hits[:80]: print('HIT',json.dumps(h,ensure_ascii=False)[:4000])
+          print('NETWORK')
+          seen=set()
+          for x in net:
+              u=x.get('url','')
+              if u in seen: continue
+              seen.add(u)
+              if re.search(r'sport|saba|odds|api|event|market|launch',u,re.I): print(x.get('kind'),x.get('status',''),x.get('method',''),u)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 568win-saba-demo-${{ github.run_id }}
+          path: evidence/
+          retention-days: 7
