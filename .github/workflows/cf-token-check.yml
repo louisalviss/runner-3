@@ -1,0 +1,35 @@
+name: CF Token Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Cloudflare permissions
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import os, urllib.request, json
+          token=os.environ['CF_TOKEN']
+          account=os.environ['CF_ACCOUNT']
+          tests={
+            'workers':f'/accounts/{account}/workers/scripts',
+            'pages':f'/accounts/{account}/pages/projects',
+            'kv':f'/accounts/{account}/storage/kv/namespaces',
+            'r2':f'/accounts/{account}/r2/buckets',
+            'd1':f'/accounts/{account}/d1/database'
+          }
+          out={}
+          for k,p in tests.items():
+            req=urllib.request.Request('https://api.cloudflare.com/client/v4'+p,headers={'Authorization':'Bearer '+token})
+            try:
+              with urllib.request.urlopen(req) as r:
+                out[k]=r.status
+            except Exception as e:
+              out[k]=getattr(e,'code',0)
+          print(json.dumps(out,indent=2))
+          PY
