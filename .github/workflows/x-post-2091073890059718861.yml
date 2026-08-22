@@ -1,0 +1,97 @@
+name: X post probe 2091073890059718861
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-post-2091073890059718861.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch X post through multiple public routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/x-post-2091073890059718861
+          python3 - <<'PY'
+          import json, urllib.request, urllib.parse, html, re, pathlib, time
+          post_id='2091073890059718861'
+          user='bkdgiffug'
+          xurl=f'https://x.com/{user}/status/{post_id}'
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
+          routes=[
+            ('x_direct', xurl),
+            ('twitter_oembed','https://publish.twitter.com/oembed?omit_script=1&dnt=1&url='+urllib.parse.quote(f'https://twitter.com/{user}/status/{post_id}',safe='')),
+            ('fxtwitter','https://api.fxtwitter.com/status/'+post_id),
+            ('vxtwitter','https://api.vxtwitter.com/Twitter/status/'+post_id),
+            ('syndication','https://cdn.syndication.twimg.com/tweet-result?id='+post_id+'&lang=en'),
+          ]
+          out=[]
+          for name,url in routes:
+            r={'route':name,'url':url}
+            try:
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'*/*'})
+              with urllib.request.urlopen(req,timeout=20) as resp:
+                raw=resp.read().decode('utf-8','replace')
+                r.update(status=resp.status,final_url=resp.geturl(),body=raw[:120000])
+            except Exception as e:
+              r['error']=f'{type(e).__name__}: {e}'
+            out.append(r)
+          # Extract likely text from each successful response.
+          extracted=[]
+          for r in out:
+            body=r.get('body','')
+            text=None
+            if not body: continue
+            try:
+              obj=json.loads(body)
+              if r['route']=='twitter_oembed':
+                h=obj.get('html','')
+                # content inside first blockquote p
+                m=re.search(r'<blockquote[^>]*>.*?<p[^>]*>(.*?)</p>',h,re.S|re.I)
+                if m:
+                  t=re.sub(r'<br\s*/?>','\n',m.group(1),flags=re.I)
+                  t=re.sub(r'<[^>]+>','',t)
+                  text=html.unescape(t).strip()
+              elif r['route']=='fxtwitter':
+                tw=(obj.get('tweet') or obj.get('data') or obj)
+                for k in ('text','full_text','content'):
+                  if isinstance(tw,dict) and tw.get(k): text=tw[k]; break
+              elif r['route']=='vxtwitter':
+                for k in ('text','full_text','content'):
+                  if isinstance(obj,dict) and obj.get(k): text=obj[k]; break
+              elif r['route']=='syndication':
+                for k in ('text','full_text'):
+                  if isinstance(obj,dict) and obj.get(k): text=obj[k]; break
+            except Exception:
+              pass
+            if not text and r['route']=='x_direct':
+              for pat in [r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']',r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']']:
+                m=re.search(pat,body,re.S|re.I)
+                if m: text=html.unescape(m.group(1)).strip(); break
+            if text: extracted.append({'route':r['route'],'text':text})
+          result={'post_id':post_id,'user':user,'x_url':xurl,'fetched_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'extracted':extracted,'routes':[{k:v for k,v in r.items() if k!='body'} for r in out]}
+          p=pathlib.Path('evidence/x-post-2091073890059718861/result.json')
+          p.write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          for r in out:
+            if r.get('body'):
+              pathlib.Path(f"evidence/x-post-2091073890059718861/{r['route']}.txt").write_text(r['body'])
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add evidence/x-post-2091073890059718861
+          git commit -m 'probe X post 2091073890059718861' || exit 0
+          git push
