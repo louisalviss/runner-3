@@ -1,0 +1,86 @@
+name: Runner5 Astra Elementor Baseline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/runner5-astra-elementor-baseline.mjs'
+      - '.github/workflows/runner5-astra-elementor-baseline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner5-astra-elementor-baseline
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY || secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Initialize diagnostic status
+        shell: bash
+        run: |
+          cat > /tmp/runner5-astra-elementor-baseline.json <<'JSON'
+          {"status":"BOOTSTRAP","stage":"checkout_ok","siteUrl":"https://runner5-restore-lab-1.wasmer.app/"}
+          JSON
+
+      - name: Decrypt Wasmer account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Missing automation key' >&2; exit 3; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+          printf '{"status":"BOOTSTRAP","stage":"decrypt_ok","siteUrl":"https://runner5-restore-lab-1.wasmer.app/"}\n' > /tmp/runner5-astra-elementor-baseline.json
+
+      - name: Prepare browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2
+          CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$CHROME_PATH" ]; then
+            npm install --no-save playwright@1.58.2
+            npx playwright install --with-deps chromium
+            CHROME_PATH="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
+          fi
+          test -x "$CHROME_PATH" || { echo "Chrome executable unavailable: $CHROME_PATH" >&2; exit 4; }
+          echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
+          printf '{"status":"BOOTSTRAP","stage":"browser_ok","siteUrl":"https://runner5-restore-lab-1.wasmer.app/","chrome":"%s"}\n' "$CHROME_PATH" > /tmp/runner5-astra-elementor-baseline.json
+
+      - name: Build realistic Astra Elementor baseline
+        run: node scripts/runner5-astra-elementor-baseline.mjs
+
+      - name: Persist baseline status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-astra-elementor-baseline.json || printf '{"status":"RUNNER_ERROR","stage":"status_missing"}\n' > /tmp/runner5-astra-elementor-baseline.json
+          cp /tmp/runner5-astra-elementor-baseline.json /tmp/baseline-safe.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/baseline-safe.json ops/wordpress-access/runner5-astra-elementor-baseline.json
+            git add ops/wordpress-access/runner5-astra-elementor-baseline.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'Persist Runner5 Astra Elementor baseline status'
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
