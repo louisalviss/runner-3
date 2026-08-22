@@ -7,12 +7,18 @@ on:
       - ".github/workflows/wr-rsrw-probe.yml"
       - "apps/wave-rider-rsrw/rsrw_crypto_probe.py"
       - "apps/wave-rider-rsrw/trigger.txt"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/wr-rsrw-probe.yml"
+      - "apps/wave-rider-rsrw/rsrw_crypto_probe.py"
+      - "apps/wave-rider-rsrw/trigger.txt"
 
 permissions:
   contents: write
 
 concurrency:
-  group: wr-rsrw-research-20260822
+  group: wr-rsrw-research-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -65,7 +71,7 @@ jobs:
           if-no-files-found: error
 
       - name: Persist compact result on research branch
-        if: success()
+        if: success() && github.event_name == 'push'
         run: |
           set -euo pipefail
           cp apps/wave-rider-rsrw/output/result.json apps/wave-rider-rsrw/result.json
