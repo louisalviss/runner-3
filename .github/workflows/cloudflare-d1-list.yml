@@ -1,0 +1,26 @@
+name: Cloudflare D1 List
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list-d1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: List D1 databases
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler d1 list
