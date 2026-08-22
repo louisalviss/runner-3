@@ -63,62 +63,78 @@ jobs:
 
       - name: Deploy shadow Worker
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 deploy
+        shell: bash
+        run: |
+          set -o pipefail
+          npx --yes wrangler@4 deploy 2>&1 | tee /tmp/runner3-core-deploy.log
 
       - name: Smoke test Worker and D1
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import datetime, json, os, pathlib, urllib.request
+          import datetime, json, pathlib, re, urllib.error, urllib.request
 
-          token=os.environ['CLOUDFLARE_API_TOKEN']; account=os.environ['CLOUDFLARE_ACCOUNT_ID']
-          api='https://api.cloudflare.com/client/v4'
-          headers={'Authorization':'Bearer '+token,'Accept':'application/json'}
-          req=urllib.request.Request(f'{api}/accounts/{account}/workers/subdomain',headers=headers)
-          with urllib.request.urlopen(req,timeout=30) as r:
-              data=json.load(r)
-          subdomain=(data.get('result') or {}).get('subdomain')
-          if not subdomain:
-              raise SystemExit('workers.dev subdomain missing')
+          deploy_log = pathlib.Path('/tmp/runner3-core-deploy.log').read_text(errors='replace') if pathlib.Path('/tmp/runner3-core-deploy.log').exists() else ''
+          urls = re.findall(r'https://[A-Za-z0-9.-]+\.workers\.dev', deploy_log)
+          base = next((u.rstrip('/') for u in urls if 'runner3-core.' in u), None)
+          if not base:
+              # Known account workers.dev route; only used if Wrangler output format changes.
+              base = 'https://runner3-core.ducduy2411.workers.dev'
 
-          base=f'https://runner3-core.{subdomain}.workers.dev'
+          def request_json(path, method='GET', payload=None):
+              data = json.dumps(payload).encode() if payload is not None else None
+              headers = {'Accept':'application/json'}
+              if data is not None:
+                  headers['Content-Type'] = 'application/json'
+              req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      raw = r.read().decode(errors='replace')
+                      try: parsed = json.loads(raw) if raw else None
+                      except Exception: parsed = None
+                      return {'http': r.status, 'json': parsed, 'body': raw[:1000]}
+              except urllib.error.HTTPError as e:
+                  raw = e.read().decode(errors='replace')
+                  try: parsed = json.loads(raw) if raw else None
+                  except Exception: parsed = None
+                  return {'http': e.code, 'json': parsed, 'body': raw[:1000], 'error': str(e)}
+              except Exception as e:
+                  return {'http': 0, 'json': None, 'body': '', 'error': str(e)[:1000]}
 
-          def get_json(path):
-              req=urllib.request.Request(base+path,headers={'Accept':'application/json'})
-              with urllib.request.urlopen(req,timeout=30) as r:
-                  return r.status, json.load(r)
+          checked = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
+          health = request_json('/health')
+          posted = request_json('/events', 'POST', {
+              'source':'runner3-core-shadow',
+              'event_type':'health',
+              'payload':{'status':'ok','checkedAt':checked}
+          })
+          latest = request_json('/events/latest')
 
-          def post_json(path,payload):
-              body=json.dumps(payload).encode()
-              req=urllib.request.Request(base+path,data=body,headers={'Content-Type':'application/json','Accept':'application/json'},method='POST')
-              with urllib.request.urlopen(req,timeout=30) as r:
-                  return r.status, json.load(r)
+          health_json = health.get('json') if isinstance(health.get('json'), dict) else {}
+          post_json = posted.get('json') if isinstance(posted.get('json'), dict) else {}
+          latest_json = latest.get('json')
 
-          checked=datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
-          result={'checkedAt':checked,'url':base,'d1DatabaseId':pathlib.Path('/tmp/d1-id').read_text().strip(),'ok':False}
-          try:
-              hc, health=get_json('/health')
-              pc, posted=post_json('/events',{'source':'runner3-core-shadow','event_type':'health','payload':{'status':'ok','checkedAt':checked}})
-              lc, latest=get_json('/events/latest')
-              result.update({
-                  'healthHttp':hc,
-                  'health':health,
-                  'postHttp':pc,
-                  'post':posted,
-                  'latestHttp':lc,
-                  'latestCount':len(latest) if isinstance(latest,list) else None,
-              })
-              result['ok']=bool(
-                  hc==200 and isinstance(health,dict) and health.get('ok') is True and health.get('d1') is True
-                  and pc==200 and isinstance(posted,dict) and posted.get('ok') is True
-                  and lc==200 and isinstance(latest,list) and len(latest)>=1
+          result = {
+              'checkedAt': checked,
+              'url': base,
+              'd1DatabaseId': pathlib.Path('/tmp/d1-id').read_text().strip(),
+              'deployUrlSource': 'wrangler-output' if any('runner3-core.' in u for u in urls) else 'known-fallback',
+              'health': health,
+              'postEvent': posted,
+              'latest': {
+                  **latest,
+                  'count': len(latest_json) if isinstance(latest_json, list) else None,
+              },
+              'ok': bool(
+                  health.get('http') == 200 and health_json.get('ok') is True and health_json.get('d1') is True
+                  and posted.get('http') == 200 and post_json.get('ok') is True
+                  and latest.get('http') == 200 and isinstance(latest_json, list) and len(latest_json) >= 1
               )
-          except Exception as e:
-              result['error']=str(e)[:1000]
+          }
 
-          pathlib.Path('/tmp/runner3-core-smoke.json').write_text(json.dumps(result,indent=2)+'\n')
-          print(json.dumps(result,indent=2))
+          pathlib.Path('/tmp/runner3-core-smoke.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result, indent=2))
           if not result['ok']:
               raise SystemExit('runner3_core_smoke_failed')
           PY
@@ -145,5 +161,3 @@ jobs:
             sleep 2
           done
           exit 3
-
-# retrigger-marker: 2026-08-23T00:58+07:00
