@@ -1,0 +1,107 @@
+name: WR Dukascopy Execution Audit
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-dukascopy-execution-audit.yml'
+      - 'wave-rider-verify/wr_dukascopy_execution_audit.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  three_minute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        symbol: [US500, AAPL, AMAT, AMD, AMZN, AVGO, BA, BABA, BAC, CAT, COST, CVX, DIS, EBAY, GOOGL, GS, HD, IBM, INTC, JNJ, JPM, LLY, MA, META, MRVL, MSFT, MU, NFLX, NOW, NVDA, ORCL, PFE, PLTR, PYPL, QCOM, SNAP, TSLA, TSM, UBER, V, WDC, WMT, XOM, ZM]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run actual BID ASK 1m execution audit
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          TF_MIN: '3'
+          WR_OUT: /tmp/wr-exec-audit
+        run: python3 wave-rider-verify/wr_dukascopy_execution_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-exec-3m-${{ matrix.symbol }}
+          path: /tmp/wr-exec-audit
+          retention-days: 14
+  robust_cross_tf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        symbol: [MU, AMZN, AMAT, QCOM]
+        tf: [5, 10]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run actual BID ASK cross timeframe audit
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          TF_MIN: ${{ matrix.tf }}
+          WR_OUT: /tmp/wr-exec-audit
+        run: python3 wave-rider-verify/wr_dukascopy_execution_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-exec-${{ matrix.tf }}m-${{ matrix.symbol }}
+          path: /tmp/wr-exec-audit
+          retention-days: 14
+  merge:
+    needs: [three_minute, robust_cross_tf]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-exec-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge audit results
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,statistics,collections
+          root=pathlib.Path('/tmp/all');out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          rows=[];trades=[]
+          for p in root.rglob('audit-*.json'):
+              try: rows.append(json.loads(p.read_text()))
+              except Exception: pass
+          for p in root.rglob('trades-*.jsonl'):
+              for line in p.read_text().splitlines():
+                  try:
+                      x=json.loads(line);x['_source']=p.name;trades.append(x)
+                  except Exception: pass
+          rows.sort(key=lambda x:(x.get('symbol',''),x.get('tf','')))
+          ok=[x for x in rows if x.get('status')=='OK']
+          stock3=[x for x in ok if x.get('tf')=='3m' and x.get('symbol')!='US500']
+          report={'purpose':'WR 2.5.13 actual Dukascopy BID/ASK execution audit; midpoint signal generation with 1m executable-side quote simulation','method_notes':['LONG stop entries trigger/fill on ASK; SHORT entries on BID','LONG exits execute on BID; SHORT exits on ASK','TP/SL levels remain original WR chart-price levels','1m quote bars resolve execution inside chart candles; ambiguous same-minute TP+SL is SL','No alpha parameters tuned'],'result_count':len(rows),'trade_rows':len(trades),'results':rows,'stock3_aggregate':{'symbols':len(stock3),'n_mid':sum(x.get('n_mid',0) for x in stock3),'R_mid':sum(x.get('R_mid',0) for x in stock3),'n_exec':sum(x.get('n_exec',0) for x in stock3),'R_exec':sum(x.get('R_exec',0) for x in stock3)},'us500_3m':next((x for x in ok if x.get('symbol')=='US500' and x.get('tf')=='3m'),None)}
+          (out/'execution-audit.json').write_text(json.dumps(report,indent=2))
+          with (out/'execution-audit-trades.jsonl').open('w') as f:
+              for x in trades:f.write(json.dumps(x)+'\n')
+          print('MERGED',len(rows),'TRADES',len(trades),'STOCK3_EXEC_R',report['stock3_aggregate']['R_exec'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-execution-audit-final
+          path: /tmp/final
+          retention-days: 30

@@ -1,0 +1,61 @@
+name: WR Dukascopy FX Robustness
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-dukascopy-fx-robustness.yml'
+      - 'wave-rider-verify/wr_dukascopy_fx_robustness.py'
+      - 'wave-rider-verify/wr_tv_parity.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  fx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, EURJPY, GBPJPY, EURGBP]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run independent Dukascopy robustness backtest
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          WR_OUT: /tmp/wr-duka-fx
+        run: python3 wave-rider-verify/wr_dukascopy_fx_robustness.py symbol
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-duka-fx-${{ matrix.symbol }}
+          path: /tmp/wr-duka-fx
+          retention-days: 14
+  merge:
+    needs: fx
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-duka-fx-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge robustness report
+        run: python3 wave-rider-verify/wr_dukascopy_fx_robustness.py merge --root /tmp/all --final /tmp/final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-duka-fx-5m-final
+          path: /tmp/final
+          retention-days: 30

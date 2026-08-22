@@ -1,0 +1,152 @@
+name: WR Market State Execution Gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-market-state-execution-gate.yml'
+      - 'wave-rider-verify/wr_market_state_execution_probe.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        symbol: [AAPL,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,AVGO,BKR,CDNS,CMCSA,COST,CPRT,CSCO,CSGP,CSX,CTSH,DXCM,EA,EXC,FANG,FTNT,GILD,GOOG,GOOGL,HON,IDXX,INTC,INTU,ISRG,KHC,LRCX,MAR,MCHP,MDLZ,META,MPWR,MRVL,MSFT,MU,NFLX,NVDA,ODFL,ORLY,PANW,PAYX,PCAR,PEP,PLTR,PYPL,QCOM,REGN,ROST,SBUX,SNPS,TMUS,TSLA,TTWO,TXN,VRTX,WDAY,WDC,WMT,ZS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Rebuild entry-level rows with observed Dukascopy BID ASK
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          WR_OUT: /tmp/wr-market-exec
+        run: python3 wave-rider-verify/wr_market_state_execution_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-market-exec-${{ matrix.symbol }}
+          path: /tmp/wr-market-exec
+          retention-days: 14
+  merge:
+    needs: collect
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-market-exec-*
+          path: /tmp/all
+      - name: Download canonical q70 selector decisions from original OOS portfolio artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-market-state-portfolio-gate-final
+          path: /tmp/orig
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32542005535
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy
+      - name: Exact selector parity plus observed-spread execution stress
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          import numpy as np,pandas as pd
+          root=pathlib.Path('/tmp/all');out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          rows=[]
+          for p in root.rglob('exec-*.jsonl'):
+            for ln in p.read_text().splitlines():
+              if ln.strip():rows.append(json.loads(ln))
+          ex=pd.DataFrame(rows)
+          orig=pd.read_csv('/tmp/orig/q70_selected.csv')
+          keys=['symbol','tf','signal','exit']
+          if orig.duplicated(keys).any(): raise RuntimeError('canonical q70 selector has duplicate keys')
+          if ex.duplicated(keys).any(): raise RuntimeError('execution rebuild has duplicate trade keys')
+          keep=['symbol','tf','signal','exit','side','R','reason','e','s','ratio','entry_spread_bps','exit_spread_bps','observed_roundtrip_spread_bps','tick']
+          s=orig.merge(ex[keep],on=keys,how='left',suffixes=('_orig','_exec'),validate='one_to_one',indicator=True)
+          missing=s[s['_merge']!='both']
+          rdiff=(s['R_orig']-s['R_exec']).abs()
+          n1diff=(s['net_1bps']-(s['R_exec']-s['ratio']/10000.0)).abs()
+          n2diff=(s['net_2bps']-(s['R_exec']-2*s['ratio']/10000.0)).abs()
+          parity={
+            'canonical_rows':int(len(orig)),'execution_rows':int(len(ex)),'matched_selected':int((s['_merge']=='both').sum()),'missing_selected':int(len(missing)),
+            'max_abs_R_diff':float(rdiff.max(skipna=True)) if len(rdiff) else None,
+            'max_abs_net1_diff':float(n1diff.max(skipna=True)) if len(n1diff) else None,
+            'max_abs_net2_diff':float(n2diff.max(skipna=True)) if len(n2diff) else None,
+          }
+          parity_pass=(len(orig)==3657 and len(ex)==19683 and len(missing)==0 and parity['max_abs_R_diff']<1e-10 and parity['max_abs_net1_diff']<1e-10 and parity['max_abs_net2_diff']<1e-10)
+          parity['pass']=bool(parity_pass)
+          if not parity_pass:
+            (out/'execution-gate.json').write_text(json.dumps({'status':'FAIL_SELECTOR_PARITY','parity':parity},indent=2))
+            print(json.dumps({'status':'FAIL_SELECTOR_PARITY','parity':parity},indent=2))
+            raise RuntimeError('execution rebuild is not exact-parity with canonical q70 selector')
+          s=s.drop(columns=['_merge'])
+          s.to_csv(out/'q70_execution_rows.csv',index=False)
+          valid=s.dropna(subset=['observed_roundtrip_spread_bps','ratio','tick','e','s']).copy()
+
+          def met(vals):
+            a=np.asarray(vals,float);gp=a[a>0].sum();gl=-a[a<0].sum();eq=np.cumsum(a);pk=np.maximum.accumulate(np.r_[0,eq])[1:]
+            return {'n':int(len(a)),'R':float(a.sum()),'avg_R':float(a.mean()) if len(a) else None,'PF':float(gp/gl) if gl>0 else None,'max_DD_R':float((eq-pk).min()) if len(a) else 0.0}
+          def netvals(df,slip_ticks,comm_bps):
+            dist=(df.e-df.s).abs()
+            spread_r=df.ratio*df.observed_roundtrip_spread_bps/10000.0
+            slip_r=(2.0*slip_ticks*df.tick)/dist
+            comm_r=df.ratio*comm_bps/10000.0
+            return df.R_exec-spread_r-slip_r-comm_r
+
+          scenarios={}
+          for slip in (0.1,0.5,1.0,2.0):
+            for comm in (0.0,0.5,1.0,2.0):
+              scenarios[f'slip{slip}tick_comm{comm}bps']=met(netvals(valid,slip,comm))
+
+          cell={}
+          for (sym,tf),g in valid.groupby(['symbol','tf']):
+            k=f'{sym}|{int(tf)}m'
+            cell[k]={
+              'n':int(len(g)),
+              'gross':met(g.R_exec),
+              'observed_spread_only':met(netvals(g,0.0,0.0)),
+              'normal_0.1tick_comm0.5bps':met(netvals(g,0.1,0.5)),
+              'stress_0.5tick_comm1.0bps':met(netvals(g,0.5,1.0)),
+              'extreme_1tick_comm2.0bps':met(netvals(g,1.0,2.0)),
+              'spread_bps_median':float(g.observed_roundtrip_spread_bps.median()),
+              'spread_bps_p95':float(g.observed_roundtrip_spread_bps.quantile(.95)),
+            }
+
+          ny_sig=pd.to_datetime(s.signal,unit='ms',utc=True).dt.tz_convert('America/New_York')
+          ny_exit=pd.to_datetime(s['exit'],unit='ms',utc=True).dt.tz_convert('America/New_York')
+          overnight=(ny_sig.dt.date!=ny_exit.dt.date)
+          spread=valid.observed_roundtrip_spread_bps.to_numpy(float)
+          base=scenarios['slip0.1tick_comm0.5bps'];stress=scenarios['slip0.5tick_comm1.0bps'];extreme=scenarios['slip1.0tick_comm2.0bps']
+          report={
+            'status':'WR_MARKET_STATE_EXECUTION_GATE_COMPLETE','selector':'EXACT canonical HGB train_pred_q70 decisions from run 32542005535','parity':parity,
+            'selected_n':int(len(s)),'selected_valid_spread_n':int(len(valid)),
+            'canonical_R1':float(orig.net_1bps.sum()),'canonical_R2':float(orig.net_2bps.sum()),
+            'observed_spread_bps':{'median':float(np.median(spread)),'p90':float(np.quantile(spread,.9)),'p95':float(np.quantile(spread,.95)),'p99':float(np.quantile(spread,.99)),'max':float(np.max(spread))},
+            'overnight':{'n':int(overnight.sum()),'share':float(overnight.mean()),'financing':'Broker-specific swap must be applied to these rows; all other rows have zero overnight financing.'},
+            'scenarios':scenarios,'cells':cell,
+            'interpretation':'Dukascopy observed BID/ASK is an independent execution proxy. Slippage is modeled in ticks per fill (two fills round-trip); commission is round-trip bps on notional. Named-broker contract remains required for final broker-specific pass.'
+          }
+          report['proxy_verdict']='PASS_EXECUTION_PROXY' if base['R']>0 and (base['PF'] or 0)>1.2 and stress['R']>0 and (stress['PF'] or 0)>1.1 else 'FAIL_EXECUTION_PROXY'
+          report['extreme_survival']=bool(extreme['R']>0 and (extreme['PF'] or 0)>1.0)
+          (out/'execution-gate.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps({k:report[k] for k in ['status','selector','parity','selected_n','selected_valid_spread_n','observed_spread_bps','overnight','proxy_verdict','extreme_survival']},indent=2))
+          print('NORMAL',json.dumps(base));print('STRESS',json.dumps(stress));print('EXTREME',json.dumps(extreme))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-market-state-execution-gate-final
+          path: /tmp/final
+          retention-days: 30

@@ -1,0 +1,114 @@
+name: WR Market State OOS
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-market-state-oos.yml'
+      - 'wave-rider-verify/wr_market_state_oos.py'
+      - 'wave-rider-verify/wr_dukascopy_expanded_matrix.py'
+      - 'wave-rider-verify/wr_tv_parity.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  features:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        symbol: [AAPL,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,AVGO,BKR,CDNS,CMCSA,COST,CPRT,CSCO,CSGP,CSX,CTSH,DXCM,EA,EXC,FANG,FTNT,GILD,GOOG,GOOGL,HON,IDXX,INTC,INTU,ISRG,KHC,LRCX,MAR,MCHP,MDLZ,META,MPWR,MRVL,MSFT,MU,NFLX,NVDA,ODFL,ORLY,PANW,PAYX,PCAR,PEP,PLTR,PYPL,QCOM,REGN,ROST,SBUX,SNPS,TMUS,TSLA,TTWO,TXN,VRTX,WDAY,WDC,WMT,ZS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas numpy websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Build signal-time market-state features
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          WR_OUT: /tmp/wr-market-state
+        run: python3 wave-rider-verify/wr_market_state_oos.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-market-state-${{ matrix.symbol }}
+          path: /tmp/wr-market-state
+          retention-days: 14
+  oos:
+    needs: features
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-market-state-*
+          path: /tmp/all
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas numpy scikit-learn
+      - name: Frozen walk-forward state-only test
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          import numpy as np,pandas as pd
+          from sklearn.pipeline import Pipeline
+          from sklearn.impute import SimpleImputer
+          from sklearn.preprocessing import StandardScaler
+          from sklearn.linear_model import Ridge
+          from sklearn.ensemble import HistGradientBoostingRegressor
+          root=pathlib.Path('/tmp/all');out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          rows=[]
+          for p in root.rglob('features-*.jsonl'):
+            for ln in p.read_text().splitlines():
+              if ln.strip():
+                try:rows.append(json.loads(ln))
+                except:pass
+          df=pd.DataFrame(rows)
+          FEATURES=['atr_bps','atr_ratio_14_50','range_atr','body_atr','gap_atr','rv20_bps','trend20_atr','efficiency20','location20','session_frac','tf10']
+          models={
+            'ridge':lambda:Pipeline([('imp',SimpleImputer(strategy='median')),('sc',StandardScaler()),('m',Ridge(alpha=10.0))]),
+            'hgb':lambda:Pipeline([('imp',SimpleImputer(strategy='median')),('m',HistGradientBoostingRegressor(max_iter=100,learning_rate=0.05,max_depth=2,min_samples_leaf=50,l2_regularization=10.0,random_state=7))])
+          }
+          def met(x,col):
+            a=np.asarray(x[col],float);gp=a[a>0].sum();gl=-a[a<0].sum();eq=np.cumsum(a);peak=np.maximum.accumulate(np.r_[0,eq])[1:];dd=(eq-peak).min() if len(a) else 0
+            return {'n':int(len(a)),'R':float(a.sum()),'avg_R':float(a.mean()) if len(a) else None,'PF':float(gp/gl) if gl>0 else None,'max_DD_R':float(dd)}
+          report={'purpose':'Pre-registered state-only meta-filter; features known at signal time; no symbol identity; train only on prior years','features':FEATURES,'rows':int(len(df)),'models':{}}
+          folds=[2024,2025,2026]
+          for model_name,mk in models.items():
+            mr={'folds':{},'gates':{}}
+            for y in folds:
+              tr=df[df.year<y].copy();te=df[df.year==y].copy()
+              if len(tr)<500 or len(te)<100:continue
+              model=mk();model.fit(tr[FEATURES],tr['net_1bps']);p_tr=model.predict(tr[FEATURES]);p_te=model.predict(te[FEATURES]);te['pred']=p_te
+              fr={'train_n':int(len(tr)),'test_n':int(len(te)),'baseline_1bps':met(te,'net_1bps'),'baseline_2bps':met(te,'net_2bps'),'selectors':{}}
+              selectors={'pred_gt_0':0.0}
+              for q in (0.70,0.80,0.90):selectors[f'train_pred_q{int(q*100)}']=float(np.quantile(p_tr,q))
+              for name,thr in selectors.items():
+                sel=te[te.pred>thr].copy();fr['selectors'][name]={'threshold':thr,'net_1bps':met(sel,'net_1bps'),'net_2bps':met(sel,'net_2bps'),'symbols':int(sel.symbol.nunique()) if len(sel) else 0,'cells':int(sel[['symbol','tf']].drop_duplicates().shape[0]) if len(sel) else 0}
+              mr['folds'][str(y)]=fr
+            for sel in ['pred_gt_0','train_pred_q70','train_pred_q80','train_pred_q90']:
+              fs=[]
+              for y in folds:
+                f=mr['folds'].get(str(y));s=f and f['selectors'].get(sel)
+                if s:fs.append((y,s))
+              passed=len(fs)==len(folds) and all(s['net_1bps']['R']>0 and (s['net_1bps']['PF'] or 0)>1 and s['net_1bps']['n']>=30 and s['cells']>=3 for _,s in fs) and sum(s['net_1bps']['n'] for _,s in fs)>=100
+              mr['gates'][sel]={'pass':bool(passed),'R_by_year':{str(y):s['net_1bps']['R'] for y,s in fs},'n_total':sum(s['net_1bps']['n'] for _,s in fs),'R_total_1bps':sum(s['net_1bps']['R'] for _,s in fs),'R_total_2bps':sum(s['net_2bps']['R'] for _,s in fs)}
+            report['models'][model_name]=mr
+          report['verdict']='PASS_STATE_SELECTION' if any(g['pass'] for m in report['models'].values() for g in m['gates'].values()) else 'NO_STABLE_STATE_SELECTION_EDGE'
+          (out/'market-state-oos.json').write_text(json.dumps(report,indent=2))
+          print('ROWS',len(df));print('VERDICT',report['verdict'])
+          for mn,m in report['models'].items():
+            print('MODEL',mn)
+            for k,g in m['gates'].items():print(k,json.dumps(g))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-market-state-oos-final
+          path: /tmp/final
+          retention-days: 30
