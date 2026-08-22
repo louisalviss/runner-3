@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, sys, time
+import json, os, sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -37,12 +37,6 @@ def load_bid_ask(symbol):
     bd=pd.concat(bids).sort_index();ad=pd.concat(asks).sort_index();idx=bd.index.intersection(ad.index);bd=bd.loc[idx];ad=ad.loc[idx]
     bd=bd[~bd.index.duplicated(keep='last')];ad=ad[~ad.index.duplicated(keep='last')];idx=bd.index.intersection(ad.index);return bd.loc[idx],ad.loc[idx],instrument,manifest
 
-def agg_pair(bid,ask,tf):
-    if tf==5:return bid.copy(),ask.copy()
-    def agg(df):
-        return df.resample(f'{tf}min',origin='epoch',label='left',closed='left').agg({'open':'first','high':'max','low':'min','close':'last'}).dropna()
-    b=agg(bid);a=agg(ask);idx=b.index.intersection(a.index);return b.loc[idx],a.loc[idx]
-
 def spread_bps(bid,ask,ts,field='open'):
     if ts not in bid.index or ts not in ask.index:return None
     bv=float(bid.at[ts,field]);av=float(ask.at[ts,field]);mid=(av+bv)/2
@@ -51,8 +45,18 @@ def spread_bps(bid,ask,ts,field='open'):
 def cost_ratio(t):
     d=abs(float(t['e'])-float(t['s']));return None if d<=0 else float(t['e'])/d
 
+def canonical_mid(bid5,ask5,tf):
+    idx=bid5.index.intersection(ask5.index)
+    mid5=(bid5.loc[idx,['open','high','low','close']]+ask5.loc[idx,['open','high','low','close']])/2.0
+    if tf==5:return mid5
+    mid,reject=exp.aggregate(mid5,5,tf)
+    print('STRICT_AGG',tf,'rejected',reject,flush=True)
+    return mid
+
 def run_tf(symbol,tf,bid5,ask5,instrument,manifest):
-    bid,ask=agg_pair(bid5,ask5,tf);idx=bid.index.intersection(ask.index);mid=(bid.loc[idx]+ask.loc[idx])/2.0
+    # IMPORTANT: exact OOS parity requires midpoint at 5m first, then strict complete-bucket aggregation.
+    # Never aggregate BID and ASK independently before taking midpoint: max/min can occur on different sub-bars.
+    mid=canonical_mid(bid5,ask5,tf)
     base,ref=exp.load_modules(tf);group,tick,tz,session=exp.cfg(symbol);base.tv_tick=lambda _i,_v:tick
     bars=exp.to_bars(mid,base.Bar,tf);trades,_=base.run_case(ref,bars,exp.provider_info(symbol),exp.STATE_START.to_pydatetime(),anchor='start',use_session=True);ff=feature_frame(mid,tf,tz)
     n=0;path=OUT/f'exec-{symbol}-{tf}m.jsonl'
@@ -64,9 +68,13 @@ def run_tf(symbol,tf,bid5,ask5,instrument,manifest):
                     rr=ff.loc[ts];rr=rr.iloc[-1] if isinstance(rr,pd.DataFrame) else rr
                     if rr[FEATURES].notna().all():fts=rr;fbar=ts;break
             if fts is None:continue
-            # Pending stop-entry can fill only on next bar, whose open timestamp equals signal close timestamp.
-            ent_ts=sig; exit_close=pd.Timestamp(int(t['exit']),unit='ms',tz='UTC');exit_ts=exit_close-pd.Timedelta(minutes=tf)
-            ent_sp=spread_bps(bid,ask,ent_ts,'open');ex_sp=spread_bps(bid,ask,exit_ts,'close')
+            # Stop-entry begins on the next target-TF bar, at timestamp == signal close.
+            # For both 5m and 10m, observed spread at the entry open is available directly on the underlying 5m quote bar.
+            ent_ts=sig
+            exit_close=pd.Timestamp(int(t['exit']),unit='ms',tz='UTC')
+            # Target-TF close is the close of its final 5m constituent bar.
+            exit_quote_ts=exit_close-pd.Timedelta(minutes=5)
+            ent_sp=spread_bps(bid5,ask5,ent_ts,'open');ex_sp=spread_bps(bid5,ask5,exit_quote_ts,'close')
             ratio=cost_ratio(t)
             rec={'symbol':symbol,'tf':tf,'signal':int(t['signal']),'exit':int(t['exit']),'side':t.get('side'),'R':float(t['R']),'reason':t.get('reason'),'e':float(t['e']),'s':float(t['s']),'ratio':ratio,'entry_spread_bps':ent_sp,'exit_spread_bps':ex_sp,'year':sig.year,'feature_bar':fbar.isoformat()}
             rec['observed_roundtrip_spread_bps']=None if ent_sp is None or ex_sp is None else (ent_sp+ex_sp)/2.0
