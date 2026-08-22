@@ -1,0 +1,88 @@
+name: Cloak Read-Only Fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/cloak-fetch/*.json'
+      - 'jobs/cloak-fetch/**/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to a read-only Cloak fallback job JSON'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloak-fetch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOAKBROWSER_VERSION: '146.0.7680.177.5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Resolve job
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/cloak-fetch/*.json' 'jobs/cloak-fetch/**/*.json' | tail -n 1 || true)"
+          fi
+          test -n "$JOB_FILE" && test -f "$JOB_FILE"
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using Cloak job: $JOB_FILE"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache CloakBrowser binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cloakbrowser
+          key: cloakbrowser-linux-${{ env.CLOAKBROWSER_VERSION }}
+
+      - name: Install CloakBrowser
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'cloakbrowser==0.5.3'
+          python -m playwright install-deps chromium
+          CLOAKBROWSER_VERSION="$CLOAKBROWSER_VERSION" python -m cloakbrowser install
+
+      - name: Validate public read-only job
+        run: python3 cloak_fetch.py '${{ steps.job.outputs.job_file }}' --validate-only --browser-version "$CLOAKBROWSER_VERSION"
+
+      - name: Fetch through CloakBrowser
+        id: crawl
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a python3 cloak_fetch.py '${{ steps.job.outputs.job_file }}' --output cloak_output --browser-version "$CLOAKBROWSER_VERSION"
+
+      - name: Upload result
+        if: always() && steps.crawl.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloak-fetch-${{ github.run_id }}
+          path: cloak_output/
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf cloak_output
