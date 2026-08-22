@@ -42,38 +42,80 @@ Collectors MUST NOT modify it. State advances only after ChatGPT completes and r
 
 Scientific American and Quanta were onboarded with a current-high-water baseline so enabling them does not dump historical backlog. Use full-day/history or explicit replay to inspect earlier items.
 
-## Selected-analysis fast lane
+## Selected-analysis fast lane — Cloudflare primary
 
 Full article text is **lazy/on-demand**, not prefetched for every RSS item.
 
+The production primary path is now Cloudflare Worker + R2. GitHub Actions is deployment/bootstrap and fallback only; it is not the normal request-response path for selected deep analysis.
+
+Production Worker:
+
+- service: `runner3-rss-fastlane`;
+- URL: `https://runner3-rss-fastlane.ducduy2411.workers.dev`;
+- source: `cloudflare/rss-fastlane/`;
+- deploy workflow: `.github/workflows/rss-fastlane-bootstrap.yml`;
+- deploy runner: `ubuntu-24.04-arm`;
+- R2 bucket: `runner3-rss-fastlane-artifacts`;
+- R2 object prefix: `rss-analysis/`;
+- retention/lifecycle: 7 days.
+
+Worker endpoints:
+
+- `GET /health` — health + R2 binding check;
+- `GET /v1/rss/fetch?sourceKey=...&url=...&title=...&displayIndex=...` — direct one-item adapter suitable for ChatGPT/web GET access;
+- `POST /v1/rss/selected-analysis` — batch extraction, max 20 items;
+- `GET /v1/rss/artifact?key=rss-analysis/...json` — read a stored R2 analysis artifact.
+
+The Worker allowlists RSS source hosts instead of acting as an open arbitrary-URL proxy. Extraction order is canonical direct HTML first, then Jina live/no-cache fallback when direct fetch fails or produces thin text. Batch items run in parallel. Raw bodies are stored in R2, not committed to GitHub.
+
 When the user selects numbered RSS items for deep analysis, ChatGPT should:
 
-1. resolve the exact numbered items from the render manifest;
-2. check `data/rss-reader/analysis-cache-index.json` for a valid TTL/hash-matching cache pointer;
-3. try normal canonical web access in parallel for selected items that are not cache hits;
-4. group only the blocked/partial items into **one** Runner3 request at `data/rss-reader/analysis-request.json`;
-5. let the `selected-analysis` job inside `.github/workflows/rss-reader.yml` fetch those canonical URLs in one parallel batch;
-6. read the resulting GitHub artifact and verify URL/hash before analysis.
+1. resolve exact numbered items from the render manifest;
+2. use a still-valid cache/R2 artifact when exact canonical identity/hash is known;
+3. otherwise try normal canonical web access in parallel when convenient;
+4. for items needing acquisition, call the Cloudflare fast lane directly rather than queueing `ubuntu-latest` GitHub Actions;
+5. prefer `GET /v1/rss/fetch` for direct ChatGPT one-item access; use batch POST when the caller supports POST and several items need acquisition together;
+6. verify returned canonical URL/source identity, fetch route, character count, errors, storage result and expiry;
+7. read the stored R2 artifact when full extracted payload is needed for analysis;
+8. only fall back to the legacy GitHub selected-analysis job if the Cloudflare fast lane is unavailable/degraded.
 
-Runtime components:
+Verified production checkpoint (2026-08-22):
+
+- `/health`: `ok=true`, `r2Bound=true`;
+- Fulcrum test: direct route, ~23.2k chars;
+- Noema test: direct route, ~16.3k chars;
+- batch result: `fetchedCount=2`, `errorCount=0`;
+- R2 artifact stored successfully;
+- Worker processing about 1.7–2.1 s, E2E about 2.1–2.6 s;
+- this replaces the observed failure mode where the actual fetch took seconds but GitHub-hosted runner allocation could queue for ~28 minutes.
+
+Deployment/verification lessons that are now part of the flow:
+
+- `.github/workflows/rss-fastlane-bootstrap.yml` must trigger on both itself and `cloudflare/rss-fastlane/**`;
+- deployed entrypoint is `cloudflare/rss-fastlane/src/index-get.js` via `wrangler.jsonc`;
+- `/health` is handled directly at the deployed entrypoint and reports `r2Bound`;
+- verifier POST requests must send an explicit non-default `User-Agent` (`runner3-fastlane-verifier/1.0`) because the default Python urllib request path can receive HTTP 403 before Worker execution;
+- bootstrap persists proof to `ops/rss-fastlane/latest.json`;
+- code change is not considered production-ready until health + real extraction + R2 persistence pass.
+
+Legacy/fallback GitHub selected-analysis components remain available:
 
 - `scripts/rss_selected_fetch.py` — generic parallel extractor for selected canonical URLs;
-- `.github/workflows/rss-reader.yml` → `selected-analysis` job — on-demand batch job that runs in parallel with normal RSS ingestion for push events;
-- `analysis-cache-index.json` — pointer/hash/TTL metadata only;
-- GitHub Actions artifact — raw extracted text, retention 7 days.
+- `.github/workflows/rss-reader.yml` → `selected-analysis` — fallback on-demand batch job;
+- `analysis-request.json` — fallback request metadata;
+- `analysis-cache-index.json` — legacy/fallback pointer/hash/TTL metadata;
+- GitHub Actions artifact — fallback raw extracted text, retention 7 days.
 
 Important properties:
 
 - raw copyrighted article text is never committed to the repository;
-- cache is keyed by canonical URL and optionally content hash;
-- one selection such as `1 4 5` creates at most one Runner batch for items that actually need Runner fallback;
-- cache hits avoid a new Runner queue entirely;
-- batch fetches run in parallel;
+- selected-analysis acquisition never advances RSS reader state;
 - per-item failures are explicit and do not silently substitute another article;
-- analysis fetching never advances RSS reader state;
-- request-triggered runs use a unique concurrency group so a scheduled RSS run does not cancel an active selected-analysis request.
+- Cloudflare/R2 acquisition cache is not freshness authority and must not be used as publication timestamp/cursor evidence;
+- stale/expired/mismatched artifacts are cache misses;
+- if Cloudflare direct + fallback acquisition still cannot recover enough content, analysis must stay within verified material and state the limitation.
 
-Legacy VHH-specific prefetch code/index/artifacts are non-canonical and are not auto-refreshed. New analysis acquisition uses the generic lazy selected-analysis path for every source.
+Legacy VHH-specific prefetch code/index/artifacts are non-canonical and are not auto-refreshed.
 
 ## Scientific American
 
