@@ -1,12 +1,11 @@
 {
   "status": "ready",
   "discoveryMode": "library-items-read-only-retry-safe",
-  "extractOutcome": "success",
-  "extractExitCode": "0",
+  "extractOutcome": "failure",
+  "extractExitCode": "1",
   "extractor": {
-    "ok": true,
-    "results": []
+    "parseError": "Expecting value: line 1 column 1 (char 0)"
   },
-  "extractStderr": "",
-  "updatedAt": "2026-08-22T09:56:39.607386+00:00"
+  "extractStderr": "Traceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 185, in pending_items_r2\n    return active_items_from_worker()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 117, in active_items_from_worker\n    'Authorization': 'Bearer ' + library_session_token(),\n                                 ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 70, in library_session_token\n    raise RuntimeError('CLOUDFLARE_API_TOKEN missing')\nRuntimeError: CLOUDFLARE_API_TOKEN missing\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 194, in <module>\n    core.main()\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt.py\", line 345, in main\n    items = pending_items()\n            ^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 190, in pending_items_r2\n    raise RuntimeError(f'Library item discovery failed: {type(e).__name__}: {str(e)[:220]}')\nRuntimeError: Library item discovery failed: RuntimeError: CLOUDFLARE_API_TOKEN missing\n",
+  "updatedAt": "2026-08-22T12:11:26.519507+00:00"
 }
