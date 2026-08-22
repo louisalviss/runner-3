@@ -1,12 +1,6 @@
-name: WR Market State OOS
+name: WR Market State OOS (ARCHIVED MANUAL)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/wr-market-state-oos.yml'
-      - 'wave-rider-verify/wr_market_state_oos.py'
-      - 'wave-rider-verify/wr_dukascopy_expanded_matrix.py'
-      - 'wave-rider-verify/wr_tv_parity.py'
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -25,9 +19,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pandas numpy websocket-client requests dukascopy-python
-      - name: Fetch frozen WR 2.5.13 reference
-        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
-      - name: Build signal-time market-state features
+      - name: Use consolidated WR 2.5.13 reference
+        run: cp wave-rider-verify/reference_verify.py /tmp/reference_verify.py
+      - name: Build causal signal-time market-state features
         env:
           SYMBOL: ${{ matrix.symbol }}
           WR_OUT: /tmp/wr-market-state
@@ -52,7 +46,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pandas numpy scikit-learn
-      - name: Frozen walk-forward state-only test
+      - name: Reproduce archived causal walk-forward state-only test
         run: |
           python3 - <<'PY'
           import json,pathlib
@@ -67,9 +61,13 @@ jobs:
           for p in root.rglob('features-*.jsonl'):
             for ln in p.read_text().splitlines():
               if ln.strip():
-                try:rows.append(json.loads(ln))
-                except:pass
+                try: rows.append(json.loads(ln))
+                except Exception: pass
           df=pd.DataFrame(rows)
+          if len(df)!=19683 or df.symbol.nunique()!=68:
+            raise RuntimeError(f'causal source mismatch rows={len(df)} symbols={df.symbol.nunique()}')
+          if 'feature_lag_minutes' not in df or not (df.feature_lag_minutes.astype(int)==df.tf.astype(int)).all():
+            raise RuntimeError('causal feature-lag invariant failed')
           FEATURES=['atr_bps','atr_ratio_14_50','range_atr','body_atr','gap_atr','rv20_bps','trend20_atr','efficiency20','location20','session_frac','tf10']
           models={
             'ridge':lambda:Pipeline([('imp',SimpleImputer(strategy='median')),('sc',StandardScaler()),('m',Ridge(alpha=10.0))]),
@@ -78,17 +76,17 @@ jobs:
           def met(x,col):
             a=np.asarray(x[col],float);gp=a[a>0].sum();gl=-a[a<0].sum();eq=np.cumsum(a);peak=np.maximum.accumulate(np.r_[0,eq])[1:];dd=(eq-peak).min() if len(a) else 0
             return {'n':int(len(a)),'R':float(a.sum()),'avg_R':float(a.mean()) if len(a) else None,'PF':float(gp/gl) if gl>0 else None,'max_DD_R':float(dd)}
-          report={'purpose':'Pre-registered state-only meta-filter; features known at signal time; no symbol identity; train only on prior years','features':FEATURES,'rows':int(len(df)),'models':{}}
+          report={'purpose':'Archived causal reproduction only; no strategy promotion','features':FEATURES,'rows':int(len(df)),'models':{}}
           folds=[2024,2025,2026]
           for model_name,mk in models.items():
             mr={'folds':{},'gates':{}}
             for y in folds:
               tr=df[df.year<y].copy();te=df[df.year==y].copy()
-              if len(tr)<500 or len(te)<100:continue
-              model=mk();model.fit(tr[FEATURES],tr['net_1bps']);p_tr=model.predict(tr[FEATURES]);p_te=model.predict(te[FEATURES]);te['pred']=p_te
+              if len(tr)<500 or len(te)<100: continue
+              model=mk();model.fit(tr[FEATURES],tr['net_1bps']);p_tr=model.predict(tr[FEATURES]);te['pred']=model.predict(te[FEATURES])
               fr={'train_n':int(len(tr)),'test_n':int(len(te)),'baseline_1bps':met(te,'net_1bps'),'baseline_2bps':met(te,'net_2bps'),'selectors':{}}
               selectors={'pred_gt_0':0.0}
-              for q in (0.70,0.80,0.90):selectors[f'train_pred_q{int(q*100)}']=float(np.quantile(p_tr,q))
+              for q in (0.70,0.80,0.90): selectors[f'train_pred_q{int(q*100)}']=float(np.quantile(p_tr,q))
               for name,thr in selectors.items():
                 sel=te[te.pred>thr].copy();fr['selectors'][name]={'threshold':thr,'net_1bps':met(sel,'net_1bps'),'net_2bps':met(sel,'net_2bps'),'symbols':int(sel.symbol.nunique()) if len(sel) else 0,'cells':int(sel[['symbol','tf']].drop_duplicates().shape[0]) if len(sel) else 0}
               mr['folds'][str(y)]=fr
@@ -96,16 +94,14 @@ jobs:
               fs=[]
               for y in folds:
                 f=mr['folds'].get(str(y));s=f and f['selectors'].get(sel)
-                if s:fs.append((y,s))
+                if s: fs.append((y,s))
               passed=len(fs)==len(folds) and all(s['net_1bps']['R']>0 and (s['net_1bps']['PF'] or 0)>1 and s['net_1bps']['n']>=30 and s['cells']>=3 for _,s in fs) and sum(s['net_1bps']['n'] for _,s in fs)>=100
               mr['gates'][sel]={'pass':bool(passed),'R_by_year':{str(y):s['net_1bps']['R'] for y,s in fs},'n_total':sum(s['net_1bps']['n'] for _,s in fs),'R_total_1bps':sum(s['net_1bps']['R'] for _,s in fs),'R_total_2bps':sum(s['net_2bps']['R'] for _,s in fs)}
             report['models'][model_name]=mr
           report['verdict']='PASS_STATE_SELECTION' if any(g['pass'] for m in report['models'].values() for g in m['gates'].values()) else 'NO_STABLE_STATE_SELECTION_EDGE'
+          report['canonical_status']='ARCHIVED_FAILED_BRANCH' if report['verdict']=='NO_STABLE_STATE_SELECTION_EDGE' else 'UNEXPECTED_RESULT_REQUIRES_AUDIT'
           (out/'market-state-oos.json').write_text(json.dumps(report,indent=2))
-          print('ROWS',len(df));print('VERDICT',report['verdict'])
-          for mn,m in report['models'].items():
-            print('MODEL',mn)
-            for k,g in m['gates'].items():print(k,json.dumps(g))
+          print('ROWS',len(df));print('VERDICT',report['verdict']);print('STATUS',report['canonical_status'])
           PY
       - uses: actions/upload-artifact@v4
         with:
