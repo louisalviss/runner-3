@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -q pandas numpy scikit-learn joblib
+      - run: pip install -q pandas numpy 'scikit-learn==1.7.2' 'joblib==1.5.2'
       - name: Build frozen HGB q70 model
         run: python3 wave-rider-verify/wr_market_state_freeze.py --input /tmp/train --output /tmp/freeze
       - name: Persist immutable freeze files on main
@@ -41,5 +41,6 @@ jobs:
             echo 'Freeze files already identical.'
           else
             git commit -m 'research: freeze market-state forward holdout model'
+            git pull --rebase origin main
             git push
           fi
