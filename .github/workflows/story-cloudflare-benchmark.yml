@@ -6,6 +6,9 @@ on:
       - 'story_pipeline/benchmark_trigger.json'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   benchmark:
     runs-on: ubuntu-latest
@@ -33,6 +36,16 @@ jobs:
           cp -f story_pipeline/benchmark_input/*.txt story_pipeline/benchmark_artifact/before/ || true
           cp -f story_pipeline/benchmark_output/*.txt story_pipeline/benchmark_artifact/after/ || true
           cp -f story_pipeline/benchmark_output/*.json story_pipeline/benchmark_artifact/ || true
+      - name: Commit benchmark output
+        if: success()
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add story_pipeline/benchmark_output
+          git diff --cached --quiet && exit 0
+          git commit -m 'Save Cloudflare benchmark output'
+          git push
       - name: Upload benchmark artifact
         if: always()
         uses: actions/upload-artifact@v4
