@@ -1,0 +1,114 @@
+name: Maintenance · Exhaustive Workflow Audit v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/maintenance-workflow-audit-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: maintenance-workflow-audit-v2
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Scan all active workflow YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+
+          def cron_interval(expr):
+              p=expr.split()
+              if len(p)<5:return None
+              mi,hr=p[:2]
+              m=re.fullmatch(r'\*/(\d+)',mi)
+              if m and hr=='*':return int(m.group(1))
+              if mi=='*' and hr=='*':return 1
+              if hr=='*' and mi.isdigit():return 60
+              if hr=='*' and re.fullmatch(r'[0-9,]+',mi):return max(1,60//len(set(mi.split(','))))
+              h=re.fullmatch(r'\*/(\d+)',hr)
+              if h and mi.isdigit():return int(h.group(1))*60
+              if re.fullmatch(r'[0-9,]+',hr) and mi.isdigit():
+                  hs=sorted(set(map(int,hr.split(','))))
+                  if len(hs)==1:return 1440
+                  gaps=[(hs[(i+1)%len(hs)]-hs[i])%24 for i in range(len(hs))]
+                  return min(g for g in gaps if g)*60
+              return None
+
+          rows=[]
+          for p in sorted(list(Path('.github/workflows').glob('*.yml'))+list(Path('.github/workflows').glob('*.yaml'))):
+              t=p.read_text(errors='replace')
+              crons=re.findall(r'''cron:\s*["']([^"']+)["']''',t)
+              iv=[x for x in map(cron_interval,crons) if x is not None]
+              interval=min(iv) if iv else None
+              nm=re.search(r'(?m)^name:\s*(.+)$',t)
+              name=(nm.group(1).strip().strip('"\'') if nm else p.stem)
+              trig=[]
+              for k in ('schedule','push','workflow_dispatch','workflow_run','pull_request','pull_request_target','repository_dispatch'):
+                  if re.search(r'(?m)^\s{2,}'+re.escape(k)+r'\s*:',t):trig.append(k)
+              heavy=sorted({k for k in ('playwright','chromium','google-chrome','selenium','ffmpeg','remotion','lighthouse','docker build') if k in t.lower()})
+              conc='concurrency:' in t
+              cancel=bool(re.search(r'cancel-in-progress:\s*true',t,re.I))
+              push=bool(re.search(r'(?m)\bgit\s+push\b',t))
+              commit=bool(re.search(r'(?m)\bgit\s+commit\b',t))
+              path_filter=bool(re.search(r'(?m)^\s+paths(?:-ignore)?:\s*$',t))
+              timeouts=list(map(int,re.findall(r'timeout-minutes:\s*(\d+)',t)))
+              risk='low';why=[]
+              if interval is not None and interval<15:risk='critical';why.append(f'cron~{interval}m')
+              elif interval is not None and interval<60:risk='high';why.append(f'cron~{interval}m')
+              elif interval is not None and interval<180:risk='medium';why.append(f'cron~{interval}m')
+              if crons and heavy and (interval is None or interval<=60):risk='high' if risk!='critical' else risk;why.append('scheduled-heavy')
+              if crons and not conc and interval is not None and interval<180:
+                  if risk=='low':risk='medium'
+                  why.append('no-concurrency')
+              if push and 'push' in trig and not path_filter:
+                  if risk!='critical':risk='high'
+                  why.append('git-push+broad-push-trigger')
+              if 'workflow_run' in trig:why.append('workflow-run-chain')
+              rows.append({'file':p.name,'name':name,'triggers':trig,'crons':crons,'min_interval_minutes':interval,'concurrency':conc,'cancel_in_progress':cancel,'timeouts_minutes':timeouts,'heavy':heavy,'git_commit':commit,'git_push':push,'push_path_filter':path_filter,'risk':risk,'reasons':why})
+
+          rank={'critical':0,'high':1,'medium':2,'low':3}
+          rows.sort(key=lambda x:(rank[x['risk']],x['min_interval_minutes'] if x['min_interval_minutes'] is not None else 10**9,x['file']))
+          summary={
+            'active_workflows':len(rows),
+            'scheduled':sum(bool(x['crons']) for x in rows),
+            'cron_under_15m':sum(x['min_interval_minutes'] is not None and x['min_interval_minutes']<15 for x in rows),
+            'cron_under_60m':sum(x['min_interval_minutes'] is not None and x['min_interval_minutes']<60 for x in rows),
+            'critical':sum(x['risk']=='critical' for x in rows),
+            'high':sum(x['risk']=='high' for x in rows),
+            'medium':sum(x['risk']=='medium' for x in rows),
+            'scheduled_without_concurrency':sum(bool(x['crons']) and not x['concurrency'] for x in rows),
+            'git_push_workflows':sum(x['git_push'] for x in rows),
+          }
+          Path('/tmp/workflow-audit.json').write_text(json.dumps({'summary':summary,'workflows':rows},ensure_ascii=False,indent=2))
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Publish report through GitHub Contents API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='ops/workflow-audit.json'
+          content="$(base64 -w0 /tmp/workflow-audit.json)"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}" --jq .sha 2>/dev/null || true)"
+          if [[ -n "$sha" ]]; then
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" -f message='Publish exhaustive workflow audit [skip ci]' -f content="$content" -f sha="$sha" >/dev/null
+          else
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" -f message='Publish exhaustive workflow audit [skip ci]' -f content="$content" >/dev/null
+          fi
