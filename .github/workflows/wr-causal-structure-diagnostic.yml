@@ -1,0 +1,190 @@
+name: WR Causal Structure Diagnostic
+
+on:
+  push:
+    branches: [wr-canonical-clean2-20260821]
+    paths:
+      - '.github/workflows/wr-causal-structure-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: '32589994695'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas numpy
+      - name: Download clean causal feature artifacts
+        run: |
+          mkdir -p /tmp/source /tmp/out
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" -D /tmp/source
+      - name: Full 68-stock causal structural diagnostic
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, math
+          import numpy as np
+          import pandas as pd
+
+          root=pathlib.Path('/tmp/source')
+          out=pathlib.Path('/tmp/out')
+          rows=[]
+          for p in root.rglob('features-*.jsonl'):
+              for ln in p.read_text().splitlines():
+                  if ln.strip():
+                      rows.append(json.loads(ln))
+          df=pd.DataFrame(rows)
+          if len(df) != 19683:
+              raise SystemExit(f'expected 19683 causal rows, got {len(df)}')
+          if df.symbol.nunique() != 68:
+              raise SystemExit(f'expected 68 symbols, got {df.symbol.nunique()}')
+          if not (df.feature_lag_minutes.astype(int) == df.tf.astype(int)).all():
+              bad=df[df.feature_lag_minutes.astype(int) != df.tf.astype(int)]
+              raise SystemExit(f'causal lag invariant failed rows={len(bad)}')
+
+          # Safe algebraic recovery of pre-trade stop-width cost tolerance:
+          # net_1bps = R - cost_R_1bps, where cost_R_1bps depends only on entry/stop.
+          df['costR_1bps']=(df['R']-df['net_1bps']).astype(float)
+          df['risk_bps_proxy']=np.where(df.costR_1bps>0,1.0/df.costR_1bps,np.nan)
+
+          train=df[df.year<=2023].copy()
+          oos=df[df.year>=2024].copy()
+          years=[2024,2025,2026]
+
+          def metrics(x,col='net_1bps'):
+              a=np.asarray(x[col],float)
+              if not len(a): return {'n':0,'R':0.0,'avg_R':None,'PF':None,'max_DD_R':0.0}
+              gp=a[a>0].sum(); gl=-a[a<0].sum(); eq=np.cumsum(a); peak=np.maximum.accumulate(np.r_[0,eq])[1:]
+              return {'n':int(len(a)),'R':float(a.sum()),'avg_R':float(a.mean()),'PF':float(gp/gl) if gl>0 else None,'max_DD_R':float((eq-peak).min())}
+
+          def breadth(x):
+              by=x.groupby('symbol')['net_1bps'].sum().sort_values(ascending=False)
+              absden=float(by.abs().sum())
+              top_abs=by.abs().sort_values(ascending=False)
+              return {
+                  'symbols':int(len(by)),
+                  'positive_symbols':int((by>0).sum()),
+                  'negative_symbols':int((by<0).sum()),
+                  'top1_absR_share':float(top_abs.iloc[:1].sum()/absden) if absden else None,
+                  'top5_absR_share':float(top_abs.iloc[:5].sum()/absden) if absden else None,
+                  'R_without_top5_positive_contributors':float(by.iloc[5:].sum()) if len(by)>5 else 0.0,
+                  'top_positive_symbols':{str(k):float(v) for k,v in by.head(10).items()},
+                  'bottom_symbols':{str(k):float(v) for k,v in by.tail(10).items()},
+              }
+
+          def evaluate(name, train_mask, oos_mask, meta=None):
+              tr=train[train_mask].copy(); te=oos[oos_mask].copy()
+              by_year={str(y):{'net_1bps':metrics(te[te.year==y],'net_1bps'),'net_2bps':metrics(te[te.year==y],'net_2bps')} for y in years}
+              tr_by_year={str(y):metrics(tr[tr.year==y],'net_1bps') for y in sorted(train.year.unique())}
+              return {
+                  'name':name,'meta':meta or {},
+                  'train':{'net_1bps':metrics(tr,'net_1bps'),'by_year':tr_by_year},
+                  'oos':{'net_1bps':metrics(te,'net_1bps'),'net_2bps':metrics(te,'net_2bps'),'by_year':by_year,'breadth':breadth(te)},
+                  'retention_oos':float(len(te)/len(oos)) if len(oos) else 0.0,
+              }
+
+          report={
+              'status':'WR_CAUSAL_STRUCTURE_DIAGNOSTIC',
+              'source_run':32589994695,
+              'source_sha':'aba9f3b8ca227302e043c204cdd81f9fab97143b',
+              'rows':int(len(df)),'symbols':int(df.symbol.nunique()),
+              'train_window':'2022-2023','oos_window':'2024-2026',
+              'causal_contract':'feature_lag_minutes == tf; thresholds learned only from 2022-2023',
+              'baseline':{},'structural_rules':[],'univariate_rules':[],'train_selected_candidates':[]
+          }
+          report['baseline']={
+              'train':metrics(train),'oos':metrics(oos),
+              'oos_2bps':metrics(oos,'net_2bps'),
+              'by_year':{str(y):{'net_1bps':metrics(df[df.year==y]),'net_2bps':metrics(df[df.year==y],'net_2bps')} for y in sorted(df.year.unique())},
+              'by_tf':{str(tf):{'oos':metrics(oos[oos.tf==tf]),'oos_2bps':metrics(oos[oos.tf==tf],'net_2bps')} for tf in sorted(df.tf.unique())}
+          }
+
+          # Fixed structural rules, no threshold search.
+          report['structural_rules'].append(evaluate('TF_5m',train.tf==5,oos.tf==5,{'family':'timeframe'}))
+          report['structural_rules'].append(evaluate('TF_10m',train.tf==10,oos.tf==10,{'family':'timeframe'}))
+          for label,lo,hi in [('SESSION_OPEN',0.0,1/3),('SESSION_MID',1/3,2/3),('SESSION_LATE',2/3,1.000001)]:
+              report['structural_rules'].append(evaluate(label,(train.session_frac>=lo)&(train.session_frac<hi),(oos.session_frac>=lo)&(oos.session_frac<hi),{'family':'session','lo':lo,'hi':hi}))
+
+          features=['atr_bps','atr_ratio_14_50','range_atr','body_atr','gap_atr','rv20_bps','trend20_atr','efficiency20','location20','session_frac','risk_bps_proxy']
+          lower_q=[0.20,0.30,0.40]
+          upper_q=[0.60,0.70,0.80]
+          rules=[]
+          for f in features:
+              clean=train[f].replace([np.inf,-np.inf],np.nan).dropna()
+              for q in lower_q:
+                  thr=float(clean.quantile(q))
+                  r=evaluate(f'{f}_LE_Q{int(q*100)}',train[f]<=thr,oos[f]<=thr,{'feature':f,'direction':'<=','q':q,'threshold':thr})
+                  rules.append(r)
+              for q in upper_q:
+                  thr=float(clean.quantile(q))
+                  r=evaluate(f'{f}_GE_Q{int(q*100)}',train[f]>=thr,oos[f]>=thr,{'feature':f,'direction':'>=','q':q,'threshold':thr})
+                  rules.append(r)
+          report['univariate_rules']=rules
+
+          # Candidate selection uses TRAIN ONLY. OOS is reported after the training-only ranking.
+          eligible=[]
+          for r in rules:
+              tr=r['train']['net_1bps']; yrs=r['train']['by_year']
+              if r['retention_oos'] < 0.10: continue
+              if tr['n'] < 500: continue
+              if not all(yrs[str(y)]['R']>0 for y in [2022,2023]): continue
+              if not tr['PF'] or tr['PF']<=1: continue
+              eligible.append(r)
+          eligible=sorted(eligible,key=lambda r:(r['train']['net_1bps']['avg_R'],r['train']['net_1bps']['R']),reverse=True)
+          report['train_selected_candidates']=[r['name'] for r in eligible[:15]]
+
+          # Add a few predefined interaction families; thresholds still come from train only.
+          interactions=[]
+          for f in ['atr_bps','rv20_bps','risk_bps_proxy','trend20_atr','efficiency20','location20']:
+              lo=float(train[f].replace([np.inf,-np.inf],np.nan).dropna().quantile(.30))
+              hi=float(train[f].replace([np.inf,-np.inf],np.nan).dropna().quantile(.70))
+              for tf in [5,10]:
+                  interactions.append(evaluate(f'TF{tf}_{f}_LE_Q30',(train.tf==tf)&(train[f]<=lo),(oos.tf==tf)&(oos[f]<=lo),{'family':'tf_x_feature','tf':tf,'feature':f,'direction':'<=','threshold':lo}))
+                  interactions.append(evaluate(f'TF{tf}_{f}_GE_Q70',(train.tf==tf)&(train[f]>=hi),(oos.tf==tf)&(oos[f]>=hi),{'family':'tf_x_feature','tf':tf,'feature':f,'direction':'>=','threshold':hi}))
+          report['interactions']=interactions
+
+          # Diagnostics ranked for information only, never promoted as clean OOS proof.
+          allr=rules+interactions+report['structural_rules']
+          report['diagnostic_top_oos']= [r['name'] for r in sorted(allr,key=lambda r:r['oos']['net_1bps']['R'],reverse=True)[:20]]
+
+          (out/'wr-causal-structure-diagnostic.json').write_text(json.dumps(report,indent=2))
+
+          lines=[]
+          lines.append('# WR Causal Structure Diagnostic')
+          lines.append(f"Rows: {len(df)} | Symbols: {df.symbol.nunique()} | Source run: 32589994695")
+          lines.append('Thresholds are frozen from 2022-2023; evaluated on 2024-2026. Exploratory historical pseudo-OOS, not untouched forward OOS.')
+          lines.append('')
+          lines.append('## Baseline')
+          for y in years:
+              m=report['baseline']['by_year'][str(y)]['net_1bps']
+              lines.append(f"- {y}: n={m['n']} R={m['R']:.2f} PF={m['PF']:.3f}")
+          lines.append('')
+          lines.append('## Training-only selected candidates')
+          if not eligible:
+              lines.append('- NONE')
+          for r in eligible[:15]:
+              o=r['oos']['net_1bps']; b=r['oos']['breadth']; by=r['oos']['by_year']
+              lines.append(f"- {r['name']}: OOS n={o['n']} R1={o['R']:.2f} PF={o['PF']:.3f}; R2={r['oos']['net_2bps']['R']:.2f}; yearly=" + ', '.join(f"{y}:{by[str(y)]['net_1bps']['R']:.2f}" for y in years) + f"; +symbols={b['positive_symbols']}/{b['symbols']}; top5_abs_share={b['top5_absR_share']:.3f}")
+          lines.append('')
+          lines.append('## Top diagnostic rules by OOS R (exploratory only)')
+          for r in sorted(allr,key=lambda r:r['oos']['net_1bps']['R'],reverse=True)[:20]:
+              o=r['oos']['net_1bps']; b=r['oos']['breadth']; by=r['oos']['by_year']
+              lines.append(f"- {r['name']}: n={o['n']} R1={o['R']:.2f} PF={o['PF']:.3f}; R2={r['oos']['net_2bps']['R']:.2f}; yearly=" + ', '.join(f"{y}:{by[str(y)]['net_1bps']['R']:.2f}" for y in years) + f"; +symbols={b['positive_symbols']}/{b['symbols']}; top5_abs_share={b['top5_absR_share']:.3f}")
+          (out/'wr-causal-structure-diagnostic.md').write_text('\n'.join(lines)+'\n')
+
+          print('\n'.join(lines))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-causal-structure-diagnostic
+          path: /tmp/out
+          retention-days: 30
