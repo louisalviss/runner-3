@@ -1,0 +1,64 @@
+name: CloakBrowser Probe Slim PR
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'jobs/cloak-browser/*.json'
+      - 'jobs/cloak-browser/**/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    env:
+      CLOAKBROWSER_VERSION: '146.0.7680.177.5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cloakbrowser
+          key: cloakbrowser-linux-${{ env.CLOAKBROWSER_VERSION }}
+      - name: Install
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'cloakbrowser==0.5.3'
+          python -m playwright install --with-deps chromium
+          CLOAKBROWSER_VERSION="$CLOAKBROWSER_VERSION" python -m cloakbrowser install
+      - name: Compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a python - <<'PY'
+          import json,time
+          from playwright.sync_api import sync_playwright
+          from cloakbrowser import launch
+          targets=['https://example.com/','https://bot.sannysoft.com/','https://deviceandbrowserinfo.com/are_you_a_bot']
+          js="""() => ({webdriver:navigator.webdriver,userAgent:navigator.userAgent,platform:navigator.platform,languages:navigator.languages,plugins:navigator.plugins.length,hasChrome:!!window.chrome,hardwareConcurrency:navigator.hardwareConcurrency,deviceMemory:navigator.deviceMemory??null,screen:[screen.width,screen.height,screen.colorDepth,screen.pixelDepth]})"""
+          def test(browser,name):
+            out={'engine':name,'targets':[]}; total=time.perf_counter()
+            for url in targets:
+              t=time.perf_counter(); item={'url':url}
+              try:
+                p=browser.new_page(viewport={'width':1365,'height':768})
+                r=p.goto(url,wait_until='domcontentloaded',timeout=45000); p.wait_for_timeout(4000)
+                txt=p.locator('body').inner_text(timeout=10000)
+                item.update(ok=True,status=r.status if r else None,title=p.title(),signals=p.evaluate(js),body_excerpt=txt[:5000],body_chars=len(txt))
+                p.close()
+              except Exception as e: item.update(ok=False,error=f'{type(e).__name__}: {e}')
+              item['seconds']=round(time.perf_counter()-t,3); out['targets'].append(item)
+            out['total_seconds']=round(time.perf_counter()-total,3); return out
+          result=[]
+          with sync_playwright() as pw:
+            b=pw.chromium.launch(headless=False); result.append(test(b,'stock-playwright')); b.close()
+          b=launch(browser_version='146.0.7680.177.5',headless=False,humanize=True); result.append(test(b,'cloakbrowser')); b.close()
+          print('CLOAK_PROBE_RESULT_START')
+          print(json.dumps(result,ensure_ascii=False))
+          print('CLOAK_PROBE_RESULT_END')
+          PY
