@@ -1,135 +1,14 @@
-name: WR Market State Portfolio Gate
+name: WR Market State Portfolio Gate (RETIRED)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/wr-market-state-portfolio-gate.yml'
+  workflow_dispatch:
 permissions:
   contents: read
-  actions: read
 jobs:
-  portfolio:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: wr-market-state-*
-          path: /tmp/all
-          github-token: ${{ github.token }}
-          repository: louisalviss/runner-3
-          run-id: 32533359788
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install -q pandas numpy scikit-learn
-      - name: Rebuild q70 selector and portfolio gate
-        shell: bash
+      - name: Retired contaminated Market-State portfolio gate
         run: |
-          python3 - <<'PY'
-          import json, pathlib, heapq
-          import numpy as np, pandas as pd
-          from sklearn.pipeline import Pipeline
-          from sklearn.impute import SimpleImputer
-          from sklearn.ensemble import HistGradientBoostingRegressor
-
-          root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final'); out.mkdir(parents=True,exist_ok=True)
-          rows=[]
-          for p in root.rglob('features-*.jsonl'):
-              for ln in p.read_text().splitlines():
-                  if ln.strip(): rows.append(json.loads(ln))
-          df=pd.DataFrame(rows)
-          FEATURES=['atr_bps','atr_ratio_14_50','range_atr','body_atr','gap_atr','rv20_bps','trend20_atr','efficiency20','location20','session_frac','tf10']
-          def mk():
-              return Pipeline([('imp',SimpleImputer(strategy='median')),('m',HistGradientBoostingRegressor(max_iter=100,learning_rate=0.05,max_depth=2,min_samples_leaf=50,l2_regularization=10.0,random_state=7))])
-          selected=[]; fold_report={}
-          for y in (2024,2025,2026):
-              tr=df[df.year<y].copy(); te=df[df.year==y].copy(); model=mk(); model.fit(tr[FEATURES],tr['net_1bps'])
-              p_tr=model.predict(tr[FEATURES]); te['pred']=model.predict(te[FEATURES]); thr=float(np.quantile(p_tr,0.70)); sel=te[te.pred>thr].copy()
-              selected.append(sel)
-              fold_report[str(y)]={'train_n':int(len(tr)),'test_n':int(len(te)),'threshold':thr,'selected_n':int(len(sel)),'R1':float(sel.net_1bps.sum()),'R2':float(sel.net_2bps.sum())}
-          s=pd.concat(selected,ignore_index=True).sort_values(['signal','pred'],ascending=[True,False]).reset_index(drop=True)
-          s.to_csv(out/'q70_selected.csv',index=False)
-
-          # Raw concurrency (signal->exit is conservative vs true entry->exit).
-          events=[]
-          for i,r in s.iterrows():
-              events.append((int(r.signal),1)); events.append((int(r.exit),-1))
-          # exits first at equal timestamp
-          events.sort(key=lambda z:(z[0],z[1]))
-          cur=peak=0
-          for _,d in events:
-              cur+=d; peak=max(peak,cur)
-          same_signal=s.groupby('signal').size()
-
-          def allocate(cap):
-              accepted=[]; active=[]
-              for sig,g in s.groupby('signal',sort=True):
-                  sig=int(sig)
-                  active=[x for x in active if x[0]>sig]
-                  avail=10**9 if cap is None else max(0,cap-len(active))
-                  if avail<=0: continue
-                  gg=g.sort_values('pred',ascending=False).head(avail)
-                  for idx,r in gg.iterrows():
-                      accepted.append(idx); active.append((int(r.exit),idx))
-              return s.loc[accepted].copy().sort_values(['signal','pred'],ascending=[True,False])
-
-          def stats(a,col):
-              vals=a[col].to_numpy(float); gp=vals[vals>0].sum(); gl=-vals[vals<0].sum()
-              eq=np.cumsum(vals); pk=np.maximum.accumulate(np.r_[0,eq])[1:]; dd=float((eq-pk).min()) if len(eq) else 0.0
-              return {'n':int(len(a)),'R':float(vals.sum()),'avg_R':float(vals.mean()) if len(vals) else None,'PF':float(gp/gl) if gl>0 else None,'max_DD_R':dd}
-
-          def equity_sim(a,col,risk_frac):
-              # Conservative: reserve/size at signal; realize at exit. Exits are processed before signals at equal timestamps.
-              timeline=[]
-              for idx,r in a.iterrows():
-                  timeline.append((int(r.signal),1,idx)); timeline.append((int(r.exit),0,idx))
-              timeline.sort()
-              equity=1.0; peak=1.0; mdd=0.0; risk_amt={}; rmap={idx:float(r[col]) for idx,r in a.iterrows()}
-              for ts,kind,idx in timeline:
-                  if kind==0:
-                      equity += risk_amt.pop(idx,0.0)*rmap[idx]
-                      peak=max(peak,equity); mdd=min(mdd,equity/peak-1.0)
-                  else:
-                      risk_amt[idx]=max(equity,0.0)*risk_frac
-              return {'ending_equity':float(equity),'return_pct':float((equity-1)*100),'max_DD_pct':float(mdd*100)}
-
-          portfolios={}
-          for cap in (1,3,5,10,None):
-              a=allocate(cap); key='unlimited' if cap is None else str(cap)
-              z={'accepted':int(len(a)),'share_selected':float(len(a)/len(s)),'1bps':stats(a,'net_1bps'),'2bps':stats(a,'net_2bps'),'risk_sizing':{}}
-              for rf in (0.0025,0.005,0.01):
-                  z['risk_sizing'][str(rf)]={'1bps':equity_sim(a,'net_1bps',rf),'2bps':equity_sim(a,'net_2bps',rf)}
-              portfolios[key]=z
-
-          # Daily symbol outcome correlation, requiring adequate observations per pair.
-          q=s.copy(); q['day']=pd.to_datetime(q['exit'],unit='ms',utc=True).dt.date
-          piv=q.pivot_table(index='day',columns='symbol',values='net_1bps',aggfunc='sum',fill_value=0.0)
-          cors=[]
-          cols=list(piv.columns)
-          for i in range(len(cols)):
-              for j in range(i+1,len(cols)):
-                  a=piv[cols[i]].to_numpy(); b=piv[cols[j]].to_numpy(); union=(a!=0)|(b!=0)
-                  if union.sum()<30: continue
-                  aa=a[union];bb=b[union]
-                  if np.std(aa)==0 or np.std(bb)==0: continue
-                  c=float(np.corrcoef(aa,bb)[0,1]); cors.append(abs(c))
-          bysym=q.groupby('symbol').agg(n=('symbol','size'),R1=('net_1bps','sum')).sort_values('R1',ascending=False)
-          total_abs=float(bysym.R1.abs().sum()) or 1.0
-          concentration={'symbols':int(q.symbol.nunique()),'top_symbol_R1':float(bysym.R1.iloc[0]),'top5_abs_R_share':float(bysym.R1.abs().head(5).sum()/total_abs),'top10_abs_R_share':float(bysym.R1.abs().head(10).sum()/total_abs),'top10':bysym.head(10).reset_index().to_dict('records')}
-          report={
-              'status':'WR_MARKET_STATE_PORTFOLIO_GATE_COMPLETE','source_run':32533359788,'selector':'HGB train_pred_q70','rows_total':int(len(df)),'selected_n':int(len(s)),
-              'folds':fold_report,'selected_R1':float(s.net_1bps.sum()),'selected_R2':float(s.net_2bps.sum()),
-              'concurrency_signal_to_exit_conservative':{'peak':int(peak),'max_same_signal':int(same_signal.max()),'p95_same_signal':float(same_signal.quantile(.95))},
-              'correlation':{'pair_count':len(cors),'median_abs_corr':float(np.median(cors)) if cors else None,'p95_abs_corr':float(np.quantile(cors,.95)) if cors else None,'max_abs_corr':float(max(cors)) if cors else None},
-              'concentration':concentration,'portfolios':portfolios,
-              'caveat':'Concurrency uses signal->exit because original feature artifact did not persist entry timestamp; this is conservative. Broker execution gate separately rebuilds entry-level rows.'
-          }
-          (out/'portfolio-gate.json').write_text(json.dumps(report,indent=2,default=str))
-          print(json.dumps(report,indent=2,default=str))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wr-market-state-portfolio-gate-final
-          path: /tmp/final
-          retention-days: 30
+          echo "RETIRED: historical portfolio results were derived from leaked q70 selector run 32533359788."
+          echo "Portfolio methodology may be reused only after a new causal selector passes a preregistered OOS gate."
+          echo "Do not rebuild or promote q70_selected.csv from the invalidated lineage."
