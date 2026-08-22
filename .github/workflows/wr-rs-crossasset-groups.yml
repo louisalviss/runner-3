@@ -1,0 +1,225 @@
+name: WR + RS Cross-Asset Groups
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-rs-crossasset-groups.yml'
+      - 'apps/wave-rider-rsrw/crossasset_rs_mix.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-rs-crossasset-groups-20260823
+  cancel-in-progress: true
+
+env:
+  WR_RS_EMA: '50'
+  WR_CROSSASSET_HELPER: /tmp/crossasset
+
+jobs:
+  fx:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen cross-asset data loader
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - name: Reuse prior WR 5m FX trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-duka-fx-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32441456269
+      - name: Apply transferred RS50 gate to WR trades
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_GROUP_OUT: /tmp/out
+        run: python apps/wave-rider-rsrw/crossasset_rs_mix.py fx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-group-fx
+          path: /tmp/out
+          retention-days: 30
+
+  metal:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen cross-asset data loader
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - name: Reuse prior WR cross-asset trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-duka-full-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32441456274
+      - name: Apply transferred RS50 gate to WR trades
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_GROUP_OUT: /tmp/out
+        run: python apps/wave-rider-rsrw/crossasset_rs_mix.py metal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-group-metal
+          path: /tmp/out
+          retention-days: 30
+
+  index:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen cross-asset data loader
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - name: Reuse prior WR cross-asset trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-duka-full-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32441456274
+      - name: Apply transferred RS50 gate to WR trades
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_GROUP_OUT: /tmp/out
+        run: python apps/wave-rider-rsrw/crossasset_rs_mix.py index
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-group-index
+          path: /tmp/out
+          retention-days: 30
+
+  stock:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen cross-asset data loader
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - name: Reuse prior broad US-stock WR trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-expanded-stock-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32441456293
+      - name: Apply transferred Stock/US500 RS50 gate
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_GROUP_OUT: /tmp/out
+          WR_RS_SHARD: ${{ matrix.shard }}
+          WR_RS_SHARDS: '8'
+        run: python apps/wave-rider-rsrw/crossasset_rs_mix.py stock-shard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-stock-shard-${{ matrix.shard }}
+          path: /tmp/out
+          retention-days: 14
+
+  stock_merge:
+    needs: stock
+    if: always() && needs.stock.result != 'cancelled'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy
+      - name: Fetch helper for module import
+        run: |
+          mkdir -p /tmp/crossasset
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/crossasset/wr_dukascopy_expanded_matrix.py
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-rs-stock-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Reuse prior broad US-stock WR trades for exact aggregate
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-expanded-stock-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32441456293
+      - name: Merge stock shards
+        env:
+          WR_RS_SOURCE_ROOT: /tmp/source
+          WR_RS_GROUP_OUT: /tmp/out
+          WR_RS_MERGE_ROOT: /tmp/all
+        run: python apps/wave-rider-rsrw/crossasset_rs_mix.py stock-merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-group-stock
+          path: /tmp/out
+          retention-days: 30
+
+  final:
+    needs: [fx, metal, index, stock_merge]
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-rs-group-*
+          path: /tmp/groups
+          merge-multiple: false
+      - name: Merge group reports
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('/tmp/groups'); out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          groups={}
+          for p in root.rglob('*-rs-mix.json'):
+              x=json.loads(p.read_text());groups[x['group']]=x
+          report={'status':'COMPLETE' if len(groups)==4 else 'PARTIAL','strategy':'WR + transferred RS50 long-only confirmation','groups':groups}
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          print('GROUPS',list(groups),'STATUS',report['status'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-rs-crossasset-groups-final-${{ github.run_id }}
+          path: /tmp/final
+          retention-days: 30
