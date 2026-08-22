@@ -1,0 +1,105 @@
+name: WR Market State Execution Gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-market-state-execution-gate.yml'
+      - 'wave-rider-verify/wr_market_state_execution_probe.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        symbol: [AAPL,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,AVGO,BKR,CDNS,CMCSA,COST,CPRT,CSCO,CSGP,CSX,CTSH,DXCM,EA,EXC,FANG,FTNT,GILD,GOOG,GOOGL,HON,IDXX,INTC,INTU,ISRG,KHC,LRCX,MAR,MCHP,MDLZ,META,MPWR,MRVL,MSFT,MU,NFLX,NVDA,ODFL,ORLY,PANW,PAYX,PCAR,PEP,PLTR,PYPL,QCOM,REGN,ROST,SBUX,SNPS,TMUS,TSLA,TTWO,TXN,VRTX,WDAY,WDC,WMT,ZS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Rebuild entry-level rows with observed Dukascopy BID ASK
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          WR_OUT: /tmp/wr-market-exec
+        run: python3 wave-rider-verify/wr_market_state_execution_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-market-exec-${{ matrix.symbol }}
+          path: /tmp/wr-market-exec
+          retention-days: 14
+  merge:
+    needs: collect
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-market-exec-*
+          path: /tmp/all
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy scikit-learn
+      - name: Rebuild exact q70 selector and execution stress
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          import numpy as np,pandas as pd
+          from sklearn.pipeline import Pipeline
+          from sklearn.impute import SimpleImputer
+          from sklearn.ensemble import HistGradientBoostingRegressor
+          root=pathlib.Path('/tmp/all');out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          rows=[]
+          for p in root.rglob('exec-*.jsonl'):
+            for ln in p.read_text().splitlines():
+              if ln.strip():rows.append(json.loads(ln))
+          df=pd.DataFrame(rows)
+          FEATURES=['atr_bps','atr_ratio_14_50','range_atr','body_atr','gap_atr','rv20_bps','trend20_atr','efficiency20','location20','session_frac','tf10']
+          def mk():return Pipeline([('imp',SimpleImputer(strategy='median')),('m',HistGradientBoostingRegressor(max_iter=100,learning_rate=0.05,max_depth=2,min_samples_leaf=50,l2_regularization=10.0,random_state=7))])
+          sels=[];folds={}
+          for y in (2024,2025,2026):
+            tr=df[df.year<y].copy();te=df[df.year==y].copy();m=mk();m.fit(tr[FEATURES],tr.net_1bps);ptr=m.predict(tr[FEATURES]);te['pred']=m.predict(te[FEATURES]);thr=float(np.quantile(ptr,.70));sel=te[te.pred>thr].copy();sels.append(sel);folds[str(y)]={'threshold':thr,'n':int(len(sel)),'R1':float(sel.net_1bps.sum()),'R2':float(sel.net_2bps.sum())}
+          s=pd.concat(sels,ignore_index=True);s.to_csv(out/'q70_execution_rows.csv',index=False)
+          def met(vals):
+            a=np.asarray(vals,float);gp=a[a>0].sum();gl=-a[a<0].sum();eq=np.cumsum(a);pk=np.maximum.accumulate(np.r_[0,eq])[1:]
+            return {'n':int(len(a)),'R':float(a.sum()),'avg_R':float(a.mean()) if len(a) else None,'PF':float(gp/gl) if gl>0 else None,'max_DD_R':float((eq-pk).min()) if len(a) else 0.0}
+          valid=s.dropna(subset=['observed_roundtrip_spread_bps','ratio']).copy()
+          scenarios={}
+          # Observed spread is full bid-ask at each endpoint; crossing midpoint costs half at entry + half at exit = average of endpoint full spreads.
+          # Added slippage/commission values below are round-trip bps sensitivity on notional.
+          for slip in (0.0,0.5,1.0,2.0):
+            for comm in (0.0,0.5,1.0,2.0):
+              total=valid.observed_roundtrip_spread_bps+slip+comm
+              net=valid.R-valid.ratio*total/10000.0
+              scenarios[f'slip{slip}_comm{comm}']=met(net)
+          # Verify whether CFD overnight financing applies under canonical forced-session exit.
+          ny_sig=pd.to_datetime(s.signal,unit='ms',utc=True).dt.tz_convert('America/New_York')
+          ny_exit=pd.to_datetime(s['exit'],unit='ms',utc=True).dt.tz_convert('America/New_York')
+          overnight=(ny_sig.dt.date!=ny_exit.dt.date)
+          spread=valid.observed_roundtrip_spread_bps.to_numpy(float)
+          report={'status':'WR_MARKET_STATE_EXECUTION_GATE_COMPLETE','selector':'HGB train_pred_q70','rows':int(len(df)),'selected_n':int(len(s)),'selected_valid_spread_n':int(len(valid)),'folds':folds,
+                  'parity_check':{'R1':float(s.net_1bps.sum()),'R2':float(s.net_2bps.sum())},
+                  'observed_spread_bps':{'median':float(np.median(spread)) if len(spread) else None,'p90':float(np.quantile(spread,.9)) if len(spread) else None,'p95':float(np.quantile(spread,.95)) if len(spread) else None,'p99':float(np.quantile(spread,.99)) if len(spread) else None,'max':float(np.max(spread)) if len(spread) else None},
+                  'overnight':{'n':int(overnight.sum()),'share':float(overnight.mean()) if len(overnight) else None,'financing':'0 for same-session trades; broker-specific financing still required for any overnight rows'},
+                  'scenarios':scenarios,
+                  'interpretation':'Observed Dukascopy BID/ASK is an independent execution proxy, not a named CFD broker quote feed. Final broker-specific gate still requires the chosen broker commission/slippage contract if materially different.'}
+          base=scenarios['slip0.0_comm0.0'];stress=scenarios['slip1.0_comm1.0']
+          report['proxy_verdict']='PASS_EXECUTION_PROXY' if base['R']>0 and (base['PF'] or 0)>1 and stress['R']>0 and (stress['PF'] or 0)>1 else 'FAIL_EXECUTION_PROXY'
+          (out/'execution-gate.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-market-state-execution-gate-final
+          path: /tmp/final
+          retention-days: 30
