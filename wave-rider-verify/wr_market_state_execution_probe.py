@@ -54,34 +54,37 @@ def canonical_mid(bid5,ask5,tf):
     return mid
 
 def run_tf(symbol,tf,bid5,ask5,instrument,manifest):
-    # IMPORTANT: exact OOS parity requires midpoint at 5m first, then strict complete-bucket aggregation.
-    # Never aggregate BID and ASK independently before taking midpoint: max/min can occur on different sub-bars.
+    # Exact OOS parity requires midpoint at 5m first, then strict complete-bucket aggregation.
     mid=canonical_mid(bid5,ask5,tf)
     base,ref=exp.load_modules(tf);group,tick,tz,session=exp.cfg(symbol);base.tv_tick=lambda _i,_v:tick
     bars=exp.to_bars(mid,base.Bar,tf);trades,_=base.run_case(ref,bars,exp.provider_info(symbol),exp.STATE_START.to_pydatetime(),anchor='start',use_session=True);ff=feature_frame(mid,tf,tz)
-    n=0;path=OUT/f'exec-{symbol}-{tf}m.jsonl'
+    n=0;missing=0;path=OUT/f'exec-{symbol}-{tf}m.jsonl'
     with path.open('w') as fh:
         for t in trades:
-            sig=pd.Timestamp(int(t['signal']),unit='ms',tz='UTC'); fts=None;fbar=None
-            for ts in (sig,sig-pd.Timedelta(minutes=tf)):
-                if ts in ff.index:
-                    rr=ff.loc[ts];rr=rr.iloc[-1] if isinstance(rr,pd.DataFrame) else rr
-                    if rr[FEATURES].notna().all():fts=rr;fbar=ts;break
-            if fts is None:continue
+            sig=pd.Timestamp(int(t['signal']),unit='ms',tz='UTC')
+            # Signal timestamp is the signal candle close; mid/ff index is candle open.
+            # Only the just-closed signal candle is causally valid for state features.
+            fbar=sig-pd.Timedelta(minutes=tf)
+            if not fbar < sig:
+                raise AssertionError(f'non-causal feature timestamp {symbol} {tf}m row={fbar} signal={sig}')
+            if fbar not in ff.index:
+                missing+=1;continue
+            fts=ff.loc[fbar];fts=fts.iloc[-1] if isinstance(fts,pd.DataFrame) else fts
+            if not fts[FEATURES].notna().all():
+                missing+=1;continue
             # Stop-entry begins on the next target-TF bar, at timestamp == signal close.
-            # For both 5m and 10m, observed spread at the entry open is available directly on the underlying 5m quote bar.
             ent_ts=sig
             exit_close=pd.Timestamp(int(t['exit']),unit='ms',tz='UTC')
             # Target-TF close is the close of its final 5m constituent bar.
             exit_quote_ts=exit_close-pd.Timedelta(minutes=5)
             ent_sp=spread_bps(bid5,ask5,ent_ts,'open');ex_sp=spread_bps(bid5,ask5,exit_quote_ts,'close')
             ratio=cost_ratio(t)
-            rec={'symbol':symbol,'tf':tf,'signal':int(t['signal']),'exit':int(t['exit']),'side':t.get('side'),'R':float(t['R']),'reason':t.get('reason'),'e':float(t['e']),'s':float(t['s']),'ratio':ratio,'entry_spread_bps':ent_sp,'exit_spread_bps':ex_sp,'year':sig.year,'feature_bar':fbar.isoformat()}
+            rec={'symbol':symbol,'tf':tf,'signal':int(t['signal']),'exit':int(t['exit']),'side':t.get('side'),'R':float(t['R']),'reason':t.get('reason'),'e':float(t['e']),'s':float(t['s']),'ratio':ratio,'entry_spread_bps':ent_sp,'exit_spread_bps':ex_sp,'year':sig.year,'feature_bar':fbar.isoformat(),'feature_lag_minutes':tf}
             rec['observed_roundtrip_spread_bps']=None if ent_sp is None or ex_sp is None else (ent_sp+ex_sp)/2.0
             rec['net_1bps']=float(t['R'])-(ratio or 0)*1/10000;rec['net_2bps']=float(t['R'])-(ratio or 0)*2/10000
             for k in FEATURES:rec[k]=float(fts[k])
             fh.write(json.dumps(rec)+'\n');n+=1
-    print('EXEC_ROWS',symbol,tf,n,flush=True)
+    print('EXEC_ROWS',symbol,tf,n,'MISSING_SIGNAL_BAR_FEATURES',missing,flush=True)
 
 def main():
     symbol=os.environ.get('SYMBOL') or sys.argv[1];bid,ask,instrument,manifest=load_bid_ask(symbol)
