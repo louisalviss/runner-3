@@ -1,0 +1,99 @@
+name: Runner3 Core Shadow Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/runner3-core/**'
+      - '.github/workflows/runner3-core-deploy.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-core-shadow-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create/reuse D1 and configure binding
+        id: d1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          token=os.environ['CLOUDFLARE_API_TOKEN']; account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/d1/database'
+          h={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          def call(url, method='GET', body=None):
+            req=urllib.request.Request(url,data=(json.dumps(body).encode() if body else None),headers=h,method=method)
+            with urllib.request.urlopen(req,timeout=30) as r: return json.load(r)
+          data=call(base)
+          db=next((x for x in data.get('result',[]) if x.get('name')=='runner3-core'),None)
+          if not db:
+            db=call(base,'POST',{'name':'runner3-core'}).get('result')
+          uuid=db.get('uuid') or db.get('id')
+          if not uuid: raise SystemExit('D1 database id missing')
+          p='cloudflare/runner3-core/wrangler.jsonc'
+          cfg=json.load(open(p)); cfg['d1_databases'][0]['database_id']=uuid
+          open(p,'w').write(json.dumps(cfg,indent=2)+'\n')
+          open('/tmp/d1-id','w').write(uuid)
+          PY
+
+      - name: Apply D1 migration
+        working-directory: cloudflare/runner3-core
+        run: npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0001_init.sql
+
+      - name: Deploy shadow Worker
+        id: deploy
+        working-directory: cloudflare/runner3-core
+        run: npx --yes wrangler@4 deploy
+
+      - name: Smoke test Worker and D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://runner3-core.${CLOUDFLARE_ACCOUNT_ID}.workers.dev"
+          # workers.dev subdomain is account-specific and not necessarily account id; discover from deploy output if possible.
+          DEPLOY_URL=$(cd cloudflare/runner3-core && npx --yes wrangler@4 deployments status 2>/dev/null | grep -Eo 'https://[^ ]+workers.dev' | head -1 || true)
+          if [ -n "$DEPLOY_URL" ]; then URL="$DEPLOY_URL"; fi
+          echo "Smoke target: $URL"
+          curl -fsS --retry 3 "$URL/health" >/tmp/health.json || true
+          printf '{"source":"runner3-core-shadow","event_type":"health","payload":{"status":"ok"}}' >/tmp/event.json
+          curl -fsS --retry 2 -X POST -H 'content-type: application/json' --data-binary @/tmp/event.json "$URL/events" >/tmp/post.json || true
+          curl -fsS --retry 2 "$URL/events/latest" >/tmp/latest.json || true
+
+      - name: Persist D1 binding only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          cp cloudflare/runner3-core/wrangler.jsonc /tmp/runner3-core-wrangler.jsonc
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            cp /tmp/runner3-core-wrangler.jsonc cloudflare/runner3-core/wrangler.jsonc
+            git add cloudflare/runner3-core/wrangler.jsonc
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner3 Core D1 binding [skip ci]'
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
