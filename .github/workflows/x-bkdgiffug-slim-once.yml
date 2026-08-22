@@ -1,0 +1,60 @@
+name: X bkdgiffug slim once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-bkdgiffug-slim-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-slim
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch tweet via Runner-3 fast source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runner-output
+          curl -fsSL --max-time 15 \
+            -H 'User-Agent: runner-3-x-fast/1.0' \
+            'https://api.fxtwitter.com/bkdgiffug/status/2091073890059718861' \
+            -o runner-output/bkdgiffug-2091073890059718861-fxtwitter.json
+          python3 - <<'PY'
+          import json
+          p='runner-output/bkdgiffug-2091073890059718861-fxtwitter.json'
+          d=json.load(open(p,encoding='utf-8'))
+          if int(d.get('code',0)) != 200:
+              raise SystemExit(d)
+          t=d.get('tweet') or d.get('status') or {}
+          print(json.dumps({
+              'author': (t.get('author') or {}).get('screen_name'),
+              'text': t.get('text'),
+              'created_at': t.get('created_at'),
+              'likes': t.get('likes'),
+              'retweets': t.get('retweets'),
+              'replies': t.get('replies'),
+              'views': t.get('views'),
+              'quote': t.get('quote')
+          }, ensure_ascii=False, indent=2))
+          PY
+      - name: Persist result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add runner-output/bkdgiffug-2091073890059718861-fxtwitter.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Store bkdgiffug X result [skip ci]'
+          for n in 1 2 3; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep "$n"
+          done
+          exit 1
