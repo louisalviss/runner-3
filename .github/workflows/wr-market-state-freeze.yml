@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
   actions: read
+concurrency:
+  group: wr-market-state-freeze
+  cancel-in-progress: true
 jobs:
   freeze:
     runs-on: ubuntu-latest
