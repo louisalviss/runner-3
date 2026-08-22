@@ -1,14 +1,6 @@
-name: WR Causal Structure Diagnostic
+name: WR Causal Structure Diagnostic (MANUAL)
 
 on:
-  push:
-    branches: [wr-canonical-clean2-20260821]
-    paths:
-      - '.github/workflows/wr-causal-structure-diagnostic.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/wr-causal-structure-diagnostic.yml'
   workflow_dispatch:
 
 permissions:
@@ -72,9 +64,24 @@ jobs:
 
           def evaluate(name, train_mask, oos_mask, meta=None):
               tr=train[train_mask].copy(); te=oos[oos_mask].copy()
-              return {'name':name,'meta':meta or {},'train':{'net_1bps':metrics(tr),'by_year':{str(y):metrics(tr[tr.year==y]) for y in [2022,2023]}},'oos':{'net_1bps':metrics(te),'net_2bps':metrics(te,'net_2bps'),'by_year':{str(y):{'net_1bps':metrics(te[te.year==y]),'net_2bps':metrics(te[te.year==y],'net_2bps')} for y in years},'breadth':breadth(te)},'retention_oos':float(len(te)/len(oos)) if len(oos) else 0.0}
+              return {
+                  'name':name,'meta':meta or {},
+                  'train':{'net_1bps':metrics(tr),'by_year':{str(y):metrics(tr[tr.year==y]) for y in [2022,2023]}},
+                  'oos':{'net_1bps':metrics(te),'net_2bps':metrics(te,'net_2bps'),'by_year':{str(y):{'net_1bps':metrics(te[te.year==y]),'net_2bps':metrics(te[te.year==y],'net_2bps')} for y in years},'breadth':breadth(te)},
+                  'retention_train':float(len(tr)/len(train)) if len(train) else 0.0,
+                  'retention_oos':float(len(te)/len(oos)) if len(oos) else 0.0,
+              }
 
-          report={'status':'WR_CAUSAL_STRUCTURE_DIAGNOSTIC','source_run':32589994695,'source_sha':'aba9f3b8ca227302e043c204cdd81f9fab97143b','rows':int(len(df)),'symbols':int(df.symbol.nunique()),'train_window':'2022-2023','oos_window':'2024-2026','causal_contract':'feature_lag_minutes == tf; thresholds learned only from 2022-2023','baseline':{},'structural_rules':[],'univariate_rules':[],'train_selected_candidates':[]}
+          report={
+              'status':'WR_CAUSAL_STRUCTURE_DIAGNOSTIC_EXPLORATORY',
+              'source_run':32589994695,
+              'source_sha':'aba9f3b8ca227302e043c204cdd81f9fab97143b',
+              'rows':int(len(df)),'symbols':int(df.symbol.nunique()),
+              'train_window':'2022-2023','oos_window':'2024-2026',
+              'causal_contract':'feature_lag_minutes == tf; thresholds learned only from 2022-2023',
+              'selection_contract':'candidate eligibility uses TRAIN ONLY: train retention, n, PF and 2022/2023 R; OOS retention/performance are report-only',
+              'baseline':{},'structural_rules':[],'univariate_rules':[],'train_selected_candidates':[]
+          }
           report['baseline']={'train':metrics(train),'oos':metrics(oos),'oos_2bps':metrics(oos,'net_2bps'),'by_year':{str(y):{'net_1bps':metrics(df[df.year==y]),'net_2bps':metrics(df[df.year==y],'net_2bps')} for y in sorted(df.year.unique())},'by_tf':{str(tf):{'oos':metrics(oos[oos.tf==tf]),'oos_2bps':metrics(oos[oos.tf==tf],'net_2bps')} for tf in sorted(df.tf.unique())}}
 
           report['structural_rules'] += [evaluate('TF_5m',train.tf==5,oos.tf==5,{'family':'timeframe'}),evaluate('TF_10m',train.tf==10,oos.tf==10,{'family':'timeframe'})]
@@ -94,7 +101,7 @@ jobs:
           eligible=[]
           for r in rules:
               tr=r['train']['net_1bps']; yrs=r['train']['by_year']
-              if r['retention_oos'] < 0.10 or tr['n'] < 500: continue
+              if r['retention_train'] < 0.10 or tr['n'] < 500: continue
               if not all(yrs[str(y)]['R']>0 for y in [2022,2023]): continue
               if not tr['PF'] or tr['PF']<=1: continue
               eligible.append(r)
@@ -112,14 +119,14 @@ jobs:
           report['diagnostic_top_oos']=[r['name'] for r in sorted(allr,key=lambda r:r['oos']['net_1bps']['R'],reverse=True)[:20]]
           (out/'wr-causal-structure-diagnostic.json').write_text(json.dumps(report,indent=2))
 
-          lines=['# WR Causal Structure Diagnostic',f"Rows: {len(df)} | Symbols: {df.symbol.nunique()} | Source run: 32589994695",'Thresholds frozen from 2022-2023; evaluated on 2024-2026. Exploratory historical pseudo-OOS, not untouched forward OOS.','','## Baseline']
+          lines=['# WR Causal Structure Diagnostic',f"Rows: {len(df)} | Symbols: {df.symbol.nunique()} | Source run: 32589994695",'Selection eligibility is TRAIN-ONLY (2022-2023). OOS 2024-2026 is report-only. This remains exploratory historical pseudo-OOS, not untouched forward OOS.','','## Baseline']
           for y in years:
               m=report['baseline']['by_year'][str(y)]['net_1bps']; lines.append(f"- {y}: n={m['n']} R={m['R']:.2f} PF={m['PF']:.3f}")
           lines += ['','## Training-only selected candidates']
           if not eligible: lines.append('- NONE')
           for r in eligible[:15]:
-              o=r['oos']['net_1bps']; b=r['oos']['breadth']; by=r['oos']['by_year']; lines.append(f"- {r['name']}: OOS n={o['n']} R1={o['R']:.2f} PF={o['PF']:.3f}; R2={r['oos']['net_2bps']['R']:.2f}; yearly="+', '.join(f"{y}:{by[str(y)]['net_1bps']['R']:.2f}" for y in years)+f"; +symbols={b['positive_symbols']}/{b['symbols']}; top5_abs_share={b['top5_absR_share']:.3f}")
-          lines += ['','## Top diagnostic rules by OOS R (exploratory only)']
+              o=r['oos']['net_1bps']; b=r['oos']['breadth']; by=r['oos']['by_year']; lines.append(f"- {r['name']}: train_ret={r['retention_train']:.3f}; OOS n={o['n']} R1={o['R']:.2f} PF={o['PF']:.3f}; R2={r['oos']['net_2bps']['R']:.2f}; yearly="+', '.join(f"{y}:{by[str(y)]['net_1bps']['R']:.2f}" for y in years)+f"; +symbols={b['positive_symbols']}/{b['symbols']}; top5_abs_share={b['top5_absR_share']:.3f}")
+          lines += ['','## Top diagnostic rules by OOS R (exploratory only; never candidate-selection input)']
           for r in sorted(allr,key=lambda r:r['oos']['net_1bps']['R'],reverse=True)[:20]:
               o=r['oos']['net_1bps']; b=r['oos']['breadth']; by=r['oos']['by_year']; lines.append(f"- {r['name']}: n={o['n']} R1={o['R']:.2f} PF={o['PF']:.3f}; R2={r['oos']['net_2bps']['R']:.2f}; yearly="+', '.join(f"{y}:{by[str(y)]['net_1bps']['R']:.2f}" for y in years)+f"; +symbols={b['positive_symbols']}/{b['symbols']}; top5_abs_share={b['top5_absR_share']:.3f}")
           (out/'wr-causal-structure-diagnostic.md').write_text('\n'.join(lines)+'\n')
