@@ -1,14 +1,44 @@
 {
-  "status": "deploy-only",
-  "checkedAt": "2026-08-22T11:11:11.744173Z",
+  "status": "ok",
+  "checkedAt": "2026-08-22T11:46:06.874638Z",
   "workerUrl": "https://runner3-rss-fastlane.ducduy2411.workers.dev",
-  "runId": 32569545471,
+  "branch": "main",
+  "sourceSha": "412eb3f1ba8006b9e64f3b634dcd187cb8daf0c1",
+  "runId": 32569545482,
   "health": {
     "ok": true,
     "service": "runner3-rss-fastlane",
     "entrypoint": "index-get.js",
     "r2Bound": true
   },
-  "test": null,
-  "runner": "ubuntu-24.04-arm"
+  "test": {
+    "ok": true,
+    "requestId": "verify-fulcrum-noema-32569545482",
+    "serviceVersion": "2026-08-22.1",
+    "workerElapsedMs": 2108,
+    "wallMs": 2571,
+    "fetchedCount": 2,
+    "errorCount": 0,
+    "artifact": {
+      "key": "rss-analysis/2026-08-22/5e749589708be0cfe72d65deef4a8042cb1d4efaebc9cd24bedcdf0f31f1859f.json",
+      "stored": true,
+      "expiresAt": "2026-08-29T11:46:06.419Z"
+    },
+    "fetched": [
+      {
+        "displayIndex": 15,
+        "sourceKey": "fulcrum",
+        "route": "direct",
+        "chars": 23238,
+        "truncated": false
+      },
+      {
+        "displayIndex": 17,
+        "sourceKey": "noema",
+        "route": "direct",
+        "chars": 16338,
+        "truncated": false
+      }
+    ]
+  }
 }
