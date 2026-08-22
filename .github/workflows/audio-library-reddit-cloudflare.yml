@@ -8,8 +8,6 @@ on:
       - 'apps/audio-chatgpt-bridge/**'
       - 'scripts/audio_library_extract_reddit_via_cloudflare.py'
       - '.github/workflows/audio-library-reddit-cloudflare.yml'
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_run:
     workflows: ['Audio Library Chat Intake', 'Audio Library ChatGPT Bridge Deploy']
     types: [completed]
@@ -89,7 +87,7 @@ jobs:
           Path('ops/audio-library/reddit-cloudflare-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
           git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add ops/audio-library/chatgpt-inbox/*.json 2>/dev/null || true
           git add ops/audio-library/reddit-cloudflare-status.json
           git diff --cached --quiet && exit 0
