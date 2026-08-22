@@ -1,10 +1,19 @@
 {
-  "checkedAt": "2026-08-22T16:24:01.088884Z",
+  "checkedAt": "2026-08-22T16:25:32.250939Z",
   "window": {
     "startUtc": "2026-08-22T00:00:00Z",
-    "endUtc": "2026-08-22T16:24:01.088884Z"
+    "endUtc": "2026-08-22T16:25:32.250939Z",
+    "dateUtc": "2026-08-22"
   },
-  "workersFreeDailyRequestLimit": 100000,
+  "freeTierLimits": {
+    "workersRequestsPerDay": 100000,
+    "kvReadsPerDay": 100000,
+    "kvWritesPerDay": 1000,
+    "kvDeletesPerDay": 1000,
+    "kvListsPerDay": 1000,
+    "d1RowsReadPerDay": 5000000,
+    "d1RowsWrittenPerDay": 100000
+  },
   "inventory": {
     "workersHttp": 200,
     "workers": [
@@ -37,15 +46,24 @@
       "trans-file",
       "mind-canvas",
       "veoremove"
-    ]
+    ],
+    "kvHttp": 200,
+    "kvNamespaces": [
+      "ocr-pdf-jobs-v2",
+      "rss-proxy-rss-store",
+      "ocr-pdf-jobsv2",
+      "ocr-pdf-jobs"
+    ],
+    "d1Http": 200,
+    "d1Databases": []
   },
-  "analytics": {
+  "graphql": {
     "http": 200,
-    "ok": true,
-    "errors": [],
-    "rowCount": 14,
-    "requestsToday": 1159,
-    "requestLimitPct": 1.16,
+    "errors": []
+  },
+  "workers": {
+    "requestsToday": 1169,
+    "requestLimitPct": 1.17,
     "errorsToday": 2,
     "subrequestsToday": 2709,
     "byScript": [
@@ -81,7 +99,7 @@
       },
       {
         "script": "runner3-audio-library",
-        "requests": 12,
+        "requests": 22,
         "errors": 0,
         "subrequests": 0
       },
@@ -116,5 +134,33 @@
         "subrequests": 0
       }
     ]
+  },
+  "kv": {
+    "operationsToday": {
+      "read": 590,
+      "write": 590,
+      "delete": 0,
+      "list": 0,
+      "other": 0
+    },
+    "limitPct": {
+      "read": 0.59,
+      "write": 59.0,
+      "delete": 0.0,
+      "list": 0.0
+    }
+  },
+  "d1": {
+    "totalsToday": {
+      "readQueries": 0,
+      "writeQueries": 0,
+      "rowsRead": 0,
+      "rowsWritten": 0
+    },
+    "limitPct": {
+      "rowsRead": 0.0,
+      "rowsWritten": 0.0
+    },
+    "byDatabaseId": {}
   }
 }
