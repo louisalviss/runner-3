@@ -1,0 +1,84 @@
+name: Runner5 OceanWP Full Site Restore
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-oceanwp-fullsite-restore.yml'
+      - 'scripts/runner5-oceanwp-official-import.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: runner5-oceanwp-fullsite-restore
+  cancel-in-progress: true
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY || secrets.CLOUDFLARE_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Decrypt Wasmer account state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}" || { echo 'Missing automation key' >&2; exit 3; }
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/wasmer/state.automation.aes \
+            -out /tmp/wasmer-account.json
+          chmod 600 /tmp/wasmer-account.json
+
+      - name: Prepare browser runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.58.2
+          CHROME_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$CHROME_PATH" ]; then
+            npm install --no-save playwright@1.58.2
+            npx playwright install --with-deps chromium
+            CHROME_PATH="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
+          fi
+          test -x "$CHROME_PATH" || { echo "Chrome executable unavailable: $CHROME_PATH" >&2; exit 4; }
+          echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
+
+      - name: Install full OceanWP Travel demo
+        run: node scripts/runner5-oceanwp-official-import.mjs
+
+      - name: Persist verified status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=/tmp/runner5-oceanwp-official-demo.json
+          test -s "$status" || printf '{"status":"RUNNER_ERROR","detail":"status_missing"}\n' > "$status"
+          cp "$status" /tmp/runner5-oceanwp-official-demo-safe.json
+          rm -f /tmp/wasmer-account.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/runner5-oceanwp-official-demo-safe.json ops/wordpress-access/runner5-oceanwp-official-demo.json
+            git add ops/wordpress-access/runner5-oceanwp-official-demo.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'Persist Runner5 OceanWP full-site restore status'
+            if git push origin HEAD:main; then break; fi
+            sleep 2
+          done
+
+      - name: Refresh public proxy
+        if: success()
+        run: gh workflow run deploy-runner5-restore-proxy.yml --ref main
