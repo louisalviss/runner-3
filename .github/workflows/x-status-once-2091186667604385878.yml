@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
@@ -21,9 +21,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install -q 'playwright>=1.46,<2' requests
-          mkdir -p evidence
+          mkdir -p evidence runner-output
           python3 - <<'PY'
-          import json, pathlib, requests, re
+          import json, pathlib, requests
           from playwright.sync_api import sync_playwright
 
           status_id='2091186667604385878'
@@ -31,56 +31,51 @@ jobs:
           ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151 Safari/537.36'
           out={'status_id':status_id,'url':xurl,'attempts':[]}
 
-          # Direct HTTP to X
           try:
             r=requests.get(xurl,headers={'User-Agent':ua,'Accept-Language':'en-US,en;q=0.9'},timeout=20,allow_redirects=True)
             out['attempts'].append({'method':'x_http','status':r.status_code,'final_url':r.url,'bytes':len(r.content),'text_prefix':r.text[:4000]})
-          except Exception as e:
-            out['attempts'].append({'method':'x_http','error':repr(e)})
+          except Exception as e: out['attempts'].append({'method':'x_http','error':repr(e)})
 
-          # Official publish/oEmbed endpoint
           try:
-            o='https://publish.twitter.com/oembed'
-            r=requests.get(o,params={'url':xurl,'omit_script':'1','dnt':'1'},headers={'User-Agent':ua},timeout=20)
+            r=requests.get('https://publish.twitter.com/oembed',params={'url':xurl,'omit_script':'1','dnt':'1'},headers={'User-Agent':ua},timeout=20)
             item={'method':'official_oembed','status':r.status_code,'final_url':r.url,'bytes':len(r.content),'text_prefix':r.text[:10000]}
             try:item['json']=r.json()
             except:pass
             out['attempts'].append(item)
-          except Exception as e:
-            out['attempts'].append({'method':'official_oembed','error':repr(e)})
+          except Exception as e: out['attempts'].append({'method':'official_oembed','error':repr(e)})
 
-          # Browser render on X
           try:
             with sync_playwright() as p:
               b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
               c=b.new_context(viewport={'width':1280,'height':1600},user_agent=ua,locale='en-US')
-              page=c.new_page()
-              resp=page.goto(xurl,wait_until='domcontentloaded',timeout=30000)
-              page.wait_for_timeout(7000)
-              text=page.locator('body').inner_text(timeout=5000)
-              html=page.content()
-              pathlib.Path('evidence/x-page.html').write_text(html,encoding='utf-8')
-              page.screenshot(path='evidence/x-page.png',full_page=True)
+              page=c.new_page(); resp=page.goto(xurl,wait_until='domcontentloaded',timeout=30000); page.wait_for_timeout(7000)
+              text=page.locator('body').inner_text(timeout=5000); html=page.content()
+              pathlib.Path('evidence/x-page.html').write_text(html,encoding='utf-8'); page.screenshot(path='evidence/x-page.png',full_page=True)
               out['attempts'].append({'method':'x_browser','status':resp.status if resp else None,'final_url':page.url,'title':page.title(),'body_chars':len(text),'text_prefix':text[:12000]})
               c.close(); b.close()
-          except Exception as e:
-            out['attempts'].append({'method':'x_browser','error':repr(e)})
+          except Exception as e: out['attempts'].append({'method':'x_browser','error':repr(e)})
 
-          # Public metadata fallback, only if X/oEmbed do not expose usable tweet text.
           try:
             r=requests.get('https://api.fxtwitter.com/status/'+status_id,headers={'User-Agent':ua},timeout=20)
             item={'method':'fxtwitter_fallback','status':r.status_code,'bytes':len(r.content),'text_prefix':r.text[:12000]}
             try:item['json']=r.json()
             except:pass
             out['attempts'].append(item)
-          except Exception as e:
-            out['attempts'].append({'method':'fxtwitter_fallback','error':repr(e)})
+          except Exception as e: out['attempts'].append({'method':'fxtwitter_fallback','error':repr(e)})
 
-          pathlib.Path('evidence/result.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
-          print('RUNNER_X_RESULT_START')
-          print(json.dumps(out,ensure_ascii=False))
-          print('RUNNER_X_RESULT_END')
+          payload=json.dumps(out,ensure_ascii=False,indent=2)
+          pathlib.Path('evidence/result.json').write_text(payload,encoding='utf-8')
+          pathlib.Path('runner-output/x-status-2091186667604385878.json').write_text(payload,encoding='utf-8')
+          print('RUNNER_X_RESULT_START'); print(json.dumps(out,ensure_ascii=False)); print('RUNNER_X_RESULT_END')
           PY
+      - name: Persist result to repo
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add runner-output/x-status-2091186667604385878.json
+          git diff --cached --quiet || git commit -m 'data: Runner-3 X status 2091186667604385878'
+          git push
       - uses: actions/upload-artifact@v4
         if: always()
         with:
