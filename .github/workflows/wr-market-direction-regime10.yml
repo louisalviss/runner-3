@@ -1,0 +1,51 @@
+name: WR Market Direction Regime 10m
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-market-direction-regime10.yml'
+      - 'apps/wave-rider-research/market_direction_regime10.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-market-direction-regime10-20260823
+  cancel-in-progress: true
+
+env:
+  WR_HELPER_DIR: /tmp/wr-helper
+  WR_SOURCE_ROOT: /tmp/source
+  WR_OUT: /tmp/out
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -q pandas numpy requests websocket-client dukascopy-python
+      - name: Fetch frozen causal market-data loader
+        run: |
+          mkdir -p /tmp/wr-helper
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/aba9f3b8ca227302e043c204cdd81f9fab97143b/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-helper/wr_dukascopy_expanded_matrix.py
+      - name: Reuse frozen WR 10m trade artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-fusion-ndx-*
+          path: /tmp/source
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32507430808
+      - name: Test preregistered causal US500 EMA200 direction gate
+        run: python apps/wave-rider-research/market_direction_regime10.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-market-direction-regime10-${{ github.run_id }}
+          path: /tmp/out
+          retention-days: 30
