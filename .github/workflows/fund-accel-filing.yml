@@ -1,0 +1,26 @@
+name: Filing Fundamental Acceleration
+
+on:
+  pull_request:
+    paths:
+      - 'research/ema200w_20260823/fund_accel_filing.py'
+      - '.github/workflows/fund-accel-filing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pandas numpy requests pyarrow
+      - name: Run filing acceleration decomposition
+        working-directory: research/ema200w_20260823
+        run: python fund_accel_filing.py
