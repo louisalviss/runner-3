@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   run:
@@ -24,10 +25,48 @@ jobs:
       - name: Run decomposition
         working-directory: research/ema200w_20260823
         run: python core_edge_decompose.py
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-edge-decompose-results
-          path: research/ema200w_20260823/artifacts/core_edge_decompose
-          if-no-files-found: error
-          retention-days: 3
+      - name: Publish compact metrics to commit statuses
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          import pandas as pd
+
+          base = 'research/ema200w_20260823/artifacts/core_edge_decompose'
+          s = pd.read_csv(f'{base}/summary.csv')
+          meta = json.load(open(f'{base}/meta.json'))
+          token, repo, sha = os.environ['GH_TOKEN'], os.environ['REPO'], os.environ['SHA']
+          url = f'https://api.github.com/repos/{repo}/statuses/{sha}'
+
+          def post(context, description):
+              body = json.dumps({
+                  'state': 'success',
+                  'context': context[:100],
+                  'description': description[:140],
+                  'target_url': os.environ['RUN_URL'],
+              }).encode()
+              req = urllib.request.Request(url, data=body, method='POST', headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json',
+              })
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  r.read()
+
+          for _, r in s.iterrows():
+              st = str(r['strategy']).replace('Dip10_20+','').replace('Dip10_20','Dip')
+              sl = 'disc' if str(r['slice']).startswith('discovery') else 'val'
+              h = int(r['horizon'])
+              desc = (f"n={int(r['n'])};win={100*r['win_rate']:.2f};med={100*r['median_return']:.2f};"
+                      f"medex={100*r['median_excess']:.2f};beat={100*r['beat_matched']:.2f};"
+                      f"meanex={100*r['mean_excess']:.2f};ci={100*r['ci_lo']:.2f},{100*r['ci_hi']:.2f}")
+              post(f'research/core-edge/{sl}/{st}/{h}w', desc)
+          post('research/core-edge/meta',
+               f"symbols={meta['member_symbols']};cik={meta['cik_mapped']};snaps={meta['snapshot_rows']};fails={meta['failed_symbols']};sec={meta['elapsed_sec']:.0f}")
+          PY
