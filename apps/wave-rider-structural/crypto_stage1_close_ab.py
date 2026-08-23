@@ -124,19 +124,25 @@ def reconstruct_stage1(bars,is_tradifi=False):
     cts=[b.ct for b in bars]; qv_prefix=[0.0]
     for b in bars:qv_prefix.append(qv_prefix[-1]+b.qv)
     da=daily_agg(bars); days=sorted(da)
+    daily_state={}
+    for i,d in enumerate(days):
+        if i<14: continue
+        p14=days[i-14:i]; p10=days[i-10:i]; p7=days[i-7:i]
+        daily_state[d]={
+            'avg10':sum(da[z]['usd_volume_proxy'] for z in p10)/10.0,
+            'vol7':sum((da[z]['high']-da[z]['low'])/abs(da[z]['low']) for z in p7 if da[z]['low']!=0)/7.0,
+            'hi14':sum(da[z]['high'] for z in p14)/14.0,
+            'lo14':sum(da[z]['low'] for z in p14)/14.0,
+        }
     firstq={}; rows=[]
     for session_date,label,ms in CHECKPOINTS:
         j=bisect.bisect_right(cts,ms)-1
         if j<0: continue
         lo=bisect.bisect_left(cts,ms-24*3600*1000)
         qv24=qv_prefix[j+1]-qv_prefix[lo]
-        cur=bars[j].c; utc_day=datetime.fromtimestamp(ms/1000,tz=timezone.utc).date()
-        prior=[d for d in days if d<utc_day]
-        if len(prior)<14: continue
-        last14=prior[-14:]; last10=prior[-10:]; last7=prior[-7:]
-        avg10=sum(da[d]['usd_volume_proxy'] for d in last10)/10.0
-        vol7=sum((da[d]['high']-da[d]['low'])/abs(da[d]['low']) for d in last7 if da[d]['low']!=0)/7.0
-        adr14=(sum(da[d]['high'] for d in last14)/14.0-sum(da[d]['low'] for d in last14)/14.0)/cur if cur else 0.0
+        cur=bars[j].c; utc_day=datetime.fromtimestamp(ms/1000,tz=timezone.utc).date(); st=daily_state.get(utc_day)
+        if st is None: continue
+        avg10=st['avg10']; vol7=st['vol7']; adr14=(st['hi14']-st['lo14'])/cur if cur else 0.0
         data_alive=(ms-bars[j].ct)<=10*60*1000
         qualified=bool(data_alive and not is_tradifi and qv24>=100_000_000 and avg10>200_000_000 and vol7>0.06 and adr14>=0.05)
         rows.append({'session_date':session_date,'checkpoint':label,'ts':ms,'qv24':qv24,'avg_usd_volume_10d':avg10,'volatility_7d':vol7,'adr14':adr14,'current_close':cur,'data_alive':data_alive,'current_tradifi':is_tradifi,'qualified':qualified})
