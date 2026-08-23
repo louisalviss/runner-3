@@ -1,0 +1,34 @@
+name: Wasmer User Email Schema Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-user-email-schema-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/q.json <<'JSON'
+          {"query":"query { user: __type(name: \"User\") { fields { name type { kind name ofType { kind name } } } } query: __type(name: \"Query\") { fields { name args { name type { kind name ofType { kind name } } } type { kind name ofType { kind name } } } } }"}
+          JSON
+          curl -sS https://registry.wasmer.io/graphql -H 'content-type: application/json' --data-binary @/tmp/q.json -o /tmp/raw.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/raw.json')); d=x.get('data') or {}
+          uf=((d.get('user') or {}).get('fields') or [])
+          qf=((d.get('query') or {}).get('fields') or [])
+          out={'status':'ok','userFields':[f for f in uf if any(k in f.get('name','').lower() for k in ['email','username','name','id'])], 'queryFields':[f for f in qf if 'user' in f.get('name','').lower() or 'namespace' in f.get('name','').lower()]}
+          open('/tmp/o.json','w').write(json.dumps(out,indent=2))
+          PY
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main; mkdir -p ops/wasmer; cp /tmp/o.json ops/wasmer/user-email-schema-probe.json; git add ops/wasmer/user-email-schema-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer user email schema probe'; git push origin HEAD:main; fi
