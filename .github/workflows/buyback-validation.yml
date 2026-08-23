@@ -18,5 +18,20 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install requests pandas numpy
+      - name: Apply pandas 3 datetime compatibility patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('research/buyback_20260824/buyback_validation.py')
+          s = p.read_text()
+          old1 = 'x["map_date"] = pd.to_datetime(x["FILING_DATE"], format="%d-%b-%Y", errors="coerce")'
+          new1 = 'x["map_date"] = pd.to_datetime(x["FILING_DATE"], format="%d-%b-%Y", errors="coerce").astype("datetime64[ns]")'
+          old2 = 'rows[c] = pd.to_datetime(rows.get(c), errors="coerce")'
+          new2 = 'rows[c] = pd.to_datetime(rows.get(c), errors="coerce").astype("datetime64[ns]")'
+          if old1 not in s or old2 not in s:
+              raise SystemExit('datetime compatibility patch target missing')
+          s = s.replace(old1, new1).replace(old2, new2)
+          p.write_text(s)
+          PY
       - name: Run preregistered buyback validation
         run: python research/buyback_20260824/buyback_validation.py
