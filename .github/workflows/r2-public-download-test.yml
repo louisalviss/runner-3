@@ -1,0 +1,130 @@
+name: R2 Public Download Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/r2-public-download-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: runner3-direct-download-test
+      SOURCE_URL: https://clck.ru/3VF4zY
+      OBJECT_KEY: test.apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download source and publish to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 \
+            -o /tmp/source.bin "$SOURCE_URL"
+          test -s /tmp/source.bin
+
+          create_code=$(curl -sS -o /tmp/create-bucket.json -w '%{http_code}' \
+            -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" \
+            "${auth[@]}" -H 'Content-Type: application/json' \
+            --data "{\"name\":\"${BUCKET}\"}")
+          if [ "$create_code" != "200" ] && [ "$create_code" != "201" ]; then
+            if ! grep -qiE 'already|exist|conflict' /tmp/create-bucket.json; then
+              cat /tmp/create-bucket.json
+              exit 1
+            fi
+          fi
+
+          upload_code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' \
+            -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/objects/${OBJECT_KEY}" \
+            "${auth[@]}" \
+            -H 'Content-Type: application/vnd.android.package-archive' \
+            -H 'Content-Disposition: attachment; filename="test.apk"' \
+            --data-binary @/tmp/source.bin)
+          test "$upload_code" = "200"
+
+          managed_code=$(curl -sS -o /tmp/managed-set.json -w '%{http_code}' \
+            -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/domains/managed" \
+            "${auth[@]}" -H 'Content-Type: application/json' \
+            --data '{"enabled":true}')
+          test "$managed_code" = "200"
+
+          curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/domains/managed" \
+            "${auth[@]}" > /tmp/managed.json
+
+          DOMAIN=$(python - <<'PY'
+          import json
+          d=json.load(open('/tmp/managed.json'))
+          print((d.get('result') or {}).get('domain') or '')
+          PY
+          )
+          test -n "$DOMAIN"
+          PUBLIC_URL="https://${DOMAIN}/${OBJECT_KEY}"
+
+          ok=false
+          http_code=''
+          for i in 1 2 3 4 5 6; do
+            http_code=$(curl -sS -L -o /tmp/verify.bin -w '%{http_code}' "$PUBLIC_URL" || true)
+            if [ "$http_code" = "200" ] && [ -s /tmp/verify.bin ]; then
+              if cmp -s /tmp/source.bin /tmp/verify.bin; then ok=true; break; fi
+            fi
+            sleep 3
+          done
+
+          SRC_SHA=$(sha256sum /tmp/source.bin | awk '{print $1}')
+          SRC_SIZE=$(stat -c '%s' /tmp/source.bin)
+          VERIFY_SHA=''
+          VERIFY_SIZE='0'
+          if [ -f /tmp/verify.bin ]; then
+            VERIFY_SHA=$(sha256sum /tmp/verify.bin | awk '{print $1}')
+            VERIFY_SIZE=$(stat -c '%s' /tmp/verify.bin)
+          fi
+
+          mkdir -p ops
+          python - <<PY
+          import json, datetime
+          out={
+            'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'bucket': '${BUCKET}',
+            'objectKey': '${OBJECT_KEY}',
+            'publicUrl': '${PUBLIC_URL}',
+            'managedDomain': '${DOMAIN}',
+            'httpCode': '${http_code}',
+            'sourceSize': int('${SRC_SIZE}'),
+            'verifySize': int('${VERIFY_SIZE}'),
+            'sourceSha256': '${SRC_SHA}',
+            'verifySha256': '${VERIFY_SHA}',
+            'byteIdentical': ${ok},
+          }
+          open('ops/r2-public-download-test.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+          test "$ok" = true
+
+      - name: Publish test result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/r2-public-download-test.json || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/r2-public-download-test.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish R2 direct-download test [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
