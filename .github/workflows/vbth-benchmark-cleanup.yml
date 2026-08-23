@@ -1,0 +1,33 @@
+name: VBTH Benchmark Cleanup
+on:
+  push:
+    paths:
+      - '.github/workflows/vbth-benchmark-cleanup.yml'
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove only temporary VBTH benchmark files
+        run: |
+          rm -rf vbth_bench
+          rm -f .github/workflows/vbth-minimal-model-bench.yml
+          rm -f .github/workflows/vbth-bench-smoke.yml
+          rm -f .github/workflows/vbth-benchmark-cleanup.yml
+      - name: Commit cleanup safely
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for n in 1 2 3 4 5; do
+            git pull --rebase origin main || true
+            git add -A vbth_bench .github/workflows/vbth-minimal-model-bench.yml .github/workflows/vbth-bench-smoke.yml .github/workflows/vbth-benchmark-cleanup.yml 2>/dev/null || true
+            git diff --cached --quiet || git commit -m "Remove temporary VBTH benchmark files [skip ci]"
+            git push origin HEAD:main && exit 0
+            sleep 3
+          done
+          exit 1
