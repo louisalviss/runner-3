@@ -30,7 +30,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install --disable-pip-version-check numpy pandas requests
+        run: pip install --disable-pip-version-check numpy pandas requests HistoricalEarningsData==0.3
 
       - name: Run frozen backtest
         run: python research/earnings_underreaction_20260824/run.py
