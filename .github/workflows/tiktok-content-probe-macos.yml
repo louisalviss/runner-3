@@ -30,6 +30,7 @@ jobs:
         shell: bash
         run: |
           set -u
+          rm -rf evidence
           mkdir -p evidence
           URL="$(head -n1 .runner/tiktok-url.txt | tr -d '\r')"
           printf '%s\n' "$URL" > evidence/request_url.txt
@@ -37,31 +38,84 @@ jobs:
           set +e
           yt-dlp --no-warnings --dump-single-json "$URL" > evidence/metadata.json 2> evidence/metadata.err
           echo "$?" > evidence/metadata_rc.txt
-          yt-dlp --no-warnings --write-info-json --write-thumbnail --write-subs --write-auto-subs --sub-langs 'all,-live_chat' --max-filesize 80M -f 'best[height<=720]/best' -o 'evidence/video.%(ext)s' "$URL" > evidence/download.out 2> evidence/download.err
+          yt-dlp --no-warnings --write-info-json --write-thumbnail --write-subs --write-auto-subs --sub-langs 'all,-live_chat' --max-filesize 80M -f 'best[height<=720]/best' -o 'evidence/video-ytdlp.%(ext)s' "$URL" > evidence/download.out 2> evidence/download.err
           echo "$?" > evidence/download_rc.txt
           set -e
 
           python3 - <<'PY'
-          import json, pathlib
+          import base64, json, pathlib
           from playwright.sync_api import sync_playwright
+
           url=pathlib.Path('.runner/tiktok-url.txt').read_text().splitlines()[0].strip()
           out={'requested_url':url}
+          media=[]
           try:
               with sync_playwright() as p:
                   b=p.chromium.launch(headless=True)
                   c=b.new_context(viewport={'width':1280,'height':900}, user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/151 Safari/537.36')
                   page=c.new_page()
+
+                  def on_response(r):
+                      try:
+                          ct=(r.headers.get('content-type') or '').lower()
+                          if r.request.resource_type == 'media' or ct.startswith('video/'):
+                              media.append({'url':r.url,'status':r.status,'content_type':ct,'resource_type':r.request.resource_type})
+                      except Exception:
+                          pass
+                  page.on('response', on_response)
+
                   resp=page.goto(url, wait_until='domcontentloaded', timeout=30000)
-                  page.wait_for_timeout(5000)
+                  page.wait_for_timeout(7000)
                   out['status']=resp.status if resp else None
                   out['final_url']=page.url
                   out['title']=page.title()
                   try: out['body_text']=page.locator('body').inner_text(timeout=5000)[:16000]
                   except Exception as e: out['body_error']=str(e)
-                  page.screenshot(path='evidence/page.png', full_page=False)
+
+                  try:
+                      page.wait_for_selector('video', timeout=10000)
+                      out['video_state']=page.locator('video').first.evaluate("""v => ({
+                        currentSrc:v.currentSrc, src:v.src, poster:v.poster, currentTime:v.currentTime,
+                        duration:v.duration, paused:v.paused, readyState:v.readyState,
+                        videoWidth:v.videoWidth, videoHeight:v.videoHeight, muted:v.muted
+                      })""")
+                  except Exception as e:
+                      out['video_state_error']=f'{type(e).__name__}: {e}'
+
+                  try:
+                      session=c.new_cdp_session(page)
+                      shot=session.send('Page.captureScreenshot', {'format':'png','fromSurface':True})
+                      pathlib.Path('evidence/page-cdp.png').write_bytes(base64.b64decode(shot['data']))
+                  except Exception as e:
+                      out['cdp_screenshot_error']=f'{type(e).__name__}: {e}'
+
+                  out['media_responses']=media[-50:]
+                  pathlib.Path('evidence/media-responses.json').write_text(json.dumps(media,ensure_ascii=False,indent=2))
+
+                  candidates=[]
+                  vs=out.get('video_state') or {}
+                  if isinstance(vs.get('currentSrc'),str) and vs['currentSrc'].startswith('http'):
+                      candidates.append(vs['currentSrc'])
+                  candidates += [x['url'] for x in media if isinstance(x.get('url'),str) and x['url'].startswith('http')]
+                  seen=set()
+                  for candidate in candidates:
+                      if candidate in seen: continue
+                      seen.add(candidate)
+                      try:
+                          rr=c.request.get(candidate, headers={'Referer':page.url}, timeout=30000)
+                          ct=(rr.headers.get('content-type') or '').lower()
+                          body=rr.body()
+                          if rr.ok and (ct.startswith('video/') or len(body)>500000) and len(body)<=80*1024*1024:
+                              pathlib.Path('evidence/video-browser.bin').write_bytes(body)
+                              out['browser_video_download']={'ok':True,'url':candidate,'status':rr.status,'content_type':ct,'bytes':len(body)}
+                              break
+                      except Exception as e:
+                          out.setdefault('browser_video_download_errors',[]).append(f'{type(e).__name__}: {e}')
+
                   c.close(); b.close()
           except Exception as e:
               out['browser_error']=f'{type(e).__name__}: {e}'
+
           pathlib.Path('evidence/browser.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
           print(json.dumps(out,ensure_ascii=False))
           PY
