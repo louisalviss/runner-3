@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -81,6 +83,22 @@ jobs:
           PY
 
           find evidence -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | tee evidence/files.txt
+
+      - name: Publish lightweight evidence to repo
+        if: always()
+        shell: bash
+        run: |
+          rm -f evidence/video.mp4 evidence/video.webm evidence/video.mkv
+          rm -rf results/tiktok/latest
+          mkdir -p results/tiktok/latest
+          cp -R evidence/. results/tiktok/latest/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add results/tiktok/latest
+          if ! git diff --cached --quiet; then
+            git commit -m 'runner: publish TikTok probe evidence'
+            git push
+          fi
 
       - name: Upload evidence
         if: always()
