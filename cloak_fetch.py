@@ -18,6 +18,12 @@ SENSITIVE_QUERY_KEYS = {
     "token", "secret", "key",
 }
 BLOCKED_HOSTS = {"localhost", "localhost.localdomain", "metadata.google.internal"}
+BLOCK_PAGE_MARKERS = (
+    "blocked by network security",
+    "you've been blocked by network security",
+    "access denied",
+    "request blocked",
+)
 MAX_URLS = 20
 
 
@@ -97,6 +103,16 @@ def safe_dir(index, url):
     return f"{index:03d}_{host}"
 
 
+def detect_block(status, text):
+    if status is not None and status >= 400:
+        return f"http_{status}"
+    lowered = text.lower()
+    for marker in BLOCK_PAGE_MARKERS:
+        if marker in lowered:
+            return marker.replace(" ", "_")
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description="Read-only CloakBrowser fallback for public HTTPS pages")
     ap.add_argument("job_file")
@@ -148,6 +164,8 @@ def main():
                 final_parsed = validate_url(final)
                 rec["final_resolved_ips"] = assert_public_dns(final_parsed.hostname)
                 text = page.locator("body").inner_text(timeout=10000)
+                status = response.status if response else None
+                blocked_reason = detect_block(status, text)
                 signals = page.evaluate("""() => ({
                     webdriver: navigator.webdriver,
                     userAgent: navigator.userAgent,
@@ -160,14 +178,16 @@ def main():
                 d.mkdir(parents=True, exist_ok=True)
                 (d / "page.txt").write_text(text, encoding="utf-8")
                 rec.update({
-                    "ok": True,
-                    "status": response.status if response else None,
+                    "ok": blocked_reason is None and status is not None and 200 <= status < 400,
+                    "status": status,
                     "final_url": final,
                     "title": page.title(),
                     "text_chars": len(text),
                     "signals": signals,
                     "output_dir": d.name,
                 })
+                if blocked_reason:
+                    rec["blocked_reason"] = blocked_reason
             except Exception as exc:
                 rec.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
             finally:
@@ -182,6 +202,7 @@ def main():
                 "url": url,
                 "ok": rec.get("ok"),
                 "status": rec.get("status"),
+                "blocked_reason": rec.get("blocked_reason"),
                 "seconds": rec["elapsed_seconds"],
                 "text_chars": rec.get("text_chars"),
             }, ensure_ascii=False), flush=True)
