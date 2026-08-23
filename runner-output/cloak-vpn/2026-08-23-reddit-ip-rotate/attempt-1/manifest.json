@@ -1,28 +1,48 @@
 {
   "engine": "cloakbrowser-read-only",
-  "job_name": "cloak-reddit-ip-rotate-2026-08-23",
+  "job_name": "cloak-reddit-ip-rotate-2026-08-23-r2",
   "job_file": "/home/runner/work/runner-3/runner-3/jobs/cloak-vpn/2026-08-23-reddit-ip-rotate.json",
   "source_visibility": "public",
   "mode": "read-only",
   "browser_version": "146.0.7680.177.5",
-  "started_at": "2026-08-23T09:53:30.100207+00:00",
+  "started_at": "2026-08-23T09:57:41.338007+00:00",
   "results": [
     {
       "requested_url": "https://www.reddit.com/r/ClaudeAI/s/5Whzsb8QMZ",
-      "started_at": "2026-08-23T09:53:34.383626+00:00",
+      "started_at": "2026-08-23T09:57:45.355053+00:00",
       "resolved_ips": [
         "151.101.1.140",
         "151.101.129.140",
         "151.101.193.140",
         "151.101.65.140"
       ],
-      "ok": false,
-      "error": "ValueError: sensitive query parameter is forbidden: token",
-      "elapsed_seconds": 8.846
+      "final_resolved_ips": [
+        "151.101.1.140",
+        "151.101.129.140",
+        "151.101.193.140",
+        "151.101.65.140"
+      ],
+      "ok": true,
+      "status": 200,
+      "final_url": "https://www.reddit.com/r/ClaudeAI/comments/1vuhvta/two_weeks_ago_i_gave_claude_a_domain_and_told_it/?solution=4a04133c1202a6b14a04133c1202a6b1&js_challenge=1&jsc_orig_r=&share_id=dbWvd3-bzbWOHGf8XoL65&utm_content=1&utm_medium=ios_app&utm_name=iossmf&utm_source=share&utm_term=2",
+      "title": "Two weeks ago I gave Claude a domain and told it to build whatever it wanted. I finally checked the Cloudflare bill. : r/ClaudeAI",
+      "text_chars": 16357,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "001_www.reddit.com",
+      "elapsed_seconds": 10.25
     }
   ],
-  "finished_at": "2026-08-23T09:53:43.401093+00:00",
-  "wall_seconds": 13.301,
-  "ok_count": 0,
-  "failed_count": 1
+  "finished_at": "2026-08-23T09:57:55.819367+00:00",
+  "wall_seconds": 14.481,
+  "ok_count": 1,
+  "failed_count": 0
 }
