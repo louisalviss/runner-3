@@ -42,6 +42,47 @@ export default {
       return Response.json(result.results || []);
     }
 
+    if (url.pathname === "/status") {
+      if (!env.DB) {
+        return Response.json({ error: "D1_NOT_BOUND" }, { status: 503 });
+      }
+
+      const result = await env.DB.prepare(`
+        SELECT e.id, e.source, e.event_type, e.payload, e.created_at
+        FROM events e
+        JOIN (
+          SELECT source, MAX(id) AS max_id
+          FROM events
+          WHERE event_type = 'workflow_status'
+          GROUP BY source
+        ) latest ON latest.max_id = e.id
+        ORDER BY e.source
+      `).all();
+
+      const sources = {};
+      for (const row of result.results || []) {
+        let payload = {};
+        try {
+          payload = JSON.parse(row.payload || "{}");
+        } catch {
+          payload = {};
+        }
+
+        sources[row.source] = {
+          status: payload.status || "unknown",
+          workflow: payload.workflow || null,
+          run_id: payload.run_id || null,
+          run_attempt: payload.run_attempt || null,
+          sha: payload.sha || null,
+          ref: payload.ref || null,
+          event_id: row.id,
+          created_at: row.created_at
+        };
+      }
+
+      return Response.json({ ok: true, sources });
+    }
+
     if (url.pathname === "/radar/latest") {
       return Response.json({
         status: "ready",
