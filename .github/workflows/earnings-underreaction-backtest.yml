@@ -1,0 +1,50 @@
+name: Earnings Underreaction Backtest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'research/earnings_underreaction_20260824/**'
+      - '.github/workflows/earnings-underreaction-backtest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests
+
+      - name: Run frozen backtest
+        run: python research/earnings_underreaction_20260824/backtest.py
+
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: earnings-underreaction-20260824
+          path: artifacts/earnings_underreaction_20260824/
+          if-no-files-found: error
+
+      - name: Commit result checkpoint
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/earnings_underreaction_20260824/
+          if git diff --cached --quiet; then
+            echo "No result changes"
+            exit 0
+          fi
+          git commit -m "research: record earnings underreaction backtest result"
+          git push
