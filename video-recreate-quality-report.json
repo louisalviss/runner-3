@@ -1,0 +1,42 @@
+{
+  "reference_url": "https://clck.ru/3VNYSd",
+  "evaluated_run_id": "32656732731",
+  "technical_status": "pass",
+  "creative_status": "fail",
+  "overall_status": "creative_fail",
+  "reason": "The prior workflow validated media correctness but did not validate reference fidelity.",
+  "scene_review": [
+    {
+      "range_sec": "0-10",
+      "status": "fail",
+      "reference": "Filmed physical monitor with perspective, environmental light/reflection and camera drift",
+      "render": "Flat synthetic dashboard with approximate tilt/zoom",
+      "major_gaps": ["perspective", "lighting/reflection", "camera motion", "screen geometry", "content fidelity"]
+    },
+    {
+      "range_sec": "10-20",
+      "status": "fail",
+      "reference": "Dense SocksNode desktop dashboard with sidebar/cards and cursor-driven state changes",
+      "render": "Simplified centered product/mobile-style card",
+      "major_gaps": ["layout hierarchy", "UI density", "actual UI states", "cursor path", "timing"]
+    },
+    {
+      "range_sec": "20-30.1",
+      "status": "fail",
+      "reference": "Neon green-blue brand outro with large logo, CTA click and ripple animation",
+      "render": "Approximate static logo/CTA composition with generic motion",
+      "major_gaps": ["logo geometry/scale", "background", "CTA timing", "click/ripple motion", "transition character"]
+    }
+  ],
+  "root_causes": [
+    "Sparse contact-sheet inspection used as if it were a storyboard",
+    "No dense shot/sub-shot analysis before rendering",
+    "No exact text/transcript extraction and timing validation",
+    "No camera/perspective/motion-path reconstruction",
+    "Hardcoded guessed UI and captions in a reference-specific renderer",
+    "Still-image zoom/pan substituted for stateful motion",
+    "No creative/reference QA comparison loop",
+    "Technical QA incorrectly promoted output to success"
+  ],
+  "required_flow": "FLOWS/video-recreate-reference-v1.md"
+}
