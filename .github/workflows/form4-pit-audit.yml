@@ -14,6 +14,19 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install requests pandas numpy
+      - name: Apply legacy date compatibility patch
+        working-directory: research/ema200w_20260823
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('form4_decomposition_backtest.py')
+          s=p.read_text()
+          old="    x['trans_date'] = pd.to_datetime(x.get('TRANS_DATE'), format='%d-%b-%Y', errors='coerce').astype('datetime64[ns]')"
+          new="    td = pd.to_datetime(x.get('TRANS_DATE'), errors='coerce', format='mixed')\n    x['trans_date'] = td.where(td.dt.year.between(1900, 2100)).astype('datetime64[ns]')"
+          if old not in s:
+              raise SystemExit('target date line not found')
+          p.write_text(s.replace(old,new))
+          PY
       - name: Run preregistered Form4 heterogeneous-tail decomposition
         working-directory: research/ema200w_20260823
         run: python form4_decomposition_backtest.py
