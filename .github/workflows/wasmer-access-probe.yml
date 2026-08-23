@@ -6,10 +6,6 @@ on:
     branches: [main]
     paths:
       - .github/workflows/wasmer-access-probe.yml
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/wasmer-access-probe.yml
 
 permissions:
   contents: read
@@ -19,17 +15,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+      RAW_WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
     steps:
-      - name: Check secret is available
+      - name: Normalize Wasmer token
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${WASMER_TOKEN:-}" ]]; then
+          token="${RAW_WASMER_TOKEN:-}"
+          if [[ -z "$token" ]]; then
             echo "WASMER_TOKEN is missing or empty"
             exit 2
           fi
-          echo "WASMER_TOKEN is present"
+          token="$(printf '%s' "$token" | tr -d '\r\n')"
+          if [[ "$token" != wap_* ]]; then
+            token="wap_${token}"
+          fi
+          echo "WASMER_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Install Wasmer CLI
         shell: bash
@@ -37,6 +38,12 @@ jobs:
           set -euo pipefail
           curl https://get.wasmer.io -sSfL | sh
           echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+
+      - name: Login non-interactively
+        shell: bash
+        run: |
+          set -euo pipefail
+          wasmer login --no-browser
 
       - name: Verify Wasmer account and list apps
         shell: bash
