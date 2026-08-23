@@ -5,11 +5,16 @@ on:
     paths:
       - 'proxygrid-audio-trigger.txt'
 
+permissions:
+  contents: write
+
 jobs:
   build-audio:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install audio tools
         run: |
@@ -34,7 +39,7 @@ jobs:
           ]
           JSON
           python - <<'PY'
-          import json, subprocess, os, math
+          import json, subprocess
           scenes=json.load(open('out/script.json'))
           for i,s in enumerate(scenes):
               raw=f'out/chunks/raw_{i}.mp3'
@@ -125,7 +130,7 @@ jobs:
               -f lavfi -i "sine=frequency=110:duration=30:sample_rate=48000" \
               -f lavfi -i "sine=frequency=165:duration=30:sample_rate=48000" \
               -f lavfi -i "anoisesrc=color=pink:amplitude=0.025:duration=30:sample_rate=48000" \
-              -filter_complex "[0:a]volume=0.025[a0];[1:a]volume=0.018[a1];[2:a]lowpass=f=1800,volume=0.08[a2];[a0][a1][a2]amix=3,afir=dry=8:wet=2,afade=t=in:st=0:d=2,afade=t=out:st=27:d=3,pan=stereo|c0=c0|c1=c0[m]" \
+              -filter_complex "[0:a]volume=0.025[a0];[1:a]volume=0.018[a1];[2:a]lowpass=f=1800,volume=0.08[a2];[a0][a1][a2]amix=3,afade=t=in:st=0:d=2,afade=t=out:st=27:d=3,pan=stereo|c0=c0|c1=c0[m]" \
               -map "[m]" -ar 48000 out/music.wav
             echo 'synthesized-fallback' > out/music-source.txt
           fi
@@ -148,3 +153,19 @@ jobs:
           name: proxygrid-audio-upgrade-${{ github.run_id }}
           path: out/
           retention-days: 7
+
+      - name: Publish final audio to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p generated/proxygrid-audio
+          cp out/final-audio.wav generated/proxygrid-audio/final-audio.wav
+          cp out/voice.wav generated/proxygrid-audio/voice.wav
+          cp out/music-source.txt generated/proxygrid-audio/music-source.txt
+          cp out/script.json generated/proxygrid-audio/script.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add generated/proxygrid-audio
+          git commit -m 'Publish ProxyGrid upgraded audio' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
