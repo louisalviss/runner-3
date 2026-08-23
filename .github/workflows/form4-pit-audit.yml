@@ -27,6 +27,6 @@ jobs:
               raise SystemExit('target date line not found')
           p.write_text(s.replace(old,new))
           PY
-      - name: Run preregistered Form4 heterogeneous-tail decomposition
+      - name: Run preregistered Form4 deep-drawdown context test
         working-directory: research/ema200w_20260823
-        run: python form4_decomposition_backtest.py
+        run: python form4_context_backtest.py
