@@ -8,168 +8,155 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  warp:
-    name: WARP residual blockers
+  zaid-x-video:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Install WARP and browser tooling
+      - name: Inspect requested X video
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p evidence
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq cloudflare-warp curl
-          python3 -m pip install -q 'playwright>=1.46,<2'
-      - name: Connect WARP
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -sS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' | tee evidence/warp_before.txt || true
-          warp-cli --accept-tos registration new || true
-          warp-cli --accept-tos mode warp+doh
-          warp-cli --accept-tos connect
-          ok=0
-          for i in {1..20}; do
-            sleep 1
-            t=$(curl -sS --max-time 5 https://www.cloudflare.com/cdn-cgi/trace || true)
-            if printf '%s' "$t" | grep -q '^warp=on'; then
-              printf '%s\n' "$t" | grep -E '^(ip|loc|warp)=' | tee evidence/warp_after.txt
-              ok=1; break
-            fi
-          done
-          test "$ok" = 1
-      - name: Probe WARP with curl and Chrome
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json,subprocess,pathlib
-          from playwright.sync_api import sync_playwright
-          targets=[('facebook_target','https://www.facebook.com/share/p/19Y24DbnyG/?'),('reddit','https://www.reddit.com/'),('reddit_old','https://old.reddit.com/'),('voz','https://voz.vn/'),('medium','https://medium.com/'),('quora','https://www.quora.com/'),('douyin','https://www.douyin.com/')]
-          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
-          out=[]
-          with sync_playwright() as p:
-            b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
-            c=b.new_context(viewport={'width':1280,'height':720})
-            for name,url in targets:
-              body=f'/tmp/warp-{name}.body'
-              cp=subprocess.run(['curl','-L','-sS','--compressed','--max-time','15','-A',ua,'-o',body,'-w','%{http_code}\t%{url_effective}\t%{size_download}',url],capture_output=True,text=True)
-              parts=(cp.stdout.strip().split('\t')+['','',''])[:3]
-              r={'name':name,'route':'warp','curl_code':parts[0] or '000','curl_final':parts[1],'curl_bytes':parts[2] or '0','curl_rc':cp.returncode}
-              page=c.new_page()
-              try:
-                resp=page.goto(url,wait_until='domcontentloaded',timeout=18000); page.wait_for_timeout(3500)
-                try:text=page.locator('body').inner_text(timeout=3000)
-                except:text=''
-                title=page.title(); low=(title+' '+text).lower()
-                r.update(browser_status=resp.status if resp else None,browser_final=page.url,title=title,text_prefix=text[:3000],body_chars=len(text),challenge=any(x in low for x in ['prove your humanity','verify you are human','captcha','security verification','blocked by network security','just a moment','验证码','security check','access denied']))
-              except Exception as e:r.update(browser_error=f'{type(e).__name__}: {e}',browser_final=page.url)
-              page.close(); out.append(r)
-            c.close(); b.close()
-          pathlib.Path('evidence/warp_results.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
-          for x in out: print('RESULT',json.dumps(x,ensure_ascii=False))
-          PY
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: access-fallback-warp-${{ github.run_id }}
-          path: evidence/
-          retention-days: 3
+          set -u
+          OUT=evidence/zaid-x-2091125733716582537
+          URL='https://x.com/work_with_zaid/status/2091125733716582537'
+          ID='2091125733716582537'
+          rm -rf "$OUT" && mkdir -p "$OUT/frames"
+          python3 -m pip install -q -U yt-dlp playwright requests
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
 
-  vpn:
-    name: VPN ${{ matrix.country }} residual blockers
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    strategy:
-      fail-fast: false
-      matrix:
-        country: [TH, SG, JP]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq openvpn iproute2 iptables curl
-          python3 -m pip install -q 'playwright>=1.46,<2'
-          mkdir -p evidence
-      - name: Select exact-country relay
-        shell: bash
-        env:
-          COUNTRY: ${{ matrix.country }}
-        run: |
-          set -euo pipefail
-          curl -fsSL --max-time 30 https://www.vpngate.net/api/iphone/ -o /tmp/vpngate.csv
-          python3 - <<'PY'
-          import base64,csv,io,json,os,pathlib
-          cc=os.environ['COUNTRY']
-          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
-          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
-          cand=[r for r in rows if (r.get('CountryShort') or '').upper()==cc and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
-          if not cand: raise SystemExit(f'No relay for {cc}')
-          cand.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True); chosen=cand[0]
-          cfg=base64.b64decode(chosen['OpenVPN_ConfigData_Base64']).decode(errors='replace')
-          pathlib.Path('/tmp/vpngate.auth').write_text('vpn\nvpn\n')
-          pathlib.Path('/tmp/vpngate.ovpn').write_text('\n'.join('auth-user-pass /tmp/vpngate.auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n')
-          info={k:chosen.get(k) for k in ['CountryShort','CountryLong','IP','Ping','Speed','NumVpnSessions']}
-          pathlib.Path('evidence/relay.json').write_text(json.dumps(info,indent=2)); print('RELAY',json.dumps(info))
-          PY
-      - name: Connect isolated VPN namespace
-        shell: bash
-        run: |
-          set -euo pipefail
-          IFACE=$(ip route show default | awk '{print $5; exit}')
-          sudo ip netns add vpnns
-          sudo ip link add veth-host type veth peer name veth-ns
-          sudo ip link set veth-ns netns vpnns
-          sudo ip addr add 10.235.0.1/24 dev veth-host; sudo ip link set veth-host up
-          sudo ip netns exec vpnns ip addr add 10.235.0.2/24 dev veth-ns
-          sudo ip netns exec vpnns ip link set lo up; sudo ip netns exec vpnns ip link set veth-ns up
-          sudo ip netns exec vpnns ip route add default via 10.235.0.1
-          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
-          sudo iptables -t nat -A POSTROUTING -s 10.235.0.0/24 -o "$IFACE" -j MASQUERADE
-          sudo iptables -A FORWARD -i veth-host -o "$IFACE" -j ACCEPT
-          sudo iptables -A FORWARD -i "$IFACE" -o veth-host -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-          sudo mkdir -p /etc/netns/vpnns; printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
-          sudo touch /tmp/openvpn.log; sudo chmod 644 /tmp/openvpn.log
-          sudo ip netns exec vpnns openvpn --config /tmp/vpngate.ovpn --daemon --log /tmp/openvpn.log
-          ok=0; for i in {1..40}; do sleep 1; grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && { ok=1; break; }; done
-          test "$ok" = 1
-          sudo ip netns exec vpnns curl -fsS --max-time 12 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' | tee evidence/egress.txt
-      - name: Probe exact-country VPN with curl and Chrome
-        shell: bash
-        env:
-          COUNTRY: ${{ matrix.country }}
-        run: |
-          sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner COUNTRY="$COUNTRY" python3 - <<'PY'
-          import json,subprocess,pathlib,os
-          from playwright.sync_api import sync_playwright
-          targets=[('facebook_target','https://www.facebook.com/share/p/19Y24DbnyG/?'),('reddit','https://www.reddit.com/'),('reddit_old','https://old.reddit.com/'),('voz','https://voz.vn/'),('medium','https://medium.com/'),('quora','https://www.quora.com/'),('douyin','https://www.douyin.com/')]
-          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'; route='vpn-'+os.environ['COUNTRY']
-          out=[]
-          with sync_playwright() as p:
-            b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage']); c=b.new_context(viewport={'width':1280,'height':720})
-            for name,url in targets:
-              body=f'/tmp/{route}-{name}.body'; cp=subprocess.run(['curl','-L','-sS','--compressed','--max-time','15','-A',ua,'-o',body,'-w','%{http_code}\t%{url_effective}\t%{size_download}',url],capture_output=True,text=True); parts=(cp.stdout.strip().split('\t')+['','',''])[:3]
-              r={'name':name,'route':route,'curl_code':parts[0] or '000','curl_final':parts[1],'curl_bytes':parts[2] or '0','curl_rc':cp.returncode}; page=c.new_page()
+          echo "$URL" > "$OUT/source-url.txt"
+          echo '=== yt-dlp ===' | tee "$OUT/fetch.log"
+          yt-dlp --no-playlist --write-info-json --write-description --write-thumbnail -f 'bv*+ba/b' --merge-output-format mp4 -o "$OUT/video.%(ext)s" "$URL" >>"$OUT/fetch.log" 2>&1 || true
+
+          python3 - "$OUT" "$ID" <<'PY'
+          import json, pathlib, requests, sys, re, subprocess
+          out=pathlib.Path(sys.argv[1]); tid=sys.argv[2]
+          endpoints=[
+              ('fxtwitter',f'https://api.fxtwitter.com/status/{tid}'),
+              ('vxtwitter',f'https://api.vxtwitter.com/Twitter/status/{tid}'),
+          ]
+          headers={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'}
+          found=[]
+          for name,u in endpoints:
               try:
-                resp=page.goto(url,wait_until='domcontentloaded',timeout=18000); page.wait_for_timeout(3500)
-                try:text=page.locator('body').inner_text(timeout=3000)
-                except:text=''
-                title=page.title(); low=(title+' '+text).lower(); r.update(browser_status=resp.status if resp else None,browser_final=page.url,title=title,text_prefix=text[:3000],body_chars=len(text),challenge=any(x in low for x in ['prove your humanity','verify you are human','captcha','security verification','blocked by network security','just a moment','验证码','security check','access denied']))
-              except Exception as e:r.update(browser_error=f'{type(e).__name__}: {e}',browser_final=page.url)
-              page.close(); out.append(r)
-            c.close(); b.close()
-          pathlib.Path('evidence/results.json').write_text(json.dumps(out,indent=2,ensure_ascii=False)); [print('RESULT',json.dumps(x,ensure_ascii=False)) for x in out]
+                  r=requests.get(u,headers=headers,timeout=25)
+                  (out/f'{name}-status.txt').write_text(str(r.status_code))
+                  (out/f'{name}.txt').write_text(r.text,errors='ignore')
+                  if r.ok:
+                      try:
+                          d=r.json(); (out/f'{name}.json').write_text(json.dumps(d,ensure_ascii=False,indent=2))
+                      except Exception: d=None
+                      def walk(x):
+                          if isinstance(x,dict):
+                              for v in x.values(): walk(v)
+                          elif isinstance(x,list):
+                              for v in x: walk(v)
+                          elif isinstance(x,str) and ('video.twimg.com' in x or re.search(r'https?://[^\s"\']+\.mp4',x)):
+                              found.append(x.replace('\\/','/'))
+                      walk(d if d is not None else r.text)
+              except Exception as e:
+                  (out/f'{name}-error.txt').write_text(repr(e))
+          found=list(dict.fromkeys(found))
+          (out/'media-urls.json').write_text(json.dumps(found,indent=2))
+          if not list(out.glob('video.mp4')) and found:
+              # prefer highest bitrate/resolution-looking URL; try all until one works
+              for i,u in enumerate(reversed(found)):
+                  dest=out/'video.mp4'
+                  cp=subprocess.run(['curl','-L','--fail','--retry','2','-A',headers['User-Agent'],u,'-o',str(dest)])
+                  if cp.returncode==0 and dest.exists() and dest.stat().st_size>10000: break
+                  dest.unlink(missing_ok=True)
           PY
+
+          VIDEO=$(find "$OUT" -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1 || true)
+
+          if [ -z "$VIDEO" ]; then
+            echo '=== playwright network fallback ===' >> "$OUT/fetch.log"
+            OUT="$OUT" URL="$URL" python3 - <<'PY' >>"$OUT/fetch.log" 2>&1 || true
+          import os, json, pathlib, re, requests
+          from playwright.sync_api import sync_playwright
+          out=pathlib.Path(os.environ['OUT']); url=os.environ['URL']; media=[]
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required'])
+              c=b.new_context(viewport={'width':1440,'height':1000}, user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36')
+              page=c.new_page()
+              def onresp(resp):
+                  u=resp.url
+                  ct=(resp.headers or {}).get('content-type','')
+                  if 'video.twimg.com' in u or 'video/' in ct or '.mp4' in u: media.append({'url':u,'status':resp.status,'content_type':ct})
+              page.on('response',onresp)
+              try:
+                  resp=page.goto(url,wait_until='domcontentloaded',timeout=30000)
+                  page.wait_for_timeout(12000)
+                  (out/'page-title.txt').write_text(page.title())
+                  (out/'page-url.txt').write_text(page.url)
+                  (out/'page-text.txt').write_text(page.locator('body').inner_text(timeout=5000)[:30000])
+                  page.screenshot(path=str(out/'x-page.png'),full_page=True)
+                  vids=page.locator('video').count()
+                  vals=[]
+                  for i in range(vids):
+                      try: vals.append(page.locator('video').nth(i).evaluate('(v)=>({src:v.src,currentSrc:v.currentSrc,poster:v.poster,duration:v.duration})'))
+                      except: pass
+                  (out/'video-elements.json').write_text(json.dumps(vals,indent=2))
+              except Exception as e: (out/'playwright-error.txt').write_text(repr(e))
+              c.close(); b.close()
+          (out/'network-media.json').write_text(json.dumps(media,indent=2))
+          urls=[]
+          for x in media:
+              u=x['url']
+              if 'video.twimg.com' in u and u not in urls: urls.append(u)
+          if urls:
+              ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+              for u in reversed(urls):
+                  try:
+                      r=requests.get(u,headers={'User-Agent':ua},timeout=40)
+                      if r.ok and len(r.content)>10000:
+                          (out/'video.mp4').write_bytes(r.content); break
+                  except: pass
+          PY
+          fi
+
+          VIDEO=$(find "$OUT" -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1 || true)
+          if [ -n "$VIDEO" ]; then
+            echo "VIDEO=$VIDEO" | tee "$OUT/status.txt"
+            ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json "$VIDEO" > "$OUT/meta.json" 2>&1 || true
+            D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO" 2>/dev/null || echo 0)
+            python3 - "$VIDEO" "$OUT" "$D" <<'PY'
+          import sys, subprocess, pathlib
+          v,out=sys.argv[1],pathlib.Path(sys.argv[2]); d=float(sys.argv[3] or 0)
+          fracs=[.01,.05,.10,.16,.24,.32,.40,.48,.56,.64,.72,.80,.88,.95,.99]
+          if d>0:
+              for i,f in enumerate(fracs,1):
+                  t=max(0,min(d-.05,d*f))
+                  subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i',v,'-frames:v','1','-q:v','2',str(out/'frames'/f'frame-{i:02d}.jpg')])
+          PY
+            ffmpeg -loglevel error -y -i "$VIDEO" -vf "fps=1/2,scale=480:-1,tile=4x4" -frames:v 1 "$OUT/contact-sheet.jpg" || true
+          else
+            echo 'NO_VIDEO' | tee "$OUT/status.txt"
+          fi
+
+          python3 - "$OUT" <<'PY'
+          import json, pathlib, sys
+          out=pathlib.Path(sys.argv[1]); result={'status':(out/'status.txt').read_text().strip() if (out/'status.txt').exists() else 'UNKNOWN'}
+          for p in [out/'video.info.json',out/'fxtwitter.json',out/'vxtwitter.json',out/'meta.json']:
+              if p.exists():
+                  try: result[p.stem]=json.loads(p.read_text())
+                  except: pass
+          (out/'runner-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+
+          # Do not commit the source video itself; commit inspectable evidence only.
+          rm -f "$OUT"/video.mp4 "$OUT"/video.webm "$OUT"/video.mkv
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'chore: runner-3 inspect Zaid X video' || true
+          git push || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: access-fallback-${{ matrix.country }}-${{ github.run_id }}
-          path: evidence/
+          name: zaid-x-video-${{ github.run_id }}
+          path: evidence/zaid-x-2091125733716582537/
           retention-days: 3
