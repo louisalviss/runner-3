@@ -19,6 +19,16 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install pandas numpy requests pyarrow
+      - name: Normalize public parquet schema
+        working-directory: research/ema200w_20260823
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('pead_earnings_surprise.py')
+          s = p.read_text()
+          s = s.replace(", 'market_cap'", "")
+          p.write_text(s)
+          PY
       - name: Run PEAD earnings-surprise decomposition
         working-directory: research/ema200w_20260823
         run: python pead_earnings_surprise.py
