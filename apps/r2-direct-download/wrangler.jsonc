@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "runner3-direct-download",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-24",
+  "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "runner3-direct-download-test"
+    }
+  ]
+}
