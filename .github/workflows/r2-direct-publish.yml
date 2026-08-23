@@ -1,0 +1,151 @@
+name: R2 Direct Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/r2-direct-publish-request.json'
+      - '.github/workflows/r2-direct-publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-r2-direct-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: runner3-direct-download-test
+      WORKER_URL: https://runner3-direct-download.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download, upload and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/r2pub ops
+
+          python - <<'PY' > /tmp/r2pub/request.env
+          import json, shlex
+          d=json.load(open('ops/r2-direct-publish-request.json', encoding='utf-8'))
+          print('REQUEST_ID='+shlex.quote(str(d.get('requestId') or '')))
+          print('SOURCE_URL='+shlex.quote(str(d.get('sourceUrl') or '')))
+          print('OBJECT_KEY='+shlex.quote(str(d.get('objectKey') or '')))
+          PY
+          source /tmp/r2pub/request.env
+          test -n "$SOURCE_URL"
+
+          effective_url=$(curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 600 \
+            -D /tmp/r2pub/source.headers -o /tmp/r2pub/source.bin -w '%{url_effective}' "$SOURCE_URL")
+          test -s /tmp/r2pub/source.bin
+
+          export effective_url OBJECT_KEY
+          OBJECT_KEY=$(python - <<'PY'
+          import os, re, urllib.parse
+          key=(os.environ.get('OBJECT_KEY') or '').strip().lstrip('/')
+          if not key:
+              h=open('/tmp/r2pub/source.headers','r',encoding='latin-1',errors='replace').read()
+              names=[]
+              for m in re.finditer(r'(?im)^content-disposition:.*?filename\*?=(?:UTF-8\x27\x27)?[\"\x27]?([^\"\x27;\r\n]+)',h):
+                  names.append(urllib.parse.unquote(m.group(1).strip()))
+              if names:
+                  key=names[-1]
+              else:
+                  p=urllib.parse.urlparse(os.environ.get('effective_url') or '')
+                  key=urllib.parse.unquote(p.path.rsplit('/',1)[-1])
+          if not key or key in {'.','..'}:
+              key='download.bin'
+          key=key.replace('\\','_').replace('\r','_').replace('\n','_')
+          print(key)
+          PY
+          )
+          test -n "$OBJECT_KEY"
+          export OBJECT_KEY
+
+          MIME=$(file --brief --mime-type /tmp/r2pub/source.bin || true)
+          [ -n "$MIME" ] || MIME=application/octet-stream
+          SIZE=$(stat -c '%s' /tmp/r2pub/source.bin)
+          SHA=$(sha256sum /tmp/r2pub/source.bin | awk '{print $1}')
+
+          ENCODED_KEY=$(python - <<'PY'
+          import os, urllib.parse
+          print(urllib.parse.quote(os.environ['OBJECT_KEY'], safe='/'))
+          PY
+          )
+
+          upload_code=$(curl -sS -o /tmp/r2pub/upload.json -w '%{http_code}' \
+            -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/objects/${ENCODED_KEY}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: ${MIME}" \
+            --data-binary @/tmp/r2pub/source.bin)
+          test "$upload_code" = "200"
+
+          FINAL_URL="${WORKER_URL}/${ENCODED_KEY}"
+          verify_code=''
+          for i in 1 2 3 4 5; do
+            verify_code=$(curl -sS -L -D /tmp/r2pub/verify.headers -o /tmp/r2pub/verify.bin -w '%{http_code}' "$FINAL_URL" || true)
+            if [ "$verify_code" = "200" ] && [ -s /tmp/r2pub/verify.bin ]; then
+              VSHA=$(sha256sum /tmp/r2pub/verify.bin | awk '{print $1}')
+              if [ "$VSHA" = "$SHA" ]; then break; fi
+            fi
+            sleep 2
+          done
+          VSHA=$(sha256sum /tmp/r2pub/verify.bin | awk '{print $1}')
+          VSIZE=$(stat -c '%s' /tmp/r2pub/verify.bin)
+          DISPOSITION=$(awk 'BEGIN{IGNORECASE=1} /^content-disposition:/{sub(/^[^:]*:[ ]*/,""); sub(/\r$/,""); print; exit}' /tmp/r2pub/verify.headers)
+          VTYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/{sub(/^[^:]*:[ ]*/,""); sub(/\r$/,""); print; exit}' /tmp/r2pub/verify.headers)
+          DIRECT=false
+          if [ "$verify_code" = "200" ] && [ "$VSHA" = "$SHA" ] && echo "$DISPOSITION" | grep -qi '^attachment;'; then DIRECT=true; fi
+
+          export REQUEST_ID SOURCE_URL effective_url OBJECT_KEY MIME SIZE SHA upload_code FINAL_URL verify_code VSHA VSIZE DISPOSITION VTYPE DIRECT
+          python - <<'PY'
+          import datetime, json, os
+          out={
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'requestId':os.environ.get('REQUEST_ID',''),
+            'sourceUrl':os.environ.get('SOURCE_URL',''),
+            'effectiveSourceUrl':os.environ.get('effective_url',''),
+            'bucket':os.environ['BUCKET'],
+            'objectKey':os.environ['OBJECT_KEY'],
+            'contentType':os.environ.get('MIME',''),
+            'sourceSize':int(os.environ.get('SIZE') or 0),
+            'sourceSha256':os.environ.get('SHA',''),
+            'uploadHttpCode':os.environ.get('upload_code',''),
+            'directUrl':os.environ.get('FINAL_URL',''),
+            'verifyHttpCode':os.environ.get('verify_code',''),
+            'verifySize':int(os.environ.get('VSIZE') or 0),
+            'verifySha256':os.environ.get('VSHA',''),
+            'contentDisposition':os.environ.get('DISPOSITION',''),
+            'verifyContentType':os.environ.get('VTYPE',''),
+            'directDownloadVerified':os.environ.get('DIRECT')=='true',
+          }
+          open('ops/r2-direct-publish-result.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          if not out['directDownloadVerified']:
+              raise SystemExit('direct download verification failed')
+          PY
+
+      - name: Publish result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/r2-direct-publish-result.json || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/r2-direct-publish-result.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish R2 direct-link result [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
