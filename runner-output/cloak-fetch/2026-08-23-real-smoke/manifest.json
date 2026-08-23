@@ -1,0 +1,108 @@
+{
+  "engine": "cloakbrowser-read-only",
+  "job_name": "cloak-real-smoke-2026-08-23",
+  "job_file": "jobs/cloak-fetch/2026-08-23-real-smoke.json",
+  "source_visibility": "public",
+  "mode": "read-only",
+  "browser_version": "146.0.7680.177.5",
+  "started_at": "2026-08-23T00:44:32.620126+00:00",
+  "results": [
+    {
+      "requested_url": "https://example.com/",
+      "started_at": "2026-08-23T00:44:34.433415+00:00",
+      "resolved_ips": [
+        "104.20.23.154",
+        "172.66.147.243",
+        "2606:4700:10::6814:179a",
+        "2606:4700:10::ac42:93f3"
+      ],
+      "final_resolved_ips": [
+        "104.20.23.154",
+        "172.66.147.243",
+        "2606:4700:10::6814:179a",
+        "2606:4700:10::ac42:93f3"
+      ],
+      "ok": true,
+      "status": 200,
+      "final_url": "https://example.com/",
+      "title": "Example Domain",
+      "text_chars": 129,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "001_example.com",
+      "elapsed_seconds": 3.977
+    },
+    {
+      "requested_url": "https://bot.sannysoft.com/",
+      "started_at": "2026-08-23T00:44:38.410138+00:00",
+      "resolved_ips": [
+        "104.21.40.168",
+        "172.67.187.115",
+        "2606:4700:3032::6815:28a8",
+        "2606:4700:3034::ac43:bb73"
+      ],
+      "final_resolved_ips": [
+        "104.21.40.168",
+        "172.67.187.115",
+        "2606:4700:3032::6815:28a8",
+        "2606:4700:3034::ac43:bb73"
+      ],
+      "ok": true,
+      "status": 200,
+      "final_url": "https://bot.sannysoft.com/",
+      "title": "Antibot",
+      "text_chars": 15253,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "002_bot.sannysoft.com",
+      "elapsed_seconds": 4.078
+    },
+    {
+      "requested_url": "https://deviceandbrowserinfo.com/are_you_a_bot",
+      "started_at": "2026-08-23T00:44:42.488480+00:00",
+      "resolved_ips": [
+        "141.94.244.160"
+      ],
+      "final_resolved_ips": [
+        "141.94.244.160"
+      ],
+      "ok": true,
+      "status": 200,
+      "final_url": "https://deviceandbrowserinfo.com/are_you_a_bot",
+      "title": "Bot detection test: verify if your bot is detected",
+      "text_chars": 5860,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "003_deviceandbrowserinfo.com",
+      "elapsed_seconds": 6.016
+    }
+  ],
+  "finished_at": "2026-08-23T00:44:48.601362+00:00",
+  "wall_seconds": 15.981,
+  "ok_count": 3,
+  "failed_count": 0
+}
