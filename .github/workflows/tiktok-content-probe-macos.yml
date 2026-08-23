@@ -1,0 +1,77 @@
+name: TikTok Content Probe macOS
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.runner/tiktok-url.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: |
+          python -m pip install -q -U yt-dlp 'playwright>=1.46,<2'
+          python -m playwright install chromium
+
+      - name: Extract TikTok
+        shell: bash
+        run: |
+          set -u
+          mkdir -p evidence
+          URL="$(head -n1 .runner/tiktok-url.txt | tr -d '\r')"
+          printf '%s\n' "$URL" > evidence/request_url.txt
+
+          set +e
+          yt-dlp --no-warnings --dump-single-json "$URL" > evidence/metadata.json 2> evidence/metadata.err
+          echo "$?" > evidence/metadata_rc.txt
+          yt-dlp --no-warnings --write-info-json --write-thumbnail --write-subs --write-auto-subs --sub-langs 'all,-live_chat' --max-filesize 80M -f 'best[height<=720]/best' -o 'evidence/video.%(ext)s' "$URL" > evidence/download.out 2> evidence/download.err
+          echo "$?" > evidence/download_rc.txt
+          set -e
+
+          python3 - <<'PY'
+          import json, pathlib
+          from playwright.sync_api import sync_playwright
+          url=pathlib.Path('.runner/tiktok-url.txt').read_text().splitlines()[0].strip()
+          out={'requested_url':url}
+          try:
+              with sync_playwright() as p:
+                  b=p.chromium.launch(headless=True)
+                  c=b.new_context(viewport={'width':1280,'height':900}, user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/151 Safari/537.36')
+                  page=c.new_page()
+                  resp=page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                  page.wait_for_timeout(5000)
+                  out['status']=resp.status if resp else None
+                  out['final_url']=page.url
+                  out['title']=page.title()
+                  try: out['body_text']=page.locator('body').inner_text(timeout=5000)[:16000]
+                  except Exception as e: out['body_error']=str(e)
+                  page.screenshot(path='evidence/page.png', full_page=False)
+                  c.close(); b.close()
+          except Exception as e:
+              out['browser_error']=f'{type(e).__name__}: {e}'
+          pathlib.Path('evidence/browser.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+
+          du -ah evidence | sort -h > evidence/files.txt || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiktok-content-probe-macos-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3
