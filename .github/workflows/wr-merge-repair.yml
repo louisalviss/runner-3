@@ -65,24 +65,59 @@ jobs:
           repository: louisalviss/runner-3
           run-id: 32614479458
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Regenerate crypto final aggregate
+      - name: Regenerate dependency-free crypto final aggregate
         run: |
           set -euo pipefail
-          pip install requests websocket-client
-          mkdir -p /tmp/wrbase /tmp/crypto-final
-          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/crypto_stage1_close_ab.py" -o /tmp/crypto_merge.py
-          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/close_confirm.py" -o /tmp/close_confirm.py
-          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_tv_parity.py" -o /tmp/wrbase/wr_tv_parity.py
-          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/27797cf9c4ea0a91b1bc8d62059d052c2c843eb5/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
+          mkdir -p /tmp/crypto-final
           python - <<'PY'
+          import json
           from pathlib import Path
-          p=Path('/tmp/reference_verify.py')
-          s=p.read_text()
-          needle="def infer_tick(vals):\n    md="
-          replacement="def infer_tick(vals):\n    vals=[str(x) for x in vals]\n    md="
-          if needle in s: p.write_text(s.replace(needle,replacement,1))
+          from collections import defaultdict
+          from datetime import datetime, timezone
+          root=Path('/tmp/crypto-all'); out=Path('/tmp/crypto-final')
+          summaries=[]; trades=[]
+          for p in root.rglob('summary-*.json'):
+              x=json.loads(p.read_text()); summaries.extend(x.get('results',[]))
+          for p in root.rglob('trades-*.jsonl'):
+              for ln in p.read_text().splitlines():
+                  if ln.strip(): trades.append(json.loads(ln))
+          def cost_r(t,bps):
+              d=abs(float(t['e'])-float(t['s']))
+              return 0.0 if d<=0 else (float(t['e'])/d)*(bps/10000.0)
+          def val(t,bps): return float(t['R'])-cost_r(t,bps)
+          def met(xs,bps):
+              a=[val(t,bps) for t in xs]; n=len(a); gp=sum(max(x,0) for x in a); gl=sum(max(-x,0) for x in a)
+              eq=peak=0.0; dd=0.0
+              for x in a: eq+=x; peak=max(peak,eq); dd=min(dd,eq-peak)
+              return {'n':n,'R':sum(a),'avg_R':sum(a)/n if n else None,'PF':gp/gl if gl else None,'max_DD_R':dd}
+          def norm(xs,bps):
+              by=defaultdict(list); byd=defaultdict(list)
+              for t in xs:
+                  x=val(t,bps); by[int(t['signal'])].append(x)
+                  d=datetime.fromtimestamp(int(t['signal'])/1000,tz=timezone.utc).date().isoformat(); byd[d].append(x)
+              eps=[sum(v)/len(v) for v in by.values()]; days=[sum(v)/len(v) for v in byd.values()]
+              return {'episode_count':len(eps),'episode_normalized_R':sum(eps),'daily_count':len(days),'daily_normalized_R':sum(days),'peak_same_signal':max((len(v) for v in by.values()),default=0)}
+          report={'status':'COMPLETE','research_question':'On causally reconstructed historical Crypto Stage1 membership, does next-bar close confirmation improve WR 5m versus canonical intrabar stop-entry?','symbols_scanned':len(summaries),'symbols_stage1_ok':sum(x.get('status')=='OK' for x in summaries),'symbols_error':sum(x.get('status')=='ERROR' for x in summaries),'raw_trade_variants':{},'variants':{}}
+          for k in sorted({t['variant'] for t in trades}): report['raw_trade_variants'][k]=sum(t['variant']==k for t in trades)
+          for label,raw in [('baseline','canonical'),('close_confirmed','close_confirmed')]:
+              xs=[t for t in trades if t['variant']==raw]; r={}
+              for bps in (4,6,8):
+                  r[f'net_{bps}bps']=met(xs,bps)
+                  r[f'long_{bps}bps']=met([t for t in xs if t['side']=='L'],bps)
+                  r[f'short_{bps}bps']=met([t for t in xs if t['side']=='S'],bps)
+                  r[f'normalized_{bps}bps']=norm(xs,bps)
+                  r[f'by_year_{bps}bps']={str(y):met([t for t in xs if datetime.fromtimestamp(int(t['signal'])/1000,tz=timezone.utc).year==y],bps) for y in (2025,2026)}
+              report['variants'][label]=r
+          for bps in (4,6,8):
+              a=report['variants']['baseline'][f'net_{bps}bps']; b=report['variants']['close_confirmed'][f'net_{bps}bps']
+              report[f'delta_close_minus_baseline_{bps}bps']={'R':b['R']-a['R'],'n':b['n']-a['n'],'avg_R':b['avg_R']-a['avg_R'] if a['avg_R'] is not None and b['avg_R'] is not None else None}
+          report['guardrails']=['Stage1 thresholds frozen from operating methodology','Close-confirm is the only WR entry-structure change','4/6/8bps are modeled sensitivities, not true executable replay','Episode/day-normalized R reported because simultaneous altcoin trades are correlated']
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          (out/'symbol-summaries.json').write_text(json.dumps(summaries,indent=2,default=str))
+          with (out/'trades.jsonl').open('w') as f:
+              for t in trades: f.write(json.dumps(t,separators=(',',':'))+'\n')
+          print(json.dumps(report,indent=2))
           PY
-          WR_BASE_DIR=/tmp/wrbase PYTHONPATH=/tmp MERGE_ROOT=/tmp/crypto-all FINAL_OUT=/tmp/crypto-final python /tmp/crypto_merge.py merge
       - name: Upload corrected crypto aggregate
         uses: actions/upload-artifact@v4
         with:
