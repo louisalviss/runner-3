@@ -1,0 +1,122 @@
+name: WR US Stocks 15m30m Base
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-stock-15m30m-base.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-stock-15m30m-base-20260824
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        symbol: [AAPL,ABNB,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,APP,ARM,ASML,AVGO,AXON,BKNG,BKR,CCEP,CDNS,CEG,CHTR,CMCSA,COST,CPRT,CRWD,CSCO,CSGP,CSX,CTAS,CTSH,DASH,DDOG,DXCM,EA,EXC,FANG,FAST,FER,FTNT,GEHC,GILD,GOOG,GOOGL,HON,IDXX,INSM,INTC,INTU,ISRG,KDP,KHC,KLAC,LIN,LRCX,MAR,MCHP,MDLZ,MELI,META,MNST,MPWR,MRVL,MSFT,MSTR,MU,NFLX,NVDA,NXPI,ODFL,ORLY,PANW,PAYX,PCAR,PDD,PEP,PLTR,PYPL,QCOM,REGN,ROP,ROST,SBUX,SHOP,SNDK,SNPS,STX,TMUS,TRI,TSLA,TTWO,TXN,VRSK,VRTX,WBD,WDAY,WDC,WMT,XEL,ZS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas websocket-client requests dukascopy-python
+      - name: Fetch frozen WR research engine
+        run: |
+          mkdir -p /tmp/wr-helper
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-helper/wr_dukascopy_expanded_matrix.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-helper/wr_tv_parity.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run frozen WR base at 15m and 30m
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          WR_OUT: /tmp/wr-stock-15m30m
+        run: |
+          python - <<'PY'
+          import os,sys
+          sys.path.insert(0,'/tmp/wr-helper')
+          import wr_dukascopy_expanded_matrix as exp
+          sym=os.environ['SYMBOL']
+          instrument=exp.resolve_symbol(sym)
+          if not instrument:
+              for tf in (15,30): exp.save_unavailable(sym,tf,'instrument not found')
+              raise SystemExit(0)
+          df,manifest,_=exp.load_mid(sym,5)
+          for tf in (15,30):
+              exp.run_one(sym,tf,df,5,instrument,manifest)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-stock-15m30m-${{ matrix.symbol }}
+          path: /tmp/wr-stock-15m30m
+          retention-days: 30
+
+  merge:
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-stock-15m30m-*
+          path: /tmp/all
+      - name: Build aggregate report
+        run: |
+          python - <<'PY'
+          import json,pathlib,datetime
+          root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final'); out.mkdir(parents=True,exist_ok=True)
+          costs=(0.0,0.25,0.5,1.0,2.0)
+          trades=[]; summaries=[]
+          for p in root.rglob('summary-*.json'):
+              try: summaries.append(json.loads(p.read_text()))
+              except Exception: pass
+          for p in root.rglob('trades-*.jsonl'):
+              for line in p.read_text().splitlines():
+                  if line.strip():
+                      try: trades.append(json.loads(line))
+                      except Exception: pass
+          def side(t):
+              s=str(t.get('side','')).upper(); return 'SHORT' if s in ('S','SHORT') else 'LONG'
+          def cost_r(t,bps):
+              d=abs(float(t['e'])-float(t['s']))
+              return 0.0 if d<=0 else (float(t['e'])/d)*(bps/10000.0)
+          def metrics(ts,bps):
+              xs=[(int(t['signal']),float(t['R'])-cost_r(t,bps)) for t in ts]; xs.sort(key=lambda z:z[0]); vals=[x[1] for x in xs]
+              if not vals:return {'n':0,'R':0.0,'avg_R':None,'PF':None,'win_rate':None,'max_DD_R':0.0}
+              gp=sum(max(x,0) for x in vals); gl=sum(max(-x,0) for x in vals); eq=peak=0.0; mdd=0.0
+              for x in vals:
+                  eq+=x; peak=max(peak,eq); mdd=min(mdd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals),'PF':gp/gl if gl else None,'win_rate':100*sum(x>0 for x in vals)/len(vals),'max_DD_R':mdd}
+          def pack(ts): return {f'{c:g}bps':metrics(ts,c) for c in costs}
+          def year(t): return datetime.datetime.fromtimestamp(int(t['signal'])/1000,datetime.timezone.utc).year
+          report={'status':'COMPLETE','strategy':'WR 2.5.13 frozen base','universe':'Fusion/Nasdaq-100 guaranteed-core list from prior WR scan','source':'Dukascopy BID+ASK midpoint M5, aggregated to target timeframe','timeframes':{},'available_summary_cases':sum(s.get('status') in ('OK','SHORT_HISTORY') for s in summaries),'unavailable_summary_cases':sum(s.get('status')=='UNAVAILABLE' for s in summaries)}
+          for tf in (15,30):
+              tt=[t for t in trades if int(t.get('tf',0))==tf]; syms=sorted(set(str(t.get('symbol','')) for t in tt)); byyear={}
+              for y in range(2022,2027):
+                  yy=[t for t in tt if year(t)==y]
+                  byyear[str(y)]={'overall':pack(yy),'long':pack([t for t in yy if side(t)=='LONG']),'short':pack([t for t in yy if side(t)=='SHORT'])}
+              symrows={}
+              for s in syms:
+                  ss=[t for t in tt if str(t.get('symbol',''))==s]
+                  symrows[s]={'overall':pack(ss),'long':pack([t for t in ss if side(t)=='LONG']),'short':pack([t for t in ss if side(t)=='SHORT'])}
+              report['timeframes'][str(tf)]={'overall':pack(tt),'long':pack([t for t in tt if side(t)=='LONG']),'short':pack([t for t in tt if side(t)=='SHORT']),'years':byyear,'symbol_dispersion':{'symbols':len(syms),'gross_positive':sum(v['overall']['0bps']['R']>0 for v in symrows.values()),'gross_negative':sum(v['overall']['0bps']['R']<0 for v in symrows.values()),'0.5bps_positive':sum(v['overall']['0.5bps']['R']>0 for v in symrows.values()),'0.5bps_negative':sum(v['overall']['0.5bps']['R']<0 for v in symrows.values())},'symbols':symrows}
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          for tf,v in report['timeframes'].items():
+              print('TF',tf,'GROSS',v['overall']['0bps'],'0.5BPS',v['overall']['0.5bps'],'1BPS',v['overall']['1bps'])
+              print(' LONG',v['long']['0bps'],'SHORT',v['short']['0bps'],'DISP',v['symbol_dispersion'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-stock-15m30m-final
+          path: /tmp/final
+          retention-days: 30
