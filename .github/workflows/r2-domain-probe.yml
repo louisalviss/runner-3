@@ -23,7 +23,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Probe Cloudflare zones and R2 buckets
+      - name: Probe Cloudflare zones, R2 buckets and bucket domains
         shell: bash
         run: |
           set -euo pipefail
@@ -33,10 +33,50 @@ jobs:
           curl -fsS "https://api.cloudflare.com/client/v4/zones?per_page=50" "${auth[@]}" > /tmp/zones.json
           curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" "${auth[@]}" > /tmp/buckets.json
           python - <<'PY'
+          import json
+          b=json.load(open('/tmp/buckets.json'))
+          for x in (b.get('result') or {}).get('buckets', []):
+              print(x.get('name',''))
+          PY
+          python - <<'PY' > /tmp/bucket_names.txt
+          import json
+          b=json.load(open('/tmp/buckets.json'))
+          for x in (b.get('result') or {}).get('buckets', []):
+              if x.get('name'): print(x['name'])
+          PY
+          mkdir -p /tmp/r2domains
+          while IFS= read -r bucket; do
+            [ -n "$bucket" ] || continue
+            curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/domains/custom" "${auth[@]}" > "/tmp/r2domains/${bucket}.custom.json" || true
+            curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${bucket}/domains/managed" "${auth[@]}" > "/tmp/r2domains/${bucket}.managed.json" || true
+          done < /tmp/bucket_names.txt
+          python - <<'PY'
           import json, datetime
           from pathlib import Path
           z=json.load(open('/tmp/zones.json'))
           b=json.load(open('/tmp/buckets.json'))
+          buckets=[]
+          for x in (b.get('result') or {}).get('buckets', []):
+              name=x.get('name')
+              custom={}; managed={}
+              cp=Path(f'/tmp/r2domains/{name}.custom.json')
+              mp=Path(f'/tmp/r2domains/{name}.managed.json')
+              if cp.exists():
+                  try: custom=json.loads(cp.read_text())
+                  except: custom={}
+              if mp.exists():
+                  try: managed=json.loads(mp.read_text())
+                  except: managed={}
+              buckets.append({
+                'name':name,
+                'creation_date':x.get('creation_date'),
+                'location':x.get('location'),
+                'storage_class':x.get('storage_class'),
+                'customDomains': (custom.get('result') or {}).get('domains', []) if isinstance(custom.get('result'),dict) else [],
+                'managedDomain': managed.get('result') if managed.get('success') else None,
+                'customDomainErrors': custom.get('errors') or [],
+                'managedDomainErrors': managed.get('errors') or [],
+              })
           out={
             'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'zonesApiSuccess': bool(z.get('success')),
@@ -45,10 +85,7 @@ jobs:
               {'id':x.get('id'),'name':x.get('name'),'status':x.get('status'),'paused':x.get('paused'),'account':(x.get('account') or {}).get('name')}
               for x in (z.get('result') or [])
             ],
-            'buckets': [
-              {'name':x.get('name'),'creation_date':x.get('creation_date'),'location':x.get('location'),'storage_class':x.get('storage_class')}
-              for x in (b.get('result') or {}).get('buckets', [])
-            ],
+            'buckets': buckets,
             'zoneErrors': z.get('errors') or [],
             'bucketErrors': b.get('errors') or [],
           }
