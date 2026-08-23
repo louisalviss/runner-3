@@ -1,0 +1,22 @@
+name: Buyback Source Audit
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/buyback_20260824/**'
+      - '.github/workflows/buyback-source-audit.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install requests pandas
+      - name: Audit official SEC XBRL buyback source
+        run: python research/buyback_20260824/source_audit.py
