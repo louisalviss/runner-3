@@ -1,0 +1,82 @@
+{
+  "engine": "cloakbrowser-read-only",
+  "job_name": "hard-launch-submit-vpn-2026-08-23",
+  "job_file": "/home/runner/work/runner-3/runner-3/jobs/cloak-vpn/2026-08-23-submit-hard-pages.json",
+  "source_visibility": "public",
+  "mode": "read-only",
+  "browser_version": "146.0.7680.177.5",
+  "started_at": "2026-08-23T12:23:28.772854+00:00",
+  "results": [
+    {
+      "requested_url": "https://www.producthunt.com/posts/new",
+      "started_at": "2026-08-23T12:23:32.622459+00:00",
+      "resolved_ips": [
+        "104.18.126.118",
+        "104.18.127.118",
+        "2606:4700::6812:7e76",
+        "2606:4700::6812:7f76"
+      ],
+      "final_resolved_ips": [
+        "104.18.126.118",
+        "104.18.127.118",
+        "2606:4700::6812:7e76",
+        "2606:4700::6812:7f76"
+      ],
+      "ok": true,
+      "status": 200,
+      "final_url": "https://www.producthunt.com/login?origin=%2Fposts%2Fnew",
+      "title": "Login",
+      "text_chars": 1682,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "001_www.producthunt.com",
+      "elapsed_seconds": 7.947
+    },
+    {
+      "requested_url": "https://www.toolify.ai/submit-ai-tool",
+      "started_at": "2026-08-23T12:23:40.569562+00:00",
+      "resolved_ips": [
+        "104.20.25.187",
+        "172.66.156.68",
+        "2606:4700:10::6814:19bb",
+        "2606:4700:10::ac42:9c44"
+      ],
+      "final_resolved_ips": [
+        "104.20.25.187",
+        "172.66.156.68",
+        "2606:4700:10::6814:19bb",
+        "2606:4700:10::ac42:9c44"
+      ],
+      "ok": false,
+      "status": 403,
+      "final_url": "https://www.toolify.ai/submit-ai-tool",
+      "title": "Just a moment...",
+      "text_chars": 262,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "002_www.toolify.ai",
+      "blocked_reason": "http_403",
+      "elapsed_seconds": 5.956
+    }
+  ],
+  "finished_at": "2026-08-23T12:23:47.041211+00:00",
+  "wall_seconds": 18.268,
+  "ok_count": 1,
+  "failed_count": 1
+}
