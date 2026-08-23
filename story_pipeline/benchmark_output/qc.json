@@ -2,15 +2,41 @@
   {
     "file": "01_yagami.txt",
     "pass": true,
-    "length_ratio": 0.925,
+    "checks": {
+      "locked_terms": true,
+      "numbers_exact": true,
+      "number_units_exact": true,
+      "comparators_exact": true,
+      "semantic_anchors": true,
+      "no_convert_residue": true,
+      "length_sane": true,
+      "nonempty": true
+    },
+    "length_ratio": 0.922,
     "missing_locked_terms": [],
     "numbers_raw": [],
-    "numbers_edited": []
+    "numbers_edited": [],
+    "number_units_raw": [],
+    "number_units_edited": [],
+    "comparators_raw": [],
+    "comparators_edited": [],
+    "semantic_missing": [],
+    "convert_red_flags": []
   },
   {
     "file": "02_battle.txt",
-    "pass": true,
-    "length_ratio": 0.904,
+    "pass": false,
+    "checks": {
+      "locked_terms": true,
+      "numbers_exact": false,
+      "number_units_exact": false,
+      "comparators_exact": false,
+      "semantic_anchors": true,
+      "no_convert_residue": true,
+      "length_sane": true,
+      "nonempty": true
+    },
+    "length_ratio": 1.061,
     "missing_locked_terms": [],
     "numbers_raw": [
       "11",
@@ -19,14 +45,40 @@
     ],
     "numbers_edited": [
       "11",
-      "11",
-      "200"
-    ]
+      "11"
+    ],
+    "number_units_raw": [
+      [
+        "200",
+        "cân"
+      ]
+    ],
+    "number_units_edited": [],
+    "comparators_raw": [
+      [
+        "hơn",
+        "200",
+        "cân"
+      ]
+    ],
+    "comparators_edited": [],
+    "semantic_missing": [],
+    "convert_red_flags": []
   },
   {
     "file": "03_system.txt",
-    "pass": true,
-    "length_ratio": 0.769,
+    "pass": false,
+    "checks": {
+      "locked_terms": true,
+      "numbers_exact": true,
+      "number_units_exact": true,
+      "comparators_exact": true,
+      "semantic_anchors": false,
+      "no_convert_residue": false,
+      "length_sane": true,
+      "nonempty": true
+    },
+    "length_ratio": 0.882,
     "missing_locked_terms": [],
     "numbers_raw": [
       "30",
@@ -35,6 +87,44 @@
     "numbers_edited": [
       "30",
       "20"
+    ],
+    "number_units_raw": [
+      [
+        "30",
+        "giây"
+      ],
+      [
+        "20",
+        "%"
+      ]
+    ],
+    "number_units_edited": [
+      [
+        "30",
+        "giây"
+      ],
+      [
+        "20",
+        "%"
+      ]
+    ],
+    "comparators_raw": [],
+    "comparators_edited": [],
+    "semantic_missing": [
+      {
+        "source_concept": [
+          "không có lập tức",
+          "không lập tức"
+        ],
+        "accepted_output": [
+          "không trang bị ngay",
+          "không lập tức",
+          "chưa trang bị ngay"
+        ]
+      }
+    ],
+    "convert_red_flags": [
+      "kỹ năng phóng thích"
     ]
   }
 ]
