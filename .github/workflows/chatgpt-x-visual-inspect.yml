@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   inspect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +20,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install -q -U requests yt-dlp
-          ffmpeg -version | head -1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
       - name: Inspect requested X video
         run: |
           python scripts/inspect_x_video_for_chatgpt.py 'https://x.com/work_with_zaid/status/2091125733716582537'
