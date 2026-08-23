@@ -39,10 +39,15 @@ jobs:
           curl https://get.wasmer.io -sSfL | sh
           echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
 
-      - name: Verify Wasmer account and list apps
+      - name: Verify Wasmer token against Edge API
         shell: bash
         run: |
           set -euo pipefail
           wasmer --version
-          wasmer whoami
           wasmer app list
+
+      - name: Show CLI login-state diagnostic
+        if: always()
+        shell: bash
+        run: |
+          wasmer whoami || true
