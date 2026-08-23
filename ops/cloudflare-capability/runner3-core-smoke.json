@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-23T05:10:23.518536Z",
+  "checkedAt": "2026-08-23T09:50:08.087749Z",
   "url": "https://runner3-core.ducduy2411.workers.dev",
   "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
   "deployUrlSource": "wrangler-output",
@@ -10,9 +10,9 @@
       "ok": true,
       "service": "runner3-core",
       "d1": true,
-      "time": "2026-08-23T05:10:23.592Z"
+      "time": "2026-08-23T09:50:08.314Z"
     },
-    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T05:10:23.592Z\"}"
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T09:50:08.314Z\"}"
   },
   "postEvent": {
     "http": 200,
@@ -24,6 +24,13 @@
   "latest": {
     "http": 200,
     "json": [
+      {
+        "id": 12,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T09:50:08.087749Z\"}",
+        "created_at": "2026-08-23 09:50:08"
+      },
       {
         "id": 11,
         "source": "runner3-core-shadow",
@@ -102,8 +109,52 @@
         "created_at": "2026-08-23 00:44:28"
       }
     ],
-    "body": "[{\"id\":11,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T05:10:23.518536Z\\\"}\",\"created_at\":\"2026-08-23 05:10:23\"},{\"id\":10,\"source\":\"audio-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Audio Library ChatGPT TTS\\\",\\\"run_id\\\":\\\"32619561201\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\\\",\\\"ref\\\":\\\"main\\\"}\",\"created_at\":\"2026-08-23 05:08:00\"},{\"id\":9,\"source\":\"audio-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Audio Library ChatGPT TTS\\\",\\\"run_id\\\":\\\"32619387804\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"822595ab2fdec0c8755a9625db5a9b88450bad01\\\",\\\"ref\\\":\\\"main\\\"}\",\"created_at\":\"2026-08-23 05:04:04\"},{\"id\":8,\"source\":\"audio-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Audio Library ChatGPT TTS\\\",\\\"run_id\\\":\\\"32619236499\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"b0cc53cc3ecc8fa84e36d4f4e5",
-    "count": 11
+    "body": "[{\"id\":12,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T09:50:08.087749Z\\\"}\",\"created_at\":\"2026-08-23 09:50:08\"},{\"id\":11,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T05:10:23.518536Z\\\"}\",\"created_at\":\"2026-08-23 05:10:23\"},{\"id\":10,\"source\":\"audio-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Audio Library ChatGPT TTS\\\",\\\"run_id\\\":\\\"32619561201\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\\\",\\\"ref\\\":\\\"main\\\"}\",\"created_at\":\"2026-08-23 05:08:00\"},{\"id\":9,\"source\":\"audio-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Audio Library ChatGPT TTS\\\",\\\"run_id\\\":\\\"32619387804\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"822595ab2fdec0c8755a9625db5a9b88450bad01\\\",\\\"ref\\\":\\\"main\\\"}\",\"created_at\":\"2026-08-23 05:04:04\"},{\"id\":8,\"source\":\"audio-runner\",\"event_type\":\"work",
+    "count": 12
+  },
+  "status": {
+    "http": 200,
+    "json": {
+      "ok": true,
+      "sources": {
+        "audio-runner": {
+          "status": "success",
+          "workflow": "Audio Library ChatGPT TTS",
+          "run_id": "32619561201",
+          "run_attempt": "1",
+          "sha": "22cda2eaee8ddb27d2d6d1f72672799e3d9192cd",
+          "ref": "main",
+          "event_id": 10,
+          "created_at": "2026-08-23 05:08:00"
+        },
+        "rss-runner": {
+          "status": "success",
+          "workflow": "RSS Runner",
+          "run_id": "32619138072",
+          "run_attempt": "1",
+          "sha": "57e143b7cebc0d1230ae19889851590bb3ac5078",
+          "ref": "main",
+          "event_id": 6,
+          "created_at": "2026-08-23 04:57:33"
+        },
+        "x-runner": {
+          "status": "success",
+          "workflow": "X Runner",
+          "run_id": "32618910514",
+          "run_attempt": "1",
+          "sha": "3de988017906382b6345c620e5db162846c03acb",
+          "ref": "main",
+          "event_id": 5,
+          "created_at": "2026-08-23 04:52:02"
+        }
+      }
+    },
+    "body": "{\"ok\":true,\"sources\":{\"audio-runner\":{\"status\":\"success\",\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619561201\",\"run_attempt\":\"1\",\"sha\":\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\",\"ref\":\"main\",\"event_id\":10,\"created_at\":\"2026-08-23 05:08:00\"},\"rss-runner\":{\"status\":\"success\",\"workflow\":\"RSS Runner\",\"run_id\":\"32619138072\",\"run_attempt\":\"1\",\"sha\":\"57e143b7cebc0d1230ae19889851590bb3ac5078\",\"ref\":\"main\",\"event_id\":6,\"created_at\":\"2026-08-23 04:57:33\"},\"x-runner\":{\"status\":\"success\",\"workflow\":\"X Runner\",\"run_id\":\"32618910514\",\"run_attempt\":\"1\",\"sha\":\"3de988017906382b6345c620e5db162846c03acb\",\"ref\":\"main\",\"event_id\":5,\"created_at\":\"2026-08-23 04:52:02\"}}}",
+    "requiredSourceChecks": {
+      "x-runner": true,
+      "rss-runner": true,
+      "audio-runner": true
+    }
   },
   "ok": true
 }
