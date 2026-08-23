@@ -13,24 +13,27 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install deps
-        run: pip install 'gdown>=6.1.0' pandas
-      - name: Download and audit compiled SEC tables
+        run: pip install requests
+      - name: Smoke historical SEC transport only
         run: |
-          mkdir -p /tmp/sec
-          gdown 1oh3kJd9wZvazyrmTYiGMCFg68mjJAtJ- -O /tmp/sec/SUBMISSION.csv --quiet
-          gdown 1S_rz4tKUR9u4cL41GRKQiDDcelv2uI_R -O /tmp/sec/REPORTINGOWNER.csv --quiet
-          gdown 1vBPyZy5qlqBzutmTiuxkxoiywpKgsgNe -O /tmp/sec/NONDERIV_TRANS.csv --quiet
-          ls -lh /tmp/sec
           python - <<'PY'
-          import pandas as pd, os, json
-          base='/tmp/sec'
-          for name in ['SUBMISSION.csv','REPORTINGOWNER.csv','NONDERIV_TRANS.csv']:
-              p=f'{base}/{name}'
-              head=pd.read_csv(p,nrows=3,dtype=str,low_memory=False)
-              print('FILE',name,'BYTES',os.path.getsize(p),'COLS',json.dumps(list(head.columns)))
-              print(head.head(2).to_json(orient='records')[:6000])
-          sub=pd.read_csv(f'{base}/SUBMISSION.csv',usecols=['FILING_DATE','DOCUMENT_TYPE','ISSUERTRADINGSYMBOL'],dtype=str,low_memory=False)
-          d=pd.to_datetime(sub['FILING_DATE'],format='%d-%b-%Y',errors='coerce')
-          print('SUB_ROWS',len(sub),'DATE_MIN',d.min(),'DATE_MAX',d.max(),'FORM4_ROWS',int(sub['DOCUMENT_TYPE'].astype(str).str.strip().eq('4').sum()),'TICKERS',sub['ISSUERTRADINGSYMBOL'].nunique())
+          import requests, time
+          page='https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets'
+          url='https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/2010q1_form345.zip'
+          uas=[
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36; research contact https://github.com/louisalviss/runner-3',
+            'louisalviss/runner-3 research contact https://github.com/louisalviss/runner-3',
+            'research backtest contact example@example.com',
+          ]
+          for ua in uas:
+            s=requests.Session(); s.headers.update({'User-Agent':ua,'Accept':'text/html,application/xhtml+xml,application/zip,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9','Referer':page})
+            try:
+              p=s.get(page,timeout=30)
+              time.sleep(1.0)
+              r=s.get(url,timeout=60)
+              print('UA',ua,'PAGE',p.status_code,'ZIP',r.status_code,'BYTES',len(r.content),'TYPE',r.headers.get('content-type'))
+            except Exception as e:
+              print('UA',ua,'ERROR',repr(e))
+            time.sleep(2.0)
           print('DONE')
           PY
