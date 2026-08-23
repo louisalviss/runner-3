@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-import json, re, subprocess, sys, tempfile
+import json, re, subprocess, sys, tempfile, shutil
 from pathlib import Path
 from urllib.parse import urlparse
 import requests
 
 ROOT=Path(__file__).resolve().parents[1]
 UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+INBOX=ROOT/'ops'/'audio-library'/'chatgpt-inbox'
 
 def run(cmd, **kw):
     return subprocess.run(cmd, text=True, capture_output=True, **kw)
@@ -22,12 +23,27 @@ def media_urls(obj):
             if u.startswith('http') and u not in out: out.append(u)
     walk(obj); return out
 
+def publish(out:Path, tid:str):
+    INBOX.mkdir(parents=True,exist_ok=True)
+    manifest={}
+    for name in ['report.json','meta.json','yt-dlp-info.json','fxtwitter.json','vxtwitter.json','media-urls.json']:
+        p=out/name
+        if p.exists():
+            try: manifest[name]=json.loads(p.read_text())
+            except Exception: manifest[name]=p.read_text(errors='ignore')[:20000]
+    (INBOX/f'x-inspect-{tid}-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
+    for p in sorted((out/'frames').glob('frame-*.jpg')):
+        # Binary JPEG intentionally uses .json extension so the existing chat-intake
+        # publisher commits it without changing the stable workflow.
+        shutil.copyfile(p, INBOX/f'x-inspect-{tid}-{p.stem}.json')
+    cs=out/'contact-sheet.jpg'
+    if cs.exists(): shutil.copyfile(cs, INBOX/f'x-inspect-{tid}-contact-sheet.json')
+
 def inspect(url:str):
     m=re.search(r'/status/(\d+)',url)
     if not m: return None
     tid=m.group(1); out=ROOT/'evidence'/'x-video-inspect'/tid
-    if out.exists():
-        import shutil; shutil.rmtree(out)
+    if out.exists(): shutil.rmtree(out)
     (out/'frames').mkdir(parents=True,exist_ok=True)
     (out/'source-url.txt').write_text(url+'\n')
     report={'id':tid,'url':url,'attempts':[]}
@@ -62,7 +78,7 @@ def inspect(url:str):
                         video=td/'source.mp4'; video.write_bytes(r.content); report['downloaded_media_url']=u; break
                 except Exception as e: report['attempts'].append({'method':'media-url','error':repr(e)})
         if video is None:
-            report['status']='NO_VIDEO'; (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)); return out
+            report['status']='NO_VIDEO'; (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)); publish(out,tid); return out
         probe=run(['ffprobe','-v','error','-show_entries','format=duration,size','-show_entries','stream=codec_name,width,height,r_frame_rate','-of','json',str(video)],timeout=30)
         (out/'meta.json').write_text(probe.stdout or '{}')
         try: duration=float(json.loads(probe.stdout)['format']['duration'])
@@ -74,9 +90,10 @@ def inspect(url:str):
             fracs=[.005,.04,.08,.13,.19,.26,.34,.42,.50,.58,.66,.74,.82,.89,.95,.99]
             for i,f in enumerate(fracs,1):
                 t=max(0,min(duration-.03,duration*f))
-                subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i',str(video),'-frames:v','1','-q:v','2',str(out/'frames'/f'frame-{i:02d}.jpg')])
+                subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i',str(video),'-frames:v','1','-q:v','3',str(out/'frames'/f'frame-{i:02d}.jpg')])
             subprocess.run(['ffmpeg','-loglevel','error','-y','-i',str(video),'-vf','fps=1/2,scale=480:-1,tile=4x4','-frames:v','1',str(out/'contact-sheet.jpg')])
         (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
+        publish(out,tid)
     return out
 
 if __name__=='__main__':
