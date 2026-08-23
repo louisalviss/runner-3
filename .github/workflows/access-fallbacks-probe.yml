@@ -6,6 +6,10 @@ on:
     paths:
       - '.runner/x-url.txt'
       - '.github/workflows/access-fallbacks-probe.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.runner/x-url.txt'
   workflow_dispatch:
 
 permissions:
