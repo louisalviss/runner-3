@@ -1,0 +1,122 @@
+name: Video Recreate Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "video-recreate-render-trigger.txt"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner-3-video-recreate-render
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STATUS_FILE: video-recreate-render-status.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install media stack
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg curl python3 python3-pil python3-numpy
+          mkdir -p scripts dsh-handoff/downloads dsh-handoff/render
+          BASE='https://raw.githubusercontent.com/louisalviss/runner-6/main/scripts'
+          curl -fsSL "$BASE/render-socksnode-recreate-fast.py" -o scripts/render-socksnode-recreate-fast.py
+          chmod +x scripts/render-socksnode-recreate-fast.py
+
+      - name: Download reference
+        id: source
+        run: |
+          set -euo pipefail
+          SOURCE_URL="$(sed -n 's/^source=//p' video-recreate-render-trigger.txt | head -n1)"
+          test -n "$SOURCE_URL"
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
+          set +e
+          EFFECTIVE="$(curl -fL --retry 3 --retry-delay 2 --max-time 180 -A "$UA" -w '%{url_effective}' -o dsh-handoff/downloads/reference.bin "$SOURCE_URL")"
+          CODE=$?
+          set -e
+          if [ "$CODE" -ne 0 ] || ! ffprobe -v error dsh-handoff/downloads/reference.bin >/dev/null 2>&1; then
+            echo 'Direct fetch failed; switching to DSH media fallback.'
+            BASE='https://raw.githubusercontent.com/louisalviss/runner-6/main/scripts'
+            for f in setup-dsh-media-tools.sh dsh-download-media.sh setup-cloudflare-warp.sh dsh-ytdlp-vpngate.sh; do curl -fsSL "$BASE/$f" -o "scripts/$f"; done
+            chmod +x scripts/*.sh
+            bash scripts/setup-dsh-media-tools.sh
+            bash scripts/dsh-download-media.sh "$SOURCE_URL" 720
+            P="$(python3 -c "import json;print(json.load(open('dsh-handoff/handoff.json'))['relative_path'])")"
+            cp "$P" dsh-handoff/downloads/reference.bin
+            EFFECTIVE="$SOURCE_URL"
+          fi
+          ffprobe -v error dsh-handoff/downloads/reference.bin >/dev/null
+          echo "source_url=$SOURCE_URL" >> "$GITHUB_OUTPUT"
+          echo "effective_url=$EFFECTIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild video
+        run: |
+          set -euo pipefail
+          python3 scripts/render-socksnode-recreate-fast.py \
+            dsh-handoff/downloads/reference.bin \
+            dsh-handoff/render/recreated-video.mp4 \
+            dsh-handoff/render/recreate-analysis.json
+
+      - name: QA
+        run: |
+          set -euo pipefail
+          ffprobe -v error -show_entries stream=codec_type,width,height,codec_name,avg_frame_rate -show_entries format=duration,size -of json \
+            dsh-handoff/render/recreated-video.mp4 > dsh-handoff/render/ffprobe.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('dsh-handoff/render/ffprobe.json'))
+          v=next(s for s in p['streams'] if s['codec_type']=='video')
+          assert int(v['width'])==720 and int(v['height'])==1280, v
+          d=float(p['format']['duration'])
+          assert 29.0 <= d <= 31.0, d
+          assert int(p['format']['size']) > 500000, p['format']
+          print(json.dumps(p,ensure_ascii=False))
+          PY
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-recreate-render-${{ github.run_id }}
+          path: |
+            dsh-handoff/render/recreated-video.mp4
+            dsh-handoff/render/recreate-analysis.json
+            dsh-handoff/render/ffprobe.json
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish final status
+        if: always()
+        env:
+          SOURCE_URL: ${{ steps.source.outputs.source_url }}
+          EFFECTIVE_URL: ${{ steps.source.outputs.effective_url }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          v=Path('dsh-handoff/render/recreated-video.mp4')
+          a=Path('dsh-handoff/render/recreate-analysis.json')
+          q=Path('dsh-handoff/render/ffprobe.json')
+          d={'status':'success' if v.exists() and v.stat().st_size else 'error','run_id':os.environ['GITHUB_RUN_ID'],'artifact_present':bool(v.exists() and v.stat().st_size),'source_url':os.environ.get('SOURCE_URL',''),'effective_url':os.environ.get('EFFECTIVE_URL','')}
+          if v.exists(): d['bytes']=v.stat().st_size
+          if a.exists(): d['analysis']=json.loads(a.read_text())
+          if q.exists(): d['ffprobe']=json.loads(q.read_text())
+          Path(os.environ['STATUS_FILE']).write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$STATUS_FILE"
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update video recreate render status [skip ci]'
+            git push
+          fi
