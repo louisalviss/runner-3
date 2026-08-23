@@ -1,0 +1,166 @@
+{
+  "status": "ok",
+  "hits": [
+    {
+      "name": "requestPasswordReset",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RequestPasswordResetInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "RequestPasswordResetPayload",
+        "ofType": null
+      }
+    },
+    {
+      "name": "changeUserPassword",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ChangeUserPasswordInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "ChangeUserPasswordPayload",
+        "ofType": null
+      }
+    },
+    {
+      "name": "validateUserPassword",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ValidateUserPasswordInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "ValidateUserPasswordPayload",
+        "ofType": null
+      }
+    },
+    {
+      "name": "mfa2RecoveryGetToken",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "MFAGenerateRecoveryTokenInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "MFARecoveryCodes"
+        }
+      }
+    },
+    {
+      "name": "mfa2RecoveryAuth",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "MFARecoveryAuthInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "MFAAuthResponse"
+        }
+      }
+    },
+    {
+      "name": "revealSshUserPassword",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RevealSshUserPasswordInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "RevealSshUserPasswordPayload",
+        "ofType": null
+      }
+    },
+    {
+      "name": "rotateSshUserPassword",
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RotateSshUserPasswordInput",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "RotateSshUserPasswordPayload",
+        "ofType": null
+      }
+    }
+  ],
+  "errors": null
+}
