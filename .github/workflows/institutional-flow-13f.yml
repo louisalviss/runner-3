@@ -1,0 +1,24 @@
+name: Institutional Flow 13F
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'research/ema200w_20260823/institutional_flow_13f.py'
+      - '.github/workflows/institutional-flow-13f.yml'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install datasets pandas numpy pyarrow
+      - name: Run 13F institutional-flow validation
+        working-directory: research/ema200w_20260823
+        run: python institutional_flow_13f.py
