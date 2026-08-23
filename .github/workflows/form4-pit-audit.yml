@@ -21,7 +21,7 @@ jobs:
           from pathlib import Path
           p=Path('form4_sec_backtest.py')
           s=p.read_text()
-          s=s.replace("UA = 'Louis-Alviss-research-backtest/1.0'", "UA = 'louisalviss/runner-3 research https://github.com/louisalviss/runner-3 contact example@example.com'\nSEC_PAGE = 'https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets'")
+          s=s.replace("UA = 'Louis-Alviss-research-backtest/1.0'", "UA = 'research backtest contact example@example.com'\nSEC_PAGE = 'https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets'")
           s=s.replace("    sess = requests.Session()\n    all_events = []", "    sess = requests.Session()\n    sess.headers.update({'User-Agent': UA, 'Accept':'text/html,application/xhtml+xml,application/zip,*/*;q=0.8', 'Accept-Language':'en-US,en;q=0.9', 'Referer':SEC_PAGE})\n    warm = sess.get(SEC_PAGE, timeout=30)\n    warm.raise_for_status()\n    all_events = []")
           s=s.replace('            time.sleep(0.12)', '            time.sleep(0.5)')
           p.write_text(s)
