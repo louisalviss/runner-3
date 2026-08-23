@@ -1,14 +1,11 @@
-# Ephemeral PR trigger for PIT quality validation; no result files are persisted.
-name: Core Edge Decompose
+# Temporary validation branch disabled; no result files were persisted.
+name: Core Edge Decompose Disabled
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  run:
+  disabled:
     if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
