@@ -20,7 +20,7 @@ jobs:
           import requests
           page='https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets'
           url='https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/2010q1_form345.zip'
-          ua='louisalviss/runner-3 research contact 19625565+louisalviss@users.noreply.github.com'
+          ua='louisalviss/runner-3 research contact louisalviss@users.noreply.github.com'
           s=requests.Session(); s.headers.update({'User-Agent':ua,'Accept':'text/html,application/xhtml+xml,application/zip,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9','Referer':page})
           p=s.get(page,timeout=30)
           r=s.get(url,timeout=60)
