@@ -1,12 +1,27 @@
-# Temporary validation branch disabled; no result files were persisted.
-name: Core Edge Decompose Disabled
+# Ephemeral PIT quality validation. Results are printed to CI logs only and are not persisted in the repository.
+name: Core Edge Decompose
 
 on:
+  pull_request:
+    paths:
+      - 'research/ema200w_20260823/core_edge_decompose.py'
+      - '.github/workflows/core-edge-decompose.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  disabled:
-    if: ${{ false }}
-    runs-on: ubuntu-latest
+  run:
+    runs-on: macos-15
+    timeout-minutes: 45
     steps:
-      - run: echo disabled
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pandas numpy requests pyarrow
+      - name: Run decomposition
+        working-directory: research/ema200w_20260823
+        run: python core_edge_decompose.py
