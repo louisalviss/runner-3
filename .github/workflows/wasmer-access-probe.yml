@@ -1,0 +1,43 @@
+name: Wasmer access probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/wasmer-access-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+    steps:
+      - name: Check secret is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${WASMER_TOKEN:-}" ]]; then
+            echo "WASMER_TOKEN is missing or empty"
+            exit 2
+          fi
+          echo "WASMER_TOKEN is present"
+
+      - name: Install Wasmer CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl https://get.wasmer.io -sSfL | sh
+          echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Wasmer account and list apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          wasmer --version
+          wasmer whoami
+          wasmer app list
