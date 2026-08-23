@@ -1,0 +1,211 @@
+{
+  "status": "ok",
+  "userFields": [
+    {
+      "name": "id",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID"
+        }
+      }
+    },
+    {
+      "name": "firstName",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "lastName",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "email",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "username",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "isEmailValidated",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "isEmailAcceptable",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "globalName",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "globalId",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID"
+        }
+      }
+    },
+    {
+      "name": "fullName",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "namespaces",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "NamespaceConnection"
+        }
+      }
+    },
+    {
+      "name": "sentEmails",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "EmailMessageConnection"
+        }
+      }
+    },
+    {
+      "name": "receivedEmails",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "EmailMessageConnection"
+        }
+      }
+    },
+    {
+      "name": "namespaceInvitesIncoming",
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "NamespaceCollaboratorInviteConnection"
+        }
+      }
+    },
+    {
+      "name": "emailUsage",
+      "type": {
+        "kind": "OBJECT",
+        "name": "EmailUsageSummary",
+        "ofType": null
+      }
+    }
+  ],
+  "queryFields": [
+    {
+      "name": "getUser",
+      "args": [
+        {
+          "name": "username",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String"
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "User",
+        "ofType": null
+      }
+    },
+    {
+      "name": "getNamespace",
+      "args": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String"
+            }
+          }
+        }
+      ],
+      "type": {
+        "kind": "OBJECT",
+        "name": "Namespace",
+        "ofType": null
+      }
+    }
+  ]
+}
