@@ -1,0 +1,35 @@
+name: Wasmer Reset Schema Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-schema-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/q.json <<'JSON'
+          {"query":"query { __type(name: \"Mutation\") { fields { name args { name type { kind name ofType { kind name ofType { kind name } } } } type { kind name ofType { kind name } } } } }"}
+          JSON
+          curl -sS 'https://registry.wasmer.io/graphql' -H 'content-type: application/json' --data-binary @/tmp/q.json -o /tmp/raw.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/raw.json'))
+          fs=(((x.get('data') or {}).get('__type') or {}).get('fields') or [])
+          hits=[f for f in fs if 'password' in f.get('name','').lower() or 'reset' in f.get('name','').lower() or 'recover' in f.get('name','').lower()]
+          open('/tmp/o.json','w').write(json.dumps({'status':'ok','hits':hits,'errors':x.get('errors')},indent=2))
+          PY
+      - if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/o.json || echo '{"status":"runner_error"}' >/tmp/o.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main; mkdir -p ops/wasmer; cp /tmp/o.json ops/wasmer/reset-schema-probe.json; git add ops/wasmer/reset-schema-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer reset schema probe'; git push origin HEAD:main; fi
