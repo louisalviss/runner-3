@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   extract:
@@ -20,23 +20,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence/frames
+          rm -rf evidence/zaid-reference
+          mkdir -p evidence/zaid-reference/frames
           URL='https://video.twimg.com/amplify_video/2088913945902075904/vid/avc1/1280x720/HqsM-7lohCT0vzRB.mp4?tag=14'
-          curl -L --fail --retry 4 --retry-delay 2 -A 'Mozilla/5.0' "$URL" -o evidence/reference.mp4
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,r_frame_rate -of json evidence/reference.mp4 | tee evidence/meta.json
-          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 evidence/reference.mp4)
+          curl -L --fail --retry 4 --retry-delay 2 -A 'Mozilla/5.0' "$URL" -o /tmp/zaid-reference.mp4
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,r_frame_rate -of json /tmp/zaid-reference.mp4 | tee evidence/zaid-reference/meta.json
+          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/zaid-reference.mp4)
           python3 - "$DURATION" <<'PY'
           import sys, subprocess
           d=float(sys.argv[1])
-          # 9 evenly spaced frames, avoiding exact start/end fades.
           for i, frac in enumerate([.05,.16,.27,.38,.49,.60,.71,.82,.93],1):
               t=max(0,d*frac)
-              subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i','evidence/reference.mp4','-frames:v','1','-q:v','2',f'evidence/frames/frame-{i:02d}.jpg'],check=True)
+              subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i','/tmp/zaid-reference.mp4','-frames:v','1','-q:v','2',f'evidence/zaid-reference/frames/frame-{i:02d}.jpg'],check=True)
           PY
-          ffmpeg -loglevel error -y -i evidence/reference.mp4 -vf "fps=1/2,scale=640:-1,tile=3x3" -frames:v 1 evidence/contact-sheet.jpg || true
-          ls -lh evidence evidence/frames
+          ffmpeg -loglevel error -y -i /tmp/zaid-reference.mp4 -vf "fps=1/2,scale=640:-1,tile=3x3" -frames:v 1 evidence/zaid-reference/contact-sheet.jpg || true
+          ls -lh evidence/zaid-reference evidence/zaid-reference/frames
+      - name: Commit extracted evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add evidence/zaid-reference
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore: add Zaid reference frames'
+          git push
       - uses: actions/upload-artifact@v4
         with:
           name: zaid-reference
-          path: evidence/
+          path: evidence/zaid-reference/
           retention-days: 2
