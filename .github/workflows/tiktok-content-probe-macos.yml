@@ -23,7 +23,7 @@ jobs:
 
       - name: Install tools
         run: |
-          python -m pip install -q -U yt-dlp 'playwright>=1.46,<2'
+          python -m pip install -q -U yt-dlp 'playwright>=1.46,<2' requests
           python -m playwright install chromium
 
       - name: Extract TikTok
@@ -58,7 +58,7 @@ jobs:
                   def on_response(r):
                       try:
                           ct=(r.headers.get('content-type') or '').lower()
-                          if r.request.resource_type == 'media' or ct.startswith('video/'):
+                          if r.request.resource_type == 'media' or ct.startswith('video/') or '.m3u8' in r.url:
                               media.append({'url':r.url,'status':r.status,'content_type':ct,'resource_type':r.request.resource_type})
                       except Exception:
                           pass
@@ -89,8 +89,9 @@ jobs:
                   except Exception as e:
                       out['cdp_screenshot_error']=f'{type(e).__name__}: {e}'
 
-                  out['media_responses']=media[-50:]
+                  out['media_responses']=media[-100:]
                   pathlib.Path('evidence/media-responses.json').write_text(json.dumps(media,ensure_ascii=False,indent=2))
+                  pathlib.Path('evidence/cookies.json').write_text(json.dumps(c.cookies(),ensure_ascii=False,indent=2))
 
                   candidates=[]
                   vs=out.get('video_state') or {}
@@ -102,7 +103,7 @@ jobs:
                       if candidate in seen: continue
                       seen.add(candidate)
                       try:
-                          rr=c.request.get(candidate, headers={'Referer':page.url}, timeout=30000)
+                          rr=c.request.get(candidate, headers={'Referer':page.url,'Accept':'*/*'}, timeout=30000)
                           ct=(rr.headers.get('content-type') or '').lower()
                           body=rr.body()
                           if rr.ok and (ct.startswith('video/') or len(body)>500000) and len(body)<=80*1024*1024:
@@ -119,6 +120,65 @@ jobs:
           pathlib.Path('evidence/browser.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
           print(json.dumps(out,ensure_ascii=False))
           PY
+
+          # Independent fallback: TikWM resolves a direct TikTok CDN URL even while yt-dlp's challenge solver is broken.
+          python3 - <<'PY'
+          import json, pathlib, requests
+          url=pathlib.Path('.runner/tiktok-url.txt').read_text().splitlines()[0].strip()
+          ua='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/151 Safari/537.36'
+          out={'requested_url':url}
+          try:
+              r=requests.post('https://www.tikwm.com/api/', data={'url':url,'hd':'1'}, headers={'User-Agent':ua,'Accept':'application/json'}, timeout=30)
+              out['api_status']=r.status_code
+              out['api_content_type']=r.headers.get('content-type')
+              try: data=r.json()
+              except Exception:
+                  data={'raw':r.text[:4000]}
+              out['api_response']=data
+              d=data.get('data') if isinstance(data,dict) else None
+              if isinstance(d,dict):
+                  candidates=[d.get('hdplay'),d.get('play'),d.get('wmplay')]
+                  for candidate in candidates:
+                      if not candidate: continue
+                      if candidate.startswith('/'):
+                          candidate='https://www.tikwm.com'+candidate
+                      try:
+                          rr=requests.get(candidate,headers={'User-Agent':ua,'Referer':'https://www.tikwm.com/'},timeout=60,stream=True)
+                          out.setdefault('download_attempts',[]).append({'url':candidate,'status':rr.status_code,'content_type':rr.headers.get('content-type'),'content_length':rr.headers.get('content-length')})
+                          if rr.ok:
+                              p=pathlib.Path('evidence/video-tikwm.mp4')
+                              total=0
+                              with p.open('wb') as f:
+                                  for chunk in rr.iter_content(1024*256):
+                                      if not chunk: continue
+                                      total+=len(chunk)
+                                      if total>80*1024*1024: raise RuntimeError('video_too_large')
+                                      f.write(chunk)
+                              if total>100000:
+                                  out['downloaded']={'url':candidate,'bytes':total,'path':str(p)}
+                                  break
+                      except Exception as e:
+                          out.setdefault('download_errors',[]).append(f'{type(e).__name__}: {e}')
+          except Exception as e:
+              out['error']=f'{type(e).__name__}: {e}'
+          pathlib.Path('evidence/tikwm.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+
+          # Validate and normalize any recovered media.
+          set +e
+          for f in evidence/video-tikwm.mp4 evidence/video-browser.bin evidence/video-ytdlp.mp4 evidence/video-ytdlp.webm; do
+            [ -f "$f" ] || continue
+            ffprobe -v error -show_entries format=format_name,duration,size,bit_rate -show_entries stream=codec_type,codec_name,width,height -of json "$f" > "$f.ffprobe.json" 2> "$f.ffprobe.err"
+            if [ $? -eq 0 ] && [ ! -f evidence/final.mp4 ]; then
+              ffmpeg -hide_banner -loglevel error -y -i "$f" -c copy -movflags +faststart evidence/final.mp4 2> evidence/final-remux.err || \
+              ffmpeg -hide_banner -loglevel error -y -i "$f" -c:v libx264 -c:a aac -movflags +faststart evidence/final.mp4 2>> evidence/final-remux.err
+            fi
+          done
+          if [ -f evidence/final.mp4 ]; then
+            ffprobe -v error -show_entries format=format_name,duration,size,bit_rate -show_entries stream=codec_type,codec_name,width,height -of json evidence/final.mp4 > evidence/final.ffprobe.json
+          fi
+          set -e
 
           du -ah evidence | sort -h > evidence/files.txt || true
 
