@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-23T15:03:17.746922Z",
+  "checkedAt": "2026-08-23T15:06:59.926841Z",
   "url": "https://runner3-core.ducduy2411.workers.dev",
   "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
   "deployUrlSource": "wrangler-output",
@@ -10,9 +10,9 @@
       "ok": true,
       "service": "runner3-core",
       "d1": true,
-      "time": "2026-08-23T15:03:17.861Z"
+      "time": "2026-08-23T15:07:00.045Z"
     },
-    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T15:03:17.861Z\"}"
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T15:07:00.045Z\"}"
   },
   "postEvent": {
     "http": 200,
@@ -24,6 +24,20 @@
   "latest": {
     "http": 200,
     "json": [
+      {
+        "id": 19,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T15:06:59.926841Z\"}",
+        "created_at": "2026-08-23 15:07:00"
+      },
+      {
+        "id": 18,
+        "source": "cloak-runner",
+        "event_type": "workflow_status",
+        "payload": "{\"workflow\":\"Cloak Read-Only Fallback\",\"run_id\":\"32647429061\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"286f891dc42d7ca62a83ca4cf376241fadde22f7\",\"ref\":\"refs/heads/main\"}",
+        "created_at": "2026-08-23 15:05:41"
+      },
       {
         "id": 17,
         "source": "runner3-core-shadow",
@@ -144,8 +158,8 @@
         "created_at": "2026-08-23 00:44:28"
       }
     ],
-    "body": "[{\"id\":17,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T15:03:17.746922Z\\\"}\",\"created_at\":\"2026-08-23 15:03:17\"},{\"id\":16,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32645678889\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"cc92c3424e790609d820c308e6915c2fd8aa0363\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 14:32:08\"},{\"id\":15,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32645608552\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"4ea2bd40af9abe55f4ada975d9cae9ddaec3be0c\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 14:30:45\"},{\"id\":14,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32645519045\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"db2ed",
-    "count": 17
+    "body": "[{\"id\":19,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T15:06:59.926841Z\\\"}\",\"created_at\":\"2026-08-23 15:07:00\"},{\"id\":18,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32647429061\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"286f891dc42d7ca62a83ca4cf376241fadde22f7\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 15:05:41\"},{\"id\":17,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T15:03:17.746922Z\\\"}\",\"created_at\":\"2026-08-23 15:03:17\"},{\"id\":16,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32645678889\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"cc92c3424e790609d820c308e6915c2fd8aa0363\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 14:32:08\"},{\"id\":15,\"source\":\"cloak-runn",
+    "count": 19
   },
   "status": {
     "http": 200,
@@ -163,14 +177,14 @@
           "created_at": "2026-08-23 05:08:00"
         },
         "cloak-runner": {
-          "status": "success",
+          "status": "failure",
           "workflow": "Cloak Read-Only Fallback",
-          "run_id": "32645678889",
+          "run_id": "32647429061",
           "run_attempt": "1",
-          "sha": "cc92c3424e790609d820c308e6915c2fd8aa0363",
+          "sha": "286f891dc42d7ca62a83ca4cf376241fadde22f7",
           "ref": "refs/heads/main",
-          "event_id": 16,
-          "created_at": "2026-08-23 14:32:08"
+          "event_id": 18,
+          "created_at": "2026-08-23 15:05:41"
         },
         "rss-runner": {
           "status": "success",
@@ -194,7 +208,7 @@
         }
       }
     },
-    "body": "{\"ok\":true,\"sources\":{\"audio-runner\":{\"status\":\"success\",\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619561201\",\"run_attempt\":\"1\",\"sha\":\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\",\"ref\":\"main\",\"event_id\":10,\"created_at\":\"2026-08-23 05:08:00\"},\"cloak-runner\":{\"status\":\"success\",\"workflow\":\"Cloak Read-Only Fallback\",\"run_id\":\"32645678889\",\"run_attempt\":\"1\",\"sha\":\"cc92c3424e790609d820c308e6915c2fd8aa0363\",\"ref\":\"refs/heads/main\",\"event_id\":16,\"created_at\":\"2026-08-23 14:32:08\"},\"rss-runner\":{\"status\":\"success\",\"workflow\":\"RSS Runner\",\"run_id\":\"32619138072\",\"run_attempt\":\"1\",\"sha\":\"57e143b7cebc0d1230ae19889851590bb3ac5078\",\"ref\":\"main\",\"event_id\":6,\"created_at\":\"2026-08-23 04:57:33\"},\"x-runner\":{\"status\":\"success\",\"workflow\":\"X Runner\",\"run_id\":\"32618910514\",\"run_attempt\":\"1\",\"sha\":\"3de988017906382b6345c620e5db162846c03acb\",\"ref\":\"main\",\"event_id\":5,\"created_at\":\"2026-08-23 04:52:02\"}}}",
+    "body": "{\"ok\":true,\"sources\":{\"audio-runner\":{\"status\":\"success\",\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619561201\",\"run_attempt\":\"1\",\"sha\":\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\",\"ref\":\"main\",\"event_id\":10,\"created_at\":\"2026-08-23 05:08:00\"},\"cloak-runner\":{\"status\":\"failure\",\"workflow\":\"Cloak Read-Only Fallback\",\"run_id\":\"32647429061\",\"run_attempt\":\"1\",\"sha\":\"286f891dc42d7ca62a83ca4cf376241fadde22f7\",\"ref\":\"refs/heads/main\",\"event_id\":18,\"created_at\":\"2026-08-23 15:05:41\"},\"rss-runner\":{\"status\":\"success\",\"workflow\":\"RSS Runner\",\"run_id\":\"32619138072\",\"run_attempt\":\"1\",\"sha\":\"57e143b7cebc0d1230ae19889851590bb3ac5078\",\"ref\":\"main\",\"event_id\":6,\"created_at\":\"2026-08-23 04:57:33\"},\"x-runner\":{\"status\":\"success\",\"workflow\":\"X Runner\",\"run_id\":\"32618910514\",\"run_attempt\":\"1\",\"sha\":\"3de988017906382b6345c620e5db162846c03acb\",\"ref\":\"main\",\"event_id\":5,\"created_at\":\"2026-08-23 04:52:02\"}}}",
     "schemaOk": true,
     "sourceCount": 4,
     "sourceShapeChecks": {
