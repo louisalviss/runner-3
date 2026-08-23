@@ -1,0 +1,79 @@
+name: WR Merge Repair
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/wr-merge-repair.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download completed stock final artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-stock10-close-final
+          path: /tmp/stock-old
+          repository: louisalviss/runner-3
+          run-id: 32614479461
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Repair stock baseline label and regenerate report
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/stock10_close_merge.py" -o /tmp/stock_merge.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/stock_merge.py')
+          s=p.read_text()
+          old="xs=[t for t in tr if t['variant']==v]"
+          new="xs=[t for t in tr if t['variant']==('canonical' if v=='baseline' else v)]"
+          if old not in s: raise SystemExit('stock merge patch target missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+          mkdir -p /tmp/stock-input/artifact /tmp/stock-final
+          cp /tmp/stock-old/symbol-summaries.json /tmp/stock-input/artifact/all-symbols.json
+          cp /tmp/stock-old/trades.jsonl /tmp/stock-input/artifact/all-trades.jsonl
+          # merger expects *-trades.jsonl and any symbol dicts; split summaries so symbols_ok remains auditable
+          python - <<'PY'
+          import json, pathlib
+          root=pathlib.Path('/tmp/stock-input/artifact')
+          xs=json.load(open('/tmp/stock-old/symbol-summaries.json'))
+          for i,x in enumerate(xs): (root/f'symbol-{i:03d}.json').write_text(json.dumps(x))
+          PY
+          MERGE_ROOT=/tmp/stock-input FINAL_OUT=/tmp/stock-final python /tmp/stock_merge.py
+      - name: Download all successful crypto shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-crypto-stage1-close-shard-*
+          path: /tmp/crypto-all
+          repository: louisalviss/runner-3
+          run-id: 32614479458
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Regenerate crypto final aggregate
+        run: |
+          set -euo pipefail
+          pip install requests websocket-client
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/crypto_stage1_close_ab.py" -o /tmp/crypto_merge.py
+          mkdir -p /tmp/crypto-final
+          MERGE_ROOT=/tmp/crypto-all FINAL_OUT=/tmp/crypto-final python /tmp/crypto_merge.py merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-stock10-close-final-corrected
+          path: /tmp/stock-final/
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-crypto-stage1-close-final-corrected
+          path: /tmp/crypto-final/
+          retention-days: 30
