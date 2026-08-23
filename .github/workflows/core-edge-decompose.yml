@@ -22,6 +22,22 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install pandas numpy requests pyarrow
+      - name: Normalize PIT datetime precision
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('research/ema200w_20260823/core_edge_decompose.py')
+          s = p.read_text()
+          s = s.replace(
+              "        s = s.sort_values('filing_date').rename(columns={",
+              "        s['filing_date'] = pd.to_datetime(s['filing_date']).astype('datetime64[ns]')\n        s = s.sort_values('filing_date').rename(columns={",
+          )
+          s = s.replace(
+              "        left = w.loc[idx, ['week']].sort_values('week')",
+              "        left = w.loc[idx, ['week']].sort_values('week')\n        left['week'] = pd.to_datetime(left['week']).astype('datetime64[ns]')",
+          )
+          p.write_text(s)
+          PY
       - name: Run decomposition
         working-directory: research/ema200w_20260823
         run: python core_edge_decompose.py
