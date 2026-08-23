@@ -1,0 +1,99 @@
+name: Runner5 Wasmer Auth Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-wasmer-auth-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WASMER_AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_USERNAME: ${{ secrets.WASMER_USERNAME }}
+      WASMER_PASSWORD: ${{ secrets.WASMER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Probe Wasmer auth material
+        shell: bash
+        run: |
+          set -u
+          out=/tmp/runner5-wasmer-auth-probe.json
+          encrypted='ops/wasmer/state.automation.aes'
+          has_wasmer=false; has_cf=false; has_user=false; has_pass=false
+          [ -n "${WASMER_AUTOMATION_KEY:-}" ] && has_wasmer=true
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && has_cf=true
+          [ -n "${WASMER_USERNAME:-}" ] && has_user=true
+          [ -n "${WASMER_PASSWORD:-}" ] && has_pass=true
+          encrypted_present=false
+          [ -s "$encrypted" ] && encrypted_present=true
+          source='none'; decrypt_ok=false; account_shape=false
+
+          try_key() {
+            local label="$1" key="$2"
+            [ -n "$key" ] || return 1
+            if AUTOMATION_KEY="$key" openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -pass env:AUTOMATION_KEY -in "$encrypted" -out /tmp/wasmer-probe.json 2>/dev/null; then
+              source="$label"; decrypt_ok=true
+              if python3 - <<'PY'
+import json
+p='/tmp/wasmer-probe.json'
+try:
+    d=json.load(open(p))
+    ok=bool((d.get('username') or d.get('email')) and d.get('password'))
+except Exception:
+    ok=False
+raise SystemExit(0 if ok else 1)
+PY
+              then account_shape=true; fi
+              rm -f /tmp/wasmer-probe.json
+              return 0
+            fi
+            rm -f /tmp/wasmer-probe.json
+            return 1
+          }
+
+          if [ "$encrypted_present" = true ]; then
+            try_key WASMER_AUTOMATION_KEY "${WASMER_AUTOMATION_KEY:-}" || \
+            try_key CLOUDFLARE_API_TOKEN "${CLOUDFLARE_API_TOKEN:-}" || true
+          fi
+          if [ "$decrypt_ok" != true ] && [ "$has_user" = true ] && [ "$has_pass" = true ]; then
+            source='WASMER_USERNAME_PASSWORD'; account_shape=true
+          fi
+
+          status=FAIL
+          [ "$account_shape" = true ] && status=PASS
+          printf '{"status":"%s","encryptedPresent":%s,"available":{"wasmerAutomationKey":%s,"cloudflareToken":%s,"username":%s,"password":%s},"decryptOk":%s,"accountShapeOk":%s,"authSource":"%s","checkedAt":"%s"}\n' \
+            "$status" "$encrypted_present" "$has_wasmer" "$has_cf" "$has_user" "$has_pass" "$decrypt_ok" "$account_shape" "$source" "$(date -u +%FT%TZ)" > "$out"
+
+      - name: Persist probe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner5-wasmer-auth-probe.json || printf '{"status":"RUNNER_ERROR","detail":"probe_output_missing"}\n' > /tmp/runner5-wasmer-auth-probe.json
+          cp /tmp/runner5-wasmer-auth-probe.json /tmp/probe-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/probe-safe.json ops/wordpress-access/runner5-wasmer-auth-probe.json
+            git add ops/wordpress-access/runner5-wasmer-auth-probe.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Wasmer auth probe'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
