@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/tiktok-content-probe.yml'
       - '.runner/tiktok-url.txt'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.runner/tiktok-url.txt'
   workflow_dispatch:
 
 permissions:
@@ -60,7 +64,7 @@ jobs:
           python3 - <<'PY'
           import json, pathlib
           from playwright.sync_api import sync_playwright
-          url=pathlib.Path('.runner/tiktok-url.txt').read_text().strip()
+          url=pathlib.Path('.runner/tiktok-url.txt').read_text().splitlines()[0].strip()
           out={'requested_url':url}
           try:
               with sync_playwright() as p:
@@ -85,7 +89,7 @@ jobs:
           find evidence -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | tee evidence/files.txt
 
       - name: Publish lightweight evidence to repo
-        if: always()
+        if: github.event_name == 'push'
         shell: bash
         run: |
           rm -f evidence/video.mp4 evidence/video.webm evidence/video.mkv
