@@ -1,0 +1,130 @@
+name: X Deep Replies
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/x-deep/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to X deep-replies job JSON'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: x-deep-replies
+  cancel-in-progress: false
+
+jobs:
+  fetch-replies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Resolve job
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/x-deep/*.json' | tail -n 1 || true)"
+          fi
+          test -n "$JOB_FILE" && test -f "$JOB_FILE"
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch conversation replies
+        env:
+          JOB_FILE: ${{ steps.job.outputs.job_file }}
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.parse, urllib.request, urllib.error
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          job_path = Path(os.environ['JOB_FILE'])
+          job = json.loads(job_path.read_text(encoding='utf-8'))
+          url = str(job.get('x_url') or job.get('url') or '').strip()
+          m = re.search(r'/status/(\d+)', url)
+          if not m:
+              raise SystemExit('job URL missing status id')
+          tid = m.group(1)
+          count = max(1, min(int(job.get('count', 100)), 100))
+          max_pages = max(1, min(int(job.get('max_pages', 3)), 5))
+          headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
+
+          pages=[]
+          cursor=None
+          seen=set()
+          all_replies=[]
+          status=None
+          thread=[]
+          error=None
+
+          for page_no in range(1, max_pages + 1):
+              base=f'https://api.fxtwitter.com/2/conversation/{tid}'
+              params={'count': str(count)}
+              if cursor:
+                  params['cursor']=cursor
+              endpoint=base+'?'+urllib.parse.urlencode(params)
+              try:
+                  req=urllib.request.Request(endpoint, headers=headers)
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      data=json.loads(r.read().decode('utf-8','replace'))
+                  pages.append({'page':page_no,'endpoint':endpoint,'code':data.get('code'),'reply_count':len(data.get('replies') or []),'cursor':data.get('cursor')})
+                  if status is None:
+                      status=data.get('status')
+                      thread=data.get('thread') or []
+                  for reply in data.get('replies') or []:
+                      rid=str(reply.get('id') or '')
+                      if rid and rid not in seen:
+                          seen.add(rid)
+                          all_replies.append(reply)
+                  nxt=(data.get('cursor') or {}).get('bottom')
+                  if not nxt or nxt == cursor:
+                      break
+                  cursor=nxt
+              except Exception as exc:
+                  error=f'page {page_no}: {type(exc).__name__}: {exc}'
+                  pages.append({'page':page_no,'endpoint':endpoint,'error':error})
+                  break
+
+          out={
+              'requested_url':url,
+              'tweet_id':tid,
+              'fetched_at':datetime.now(timezone.utc).isoformat(),
+              'requested_count':count,
+              'max_pages':max_pages,
+              'pages':pages,
+              'status':status,
+              'thread':thread,
+              'replies':all_replies,
+              'unique_reply_count':len(all_replies),
+              'error':error,
+          }
+          dest=Path('results/x-deep')/job_path.stem
+          dest.mkdir(parents=True, exist_ok=True)
+          (dest/'conversation.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'tweet_id':tid,'unique_reply_count':len(all_replies),'pages':pages,'error':error},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Publish result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add results/x-deep/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Store X deep replies result [skip ci]"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
