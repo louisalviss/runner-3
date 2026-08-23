@@ -106,6 +106,47 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      - name: Shadow Runner3 telemetry
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          CRAWL_OUTCOME: ${{ steps.crawl.outcome }}
+        run: |
+          set -euo pipefail
+          EVENT_STATUS="$CRAWL_OUTCOME"
+          if [ "$EVENT_STATUS" != "success" ]; then
+            EVENT_STATUS="failure"
+          fi
+          python3 .github/scripts/runner3_telemetry.py \
+            --source cloak-runner \
+            --status "$EVENT_STATUS" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --checkpoint ops/runner3-core/cloak-runner-telemetry.json
+
+      - name: Persist telemetry checkpoint
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/runner3-core/cloak-runner-telemetry.json || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/runner3-core/cloak-runner-telemetry.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist Cloak Runner telemetry [skip ci]"
+          for n in 1 2 3; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep "$n"
+          done
+          exit 1
+
       - name: Cleanup
         if: always()
         run: rm -rf cloak_output
