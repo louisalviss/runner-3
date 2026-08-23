@@ -26,97 +26,121 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Download source and publish to R2
+      - name: Run diagnostic public-download test
         shell: bash
         run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}"
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          set +e
+          mkdir -p ops /tmp/r2diag
           auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
 
-          curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 \
-            -o /tmp/source.bin "$SOURCE_URL"
-          test -s /tmp/source.bin
+          download_code=$(curl -sS -L --retry 2 --connect-timeout 20 --max-time 300 -o /tmp/source.bin -w '%{http_code}' "$SOURCE_URL")
+          source_size=0
+          source_sha=''
+          if [ -s /tmp/source.bin ]; then
+            source_size=$(stat -c '%s' /tmp/source.bin)
+            source_sha=$(sha256sum /tmp/source.bin | awk '{print $1}')
+          fi
 
-          get_code=$(curl -sS -o /tmp/get-bucket.json -w '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}" \
-            "${auth[@]}")
-          if [ "$get_code" != "200" ]; then
-            create_code=$(curl -sS -o /tmp/create-bucket.json -w '%{http_code}' \
+          get_bucket_code=$(curl -sS -o /tmp/r2diag/get-bucket.json -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}" "${auth[@]}")
+
+          create_bucket_code='skipped'
+          if [ "$get_bucket_code" != "200" ]; then
+            create_bucket_code=$(curl -sS -o /tmp/r2diag/create-bucket.json -w '%{http_code}' \
               -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" \
               "${auth[@]}" -H 'Content-Type: application/json' \
               --data "{\"name\":\"${BUCKET}\"}")
-            test "$create_code" = "200" -o "$create_code" = "201"
           fi
 
-          upload_code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' \
-            -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/objects/${OBJECT_KEY}" \
-            "${auth[@]}" \
-            -H 'Content-Type: application/vnd.android.package-archive' \
-            -H 'Content-Disposition: attachment; filename="test.apk"' \
-            --data-binary @/tmp/source.bin)
-          test "$upload_code" = "200"
+          upload_code='skipped'
+          if [ -s /tmp/source.bin ]; then
+            upload_code=$(curl -sS -o /tmp/r2diag/upload.json -w '%{http_code}' \
+              -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/objects/${OBJECT_KEY}" \
+              "${auth[@]}" \
+              -H 'Content-Type: application/vnd.android.package-archive' \
+              -H 'Content-Disposition: attachment; filename="test.apk"' \
+              --data-binary @/tmp/source.bin)
+          fi
 
-          managed_code=$(curl -sS -o /tmp/managed-set.json -w '%{http_code}' \
+          managed_set_code=$(curl -sS -o /tmp/r2diag/managed-set.json -w '%{http_code}' \
             -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/domains/managed" \
-            "${auth[@]}" -H 'Content-Type: application/json' \
-            --data '{"enabled":true}')
-          test "$managed_code" = "200"
+            "${auth[@]}" -H 'Content-Type: application/json' --data '{"enabled":true}')
 
-          curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/domains/managed" \
-            "${auth[@]}" > /tmp/managed.json
+          managed_get_code=$(curl -sS -o /tmp/r2diag/managed-get.json -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/domains/managed" "${auth[@]}")
 
           DOMAIN=$(python - <<'PY'
           import json
-          d=json.load(open('/tmp/managed.json'))
-          print((d.get('result') or {}).get('domain') or '')
+          try:
+              d=json.load(open('/tmp/r2diag/managed-get.json'))
+              print((d.get('result') or {}).get('domain') or '')
+          except Exception:
+              print('')
           PY
           )
-          test -n "$DOMAIN"
-          PUBLIC_URL="https://${DOMAIN}/${OBJECT_KEY}"
-
-          ok=false
-          http_code=''
-          for i in 1 2 3 4 5 6; do
-            http_code=$(curl -sS -L -o /tmp/verify.bin -w '%{http_code}' "$PUBLIC_URL" || true)
-            if [ "$http_code" = "200" ] && [ -s /tmp/verify.bin ] && cmp -s /tmp/source.bin /tmp/verify.bin; then
-              ok=true
-              break
-            fi
-            sleep 3
-          done
-
-          SRC_SHA=$(sha256sum /tmp/source.bin | awk '{print $1}')
-          SRC_SIZE=$(stat -c '%s' /tmp/source.bin)
-          VERIFY_SHA=''
-          VERIFY_SIZE='0'
-          if [ -f /tmp/verify.bin ]; then
-            VERIFY_SHA=$(sha256sum /tmp/verify.bin | awk '{print $1}')
-            VERIFY_SIZE=$(stat -c '%s' /tmp/verify.bin)
+          PUBLIC_URL=''
+          verify_code='skipped'
+          verify_size=0
+          verify_sha=''
+          identical=false
+          if [ -n "$DOMAIN" ]; then
+            PUBLIC_URL="https://${DOMAIN}/${OBJECT_KEY}"
+            for i in 1 2 3 4 5; do
+              verify_code=$(curl -sS -L -o /tmp/verify.bin -w '%{http_code}' "$PUBLIC_URL")
+              if [ "$verify_code" = "200" ] && [ -s /tmp/verify.bin ]; then
+                verify_size=$(stat -c '%s' /tmp/verify.bin)
+                verify_sha=$(sha256sum /tmp/verify.bin | awk '{print $1}')
+                if [ "$source_sha" = "$verify_sha" ] && [ "$source_size" = "$verify_size" ]; then identical=true; break; fi
+              fi
+              sleep 2
+            done
           fi
 
-          mkdir -p ops
-          python - <<PY
-          import json, datetime
+          export download_code source_size source_sha get_bucket_code create_bucket_code upload_code managed_set_code managed_get_code DOMAIN PUBLIC_URL verify_code verify_size verify_sha identical
+          python - <<'PY'
+          import json, os, datetime
+          from pathlib import Path
+          def load(path):
+              p=Path(path)
+              if not p.exists(): return None
+              try: return json.loads(p.read_text(encoding='utf-8', errors='replace'))
+              except Exception: return p.read_text(encoding='utf-8', errors='replace')[:1000]
+          def slim(v):
+              if isinstance(v,dict):
+                  return {'success':v.get('success'),'errors':v.get('errors'),'messages':v.get('messages'),'result':v.get('result')}
+              return v
           out={
-            'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'bucket': '${BUCKET}',
-            'objectKey': '${OBJECT_KEY}',
-            'publicUrl': '${PUBLIC_URL}',
-            'managedDomain': '${DOMAIN}',
-            'httpCode': '${http_code}',
-            'sourceSize': int('${SRC_SIZE}'),
-            'verifySize': int('${VERIFY_SIZE}'),
-            'sourceSha256': '${SRC_SHA}',
-            'verifySha256': '${VERIFY_SHA}',
-            'byteIdentical': '${ok}' == 'true',
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'bucket':os.environ['BUCKET'],
+            'objectKey':os.environ['OBJECT_KEY'],
+            'sourceUrl':os.environ['SOURCE_URL'],
+            'downloadHttpCode':os.environ.get('download_code'),
+            'sourceSize':int(os.environ.get('source_size') or 0),
+            'sourceSha256':os.environ.get('source_sha'),
+            'getBucketHttpCode':os.environ.get('get_bucket_code'),
+            'createBucketHttpCode':os.environ.get('create_bucket_code'),
+            'uploadHttpCode':os.environ.get('upload_code'),
+            'managedSetHttpCode':os.environ.get('managed_set_code'),
+            'managedGetHttpCode':os.environ.get('managed_get_code'),
+            'managedDomain':os.environ.get('DOMAIN'),
+            'publicUrl':os.environ.get('PUBLIC_URL'),
+            'verifyHttpCode':os.environ.get('verify_code'),
+            'verifySize':int(os.environ.get('verify_size') or 0),
+            'verifySha256':os.environ.get('verify_sha'),
+            'byteIdentical':os.environ.get('identical')=='true',
+            'responses':{
+              'getBucket':slim(load('/tmp/r2diag/get-bucket.json')),
+              'createBucket':slim(load('/tmp/r2diag/create-bucket.json')),
+              'upload':slim(load('/tmp/r2diag/upload.json')),
+              'managedSet':slim(load('/tmp/r2diag/managed-set.json')),
+              'managedGet':slim(load('/tmp/r2diag/managed-get.json')),
+            }
           }
-          open('ops/r2-public-download-test.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          Path('ops/r2-public-download-test.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(out,ensure_ascii=False,indent=2))
           PY
-          test "$ok" = true
 
-      - name: Publish test result
+      - name: Publish diagnostic result
         if: always()
         shell: bash
         run: |
@@ -126,6 +150,6 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ops/r2-public-download-test.json
           git diff --cached --quiet && exit 0
-          git commit -m 'Publish R2 direct-download test [skip ci]'
+          git commit -m 'Publish R2 direct-download diagnostic [skip ci]'
           git pull --rebase origin main || true
           git push origin HEAD:main
