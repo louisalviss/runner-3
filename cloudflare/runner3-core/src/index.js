@@ -1,3 +1,4 @@
+// Control-plane deploy health is independent from workload success/failure state.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
