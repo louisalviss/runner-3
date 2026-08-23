@@ -16,14 +16,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install audio tools
+      - name: Install tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
-          python -m pip install --upgrade pip
           pip install edge-tts requests
 
-      - name: Generate neural Vietnamese voice scene-by-scene
+      - name: Generate scene-timed neural voice
         shell: bash
         run: |
           set -euo pipefail
@@ -44,43 +43,36 @@ jobs:
           for i,s in enumerate(scenes):
               raw=f'out/chunks/raw_{i}.mp3'
               subprocess.run([
-                  'edge-tts','--voice','vi-VN-NamMinhNeural','--rate','+6%','--pitch','-2Hz',
+                  'edge-tts','--voice','vi-VN-NamMinhNeural','--rate=+5%',
                   '--text',s['text'],'--write-media',raw
-              ], check=True)
+              ],check=True)
               dur=float(subprocess.check_output([
-                  'ffprobe','-v','error','-show_entries','format=duration','-of','default=nk=1:nw=1',raw
+                  'ffprobe','-v','error','-show_entries','format=duration',
+                  '-of','default=nk=1:nw=1',raw
               ]).decode().strip())
               target=(s['end']-s['start'])-0.35
-              out=f'out/chunks/fit_{i}.wav'
-              if dur > target:
-                  speed=dur/target
-                  factors=[]
-                  while speed>2.0:
-                      factors.append(2.0); speed/=2.0
-                  factors.append(speed)
-                  filt=','.join(f'atempo={x:.6f}' for x in factors)
-              else:
-                  filt='anull'
+              speed=max(1.0,dur/target)
+              fs=[]
+              while speed>2:
+                  fs.append(2.0); speed/=2
+              fs.append(speed)
+              atempo=','.join(f'atempo={x:.6f}' for x in fs) if dur>target else 'anull'
               subprocess.run([
-                  'ffmpeg','-y','-v','error','-i',raw,'-af',f'{filt},highpass=f=75,lowpass=f=12500,loudnorm=I=-16:TP=-1.5:LRA=8',
-                  '-ar','48000','-ac','1',out
+                  'ffmpeg','-y','-v','error','-i',raw,
+                  '-af',f'{atempo},highpass=f=75,lowpass=f=12500,loudnorm=I=-16:TP=-1.5:LRA=8',
+                  '-ar','48000','-ac','1',f'out/chunks/fit_{i}.wav'
               ],check=True)
           PY
-
-      - name: Assemble 30 second voice timeline
-        shell: bash
-        run: |
-          set -euo pipefail
           ffmpeg -y -v error \
             -i out/chunks/fit_0.wav -i out/chunks/fit_1.wav -i out/chunks/fit_2.wav \
             -i out/chunks/fit_3.wav -i out/chunks/fit_4.wav -i out/chunks/fit_5.wav \
-            -filter_complex "[0:a]adelay=150|150[a0];[1:a]adelay=4150|4150[a1];[2:a]adelay=8150|8150[a2];[3:a]adelay=14150|14150[a3];[4:a]adelay=20150|20150[a4];[5:a]adelay=25150|25150[a5];[a0][a1][a2][a3][a4][a5]amix=inputs=6:duration=longest:normalize=0,apad=pad_dur=30,atrim=0:30[a]" \
+            -filter_complex "[0:a]adelay=150[a0];[1:a]adelay=4150[a1];[2:a]adelay=8150[a2];[3:a]adelay=14150[a3];[4:a]adelay=20150[a4];[5:a]adelay=25150[a5];[a0][a1][a2][a3][a4][a5]amix=inputs=6:duration=longest:normalize=0,apad=pad_dur=30,atrim=0:30[a]" \
             -map "[a]" -ar 48000 -ac 1 out/voice.wav
 
-      - name: Download light ambient-tech background music
+      - name: Download light ambient-tech music
         shell: bash
+        continue-on-error: true
         run: |
-          set -euo pipefail
           python - <<'PY'
           import requests,re,html,sys
           pages=[
@@ -89,72 +81,42 @@ jobs:
             'https://pixabay.com/music/corporate-ambient-technology-background-116302/'
           ]
           headers={'User-Agent':'Mozilla/5.0'}
-          found=None
-          for p in pages:
-              try:
-                  txt=requests.get(p,headers=headers,timeout=30).text
-                  pats=[
-                    r'https://cdn\.pixabay\.com/download/audio/[^\"\'<> ]+?\.mp3[^\"\'<> ]*',
-                    r'https://cdn\.pixabay\.com/audio/[^\"\'<> ]+?\.mp3[^\"\'<> ]*'
-                  ]
-                  for pat in pats:
-                      m=re.search(pat,txt)
-                      if m:
-                          found=html.unescape(m.group(0).replace('\\u0026','&'))
-                          break
-                  if found: break
-              except Exception:
-                  pass
-          if found:
-              r=requests.get(found,headers=headers,timeout=60)
-              r.raise_for_status()
-              open('out/music_source.mp3','wb').write(r.content)
-              open('out/music-source.txt','w').write(found+'\n')
-              print('Downloaded:',found)
-          else:
-              print('No direct Pixabay MP3 found; using synthesized ambient fallback')
-              sys.exit(4)
+          for page in pages:
+              txt=requests.get(page,headers=headers,timeout=30).text
+              hits=re.findall(r'https://cdn\.pixabay\.com/[^\"<> ]+?\.mp3[^\"<> ]*',txt)
+              if hits:
+                  url=html.unescape(hits[0].replace('\\u0026','&'))
+                  data=requests.get(url,headers=headers,timeout=60)
+                  if data.ok and len(data.content)>100000:
+                      open('out/music-source.mp3','wb').write(data.content)
+                      open('out/music-source.txt','w').write(url+'\n')
+                      print(url)
+                      sys.exit(0)
+          sys.exit(4)
           PY
-        continue-on-error: true
 
-      - name: Prepare music and mix
+      - name: Mix voice and music
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s out/music_source.mp3 ]; then
-            ffmpeg -y -v error -stream_loop -1 -i out/music_source.mp3 -t 30 \
-              -af "highpass=f=90,lowpass=f=10500,volume=0.14,afade=t=in:st=0:d=1.3,afade=t=out:st=27.5:d=2.5" \
+          if [ -s out/music-source.mp3 ]; then
+            ffmpeg -y -v error -stream_loop -1 -i out/music-source.mp3 -t 30 \
+              -af "highpass=f=90,lowpass=f=10500,volume=0.12,afade=t=in:st=0:d=1.2,afade=t=out:st=27.5:d=2.5" \
               -ar 48000 -ac 2 out/music.wav
           else
             ffmpeg -y -v error \
               -f lavfi -i "sine=frequency=110:duration=30:sample_rate=48000" \
               -f lavfi -i "sine=frequency=165:duration=30:sample_rate=48000" \
-              -f lavfi -i "anoisesrc=color=pink:amplitude=0.025:duration=30:sample_rate=48000" \
-              -filter_complex "[0:a]volume=0.025[a0];[1:a]volume=0.018[a1];[2:a]lowpass=f=1800,volume=0.08[a2];[a0][a1][a2]amix=3,afade=t=in:st=0:d=2,afade=t=out:st=27:d=3,pan=stereo|c0=c0|c1=c0[m]" \
+              -f lavfi -i "anoisesrc=color=pink:amplitude=0.018:duration=30:sample_rate=48000" \
+              -filter_complex "[0:a]volume=0.018[a0];[1:a]volume=0.012[a1];[2:a]lowpass=f=1500,volume=0.05[a2];[a0][a1][a2]amix=3,afade=t=in:st=0:d=2,afade=t=out:st=27:d=3,pan=stereo|c0=c0|c1=c0[m]" \
               -map "[m]" -ar 48000 out/music.wav
-            echo 'synthesized-fallback' > out/music-source.txt
+            echo synthesized-fallback > out/music-source.txt
           fi
           ffmpeg -y -v error -i out/voice.wav -i out/music.wav \
-            -filter_complex "[0:a]volume=1.0[v];[1:a]volume=1.0[m];[m][v]sidechaincompress=threshold=0.025:ratio=8:attack=15:release=280[duck];[v][duck]amix=inputs=2:weights='1 0.42':normalize=0,loudnorm=I=-14:TP=-1.2:LRA=7[a]" \
+            -filter_complex "[0:a]volume=1[v];[1:a][v]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=300[duck];[v][duck]amix=inputs=2:weights='1 0.36':normalize=0,loudnorm=I=-14:TP=-1.2:LRA=7[a]" \
             -map "[a]" -t 30 -ar 48000 -ac 2 out/final-audio.wav
 
-      - name: Metadata
-        run: |
-          ffprobe -v error -show_format -show_streams -of json out/final-audio.wav > out/ffprobe.json
-          cat > out/README.txt <<'EOF'
-          Voice: Microsoft vi-VN-NamMinhNeural via edge-tts
-          Script: scene-timed rewrite for the existing 30s ProxyGrid layered video
-          Music: light ambient technology track downloaded from Pixabay when direct media URL is available; otherwise synthesized ambient fallback
-          Visuals: unchanged
-          EOF
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: proxygrid-audio-upgrade-${{ github.run_id }}
-          path: out/
-          retention-days: 7
-
-      - name: Publish final audio to repository
+      - name: Publish output
         shell: bash
         run: |
           set -euo pipefail
@@ -166,6 +128,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add generated/proxygrid-audio
-          git commit -m 'Publish ProxyGrid upgraded audio' || exit 0
+          git commit -m 'Publish ProxyGrid upgraded audio [skip ci]'
           git pull --rebase origin main
           git push origin HEAD:main
