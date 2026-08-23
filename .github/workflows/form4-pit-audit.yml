@@ -1,0 +1,30 @@
+name: Form4 PIT Audit
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install datasets pandas pyarrow huggingface_hub
+      - name: Audit PIT Form4 source only
+        run: |
+          python - <<'PY'
+          import json
+          from datasets import load_dataset
+          ds = load_dataset('jwlutz/knowable','insider_transactions',split='train',streaming=True)
+          print('FEATURES', json.dumps({k:str(v) for k,v in ds.features.items()}, sort_keys=True))
+          rows=[]
+          for i,r in enumerate(ds):
+              rows.append(r)
+              if i>=9: break
+          print('SAMPLE', json.dumps(rows, default=str)[:12000])
+          print('DONE')
+          PY
