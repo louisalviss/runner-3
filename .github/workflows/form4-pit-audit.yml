@@ -13,18 +13,19 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install deps
-        run: pip install requests
-      - name: Smoke historical SEC transport only
+        run: pip install requests pandas numpy
+      - name: Apply transport-only SEC compatibility patch
+        working-directory: research/ema200w_20260823
         run: |
           python - <<'PY'
-          import requests
-          page='https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets'
-          url='https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/2010q1_form345.zip'
-          ua='louisalviss/runner-3 research contact louisalviss@users.noreply.github.com'
-          s=requests.Session(); s.headers.update({'User-Agent':ua,'Accept':'text/html,application/xhtml+xml,application/zip,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9','Referer':page})
-          p=s.get(page,timeout=30)
-          r=s.get(url,timeout=60)
-          print('PAGE',p.status_code,'ZIP',r.status_code,'BYTES',len(r.content),'TYPE',r.headers.get('content-type'))
-          r.raise_for_status()
-          print('DONE')
+          from pathlib import Path
+          p=Path('form4_sec_backtest.py')
+          s=p.read_text()
+          s=s.replace("UA = 'Louis-Alviss-research-backtest/1.0'", "UA = 'louisalviss/runner-3 research https://github.com/louisalviss/runner-3 contact example@example.com'\nSEC_PAGE = 'https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets'")
+          s=s.replace("    sess = requests.Session()\n    all_events = []", "    sess = requests.Session()\n    sess.headers.update({'User-Agent': UA, 'Accept':'text/html,application/xhtml+xml,application/zip,*/*;q=0.8', 'Accept-Language':'en-US,en;q=0.9', 'Referer':SEC_PAGE})\n    warm = sess.get(SEC_PAGE, timeout=30)\n    warm.raise_for_status()\n    all_events = []")
+          s=s.replace('            time.sleep(0.12)', '            time.sleep(0.5)')
+          p.write_text(s)
           PY
+      - name: Run preregistered official SEC Form4 validation
+        working-directory: research/ema200w_20260823
+        run: python form4_sec_backtest.py
