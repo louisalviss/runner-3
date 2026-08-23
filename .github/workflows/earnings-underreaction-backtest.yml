@@ -6,6 +6,11 @@ on:
     paths:
       - 'research/earnings_underreaction_20260824/**'
       - '.github/workflows/earnings-underreaction-backtest.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/earnings_underreaction_20260824/**'
+      - '.github/workflows/earnings-underreaction-backtest.yml'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +43,7 @@ jobs:
           if-no-files-found: error
 
       - name: Commit result checkpoint
+        if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
