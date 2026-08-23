@@ -16,7 +16,7 @@ jobs:
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_AI_TOKEN }}
-      CF_MODEL: '@cf/qwen/qwen3-30b-a3b-fp8'
+      CF_MODEL: '@cf/openai/gpt-oss-120b'
     steps:
       - uses: actions/checkout@v4
       - name: Initialize status
@@ -44,7 +44,7 @@ jobs:
           elif [ "${{ steps.editor.outcome }}" != "success" ]; then state="editor_failed";
           elif [ "${{ steps.verify.outcome }}" != "success" ]; then state="verify_failed";
           else state="success"; fi
-          printf '{"state":"%s","sha":"%s","secrets":"%s","editor":"%s","verify":"%s"}\n' "$state" "$GITHUB_SHA" "${{ steps.secrets.outcome }}" "${{ steps.editor.outcome }}" "${{ steps.verify.outcome }}" > story_pipeline/benchmark_output/run_status.json
+          printf '{"state":"%s","sha":"%s","model":"%s","secrets":"%s","editor":"%s","verify":"%s"}\n' "$state" "$GITHUB_SHA" "$CF_MODEL" "${{ steps.secrets.outcome }}" "${{ steps.editor.outcome }}" "${{ steps.verify.outcome }}" > story_pipeline/benchmark_output/run_status.json
       - name: Package comparison
         if: always()
         shell: bash
