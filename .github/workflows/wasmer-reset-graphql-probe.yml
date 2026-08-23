@@ -1,0 +1,52 @@
+name: Wasmer Reset GraphQL Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-graphql-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          curl -L -sS https://wasmer.io/reset-password -o /tmp/reset.html
+          python - <<'PY'
+          import re,urllib.request,json
+          h=open('/tmp/reset.html',errors='ignore').read()
+          srcs=re.findall(r'<script\b[^>]*?src=["\']([^"\']+)["\']',h,re.I)
+          hits=[]
+          pats=re.compile(r'(?i)(reset.{0,80}password|password.{0,80}reset|forgot.{0,100}password|request.{0,80}password|send.{0,80}reset|mutation.{0,160}(?:reset|password))')
+          for src in srcs:
+              if src.startswith('/'): u='https://wasmer.io'+src
+              elif src.startswith('http'): u=src
+              else: continue
+              try:
+                  s=urllib.request.urlopen(u,timeout=20).read().decode('utf-8','ignore')
+              except Exception: continue
+              for m in pats.finditer(s):
+                  a=max(0,m.start()-500); b=min(len(s),m.end()+1200)
+                  sn=s[a:b]
+                  # redact literal emails/tokens just in case
+                  sn=re.sub(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}','EMAIL_REDACTED',sn,flags=re.I)
+                  hits.append({'src':src,'snippet':sn})
+                  if len(hits)>=20: break
+              if len(hits)>=20: break
+          open('/tmp/out.json','w').write(json.dumps({'status':'ok','scriptCount':len(srcs),'hits':hits},indent=2))
+          PY
+      - if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/out.json || echo '{"status":"runner_error"}' >/tmp/out.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/wasmer
+          cp /tmp/out.json ops/wasmer/reset-graphql-probe.json
+          git add ops/wasmer/reset-graphql-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer reset GraphQL probe'; git push origin HEAD:main; fi
