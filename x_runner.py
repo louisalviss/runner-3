@@ -173,7 +173,7 @@ def main():
         "legacy": f"https://api.fxtwitter.com/{handle}/status/{tweet_id}",
         "vx": f"https://api.vxtwitter.com/{handle}/status/{tweet_id}",
         "syndication": f"https://cdn.syndication.twimg.com/tweet-result?id={tweet_id}&lang=en",
-        "conversation": f"https://api.fxtwitter.com/2/conversation/{tweet_id}",
+        "conversation": f"https://api.fxtwitter.com/2/conversation/{tweet_id}?count=100",
     }
     fetched = {}
     with ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
