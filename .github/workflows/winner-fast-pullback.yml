@@ -1,0 +1,27 @@
+# Ephemeral research validation. Results are printed to CI logs only and not persisted in the repository.
+name: Winner Fast Pullback
+
+on:
+  pull_request:
+    paths:
+      - 'research/ema200w_20260823/winner_fast_pullback.py'
+      - '.github/workflows/winner-fast-pullback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pandas numpy requests pyarrow
+      - name: Run winner fast-pullback decomposition
+        working-directory: research/ema200w_20260823
+        run: python winner_fast_pullback.py
