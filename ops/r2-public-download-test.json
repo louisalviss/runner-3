@@ -1,13 +1,68 @@
 {
-  "updatedAt": "2026-08-23T22:21:10.995691+00:00",
+  "updatedAt": "2026-08-23T22:22:07.199813+00:00",
   "bucket": "runner3-direct-download-test",
   "objectKey": "test.apk",
-  "publicUrl": "https://pub-7c042a29063743a5ad1e9d919b268036.r2.dev/test.apk",
-  "managedDomain": "pub-7c042a29063743a5ad1e9d919b268036.r2.dev",
-  "httpCode": "200",
+  "sourceUrl": "https://clck.ru/3VF4zY",
+  "downloadHttpCode": "200",
   "sourceSize": 13951503,
-  "verifySize": 13951503,
   "sourceSha256": "9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537",
+  "getBucketHttpCode": "200",
+  "createBucketHttpCode": "skipped",
+  "uploadHttpCode": "200",
+  "managedSetHttpCode": "200",
+  "managedGetHttpCode": "200",
+  "managedDomain": "pub-7c042a29063743a5ad1e9d919b268036.r2.dev",
+  "publicUrl": "https://pub-7c042a29063743a5ad1e9d919b268036.r2.dev/test.apk",
+  "verifyHttpCode": "200",
+  "verifySize": 13951503,
   "verifySha256": "9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537",
-  "byteIdentical": true
+  "byteIdentical": true,
+  "responses": {
+    "getBucket": {
+      "success": true,
+      "errors": [],
+      "messages": [],
+      "result": {
+        "name": "runner3-direct-download-test",
+        "creation_date": "2026-08-23T22:20:04.199Z",
+        "location": "WNAM",
+        "storage_class": "Standard",
+        "jurisdiction": "default"
+      }
+    },
+    "createBucket": null,
+    "upload": {
+      "success": true,
+      "errors": [],
+      "messages": [],
+      "result": {
+        "key": "test.apk",
+        "size": "13951503",
+        "etag": "304da366f48fbc1762de807929da5077",
+        "version": "7e5fcf4888c625912d82d16eb7fac4aa",
+        "uploaded": "2026-08-23T22:22:05.698Z",
+        "storage_class": "Standard"
+      }
+    },
+    "managedSet": {
+      "success": true,
+      "errors": [],
+      "messages": [],
+      "result": {
+        "enabled": true,
+        "bucketId": "7c042a29063743a5ad1e9d919b268036",
+        "domain": "pub-7c042a29063743a5ad1e9d919b268036.r2.dev"
+      }
+    },
+    "managedGet": {
+      "success": true,
+      "errors": [],
+      "messages": [],
+      "result": {
+        "enabled": true,
+        "bucketId": "7c042a29063743a5ad1e9d919b268036",
+        "domain": "pub-7c042a29063743a5ad1e9d919b268036.r2.dev"
+      }
+    }
+  }
 }
