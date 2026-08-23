@@ -1,0 +1,111 @@
+name: Zaid X Video Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/zaid-x-video-inspect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch X post video with fallbacks
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=evidence/zaid-x-2091125733716582537
+          rm -rf "$OUT"
+          mkdir -p "$OUT/frames"
+          URL='https://x.com/work_with_zaid/status/2091125733716582537'
+          ID='2091125733716582537'
+          python3 -m pip install -q -U yt-dlp
+          ok=0
+          if yt-dlp --no-playlist --write-info-json --write-description -o "$OUT/video.%(ext)s" "$URL"; then
+            ok=1
+          fi
+          if [ "$ok" = 0 ]; then
+            curl -fsSL --retry 3 "https://api.fxtwitter.com/status/$ID" -o "$OUT/fxtwitter.json" || true
+            python3 - "$OUT" <<'PY'
+          import json,sys,subprocess,pathlib
+          out=pathlib.Path(sys.argv[1])
+          p=out/'fxtwitter.json'
+          if not p.exists(): raise SystemExit(0)
+          try:d=json.loads(p.read_text())
+          except Exception: raise SystemExit(0)
+          urls=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      if isinstance(v,str) and v.startswith('http') and ('.mp4' in v or 'video.twimg.com' in v): urls.append(v)
+                      else: walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          if urls:
+              u=max(urls,key=len)
+              subprocess.run(['curl','-L','--fail','--retry','3','-A','Mozilla/5.0',u,'-o',str(out/'video.mp4')],check=False)
+          PY
+          fi
+          VIDEO=$(find "$OUT" -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1 || true)
+          if [ -z "$VIDEO" ]; then
+            echo 'NO_VIDEO' | tee "$OUT/status.txt"
+            ls -lah "$OUT"
+            exit 0
+          fi
+          echo "VIDEO=$VIDEO" | tee "$OUT/status.txt"
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json "$VIDEO" | tee "$OUT/meta.json"
+          D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO")
+          python3 - "$VIDEO" "$OUT" "$D" <<'PY'
+          import sys,subprocess,pathlib
+          v,out,d=sys.argv[1],pathlib.Path(sys.argv[2]),float(sys.argv[3])
+          fracs=[0.01,.06,.12,.20,.30,.40,.50,.60,.70,.80,.90,.98]
+          for i,f in enumerate(fracs,1):
+              t=max(0.0,min(d-.05,d*f))
+              subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i',v,'-frames:v','1','-q:v','2',str(out/'frames'/f'frame-{i:02d}.jpg')],check=True)
+          PY
+          ffmpeg -loglevel error -y -i "$VIDEO" -vf "fps=1/2,scale=480:-1,tile=4x3" -frames:v 1 "$OUT/contact-sheet.jpg" || true
+          python3 - "$OUT" <<'PY'
+          import json,sys,pathlib
+          out=pathlib.Path(sys.argv[1])
+          info=next(out.glob('video.info.json'),None)
+          summary={}
+          if info:
+              try:
+                  d=json.loads(info.read_text())
+                  for k in ['id','title','description','uploader','uploader_id','timestamp','duration','width','height','view_count','like_count','repost_count','comment_count','webpage_url']:
+                      if k in d: summary[k]=d[k]
+              except Exception: pass
+          fx=out/'fxtwitter.json'
+          if fx.exists():
+              try:
+                  d=json.loads(fx.read_text())
+                  t=d.get('tweet',d)
+                  for k in ['text','author','likes','retweets','replies','views','created_at','url']:
+                      if k in t and k not in summary: summary[k]=t[k]
+              except Exception: pass
+          (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+      - name: Persist evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add evidence/zaid-x-2091125733716582537
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore: inspect Zaid X video 2091125733716582537'
+          git push
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zaid-x-video-inspect
+          path: evidence/zaid-x-2091125733716582537/
+          retention-days: 2
