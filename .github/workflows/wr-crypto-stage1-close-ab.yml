@@ -36,24 +36,14 @@ jobs:
           mkdir -p /tmp/wrbase
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_tv_parity.py" -o /tmp/wrbase/wr_tv_parity.py
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/27797cf9c4ea0a91b1bc8d62059d052c2c843eb5/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('/tmp/reference_verify.py')
-          s=p.read_text()
-          needle="def infer_tick(vals):\n    md="
-          replacement="def infer_tick(vals):\n    vals=[str(x) for x in vals]\n    md="
-          if needle not in s:
-              raise SystemExit('infer_tick patch target not found')
-          p.write_text(s.replace(needle,replacement,1))
-          PY
-          python -m py_compile /tmp/wrbase/wr_tv_parity.py /tmp/reference_verify.py apps/wave-rider-structural/close_confirm.py apps/wave-rider-structural/crypto_stage1_close_ab.py
+          python -m py_compile /tmp/wrbase/wr_tv_parity.py /tmp/reference_verify.py apps/wave-rider-structural/close_confirm.py apps/wave-rider-structural/crypto_stage1_close_ab.py apps/wave-rider-structural/run_crypto_stage1.py
       - name: Reconstruct causal Stage1 and run A-B shard
         env:
           WR_BASE_DIR: /tmp/wrbase
           WR_OUT: /tmp/wr-crypto-stage1-close
           SHARD: ${{ matrix.shard }}
           SHARDS: "32"
-        run: python apps/wave-rider-structural/crypto_stage1_close_ab.py shard
+        run: python apps/wave-rider-structural/run_crypto_stage1.py shard
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -80,7 +70,7 @@ jobs:
         env:
           MERGE_ROOT: /tmp/all
           FINAL_OUT: /tmp/final
-        run: python apps/wave-rider-structural/crypto_stage1_close_ab.py merge
+        run: python apps/wave-rider-structural/run_crypto_stage1.py merge
       - uses: actions/upload-artifact@v4
         with:
           name: wr-crypto-stage1-close-final
