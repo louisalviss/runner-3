@@ -60,15 +60,13 @@ def read_panel():
     lead=(valid.period_end_date-valid.date).dt.days
     print('HF_LEAD_DAYS',json.dumps({'median':float(lead.median()),'p10':float(lead.quantile(.1)),'p90':float(lead.quantile(.9)),'pct_after_period_end':float((lead<0).mean())}))
     dkey=key+['date']; ds=valid.groupby(dkey).consensus.agg(['size','nunique'])
-    print('HF_DUPLICATE_KEYS',json.dumps({'groups_n_gt1':int((ds['size']>1).sum()),'groups_conflicting_consensus':int((ds.nunique>1).sum())}))
+    print('HF_DUPLICATE_KEYS',json.dumps({'groups_n_gt1':int((ds['size']>1).sum()),'groups_conflicting_consensus':int((ds['nunique']>1).sum())}))
     valid['year']=valid.date.dt.year; cov=valid.groupby(['year','period']).agg(rows=('act_symbol','size'),symbols=('act_symbol','nunique'),dates=('date','nunique')).reset_index()
     print('HF_COVERAGE_BY_YEAR_PERIOD',cov.to_json(orient='records'))
 
-    # Fast practical revision availability: compare each row with last observation 21-45 days earlier via a per-key 28d rolling lookup sampled on weekly source dates.
-    weekly=valid[valid.date.dt.dayofweek==4].copy()  # Friday snapshots when present
+    weekly=valid[valid.date.dt.dayofweek==4].copy()
     old=weekly[key+['date','consensus']].rename(columns={'date':'old_date','consensus':'old_consensus'}).sort_values('old_date')
     cur=weekly[key+['date','consensus']].sort_values('date')
-    # merge_asof needs global time sort; by keys prevent cross-series matches.
     try:
         m=pd.merge_asof(cur.sort_values('date'),old.sort_values('old_date'),left_on='date',right_on='old_date',by=key,direction='backward',tolerance=pd.Timedelta(days=45),allow_exact_matches=False)
         age=(m.date-m.old_date).dt.days; m=m[(age>=21)&m.consensus.notna()&m.old_consensus.notna()]
