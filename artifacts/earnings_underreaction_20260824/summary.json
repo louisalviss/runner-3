@@ -1,0 +1,27 @@
+{
+  "frozen_rule": {
+    "strong_beat": "EPS surprise >= +10%",
+    "underreaction": "strong beat and 2-session reaction <= +3%",
+    "reaction_window": "previous close to close of second trading session on/after earnings date",
+    "entry": "next trading session adjusted open after reaction window",
+    "primary_horizon": "13w / 65 sessions",
+    "secondary_horizons": [
+      "4w",
+      "8w"
+    ]
+  },
+  "coverage": {
+    "raw_earnings_rows_2010_2024": 7565,
+    "usable_PIT_events": 6011,
+    "symbols": 117,
+    "event_min": "2010-01-14",
+    "event_max": "2024-10-22"
+  },
+  "validation_primary_gate": {
+    "min_matched_n_100": true,
+    "median_excess_gt_0": true,
+    "beat_matched_ge_55pct": false,
+    "mean_excess_ci_lo_gt_0": false,
+    "overall": false
+  }
+}
