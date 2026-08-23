@@ -1,48 +1,162 @@
-name: Audio Library Current Raw Artifact PR
+name: WR US Stocks 15m30m Base Research
 
 on:
   pull_request:
+    branches: [main]
     paths:
-      - 'ops/audio-library/triggers/current-raw-pr.txt'
       - '.github/workflows/audio-library-current-raw-artifact-pr.yml'
+      - '.github/workflows/wr-stock-15m30m-base.yml'
+      - 'research/wr_stock_15m30m_20260824/**'
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: wr-stock-15m30m-base-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  WR_HELPER_DIR: /tmp/wr-helper
 
 jobs:
-  extract:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
+  scan:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install extraction dependencies
-        run: python -m pip install -q requests beautifulsoup4 lxml pypdf 'cryptography>=45,<47'
-      - name: Extract current public Reddit source
-        shell: bash
+      - name: Install dependencies
+        run: pip install -q pandas websocket-client requests dukascopy-python
+      - name: Fetch frozen WR 2.5.13 research engine
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/audio-current-raw
+          mkdir -p /tmp/wr-helper
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-helper/wr_dukascopy_expanded_matrix.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-helper/wr_tv_parity.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run frozen WR base at 15m and 30m
+        env:
+          SHARD: ${{ matrix.shard }}
+          WR_OUT: /tmp/wr-stock-15m30m
+        run: |
           python - <<'PY'
-          import json,sys
+          import json,os,sys,traceback
           from pathlib import Path
-          sys.path.insert(0,'scripts')
-          import audio_library_extract_for_chatgpt as a
-          req=json.loads(Path('ops/audio-library/reddit-read-request.json').read_text(encoding='utf-8'))
-          url=str(req['url'])
-          title,text,label,canonical=a.extract_reddit(url)
-          out={'inputUrl':url,'title':title,'sourceLabel':label,'canonicalUrl':canonical,'rawText':text}
-          Path('/tmp/audio-current-raw/source.json').write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
-          print(json.dumps({'status':'ready','inputUrl':url,'title':title,'chars':len(text),'canonicalUrl':canonical},ensure_ascii=False))
+          sys.path.insert(0,'/tmp/wr-helper')
+          import wr_dukascopy_expanded_matrix as exp
+
+          symbols='AAPL ABNB ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN APP ARM ASML AVGO AXON BKNG BKR CCEP CDNS CEG CHTR CMCSA COST CPRT CRWD CSCO CSGP CSX CTAS CTSH DASH DDOG DXCM EA EXC FANG FAST FER FTNT GEHC GILD GOOG GOOGL HON IDXX INSM INTC INTU ISRG KDP KHC KLAC LIN LRCX MAR MCHP MDLZ MELI META MNST MPWR MRVL MSFT MSTR MU NFLX NVDA NXPI ODFL ORLY PANW PAYX PCAR PDD PEP PLTR PYPL QCOM REGN ROP ROST SBUX SHOP SNDK SNPS STX TMUS TRI TSLA TTWO TXN VRSK VRTX WBD WDAY WDC WMT XEL ZS'.split()
+          shard=int(os.environ['SHARD']); out=Path(os.environ['WR_OUT']); out.mkdir(parents=True,exist_ok=True)
+          mine=[s for i,s in enumerate(symbols) if i%8==shard]
+          print('SHARD',shard,'SYMBOLS',mine,flush=True)
+          for sym in mine:
+              try:
+                  instrument=exp.resolve_symbol(sym)
+                  if not instrument:
+                      for tf in (15,30): exp.save_unavailable(sym,tf,'instrument not found')
+                      continue
+                  df,manifest,_=exp.load_mid(sym,5)
+                  for tf in (15,30): exp.run_one(sym,tf,df,5,instrument,manifest)
+              except Exception as e:
+                  err={'symbol':sym,'error':repr(e),'traceback':traceback.format_exc()}
+                  (out/f'error-{sym}.json').write_text(json.dumps(err,indent=2))
+                  print('ERROR',sym,repr(e),flush=True)
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: audio-current-raw
-          path: /tmp/audio-current-raw/source.json
-          retention-days: 1
+          name: wr-stock-15m30m-shard-${{ matrix.shard }}
+          path: /tmp/wr-stock-15m30m
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-stock-15m30m-shard-*
+          path: /tmp/all
+      - name: Build aggregate report
+        run: |
+          python - <<'PY'
+          import json,pathlib,datetime,statistics
+          root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final'); out.mkdir(parents=True,exist_ok=True)
+          costs=(0.0,0.25,0.5,1.0,2.0)
+          trades=[]; summaries=[]; errors=[]
+          for p in root.rglob('summary-*.json'):
+              try: summaries.append(json.loads(p.read_text()))
+              except Exception: pass
+          for p in root.rglob('error-*.json'):
+              try: errors.append(json.loads(p.read_text()))
+              except Exception: pass
+          for p in root.rglob('trades-*.jsonl'):
+              for line in p.read_text().splitlines():
+                  if line.strip():
+                      try: trades.append(json.loads(line))
+                      except Exception: pass
+          def side(t):
+              s=str(t.get('side','')).upper(); return 'SHORT' if s in ('S','SHORT') else 'LONG'
+          def cost_r(t,bps):
+              d=abs(float(t['e'])-float(t['s']))
+              return 0.0 if d<=0 else (float(t['e'])/d)*(bps/10000.0)
+          def metrics(ts,bps):
+              xs=sorted((int(t['signal']),float(t['R'])-cost_r(t,bps)) for t in ts); vals=[x[1] for x in xs]
+              if not vals:return {'n':0,'R':0.0,'avg_R':None,'PF':None,'win_rate':None,'max_DD_R':0.0}
+              gp=sum(max(x,0) for x in vals); gl=sum(max(-x,0) for x in vals); eq=peak=0.0; mdd=0.0
+              for x in vals:
+                  eq+=x; peak=max(peak,eq); mdd=min(mdd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals),'PF':gp/gl if gl else None,'win_rate':100*sum(x>0 for x in vals)/len(vals),'max_DD_R':mdd}
+          def pack(ts): return {f'{c:g}bps':metrics(ts,c) for c in costs}
+          def year(t): return datetime.datetime.fromtimestamp(int(t['signal'])/1000,datetime.timezone.utc).year
+
+          report={'status':'COMPLETE','strategy':'WR 2.5.13 frozen base','universe':'Fusion/Nasdaq-100 guaranteed-core list from prior WR scan','source':'Dukascopy BID+ASK midpoint M5 aggregated to target timeframe','parameter_tuning':False,'timeframes':{},'errors':errors}
+          for tf in (15,30):
+              tt=[t for t in trades if int(t.get('tf',0))==tf]
+              syms=sorted(set(str(t.get('symbol','')) for t in tt))
+              byyear={}
+              for y in range(2022,2027):
+                  yy=[t for t in tt if year(t)==y]
+                  byyear[str(y)]={'overall':pack(yy),'long':pack([t for t in yy if side(t)=='LONG']),'short':pack([t for t in yy if side(t)=='SHORT'])}
+              symrows={}
+              for s in syms:
+                  ss=[t for t in tt if str(t.get('symbol',''))==s]
+                  symrows[s]={'overall':pack(ss),'long':pack([t for t in ss if side(t)=='LONG']),'short':pack([t for t in ss if side(t)=='SHORT'])}
+              report['timeframes'][str(tf)]={
+                  'overall':pack(tt),'long':pack([t for t in tt if side(t)=='LONG']),'short':pack([t for t in tt if side(t)=='SHORT']),
+                  'years':byyear,
+                  'symbol_dispersion':{'symbols':len(syms),'gross_positive':sum(v['overall']['0bps']['R']>0 for v in symrows.values()),'gross_negative':sum(v['overall']['0bps']['R']<0 for v in symrows.values()),'0.5bps_positive':sum(v['overall']['0.5bps']['R']>0 for v in symrows.values()),'0.5bps_negative':sum(v['overall']['0.5bps']['R']<0 for v in symrows.values())},
+                  'symbols':symrows}
+          report['summary_status_counts']={s:sum(x.get('status')==s for x in summaries) for s in ('OK','SHORT_HISTORY','UNAVAILABLE')}
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          for tf,v in report['timeframes'].items():
+              print('TF',tf,'GROSS',v['overall']['0bps'],'0.5BPS',v['overall']['0.5bps'],'1BPS',v['overall']['1bps'])
+              print('LONG',v['long']['0bps'],'SHORT',v['short']['0bps'],'DISP',v['symbol_dispersion'])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-stock-15m30m-final
+          path: /tmp/final
+          retention-days: 30
           if-no-files-found: error
+      - name: Validate coverage
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/final/report.json'))
+          for tf in ('15','30'):
+              n=r['timeframes'][tf]['symbol_dispersion']['symbols']
+              if n < 55: raise SystemExit(f'coverage too low for {tf}m: {n} symbols')
+          print('COVERAGE PASS')
+          PY
