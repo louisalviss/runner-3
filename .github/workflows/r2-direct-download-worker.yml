@@ -1,0 +1,124 @@
+name: R2 Direct Download Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/r2-direct-download/**'
+      - '.github/workflows/r2-direct-download-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-r2-direct-download-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy Worker
+        id: deploy
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/r2-worker ops
+          npx -y wrangler@latest --version | tee /tmp/r2-worker/wrangler-version.txt
+          npx -y wrangler@latest deploy --config apps/r2-direct-download/wrangler.jsonc 2>&1 | tee /tmp/r2-worker/deploy.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify direct-download behavior
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          DEPLOY_LOG=/tmp/r2-worker/deploy.log
+          WORKER_URL=$(grep -Eo 'https://[A-Za-z0-9._-]+\.workers\.dev' "$DEPLOY_LOG" | tail -1)
+          verify_code='skipped'
+          disposition=''
+          content_type=''
+          content_length=''
+          sha=''
+          size='0'
+          verified=false
+
+          if [ -n "$WORKER_URL" ]; then
+            verify_code=$(curl -sS -L -D /tmp/r2-worker/headers.txt -o /tmp/r2-worker/test.apk -w '%{http_code}' "$WORKER_URL/test.apk")
+            disposition=$(awk 'BEGIN{IGNORECASE=1} /^content-disposition:/{sub(/^[^:]*:[ ]*/,""); sub(/\r$/,""); print; exit}' /tmp/r2-worker/headers.txt)
+            content_type=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/{sub(/^[^:]*:[ ]*/,""); sub(/\r$/,""); print; exit}' /tmp/r2-worker/headers.txt)
+            content_length=$(awk 'BEGIN{IGNORECASE=1} /^content-length:/{sub(/^[^:]*:[ ]*/,""); sub(/\r$/,""); print; exit}' /tmp/r2-worker/headers.txt)
+            if [ -s /tmp/r2-worker/test.apk ]; then
+              sha=$(sha256sum /tmp/r2-worker/test.apk | awk '{print $1}')
+              size=$(stat -c '%s' /tmp/r2-worker/test.apk)
+            fi
+            if [ "$verify_code" = "200" ] && echo "$disposition" | grep -qi '^attachment;' && [ "$sha" = "9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537" ]; then
+              verified=true
+            fi
+          fi
+
+          export WORKER_URL verify_code disposition content_type content_length sha size verified
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+          log = Path('/tmp/r2-worker/deploy.log').read_text(encoding='utf-8', errors='replace') if Path('/tmp/r2-worker/deploy.log').exists() else ''
+          safe_tail='\n'.join(log.splitlines()[-60:])
+          out={
+            'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'deployExitCode': os.environ.get('DEPLOY_EXIT_CODE',''),
+            'workerUrl': os.environ.get('WORKER_URL',''),
+            'testUrl': (os.environ.get('WORKER_URL','') + '/test.apk') if os.environ.get('WORKER_URL') else '',
+            'verifyHttpCode': os.environ.get('verify_code',''),
+            'contentDisposition': os.environ.get('disposition',''),
+            'contentType': os.environ.get('content_type',''),
+            'contentLength': os.environ.get('content_length',''),
+            'downloadedSize': int(os.environ.get('size') or 0),
+            'sha256': os.environ.get('sha',''),
+            'verified': os.environ.get('verified') == 'true',
+            'deployLogTail': safe_tail,
+          }
+          Path('ops/r2-direct-download-worker.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+        env:
+          DEPLOY_EXIT_CODE: ${{ steps.deploy.outputs.exit_code }}
+
+      - name: Publish status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/r2-direct-download-worker.json || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/r2-direct-download-worker.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish R2 direct-download Worker status [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
+
+      - name: Enforce deploy smoke
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('ops/r2-direct-download-worker.json'))
+          if not d.get('verified'):
+              raise SystemExit('R2 direct-download Worker verification failed')
+          PY
