@@ -1,0 +1,22 @@
+name: Buyback Validation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/buyback_20260824/**'
+      - '.github/workflows/buyback-validation.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install requests pandas numpy
+      - name: Run preregistered buyback validation
+        run: python research/buyback_20260824/buyback_validation.py
