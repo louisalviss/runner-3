@@ -1,0 +1,42 @@
+name: Wasmer Reset HTML Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-html-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -u
+          code=$(curl -L -sS -o /tmp/reset.html -w '%{http_code}' https://wasmer.io/reset-password || true)
+          export HTTP_CODE="$code"
+          python - <<'PY'
+          import os,re,json,html
+          p='/tmp/reset.html'
+          s=open(p,errors='ignore').read() if os.path.exists(p) else ''
+          # Never persist literal emails if any are embedded.
+          clean=re.sub(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}','EMAIL_REDACTED',s,flags=re.I)
+          forms=re.findall(r'<form\b[^>]*?(?:action=["\']([^"\']*)["\'])?[^>]*>',s,re.I)
+          inputs=re.findall(r'<input\b[^>]*>',s,re.I)[:30]
+          scripts=re.findall(r'<script\b[^>]*?src=["\']([^"\']+)["\']',s,re.I)[:30]
+          out={'status':'ok' if s else 'fetch_failed','httpCode':os.environ.get('HTTP_CODE'),'bytes':len(s),'forms':forms,'inputs':inputs,'scripts':scripts,'htmlSnippet':clean[:8000]}
+          open('/tmp/out.json','w').write(json.dumps(out,indent=2))
+          PY
+      - if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/out.json || echo '{"status":"runner_error"}' >/tmp/out.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/wasmer
+          cp /tmp/out.json ops/wasmer/reset-html-probe.json
+          git add ops/wasmer/reset-html-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer reset HTML probe'; git push origin HEAD:main; fi
