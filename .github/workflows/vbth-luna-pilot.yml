@@ -1,0 +1,30 @@
+name: VBTH Luna One-Chapter Pilot
+on:
+  push:
+    paths:
+      - '.github/workflows/vbth-luna-pilot.yml'
+permissions:
+  contents: write
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python vbth_luna_pilot/run.py
+      - name: Commit pilot output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for n in 1 2 3 4 5; do
+            git pull --rebase origin main || true
+            git add vbth_luna_pilot/ch0009_luna.txt vbth_luna_pilot/summary.json
+            git diff --cached --quiet || git commit -m "VBTH Luna one-chapter pilot output [skip ci]"
+            git push origin HEAD:main && exit 0
+            sleep 3
+          done
+          exit 1
