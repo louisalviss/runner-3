@@ -1,4 +1,33 @@
 // Control-plane deploy health is independent from workload success/failure state.
+const EVENT_RETENTION_DAYS = 90;
+
+async function cleanupOldEvents(env) {
+  if (!env.DB) {
+    throw new Error("D1_NOT_BOUND");
+  }
+
+  // Keep the latest workflow_status for every source indefinitely so /status
+  // still represents dormant workloads after historical telemetry is purged.
+  const result = await env.DB.prepare(`
+    DELETE FROM events
+    WHERE created_at < datetime('now', '-${EVENT_RETENTION_DAYS} days')
+      AND NOT (
+        event_type = 'workflow_status'
+        AND id IN (
+          SELECT MAX(id)
+          FROM events
+          WHERE event_type = 'workflow_status'
+          GROUP BY source
+        )
+      )
+  `).run();
+
+  return {
+    retention_days: EVENT_RETENTION_DAYS,
+    deleted: result.meta?.changes ?? null
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -92,5 +121,14 @@ export default {
     }
 
     return new Response("Not Found", { status: 404 });
+  },
+
+  async scheduled(controller, env) {
+    const result = await cleanupOldEvents(env);
+    console.log("runner3-core retention cleanup", {
+      cron: controller.cron,
+      scheduled_time: new Date(controller.scheduledTime).toISOString(),
+      ...result
+    });
   }
 };
