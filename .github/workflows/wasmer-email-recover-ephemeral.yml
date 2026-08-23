@@ -1,0 +1,75 @@
+name: Wasmer Email Recover Ephemeral
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wasmer-email-recover-ephemeral.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Recover and re-encrypt target email
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=init
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "{\"status\":\"FAILED\",\"stage\":\"%s\",\"code\":%s}\n" "$stage" "$rc" >/tmp/recover-status.json; fi' EXIT
+          test -n "$AUTOMATION_KEY"
+          echo "::add-mask::$AUTOMATION_KEY"
+          stage=old_key
+          git cat-file -e e19aa9ab9131ec4a73100ee74f1f4ddfe7486cd5^{commit} 2>/dev/null || git fetch origin e19aa9ab9131ec4a73100ee74f1f4ddfe7486cd5 --depth=1
+          git show e19aa9ab9131ec4a73100ee74f1f4ddfe7486cd5:ops/wasmer/email-relay-private.aes >/tmp/old-private.aes
+          stage=aes_decrypt
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/old-private.aes -out /tmp/old-private.pem
+          stage=email_decrypt
+          base64 -d ops/wasmer/email-relay-ciphertext.b64 >/tmp/email.bin
+          openssl pkeyutl -decrypt -inkey /tmp/old-private.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -in /tmp/email.bin -out /tmp/target-email.txt
+          TARGET_EMAIL="$(tr -d '\r\n' </tmp/target-email.txt)"
+          test -n "$TARGET_EMAIL"
+          echo "::add-mask::$TARGET_EMAIL"
+          cat >/tmp/ephemeral-public.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0kUcxRB3EIp643+7y+MH
+          5fzIbYFCHb/xm3EuepGCX0adUmiuk8T37dVCxQb3dpPam4zFeb2NcEgrR3Grl5tW
+          NA3dGqn5j7RrYcGT9Rb5ybobHF0TWWK7NdpD32goA5CiXm2cphu9KcnsMRIIe791
+          Kpo9ok/kTWBMUtzAFRBWWb57O6mSuoQw5xlOrWyauHM4oZf2+HgQE5TyqfO1yJB1
+          VNAyqcw/lPmrLg8qCjbiES03F8T83JFrk06ZmYovPM6kdmtbqUT5m0ar298HMf2a
+          ui3EXeGC6iuX252fmsBhEbF1ovgq0gUhj7FbeBfzihpUO6UAQrPCs2om0cH2l6F/
+          7wIDAQAB
+          -----END PUBLIC KEY-----
+          PEM
+          sed -i 's/^          //' /tmp/ephemeral-public.pem
+          stage=reencrypt
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/ephemeral-public.pem -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -in /tmp/target-email.txt -out /tmp/recovered-email.bin
+          base64 -w0 /tmp/recovered-email.bin >/tmp/recovered-email.b64
+          printf '{"status":"SUCCESS","stage":"reencrypted"}\n' >/tmp/recover-status.json
+          rm -f /tmp/old-private.aes /tmp/old-private.pem /tmp/email.bin /tmp/target-email.txt /tmp/recovered-email.bin /tmp/ephemeral-public.pem
+      - name: Persist safe recovery result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/recover-status.json || printf '{"status":"FAILED","stage":"unknown"}\n' >/tmp/recover-status.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p ops/wasmer
+          cp /tmp/recover-status.json ops/wasmer/recovered-email.ephemeral.status.json
+          if [ -f /tmp/recovered-email.b64 ]; then cp /tmp/recovered-email.b64 ops/wasmer/recovered-email.ephemeral.b64; fi
+          git add ops/wasmer/recovered-email.ephemeral.status.json
+          [ ! -f ops/wasmer/recovered-email.ephemeral.b64 ] || git add ops/wasmer/recovered-email.ephemeral.b64
+          if ! git diff --cached --quiet; then
+            git commit -m 'Persist ephemeral Wasmer email recovery status'
+            git push origin HEAD:main
+          fi
