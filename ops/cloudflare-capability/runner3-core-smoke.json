@@ -1,1 +1,60 @@
-{"ok":false,"error":"smoke_result_missing"}
+{
+  "checkedAt": "2026-08-23T04:28:20.164121Z",
+  "url": "https://runner3-core.ducduy2411.workers.dev",
+  "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
+  "deployUrlSource": "wrangler-output",
+  "smokeUserAgent": "browser-compatible",
+  "health": {
+    "http": 200,
+    "json": {
+      "ok": true,
+      "service": "runner3-core",
+      "d1": true,
+      "time": "2026-08-23T04:28:20.254Z"
+    },
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T04:28:20.254Z\"}"
+  },
+  "postEvent": {
+    "http": 200,
+    "json": {
+      "ok": true
+    },
+    "body": "{\"ok\":true}"
+  },
+  "latest": {
+    "http": 200,
+    "json": [
+      {
+        "id": 4,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T04:28:20.164121Z\"}",
+        "created_at": "2026-08-23 04:28:20"
+      },
+      {
+        "id": 3,
+        "source": "x-runner",
+        "event_type": "workflow_status",
+        "payload": "{\"workflow\":\"X Runner\",\"run_id\":\"32615929760\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"2c613c374851e8cf7d818056d4841be4d4dc4679\",\"ref\":\"main\"}",
+        "created_at": "2026-08-23 03:43:59"
+      },
+      {
+        "id": 2,
+        "source": "x-runner",
+        "event_type": "workflow_status",
+        "payload": "{\"workflow\":\"X Runner\",\"run_id\":\"32613126121\",\"run_attempt\":\"1\",\"status\":\"success\",\"sha\":\"426b6bcf776bbbe91fb9099c9a4017a243cbc988\",\"ref\":\"main\"}",
+        "created_at": "2026-08-23 02:46:41"
+      },
+      {
+        "id": 1,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T00:44:28.143794Z\"}",
+        "created_at": "2026-08-23 00:44:28"
+      }
+    ],
+    "body": "[{\"id\":4,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T04:28:20.164121Z\\\"}\",\"created_at\":\"2026-08-23 04:28:20\"},{\"id\":3,\"source\":\"x-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"X Runner\\\",\\\"run_id\\\":\\\"32615929760\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"2c613c374851e8cf7d818056d4841be4d4dc4679\\\",\\\"ref\\\":\\\"main\\\"}\",\"created_at\":\"2026-08-23 03:43:59\"},{\"id\":2,\"source\":\"x-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"X Runner\\\",\\\"run_id\\\":\\\"32613126121\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"426b6bcf776bbbe91fb9099c9a4017a243cbc988\\\",\\\"ref\\\":\\\"main\\\"}\",\"created_at\":\"2026-08-23 02:46:41\"},{\"id\":1,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T00:44:28.143794Z\\\"}\",\"created_at\":\"2026-08-23 00:44:28\"}]",
+    "count": 4
+  },
+  "ok": true
+}
