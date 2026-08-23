@@ -1,0 +1,19 @@
+name: Low Volatility OOS Audit
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install requests pandas numpy pyarrow
+      - name: Run preregistered independent 2025-2026 low-vol OOS
+        working-directory: research/ema200w_20260823
+        run: python low_vol_oos_2025_2026.py
