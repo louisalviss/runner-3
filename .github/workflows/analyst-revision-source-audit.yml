@@ -14,7 +14,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,3 +26,5 @@ jobs:
         run: python research/analyst-revision-source-audit/audit_sources.py
       - name: Audit schema and temporal behavior
         run: python research/analyst-revision-source-audit/schema_temporal_audit.py
+      - name: Deep audit surviving source candidates
+        run: python research/analyst-revision-source-audit/deep_source_audit.py
