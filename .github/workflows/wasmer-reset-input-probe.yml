@@ -1,0 +1,26 @@
+name: Wasmer Reset Input Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-input-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/q.json <<'JSON'
+          {"query":"query { __type(name: \"RequestPasswordResetInput\") { name inputFields { name defaultValue type { kind name ofType { kind name ofType { kind name } } } } } }"}
+          JSON
+          curl -sS 'https://registry.wasmer.io/graphql' -H 'content-type: application/json' --data-binary @/tmp/q.json -o /tmp/o.json
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main; mkdir -p ops/wasmer; cp /tmp/o.json ops/wasmer/reset-input-probe.json; git add ops/wasmer/reset-input-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer reset input probe'; git push origin HEAD:main; fi
