@@ -1,0 +1,79 @@
+name: WR Crypto Stage1 Close Confirm A-B
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/wave-rider-structural/**"
+      - ".github/workflows/wr-crypto-stage1-close-ab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wr-crypto-stage1-close-ab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shard:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests websocket-client
+      - name: Fetch frozen WR 2.5.13 signal engine and corrected reference
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wrbase
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_tv_parity.py" -o /tmp/wrbase/wr_tv_parity.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/27797cf9c4ea0a91b1bc8d62059d052c2c843eb5/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
+          python -m py_compile /tmp/wrbase/wr_tv_parity.py /tmp/reference_verify.py apps/wave-rider-structural/close_confirm.py apps/wave-rider-structural/crypto_stage1_close_ab.py
+      - name: Reconstruct causal Stage1 and run A-B shard
+        env:
+          WR_BASE_DIR: /tmp/wrbase
+          WR_OUT: /tmp/wr-crypto-stage1-close
+          SHARD: ${{ matrix.shard }}
+          SHARDS: "32"
+        run: python apps/wave-rider-structural/crypto_stage1_close_ab.py shard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-crypto-stage1-close-shard-${{ matrix.shard }}
+          path: /tmp/wr-crypto-stage1-close/
+          retention-days: 14
+          if-no-files-found: error
+
+  merge:
+    needs: shard
+    if: always() && needs.shard.result != 'cancelled'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-crypto-stage1-close-shard-*
+          path: /tmp/all
+      - name: Merge Stage1-aware A-B
+        env:
+          MERGE_ROOT: /tmp/all
+          FINAL_OUT: /tmp/final
+        run: python apps/wave-rider-structural/crypto_stage1_close_ab.py merge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-crypto-stage1-close-final
+          path: /tmp/final/
+          retention-days: 30
+          if-no-files-found: error
