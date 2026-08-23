@@ -21,6 +21,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install deps
-        run: pip install requests
+        run: pip install requests pandas pyarrow numpy
       - name: Audit public PIT analyst-revision sources
         run: python research/analyst-revision-source-audit/audit_sources.py
+      - name: Audit schema and temporal behavior
+        run: python research/analyst-revision-source-audit/schema_temporal_audit.py
