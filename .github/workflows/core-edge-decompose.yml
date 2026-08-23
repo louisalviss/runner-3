@@ -1,0 +1,33 @@
+name: Core Edge Decompose
+
+on:
+  push:
+    paths:
+      - 'research/ema200w_20260823/core_edge_decompose.py'
+      - '.github/workflows/core-edge-decompose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pandas numpy requests pyarrow
+      - name: Run decomposition
+        working-directory: research/ema200w_20260823
+        run: python core_edge_decompose.py
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-edge-decompose-results
+          path: research/ema200w_20260823/artifacts/core_edge_decompose
+          if-no-files-found: error
+          retention-days: 3
