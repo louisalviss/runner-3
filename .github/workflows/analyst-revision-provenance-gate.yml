@@ -1,0 +1,25 @@
+name: Analyst Revision Provenance Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/analyst-revision-source-audit/provenance_gate.py'
+      - '.github/workflows/analyst-revision-provenance-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Verify DoltHub authority and HF mirror
+        run: python research/analyst-revision-source-audit/provenance_gate.py
