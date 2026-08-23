@@ -115,10 +115,18 @@ jobs:
               'payload':{'status':'ok','checkedAt':checked}
           })
           latest = request_json('/events/latest')
+          status = request_json('/status')
 
           health_json = health.get('json') if isinstance(health.get('json'), dict) else {}
           post_json = posted.get('json') if isinstance(posted.get('json'), dict) else {}
           latest_json = latest.get('json')
+          status_json = status.get('json') if isinstance(status.get('json'), dict) else {}
+          status_sources = status_json.get('sources') if isinstance(status_json.get('sources'), dict) else {}
+          required_sources = ('x-runner', 'rss-runner', 'audio-runner')
+          source_checks = {
+              source: bool(isinstance(status_sources.get(source), dict) and status_sources[source].get('status') == 'success')
+              for source in required_sources
+          }
 
           result = {
               'checkedAt': checked,
@@ -132,10 +140,16 @@ jobs:
                   **latest,
                   'count': len(latest_json) if isinstance(latest_json, list) else None,
               },
+              'status': {
+                  **status,
+                  'requiredSourceChecks': source_checks,
+              },
               'ok': bool(
                   health.get('http') == 200 and health_json.get('ok') is True and health_json.get('d1') is True
                   and posted.get('http') == 200 and post_json.get('ok') is True
                   and latest.get('http') == 200 and isinstance(latest_json, list) and len(latest_json) >= 1
+                  and status.get('http') == 200 and status_json.get('ok') is True
+                  and all(source_checks.values())
               )
           }
 
