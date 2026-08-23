@@ -1,6 +1,10 @@
-function safeFilename(key) {
-  const raw = key.split('/').pop() || 'download';
-  return raw.replace(/[\r\n"\\]/g, '_');
+function safeFilename(pathname) {
+  const raw = pathname.split('/').pop() || 'download';
+  try {
+    return decodeURIComponent(raw).replace(/[\r\n"\\]/g, '_');
+  } catch {
+    return raw.replace(/[\r\n"\\]/g, '_');
+  }
 }
 
 export default {
@@ -10,43 +14,34 @@ export default {
     }
 
     const url = new URL(request.url);
-    let key;
-    try {
-      key = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-    } catch {
-      return new Response('Bad Request', { status: 400 });
-    }
-
-    if (!key || key.includes('..')) {
+    if (!url.pathname || url.pathname === '/' || url.pathname.includes('..')) {
       return new Response('Not Found', { status: 404 });
     }
 
-    const object = request.method === 'HEAD'
-      ? await env.BUCKET.head(key)
-      : await env.BUCKET.get(key);
+    const origin = new URL(url.pathname, env.R2_ORIGIN);
+    const upstream = await fetch(origin, {
+      method: request.method,
+      headers: request.headers.get('Range') ? { Range: request.headers.get('Range') } : undefined,
+      redirect: 'follow',
+    });
 
-    if (!object) {
-      return new Response('Not Found', { status: 404 });
+    if (!upstream.ok && upstream.status !== 206) {
+      return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });
     }
 
-    const headers = new Headers();
-    if (object.writeHttpMetadata) object.writeHttpMetadata(headers);
-
-    const filename = safeFilename(key);
+    const headers = new Headers(upstream.headers);
+    const filename = safeFilename(url.pathname);
     headers.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    headers.set('Content-Length', String(object.size));
-    headers.set('ETag', object.httpEtag || object.etag);
-    headers.set('Cache-Control', 'public, max-age=300');
     headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Cache-Control', 'public, max-age=300');
 
     if (!headers.get('Content-Type')) {
       headers.set('Content-Type', 'application/octet-stream');
     }
 
-    if (request.method === 'HEAD') {
-      return new Response(null, { status: 200, headers });
-    }
-
-    return new Response(object.body, { status: 200, headers });
+    return new Response(request.method === 'HEAD' ? null : upstream.body, {
+      status: upstream.status,
+      headers,
+    });
   },
 };
