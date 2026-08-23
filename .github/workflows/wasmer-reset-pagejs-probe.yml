@@ -1,0 +1,40 @@
+name: Wasmer Reset Page JS Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-pagejs-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          curl -LsS 'https://wasmer.io/_next/static/chunks/app/%5Blocale%5D/(account)/reset-password/page-d724534a60ce1516.js' -o /tmp/page.js
+          python - <<'PY'
+          import re,json
+          s=open('/tmp/page.js',errors='ignore').read()
+          keys=['resetPassword','ResetPassword','passwordReset','PasswordReset','forgotPassword','ForgotPassword','reset_password','requestPassword','request_password','mutation','graphql']
+          hits=[]
+          for k in keys:
+            for m in re.finditer(re.escape(k),s,re.I):
+              a=max(0,m.start()-1200);b=min(len(s),m.end()+2400)
+              sn=s[a:b]
+              sn=re.sub(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}','EMAIL_REDACTED',sn,flags=re.I)
+              hits.append({'key':k,'snippet':sn})
+              if len(hits)>=30: break
+            if len(hits)>=30: break
+          open('/tmp/out.json','w').write(json.dumps({'status':'ok','bytes':len(s),'hits':hits},indent=2))
+          PY
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main
+          mkdir -p ops/wasmer; cp /tmp/out.json ops/wasmer/reset-pagejs-probe.json
+          git add ops/wasmer/reset-pagejs-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer reset page JS probe'; git push origin HEAD:main; fi
