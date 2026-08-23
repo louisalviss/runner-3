@@ -25,6 +25,7 @@ jobs:
           token="$(printf '%s' "${RAW_WASMER_TOKEN:-}" | tr -d '\r\n')"
           test -n "$token"
           [[ "$token" == wap_* ]] || token="wap_${token}"
+          export WASMER_TOKEN="$token"
           echo "WASMER_TOKEN=$token" >> "$GITHUB_ENV"
           curl https://get.wasmer.io -sSfL | sh >/dev/null
           echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
@@ -50,7 +51,6 @@ jobs:
           import re
           text=open('/tmp/app-get.txt',encoding='utf-8',errors='replace').read()
           print('app_get_bytes=',len(text))
-          # Deliberately print only non-secret structural lines.
           safe=[]
           for line in text.splitlines():
               s=line.strip()
