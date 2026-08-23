@@ -22,22 +22,23 @@ jobs:
     env:
       WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
     steps:
-      - name: Check secret is available
+      - name: Check secret format without revealing it
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "${WASMER_TOKEN:-}" ]]; then
-            echo "WASMER_TOKEN is missing or empty"
+            echo "token_present=no"
             exit 2
           fi
-          echo "WASMER_TOKEN is present"
+          echo "token_present=yes"
+          echo "token_length=${#WASMER_TOKEN}"
+          if [[ "$WASMER_TOKEN" == wap_* ]]; then echo "token_prefix_wap=yes"; else echo "token_prefix_wap=no"; fi
+          if [[ "$WASMER_TOKEN" =~ [[:space:]] ]]; then echo "token_has_whitespace=yes"; else echo "token_has_whitespace=no"; fi
 
       - name: Network diagnostics
         shell: bash
         run: |
           set +e
-          echo "DNS:"
-          getent ahosts registry.wasmer.io | head -10
           echo "wasmer.io HTTP:"
           curl -4 -sS -o /dev/null -w '%{http_code} %{time_total}\n' --connect-timeout 8 --max-time 15 https://wasmer.io/
           echo "registry GraphQL HTTP:"
