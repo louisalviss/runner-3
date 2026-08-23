@@ -1,0 +1,124 @@
+name: R2 Force Download Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/r2-force-download-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy force-download Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/r2-download-worker ops
+          cat > /tmp/r2-download-worker/worker.js <<'JS'
+          export default {
+            async fetch(request, env) {
+              const url = new URL(request.url);
+              const key = decodeURIComponent(url.pathname.replace(/^\/+/, '')) || 'test.apk';
+              if (request.method !== 'GET' && request.method !== 'HEAD') {
+                return new Response('Method Not Allowed', { status: 405 });
+              }
+              const object = await env.BUCKET.get(key, {
+                range: request.headers,
+                onlyIf: request.headers,
+              });
+              if (object === null) return new Response('Not Found', { status: 404 });
+              const headers = new Headers();
+              object.writeHttpMetadata(headers);
+              headers.set('etag', object.httpEtag);
+              headers.set('accept-ranges', 'bytes');
+              headers.set('content-type', object.httpMetadata?.contentType || 'application/octet-stream');
+              const raw = key.split('/').pop() || 'download.bin';
+              const safe = raw.replace(/["\\\r\n]/g, '_');
+              headers.set('content-disposition', `attachment; filename="${safe}"`);
+              headers.set('x-content-type-options', 'nosniff');
+              if (request.method === 'HEAD') return new Response(null, { status: 200, headers });
+              return new Response('body' in object ? object.body : undefined, {
+                status: 'body' in object ? 200 : 412,
+                headers,
+              });
+            }
+          };
+          JS
+
+          cat > /tmp/r2-download-worker/wrangler.jsonc <<'JSON'
+          {
+            "name": "runner3-direct-download",
+            "main": "worker.js",
+            "compatibility_date": "2026-08-24",
+            "account_id": "ACCOUNT_ID_PLACEHOLDER",
+            "r2_buckets": [
+              {
+                "binding": "BUCKET",
+                "bucket_name": "runner3-direct-download-test"
+              }
+            ]
+          }
+          JSON
+          sed -i "s/ACCOUNT_ID_PLACEHOLDER/${CLOUDFLARE_ACCOUNT_ID}/" /tmp/r2-download-worker/wrangler.jsonc
+
+          cd /tmp/r2-download-worker
+          npx --yes wrangler@latest deploy --config wrangler.jsonc 2>&1 | tee /tmp/wrangler-deploy.log
+          WORKER_URL=$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/wrangler-deploy.log | tail -1 || true)
+          test -n "$WORKER_URL"
+
+          TEST_URL="${WORKER_URL}/test.apk"
+          curl -sS -D /tmp/headers.txt -o /tmp/downloaded.apk "$TEST_URL"
+          HTTP=$(awk 'NR==1{print $2}' /tmp/headers.txt | tr -d '\r')
+          DISP=$(grep -i '^content-disposition:' /tmp/headers.txt | tail -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' || true)
+          TYPE=$(grep -i '^content-type:' /tmp/headers.txt | tail -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' || true)
+          SIZE=$(stat -c '%s' /tmp/downloaded.apk)
+          SHA=$(sha256sum /tmp/downloaded.apk | awk '{print $1}')
+          cd "$GITHUB_WORKSPACE"
+          python - <<PY
+          import json, datetime
+          out={
+            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'workerUrl':'${WORKER_URL}',
+            'downloadUrl':'${TEST_URL}',
+            'httpCode':'${HTTP}',
+            'contentDisposition':'${DISP}',
+            'contentType':'${TYPE}',
+            'size':int('${SIZE}'),
+            'sha256':'${SHA}',
+            'forceDownload': '${DISP}'.lower().startswith('attachment'),
+          }
+          open('ops/r2-force-download-worker.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Publish result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/r2-force-download-worker.json || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/r2-force-download-worker.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish force-download Worker test [skip ci]'
+          git pull --rebase origin main || true
+          git push origin HEAD:main
