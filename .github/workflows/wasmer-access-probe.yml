@@ -32,6 +32,18 @@ jobs:
           fi
           echo "WASMER_TOKEN is present"
 
+      - name: Network diagnostics
+        shell: bash
+        run: |
+          set +e
+          echo "DNS:"
+          getent ahosts registry.wasmer.io | head -10
+          echo "wasmer.io HTTP:"
+          curl -4 -sS -o /dev/null -w '%{http_code} %{time_total}\n' --connect-timeout 8 --max-time 15 https://wasmer.io/
+          echo "registry GraphQL HTTP:"
+          curl -4 -sS -o /dev/null -w '%{http_code} %{time_total}\n' --connect-timeout 8 --max-time 15 https://registry.wasmer.io/graphql
+          exit 0
+
       - name: Install Wasmer CLI
         shell: bash
         run: |
