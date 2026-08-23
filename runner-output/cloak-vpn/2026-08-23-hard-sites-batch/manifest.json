@@ -1,0 +1,42 @@
+{
+  "engine": "cloakbrowser-vpngate-netns",
+  "job_file": "jobs/cloak-vpn/2026-08-23-hard-sites-batch.json",
+  "host_ip": "104.209.12.68",
+  "max_attempts": 5,
+  "attempts": [
+    {
+      "attempt": 1,
+      "country": "TH",
+      "relay": "27.130.31.148",
+      "exit_ip": "",
+      "vpn_state": "VPN_FAIL",
+      "curl_http": "",
+      "cloak_ok": false,
+      "cloak_http": "",
+      "text_chars": 0
+    },
+    {
+      "attempt": 2,
+      "country": "TH",
+      "relay": "27.130.191.167",
+      "exit_ip": "27.130.191.167",
+      "vpn_state": "VPN_OK",
+      "curl_http": "200",
+      "cloak_ok": true,
+      "cloak_http": "200",
+      "text_chars": 240
+    }
+  ],
+  "success": true,
+  "selected": {
+    "attempt": 2,
+    "country": "TH",
+    "relay": "27.130.191.167",
+    "exit_ip": "27.130.191.167",
+    "vpn_state": "VPN_OK",
+    "curl_http": "200",
+    "cloak_ok": true,
+    "cloak_http": "200",
+    "text_chars": 240
+  }
+}
