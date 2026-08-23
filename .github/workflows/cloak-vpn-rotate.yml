@@ -1,0 +1,245 @@
+name: Cloak VPN Rotate Read-Only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/cloak-vpn/*.json'
+      - 'jobs/cloak-vpn/**/*.json'
+  workflow_dispatch:
+    inputs:
+      job_file:
+        description: 'Path to a public read-only Cloak VPN job JSON'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloak-vpn-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOAKBROWSER_VERSION: '146.0.7680.177.5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve job
+        id: job
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            JOB_FILE='${{ inputs.job_file }}'
+          else
+            JOB_FILE="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'jobs/cloak-vpn/*.json' 'jobs/cloak-vpn/**/*.json' | tail -n 1 || true)"
+          fi
+          test -n "$JOB_FILE" && test -f "$JOB_FILE"
+          echo "job_file=$JOB_FILE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install browser and VPN tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl xvfb
+          python -m pip install -q 'cloakbrowser==0.5.3'
+          python -m playwright install-deps chromium
+          CLOAKBROWSER_VERSION="$CLOAKBROWSER_VERSION" python -m cloakbrowser install
+
+      - name: Validate public read-only job
+        run: python3 cloak_fetch.py '${{ steps.job.outputs.job_file }}' --validate-only --browser-version "$CLOAKBROWSER_VERSION"
+
+      - name: Build VPN Gate relay pool
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cloak-relays
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64,csv,io,pathlib
+          pref=['TH','SG','JP','KR','VN','MY','PH','ID','TW']
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          out=[]
+          for c in pref:
+              rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+              rs.sort(key=lambda r:int(r.get('Speed') or 0), reverse=True)
+              for r in rs[:3]:
+                  try:
+                      cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+                  except Exception:
+                      continue
+                  cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+                  p=pathlib.Path(f'/tmp/cloak-relays/{len(out):02d}-{c}.ovpn')
+                  p.write_text(cfg)
+                  out.append((str(p),c,r.get('IP','')))
+          if not out: raise SystemExit('No VPN relays')
+          pathlib.Path('/tmp/cloak-relays.tsv').write_text('\n'.join('\t'.join(x) for x in out)+'\n')
+          print('RELAYS',len(out))
+          PY
+
+      - name: Rotate IP and test Reddit through Cloak
+        id: rotate
+        shell: bash
+        run: |
+          set -uo pipefail
+          JOB_FILE='${{ steps.job.outputs.job_file }}'
+          MAX_ATTEMPTS=$(python3 -c "import json; print(int(json.load(open('$JOB_FILE')).get('max_attempts',8)))")
+          HOST_IP=$(curl -fsS --connect-timeout 8 --max-time 12 https://api.ipify.org || true)
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          PYTHON_BIN=$(command -v python3)
+          RUNNER_USER=$(id -un)
+          OUT="$GITHUB_WORKSPACE/cloak_vpn_output"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          printf 'attempt\tcountry\trelay\texit_ip\tvpn_state\tcurl_http\tcloak_ok\tcloak_http\ttext_chars\n' > "$OUT/attempts.tsv"
+          echo "$HOST_IP" > "$OUT/host_ip.txt"
+
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn
+          sudo ip link set vn netns vpnns
+          sudo ip addr add 10.237.0.1/24 dev vh
+          sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.237.0.2/24 dev vn
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.237.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.237.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+          Xvfb :99 -screen 0 1365x768x24 >/tmp/xvfb.log 2>&1 &
+          sleep 1
+
+          success=0
+          attempt=0
+          while IFS=$'\t' read -r cfg country relay; do
+            attempt=$((attempt+1))
+            [ "$attempt" -le "$MAX_ATTEMPTS" ] || break
+            echo "TRY attempt=$attempt country=$country relay=$relay"
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+            sleep 1
+            sudo rm -f /tmp/openvpn.log
+            sudo touch /tmp/openvpn.log && sudo chmod 666 /tmp/openvpn.log
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
+            vpn_ok=0
+            for i in {1..15}; do
+              sleep 1
+              grep -q 'Initialization Sequence Completed' /tmp/openvpn.log 2>/dev/null && { vpn_ok=1; break; }
+              grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Connection refused|fatal error|Exiting due to fatal error' /tmp/openvpn.log 2>/dev/null && break || true
+            done
+            if [ "$vpn_ok" != 1 ]; then
+              printf '%s\t%s\t%s\t\tVPN_FAIL\t\tfalse\t\t0\n' "$attempt" "$country" "$relay" >> "$OUT/attempts.tsv"
+              continue
+            fi
+
+            EXIT_IP=$(sudo ip netns exec vpnns curl -fsS --connect-timeout 8 --max-time 12 https://api.ipify.org || true)
+            CURL_HTTP=$(sudo ip netns exec vpnns curl -L --compressed --connect-timeout 10 --max-time 30 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' -o /tmp/reddit.html -w '%{http_code}' 'https://www.reddit.com/r/ClaudeAI/s/5Whzsb8QMZ' || true)
+            ATTEMPT_OUT="$OUT/attempt-$attempt"
+            rm -rf "$ATTEMPT_OUT"
+            set +e
+            sudo ip netns exec vpnns sudo -u "$RUNNER_USER" env HOME="$HOME" DISPLAY=:99 PATH="$PATH" "$PYTHON_BIN" "$GITHUB_WORKSPACE/cloak_fetch.py" "$GITHUB_WORKSPACE/$JOB_FILE" --output "$ATTEMPT_OUT" --browser-version "$CLOAKBROWSER_VERSION"
+            CLOAK_RC=$?
+            set -e
+            CLOAK_OK=false
+            CLOAK_HTTP=''
+            TEXT_CHARS=0
+            if [ -f "$ATTEMPT_OUT/manifest.json" ]; then
+              read -r CLOAK_OK CLOAK_HTTP TEXT_CHARS < <(python3 - "$ATTEMPT_OUT/manifest.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1])); r=d.get('results',[{}])[0]
+          print(str(bool(r.get('ok'))).lower(), r.get('status') or '', r.get('text_chars') or 0)
+          PY
+              )
+            fi
+            printf '%s\t%s\t%s\t%s\tVPN_OK\t%s\t%s\t%s\t%s\n' "$attempt" "$country" "$relay" "$EXIT_IP" "$CURL_HTTP" "$CLOAK_OK" "$CLOAK_HTTP" "$TEXT_CHARS" >> "$OUT/attempts.tsv"
+            echo "RESULT attempt=$attempt country=$country exit_ip=$EXIT_IP curl=$CURL_HTTP cloak_ok=$CLOAK_OK cloak_http=$CLOAK_HTTP chars=$TEXT_CHARS rc=$CLOAK_RC"
+            if [ -n "$EXIT_IP" ] && [ "$EXIT_IP" != "$HOST_IP" ] && [ "$CLOAK_OK" = true ]; then
+              success=1
+              echo "$attempt" > "$OUT/selected_attempt.txt"
+              break
+            fi
+          done < /tmp/cloak-relays.tsv
+
+          SUCCESS="$success" HOST_IP="$HOST_IP" JOB_FILE="$JOB_FILE" MAX_ATTEMPTS="$MAX_ATTEMPTS" python3 - <<'PY'
+          import csv,json,os,pathlib
+          out=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'cloak_vpn_output'
+          rows=[]
+          with (out/'attempts.tsv').open() as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  r['attempt']=int(r['attempt'])
+                  r['text_chars']=int(r['text_chars'] or 0)
+                  r['cloak_ok']=r['cloak_ok'].lower()=='true'
+                  rows.append(r)
+          selected=None
+          p=out/'selected_attempt.txt'
+          if p.exists():
+              n=int(p.read_text().strip()); selected=next((r for r in rows if r['attempt']==n),None)
+          manifest={
+              'engine':'cloakbrowser-vpngate-netns',
+              'job_file':os.environ['JOB_FILE'],
+              'host_ip':os.environ['HOST_IP'],
+              'max_attempts':int(os.environ['MAX_ATTEMPTS']),
+              'attempts':rows,
+              'success':os.environ['SUCCESS']=='1',
+              'selected':selected,
+          }
+          (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
+          print(json.dumps(manifest,ensure_ascii=False))
+          PY
+          exit 0
+
+      - name: Persist result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f cloak_vpn_output/manifest.json || exit 0
+          JOB_FILE='${{ steps.job.outputs.job_file }}'
+          SLUG="$(basename "$JOB_FILE" .json)"
+          DEST="runner-output/cloak-vpn/$SLUG"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          cp -a cloak_vpn_output/. "$DEST/"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$DEST"
+          git diff --cached --quiet && exit 0
+          git commit -m "Store Cloak VPN result: $SLUG [skip ci]"
+          for n in 1 2 3; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep "$n"
+          done
+          exit 1
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloak-vpn-${{ github.run_id }}
+          path: cloak_vpn_output/
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+          sudo ip netns del vpnns 2>/dev/null || true
+          rm -rf cloak_vpn_output
