@@ -178,8 +178,6 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          EVENT_URL: https://runner3-core.ducduy2411.workers.dev/events
-          EVENT_LATEST_URL: https://runner3-core.ducduy2411.workers.dev/events/latest
           EVENT_STATUS: ${{ job.status }}
           EVENT_WORKFLOW: ${{ github.workflow }}
           EVENT_RUN_ID: ${{ github.run_id }}
@@ -187,98 +185,22 @@ jobs:
           EVENT_SHA: ${{ github.sha }}
           EVENT_REF: ${{ github.ref_name }}
         run: |
-          python - <<'PY'
-          import json, os, urllib.request
-
-          source = "x-runner"
-          headers = {
-              "Content-Type": "application/json",
-              "Accept": "application/json",
-              "User-Agent": "Mozilla/5.0 Runner3Telemetry/1.0",
-          }
-          payload = {
-              "source": source,
-              "event_type": "workflow_status",
-              "payload": {
-                  "workflow": os.environ["EVENT_WORKFLOW"],
-                  "run_id": os.environ["EVENT_RUN_ID"],
-                  "run_attempt": os.environ["EVENT_RUN_ATTEMPT"],
-                  "status": os.environ["EVENT_STATUS"],
-                  "sha": os.environ["EVENT_SHA"],
-                  "ref": os.environ["EVENT_REF"],
-              },
-          }
-          req = urllib.request.Request(
-              os.environ["EVENT_URL"],
-              data=json.dumps(payload).encode(),
-              headers=headers,
-              method="POST",
-          )
-          with urllib.request.urlopen(req, timeout=10) as r:
-              print("POST", r.status, r.read().decode())
-
-          latest_req = urllib.request.Request(
-              os.environ["EVENT_LATEST_URL"],
-              headers={"Accept": "application/json", "User-Agent": headers["User-Agent"]},
-          )
-          with urllib.request.urlopen(latest_req, timeout=10) as r:
-              latest = json.load(r)
-
-          run_id = os.environ["EVENT_RUN_ID"]
-          match = None
-          for event in latest if isinstance(latest, list) else []:
-              if event.get("source") != source or event.get("event_type") != "workflow_status":
-                  continue
-              try:
-                  body = json.loads(event.get("payload") or "{}")
-              except Exception:
-                  continue
-              if str(body.get("run_id")) == str(run_id):
-                  match = event
-                  break
-
-          print("D1_READBACK", json.dumps(match))
-          if not match:
-              raise SystemExit("workflow_status_not_visible_in_d1")
-          PY
+          python .github/scripts/runner3_telemetry.py \
+            --source x-runner \
+            --status "$EVENT_STATUS" \
+            --workflow "$EVENT_WORKFLOW" \
+            --run-id "$EVENT_RUN_ID" \
+            --run-attempt "$EVENT_RUN_ATTEMPT" \
+            --sha "$EVENT_SHA" \
+            --ref "$EVENT_REF" \
+            --checkpoint ops/runner3-core/x-runner-telemetry.json
 
       - name: Persist Runner3 Core telemetry status
         if: always()
         continue-on-error: true
         shell: bash
-        env:
-          TELEMETRY_OUTCOME: ${{ steps.runner3_telemetry.outcome }}
-          EVENT_STATUS: ${{ job.status }}
-          EVENT_WORKFLOW: ${{ github.workflow }}
-          EVENT_RUN_ID: ${{ github.run_id }}
-          EVENT_RUN_ATTEMPT: ${{ github.run_attempt }}
-          EVENT_SHA: ${{ github.sha }}
-          EVENT_REF: ${{ github.ref_name }}
         run: |
-          mkdir -p ops/runner3-core
-          python - <<'PY'
-          import datetime, json, os
-          from pathlib import Path
-
-          outcome = os.environ.get("TELEMETRY_OUTCOME", "unknown")
-          data = {
-              "ok": outcome == "success",
-              "source": "x-runner",
-              "event_type": "workflow_status",
-              "telemetry_outcome": outcome,
-              "workflow": os.environ.get("EVENT_WORKFLOW"),
-              "run_id": os.environ.get("EVENT_RUN_ID"),
-              "run_attempt": os.environ.get("EVENT_RUN_ATTEMPT"),
-              "job_status_at_tail": os.environ.get("EVENT_STATUS"),
-              "sha": os.environ.get("EVENT_SHA"),
-              "ref": os.environ.get("EVENT_REF"),
-              "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-          }
-          Path("ops/runner3-core/x-runner-telemetry.json").write_text(
-              json.dumps(data, indent=2) + "\n", encoding="utf-8"
-          )
-          print(json.dumps(data, indent=2))
-          PY
+          test -f ops/runner3-core/x-runner-telemetry.json || exit 0
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ops/runner3-core/x-runner-telemetry.json
