@@ -44,7 +44,6 @@ jobs:
           mkdir -p /tmp/stock-input/artifact /tmp/stock-final
           cp /tmp/stock-old/symbol-summaries.json /tmp/stock-input/artifact/all-symbols.json
           cp /tmp/stock-old/trades.jsonl /tmp/stock-input/artifact/all-trades.jsonl
-          # merger expects *-trades.jsonl and any symbol dicts; split summaries so symbols_ok remains auditable
           python - <<'PY'
           import json, pathlib
           root=pathlib.Path('/tmp/stock-input/artifact')
@@ -65,8 +64,9 @@ jobs:
           set -euo pipefail
           pip install requests websocket-client
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/crypto_stage1_close_ab.py" -o /tmp/crypto_merge.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/close_confirm.py" -o /tmp/close_confirm.py
           mkdir -p /tmp/crypto-final
-          MERGE_ROOT=/tmp/crypto-all FINAL_OUT=/tmp/crypto-final python /tmp/crypto_merge.py merge
+          PYTHONPATH=/tmp MERGE_ROOT=/tmp/crypto-all FINAL_OUT=/tmp/crypto-final python /tmp/crypto_merge.py merge
       - uses: actions/upload-artifact@v4
         with:
           name: wr-stock10-close-final-corrected
