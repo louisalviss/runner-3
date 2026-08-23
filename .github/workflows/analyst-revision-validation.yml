@@ -1,0 +1,26 @@
+name: Analyst Revision Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/analyst_revision_20260823/**'
+      - '.github/workflows/analyst-revision-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pandas numpy requests pyarrow
+      - name: Run preregistered EPS consensus revision validation
+        run: python research/analyst_revision_20260823/eps_revision_validation.py
