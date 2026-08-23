@@ -33,8 +33,6 @@ def publish(out:Path, tid:str):
             except Exception: manifest[name]=p.read_text(errors='ignore')[:20000]
     (INBOX/f'x-inspect-{tid}-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
     for p in sorted((out/'frames').glob('frame-*.jpg')):
-        # Binary JPEG intentionally uses .json extension so the existing chat-intake
-        # publisher commits it without changing the stable workflow.
         shutil.copyfile(p, INBOX/f'x-inspect-{tid}-{p.stem}.json')
     cs=out/'contact-sheet.jpg'
     if cs.exists(): shutil.copyfile(cs, INBOX/f'x-inspect-{tid}-contact-sheet.json')
@@ -84,6 +82,7 @@ def inspect(url:str):
         try: duration=float(json.loads(probe.stdout)['format']['duration'])
         except Exception: duration=0.0
         report['status']='VIDEO_OK'; report['source_bytes']=video.stat().st_size; report['duration']=duration
+        shutil.copyfile(video, out/'source.mp4')
         if meta:
             report['post']={k:meta.get(k) for k in ['title','description','uploader','uploader_id','timestamp','duration','width','height','view_count','like_count','repost_count','comment_count','webpage_url'] if meta.get(k) is not None}
         if duration>0:
