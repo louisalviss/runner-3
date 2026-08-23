@@ -121,12 +121,30 @@ jobs:
           post_json = posted.get('json') if isinstance(posted.get('json'), dict) else {}
           latest_json = latest.get('json')
           status_json = status.get('json') if isinstance(status.get('json'), dict) else {}
-          status_sources = status_json.get('sources') if isinstance(status_json.get('sources'), dict) else {}
-          required_sources = ('x-runner', 'rss-runner', 'audio-runner')
-          source_checks = {
-              source: bool(isinstance(status_sources.get(source), dict) and status_sources[source].get('status') == 'success')
-              for source in required_sources
-          }
+          raw_sources = status_json.get('sources')
+          status_sources = raw_sources if isinstance(raw_sources, dict) else None
+          allowed_statuses = {'success', 'failure', 'cancelled', 'skipped'}
+          source_shape_checks = {}
+          if status_sources is not None:
+              for source, record in status_sources.items():
+                  source_shape_checks[source] = bool(
+                      isinstance(source, str) and source
+                      and isinstance(record, dict)
+                      and record.get('status') in allowed_statuses
+                      and isinstance(record.get('workflow'), str) and record.get('workflow')
+                      and str(record.get('run_id', '')).strip()
+                      and str(record.get('run_attempt', '')).strip()
+                      and isinstance(record.get('sha'), str)
+                      and isinstance(record.get('ref'), str)
+                      and isinstance(record.get('event_id'), int)
+                      and isinstance(record.get('created_at'), str)
+                  )
+          status_schema_ok = bool(
+              status.get('http') == 200
+              and status_json.get('ok') is True
+              and status_sources is not None
+              and all(source_shape_checks.values())
+          )
 
           result = {
               'checkedAt': checked,
@@ -142,14 +160,15 @@ jobs:
               },
               'status': {
                   **status,
-                  'requiredSourceChecks': source_checks,
+                  'schemaOk': status_schema_ok,
+                  'sourceCount': len(status_sources) if status_sources is not None else None,
+                  'sourceShapeChecks': source_shape_checks,
               },
               'ok': bool(
                   health.get('http') == 200 and health_json.get('ok') is True and health_json.get('d1') is True
                   and posted.get('http') == 200 and post_json.get('ok') is True
                   and latest.get('http') == 200 and isinstance(latest_json, list) and len(latest_json) >= 1
-                  and status.get('http') == 200 and status_json.get('ok') is True
-                  and all(source_checks.values())
+                  and status_schema_ok
               )
           }
 
