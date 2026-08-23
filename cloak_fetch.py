@@ -8,7 +8,7 @@ import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from cloakbrowser import launch
 
@@ -35,7 +35,7 @@ def normalized_key(value):
     return re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
 
 
-def validate_url(url):
+def validate_url(url, allow_sensitive_query=False):
     if not isinstance(url, str):
         raise ValueError("every URL must be a string")
     p = urlparse(url)
@@ -46,9 +46,10 @@ def validate_url(url):
     host = p.hostname.lower().rstrip(".")
     if host in BLOCKED_HOSTS or host.endswith(".localhost"):
         raise ValueError(f"blocked host: {host}")
-    for key, _ in parse_qsl(p.query, keep_blank_values=True):
-        if normalized_key(key) in SENSITIVE_QUERY_KEYS:
-            raise ValueError(f"sensitive query parameter is forbidden: {key}")
+    if not allow_sensitive_query:
+        for key, _ in parse_qsl(p.query, keep_blank_values=True):
+            if normalized_key(key) in SENSITIVE_QUERY_KEYS:
+                raise ValueError(f"sensitive query parameter is forbidden: {key}")
     try:
         literal = ipaddress.ip_address(host)
     except ValueError:
@@ -56,6 +57,16 @@ def validate_url(url):
     if literal is not None and not literal.is_global:
         raise ValueError(f"non-public IP is forbidden: {host}")
     return p
+
+
+def sanitize_url(url):
+    p = urlparse(url)
+    safe_query = [
+        (key, value)
+        for key, value in parse_qsl(p.query, keep_blank_values=True)
+        if normalized_key(key) not in SENSITIVE_QUERY_KEYS
+    ]
+    return urlunparse(p._replace(query=urlencode(safe_query, doseq=True)))
 
 
 def assert_public_dns(host):
@@ -161,7 +172,7 @@ def main():
                 if cfg["settle_ms"]:
                     page.wait_for_timeout(cfg["settle_ms"])
                 final = page.url
-                final_parsed = validate_url(final)
+                final_parsed = validate_url(final, allow_sensitive_query=True)
                 rec["final_resolved_ips"] = assert_public_dns(final_parsed.hostname)
                 text = page.locator("body").inner_text(timeout=10000)
                 status = response.status if response else None
@@ -180,7 +191,7 @@ def main():
                 rec.update({
                     "ok": blocked_reason is None and status is not None and 200 <= status < 400,
                     "status": status,
-                    "final_url": final,
+                    "final_url": sanitize_url(final),
                     "title": page.title(),
                     "text_chars": len(text),
                     "signals": signals,
