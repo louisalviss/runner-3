@@ -8,8 +8,8 @@ from datasets import load_dataset
 from backtest import load_prices, load_memberships, add_membership_flag, norm_ticker
 
 HORIZONS=(13,26,52)
-DISC_START=pd.Timestamp('2010-01-01'); DISC_END=pd.Timestamp('2016-12-31')
-VAL_START=pd.Timestamp('2017-01-01'); VAL_END=pd.Timestamp('2024-12-31')
+DISC_START=pd.Timestamp('2017-01-01'); DISC_END=pd.Timestamp('2020-12-31')
+VAL_START=pd.Timestamp('2021-01-01'); VAL_END=pd.Timestamp('2024-12-31')
 
 
 def prices():
@@ -110,9 +110,9 @@ def main():
     if a.empty: raise RuntimeError('no mapped institutional observations')
     meta.update({'mapped_rows':len(a),'mapped_symbols':int(a.symbol.nunique()),'mapped_week_min':str(a.week.min().date()),'mapped_week_max':str(a.week.max().date())})
     ev=controls(events(a),a); print('EVENTS',json.dumps(ev.groupby('strategy').size().to_dict()),flush=True)
-    s=pd.DataFrame(summarize(ev,'discovery_2010_2016',DISC_START,DISC_END)+summarize(ev,'validation_2017_2024',VAL_START,VAL_END))
+    s=pd.DataFrame(summarize(ev,'discovery_2017_2020',DISC_START,DISC_END)+summarize(ev,'validation_2021_2024',VAL_START,VAL_END))
     meta['elapsed_sec']=round(time.time()-t,2); print('META',json.dumps(meta),flush=True); print(s.to_string(index=False),flush=True)
-    v=s[(s.slice=='validation_2017_2024')&(s.horizon==26)].copy()
+    v=s[(s.slice=='validation_2021_2024')&(s.horizon==26)].copy()
     v['pass']=(v.n>=300)&(v.median_excess>.01)&(v.beat_matched>=.525)&(v.ci_lo>0)
     print('GATE26',v[['strategy','n','matched_n','win_rate','median_return','median_excess','beat_matched','mean_excess','ci_lo','ci_hi','pass']].to_json(orient='records'),flush=True)
     print('DONE',flush=True)
