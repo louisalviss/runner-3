@@ -21,6 +21,18 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install pandas numpy requests pyarrow
+      - name: Normalize nullable fundamental flags
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('research/ema200w_20260823/fund_accel_filing.py')
+          s = p.read_text()
+          old = "    for c, v in cols_init.items():\n        w[c] = v\n"
+          new = "    for c, v in cols_init.items():\n        w[c] = v\n    w['ni_up'] = pd.Series(pd.NA, index=w.index, dtype='boolean')\n    w['fcf_up'] = pd.Series(pd.NA, index=w.index, dtype='boolean')\n"
+          if old not in s:
+              raise SystemExit('patch anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
       - name: Run filing acceleration decomposition
         working-directory: research/ema200w_20260823
         run: python fund_accel_filing.py
