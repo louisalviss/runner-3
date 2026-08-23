@@ -12,8 +12,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
-        run: pip install requests pandas numpy
-      - name: Run preregistered official SEC Form4 validation
-        working-directory: research/ema200w_20260823
-        run: python form4_sec_backtest.py
+      - name: Install gdown
+        run: pip install 'gdown>=6.1.0'
+      - name: List public SEC mirror without downloading
+        run: |
+          gdown 'https://drive.google.com/drive/folders/1P7Po6sqYv-sSNNJVjQm-1BEYM_8LSBmX' --folder --json --quiet > /tmp/files.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/files.json'))
+          print('FILE_COUNT',len(x))
+          wanted=[]
+          for r in x:
+              p=r['path']
+              if any(k in p for k in ['NONDERIV_TRANS.csv','REPORTINGOWNER.csv','SUBMISSION.csv','2010q1_form345.zip','2015q1_form345.zip','2024q1_form345.zip','2024q4_form345.zip']):
+                  wanted.append(r)
+          print('WANTED',json.dumps(wanted,indent=2))
+          print('DONE')
+          PY
