@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-23T20:05:33.195437Z",
+  "checkedAt": "2026-08-23T22:53:44.363015Z",
   "url": "https://runner3-core.ducduy2411.workers.dev",
   "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
   "deployUrlSource": "wrangler-output",
@@ -10,9 +10,9 @@
       "ok": true,
       "service": "runner3-core",
       "d1": true,
-      "time": "2026-08-23T20:05:33.297Z"
+      "time": "2026-08-23T22:53:44.465Z"
     },
-    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T20:05:33.297Z\"}"
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-23T22:53:44.465Z\"}"
   },
   "postEvent": {
     "http": 200,
@@ -24,6 +24,13 @@
   "latest": {
     "http": 200,
     "json": [
+      {
+        "id": 23,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T22:53:44.363015Z\"}",
+        "created_at": "2026-08-23 22:53:44"
+      },
       {
         "id": 22,
         "source": "runner3-core-shadow",
@@ -156,16 +163,9 @@
         "event_type": "health",
         "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T04:28:20.164121Z\"}",
         "created_at": "2026-08-23 04:28:20"
-      },
-      {
-        "id": 3,
-        "source": "x-runner",
-        "event_type": "workflow_status",
-        "payload": "{\"workflow\":\"X Runner\",\"run_id\":\"32615929760\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"2c613c374851e8cf7d818056d4841be4d4dc4679\",\"ref\":\"main\"}",
-        "created_at": "2026-08-23 03:43:59"
       }
     ],
-    "body": "[{\"id\":22,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T20:05:33.195437Z\\\"}\",\"created_at\":\"2026-08-23 20:05:33\"},{\"id\":21,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32656592075\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"cda6075b436b781dcb962e724abb450da807a62d\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 18:00:09\"},{\"id\":20,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32647579582\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"358e578083c1fce2adabff70fab4e1dff0cd7d80\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 15:08:44\"},{\"id\":19,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T15:06:59.926841Z\\\"}\",\"created_at\":\"2026-08-23 15:07:00\"},{\"id\":18,\"source\":\"cloak-runn",
+    "body": "[{\"id\":23,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T22:53:44.363015Z\\\"}\",\"created_at\":\"2026-08-23 22:53:44\"},{\"id\":22,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T20:05:33.195437Z\\\"}\",\"created_at\":\"2026-08-23 20:05:33\"},{\"id\":21,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32656592075\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"cda6075b436b781dcb962e724abb450da807a62d\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 18:00:09\"},{\"id\":20,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32647579582\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"358e578083c1fce2adabff70fab4e1dff0cd7d80\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-23 15:08:44\"},{\"id\":19,\"source\":\"runner3-co",
     "count": 20
   },
   "status": {
@@ -225,5 +225,46 @@
       "x-runner": true
     }
   },
-  "ok": true
+  "state": {
+    "put": {
+      "http": 200,
+      "json": {
+        "ok": true,
+        "state": {
+          "source": "runner3-core-smoke",
+          "status": "success",
+          "run_id": "32671955671",
+          "detail": {
+            "kind": "deploy-smoke",
+            "checkedAt": "2026-08-23T22:53:44.363015Z"
+          },
+          "updated_at": "2026-08-23 22:53:44"
+        }
+      },
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32671955671\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-23T22:53:44.363015Z\"},\"updated_at\":\"2026-08-23 22:53:44\"}}"
+    },
+    "get": {
+      "http": 404,
+      "json": null,
+      "body": "Not Found",
+      "error": "HTTP Error 404: Not Found"
+    },
+    "ok": false
+  },
+  "checkpoint": {
+    "put": {
+      "http": 404,
+      "json": null,
+      "body": "Not Found",
+      "error": "HTTP Error 404: Not Found"
+    },
+    "get": {
+      "http": 404,
+      "json": null,
+      "body": "Not Found",
+      "error": "HTTP Error 404: Not Found"
+    },
+    "ok": false
+  },
+  "ok": false
 }
