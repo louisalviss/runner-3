@@ -21,7 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY || secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_AUTOMATION_KEY: ${{ secrets.WASMER_AUTOMATION_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WASMER_USERNAME: ${{ secrets.WASMER_USERNAME }}
+      WASMER_PASSWORD: ${{ secrets.WASMER_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,17 +37,57 @@ jobs:
           {"status":"BOOTSTRAP","stage":"checkout_ok","siteUrl":"https://runner5-restore-lab-1.wasmer.app/"}
           JSON
 
-      - name: Decrypt Wasmer account
+      - name: Prepare Wasmer account
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${AUTOMATION_KEY:-}" || { echo 'Missing automation key' >&2; exit 3; }
-          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-            -pass env:AUTOMATION_KEY \
-            -in ops/wasmer/state.automation.aes \
-            -out /tmp/wasmer-account.json
+          status=/tmp/runner5-astra-elementor-baseline.json
+          encrypted='ops/wasmer/state.automation.aes'
+          decrypted=false
+
+          try_key() {
+            local source="$1"
+            local key="$2"
+            [ -n "$key" ] || return 1
+            if AUTOMATION_KEY="$key" openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -pass env:AUTOMATION_KEY \
+              -in "$encrypted" \
+              -out /tmp/wasmer-account.json 2>/tmp/wasmer-decrypt.err; then
+              printf '{"status":"BOOTSTRAP","stage":"decrypt_ok","authSource":"%s","siteUrl":"https://runner5-restore-lab-1.wasmer.app/"}\n' "$source" > "$status"
+              decrypted=true
+              return 0
+            fi
+            rm -f /tmp/wasmer-account.json
+            return 1
+          }
+
+          if [ -s "$encrypted" ]; then
+            try_key 'WASMER_AUTOMATION_KEY' "${WASMER_AUTOMATION_KEY:-}" || \
+            try_key 'CLOUDFLARE_API_TOKEN' "${CLOUDFLARE_API_TOKEN:-}" || true
+          fi
+
+          if [ "$decrypted" != true ] && [ -n "${WASMER_USERNAME:-}" ] && [ -n "${WASMER_PASSWORD:-}" ]; then
+            python3 - <<'PY'
+          import json, os
+          with open('/tmp/wasmer-account.json','w') as f:
+              json.dump({'username':os.environ['WASMER_USERNAME'],'password':os.environ['WASMER_PASSWORD']},f)
+          PY
+            printf '{"status":"BOOTSTRAP","stage":"direct_credentials_ok","authSource":"WASMER_USERNAME_PASSWORD","siteUrl":"https://runner5-restore-lab-1.wasmer.app/"}\n' > "$status"
+            decrypted=true
+          fi
+
+          if [ "$decrypted" != true ]; then
+            has_wasmer_key=false; has_cf_key=false; has_user=false; has_pass=false
+            [ -n "${WASMER_AUTOMATION_KEY:-}" ] && has_wasmer_key=true
+            [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && has_cf_key=true
+            [ -n "${WASMER_USERNAME:-}" ] && has_user=true
+            [ -n "${WASMER_PASSWORD:-}" ] && has_pass=true
+            printf '{"status":"RUNNER_ERROR","stage":"wasmer_auth","detail":"all_auth_paths_failed","available":{"wasmerAutomationKey":%s,"cloudflareToken":%s,"username":%s,"password":%s}}\n' \
+              "$has_wasmer_key" "$has_cf_key" "$has_user" "$has_pass" > "$status"
+            exit 3
+          fi
+
           chmod 600 /tmp/wasmer-account.json
-          printf '{"status":"BOOTSTRAP","stage":"decrypt_ok","siteUrl":"https://runner5-restore-lab-1.wasmer.app/"}\n' > /tmp/runner5-astra-elementor-baseline.json
 
       - name: Prepare browser runtime
         shell: bash
@@ -71,7 +114,7 @@ jobs:
           set -euo pipefail
           test -s /tmp/runner5-astra-elementor-baseline.json || printf '{"status":"RUNNER_ERROR","stage":"status_missing"}\n' > /tmp/runner5-astra-elementor-baseline.json
           cp /tmp/runner5-astra-elementor-baseline.json /tmp/baseline-safe.json
-          rm -f /tmp/wasmer-account.json
+          rm -f /tmp/wasmer-account.json /tmp/wasmer-decrypt.err
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3 4; do
