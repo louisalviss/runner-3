@@ -1,0 +1,80 @@
+name: X Probe 2091225421085807040
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/x-probe-2091225421085807040.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch X post evidence
+        shell: bash
+        run: |
+          set -u
+          OUT='evidence/x-2091225421085807040'
+          URL='https://x.com/onlybreakouts/status/2091225421085807040'
+          ID='2091225421085807040'
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          python3 -m pip install -q -U requests playwright
+          echo "$URL" > "$OUT/source-url.txt"
+          python3 - "$OUT" "$URL" "$ID" <<'PY'
+          import json, pathlib, requests, sys
+          out=pathlib.Path(sys.argv[1]); url=sys.argv[2]; tid=sys.argv[3]
+          headers={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'}
+          endpoints={
+            'fxtwitter':f'https://api.fxtwitter.com/status/{tid}',
+            'vxtwitter':f'https://api.vxtwitter.com/Twitter/status/{tid}',
+            'oembed':f'https://publish.twitter.com/oembed?omit_script=1&dnt=1&url={url}',
+          }
+          summary={}
+          for name,u in endpoints.items():
+            try:
+              r=requests.get(u,headers=headers,timeout=30)
+              summary[name]={'status':r.status_code,'url':r.url}
+              (out/f'{name}.txt').write_text(r.text,encoding='utf-8',errors='ignore')
+              try:
+                d=r.json(); (out/f'{name}.json').write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+              except Exception: pass
+            except Exception as e:
+              summary[name]={'error':repr(e)}
+          (out/'fetch-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+          OUT="$OUT" URL="$URL" python3 - <<'PY' || true
+          import os, pathlib, json
+          from playwright.sync_api import sync_playwright
+          out=pathlib.Path(os.environ['OUT']); url=os.environ['URL']
+          try:
+            with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              c=b.new_context(viewport={'width':1440,'height':1200},user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36')
+              page=c.new_page(); page.goto(url,wait_until='domcontentloaded',timeout=30000); page.wait_for_timeout(8000)
+              (out/'page-title.txt').write_text(page.title(),encoding='utf-8')
+              (out/'page-url.txt').write_text(page.url,encoding='utf-8')
+              (out/'page-text.txt').write_text(page.locator('body').inner_text(timeout=5000)[:40000],encoding='utf-8')
+              page.screenshot(path=str(out/'page.png'),full_page=True)
+              c.close(); b.close()
+          except Exception as e:
+            (out/'playwright-error.txt').write_text(repr(e),encoding='utf-8')
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'chore: evidence X post 2091225421085807040' || true
+          git push || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: x-probe-2091225421085807040-${{ github.run_id }}
+          path: evidence/x-2091225421085807040/
+          retention-days: 3
