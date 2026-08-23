@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/openrouter-usage-today.yml'
+      - 'openrouter-usage-today-trigger.txt'
   workflow_dispatch:
 
 permissions:
@@ -27,7 +28,7 @@ jobs:
           python - <<'PY'
           from datetime import datetime, timezone
           from zoneinfo import ZoneInfo
-          import json, os, subprocess
+          import json, os
           now=datetime.now(timezone.utc)
           vn=ZoneInfo('Asia/Ho_Chi_Minh')
           local=now.astimezone(vn)
@@ -86,20 +87,11 @@ jobs:
             {'model':r.get('model'),'usd':float(r.get('total_usage') or 0),'requests':int(float(r.get('request_count') or 0)),'tokens':int(float(r.get('tokens_total') or 0))}
             for r in rows
           ], key=lambda x:x['usd'], reverse=True)[:20]
-          out={
-            **rng,
-            'key_http':kh,
-            'analytics_http':ah,
-            'analytics_exact_vn_day': ah==200,
-            'today_vn_usd': total_usage if ah==200 else None,
-            'today_vn_requests': requests if ah==200 else None,
-            'today_vn_tokens': tokens if ah==200 else None,
-            'models':models if ah==200 else [],
-            'key_usage_daily_utc': kd.get('usage_daily') if kh==200 else None,
-            'key_usage_total': kd.get('usage') if kh==200 else None,
-            'key_valid': kh==200,
-            'error': None
-          }
+          out={**rng,'key_http':kh,'analytics_http':ah,'analytics_exact_vn_day':ah==200,
+               'today_vn_usd':total_usage if ah==200 else None,'today_vn_requests':requests if ah==200 else None,
+               'today_vn_tokens':tokens if ah==200 else None,'models':models if ah==200 else [],
+               'key_usage_daily_utc':kd.get('usage_daily') if kh==200 else None,
+               'key_usage_total':kd.get('usage') if kh==200 else None,'key_valid':kh==200,'error':None}
           if kh==0 and ah==0: out['error']='missing_openrouter_key'
           elif ah!=200: out['error']='analytics_requires_management_key_or_unavailable'
           open(f'{t}/status.json','w').write(json.dumps(out,separators=(',',':')))
