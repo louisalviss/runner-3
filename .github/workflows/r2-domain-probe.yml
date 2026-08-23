@@ -1,0 +1,70 @@
+name: R2 Domain Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/r2-domain-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Probe Cloudflare zones and R2 buckets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')
+          curl -fsS "https://api.cloudflare.com/client/v4/zones?account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=50" "${auth[@]}" > /tmp/zones.json
+          curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" "${auth[@]}" > /tmp/buckets.json
+          python - <<'PY'
+          import json, datetime
+          from pathlib import Path
+          z=json.load(open('/tmp/zones.json'))
+          b=json.load(open('/tmp/buckets.json'))
+          out={
+            'updatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'zonesApiSuccess': bool(z.get('success')),
+            'bucketsApiSuccess': bool(b.get('success')),
+            'zones': [
+              {'id':x.get('id'),'name':x.get('name'),'status':x.get('status'),'paused':x.get('paused')}
+              for x in (z.get('result') or [])
+            ],
+            'buckets': [
+              {'name':x.get('name'),'creation_date':x.get('creation_date'),'location':x.get('location'),'storage_class':x.get('storage_class')}
+              for x in (b.get('result') or {}).get('buckets', [])
+            ],
+            'zoneErrors': z.get('errors') or [],
+            'bucketErrors': b.get('errors') or [],
+          }
+          Path('ops').mkdir(exist_ok=True)
+          Path('ops/r2-domain-probe.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Publish probe result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/r2-domain-probe.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish R2 domain probe [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
