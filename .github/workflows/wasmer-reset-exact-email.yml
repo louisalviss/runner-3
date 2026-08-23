@@ -1,0 +1,55 @@
+name: Wasmer Reset Exact Email Recovery
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-exact-email.yml']
+permissions:
+  contents: write
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/q.json <<'JSON'
+          {"query":"mutation Recover($input: RequestPasswordResetInput!) { requestPasswordReset(input: $input) { errors { field messages } email clientMutationId } }","variables":{"input":{"email":"runner3wp0b90f6b4ab"}}}
+          JSON
+          curl -sS 'https://registry.wasmer.io/graphql' -H 'content-type: application/json' --data-binary @/tmp/q.json -o /tmp/raw.json
+          cat >/tmp/pub.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqtMHs+8G55XYeUvs/+0j
+          QgM4KoAPMRnKD2MmLDBEhf7mAUmuihVWYBQXX1gW2+zjJhqA2alp0xFJjz8xiEV5
+          W8USuzbXOXiO41/QqZ+3fmpBr+4vW5bkO2/TvWrQevxBYt3d2g9sJgKVuM8b5u6U
+          sBvMSzF17G1nwF9eVv8Pdj9dUS7Q6qzRFkEN+o3S3FhSWl1q1EfxmSwIkFhtfZYG
+          NIlZ8W/toM58LlTdUOoKU3Mr0/C9tp4Sg91jGOzueMha6Pi1JHAP5gf29H8K3Fy9
+          CbHtygjVqcTjrCrdk8VeN+3SKCAghO3ktCTnDrwrH0lAYWTu/ZgAYSU1SxYf9mu0
+          QwIDAQAB
+          -----END PUBLIC KEY-----
+          PEM
+          python - <<'PY'
+          import json,re,subprocess,os
+          x=json.load(open('/tmp/raw.json'))
+          p=((x.get('data') or {}).get('requestPasswordReset') or {})
+          email=p.get('email') or ''
+          errs=p.get('errors') or x.get('errors') or []
+          out={'status':'email_returned' if email else ('mutation_error' if errs else 'no_email_returned'),'emailReturned':bool(email),'errorCount':len(errs),'errors':errs}
+          if email:
+              open('/tmp/email.txt','w').write(email)
+              subprocess.check_call("openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -in /tmp/email.txt -out /tmp/email.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -pkeyopt rsa_mgf1_md:sha256",shell=True)
+              import base64
+              open('/tmp/email.b64','w').write(base64.b64encode(open('/tmp/email.bin','rb').read()).decode()+'\n')
+          open('/tmp/status.json','w').write(json.dumps(out,indent=2))
+          PY
+      - if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /tmp/status.json || echo '{"status":"runner_error"}' >/tmp/status.json
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main; mkdir -p ops/wasmer
+          cp /tmp/status.json ops/wasmer/reset-exact-email-status.json; git add ops/wasmer/reset-exact-email-status.json
+          if test -f /tmp/email.b64; then cp /tmp/email.b64 ops/wasmer/reset-exact-email-ciphertext.b64; git add ops/wasmer/reset-exact-email-ciphertext.b64; fi
+          if ! git diff --cached --quiet; then git commit -m 'Persist encrypted Wasmer recovery email result'; git push origin HEAD:main; fi
