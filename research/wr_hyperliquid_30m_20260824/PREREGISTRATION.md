@@ -17,8 +17,10 @@ Date: 2026-08-24
 - If the same ticker exists on multiple HIP-3 dexes, select the market with the highest current `dayNtlVlm`; tie-break by tighter current top-of-book spread. This selection is execution/liquidity based and occurs before WR PnL is inspected.
 
 ## Historical replay
-- Source: Hyperliquid `candleSnapshot`, interval 30m, ending at the frozen WR endpoint 2026-08-21 UTC.
-- Use the recent API-supported lookback window; report exact first/last candle per market and never claim 2022-2026 history if the venue API cannot provide it.
+- Source: Hyperliquid `candleSnapshot`, interval 30m, ending at the frozen WR endpoint 2026-08-21 00:00 UTC.
+- Request exactly the preceding 100 calendar days so the request remains below the 5,000-candle cap even for continuously populated 30m markets.
+- First 30 calendar days are indicator warm-up only; primary evaluation is the final 70 calendar days.
+- Report exact first/last candle per market and never claim 2022-2026 history if the venue API cannot provide it.
 - Signals/strategy logic use the frozen WR 2.5.13 engine and regular US stock session contract (America/New_York 09:30-16:00).
 - Tick assumption remains frozen at $0.01 to preserve the candidate definition.
 
