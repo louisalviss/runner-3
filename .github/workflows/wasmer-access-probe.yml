@@ -20,20 +20,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+      RAW_WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
     steps:
-      - name: Check secret format without revealing it
+      - name: Normalize token format safely
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${WASMER_TOKEN:-}" ]]; then
+          token="${RAW_WASMER_TOKEN:-}"
+          if [[ -z "$token" ]]; then
             echo "token_present=no"
             exit 2
           fi
+          token="$(printf '%s' "$token" | tr -d '\r\n')"
+          if [[ "$token" != wap_* ]]; then
+            token="wap_${token}"
+          fi
+          echo "WASMER_TOKEN=$token" >> "$GITHUB_ENV"
           echo "token_present=yes"
-          echo "token_length=${#WASMER_TOKEN}"
-          if [[ "$WASMER_TOKEN" == wap_* ]]; then echo "token_prefix_wap=yes"; else echo "token_prefix_wap=no"; fi
-          if [[ "$WASMER_TOKEN" =~ [[:space:]] ]]; then echo "token_has_whitespace=yes"; else echo "token_has_whitespace=no"; fi
+          echo "normalized_length=${#token}"
+          if [[ "$token" == wap_* ]]; then echo "normalized_prefix_wap=yes"; fi
 
       - name: Network diagnostics
         shell: bash
@@ -52,7 +57,7 @@ jobs:
           curl https://get.wasmer.io -sSfL | sh
           echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
 
-      - name: Login non-interactively with Actions secret
+      - name: Login non-interactively with normalized token
         shell: bash
         run: |
           set -euo pipefail
