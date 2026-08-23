@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: x-runner
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   inspect-x:
@@ -66,7 +66,21 @@ jobs:
             echo "JOB_FILE=x-job.json" >> "$GITHUB_ENV"
           fi
 
+      - name: Read job options
+        id: opts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          job = json.loads(Path(os.environ['JOB_FILE']).read_text(encoding='utf-8'))
+          identify = job.get('identify_anime', True)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write('identify_anime=' + ('true' if identify else 'false') + '\n')
+          PY
+
       - name: Ensure ffmpeg
+        if: steps.opts.outputs.identify_anime == 'true'
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then
             python -m pip install --quiet imageio-ffmpeg
@@ -83,7 +97,7 @@ jobs:
         run: python x_runner.py "$JOB_FILE" --output-root x-results
 
       - name: Identify anime scene across all frames
-        if: always()
+        if: steps.opts.outputs.identify_anime == 'true'
         run: |
           python - <<'PY'
           import json, subprocess
