@@ -1,0 +1,26 @@
+name: Fresh 52 Breakout
+
+on:
+  pull_request:
+    paths:
+      - 'research/ema200w_20260823/fresh52_breakout.py'
+      - '.github/workflows/fresh52-breakout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install pandas numpy requests pyarrow
+      - name: Run fresh 52w breakout decomposition
+        working-directory: research/ema200w_20260823
+        run: python fresh52_breakout.py
