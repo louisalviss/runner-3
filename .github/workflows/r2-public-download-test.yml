@@ -38,15 +38,15 @@ jobs:
             -o /tmp/source.bin "$SOURCE_URL"
           test -s /tmp/source.bin
 
-          create_code=$(curl -sS -o /tmp/create-bucket.json -w '%{http_code}' \
-            -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" \
-            "${auth[@]}" -H 'Content-Type: application/json' \
-            --data "{\"name\":\"${BUCKET}\"}")
-          if [ "$create_code" != "200" ] && [ "$create_code" != "201" ]; then
-            if ! grep -qiE 'already|exist|conflict' /tmp/create-bucket.json; then
-              cat /tmp/create-bucket.json
-              exit 1
-            fi
+          get_code=$(curl -sS -o /tmp/get-bucket.json -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}" \
+            "${auth[@]}")
+          if [ "$get_code" != "200" ]; then
+            create_code=$(curl -sS -o /tmp/create-bucket.json -w '%{http_code}' \
+              -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" \
+              "${auth[@]}" -H 'Content-Type: application/json' \
+              --data "{\"name\":\"${BUCKET}\"}")
+            test "$create_code" = "200" -o "$create_code" = "201"
           fi
 
           upload_code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' \
@@ -79,8 +79,9 @@ jobs:
           http_code=''
           for i in 1 2 3 4 5 6; do
             http_code=$(curl -sS -L -o /tmp/verify.bin -w '%{http_code}' "$PUBLIC_URL" || true)
-            if [ "$http_code" = "200" ] && [ -s /tmp/verify.bin ]; then
-              if cmp -s /tmp/source.bin /tmp/verify.bin; then ok=true; break; fi
+            if [ "$http_code" = "200" ] && [ -s /tmp/verify.bin ] && cmp -s /tmp/source.bin /tmp/verify.bin; then
+              ok=true
+              break
             fi
             sleep 3
           done
@@ -108,7 +109,7 @@ jobs:
             'verifySize': int('${VERIFY_SIZE}'),
             'sourceSha256': '${SRC_SHA}',
             'verifySha256': '${VERIFY_SHA}',
-            'byteIdentical': ${ok},
+            'byteIdentical': '${ok}' == 'true',
           }
           open('ops/r2-public-download-test.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
           print(json.dumps(out,ensure_ascii=False,indent=2))
