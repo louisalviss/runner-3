@@ -32,7 +32,26 @@ def robust_infer_tick(bars):
     return float(tick)
 
 
+def robust_info(tick):
+    d=Decimal(str(tick)).normalize()
+    decimals=max(0,-d.as_tuple().exponent)
+    pricescale=10**decimals
+    minmov=int((d*pricescale).to_integral_value())
+    if minmov<=0:
+        raise RuntimeError(f'invalid tick encoding tick={tick}')
+    return {
+        'timezone':'Etc/UTC',
+        'exchange_timezone':'Etc/UTC',
+        'session':'0000-0000:1234567',
+        'subsessions':[{'id':'regular','session':'0000-0000:1234567'}],
+        'minmov':minmov,
+        'pricescale':pricescale,
+        '_tick':float(tick),
+    }
+
+
 m.infer_tick=robust_infer_tick
+m.info=robust_info
 
 if __name__=='__main__':
     mode=sys.argv[1] if len(sys.argv)>1 else 'shard'
