@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - '.runner/x-url.txt'
       - '.github/workflows/access-fallbacks-probe.yml'
   workflow_dispatch:
 
@@ -11,152 +12,70 @@ permissions:
   contents: write
 
 jobs:
-  zaid-x-video:
+  x-post:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect requested X video
+      - name: Inspect requested X post
         shell: bash
         run: |
-          set -u
-          OUT=evidence/zaid-x-2091125733716582537
-          URL='https://x.com/work_with_zaid/status/2091125733716582537'
-          ID='2091125733716582537'
-          rm -rf "$OUT" && mkdir -p "$OUT/frames"
-          python3 -m pip install -q -U yt-dlp playwright requests
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
-
+          set -euo pipefail
+          [ -f .runner/x-url.txt ] || exit 0
+          URL=$(tr -d '\r\n' < .runner/x-url.txt)
+          ID=$(printf '%s' "$URL" | sed -nE 's#.*status/([0-9]+).*#\1#p')
+          [ -n "$ID" ] || { echo 'No X status id'; exit 1; }
+          OUT="evidence/x-$ID"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          python3 -m pip install -q -U requests playwright
           echo "$URL" > "$OUT/source-url.txt"
-          echo '=== yt-dlp ===' | tee "$OUT/fetch.log"
-          yt-dlp --no-playlist --write-info-json --write-description --write-thumbnail -f 'bv*+ba/b' --merge-output-format mp4 -o "$OUT/video.%(ext)s" "$URL" >>"$OUT/fetch.log" 2>&1 || true
-
-          python3 - "$OUT" "$ID" <<'PY'
-          import json, pathlib, requests, sys, re, subprocess
-          out=pathlib.Path(sys.argv[1]); tid=sys.argv[2]
-          endpoints=[
-              ('fxtwitter',f'https://api.fxtwitter.com/status/{tid}'),
-              ('vxtwitter',f'https://api.vxtwitter.com/Twitter/status/{tid}'),
-          ]
-          headers={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'}
-          found=[]
-          for name,u in endpoints:
+          python3 - "$OUT" "$URL" "$ID" <<'PY'
+          import json, pathlib, requests, sys
+          out=pathlib.Path(sys.argv[1]); url=sys.argv[2]; tid=sys.argv[3]
+          h={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'}
+          eps={
+            'fxtwitter':f'https://api.fxtwitter.com/status/{tid}',
+            'vxtwitter':f'https://api.vxtwitter.com/Twitter/status/{tid}',
+            'oembed':f'https://publish.twitter.com/oembed?omit_script=1&dnt=1&url={url}',
+          }
+          summary={}
+          for name,u in eps.items():
+            try:
+              r=requests.get(u,headers=h,timeout=30)
+              summary[name]={'status':r.status_code,'url':r.url}
+              (out/f'{name}.txt').write_text(r.text,encoding='utf-8',errors='ignore')
               try:
-                  r=requests.get(u,headers=headers,timeout=25)
-                  (out/f'{name}-status.txt').write_text(str(r.status_code))
-                  (out/f'{name}.txt').write_text(r.text,errors='ignore')
-                  if r.ok:
-                      try:
-                          d=r.json(); (out/f'{name}.json').write_text(json.dumps(d,ensure_ascii=False,indent=2))
-                      except Exception: d=None
-                      def walk(x):
-                          if isinstance(x,dict):
-                              for v in x.values(): walk(v)
-                          elif isinstance(x,list):
-                              for v in x: walk(v)
-                          elif isinstance(x,str) and ('video.twimg.com' in x or re.search(r'https?://[^\s"\']+\.mp4',x)):
-                              found.append(x.replace('\\/','/'))
-                      walk(d if d is not None else r.text)
-              except Exception as e:
-                  (out/f'{name}-error.txt').write_text(repr(e))
-          found=list(dict.fromkeys(found))
-          (out/'media-urls.json').write_text(json.dumps(found,indent=2))
-          if not list(out.glob('video.mp4')) and found:
-              # prefer highest bitrate/resolution-looking URL; try all until one works
-              for i,u in enumerate(reversed(found)):
-                  dest=out/'video.mp4'
-                  cp=subprocess.run(['curl','-L','--fail','--retry','2','-A',headers['User-Agent'],u,'-o',str(dest)])
-                  if cp.returncode==0 and dest.exists() and dest.stat().st_size>10000: break
-                  dest.unlink(missing_ok=True)
+                d=r.json(); (out/f'{name}.json').write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+              except Exception: pass
+            except Exception as e:
+              summary[name]={'error':repr(e)}
+          (out/'fetch-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
-
-          VIDEO=$(find "$OUT" -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1 || true)
-
-          if [ -z "$VIDEO" ]; then
-            echo '=== playwright network fallback ===' >> "$OUT/fetch.log"
-            OUT="$OUT" URL="$URL" python3 - <<'PY' >>"$OUT/fetch.log" 2>&1 || true
-          import os, json, pathlib, re, requests
+          OUT="$OUT" URL="$URL" python3 - <<'PY' || true
+          import os, pathlib
           from playwright.sync_api import sync_playwright
-          out=pathlib.Path(os.environ['OUT']); url=os.environ['URL']; media=[]
-          with sync_playwright() as p:
-              b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required'])
-              c=b.new_context(viewport={'width':1440,'height':1000}, user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36')
-              page=c.new_page()
-              def onresp(resp):
-                  u=resp.url
-                  ct=(resp.headers or {}).get('content-type','')
-                  if 'video.twimg.com' in u or 'video/' in ct or '.mp4' in u: media.append({'url':u,'status':resp.status,'content_type':ct})
-              page.on('response',onresp)
-              try:
-                  resp=page.goto(url,wait_until='domcontentloaded',timeout=30000)
-                  page.wait_for_timeout(12000)
-                  (out/'page-title.txt').write_text(page.title())
-                  (out/'page-url.txt').write_text(page.url)
-                  (out/'page-text.txt').write_text(page.locator('body').inner_text(timeout=5000)[:30000])
-                  page.screenshot(path=str(out/'x-page.png'),full_page=True)
-                  vids=page.locator('video').count()
-                  vals=[]
-                  for i in range(vids):
-                      try: vals.append(page.locator('video').nth(i).evaluate('(v)=>({src:v.src,currentSrc:v.currentSrc,poster:v.poster,duration:v.duration})'))
-                      except: pass
-                  (out/'video-elements.json').write_text(json.dumps(vals,indent=2))
-              except Exception as e: (out/'playwright-error.txt').write_text(repr(e))
-              c.close(); b.close()
-          (out/'network-media.json').write_text(json.dumps(media,indent=2))
-          urls=[]
-          for x in media:
-              u=x['url']
-              if 'video.twimg.com' in u and u not in urls: urls.append(u)
-          if urls:
-              ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
-              for u in reversed(urls):
-                  try:
-                      r=requests.get(u,headers={'User-Agent':ua},timeout=40)
-                      if r.ok and len(r.content)>10000:
-                          (out/'video.mp4').write_bytes(r.content); break
-                  except: pass
+          out=pathlib.Path(os.environ['OUT']); url=os.environ['URL']
+          try:
+            with sync_playwright() as p:
+              b=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              page=b.new_page(viewport={'width':1440,'height':1200})
+              page.goto(url,wait_until='domcontentloaded',timeout=30000); page.wait_for_timeout(8000)
+              (out/'page-title.txt').write_text(page.title(),encoding='utf-8')
+              (out/'page-url.txt').write_text(page.url,encoding='utf-8')
+              (out/'page-text.txt').write_text(page.locator('body').inner_text(timeout=5000)[:40000],encoding='utf-8')
+              page.screenshot(path=str(out/'page.png'),full_page=True)
+              b.close()
+          except Exception as e:
+            (out/'playwright-error.txt').write_text(repr(e),encoding='utf-8')
           PY
-          fi
-
-          VIDEO=$(find "$OUT" -maxdepth 1 -type f \( -name 'video.mp4' -o -name 'video.webm' -o -name 'video.mkv' \) | head -1 || true)
-          if [ -n "$VIDEO" ]; then
-            echo "VIDEO=$VIDEO" | tee "$OUT/status.txt"
-            ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json "$VIDEO" > "$OUT/meta.json" 2>&1 || true
-            D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO" 2>/dev/null || echo 0)
-            python3 - "$VIDEO" "$OUT" "$D" <<'PY'
-          import sys, subprocess, pathlib
-          v,out=sys.argv[1],pathlib.Path(sys.argv[2]); d=float(sys.argv[3] or 0)
-          fracs=[.01,.05,.10,.16,.24,.32,.40,.48,.56,.64,.72,.80,.88,.95,.99]
-          if d>0:
-              for i,f in enumerate(fracs,1):
-                  t=max(0,min(d-.05,d*f))
-                  subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i',v,'-frames:v','1','-q:v','2',str(out/'frames'/f'frame-{i:02d}.jpg')])
-          PY
-            ffmpeg -loglevel error -y -i "$VIDEO" -vf "fps=1/2,scale=480:-1,tile=4x4" -frames:v 1 "$OUT/contact-sheet.jpg" || true
-          else
-            echo 'NO_VIDEO' | tee "$OUT/status.txt"
-          fi
-
-          python3 - "$OUT" <<'PY'
-          import json, pathlib, sys
-          out=pathlib.Path(sys.argv[1]); result={'status':(out/'status.txt').read_text().strip() if (out/'status.txt').exists() else 'UNKNOWN'}
-          for p in [out/'video.info.json',out/'fxtwitter.json',out/'vxtwitter.json',out/'meta.json']:
-              if p.exists():
-                  try: result[p.stem]=json.loads(p.read_text())
-                  except: pass
-          (out/'runner-result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
-          PY
-
-          # Do not commit the source video itself; commit inspectable evidence only.
-          rm -f "$OUT"/video.mp4 "$OUT"/video.webm "$OUT"/video.mkv
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add "$OUT"
-          git commit -m 'chore: runner-3 inspect Zaid X video' || true
+          git commit -m "Publish X evidence $ID [skip ci]" || true
           git push || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zaid-x-video-${{ github.run_id }}
-          path: evidence/zaid-x-2091125733716582537/
+          name: x-probe-${{ github.run_id }}
+          path: evidence/x-*/
           retention-days: 3
