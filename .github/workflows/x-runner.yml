@@ -171,3 +171,72 @@ jobs:
           git commit -m "x runner result $GITHUB_RUN_ID"
           git pull --rebase origin main
           git push origin HEAD:main
+
+      - name: Shadow telemetry to Runner3 Core
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          EVENT_URL: https://runner3-core.ducduy2411.workers.dev/events
+          EVENT_LATEST_URL: https://runner3-core.ducduy2411.workers.dev/events/latest
+          EVENT_STATUS: ${{ job.status }}
+          EVENT_WORKFLOW: ${{ github.workflow }}
+          EVENT_RUN_ID: ${{ github.run_id }}
+          EVENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_REF: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+
+          source = "x-runner"
+          headers = {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              "User-Agent": "Mozilla/5.0 Runner3Telemetry/1.0",
+          }
+          payload = {
+              "source": source,
+              "event_type": "workflow_status",
+              "payload": {
+                  "workflow": os.environ["EVENT_WORKFLOW"],
+                  "run_id": os.environ["EVENT_RUN_ID"],
+                  "run_attempt": os.environ["EVENT_RUN_ATTEMPT"],
+                  "status": os.environ["EVENT_STATUS"],
+                  "sha": os.environ["EVENT_SHA"],
+                  "ref": os.environ["EVENT_REF"],
+              },
+          }
+          req = urllib.request.Request(
+              os.environ["EVENT_URL"],
+              data=json.dumps(payload).encode(),
+              headers=headers,
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=10) as r:
+              print("POST", r.status, r.read().decode())
+
+          latest_req = urllib.request.Request(
+              os.environ["EVENT_LATEST_URL"],
+              headers={"Accept": "application/json", "User-Agent": headers["User-Agent"]},
+          )
+          with urllib.request.urlopen(latest_req, timeout=10) as r:
+              latest = json.load(r)
+
+          run_id = os.environ["EVENT_RUN_ID"]
+          match = None
+          for event in latest if isinstance(latest, list) else []:
+              if event.get("source") != source or event.get("event_type") != "workflow_status":
+                  continue
+              try:
+                  body = json.loads(event.get("payload") or "{}")
+              except Exception:
+                  continue
+              if str(body.get("run_id")) == str(run_id):
+                  match = event
+                  break
+
+          print("D1_READBACK", json.dumps(match))
+          if not match:
+              raise SystemExit("workflow_status_not_visible_in_d1")
+          PY
