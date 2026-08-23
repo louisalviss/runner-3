@@ -1,0 +1,79 @@
+name: WR Stock 10m Close Confirm A-B
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/wave-rider-structural/**"
+      - ".github/workflows/wr-stock10-close-ab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wr-stock10-close-ab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  symbol:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 24
+      matrix:
+        symbol: [AAPL,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,AVGO,BKR,CDNS,CMCSA,COST,CPRT,CSCO,CSGP,CSX,CTSH,DXCM,EA,EXC,FANG,FTNT,GILD,GOOG,GOOGL,HON,IDXX,INTC,INTU,ISRG,KHC,LRCX,MAR,MCHP,MDLZ,META,MPWR,MRVL,MSFT,MU,NFLX,NVDA,ODFL,ORLY,PANW,PAYX,PCAR,PEP,PLTR,PYPL,QCOM,REGN,ROST,SBUX,SNPS,TMUS,TSLA,TTWO,TXN,VRTX,WDAY,WDC,WMT,ZS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pandas requests websocket-client dukascopy-python
+      - name: Fetch frozen WR loader and corrected reference
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wrbase
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_tv_parity.py" -o /tmp/wrbase/wr_tv_parity.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_dukascopy_expanded_matrix.py" -o /tmp/wrbase/wr_dukascopy_expanded_matrix.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/27797cf9c4ea0a91b1bc8d62059d052c2c843eb5/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
+          python -m py_compile /tmp/wrbase/wr_tv_parity.py /tmp/wrbase/wr_dukascopy_expanded_matrix.py /tmp/reference_verify.py apps/wave-rider-structural/close_confirm.py apps/wave-rider-structural/stock10_close_ab.py
+      - name: Run 10m structural A-B
+        env:
+          WR_BASE_DIR: /tmp/wrbase
+          WR_OUT: /tmp/wr-stock10-close
+          SYMBOL: ${{ matrix.symbol }}
+        run: python apps/wave-rider-structural/stock10_close_ab.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-stock10-close-${{ matrix.symbol }}
+          path: /tmp/wr-stock10-close/
+          retention-days: 14
+          if-no-files-found: error
+
+  merge:
+    needs: symbol
+    if: always() && needs.symbol.result != 'cancelled'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-stock10-close-*
+          path: /tmp/all
+      - name: Merge 10m A-B
+        env:
+          MERGE_ROOT: /tmp/all
+          FINAL_OUT: /tmp/final
+        run: python apps/wave-rider-structural/stock10_close_merge.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-stock10-close-final
+          path: /tmp/final/
+          retention-days: 30
+          if-no-files-found: error
