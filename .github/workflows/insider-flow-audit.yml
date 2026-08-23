@@ -1,0 +1,48 @@
+name: Insider Flow Schema Audit
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/insider-flow-audit.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audit deps
+        run: pip install datasets pandas numpy pyarrow
+      - name: Audit insider-flow raw fields only
+        run: |
+          python - <<'PY'
+          import json
+          import numpy as np
+          import pandas as pd
+          from datasets import load_dataset
+
+          ds = load_dataset('sovai/insider_flow_prediction', split='train')
+          print('ROWS', len(ds))
+          print('FEATURES', json.dumps({k: str(v) for k,v in ds.features.items()}, sort_keys=True))
+          wanted = [c for c in ['ticker','date','market_impact','market_impact_percentage','percentage_shares','transaction_value','transaction_shares','days_to_file','row_number','sale_to_purchase_ratio','flow_prediction'] if c in ds.column_names]
+          df = ds.select_columns(wanted).to_pandas()
+          if 'date' in df:
+              df['date'] = pd.to_datetime(df['date'], errors='coerce')
+              print('DATE_MIN_MAX', df['date'].min(), df['date'].max())
+          print('TICKERS', df['ticker'].nunique() if 'ticker' in df else None)
+          print('NON_NULL', json.dumps({c:int(df[c].notna().sum()) for c in wanted}))
+          for c in ['sale_to_purchase_ratio','transaction_value','transaction_shares','row_number','days_to_file','market_impact','market_impact_percentage','percentage_shares']:
+              if c not in df: continue
+              x = pd.to_numeric(df[c], errors='coerce').replace([np.inf,-np.inf],np.nan).dropna()
+              if x.empty: continue
+              qs = x.quantile([0,0.01,0.05,0.10,0.25,0.50,0.75,0.90,0.95,0.99,1.0]).to_dict()
+              print('QUANTILES', c, json.dumps({str(k):float(v) for k,v in qs.items()}))
+              if c == 'sale_to_purchase_ratio':
+                  print('SALE_PURCHASE_COUNTS', json.dumps({'eq0':int((x==0).sum()),'lt0_5':int((x<0.5).sum()),'lt1':int((x<1).sum()),'eq1':int((x==1).sum()),'gt1':int((x>1).sum())}))
+          print('DONE')
+          PY
