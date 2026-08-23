@@ -1,0 +1,42 @@
+name: Zaid Reference Extract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/zaid-reference-extract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download reference and extract frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/frames
+          URL='https://video.twimg.com/amplify_video/2088913945902075904/vid/avc1/1280x720/HqsM-7lohCT0vzRB.mp4?tag=14'
+          curl -L --fail --retry 4 --retry-delay 2 -A 'Mozilla/5.0' "$URL" -o evidence/reference.mp4
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,r_frame_rate -of json evidence/reference.mp4 | tee evidence/meta.json
+          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 evidence/reference.mp4)
+          python3 - "$DURATION" <<'PY'
+          import sys, subprocess
+          d=float(sys.argv[1])
+          # 9 evenly spaced frames, avoiding exact start/end fades.
+          for i, frac in enumerate([.05,.16,.27,.38,.49,.60,.71,.82,.93],1):
+              t=max(0,d*frac)
+              subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',f'{t:.3f}','-i','evidence/reference.mp4','-frames:v','1','-q:v','2',f'evidence/frames/frame-{i:02d}.jpg'],check=True)
+          PY
+          ffmpeg -loglevel error -y -i evidence/reference.mp4 -vf "fps=1/2,scale=640:-1,tile=3x3" -frames:v 1 evidence/contact-sheet.jpg || true
+          ls -lh evidence evidence/frames
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zaid-reference
+          path: evidence/
+          retention-days: 2
