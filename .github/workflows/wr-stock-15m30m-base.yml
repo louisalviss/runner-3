@@ -1,4 +1,4 @@
-name: WR US Stocks 15m30m Base
+name: WR US Stocks 30m Actual Execution
 
 on:
   pull_request:
@@ -11,112 +11,169 @@ permissions:
   actions: read
 
 concurrency:
-  group: wr-stock-15m30m-base-20260824
+  group: wr-stock-30m-exec-20260824
   cancel-in-progress: true
 
 jobs:
-  scan:
+  exec30:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 300
     strategy:
       fail-fast: false
-      max-parallel: 24
+      max-parallel: 20
       matrix:
-        symbol: [AAPL,ABNB,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,APP,ARM,ASML,AVGO,AXON,BKNG,BKR,CCEP,CDNS,CEG,CHTR,CMCSA,COST,CPRT,CRWD,CSCO,CSGP,CSX,CTAS,CTSH,DASH,DDOG,DXCM,EA,EXC,FANG,FAST,FER,FTNT,GEHC,GILD,GOOG,GOOGL,HON,IDXX,INSM,INTC,INTU,ISRG,KDP,KHC,KLAC,LIN,LRCX,MAR,MCHP,MDLZ,MELI,META,MNST,MPWR,MRVL,MSFT,MSTR,MU,NFLX,NVDA,NXPI,ODFL,ORLY,PANW,PAYX,PCAR,PDD,PEP,PLTR,PYPL,QCOM,REGN,ROP,ROST,SBUX,SHOP,SNDK,SNPS,STX,TMUS,TRI,TSLA,TTWO,TXN,VRSK,VRTX,WBD,WDAY,WDC,WMT,XEL,ZS]
+        symbol: [AAPL,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,AVGO,BKR,CDNS,CMCSA,COST,CPRT,CSCO,CSGP,CSX,CTSH,DXCM,EA,EXC,FANG,FTNT,GILD,GOOG,GOOGL,HON,IDXX,INTC,INTU,ISRG,KHC,LRCX,MAR,MCHP,MDLZ,META,MPWR,MRVL,MSFT,MU,NFLX,NVDA,ODFL,ORLY,PANW,PAYX,PCAR,PEP,PLTR,PYPL,QCOM,REGN,ROST,SBUX,SNPS,TMUS,TSLA,TTWO,TXN,VRTX,WDAY,WDC,WMT,ZS]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install -q pandas websocket-client requests dukascopy-python
-      - name: Fetch frozen WR research engine
+      - name: Fetch frozen WR execution-audit lineage
         run: |
-          mkdir -p /tmp/wr-helper
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-helper/wr_dukascopy_expanded_matrix.py
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-helper/wr_tv_parity.py
+          mkdir -p /tmp/wr-audit
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_execution_audit.py' -o /tmp/wr-audit/wr_dukascopy_execution_audit.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-audit/wr_dukascopy_expanded_matrix.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-audit/wr_tv_parity.py
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
-      - name: Run frozen WR base at 15m and 30m
+      - name: Run actual 1m BID ASK execution audit at frozen 30m
         env:
           SYMBOL: ${{ matrix.symbol }}
-          WR_OUT: /tmp/wr-stock-15m30m
-        run: |
-          python - <<'PY'
-          import os,sys
-          sys.path.insert(0,'/tmp/wr-helper')
-          import wr_dukascopy_expanded_matrix as exp
-          sym=os.environ['SYMBOL']
-          instrument=exp.resolve_symbol(sym)
-          if not instrument:
-              for tf in (15,30): exp.save_unavailable(sym,tf,'instrument not found')
-              raise SystemExit(0)
-          df,manifest,_=exp.load_mid(sym,5)
-          for tf in (15,30):
-              exp.run_one(sym,tf,df,5,instrument,manifest)
-          PY
+          TF_MIN: '30'
+          WR_OUT: /tmp/wr-exec30
+        run: PYTHONPATH=/tmp/wr-audit python3 /tmp/wr-audit/wr_dukascopy_execution_audit.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: wr-stock-15m30m-${{ matrix.symbol }}
-          path: /tmp/wr-stock-15m30m
+          name: wr-exec30-${{ matrix.symbol }}
+          path: /tmp/wr-exec30
           retention-days: 30
 
   merge:
-    needs: scan
+    needs: exec30
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wr-stock-15m30m-*
+          pattern: wr-exec30-*
           path: /tmp/all
-      - name: Build aggregate report
+          merge-multiple: false
+      - name: Merge execution and chronological walk-forward diagnostics
         run: |
-          python - <<'PY'
-          import json,pathlib,datetime
+          python3 - <<'PY'
+          import json, pathlib, statistics, datetime
           root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final'); out.mkdir(parents=True,exist_ok=True)
-          costs=(0.0,0.25,0.5,1.0,2.0)
-          trades=[]; summaries=[]
-          for p in root.rglob('summary-*.json'):
-              try: summaries.append(json.loads(p.read_text()))
+          rows=[]; trades=[]
+          for p in root.rglob('audit-*-30m.json'):
+              try: rows.append(json.loads(p.read_text()))
               except Exception: pass
-          for p in root.rglob('trades-*.jsonl'):
+          for p in root.rglob('trades-*-30m.jsonl'):
+              name=p.name
+              sym=name[len('trades-'):-len('-30m.jsonl')]
               for line in p.read_text().splitlines():
-                  if line.strip():
-                      try: trades.append(json.loads(line))
-                      except Exception: pass
-          def side(t):
-              s=str(t.get('side','')).upper(); return 'SHORT' if s in ('S','SHORT') else 'LONG'
-          def cost_r(t,bps):
-              d=abs(float(t['e'])-float(t['s']))
-              return 0.0 if d<=0 else (float(t['e'])/d)*(bps/10000.0)
-          def metrics(ts,bps):
-              xs=[(int(t['signal']),float(t['R'])-cost_r(t,bps)) for t in ts]; xs.sort(key=lambda z:z[0]); vals=[x[1] for x in xs]
-              if not vals:return {'n':0,'R':0.0,'avg_R':None,'PF':None,'win_rate':None,'max_DD_R':0.0}
-              gp=sum(max(x,0) for x in vals); gl=sum(max(-x,0) for x in vals); eq=peak=0.0; mdd=0.0
-              for x in vals:
-                  eq+=x; peak=max(peak,eq); mdd=min(mdd,eq-peak)
-              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals),'PF':gp/gl if gl else None,'win_rate':100*sum(x>0 for x in vals)/len(vals),'max_DD_R':mdd}
-          def pack(ts): return {f'{c:g}bps':metrics(ts,c) for c in costs}
-          def year(t): return datetime.datetime.fromtimestamp(int(t['signal'])/1000,datetime.timezone.utc).year
-          report={'status':'COMPLETE','strategy':'WR 2.5.13 frozen base','universe':'Fusion/Nasdaq-100 guaranteed-core list from prior WR scan','source':'Dukascopy BID+ASK midpoint M5, aggregated to target timeframe','timeframes':{},'available_summary_cases':sum(s.get('status') in ('OK','SHORT_HISTORY') for s in summaries),'unavailable_summary_cases':sum(s.get('status')=='UNAVAILABLE' for s in summaries)}
-          for tf in (15,30):
-              tt=[t for t in trades if int(t.get('tf',0))==tf]; syms=sorted(set(str(t.get('symbol','')) for t in tt)); byyear={}
-              for y in range(2022,2027):
-                  yy=[t for t in tt if year(t)==y]
-                  byyear[str(y)]={'overall':pack(yy),'long':pack([t for t in yy if side(t)=='LONG']),'short':pack([t for t in yy if side(t)=='SHORT'])}
-              symrows={}
-              for s in syms:
-                  ss=[t for t in tt if str(t.get('symbol',''))==s]
-                  symrows[s]={'overall':pack(ss),'long':pack([t for t in ss if side(t)=='LONG']),'short':pack([t for t in ss if side(t)=='SHORT'])}
-              report['timeframes'][str(tf)]={'overall':pack(tt),'long':pack([t for t in tt if side(t)=='LONG']),'short':pack([t for t in tt if side(t)=='SHORT']),'years':byyear,'symbol_dispersion':{'symbols':len(syms),'gross_positive':sum(v['overall']['0bps']['R']>0 for v in symrows.values()),'gross_negative':sum(v['overall']['0bps']['R']<0 for v in symrows.values()),'0.5bps_positive':sum(v['overall']['0.5bps']['R']>0 for v in symrows.values()),'0.5bps_negative':sum(v['overall']['0.5bps']['R']<0 for v in symrows.values())},'symbols':symrows}
+                  if not line.strip(): continue
+                  try:
+                      x=json.loads(line); x['_symbol']=sym; trades.append(x)
+                  except Exception: pass
+          rows.sort(key=lambda x:x.get('symbol',''))
+          trades.sort(key=lambda x:int(x.get('signal',0)))
+          ok=[x for x in rows if x.get('status')=='OK']
+
+          def metric(ts):
+              vals=[float(x.get('R_exec',0.0)) for x in sorted(ts,key=lambda z:int(z.get('signal',0)))]
+              if not vals:
+                  return {'n':0,'R':0.0,'avg_R':None,'PF':None,'win_rate':None,'max_DD_R':0.0}
+              gp=sum(max(v,0.0) for v in vals); gl=sum(max(-v,0.0) for v in vals)
+              eq=peak=0.0; dd=0.0
+              for v in vals:
+                  eq+=v; peak=max(peak,eq); dd=min(dd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals),'PF':gp/gl if gl else None,'win_rate':100.0*sum(v>0 for v in vals)/len(vals),'max_DD_R':dd}
+          def year(x):
+              if x.get('signal_year') is not None: return int(x['signal_year'])
+              return datetime.datetime.fromtimestamp(int(x['signal'])/1000,datetime.timezone.utc).year
+          def side(x): return str(x.get('side','')).upper()
+
+          years={}
+          for y in range(2022,2027):
+              yy=[x for x in trades if year(x)==y]
+              years[str(y)]={'overall':metric(yy),'long':metric([x for x in yy if side(x)=='L']),'short':metric([x for x in yy if side(x)=='S'])}
+
+          symbols={}
+          for sym in sorted(set(x['_symbol'] for x in trades)):
+              ss=[x for x in trades if x['_symbol']==sym]
+              symbols[sym]={'overall':metric(ss),'long':metric([x for x in ss if side(x)=='L']),'short':metric([x for x in ss if side(x)=='S'])}
+
+          folds=[]
+          for train_end,oos in [(2023,2024),(2024,2025),(2025,2026)]:
+              train=[x for x in trades if 2022 <= year(x) <= train_end]
+              test=[x for x in trades if year(x)==oos]
+              folds.append({'train_years':f'2022-{train_end}','oos_year':oos,'train_actual':metric(train),'oos_actual':metric(test)})
+
+          pre2026=[x for x in trades if year(x)<=2025]
+          entry_spreads=[float(x['entry_spread_bps']) for x in trades if x.get('entry_spread_bps') is not None]
+          exit_spreads=[float(x['exit_spread_bps']) for x in trades if x.get('exit_spread_bps') is not None]
+          actual=metric(trades)
+          longm=metric([x for x in trades if side(x)=='L'])
+          shortm=metric([x for x in trades if side(x)=='S'])
+          audit_mid={'n':sum(int(x.get('n_mid',0)) for x in ok),'R':sum(float(x.get('R_mid',0.0)) for x in ok)}
+          exec_summary={'n':sum(int(x.get('n_exec',0)) for x in ok),'R':sum(float(x.get('R_exec',0.0)) for x in ok)}
+          pos_syms=sum(v['overall']['R']>0 for v in symbols.values()); neg_syms=sum(v['overall']['R']<0 for v in symbols.values())
+          positive_oos=sum(years[str(y)]['overall']['R']>0 for y in (2024,2025,2026))
+          gate_flags={
+              'actual_R_positive': actual['R']>0,
+              'actual_PF_gt_1': actual['PF'] is not None and actual['PF']>1,
+              'chronology_gate': metric(pre2026)['R']>=0 or positive_oos>=2,
+              'pre2026_nonnegative': metric(pre2026)['R']>=0,
+              'positive_oos_folds_2024_2026': positive_oos
+          }
+          report={
+              'status':'COMPLETE',
+              'candidate':'WR 2.5.13 frozen base — US stocks 30m',
+              'validation':'actual Dukascopy 1m BID/ASK execution + expanding-history chronological walk-forward diagnostic',
+              'frozen_universe_expected':68,
+              'result_rows':len(rows),
+              'ok_symbols':len(ok),
+              'trade_rows':len(trades),
+              'prior_midpoint_reference':{'run_id':32657035483,'source':'Dukascopy BID+ASK midpoint M5 aggregated to 30m','n':2056,'R_gross':63.3832,'R_0_5bps':44.7797,'R_1bps':26.1762,'PF_gross':1.0704},
+              'audit_midpoint_recomputed_from_1m':audit_mid,
+              'actual_execution_from_symbol_summaries':exec_summary,
+              'actual':actual,
+              'long_actual':longm,
+              'short_actual':shortm,
+              'years':years,
+              'pre2026_actual':metric(pre2026),
+              'walk_forward':folds,
+              'symbol_breadth':{'symbols_with_exec_trades':len(symbols),'positive':pos_syms,'negative':neg_syms,'positive_fraction':pos_syms/len(symbols) if symbols else None},
+              'median_entry_spread_bps':statistics.median(entry_spreads) if entry_spreads else None,
+              'median_exit_spread_bps':statistics.median(exit_spreads) if exit_spreads else None,
+              'midpoint_to_actual_R_delta':exec_summary['R']-audit_mid['R'],
+              'gate_flags':gate_flags,
+              'symbols':symbols,
+              'raw_symbol_summaries':rows,
+              'method_notes':[
+                  'No alpha parameters tuned after the 30m midpoint result.',
+                  'Long stop entries trigger/fill on ASK; short stop entries on BID.',
+                  'Long exits execute on BID; short exits on ASK.',
+                  '1m executable-side quotes resolve execution inside 30m candles.',
+                  'Ambiguous same-minute TP+SL is resolved conservatively to SL.',
+                  'Walk-forward folds are reporting-only because the strategy has no fitted parameters.'
+              ]
+          }
           (out/'report.json').write_text(json.dumps(report,indent=2))
-          for tf,v in report['timeframes'].items():
-              print('TF',tf,'GROSS',v['overall']['0bps'],'0.5BPS',v['overall']['0.5bps'],'1BPS',v['overall']['1bps'])
-              print(' LONG',v['long']['0bps'],'SHORT',v['short']['0bps'],'DISP',v['symbol_dispersion'])
+          with (out/'execution-trades.jsonl').open('w') as f:
+              for x in trades:f.write(json.dumps(x)+'\n')
+          print('RESULT_ROWS',len(rows),'OK',len(ok),'TRADES',len(trades))
+          print('AUDIT_MID',audit_mid,'ACTUAL',actual,'DELTA',report['midpoint_to_actual_R_delta'])
+          print('LONG',longm,'SHORT',shortm)
+          print('PRE2026',report['pre2026_actual'])
+          print('OOS',[(f['oos_year'],f['oos_actual']) for f in folds])
+          print('BREADTH',report['symbol_breadth'],'SPREADS',report['median_entry_spread_bps'],report['median_exit_spread_bps'])
+          print('GATES',gate_flags)
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: wr-stock-15m30m-final
+          name: wr-stock-30m-exec-final
           path: /tmp/final
           retention-days: 30
