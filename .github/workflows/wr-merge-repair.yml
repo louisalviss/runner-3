@@ -51,6 +51,12 @@ jobs:
           for i,x in enumerate(xs): (root/f'symbol-{i:03d}.json').write_text(json.dumps(x))
           PY
           MERGE_ROOT=/tmp/stock-input FINAL_OUT=/tmp/stock-final python /tmp/stock_merge.py
+      - name: Upload corrected stock aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr-stock10-close-final-corrected
+          path: /tmp/stock-final/
+          retention-days: 30
       - name: Download all successful crypto shards
         uses: actions/download-artifact@v4
         with:
@@ -63,16 +69,22 @@ jobs:
         run: |
           set -euo pipefail
           pip install requests websocket-client
+          mkdir -p /tmp/wrbase /tmp/crypto-final
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/crypto_stage1_close_ab.py" -o /tmp/crypto_merge.py
           curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/close_confirm.py" -o /tmp/close_confirm.py
-          mkdir -p /tmp/crypto-final
-          PYTHONPATH=/tmp MERGE_ROOT=/tmp/crypto-all FINAL_OUT=/tmp/crypto-final python /tmp/crypto_merge.py merge
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wr-stock10-close-final-corrected
-          path: /tmp/stock-final/
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_tv_parity.py" -o /tmp/wrbase/wr_tv_parity.py
+          curl -fsSL "https://raw.githubusercontent.com/louisalviss/runner-3/27797cf9c4ea0a91b1bc8d62059d052c2c843eb5/wave-rider-verify/reference_verify.py" -o /tmp/reference_verify.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/reference_verify.py')
+          s=p.read_text()
+          needle="def infer_tick(vals):\n    md="
+          replacement="def infer_tick(vals):\n    vals=[str(x) for x in vals]\n    md="
+          if needle in s: p.write_text(s.replace(needle,replacement,1))
+          PY
+          WR_BASE_DIR=/tmp/wrbase PYTHONPATH=/tmp MERGE_ROOT=/tmp/crypto-all FINAL_OUT=/tmp/crypto-final python /tmp/crypto_merge.py merge
+      - name: Upload corrected crypto aggregate
+        uses: actions/upload-artifact@v4
         with:
           name: wr-crypto-stage1-close-final-corrected
           path: /tmp/crypto-final/
