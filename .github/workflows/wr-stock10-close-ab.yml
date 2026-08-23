@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: wr-stock10-close-ab-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   symbol:
