@@ -1,5 +1,7 @@
 # Video Recreate Reference Flow v1
 
+> ROUTING RULE: This flow is NOT the default for a reference video. Use it only when the user explicitly asks to `copy`, `remake`, `recreate sát`, `1:1`, pixel/frame-close recreation, or equivalent. For normal `similar / lấy ý tưởng / quảng cáo tương tự` requests, use `FLOWS/video-reference-inspired-ad-v1.md` via `FLOWS/video-router.md`.
+
 Purpose: recreate a reference video closely in structure, timing, composition and motion without reusing source visual frames as the final visual output.
 
 ## Architecture
