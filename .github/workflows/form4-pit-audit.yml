@@ -12,20 +12,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install gdown
-        run: pip install 'gdown>=6.1.0'
-      - name: List public SEC mirror without downloading
+      - name: Install deps
+        run: pip install 'gdown>=6.1.0' pandas
+      - name: Download and audit compiled SEC tables
         run: |
-          gdown 'https://drive.google.com/drive/folders/1P7Po6sqYv-sSNNJVjQm-1BEYM_8LSBmX' --folder --json --quiet > /tmp/files.json
+          mkdir -p /tmp/sec
+          gdown 1oh3kJd9wZvazyrmTYiGMCFg68mjJAtJ- -O /tmp/sec/SUBMISSION.csv --quiet
+          gdown 1S_rz4tKUR9u4cL41GRKQiDDcelv2uI_R -O /tmp/sec/REPORTINGOWNER.csv --quiet
+          gdown 1vBPyZy5qlqBzutmTiuxkxoiywpKgsgNe -O /tmp/sec/NONDERIV_TRANS.csv --quiet
+          ls -lh /tmp/sec
           python - <<'PY'
-          import json
-          x=json.load(open('/tmp/files.json'))
-          print('FILE_COUNT',len(x))
-          wanted=[]
-          for r in x:
-              p=r['path']
-              if any(k in p for k in ['NONDERIV_TRANS.csv','REPORTINGOWNER.csv','SUBMISSION.csv','2010q1_form345.zip','2015q1_form345.zip','2024q1_form345.zip','2024q4_form345.zip']):
-                  wanted.append(r)
-          print('WANTED',json.dumps(wanted,indent=2))
+          import pandas as pd, os, json
+          base='/tmp/sec'
+          for name in ['SUBMISSION.csv','REPORTINGOWNER.csv','NONDERIV_TRANS.csv']:
+              p=f'{base}/{name}'
+              head=pd.read_csv(p,nrows=3,dtype=str,low_memory=False)
+              print('FILE',name,'BYTES',os.path.getsize(p),'COLS',json.dumps(list(head.columns)))
+              print(head.head(2).to_json(orient='records')[:6000])
+          sub=pd.read_csv(f'{base}/SUBMISSION.csv',usecols=['FILING_DATE','DOCUMENT_TYPE','ISSUERTRADINGSYMBOL'],dtype=str,low_memory=False)
+          d=pd.to_datetime(sub['FILING_DATE'],format='%d-%b-%Y',errors='coerce')
+          print('SUB_ROWS',len(sub),'DATE_MIN',d.min(),'DATE_MAX',d.max(),'FORM4_ROWS',int(sub['DOCUMENT_TYPE'].astype(str).str.strip().eq('4').sum()),'TICKERS',sub['ISSUERTRADINGSYMBOL'].nunique())
           print('DONE')
           PY
