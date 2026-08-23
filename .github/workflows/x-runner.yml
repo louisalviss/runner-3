@@ -173,6 +173,7 @@ jobs:
           git push origin HEAD:main
 
       - name: Shadow telemetry to Runner3 Core
+        id: runner3_telemetry
         if: always()
         continue-on-error: true
         shell: bash
@@ -240,3 +241,50 @@ jobs:
           if not match:
               raise SystemExit("workflow_status_not_visible_in_d1")
           PY
+
+      - name: Persist Runner3 Core telemetry status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEMETRY_OUTCOME: ${{ steps.runner3_telemetry.outcome }}
+          EVENT_STATUS: ${{ job.status }}
+          EVENT_WORKFLOW: ${{ github.workflow }}
+          EVENT_RUN_ID: ${{ github.run_id }}
+          EVENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_REF: ${{ github.ref_name }}
+        run: |
+          mkdir -p ops/runner3-core
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+
+          outcome = os.environ.get("TELEMETRY_OUTCOME", "unknown")
+          data = {
+              "ok": outcome == "success",
+              "source": "x-runner",
+              "event_type": "workflow_status",
+              "telemetry_outcome": outcome,
+              "workflow": os.environ.get("EVENT_WORKFLOW"),
+              "run_id": os.environ.get("EVENT_RUN_ID"),
+              "run_attempt": os.environ.get("EVENT_RUN_ATTEMPT"),
+              "job_status_at_tail": os.environ.get("EVENT_STATUS"),
+              "sha": os.environ.get("EVENT_SHA"),
+              "ref": os.environ.get("EVENT_REF"),
+              "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+          }
+          Path("ops/runner3-core/x-runner-telemetry.json").write_text(
+              json.dumps(data, indent=2) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(data, indent=2))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/runner3-core/x-runner-telemetry.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Persist X runner telemetry status: $GITHUB_RUN_ID [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
