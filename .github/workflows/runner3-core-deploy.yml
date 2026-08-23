@@ -57,9 +57,15 @@ jobs:
           open('/tmp/d1-id','w').write(uuid)
           PY
 
-      - name: Apply D1 migration
+      - name: Apply D1 migrations
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0001_init.sql
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in migrations/*.sql; do
+            echo "Applying ${migration}"
+            npx --yes wrangler@4 d1 execute runner3-core --remote --file="${migration}"
+          done
 
       - name: Deploy shadow Worker
         working-directory: cloudflare/runner3-core
@@ -73,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import datetime, json, pathlib, re, urllib.error, urllib.request
+          import datetime, json, pathlib, re, urllib.error, urllib.parse, urllib.request
 
           deploy_log = pathlib.Path('/tmp/runner3-core-deploy.log').read_text(errors='replace') if pathlib.Path('/tmp/runner3-core-deploy.log').exists() else ''
           urls = re.findall(r'https://[A-Za-z0-9.-]+\.workers\.dev', deploy_log)
@@ -117,6 +123,27 @@ jobs:
           latest = request_json('/events/latest')
           status = request_json('/status')
 
+          state_source = 'runner3-core-smoke'
+          state_path = '/state/' + urllib.parse.quote(state_source, safe='')
+          state_put = request_json(state_path, 'PUT', {
+              'status':'success',
+              'run_id':str('${{ github.run_id }}'),
+              'detail':{'kind':'deploy-smoke','checkedAt':checked}
+          })
+          state_get = request_json(state_path)
+
+          checkpoint_project = 'runner3-core-smoke'
+          checkpoint_scope = 'deploy'
+          checkpoint_path = '/checkpoints/' + urllib.parse.quote(checkpoint_project, safe='') + '/' + urllib.parse.quote(checkpoint_scope, safe='')
+          checkpoint_put = request_json(checkpoint_path, 'PUT', {
+              'source':'runner3-core-smoke',
+              'status':'success',
+              'position':{'phase':'deployed','run_id':str('${{ github.run_id }}')},
+              'dropbox_path':None,
+              'last_error':None
+          })
+          checkpoint_get = request_json(checkpoint_path)
+
           health_json = health.get('json') if isinstance(health.get('json'), dict) else {}
           post_json = posted.get('json') if isinstance(posted.get('json'), dict) else {}
           latest_json = latest.get('json')
@@ -146,6 +173,38 @@ jobs:
               and all(source_shape_checks.values())
           )
 
+          state_put_json = state_put.get('json') if isinstance(state_put.get('json'), dict) else {}
+          state_get_json = state_get.get('json') if isinstance(state_get.get('json'), dict) else {}
+          state_record = state_get_json.get('state') if isinstance(state_get_json.get('state'), dict) else {}
+          state_ok = bool(
+              state_put.get('http') == 200
+              and state_put_json.get('ok') is True
+              and state_get.get('http') == 200
+              and state_get_json.get('ok') is True
+              and state_record.get('source') == state_source
+              and state_record.get('status') == 'success'
+              and str(state_record.get('run_id')) == str('${{ github.run_id }}')
+              and isinstance(state_record.get('detail'), dict)
+              and state_record['detail'].get('kind') == 'deploy-smoke'
+          )
+
+          checkpoint_put_json = checkpoint_put.get('json') if isinstance(checkpoint_put.get('json'), dict) else {}
+          checkpoint_get_json = checkpoint_get.get('json') if isinstance(checkpoint_get.get('json'), dict) else {}
+          checkpoint_record = checkpoint_get_json.get('checkpoint') if isinstance(checkpoint_get_json.get('checkpoint'), dict) else {}
+          checkpoint_ok = bool(
+              checkpoint_put.get('http') == 200
+              and checkpoint_put_json.get('ok') is True
+              and checkpoint_get.get('http') == 200
+              and checkpoint_get_json.get('ok') is True
+              and checkpoint_record.get('project') == checkpoint_project
+              and checkpoint_record.get('scope') == checkpoint_scope
+              and checkpoint_record.get('source') == 'runner3-core-smoke'
+              and checkpoint_record.get('status') == 'success'
+              and isinstance(checkpoint_record.get('position'), dict)
+              and checkpoint_record['position'].get('phase') == 'deployed'
+              and str(checkpoint_record['position'].get('run_id')) == str('${{ github.run_id }}')
+          )
+
           result = {
               'checkedAt': checked,
               'url': base,
@@ -164,11 +223,23 @@ jobs:
                   'sourceCount': len(status_sources) if status_sources is not None else None,
                   'sourceShapeChecks': source_shape_checks,
               },
+              'state': {
+                  'put': state_put,
+                  'get': state_get,
+                  'ok': state_ok,
+              },
+              'checkpoint': {
+                  'put': checkpoint_put,
+                  'get': checkpoint_get,
+                  'ok': checkpoint_ok,
+              },
               'ok': bool(
                   health.get('http') == 200 and health_json.get('ok') is True and health_json.get('d1') is True
                   and posted.get('http') == 200 and post_json.get('ok') is True
                   and latest.get('http') == 200 and isinstance(latest_json, list) and len(latest_json) >= 1
                   and status_schema_ok
+                  and state_ok
+                  and checkpoint_ok
               )
           }
 
