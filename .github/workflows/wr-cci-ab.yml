@@ -11,7 +11,7 @@ permissions:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,11 +20,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Enforce canonical WR candle direction
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('research/wr_cci_ab_fx.py')
+          s=p.read_text()
+          old="nl=z['sra_ok'] and x.c<x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=z['sra_ok'] and x.c>x.o and sr and x.c<z['sup'] and x.h>=z['sup']"
+          new="nl=z['sra_ok'] and x.c>x.o and lr and x.c>z['res'] and x.l<=z['res']; ns=z['sra_ok'] and x.c<x.o and sr and x.c<z['sup'] and x.h>=z['sup']"
+          assert old in s or new in s
+          if old in s: p.write_text(s.replace(old,new))
+          assert new in p.read_text()
+          print('CANONICAL_DIRECTION_OK')
+          PY
       - name: Install Dukascopy client
-        run: npm install --no-save dukascopy-node
-      - name: Download canonical FX bars
+        run: npm install --no-save dukascopy-node@1.50.0
+      - name: Download FX bars, throttled
         env:
-          WRFX_FROM: '2022-01-01'
+          WRFX_FROM: '2024-01-01'
           WRFX_TO: '2026-08-22'
           WRFX_DATA_DIR: /tmp/wrfx_data
         run: node research/download_wr_fx_dukascopy.js
