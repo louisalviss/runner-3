@@ -1,0 +1,90 @@
+name: Runner5 Wasmer Browser State Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner5-wasmer-browser-state-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Probe saved Wasmer session safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=/tmp/runner5-wasmer-browser-state-probe.json
+          has_key=false
+          [ -n "${AUTOMATION_KEY:-}" ] && has_key=true
+          encrypted=false
+          [ -s ops/wasmer/browser-state.aes ] && encrypted=true
+          decrypt=false
+          valid_json=false
+          has_wasmer_cookie=false
+          origin_count=0
+          cookie_count=0
+          if [ "$has_key" = true ] && [ "$encrypted" = true ]; then
+            if openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+              -pass env:AUTOMATION_KEY \
+              -in ops/wasmer/browser-state.aes \
+              -out /tmp/wasmer-browser-state.json 2>/tmp/decrypt.err; then
+              decrypt=true
+              python3 - <<'PY' > /tmp/session-meta
+          import json
+          try:
+              d=json.load(open('/tmp/wasmer-browser-state.json'))
+              cookies=d.get('cookies') or []
+              origins=d.get('origins') or []
+              has=any('wasmer' in str(c.get('domain','')).lower() for c in cookies)
+              print('valid_json=true')
+              print('has_wasmer_cookie=' + ('true' if has else 'false'))
+              print('cookie_count=' + str(len(cookies)))
+              print('origin_count=' + str(len(origins)))
+          except Exception:
+              print('valid_json=false')
+              print('has_wasmer_cookie=false')
+              print('cookie_count=0')
+              print('origin_count=0')
+          PY
+              . /tmp/session-meta
+            fi
+          fi
+          printf '{"status":"%s","hasCloudflareKey":%s,"encryptedState":%s,"decryptOk":%s,"validJson":%s,"hasWasmerCookie":%s,"cookieCount":%s,"originCount":%s,"checkedAt":"%s"}\n' \
+            "$( [ "$decrypt" = true ] && [ "$valid_json" = true ] && echo RECOVERABLE || echo NOT_RECOVERABLE )" \
+            "$has_key" "$encrypted" "$decrypt" "$valid_json" "$has_wasmer_cookie" "$cookie_count" "$origin_count" "$(date -u +%FT%TZ)" > "$out"
+          rm -f /tmp/wasmer-browser-state.json /tmp/decrypt.err /tmp/session-meta
+
+      - name: Persist safe probe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=/tmp/runner5-wasmer-browser-state-probe.json
+          test -s "$src" || printf '{"status":"RUNNER_ERROR"}\n' > "$src"
+          cp "$src" /tmp/probe-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/wordpress-access
+            cp /tmp/probe-safe.json ops/wordpress-access/runner5-wasmer-browser-state-probe.json
+            git add ops/wordpress-access/runner5-wasmer-browser-state-probe.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m 'Persist Runner5 Wasmer browser-state probe'
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 2
+          done
+          exit 3
