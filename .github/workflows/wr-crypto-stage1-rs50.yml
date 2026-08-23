@@ -1,0 +1,82 @@
+name: WR Crypto Stage1 RS50
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/wave-rider-research/crypto_stage1_rs50.py'
+      - '.github/workflows/wr-crypto-stage1-rs50.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-crypto-stage1-rs50-20260823
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - name: Download corrected historical Stage1 canonical trades
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-crypto-stage1-close-final-corrected
+          path: /tmp/source
+          repository: louisalviss/runner-3
+          run-id: 32618199814
+          github-token: ${{ github.token }}
+      - name: Apply frozen RS50 Long-only gate
+        env:
+          SOURCE_ROOT: /tmp/source
+          OUT: /tmp/out
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '8'
+          MODE: shard
+        run: python apps/wave-rider-research/crypto_stage1_rs50.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-crypto-stage1-rs50-shard-${{ matrix.shard }}
+          path: /tmp/out
+          retention-days: 14
+
+  merge:
+    needs: shard
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-crypto-stage1-rs50-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge and enforce baseline parity
+        env:
+          MERGE_ROOT: /tmp/all
+          FINAL_OUT: /tmp/final
+          SHARDS: '8'
+          MODE: merge
+        run: python apps/wave-rider-research/crypto_stage1_rs50.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-crypto-stage1-rs50-final
+          path: /tmp/final
+          retention-days: 30
