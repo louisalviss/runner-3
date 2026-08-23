@@ -8,31 +8,21 @@ permissions:
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Mark started
+      - name: Run edge rerun
+        run: python vbth_bench/rerun_edge.py
+      - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p vbth_bench
-          printf 'STARTED\n' > vbth_bench/bench-status.txt
-          git add vbth_bench/bench-status.txt
-          git commit -m "VBTH benchmark started [skip ci]"
-          git push
-      - name: Run benchmark
-        run: python vbth_bench/run_bench.py
-      - name: Commit results
-        if: always()
-        run: |
-          git pull --rebase || true
-          if [ -f vbth_bench/results_v2/summary.json ]; then printf 'DONE\n' > vbth_bench/bench-status.txt; else printf 'FAILED\n' > vbth_bench/bench-status.txt; fi
-          git add vbth_bench/bench-status.txt vbth_bench/results_v2 2>/dev/null || true
+          git add vbth_bench/results_v3
           git diff --cached --quiet && exit 0
-          git commit -m "VBTH minimal model benchmark v2 results [skip ci]"
+          git commit -m "VBTH edge rerun results [skip ci]"
           git push
-# trigger-instrumented
+# trigger-v3
