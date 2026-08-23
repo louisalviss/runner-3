@@ -33,7 +33,7 @@ jobs:
         run: pip install --disable-pip-version-check numpy pandas requests
 
       - name: Run frozen backtest
-        run: python research/earnings_underreaction_20260824/backtest.py
+        run: python research/earnings_underreaction_20260824/run.py
 
       - name: Upload result artifact
         uses: actions/upload-artifact@v4
