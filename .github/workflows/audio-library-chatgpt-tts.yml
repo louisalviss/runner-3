@@ -100,6 +100,44 @@ jobs:
           count="$(grep -c . /tmp/outboxes.list || true)"
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
+      - name: Real Audio compute smoke when no outbox changed
+        if: steps.discover.outputs.count == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import asyncio
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          import edge_tts
+
+          out = Path('/tmp/runner3-audio-compute-smoke.mp3')
+          text = (
+              'Đây là bài kiểm tra âm thanh thực của Runner ba. '
+              'Mục tiêu là xác nhận bộ tổng hợp giọng nói, tệp MP3 và phép đo thời lượng đều hoạt động bình thường. '
+              'Bài kiểm tra này không ghi dữ liệu thử nghiệm vào thư viện nội dung.'
+          )
+
+          async def main():
+              await edge_tts.Communicate(
+                  text,
+                  os.environ.get('AUDIO_LIBRARY_VOICE', 'vi-VN-NamMinhNeural'),
+                  rate=os.environ.get('AUDIO_LIBRARY_VOICE_RATE', '+3%'),
+              ).save(str(out))
+
+          asyncio.run(main())
+          if not out.exists() or out.stat().st_size < 1500:
+              raise SystemExit('audio compute smoke produced an invalid MP3')
+          duration = float(subprocess.check_output([
+              'ffprobe','-v','error','-show_entries','format=duration','-of','csv=p=0',str(out)
+          ], text=True).strip())
+          if duration < 2:
+              raise SystemExit(f'audio compute smoke duration too short: {duration}')
+          print(json.dumps({'ok': True, 'bytes': out.stat().st_size, 'durationSeconds': duration}))
+          PY
+
       - name: Decrypt and synthesize changed items
         id: synth
         if: steps.discover.outputs.count != '0'
