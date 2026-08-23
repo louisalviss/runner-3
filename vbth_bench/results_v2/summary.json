@@ -1,0 +1,521 @@
+{
+  "source_chars": 3090,
+  "models": [
+    {
+      "tag": "ling3_free",
+      "requested_model": "inclusionai/ling-3.0-flash:free",
+      "actual_model": "",
+      "status": "error",
+      "elapsed_sec": 0.162,
+      "chars": 0,
+      "usage": {},
+      "numeric_checks": {
+        "8": false,
+        "30%": false,
+        "1": false,
+        "15%": false,
+        "10": false
+      },
+      "polarity_hint": false,
+      "error": "HTTP Error 404: Not Found"
+    },
+    {
+      "tag": "gemma4_31b_free",
+      "requested_model": "google/gemma-4-31b-it:free",
+      "actual_model": "",
+      "status": "error",
+      "elapsed_sec": 0.242,
+      "chars": 0,
+      "usage": {},
+      "numeric_checks": {
+        "8": false,
+        "30%": false,
+        "1": false,
+        "15%": false,
+        "10": false
+      },
+      "polarity_hint": false,
+      "error": "HTTP Error 429: Too Many Requests"
+    },
+    {
+      "tag": "nemotron3_super_free",
+      "requested_model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "actual_model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "status": "ok",
+      "elapsed_sec": 43.024,
+      "chars": 6086,
+      "usage": {
+        "prompt_tokens": 1116,
+        "completion_tokens": 1800,
+        "total_tokens": 2916,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 1998,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    },
+    {
+      "tag": "dots3_note_free",
+      "requested_model": "dots-studio/dots-3-note-preview:free",
+      "actual_model": "dots-studio/dots-3-note-preview:free",
+      "status": "ok",
+      "elapsed_sec": 13.802,
+      "chars": 2326,
+      "usage": {
+        "prompt_tokens": 1057,
+        "completion_tokens": 1570,
+        "total_tokens": 2627,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 1024,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 891,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": false,
+      "error": ""
+    },
+    {
+      "tag": "laguna_s_free",
+      "requested_model": "poolside/laguna-s-2.1:free",
+      "actual_model": "poolside/laguna-s-2.1:free",
+      "status": "ok",
+      "elapsed_sec": 30.898,
+      "chars": 2001,
+      "usage": {
+        "prompt_tokens": 1942,
+        "completion_tokens": 1800,
+        "total_tokens": 3742,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 666,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": false,
+      "error": ""
+    },
+    {
+      "tag": "ox_alpha_free",
+      "requested_model": "stealth/ox-alpha",
+      "actual_model": "stealth/ox-alpha",
+      "status": "ok",
+      "elapsed_sec": 48.916,
+      "chars": 0,
+      "usage": {
+        "prompt_tokens": 1168,
+        "completion_tokens": 1800,
+        "total_tokens": 2968,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 64,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": false,
+        "30%": false,
+        "1": false,
+        "15%": false,
+        "10": false
+      },
+      "polarity_hint": false,
+      "error": ""
+    },
+    {
+      "tag": "ling3_paid",
+      "requested_model": "inclusionai/ling-3.0-flash",
+      "actual_model": "inclusionai/ling-3.0-flash",
+      "status": "ok",
+      "elapsed_sec": 8.414,
+      "chars": 0,
+      "usage": {
+        "prompt_tokens": 1225,
+        "completion_tokens": 1800,
+        "total_tokens": 3025,
+        "cost": 0.0001186962,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 1216,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0001186962,
+          "upstream_inference_prompt_cost": 5.2962e-06,
+          "upstream_inference_completions_cost": 0.0001134
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 1823,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": false,
+        "30%": false,
+        "1": false,
+        "15%": false,
+        "10": false
+      },
+      "polarity_hint": false,
+      "error": ""
+    },
+    {
+      "tag": "qwen37_flash",
+      "requested_model": "qwen/qwen3.7-flash",
+      "actual_model": "qwen/qwen3.7-flash",
+      "status": "ok",
+      "elapsed_sec": 11.545,
+      "chars": 0,
+      "usage": {
+        "prompt_tokens": 952,
+        "completion_tokens": 1802,
+        "total_tokens": 2754,
+        "cost": 0.00026282,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00026282,
+          "upstream_inference_prompt_cost": 2.856e-05,
+          "upstream_inference_completions_cost": 0.00023426
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 1800,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": false,
+        "30%": false,
+        "1": false,
+        "15%": false,
+        "10": false
+      },
+      "polarity_hint": false,
+      "error": ""
+    },
+    {
+      "tag": "deepseek_v4_flash",
+      "requested_model": "deepseek/deepseek-v4-flash-0731",
+      "actual_model": "deepseek/deepseek-v4-flash-0731",
+      "status": "ok",
+      "elapsed_sec": 17.319,
+      "chars": 2392,
+      "usage": {
+        "prompt_tokens": 1554,
+        "completion_tokens": 1577,
+        "total_tokens": 3131,
+        "cost": 0.0013827,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0013827,
+          "upstream_inference_prompt_cost": 0.00034188,
+          "upstream_inference_completions_cost": 0.00104082
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 486,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    },
+    {
+      "tag": "step35_flash",
+      "requested_model": "stepfun/step-3.5-flash",
+      "actual_model": "stepfun/step-3.5-flash",
+      "status": "ok",
+      "elapsed_sec": 19.046,
+      "chars": 2563,
+      "usage": {
+        "prompt_tokens": 1567,
+        "completion_tokens": 1800,
+        "total_tokens": 3367,
+        "cost": 0.0006967,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0006967,
+          "upstream_inference_prompt_cost": 0.0001567,
+          "upstream_inference_completions_cost": 0.00054
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 507,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    },
+    {
+      "tag": "gpt56_luna",
+      "requested_model": "openai/gpt-5.6-luna",
+      "actual_model": "openai/gpt-5.6-luna",
+      "status": "ok",
+      "elapsed_sec": 9.425,
+      "chars": 2823,
+      "usage": {
+        "prompt_tokens": 1094,
+        "completion_tokens": 917,
+        "total_tokens": 2011,
+        "cost": 0.00112282,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 1091,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00112282,
+          "upstream_inference_prompt_cost": 2.242e-05,
+          "upstream_inference_completions_cost": 0.0011004
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 43,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    },
+    {
+      "tag": "deepseek_v4_pro",
+      "requested_model": "deepseek/deepseek-v4-pro",
+      "actual_model": "deepseek/deepseek-v4-pro",
+      "status": "ok",
+      "elapsed_sec": 24.641,
+      "chars": 2413,
+      "usage": {
+        "prompt_tokens": 1554,
+        "completion_tokens": 1588,
+        "total_tokens": 3142,
+        "cost": 0.001918488,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.001918488,
+          "upstream_inference_prompt_cost": 0.0006303024,
+          "upstream_inference_completions_cost": 0.0012881856
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 475,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    },
+    {
+      "tag": "gemini37_flash",
+      "requested_model": "google/gemini-3.7-flash",
+      "actual_model": "google/gemini-3.7-flash",
+      "status": "ok",
+      "elapsed_sec": 11.605,
+      "chars": 2872,
+      "usage": {
+        "prompt_tokens": 1003,
+        "completion_tokens": 1084,
+        "total_tokens": 2087,
+        "cost": 0.002408625,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.002408625,
+          "upstream_inference_prompt_cost": 0.000376125,
+          "upstream_inference_completions_cost": 0.0020325
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 236,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    },
+    {
+      "tag": "claude_haiku45",
+      "requested_model": "anthropic/claude-haiku-4.5",
+      "actual_model": "anthropic/claude-haiku-4.5",
+      "status": "ok",
+      "elapsed_sec": 14.72,
+      "chars": 2139,
+      "usage": {
+        "prompt_tokens": 1863,
+        "completion_tokens": 1163,
+        "total_tokens": 3026,
+        "cost": 0.007678,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.007678,
+          "upstream_inference_prompt_cost": 0.001863,
+          "upstream_inference_completions_cost": 0.005815
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "numeric_checks": {
+        "8": true,
+        "30%": true,
+        "1": true,
+        "15%": true,
+        "10": true
+      },
+      "polarity_hint": true,
+      "error": ""
+    }
+  ]
+}
