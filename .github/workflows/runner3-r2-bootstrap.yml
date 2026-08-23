@@ -1,0 +1,83 @@
+name: Runner3 R2 Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-r2-bootstrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ensure-r2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_BUCKET_NAME: runner3-artifacts
+
+    steps:
+      - name: Create or reuse private R2 bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys, urllib.error, urllib.parse, urllib.request
+
+          token = os.environ['CLOUDFLARE_API_TOKEN']
+          account = os.environ['CLOUDFLARE_ACCOUNT_ID']
+          bucket_name = os.environ['R2_BUCKET_NAME']
+          base = f'https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets'
+          headers = {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+          }
+
+          def call(url, method='GET', body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      payload = json.load(response)
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode(errors='replace')
+                  print(f'Cloudflare R2 API HTTP {exc.code}: {raw}', file=sys.stderr)
+                  if exc.code in (401, 403):
+                      print('CLOUDFLARE_API_TOKEN needs account permission: Workers R2 Storage Write', file=sys.stderr)
+                  raise
+              if payload.get('success') is not True:
+                  raise RuntimeError('Cloudflare R2 API failed: ' + json.dumps(payload.get('errors', [])))
+              return payload
+
+          query = urllib.parse.urlencode({'name_contains': bucket_name, 'per_page': 100})
+          listed = call(base + '?' + query)
+          buckets = (listed.get('result') or {}).get('buckets') or []
+          bucket = next((item for item in buckets if item.get('name') == bucket_name), None)
+
+          if bucket is None:
+              created = call(base, 'POST', {
+                  'name': bucket_name,
+                  'locationHint': 'apac',
+                  'storageClass': 'Standard',
+              })
+              bucket = created.get('result') or {}
+              action = 'created'
+          else:
+              action = 'reused'
+
+          if bucket.get('name') != bucket_name:
+              raise RuntimeError('R2 bucket verification failed')
+
+          print(json.dumps({
+              'ok': True,
+              'action': action,
+              'bucket': bucket.get('name'),
+              'location': bucket.get('location'),
+              'storage_class': bucket.get('storage_class'),
+              'public': False,
+          }, indent=2))
+          PY
