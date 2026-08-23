@@ -1,0 +1,34 @@
+name: ChatGPT X Visual Inspect
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install -q -U requests yt-dlp
+          ffmpeg -version | head -1
+      - name: Inspect requested X video
+        run: |
+          python scripts/inspect_x_video_for_chatgpt.py 'https://x.com/work_with_zaid/status/2091125733716582537'
+          cat evidence/x-video-inspect/2091125733716582537/report.json
+          ls -lh evidence/x-video-inspect/2091125733716582537 evidence/x-video-inspect/2091125733716582537/frames
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zaid-x-visual-${{ github.run_id }}
+          path: evidence/x-video-inspect/2091125733716582537/
+          retention-days: 3
