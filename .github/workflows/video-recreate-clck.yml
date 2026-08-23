@@ -1,4 +1,4 @@
-name: Video Recreate Source Inspect
+name: Video Recreate Pipeline
 
 on:
   push:
@@ -14,90 +14,122 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  inspect:
+  recreate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      SOURCE_URL: "https://clck.ru/3VNYSd"
-      OUT_DIR: "artifacts/video-recreate-clck"
-      STATUS_FILE: "video-recreate-clck-status.json"
+      OUT_DIR: artifacts/video-recreate-clck
+      STATUS_FILE: video-recreate-clck-status.json
     steps:
       - uses: actions/checkout@v4
+
+      - name: Publish running status
+        run: |
+          set -euo pipefail
+          SOURCE_URL="$(sed -n 's/^source=//p' video-recreate-clck-trigger.txt | head -n1)"
+          python3 - "$SOURCE_URL" <<'PY'
+          import json,os,sys
+          open(os.environ['STATUS_FILE'],'w').write(json.dumps({'status':'running','run_id':os.environ['GITHUB_RUN_ID'],'source_url':sys.argv[1],'artifact_present':False},ensure_ascii=False,indent=2))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$STATUS_FILE"
+          git commit -m 'Video recreate running [skip ci]'
+          git push
 
       - name: Install media tools
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg curl python3
+          sudo apt-get install -y ffmpeg curl python3 python3-pil python3-numpy
+          mkdir -p "$OUT_DIR" /tmp/video-recreate scripts dsh-handoff/render
+          BASE='https://raw.githubusercontent.com/louisalviss/runner-6/main/scripts'
+          curl -fsSL "$BASE/render-socksnode-recreate-fast.py" -o scripts/render-socksnode-recreate-fast.py
+          chmod +x scripts/render-socksnode-recreate-fast.py
 
       - name: Download source
         id: dl
         run: |
           set -euo pipefail
-          mkdir -p "$OUT_DIR" /tmp/video-recreate
+          SOURCE_URL="$(sed -n 's/^source=//p' video-recreate-clck-trigger.txt | head -n1)"
+          test -n "$SOURCE_URL"
           UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
           EFFECTIVE="$(curl -fL --retry 3 --retry-delay 2 --max-time 180 -A "$UA" -w '%{url_effective}' -o /tmp/video-recreate/source.bin "$SOURCE_URL")"
           test -s /tmp/video-recreate/source.bin
           ffprobe -v error /tmp/video-recreate/source.bin >/dev/null
+          echo "source_url=$SOURCE_URL" >> "$GITHUB_OUTPUT"
           echo "effective_url=$EFFECTIVE" >> "$GITHUB_OUTPUT"
 
-      - name: Probe and extract reference frames
+      - name: Inspect source
         run: |
           set -euo pipefail
-          SRC=/tmp/video-recreate/source.bin
-          ffprobe -v error -show_streams -show_format -of json "$SRC" > "$OUT_DIR/ffprobe.json"
+          ffprobe -v error -show_streams -show_format -of json /tmp/video-recreate/source.bin > "$OUT_DIR/source-ffprobe.json"
+          ffmpeg -nostdin -hide_banner -loglevel error -y -i /tmp/video-recreate/source.bin -vf "fps=0.40,scale=360:-2,tile=4x3" -frames:v 1 "$OUT_DIR/contact-sheet.jpg"
+
+      - name: Rebuild video
+        run: |
+          set -euo pipefail
+          python3 scripts/render-socksnode-recreate-fast.py \
+            /tmp/video-recreate/source.bin \
+            dsh-handoff/render/recreated-video.mp4 \
+            dsh-handoff/render/recreate-analysis.json
+
+      - name: QA
+        run: |
+          set -euo pipefail
+          ffprobe -v error -show_entries stream=codec_type,width,height,codec_name,avg_frame_rate -show_entries format=duration,size -of json \
+            dsh-handoff/render/recreated-video.mp4 > dsh-handoff/render/ffprobe.json
           python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          out=Path('artifacts/video-recreate-clck')
-          p=json.load(open(out/'ffprobe.json'))
-          dur=float(p.get('format',{}).get('duration') or 0)
-          if dur <= 0: raise SystemExit('invalid duration')
-          ts=[dur*(i+0.5)/12 for i in range(12)]
-          for i,t in enumerate(ts,1):
-              subprocess.run(['ffmpeg','-nostdin','-loglevel','error','-y','-ss',f'{t:.3f}','-i','/tmp/video-recreate/source.bin','-frames:v','1','-vf','scale=360:-2',str(out/f'frame-{i:02d}.jpg')],check=True)
-          fps=12.0/dur
-          subprocess.run(['ffmpeg','-nostdin','-loglevel','error','-y','-i','/tmp/video-recreate/source.bin','-vf',f'fps={fps:.8f},scale=360:-2,tile=4x3','-frames:v','1',str(out/'contact-sheet.jpg')],check=True)
-          v=next((s for s in p['streams'] if s.get('codec_type')=='video'),{})
-          a=next((s for s in p['streams'] if s.get('codec_type')=='audio'),{})
-          info={
-            'status':'success','source_url':'https://clck.ru/3VNYSd','duration_sec':round(dur,3),
-            'width':v.get('width'),'height':v.get('height'),'video_codec':v.get('codec_name'),
-            'avg_frame_rate':v.get('avg_frame_rate'),'audio_codec':a.get('codec_name'),
-            'sample_rate':a.get('sample_rate'),'frame_timestamps_sec':[round(x,3) for x in ts]
-          }
-          (out/'source-info.json').write_text(json.dumps(info,ensure_ascii=False,indent=2),encoding='utf-8')
+          import json
+          p=json.load(open('dsh-handoff/render/ffprobe.json'))
+          v=next(s for s in p['streams'] if s['codec_type']=='video')
+          assert int(v['width'])==720 and int(v['height'])==1280, v
+          assert v.get('avg_frame_rate')=='30/1', v
+          d=float(p['format']['duration'])
+          assert 29 <= d <= 31, d
+          assert int(p['format']['size']) > 500000, p['format']
+          print(json.dumps(p,ensure_ascii=False))
           PY
 
-      - name: Publish status and references
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-recreate-${{ github.run_id }}
+          path: |
+            dsh-handoff/render/recreated-video.mp4
+            dsh-handoff/render/recreate-analysis.json
+            dsh-handoff/render/ffprobe.json
+            artifacts/video-recreate-clck/contact-sheet.jpg
+            artifacts/video-recreate-clck/source-ffprobe.json
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish final status
+        if: always()
         env:
+          SOURCE_URL: ${{ steps.dl.outputs.source_url }}
           EFFECTIVE_URL: ${{ steps.dl.outputs.effective_url }}
         run: |
           set -euo pipefail
+          git pull --rebase origin main
           python3 - <<'PY'
-          import json, os
+          import json,os
           from pathlib import Path
-          out=Path(os.environ['OUT_DIR'])
-          info=json.loads((out/'source-info.json').read_text())
-          info['effective_url']=os.environ.get('EFFECTIVE_URL','')
-          info['run_id']=os.environ['GITHUB_RUN_ID']
-          info['contact_sheet']=f"{os.environ['OUT_DIR']}/contact-sheet.jpg"
-          Path(os.environ['STATUS_FILE']).write_text(json.dumps(info,ensure_ascii=False,indent=2),encoding='utf-8')
+          v=Path('dsh-handoff/render/recreated-video.mp4')
+          a=Path('dsh-handoff/render/recreate-analysis.json')
+          q=Path('dsh-handoff/render/ffprobe.json')
+          ok=v.exists() and v.stat().st_size>0 and q.exists()
+          d={'status':'success' if ok else 'error','run_id':os.environ['GITHUB_RUN_ID'],'artifact_present':bool(ok),'artifact_name':f"video-recreate-{os.environ['GITHUB_RUN_ID']}",'source_url':os.environ.get('SOURCE_URL',''),'effective_url':os.environ.get('EFFECTIVE_URL','')}
+          if v.exists(): d['bytes']=v.stat().st_size
+          if a.exists(): d['analysis']=json.loads(a.read_text())
+          if q.exists(): d['ffprobe']=json.loads(q.read_text())
+          Path(os.environ['STATUS_FILE']).write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$OUT_DIR" "$STATUS_FILE"
-          git commit -m 'Inspect recreate video source [skip ci]'
-          git push
-
-      - name: Upload source artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-recreate-source-${{ github.run_id }}
-          path: |
-            /tmp/video-recreate/source.bin
-            artifacts/video-recreate-clck/ffprobe.json
-            artifacts/video-recreate-clck/source-info.json
-            artifacts/video-recreate-clck/contact-sheet.jpg
-          retention-days: 2
-          compression-level: 0
+          git add "$STATUS_FILE" "$OUT_DIR/contact-sheet.jpg" "$OUT_DIR/source-ffprobe.json" 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update video recreate result [skip ci]'
+            git push
+          fi
