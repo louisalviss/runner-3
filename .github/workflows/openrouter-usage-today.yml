@@ -1,0 +1,120 @@
+name: OpenRouter Usage Today
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/openrouter-usage-today.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Query OpenRouter usage
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from datetime import datetime, timezone
+          from zoneinfo import ZoneInfo
+          import json, os, subprocess
+          now=datetime.now(timezone.utc)
+          vn=ZoneInfo('Asia/Ho_Chi_Minh')
+          local=now.astimezone(vn)
+          start_local=local.replace(hour=0,minute=0,second=0,microsecond=0)
+          start=start_local.astimezone(timezone.utc)
+          q={
+            'metrics':['total_usage','request_count','tokens_total'],
+            'dimensions':['model'],
+            'time_range':{'start':start.isoformat().replace('+00:00','Z'),'end':now.isoformat().replace('+00:00','Z')},
+            'limit':1000
+          }
+          open(os.environ['RUNNER_TEMP']+'/query.json','w').write(json.dumps(q))
+          open(os.environ['RUNNER_TEMP']+'/range.json','w').write(json.dumps({'local_date':str(local.date()),'start_utc':q['time_range']['start'],'end_utc':q['time_range']['end'],'checked_at_vn':local.isoformat()}))
+          PY
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+            printf '%s' '{"error":"missing_openrouter_key"}' > "$RUNNER_TEMP/key.json"
+            printf '%s' '{"error":"missing_openrouter_key"}' > "$RUNNER_TEMP/analytics.json"
+            echo 000 > "$RUNNER_TEMP/key.http"
+            echo 000 > "$RUNNER_TEMP/analytics.http"
+          else
+            curl -sS --connect-timeout 10 --max-time 25 \
+              -o "$RUNNER_TEMP/key.json" -w '%{http_code}' \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+              https://openrouter.ai/api/v1/key > "$RUNNER_TEMP/key.http" || true
+            curl -sS --connect-timeout 10 --max-time 25 \
+              -o "$RUNNER_TEMP/analytics.json" -w '%{http_code}' \
+              -X POST -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+              -H 'Content-Type: application/json' \
+              --data-binary @"$RUNNER_TEMP/query.json" \
+              https://openrouter.ai/api/v1/analytics/query > "$RUNNER_TEMP/analytics.http" || true
+          fi
+          unset OPENROUTER_API_KEY
+
+      - name: Build sanitized status
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          t=os.environ['RUNNER_TEMP']
+          def read(name):
+            try:return json.load(open(f'{t}/{name}'))
+            except:return None
+          def code(name):
+            try:return int(open(f'{t}/{name}').read().strip())
+            except:return 0
+          rng=read('range.json') or {}
+          key=read('key.json') or {}; kd=key.get('data') or {}
+          ana=read('analytics.json') or {}; ah=code('analytics.http'); kh=code('key.http')
+          rows=[]
+          if ah==200:
+            rows=((ana.get('data') or {}).get('data') or [])
+          total_usage=sum(float(r.get('total_usage') or 0) for r in rows)
+          requests=sum(int(float(r.get('request_count') or 0)) for r in rows)
+          tokens=sum(int(float(r.get('tokens_total') or 0)) for r in rows)
+          models=sorted([
+            {'model':r.get('model'),'usd':float(r.get('total_usage') or 0),'requests':int(float(r.get('request_count') or 0)),'tokens':int(float(r.get('tokens_total') or 0))}
+            for r in rows
+          ], key=lambda x:x['usd'], reverse=True)[:20]
+          out={
+            **rng,
+            'key_http':kh,
+            'analytics_http':ah,
+            'analytics_exact_vn_day': ah==200,
+            'today_vn_usd': total_usage if ah==200 else None,
+            'today_vn_requests': requests if ah==200 else None,
+            'today_vn_tokens': tokens if ah==200 else None,
+            'models':models if ah==200 else [],
+            'key_usage_daily_utc': kd.get('usage_daily') if kh==200 else None,
+            'key_usage_total': kd.get('usage') if kh==200 else None,
+            'key_valid': kh==200,
+            'error': None
+          }
+          if kh==0 and ah==0: out['error']='missing_openrouter_key'
+          elif ah!=200: out['error']='analytics_requires_management_key_or_unavailable'
+          open(f'{t}/status.json','w').write(json.dumps(out,separators=(',',':')))
+          PY
+
+      - name: Publish sanitized status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          C="$(base64 -w0 "$RUNNER_TEMP/status.json")"
+          S="$(gh api "repos/$GITHUB_REPOSITORY/contents/openrouter-usage-today-status.json?ref=main" --jq .sha 2>/dev/null || true)"
+          if [ -n "$S" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/openrouter-usage-today-status.json" -f message='Update OpenRouter usage today [skip ci]' -f content="$C" -f sha="$S" -f branch=main >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/openrouter-usage-today-status.json" -f message='Publish OpenRouter usage today [skip ci]' -f content="$C" -f branch=main >/dev/null
+          fi
+          cat "$RUNNER_TEMP/status.json"
