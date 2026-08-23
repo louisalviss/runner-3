@@ -4,11 +4,13 @@ import datetime as dt
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
-DEFAULT_EVENT_URL = "https://runner3-core.ducduy2411.workers.dev/events"
-DEFAULT_LATEST_URL = "https://runner3-core.ducduy2411.workers.dev/events/latest"
+DEFAULT_CORE_URL = "https://runner3-core.ducduy2411.workers.dev"
+DEFAULT_EVENT_URL = f"{DEFAULT_CORE_URL}/events"
+DEFAULT_LATEST_URL = f"{DEFAULT_CORE_URL}/events/latest"
 
 
 def utc_now():
@@ -62,7 +64,7 @@ def decode_payload(value):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Post non-blocking workflow telemetry to Runner3 Core and verify D1 readback.")
+    parser = argparse.ArgumentParser(description="Post workflow telemetry to Runner3 Core and verify D1 readback/state.")
     parser.add_argument("--source", required=True)
     parser.add_argument("--status", required=True)
     parser.add_argument("--workflow", required=True)
@@ -71,6 +73,7 @@ def main():
     parser.add_argument("--sha", required=True)
     parser.add_argument("--ref", required=True)
     parser.add_argument("--checkpoint")
+    parser.add_argument("--core-url", default=os.environ.get("RUNNER3_CORE_URL", DEFAULT_CORE_URL))
     parser.add_argument("--event-url", default=os.environ.get("RUNNER3_EVENT_URL", DEFAULT_EVENT_URL))
     parser.add_argument("--latest-url", default=os.environ.get("RUNNER3_LATEST_URL", DEFAULT_LATEST_URL))
     args = parser.parse_args()
@@ -122,11 +125,38 @@ def main():
                 f"workflow_status_mismatch expected={args.status!r} actual={match_body.get('status')!r}"
             )
 
+        core = args.core_url.rstrip("/")
+        state_url = f"{core}/state/{urllib.parse.quote(args.source, safe='')}"
+        state_detail = {
+            "workflow": args.workflow,
+            "run_attempt": str(args.run_attempt),
+            "sha": args.sha,
+            "ref": args.ref,
+        }
+        state_put = request_json(
+            state_url,
+            method="PUT",
+            payload={
+                "status": args.status,
+                "run_id": str(args.run_id),
+                "detail": state_detail,
+            },
+        )
+        state_get = request_json(state_url)
+        state = state_get.get("state") if isinstance(state_get, dict) else None
+        if not isinstance(state_put, dict) or state_put.get("ok") is not True:
+            raise RuntimeError("workflow_state_write_failed")
+        if not isinstance(state, dict):
+            raise RuntimeError("workflow_state_not_visible_in_d1")
+        if str(state.get("status")) != str(args.status) or str(state.get("run_id")) != str(args.run_id):
+            raise RuntimeError("workflow_state_mismatch")
+
         checkpoint = {
             "ok": True,
             "telemetry_outcome": "success",
             **base,
             "d1_readback": match,
+            "d1_state": state,
         }
         write_checkpoint(args.checkpoint, checkpoint)
         print(json.dumps(checkpoint, ensure_ascii=False, indent=2))
