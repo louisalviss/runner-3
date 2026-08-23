@@ -1,0 +1,62 @@
+name: Site 3 backup prep
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/site3-backup-prep.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP: runner3wp0b90f6b4ab/runner3-speed-site3-realistic
+      RAW_WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+    steps:
+      - name: Login
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(printf '%s' "${RAW_WASMER_TOKEN:-}" | tr -d '\r\n')"
+          test -n "$token"
+          [[ "$token" == wap_* ]] || token="wap_${token}"
+          echo "WASMER_TOKEN=$token" >> "$GITHUB_ENV"
+          curl https://get.wasmer.io -sSfL | sh >/dev/null
+          echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+          "$HOME/.wasmer/bin/wasmer" login --no-browser >/dev/null
+
+      - name: Safe CLI capability inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== database list help ==='
+          wasmer app database list --help
+          echo '=== volume credentials help ==='
+          wasmer app volumes credentials --help
+          echo '=== app get help ==='
+          wasmer app get --help
+
+      - name: Safe app configuration summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          wasmer app get "$APP" > /tmp/app-get.txt
+          python3 - <<'PY'
+          import re
+          text=open('/tmp/app-get.txt',encoding='utf-8',errors='replace').read()
+          print('app_get_bytes=',len(text))
+          # Deliberately print only non-secret structural lines.
+          safe=[]
+          for line in text.splitlines():
+              s=line.strip()
+              if re.match(r'^(kind|owner|name|package|locality|regions|volumes|mount|capabilities|database|engine|instaboot|cdn_cache|enabled|scaling|mode):', s):
+                  if not re.search(r'(password|secret|token|key)', s, re.I):
+                      safe.append(line)
+          print('\n'.join(safe[:100]))
+          PY
+          rm -f /tmp/app-get.txt
