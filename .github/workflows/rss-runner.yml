@@ -1,0 +1,182 @@
+name: RSS Runner
+
+on:
+  push:
+    paths:
+      - rss-job.json
+  workflow_dispatch:
+    inputs:
+      feed_url:
+        description: Public RSS or Atom feed URL
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rss-runner
+  cancel-in-progress: true
+
+jobs:
+  fetch-rss:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare RSS job
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_URL: ${{ github.event.inputs.feed_url }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$DISPATCH_URL" ]; then
+            printf '%s\n' "$DISPATCH_URL" > rss-url.txt
+          else
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          job = json.loads(Path('rss-job.json').read_text(encoding='utf-8'))
+          url = str(job.get('feed_url') or '').strip()
+          if not url.startswith(('http://', 'https://')):
+              raise SystemExit('rss-job.json requires a public http(s) feed_url')
+          Path('rss-url.txt').write_text(url + '\n', encoding='utf-8')
+          PY
+          fi
+
+      - name: Fetch and parse RSS or Atom feed
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          url = Path('rss-url.txt').read_text(encoding='utf-8').strip()
+          req = urllib.request.Request(
+              url,
+              headers={
+                  'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+                  'User-Agent': 'Mozilla/5.0 Runner3RSS/1.0',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              raw = response.read(5_000_000)
+              final_url = response.geturl()
+              status = getattr(response, 'status', 200)
+          if not raw:
+              raise SystemExit('feed response was empty')
+
+          root = ET.fromstring(raw)
+
+          def local(tag):
+              return tag.rsplit('}', 1)[-1].lower()
+
+          def text_of(node, names):
+              for child in node.iter():
+                  if local(child.tag) in names and child.text and child.text.strip():
+                      return child.text.strip()
+              return None
+
+          entries = []
+          candidates = [node for node in root.iter() if local(node.tag) in {'item', 'entry'}]
+          for node in candidates[:25]:
+              title = text_of(node, {'title'})
+              published = text_of(node, {'pubdate', 'published', 'updated', 'date'})
+              link = None
+              for child in node.iter():
+                  if local(child.tag) != 'link':
+                      continue
+                  href = child.attrib.get('href')
+                  if href:
+                      link = href.strip()
+                      break
+                  if child.text and child.text.strip():
+                      link = child.text.strip()
+                      break
+              entries.append({'title': title, 'link': link, 'published': published})
+
+          if not entries:
+              raise SystemExit('feed parsed but contained no RSS item or Atom entry')
+
+          result = {
+              'ok': True,
+              'source_url': url,
+              'final_url': final_url,
+              'http_status': status,
+              'fetched_at': dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z'),
+              'entry_count_sampled': len(entries),
+              'entries': entries,
+          }
+          out = Path('rss-results')
+          out.mkdir(parents=True, exist_ok=True)
+          (out / 'latest.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'ok': True, 'entry_count_sampled': len(entries), 'final_url': final_url}, ensure_ascii=False))
+          PY
+
+      - name: Upload RSS result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-runner-${{ github.run_id }}
+          path: rss-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish compact RSS result to repository
+        if: success()
+        shell: bash
+        run: |
+          test -f rss-results/latest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rss-results/latest.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "rss runner result $GITHUB_RUN_ID [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Shadow telemetry to Runner3 Core
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          EVENT_STATUS: ${{ job.status }}
+          EVENT_WORKFLOW: ${{ github.workflow }}
+          EVENT_RUN_ID: ${{ github.run_id }}
+          EVENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_REF: ${{ github.ref_name }}
+        run: |
+          python .github/scripts/runner3_telemetry.py \
+            --source rss-runner \
+            --status "$EVENT_STATUS" \
+            --workflow "$EVENT_WORKFLOW" \
+            --run-id "$EVENT_RUN_ID" \
+            --run-attempt "$EVENT_RUN_ATTEMPT" \
+            --sha "$EVENT_SHA" \
+            --ref "$EVENT_REF" \
+            --checkpoint ops/runner3-core/rss-runner-telemetry.json
+
+      - name: Persist Runner3 Core telemetry status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          test -f ops/runner3-core/rss-runner-telemetry.json || exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/runner3-core/rss-runner-telemetry.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Persist RSS runner telemetry status: $GITHUB_RUN_ID [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
