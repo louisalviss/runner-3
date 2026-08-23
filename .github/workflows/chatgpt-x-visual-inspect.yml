@@ -24,12 +24,12 @@ jobs:
           sudo apt-get install -y -qq ffmpeg >/dev/null
       - name: Inspect requested X video
         run: |
-          python scripts/inspect_x_video_for_chatgpt.py 'https://x.com/work_with_zaid/status/2091125733716582537'
-          cat evidence/x-video-inspect/2091125733716582537/report.json
-          ls -lh evidence/x-video-inspect/2091125733716582537 evidence/x-video-inspect/2091125733716582537/frames
+          python scripts/inspect_x_video_for_chatgpt.py 'https://x.com/sunmer575399/status/2091122420652593659?s=12'
+          cat evidence/x-video-inspect/2091122420652593659/report.json
+          ls -lh evidence/x-video-inspect/2091122420652593659 evidence/x-video-inspect/2091122420652593659/frames
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zaid-x-visual-${{ github.run_id }}
-          path: evidence/x-video-inspect/2091125733716582537/
+          name: sunmer-x-visual-${{ github.run_id }}
+          path: evidence/x-video-inspect/2091122420652593659/
           retention-days: 3
