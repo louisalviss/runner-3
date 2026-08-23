@@ -13,23 +13,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install deps
-        run: pip install requests pandas
-      - name: Audit official SEC insider ZIP schema only
-        run: |
-          python - <<'PY'
-          import io, zipfile, requests
-          url='https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/2024q1_form345.zip'
-          r=requests.get(url,headers={'User-Agent':'research backtest contact example@example.com'},timeout=60)
-          r.raise_for_status()
-          print('ZIP_BYTES',len(r.content))
-          z=zipfile.ZipFile(io.BytesIO(r.content))
-          print('FILES',z.namelist())
-          for name in z.namelist():
-              u=name.upper()
-              if any(k in u for k in ['SUBMISSION','REPORTINGOWNER','NONDERIV_TRANS']):
-                  with z.open(name) as f:
-                      for i in range(3):
-                          line=f.readline().decode('utf-8','replace').rstrip('\n')
-                          print(name,'LINE',i,line[:5000])
-          print('DONE')
-          PY
+        run: pip install requests pandas numpy
+      - name: Run preregistered official SEC Form4 validation
+        working-directory: research/ema200w_20260823
+        run: python form4_sec_backtest.py
