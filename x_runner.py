@@ -174,6 +174,7 @@ def main():
         "vx": f"https://api.vxtwitter.com/{handle}/status/{tweet_id}",
         "syndication": f"https://cdn.syndication.twimg.com/tweet-result?id={tweet_id}&lang=en",
         "conversation": f"https://api.fxtwitter.com/2/conversation/{tweet_id}?count=100",
+        "search_replies": f"https://api.fxtwitter.com/2/search?q=conversation_id%3A{tweet_id}&feed=latest&count=100",
     }
     fetched = {}
     with ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
@@ -185,7 +186,7 @@ def main():
             except Exception as exc:
                 fetched[name] = {"ok": False, "status": None, "url": endpoints[name], "error": str(exc), "data": None}
 
-    priority = ("legacy", "vx", "syndication", "conversation")
+    priority = ("legacy", "vx", "syndication", "conversation", "search_replies")
     payloads = [
         fetched[name]["data"]
         for name in priority
