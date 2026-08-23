@@ -1,0 +1,37 @@
+name: VBTH OpenRouter 2-Chapter Test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/vbth-openrouter-test.yml'
+      - 'vbth_test/input/**'
+      - 'vbth_test/style.md'
+      - 'vbth_test/run_openrouter_test.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL: google/gemini-2.5-flash-lite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: Run two chapter editing test
+        run: python vbth_test/run_openrouter_test.py
+      - name: Commit test outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vbth_test/output
+          git diff --cached --quiet && exit 0
+          git commit -m "VBTH OpenRouter 2-chapter test output [skip ci]"
+          git push
