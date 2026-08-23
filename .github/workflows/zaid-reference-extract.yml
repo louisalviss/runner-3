@@ -1,17 +1,16 @@
 name: Zaid Reference Extract
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/zaid-reference-extract.yml'
   workflow_dispatch:
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
 
 jobs:
   extract:
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == 'RUN_ZAID_REFERENCE_EXTRACT'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
