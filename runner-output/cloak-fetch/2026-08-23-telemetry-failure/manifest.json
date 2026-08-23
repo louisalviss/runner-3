@@ -1,0 +1,43 @@
+{
+  "engine": "cloakbrowser-read-only",
+  "job_name": "cloak-telemetry-failure-2026-08-23",
+  "job_file": "jobs/cloak-fetch/2026-08-23-telemetry-failure.json",
+  "source_visibility": "public",
+  "mode": "read-only",
+  "browser_version": "146.0.7680.177.5",
+  "started_at": "2026-08-23T14:28:37.844458+00:00",
+  "results": [
+    {
+      "requested_url": "https://www.reddit.com/r/ClaudeAI/s/5Whzsb8QMZ",
+      "started_at": "2026-08-23T14:28:42.441932+00:00",
+      "resolved_ips": [
+        "146.75.105.140"
+      ],
+      "final_resolved_ips": [
+        "146.75.105.140"
+      ],
+      "ok": false,
+      "status": 403,
+      "final_url": "https://www.reddit.com/r/ClaudeAI/s/5Whzsb8QMZ",
+      "title": "",
+      "text_chars": 222,
+      "signals": {
+        "webdriver": false,
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "languages": [
+          "en-US"
+        ],
+        "plugins": 5,
+        "hasChrome": true
+      },
+      "output_dir": "001_www.reddit.com",
+      "blocked_reason": "http_403",
+      "elapsed_seconds": 7.062
+    }
+  ],
+  "finished_at": "2026-08-23T14:28:49.682697+00:00",
+  "wall_seconds": 11.838,
+  "ok_count": 0,
+  "failed_count": 1
+}
