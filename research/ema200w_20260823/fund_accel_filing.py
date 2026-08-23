@@ -64,14 +64,21 @@ def load_openfundex(symbols: set[str]) -> pd.DataFrame:
     f = pd.concat(frames, ignore_index=True)
     f['filing_date'] = pd.to_datetime(f['filing_date'], errors='coerce').astype('datetime64[ns]')
     f['period_end_date'] = pd.to_datetime(f['period_end_date'], errors='coerce').astype('datetime64[ns]')
+    f['fiscal_year'] = pd.to_numeric(f['fiscal_year'], errors='coerce')
     f = f[
         f['fiscal_quarter'].astype(str).str.upper().eq('FY') &
         f['filing_date'].notna() &
+        f['fiscal_year'].notna() &
         f['filing_date'].le(VAL_END) &
         f['qa_pass'].fillna(False)
     ].copy()
-    f = f.sort_values(['symbol', 'filing_date', 'period_end_date', 'fiscal_year'])
-    f = f.drop_duplicates(['symbol', 'filing_date'], keep='last')
+
+    # Annual acceleration must compare distinct fiscal years. Keep the first PIT filing
+    # for each symbol/fiscal-year so later amendments cannot masquerade as a new year.
+    f = f.sort_values(['symbol', 'fiscal_year', 'filing_date', 'period_end_date'])
+    f = f.drop_duplicates(['symbol', 'fiscal_year'], keep='first')
+    f = f.sort_values(['symbol', 'filing_date'])
+
     f['fcf'] = f['free_cash_flow']
     m = f['fcf'].isna() & f['operating_cash_flow'].notna() & f['capex'].notna()
     f.loc[m, 'fcf'] = f.loc[m, 'operating_cash_flow'] - f.loc[m, 'capex'].abs()
@@ -87,16 +94,21 @@ def load_openfundex(symbols: set[str]) -> pd.DataFrame:
         f['ni_up'] & f['fcf'].gt(0) & f['prev_fcf'].gt(0) &
         f['fcf'].gt(f['prev_fcf'])
     )
-    return f[['symbol', 'filing_date', 'period_end_date', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf', 'ni_up', 'fcf_up']]
+    return f[['symbol', 'filing_date', 'period_end_date', 'fiscal_year', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf', 'ni_up', 'fcf_up']]
 
 
 def attach_fundamentals(w: pd.DataFrame, f: pd.DataFrame) -> pd.DataFrame:
     cols_init = {
-        'fund_filed': pd.NaT, 'fund_end': pd.NaT, 'net_income': np.nan, 'fcf': np.nan,
-        'prev_net_income': np.nan, 'prev_fcf': np.nan, 'ni_up': False, 'fcf_up': False
+        'fund_filed': pd.NaT, 'fund_end': pd.NaT, 'fiscal_year': np.nan,
+        'net_income': np.nan, 'fcf': np.nan, 'prev_net_income': np.nan, 'prev_fcf': np.nan,
     }
     for c, v in cols_init.items():
         w[c] = v
+    # Object dtype accepts the NaN/bool mixture produced by merge_asof under pandas 3;
+    # flags are normalized to bool immediately after attachment.
+    w['ni_up'] = None
+    w['fcf_up'] = None
+
     for sym, idx in w.groupby('symbol', sort=False, observed=True).groups.items():
         s = f[f['symbol'].eq(sym)].copy()
         if s.empty:
@@ -107,11 +119,11 @@ def attach_fundamentals(w: pd.DataFrame, f: pd.DataFrame) -> pd.DataFrame:
         left['week'] = pd.to_datetime(left['week']).astype('datetime64[ns]')
         merged = pd.merge_asof(
             left,
-            s[['fund_filed', 'fund_end', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf', 'ni_up', 'fcf_up']].sort_values('fund_filed'),
+            s[['fund_filed', 'fund_end', 'fiscal_year', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf', 'ni_up', 'fcf_up']].sort_values('fund_filed'),
             left_on='week', right_on='fund_filed', direction='backward'
         )
         merged.index = left.index
-        for c in ['fund_filed', 'fund_end', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf', 'ni_up', 'fcf_up']:
+        for c in ['fund_filed', 'fund_end', 'fiscal_year', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf', 'ni_up', 'fcf_up']:
             w.loc[merged.index, c] = merged[c].to_numpy()
     w['ni_up'] = w['ni_up'].fillna(False).astype(bool)
     w['fcf_up'] = w['fcf_up'].fillna(False).astype(bool)
@@ -129,7 +141,7 @@ def make_events(w: pd.DataFrame) -> pd.DataFrame:
         ('AnnualFiling+NIUp+FCFUp', w['new_filing'] & w['fcf_up'], 'fcf'),
     ]
     rows = []
-    cols = ['symbol', 'series_id', 'week', 'fund_filed', 'ret52_pre', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf']
+    cols = ['symbol', 'series_id', 'week', 'fund_filed', 'fiscal_year', 'ret52_pre', 'net_income', 'fcf', 'prev_net_income', 'prev_fcf']
     for name, mask, code in specs:
         idx = w.index[(mask & w['is_member'] & w['week'].between(DISC_START, VAL_END)).fillna(False)]
         if not len(idx):
