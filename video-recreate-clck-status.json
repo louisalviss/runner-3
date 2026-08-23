@@ -1,112 +1,21 @@
 {
-  "status": "success",
+  "status": "creative_fail",
   "run_id": "32656732731",
+  "source_url": "https://clck.ru/3VNYSd",
   "artifact_present": true,
   "artifact_name": "video-recreate-32656732731",
-  "source_url": "https://clck.ru/3VNYSd",
-  "effective_url": "https://site--linkfilesbot--c9wr46mbxrhc.code.run/download/1537182398/2066432",
-  "bytes": 2961091,
-  "analysis": {
-    "status": "success",
-    "reference": "/tmp/video-recreate/source.bin",
-    "output": "dsh-handoff/render/recreated-video.mp4",
-    "duration_sec": 30.114875,
+  "technical_status": "pass",
+  "creative_status": "fail",
+  "technical_output": {
+    "duration_sec": 30.025011,
+    "width": 720,
+    "height": 1280,
     "fps": 30,
-    "canvas": "720x1280",
-    "visuals": "rebuilt from generated UI/assets; source visuals not reused",
-    "audio": "reference audio muxed for timing fidelity",
-    "method": "asset-based generated stills + FFmpeg motion/concat",
-    "segment_count": 15,
-    "phases": [
-      {
-        "start": 0,
-        "end": 10,
-        "name": "problem / banned accounts monitor"
-      },
-      {
-        "start": 10,
-        "end": 20,
-        "name": "SocksNode proxy UI demo"
-      },
-      {
-        "start": 20,
-        "end": 30.114875,
-        "name": "logo + CTA outro"
-      }
-    ],
-    "captions": [
-      [
-        0.0,
-        2.8,
-        "NUÔI 100 ACC DIE SẠCH 99\nVÌ IP BẨN"
-      ],
-      [
-        2.8,
-        4.6,
-        "dùng Proxy Mobile thì đỉnh cao"
-      ],
-      [
-        4.6,
-        6.4,
-        "dừng lại ngay"
-      ],
-      [
-        6.4,
-        9.2,
-        "chúng tôi đã có giải pháp cá nhân\ntại Việt Nam"
-      ],
-      [
-        9.2,
-        11.6,
-        "Proxy Mobile chất lượng y hệt"
-      ],
-      [
-        11.6,
-        13.8,
-        "nhưng giá rẻ hơn tới 10 lần"
-      ],
-      [
-        13.8,
-        17.4,
-        "đổi quốc gia, bang, IP tùy ý\nkhông giới hạn"
-      ],
-      [
-        17.4,
-        21.6,
-        "có ngay 100.000.000 IP toàn cầu\nchỉ từ 0,3 đô trên 1GB"
-      ],
-      [
-        21.6,
-        24.7,
-        "truy cập ngay socksnode.com để nhận ưu đãi"
-      ],
-      [
-        24.7,
-        27.6,
-        "link mình để ở phần mô tả"
-      ]
-    ],
+    "video_codec": "h264",
+    "audio_codec": "aac",
     "bytes": 2961091
   },
-  "ffprobe": {
-    "programs": [],
-    "streams": [
-      {
-        "codec_name": "h264",
-        "codec_type": "video",
-        "width": 720,
-        "height": 1280,
-        "avg_frame_rate": "30/1"
-      },
-      {
-        "codec_name": "aac",
-        "codec_type": "audio",
-        "avg_frame_rate": "0/0"
-      }
-    ],
-    "format": {
-      "duration": "30.025011",
-      "size": "2961091"
-    }
-  }
+  "creative_report": "video-recreate-quality-report.json",
+  "required_flow": "FLOWS/video-recreate-reference-v1.md",
+  "note": "Previous overall success was invalid: it represented technical media QA only and did not test reference fidelity."
 }
