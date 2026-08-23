@@ -8,7 +8,7 @@ on:
       - '.github/workflows/runner3-r2-bootstrap.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   ensure-r2:
@@ -25,59 +25,95 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, sys, urllib.error, urllib.parse, urllib.request
+          import datetime, json, os, urllib.error, urllib.parse, urllib.request
 
-          token = os.environ['CLOUDFLARE_API_TOKEN']
-          account = os.environ['CLOUDFLARE_ACCOUNT_ID']
-          bucket_name = os.environ['R2_BUCKET_NAME']
-          base = f'https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets'
-          headers = {
-              'Authorization': 'Bearer ' + token,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
+          result = {
+              'checkedAt': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+              'ok': False,
+              'bucket': os.environ.get('R2_BUCKET_NAME', 'runner3-artifacts'),
+              'public': False,
           }
 
-          def call(url, method='GET', body=None):
-              data = json.dumps(body).encode() if body is not None else None
-              req = urllib.request.Request(url, data=data, headers=headers, method=method)
-              try:
+          try:
+              token = os.environ['CLOUDFLARE_API_TOKEN']
+              account = os.environ['CLOUDFLARE_ACCOUNT_ID']
+              bucket_name = os.environ['R2_BUCKET_NAME']
+              base = f'https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets'
+              headers = {
+                  'Authorization': 'Bearer ' + token,
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+              }
+
+              def call(url, method='GET', body=None):
+                  data = json.dumps(body).encode() if body is not None else None
+                  req = urllib.request.Request(url, data=data, headers=headers, method=method)
                   with urllib.request.urlopen(req, timeout=30) as response:
                       payload = json.load(response)
-              except urllib.error.HTTPError as exc:
-                  raw = exc.read().decode(errors='replace')
-                  print(f'Cloudflare R2 API HTTP {exc.code}: {raw}', file=sys.stderr)
-                  if exc.code in (401, 403):
-                      print('CLOUDFLARE_API_TOKEN needs account permission: Workers R2 Storage Write', file=sys.stderr)
-                  raise
-              if payload.get('success') is not True:
-                  raise RuntimeError('Cloudflare R2 API failed: ' + json.dumps(payload.get('errors', [])))
-              return payload
+                  if payload.get('success') is not True:
+                      raise RuntimeError('Cloudflare R2 API failed: ' + json.dumps(payload.get('errors', [])))
+                  return payload
 
-          query = urllib.parse.urlencode({'name_contains': bucket_name, 'per_page': 100})
-          listed = call(base + '?' + query)
-          buckets = (listed.get('result') or {}).get('buckets') or []
-          bucket = next((item for item in buckets if item.get('name') == bucket_name), None)
+              query = urllib.parse.urlencode({'name_contains': bucket_name, 'per_page': 100})
+              listed = call(base + '?' + query)
+              buckets = (listed.get('result') or {}).get('buckets') or []
+              bucket = next((item for item in buckets if item.get('name') == bucket_name), None)
 
-          if bucket is None:
-              created = call(base, 'POST', {
-                  'name': bucket_name,
-                  'locationHint': 'apac',
-                  'storageClass': 'Standard',
+              if bucket is None:
+                  created = call(base, 'POST', {
+                      'name': bucket_name,
+                      'locationHint': 'apac',
+                      'storageClass': 'Standard',
+                  })
+                  bucket = created.get('result') or {}
+                  action = 'created'
+              else:
+                  action = 'reused'
+
+              if bucket.get('name') != bucket_name:
+                  raise RuntimeError('R2 bucket verification failed')
+
+              result.update({
+                  'ok': True,
+                  'action': action,
+                  'bucket': bucket.get('name'),
+                  'location': bucket.get('location'),
+                  'storage_class': bucket.get('storage_class'),
               })
-              bucket = created.get('result') or {}
-              action = 'created'
-          else:
-              action = 'reused'
+          except urllib.error.HTTPError as exc:
+              raw = exc.read().decode(errors='replace')
+              result.update({
+                  'http': exc.code,
+                  'error': raw[:1000],
+                  'permission_hint': 'Workers R2 Storage Write' if exc.code in (401, 403) else None,
+              })
+          except Exception as exc:
+              result['error'] = str(exc)[:1000]
 
-          if bucket.get('name') != bucket_name:
-              raise RuntimeError('R2 bucket verification failed')
-
-          print(json.dumps({
-              'ok': True,
-              'action': action,
-              'bucket': bucket.get('name'),
-              'location': bucket.get('location'),
-              'storage_class': bucket.get('storage_class'),
-              'public': False,
-          }, indent=2))
+          os.makedirs('/tmp', exist_ok=True)
+          with open('/tmp/runner3-r2-bootstrap.json', 'w') as handle:
+              json.dump(result, handle, indent=2)
+              handle.write('\n')
+          print(json.dumps(result, indent=2))
           PY
+
+      - name: Persist R2 bootstrap proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          test -s /tmp/runner3-r2-bootstrap.json || printf '{"ok":false,"error":"bootstrap_result_missing"}\n' >/tmp/runner3-r2-bootstrap.json
+          for attempt in 1 2 3 4; do
+            git fetch origin main
+            git checkout -B main origin/main
+            mkdir -p ops/cloudflare-capability
+            cp /tmp/runner3-r2-bootstrap.json ops/cloudflare-capability/runner3-r2-bootstrap.json
+            git add ops/cloudflare-capability/runner3-r2-bootstrap.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist Runner3 R2 bootstrap proof [skip ci]"
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
