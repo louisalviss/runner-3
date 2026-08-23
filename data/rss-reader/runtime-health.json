@@ -2,28 +2,24 @@
   "version": 1,
   "collector": "runner-3",
   "scope": "ai-rss-reader-ingestion",
-  "runStartedAt": "2026-08-23T04:08:01Z",
-  "runFinishedAt": "2026-08-23T04:08:15Z",
+  "runStartedAt": "2026-08-23T04:58:45Z",
+  "runFinishedAt": "2026-08-23T04:58:59Z",
   "logicalSourceCount": 15,
   "runner3LogicalSources": 13,
   "chatgptDirectSources": [
     "hoquoctuan",
     "vnhacker"
   ],
-  "status": "failed",
-  "ingestionOk": false,
+  "status": "healthy",
+  "ingestionOk": true,
   "gate": {
     "core12": {
       "ok": true,
       "problems": []
     },
     "vohoanghacHybrid": {
-      "ok": false,
-      "problems": [
-        "vohoanghac: logical source not healthy",
-        "vohoanghac.notes: not healthy",
-        "vohoanghac health counters/status invalid"
-      ]
+      "ok": true,
+      "problems": []
     },
     "readerStateShape": {
       "ok": true,
@@ -39,8 +35,8 @@
     },
     "vohoanghac": {
       "script": "rss_substack_collect_v2.py",
-      "exitCode": 2,
-      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"1-substack-hybrid\", \"status\": \"failed\", \"articles_ok\": true, \"notes_ok\": false, \"fresh_articles\": 20, \"fresh_notes\": 0, \"notes_error\": \"RuntimeError: profile feed request failed; direct params={'limit': 50}: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/reader/feed/profile/131582197?limit=50 | direct params={}: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/reader/feed/profile/131582197 | relay params={'limit': 50}: HTTPError: 401 Client Error: Unauthorized for url: https://r.jina.ai/https://substack.com/api/v1/reader/feed/profile/131582197?limit=50 | relay params={}: HTTPError: 401 Client Error: Unauthorized for url: https://r.jina.ai/https://substack.com/api/v1/reader/feed/profile/131582197\"}",
+      "exitCode": 0,
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"1-substack-hybrid\", \"status\": \"healthy\", \"articles_ok\": true, \"notes_ok\": true, \"fresh_articles\": 20, \"fresh_notes\": 32, \"notes_error\": null}",
       "stderr": ""
     }
   },

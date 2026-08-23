@@ -2,13 +2,13 @@
   "version": 3,
   "collector": "runner-3",
   "scope": "1-substack-hybrid",
-  "runStartedAt": "2026-08-23T04:08:14Z",
+  "runStartedAt": "2026-08-23T04:58:56Z",
   "sources": {
     "vohoanghac": {
-      "ok": false,
+      "ok": true,
       "transport": "hybrid-rss+substack-profile",
-      "checkedAt": "2026-08-23T04:08:15Z",
-      "preservedExistingMirror": true,
+      "checkedAt": "2026-08-23T04:58:59Z",
+      "preservedExistingMirror": false,
       "contentChanged": false,
       "components": {
         "articles": {
@@ -21,10 +21,50 @@
           "contentHashChangeCount": 0
         },
         "notes": {
-          "ok": false,
+          "ok": true,
           "transport": "substack-public-profile",
           "profileUrl": "https://substack.com/@vohoanghac",
-          "error": "RuntimeError: profile feed request failed; direct params={'limit': 50}: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/reader/feed/profile/131582197?limit=50 | direct params={}: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/reader/feed/profile/131582197 | relay params={'limit': 50}: HTTPError: 401 Client Error: Unauthorized for url: https://r.jina.ai/https://substack.com/api/v1/reader/feed/profile/131582197?limit=50 | relay params={}: HTTPError: 401 Client Error: Unauthorized for url: https://r.jina.ai/https://substack.com/api/v1/reader/feed/profile/131582197"
+          "freshItemCount": 32,
+          "newestPublishedAt": "2026-08-21T04:19:09Z",
+          "userId": 131582197,
+          "profileLookupUrl": "https://vohoanghac.com/api/v1/archive?sort=new&limit=10",
+          "profileIdSource": "publication_archive_byline",
+          "feedUrl": "https://substack.com/api/v1/reader/feed/profile/131582197?limit=50&cursor=eyJiZWZvcmVfdGltZXN0YW1wIjoiMjAyNi0wOC0yM1QwNDo1ODo1Ny42MjJaIiwiZW50aXR5X2tleSI6ImMtMzA1MzI1NDQ2IiwicGlubmVkX2VudGl0eV9rZXlzIjpbInAtMjExOTYzMTc2Il0sImNvbnRleHRfdGltZXN0YW1wIjoiMjAyNi0wNy0zMVQxMDoyNTo1MC4xMDNaIiwicHJlcGVuZGVkX3Bvc3RfaWRzIjpudWxsLCJwYWdlX251bWJlciI6MX0%3D",
+          "rawProfileEntryCount": 36,
+          "commentActivityCount": 32,
+          "validOriginalNoteCount": 32,
+          "requestVariants": [
+            {
+              "params": {
+                "limit": 50
+              },
+              "transport": "jina-live-relay",
+              "relayNoCache": true,
+              "relayDNT": true
+            },
+            {
+              "params": {
+                "limit": 50,
+                "cursor": "eyJiZWZvcmVfdGltZXN0YW1wIjoiMjAyNi0wOC0yM1QwNDo1ODo1Ny42MjJaIiwiZW50aXR5X2tleSI6ImMtMzEzMDkwMzQxIiwicGlubmVkX2VudGl0eV9rZXlzIjpbInAtMjExOTYzMTc2Il0sImNvbnRleHRfdGltZXN0YW1wIjoiMjAyNi0wOC0xMlQxNDozNzoxNi4xMTZaIiwicHJlcGVuZGVkX3Bvc3RfaWRzIjpudWxsLCJwYWdlX251bWJlciI6MH0="
+              },
+              "transport": "jina-live-relay",
+              "relayNoCache": true,
+              "relayDNT": true
+            },
+            {
+              "params": {
+                "limit": 50,
+                "cursor": "eyJiZWZvcmVfdGltZXN0YW1wIjoiMjAyNi0wOC0yM1QwNDo1ODo1Ny42MjJaIiwiZW50aXR5X2tleSI6ImMtMzA1MzI1NDQ2IiwicGlubmVkX2VudGl0eV9rZXlzIjpbInAtMjExOTYzMTc2Il0sImNvbnRleHRfdGltZXN0YW1wIjoiMjAyNi0wNy0zMVQxMDoyNTo1MC4xMDNaIiwicHJlcGVuZGVkX3Bvc3RfaWRzIjpudWxsLCJwYWdlX251bWJlciI6MX0="
+              },
+              "transport": "jina-live-relay",
+              "relayNoCache": true,
+              "relayDNT": true
+            }
+          ],
+          "feedTransports": [
+            "jina-live-relay"
+          ],
+          "liveRelayUsed": true
         }
       },
       "contentHashChangeCount": 0,
@@ -32,8 +72,8 @@
       "newestPublishedAt": "2026-08-21T04:19:09Z"
     }
   },
-  "runFinishedAt": "2026-08-23T04:08:15Z",
-  "okCount": 0,
-  "failedCount": 1,
-  "status": "failed"
+  "runFinishedAt": "2026-08-23T04:58:59Z",
+  "okCount": 1,
+  "failedCount": 0,
+  "status": "healthy"
 }
