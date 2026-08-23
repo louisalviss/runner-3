@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install pandas numpy requests pyarrow
-      - name: Normalize public parquet schema
+      - name: Normalize public parquet and merge schema
         working-directory: research/ema200w_20260823
         run: |
           python - <<'PY'
@@ -27,6 +27,7 @@ jobs:
           p = Path('pead_earnings_surprise.py')
           s = p.read_text()
           s = s.replace(", 'market_cap'", "")
+          s = s.replace("pcols = ['week','symbol','series_id','is_member','ret52_pre','next_open']", "pcols = ['week','series_id','is_member','ret52_pre','next_open']")
           p.write_text(s)
           PY
       - name: Run PEAD earnings-surprise decomposition
