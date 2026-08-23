@@ -1,0 +1,19 @@
+name: Momentum 12-1 Audit
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install requests pandas numpy
+      - name: Run preregistered PIT 12-1 momentum portfolio validation
+        working-directory: research/ema200w_20260823
+        run: python momentum_12_1_backtest.py
