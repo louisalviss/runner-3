@@ -53,6 +53,11 @@ def run_case(base, ref, bars, info, history_start, report_start, report_end, *, 
         lastbar=tc>=rdc or tc+base.TF_MS>rdc
         sexit=(tc<ex and tc+base.TF_MS>=ex) or (tc>=ex and tc<=rdc) or lastbar
         return not noentry,sexit
+    def entry_open_allowed(b):
+        if not use_session:return True
+        market,rdc=sc.state(b)
+        if not market or rdc is None:return False
+        return b.ot < rdc-40*60000
     def close(i,reason,px):
         nonlocal active,eq
         p=active; b=bars[i]
@@ -89,7 +94,7 @@ def run_case(base, ref, bars, info, history_start, report_start, report_end, *, 
                     else:
                         counters['confirm_fail']+=1; pending=None
                 elif pending.get('stage')=='entry' and i==pending['entry_i']:
-                    entry_allowed,_=sess_flags(b)
+                    entry_allowed=entry_open_allowed(b)
                     if not entry_allowed:
                         counters['entry_session_skip']+=1; pending=None
                     elif news_locked(b.ot):
