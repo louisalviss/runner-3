@@ -1,0 +1,43 @@
+name: WR CCI Exact A-B
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'research/wr_cci_ab_fx.py'
+      - 'research/download_wr_fx_dukascopy.js'
+      - '.github/workflows/wr-cci-ab.yml'
+permissions:
+  contents: read
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Dukascopy client
+        run: npm install --no-save dukascopy-node
+      - name: Download canonical FX bars
+        env:
+          WRFX_FROM: '2022-01-01'
+          WRFX_TO: '2026-08-22'
+          WRFX_DATA_DIR: /tmp/wrfx_data
+        run: node research/download_wr_fx_dukascopy.js
+      - name: Run exact CCI A/B
+        env:
+          WRFX_DATA_DIR: /tmp/wrfx_data
+        run: python research/wr_cci_ab_fx.py
+      - name: Print summary
+        if: always()
+        run: cat evidence/wr-cci-ab/summary.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-cci-ab-${{ github.run_id }}
+          path: evidence/wr-cci-ab/
+          retention-days: 7
