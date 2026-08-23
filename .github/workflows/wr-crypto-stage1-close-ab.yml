@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: wr-crypto-stage1-close-ab-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   shard:
