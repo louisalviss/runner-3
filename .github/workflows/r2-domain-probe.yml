@@ -30,7 +30,7 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')
-          curl -fsS "https://api.cloudflare.com/client/v4/zones?account.id=${CLOUDFLARE_ACCOUNT_ID}&per_page=50" "${auth[@]}" > /tmp/zones.json
+          curl -fsS "https://api.cloudflare.com/client/v4/zones?per_page=50" "${auth[@]}" > /tmp/zones.json
           curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets" "${auth[@]}" > /tmp/buckets.json
           python - <<'PY'
           import json, datetime
@@ -42,7 +42,7 @@ jobs:
             'zonesApiSuccess': bool(z.get('success')),
             'bucketsApiSuccess': bool(b.get('success')),
             'zones': [
-              {'id':x.get('id'),'name':x.get('name'),'status':x.get('status'),'paused':x.get('paused')}
+              {'id':x.get('id'),'name':x.get('name'),'status':x.get('status'),'paused':x.get('paused'),'account':(x.get('account') or {}).get('name')}
               for x in (z.get('result') or [])
             ],
             'buckets': [
