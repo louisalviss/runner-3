@@ -1,0 +1,41 @@
+name: Wasmer Reset Module Probe
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wasmer-reset-module-probe.yml']
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          curl -LsS https://wasmer.io/reset-password -o /tmp/h
+          python - <<'PY'
+          import re,urllib.request,json
+          h=open('/tmp/h',errors='ignore').read(); srcs=re.findall(r'<script\b[^>]*?src=["\']([^"\']+)["\']',h,re.I); hits=[]
+          for src in srcs:
+            u='https://wasmer.io'+src if src.startswith('/') else src
+            try:s=urllib.request.urlopen(u,timeout=20).read().decode('utf8','ignore')
+            except:continue
+            for needle in ['49521:', 'requestPasswordReset', 'RequestPasswordReset']:
+              start=0
+              while True:
+                i=s.find(needle,start)
+                if i<0: break
+                a=max(0,i-1800);b=min(len(s),i+5000);hits.append({'src':src,'needle':needle,'snippet':s[a:b]});start=i+len(needle)
+                if len(hits)>=20:break
+              if len(hits)>=20:break
+            if len(hits)>=20:break
+          open('/tmp/o.json','w').write(json.dumps({'status':'ok','hits':hits},indent=2))
+          PY
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main && git reset --hard origin/main; mkdir -p ops/wasmer; cp /tmp/o.json ops/wasmer/reset-module-probe.json; git add ops/wasmer/reset-module-probe.json
+          if ! git diff --cached --quiet; then git commit -m 'Persist Wasmer reset module probe'; git push origin HEAD:main; fi
