@@ -7,7 +7,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import requests
 
-S=requests.Session(); S.headers.update({'User-Agent':'louis-research-deep-audit/1.1'})
+S=requests.Session(); S.headers.update({'User-Agent':'louis-research-deep-audit/1.2'})
 HF_EPS='siddharthmb/stocks-earnings-eps_estimate'
 AV_DEMO='https://www.alphavantage.co/query?function=EARNINGS_ESTIMATES&symbol=IBM&apikey=demo'
 
@@ -64,16 +64,40 @@ def read_panel():
     valid['year']=valid.date.dt.year; cov=valid.groupby(['year','period']).agg(rows=('act_symbol','size'),symbols=('act_symbol','nunique'),dates=('date','nunique')).reset_index()
     print('HF_COVERAGE_BY_YEAR_PERIOD',cov.to_json(orient='records'))
 
-    weekly=valid[valid.date.dt.dayofweek==4].copy()
-    old=weekly[key+['date','consensus']].rename(columns={'date':'old_date','consensus':'old_consensus'}).sort_values('old_date')
-    cur=weekly[key+['date','consensus']].sort_values('date')
+    # Practical frozen-test availability: Current Year only, first source snapshot each month,
+    # compared with the latest observation for the SAME fiscal target at/before current_date-21d,
+    # no older than 45d. No return outcomes are touched here.
+    cy=valid[valid['period'].eq('Current Year') & valid['consensus'].notna() & valid['count'].notna()].copy()
+    cy['month']=cy['date'].dt.to_period('M')
+    cur=(cy.sort_values(['act_symbol','date'],kind='mergesort')
+           .drop_duplicates(['act_symbol','month'],keep='first').copy())
+    cur['lookup_date']=cur['date']-pd.Timedelta(days=21)
+    right=(cy[['act_symbol','period_end_date','date','consensus','count']]
+           .rename(columns={'date':'prior_date','consensus':'prior_consensus','count':'prior_count'}))
     try:
-        m=pd.merge_asof(cur.sort_values('date'),old.sort_values('old_date'),left_on='date',right_on='old_date',by=key,direction='backward',tolerance=pd.Timedelta(days=45),allow_exact_matches=False)
-        age=(m.date-m.old_date).dt.days; m=m[(age>=21)&m.consensus.notna()&m.old_consensus.notna()]
-        d=m.consensus-m.old_consensus
-        print('HF_30D_REVISION_SAMPLES',json.dumps({'n':int(len(d)),'pct_up':float((d>0).mean()),'pct_down':float((d<0).mean()),'pct_flat':float((d==0).mean()),'median_abs_change':float(d.abs().median())}))
-    except Exception as e: print('HF_30D_AUDIT_ERROR',repr(e))
-    print('HF_PROVENANCE_STATUS','MIRROR_REQUIRES_DIRECT_DOLTHUB_GATE')
+        m=pd.merge_asof(
+            cur.sort_values('lookup_date',kind='mergesort'),
+            right.sort_values('prior_date',kind='mergesort'),
+            left_on='lookup_date', right_on='prior_date',
+            by=['act_symbol','period_end_date'], direction='backward',
+            tolerance=pd.Timedelta(days=24), allow_exact_matches=True)
+        age=(m['date']-m['prior_date']).dt.days
+        m=m[m['prior_date'].notna() & age.between(21,45,inclusive='both') & m['count'].ge(3) & m['prior_count'].ge(3)].copy()
+        d=m['consensus']-m['prior_consensus']
+        print('HF_21_45D_CURRENT_YEAR_MONTHLY',json.dumps({
+            'n':int(len(m)),
+            'symbols':int(m['act_symbol'].nunique()),
+            'date_min':None if m.empty else str(m['date'].min().date()),
+            'date_max':None if m.empty else str(m['date'].max().date()),
+            'age_median':None if m.empty else float(age.loc[m.index].median()),
+            'pct_up':float((d>0).mean()) if len(d) else None,
+            'pct_down':float((d<0).mean()) if len(d) else None,
+            'pct_flat':float((d==0).mean()) if len(d) else None,
+            'median_abs_change':float(d.abs().median()) if len(d) else None,
+        }))
+    except Exception as e:
+        print('HF_21_45D_AUDIT_ERROR',repr(e))
+    print('HF_PROVENANCE_STATUS','DIRECT_DOLTHUB_GATE_REQUIRED_AND_SEPARATELY_RUN')
 
 def main():
     alpha_vantage_probe(); read_panel(); print('DEEP_SOURCE_AUDIT_DONE')
