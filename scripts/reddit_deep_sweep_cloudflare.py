@@ -21,6 +21,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -28,7 +31,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = Path(__file__).with_name("reddit_deep_sweep.py")
 STATUS_PATH = ROOT / "ops/audio-library/chatgpt-bridge-status.json"
-UA = "runner3-reddit-deep-sweep/3.1 (+public read-only research)"
+UA = "runner3-reddit-deep-sweep/3.2 (+public read-only research)"
 ARCHIVE_BASE = "https://arctic-shift.photon-reddit.com"
 JINA_BASE = "https://r.jina.ai/https://www.reddit.com"
 WIKI_EXPORT_REPO = "https://github.com/RichVarney/RealDayTrading_Wiki"
@@ -338,12 +341,46 @@ def public_fallback_request_json(path: str, query: dict[str, object] | None = No
     raise RuntimeError(f"public_fallback_path_not_supported:{path}")
 
 
-def export_wiki_snapshot(collector, subreddit: str, live_fetch_wiki):
-    export_dir_raw = os.environ.get("RDT_WIKI_EXPORT_DIR", "").strip()
-    if not export_dir_raw:
-        return live_fetch_wiki(subreddit)
+def ensure_wiki_export_dir() -> Path:
+    configured = os.environ.get("RDT_WIKI_EXPORT_DIR", "").strip()
+    if configured:
+        path = Path(configured)
+        if (path / "posts").is_dir():
+            return path
+        raise RuntimeError(f"rdt_wiki_export_dir_invalid:{path}")
 
-    export_dir = Path(export_dir_raw)
+    target = Path(tempfile.gettempdir()) / "rdt-wiki-export"
+    if target.exists():
+        shutil.rmtree(target)
+    clone_url = WIKI_EXPORT_REPO + ".git"
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", clone_url, str(target)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run(
+        ["git", "-C", str(target), "sparse-checkout", "set", "posts"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=120,
+    )
+    commit = subprocess.check_output(
+        ["git", "-C", str(target), "rev-parse", "HEAD"],
+        text=True,
+        timeout=20,
+    ).strip()
+    os.environ["RDT_WIKI_EXPORT_DIR"] = str(target)
+    os.environ["RDT_WIKI_EXPORT_COMMIT"] = commit
+    return target
+
+
+def export_wiki_snapshot(collector, subreddit: str, live_fetch_wiki):
+    export_dir = ensure_wiki_export_dir()
     posts_dir = export_dir / "posts"
     files = sorted(posts_dir.glob("*.md"))
     if not files:
