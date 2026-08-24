@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-08-24T19:13:18.645712+00:00",
+  "bucket": "runner3-direct-download-test",
+  "ruleId": "auto-delete-direct-downloads-30d",
+  "retentionDays": 30,
+  "maxAgeSeconds": 2592000,
+  "scopePrefix": "",
+  "appliesToExistingAndNewObjects": true,
+  "putSuccess": true,
+  "rule": {
+    "id": "auto-delete-direct-downloads-30d",
+    "enabled": true,
+    "conditions": {
+      "prefix": ""
+    },
+    "deleteObjectsTransition": {
+      "condition": {
+        "type": "Age",
+        "maxAge": 2592000
+      }
+    }
+  },
+  "totalRulesAfter": 2,
+  "verified": true
+}
