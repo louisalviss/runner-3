@@ -6,6 +6,11 @@ on:
     paths:
       - 'research/factor_edge_search_20260824/**'
       - '.github/workflows/factor-edge-search.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/factor_edge_search_20260824/**'
+      - '.github/workflows/factor-edge-search.yml'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +38,7 @@ jobs:
           path: artifacts/factor_edge_search_20260824/
           if-no-files-found: error
       - name: Commit result
+        if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
