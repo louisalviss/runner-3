@@ -1,0 +1,72 @@
+name: Ebook Flow Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'story_pipeline/ebook_checkpoint.py'
+      - 'story_pipeline/test_ebook_checkpoint.py'
+      - 'story_pipeline/books/**'
+      - '.github/workflows/ebook-flow-proof.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ebook-flow-proof
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run semantic resume contract tests
+        working-directory: story_pipeline
+        run: python -m unittest -v test_ebook_checkpoint.py
+
+      - name: Verify shared Runner3 Core D1 round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('.github/scripts').resolve()))
+          from runner3_core import get_checkpoint, save_checkpoint
+
+          project = 'ebook-editorial-proof'
+          scope = 'generic-contract'
+          source = 'ebook-flow-proof'
+          token = f"{os.environ['GITHUB_RUN_ID']}:{os.environ['GITHUB_RUN_ATTEMPT']}"
+          position = {
+              'schema_version': 1,
+              'phase': 'proof',
+              'contract': 'dropbox-artifact-d1-control-plane',
+              'run_token': token,
+              'sha': os.environ['GITHUB_SHA'],
+          }
+          saved = save_checkpoint(
+              project,
+              source,
+              scope=scope,
+              status='success',
+              position=position,
+              dropbox_path=None,
+              last_error=None,
+          )
+          durable = get_checkpoint(project, scope)
+          actual = (durable or {}).get('position') or {}
+          if (durable or {}).get('status') != 'success':
+              raise SystemExit(f'D1 status mismatch: {durable!r}')
+          if actual.get('run_token') != token or actual.get('contract') != position['contract']:
+              raise SystemExit(f'D1 round-trip mismatch: {durable!r}')
+          print(json.dumps({'ok': True, 'saved': saved, 'verified': durable}, ensure_ascii=False))
+          PY
