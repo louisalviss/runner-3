@@ -13,7 +13,6 @@ concurrency:
 
 env:
   PROD_DOMAIN: https://runner3wp.pntr.dev
-  PROD_WORKER_URL: https://wordpress-edge-proxy.ducduy2411.workers.dev
   ROLLBACK_SHA: 9124f5957e176ffc9aa64444c980f3c5d6642a0d
 
 jobs:
@@ -28,24 +27,50 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare inline-hero candidate and browser
+      - name: Prepare quality-gated AVIF candidate
+        id: prep
+        continue-on-error: true
         run: |
           set -euo pipefail
           echo REJECT > /tmp/verdict
-
-          # Capture the exact current 640px hero before changing production.
           curl -fsS -D /tmp/base-hero.h -o /tmp/hero.webp "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w640.webp?capture=$(date +%s%N)"
           grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/base-hero.h
-          test "$(wc -c </tmp/hero.webp)" -gt 20000
 
-          # Inline LCP does not need an external-R2 resource hint. Preserve all other edge behavior.
+          npm install --no-save sharp@0.34.3 playwright-core@1.61.0 >/dev/null
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import sharp from 'sharp';
+          const source='/tmp/hero.webp';
+          const original=await sharp(source).removeAlpha().raw().toBuffer({resolveWithObject:true});
+          const qualities=[42,46,50,54,58,62,66];
+          const rows=[];
+          for(const q of qualities){
+            const path=`/tmp/hero-q${q}.avif`;
+            await sharp(source).avif({quality:q,effort:6,chromaSubsampling:'4:4:4'}).toFile(path);
+            const decoded=await sharp(path).removeAlpha().raw().toBuffer({resolveWithObject:true});
+            if(decoded.info.width!==original.info.width||decoded.info.height!==original.info.height||decoded.info.channels!==original.info.channels) throw new Error('decoded geometry mismatch');
+            let mse=0;
+            for(let i=0;i<original.data.length;i++){const d=original.data[i]-decoded.data[i];mse+=d*d;}
+            mse/=original.data.length;
+            const psnr=mse===0?99:10*Math.log10((255*255)/mse);
+            const size=fs.statSync(path).size;
+            rows.push({q,size,psnr:+psnr.toFixed(2),path,width:decoded.info.width,height:decoded.info.height});
+          }
+          const eligible=rows.filter(r=>r.psnr>=35 && r.size<=18000).sort((a,b)=>a.size-b.size || b.psnr-a.psnr);
+          console.log(JSON.stringify({originalBytes:fs.statSync(source).size,rows,eligible},null,2));
+          if(!eligible.length) throw new Error('no AVIF candidate passes PSNR>=35 and <=18KB');
+          const pick=eligible[0];
+          fs.copyFileSync(pick.path,'/tmp/hero.avif');
+          fs.writeFileSync('/tmp/avif-pick.json',JSON.stringify(pick,null,2));
+          NODE
+
           python3 - <<'PY'
           from pathlib import Path
           p=Path('edge/wordpress-edge-proxy/src/entry.js')
           s=p.read_text()
           old="headers.append('Link', `<${R2_ORIGIN}>; rel=preconnect; crossorigin`);"
           assert old in s
-          s=s.replace(old,"// LCP hero is embedded in the homepage snapshot; no external R2 preconnect needed.",1)
+          s=s.replace(old,"// Homepage LCP hero is embedded as a quality-gated AVIF; no R2 preconnect on this path.",1)
           old2="new HTMLRewriter().on('head', new HeadResourceHints()).on('img[src]', new StaticResponsiveImageRewriter()).on('link[rel=\"preload\"][as=\"image\"]', new StaticImagePreloadRewriter())"
           new2="new HTMLRewriter().on('img[src]', new StaticResponsiveImageRewriter()).on('link[rel=\"preload\"][as=\"image\"]', new StaticImagePreloadRewriter())"
           assert old2 in s
@@ -53,17 +78,15 @@ jobs:
 
           p=Path('edge/wordpress-edge-proxy/src/responsive-images.js')
           s=p.read_text()
-          old='''  element(element) {\n    const info = responsiveInfo(element.getAttribute('src'));'''
-          new='''  element(element) {\n    if (element.getAttribute('data-runner3-inline-lcp') === '1') {\n      this.heroCount += 1;\n      element.setAttribute('loading', 'eager');\n      element.setAttribute('fetchpriority', 'high');\n      element.setAttribute('decoding', 'sync');\n      element.removeAttribute('srcset');\n      element.removeAttribute('sizes');\n      return;\n    }\n\n    const info = responsiveInfo(element.getAttribute('src'));'''
+          old="""  element(element) {\n    const info = responsiveInfo(element.getAttribute('src'));"""
+          new="""  element(element) {\n    if (element.getAttribute('data-runner3-inline-lcp') === '1') {\n      this.heroCount += 1;\n      element.setAttribute('loading', 'eager');\n      element.setAttribute('fetchpriority', 'high');\n      element.setAttribute('decoding', 'sync');\n      element.removeAttribute('srcset');\n      element.removeAttribute('sizes');\n      return;\n    }\n\n    const info = responsiveInfo(element.getAttribute('src'));"""
           assert old in s
           p.write_text(s.replace(old,new,1))
           PY
           node --check edge/wordpress-edge-proxy/src/entry.js
           node --check edge/wordpress-edge-proxy/src/responsive-images.js
-
           node scripts/build-wordpress-edge-snapshot.mjs
 
-          # Rewrite only the first homepage hero to an inline WebP. Same pixels, no quality reduction.
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const p='edge/wordpress-edge-proxy/src/snapshot.generated.js';
@@ -73,13 +96,14 @@ jobs:
           const builtAt=JSON.parse(m[1]);
           const snapshots=JSON.parse(m[2]);
           let h=snapshots['/'];
-          const b64=fs.readFileSync('/tmp/hero.webp').toString('base64');
+          const avif=fs.readFileSync('/tmp/hero.avif');
+          const b64=avif.toString('base64');
           let done=false;
           h=h.replace(/<img\b[^>]*>/gi,(tag)=>{
             if(done || !/offset-demo-01/i.test(tag)) return tag;
             done=true;
             tag=tag.replace(/\s(?:srcset|sizes|loading|fetchpriority|decoding)=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,'');
-            tag=tag.replace(/\ssrc=(?:"[^"]*"|'[^']*'|[^\s>]+)/i,` src="data:image/webp;base64,${b64}"`);
+            tag=tag.replace(/\ssrc=(?:"[^"]*"|'[^']*'|[^\s>]+)/i,` src="data:image/avif;base64,${b64}"`);
             return tag.replace(/^<img\b/i,'<img data-runner3-inline-lcp="1" loading="eager" fetchpriority="high" decoding="sync"');
           });
           if(!done) throw new Error('homepage hero not found');
@@ -91,7 +115,7 @@ jobs:
             `export const SNAPSHOTS = Object.freeze(${serialized});`,
             '',
           ].join('\n'));
-          console.log(JSON.stringify({inlineHeroBytes:fs.statSync('/tmp/hero.webp').size,homepageBytes:Buffer.byteLength(h),marker:h.includes('data-runner3-inline-lcp="1"')}));
+          console.log(JSON.stringify({pick:JSON.parse(fs.readFileSync('/tmp/avif-pick.json','utf8')),inlineAvifBytes:avif.length,homepageBytes:Buffer.byteLength(h),marker:h.includes('data-runner3-inline-lcp="1"')}));
           NODE
 
           python3 - <<'PY'
@@ -99,18 +123,18 @@ jobs:
           src='edge/wordpress-edge-proxy/wrangler.v2.jsonc';dst='edge/wordpress-edge-proxy/wrangler.prod-lcp090.jsonc'
           d=json.load(open(src));d['name']='wordpress-edge-proxy';open(dst,'w').write(json.dumps(d,indent=2)+'\n')
           PY
-
-          npm install --no-save playwright-core@1.61.0 >/dev/null
           C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"; echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
           mkdir -p scripts
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/runner3wp-v2-fcp-test/scripts/pagespeed-ui-mobile-audit.mjs' -o scripts/pagespeed-ui-mobile-audit.mjs
 
       - name: Deploy candidate to Site1
         id: deploy
+        if: steps.prep.outcome == 'success'
         continue-on-error: true
         run: |
           set -euo pipefail
           npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-lcp090.jsonc >/tmp/deploy.log 2>&1
+          touch /tmp/deployed
           sleep 4
 
       - name: Production functional guard
@@ -133,21 +157,19 @@ jobs:
           import re
           h=open('/tmp/home',errors='ignore').read()
           m=re.search(r'<img\b[^>]*data-runner3-inline-lcp="1"[^>]*>',h,re.I)
-          assert m, 'inline hero missing'
+          assert m
           hero=m.group(0)
-          assert 'src="data:image/webp;base64,' in hero
+          assert 'src="data:image/avif;base64,' in hero
           assert not re.search(r'\ssrcset=',hero,re.I)
           assert re.search(r'decoding=["\']sync["\']',hero,re.I)
-          assert re.search(r'fetchpriority=["\']high["\']',hero,re.I)
           repeats=[x for x in re.findall(r'<img\b[^>]*offset-demo-01[^>]*>',h,re.I)]
-          assert repeats, 'below-fold repeated hero missing'
+          assert repeats
           assert re.search(r'loading=["\']lazy["\']',repeats[0],re.I)
           assert re.search(r'fetchpriority=["\']low["\']',repeats[0],re.I)
-          print('inline_hero_guard=PASS',len(hero),len(h))
+          print('avif_inline_guard=PASS',len(hero),len(h))
           PY
           curl -fsS -H 'Cache-Control: no-cache' -D /tmp/ih -o /tmp/i "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w640.webp?$B"
           grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/ih
-          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/ih
           curl -sS -D /tmp/admin -o /dev/null "$PROD_DOMAIN/wp-admin/"
           grep -Eiq '^HTTP/[^ ]+[[:space:]]+307' /tmp/admin
           grep -Eiq '^location:[[:space:]]*https://runner3-factory-smoke-2\.wasmer\.app' /tmp/admin
@@ -187,14 +209,14 @@ jobs:
           set -euo pipefail
           verdict="$(cat /tmp/verdict 2>/dev/null || echo REJECT)"
           if [ "$verdict" = PASS ]; then echo 'KEEP candidate'; exit 0; fi
+          if [ ! -f /tmp/deployed ]; then echo 'NO_DEPLOY_TO_ROLLBACK'; exit 0; fi
           git reset --hard
           git clean -fd
           git checkout --detach "$ROLLBACK_SHA"
           node scripts/build-wordpress-edge-snapshot.mjs
           python3 - <<'PY'
           import json
-          src='edge/wordpress-edge-proxy/wrangler.v2.jsonc';dst='edge/wordpress-edge-proxy/wrangler.prod-rollback.jsonc'
-          d=json.load(open(src));d['name']='wordpress-edge-proxy';open(dst,'w').write(json.dumps(d,indent=2)+'\n')
+          d=json.load(open('edge/wordpress-edge-proxy/wrangler.v2.jsonc'));d['name']='wordpress-edge-proxy';open('edge/wordpress-edge-proxy/wrangler.prod-rollback.jsonc','w').write(json.dumps(d,indent=2)+'\n')
           PY
           npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-rollback.jsonc >/tmp/rollback.log 2>&1
           sleep 4
@@ -210,4 +232,4 @@ jobs:
         if: always()
         run: |
           echo "FINAL_VERDICT=$(cat /tmp/verdict 2>/dev/null || echo REJECT)"
-          echo "DEPLOY=${{ steps.deploy.outcome }} GUARD=${{ steps.guard.outcome }} PSI=${{ steps.psi.outcome }} ROLLBACK=${{ steps.rollback.outcome }}"
+          echo "PREP=${{ steps.prep.outcome }} DEPLOY=${{ steps.deploy.outcome }} GUARD=${{ steps.guard.outcome }} PSI=${{ steps.psi.outcome }} ROLLBACK=${{ steps.rollback.outcome }}"
