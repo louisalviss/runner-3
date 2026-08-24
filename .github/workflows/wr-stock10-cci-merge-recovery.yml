@@ -29,7 +29,7 @@ jobs:
                 mkdir -p "/tmp/recover/all/${name}"
                 unzip -q -o "/tmp/recover/zips/${name}.zip" -d "/tmp/recover/all/${name}"
               done
-          find /tmp/recover/all -name '*.json' -o -name '*.jsonl' | sort | head
+          find /tmp/recover/all -type f \( -name '*.json' -o -name '*.jsonl' \) | sort | head
       - name: Reconstruct variants and aggregate
         run: |
           python - <<'PY'
@@ -66,8 +66,7 @@ jobs:
                   eq+=x; peak=max(peak,eq); dd=min(dd,eq-peak)
               return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals) if vals else None,'PF':gp/gl if gl else None,'max_DD_R':dd,'win_rate':100*sum(x>0 for x in vals)/len(vals) if vals else None}
           def rep(ts):
-              return {'oos':{str(b):met(ts,b) for b in (0,.5,1,2)},
-                      'years':{str(y):{str(b):met([t for t in ts if int(t['year'])==y],b) for b in (0,1,2)} for y in (2024,2025,2026)}}
+              return {'oos':{str(b):met(ts,b) for b in (0,.5,1,2)},'years':{str(y):{str(b):met([t for t in ts if int(t['year'])==y],b) for b in (0,1,2)} for y in (2024,2025,2026)}}
           R={v:rep(rows[v]) for v in variants}
           def cmp(a,b):
               A=a['oos']['1'];B=b['oos']['1']
