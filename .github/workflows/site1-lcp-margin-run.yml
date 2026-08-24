@@ -93,7 +93,7 @@ jobs:
             const s={label,width:Number(process.env.WIDTH),quality:Number(process.env.QUALITY),medianLcp:lcp[1],medianFcp:fcp[1],p100:rows.filter(r=>r.performance===100).length,rows};
             console.log('CANDIDATE_RESULT',JSON.stringify(s));
             fs.appendFileSync('/tmp/results.tsv',`${label}\t${s.width}\t${s.quality}\t${s.medianLcp}\t${s.medianFcp}\t${s.p100}\n`);
-NODE
+            NODE
           }
 
           run_candidate w320q58 320 58
