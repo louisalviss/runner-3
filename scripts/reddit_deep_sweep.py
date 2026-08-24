@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Deep-sweep a public subreddit into normalized SQL + raw evidence files.
 
-Acquisition policy is deliberately cheap-first:
-Reddit JSON -> old.reddit JSON. Browser/Cloak/VPN escalation remains outside
-this collector and is only used when the public JSON lane is genuinely blocked.
+Deep mode is wiki-first:
+1. Snapshot the subreddit wiki and extract every linked Reddit thread/resource.
+2. Full-fetch every Reddit thread referenced by the wiki.
+3. Add a ranked set of non-wiki threads from subreddit discovery listings.
+4. Store raw evidence for R2 and emit idempotent normalized D1 upserts.
+
+Delta mode still snapshots the wiki but only full-fetches recent/high-signal threads.
+Acquisition transport is injected by reddit_deep_sweep_cloudflare.py when needed.
 """
 
 from __future__ import annotations
@@ -13,17 +18,15 @@ import datetime as dt
 import hashlib
 import json
 import math
-import os
 import pathlib
 import re
-import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import defaultdict
+from collections import Counter, defaultdict
 
-UA = "runner3-reddit-deep-sweep/1.0 (+public read-only research)"
+UA = "runner3-reddit-deep-sweep/3.0 (+public read-only research)"
 BASES = ("https://www.reddit.com", "https://old.reddit.com")
 
 KEYWORDS = {
@@ -43,6 +46,10 @@ NOISE_PATTERNS = (
     "what are you trading",
     "off topic",
 )
+
+MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+BARE_URL_RE = re.compile(r"https?://[^\s<>\])]+")
+POST_ID_RE = re.compile(r"/comments/([A-Za-z0-9]+)/", re.I)
 
 
 def utc_now() -> str:
@@ -131,6 +138,75 @@ def fetch_listing(subreddit: str, label: str, period: str | None, pages: int):
     return items, raw_pages
 
 
+def clean_wiki_target(target: str) -> str:
+    value = (target or "").strip().strip("<>")
+    value = re.sub(r'\s+"[^"]*"$', "", value)
+    value = value.replace("\\_", "_").replace("\\-", "-").replace("&amp;", "&")
+    return value.rstrip(".,;")
+
+
+def normalize_wiki_url(target: str, subreddit: str) -> str | None:
+    target = clean_wiki_target(target)
+    if not target or target.startswith("#"):
+        return None
+    if target.startswith("//"):
+        target = "https:" + target
+    elif target.startswith("/"):
+        target = urllib.parse.urljoin("https://www.reddit.com", target)
+    elif not re.match(r"^https?://", target, re.I):
+        return None
+    try:
+        parts = urllib.parse.urlsplit(target)
+    except ValueError:
+        return None
+    if not parts.netloc:
+        return None
+    return urllib.parse.urlunsplit((parts.scheme or "https", parts.netloc.lower(), parts.path, parts.query, ""))
+
+
+def extract_wiki_links(markdown: str, subreddit: str):
+    records = []
+    seen = set()
+
+    def add(label: str, target: str):
+        url = normalize_wiki_url(target, subreddit)
+        if not url or url in seen:
+            return
+        seen.add(url)
+        parts = urllib.parse.urlsplit(url)
+        host = parts.netloc.lower()
+        match = POST_ID_RE.search(parts.path)
+        post_id = match.group(1) if match else None
+        is_reddit = host == "reddit.com" or host.endswith(".reddit.com")
+        records.append({
+            "ordinal": len(records) + 1,
+            "label": (label or "").strip()[:500],
+            "url": url,
+            "host": host,
+            "kind": "reddit-thread" if is_reddit and post_id else ("reddit" if is_reddit else "external"),
+            "post_id": post_id if is_reddit else None,
+        })
+
+    for match in MD_LINK_RE.finditer(markdown or ""):
+        add(match.group(1), match.group(2))
+
+    for match in BARE_URL_RE.finditer(markdown or ""):
+        add("", match.group(0))
+
+    return records
+
+
+def fetch_wiki(subreddit: str):
+    path = f"/r/{urllib.parse.quote(subreddit)}/wiki/index.json"
+    payload, meta = request_json(path, {"raw_json": 1})
+    data = (payload or {}).get("data") if isinstance(payload, dict) else None
+    data = data if isinstance(data, dict) else {}
+    markdown = str(data.get("content_md") or data.get("content") or "")
+    if not markdown:
+        raise RuntimeError("reddit_wiki_missing_content")
+    return payload, markdown, extract_wiki_links(markdown, subreddit), meta
+
+
 def body_hash(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
@@ -214,6 +290,14 @@ def fetch_thread(post_id: str):
     )
 
 
+def thread_post_from_payload(payload):
+    try:
+        row = payload[0]["data"]["children"][0]["data"]
+        return row if isinstance(row, dict) else None
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def sql_quote(value):
     if value is None:
         return "NULL"
@@ -283,7 +367,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--subreddit", default="RealDayTrading")
     ap.add_argument("--mode", choices=("deep", "delta"), default="deep")
-    ap.add_argument("--max-threads", type=int, default=60)
+    ap.add_argument(
+        "--max-threads",
+        type=int,
+        default=250,
+        help="Deep: additional ranked non-wiki threads. Delta: recent ranked threads (capped at 60).",
+    )
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--r2-key", required=True)
     ap.add_argument("--output-dir", required=True)
@@ -295,12 +384,32 @@ def main():
     out_root = pathlib.Path(args.output_dir)
     listings_dir = out_root / "listings"
     threads_dir = out_root / "threads"
+    wiki_dir = out_root / "wiki"
     listings_dir.mkdir(parents=True, exist_ok=True)
     threads_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
 
     posts: dict[str, dict] = {}
     post_sorts: dict[str, set[str]] = defaultdict(set)
     acquisition = []
+
+    wiki_payload, wiki_markdown, wiki_links, wiki_meta = fetch_wiki(args.subreddit)
+    (wiki_dir / "index.json").write_text(json.dumps(wiki_payload, ensure_ascii=False), encoding="utf-8")
+    (wiki_dir / "index.md").write_text(wiki_markdown, encoding="utf-8")
+    (wiki_dir / "links.json").write_text(
+        json.dumps(wiki_links, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    acquisition.append({"kind": "wiki", "page": "index", **wiki_meta})
+
+    wiki_post_ids = []
+    seen_wiki_posts = set()
+    for link in wiki_links:
+        pid = link.get("post_id")
+        if pid and pid not in seen_wiki_posts:
+            seen_wiki_posts.add(pid)
+            wiki_post_ids.append(pid)
+            post_sorts[pid].add("wiki")
 
     for label, period, pages in listing_specs(args.mode):
         items, raw_pages = fetch_listing(args.subreddit, label, period, pages)
@@ -322,45 +431,71 @@ def main():
                 posts[pid] = post
             post_sorts[pid].add(label)
 
+    inventory_posts_seen = len(posts)
     ranked = sorted(posts.values(), key=lambda p: (quality(p), int(p.get("score") or 0)), reverse=True)
-    selected = ranked[: max(1, min(args.max_threads, 150))]
+
+    if args.mode == "deep":
+        additional_limit = max(0, min(args.max_threads, 500))
+        additional_ids = [
+            p["id"] for p in ranked
+            if p.get("id") and p["id"] not in seen_wiki_posts
+        ][:additional_limit]
+        selected_ids = [*wiki_post_ids, *additional_ids]
+        wiki_threads_requested = len(wiki_post_ids)
+    else:
+        additional_limit = max(1, min(args.max_threads, 60))
+        selected_ids = [p["id"] for p in ranked[:additional_limit] if p.get("id")]
+        additional_ids = selected_ids
+        wiki_threads_requested = 0
+
+    selected_ids = list(dict.fromkeys(selected_ids))
 
     all_comments = []
     fetched_ids = set()
     thread_errors = []
     thread_comment_counts = {}
-    for post in selected:
-        pid = post["id"]
+
+    for pid in selected_ids:
         try:
             payload, meta = fetch_thread(pid)
             (threads_dir / f"{pid}.json").write_text(
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8"
             )
-            acquisition.append({"kind": "thread", "post_id": pid, **meta})
+            acquisition.append({
+                "kind": "thread",
+                "post_id": pid,
+                "wiki": pid in seen_wiki_posts,
+                **meta,
+            })
+
+            thread_post = thread_post_from_payload(payload)
+            if thread_post:
+                existing = posts.get(pid) or {}
+                posts[pid] = {**existing, **thread_post}
+            elif pid not in posts:
+                raise RuntimeError("thread_payload_missing_post")
+
+            if pid in seen_wiki_posts:
+                post_sorts[pid].add("wiki")
+
             comments = []
             if isinstance(payload, list) and len(payload) >= 2:
                 comments = flatten_comments(payload[1], pid)
-                try:
-                    thread_post = payload[0]["data"]["children"][0]["data"]
-                    if isinstance(thread_post, dict):
-                        posts[pid] = {**posts[pid], **thread_post}
-                        post = posts[pid]
-                except (KeyError, IndexError, TypeError):
-                    pass
-            dedup = {}
-            for c in comments:
-                dedup[c["comment_id"]] = c
+            dedup = {c["comment_id"]: c for c in comments}
             comments = list(dedup.values())
             all_comments.extend(comments)
             thread_comment_counts[pid] = len(comments)
             fetched_ids.add(pid)
         except Exception as exc:
-            thread_errors.append({"post_id": pid, "error": str(exc)[:1000]})
-        time.sleep(0.25)
+            thread_errors.append({
+                "post_id": pid,
+                "wiki": pid in seen_wiki_posts,
+                "error": str(exc)[:1000],
+            })
+        time.sleep(0.20)
 
     raw_pointer_prefix = f"{args.r2_key}#"
-    sql = ["BEGIN;"]
-    sql.append(
+    start_stmt = (
         "INSERT INTO reddit_scan_runs "
         "(run_id,subreddit,mode,status,started_at,posts_seen,threads_fetched,comments_seen,raw_object_key,error) VALUES "
         f"({sql_quote(args.run_id)},{sql_quote(args.subreddit)},{sql_quote(args.mode)},'running',"
@@ -371,11 +506,12 @@ def main():
         "raw_object_key=excluded.raw_object_key, error=excluded.error;"
     )
 
+    data_stmts = []
     for post in posts.values():
         pid = post["id"]
         fetched = pid in fetched_ids
         raw_pointer = raw_pointer_prefix + f"threads/{pid}.json" if fetched else None
-        sql.append(
+        data_stmts.append(
             emit_post_sql(
                 post,
                 sorted(post_sorts[pid]),
@@ -385,35 +521,35 @@ def main():
             )
         )
         for tag, weight in tags_for(post).items():
-            sql.append(
+            data_stmts.append(
                 "INSERT INTO reddit_post_tags (post_id,tag,weight) VALUES "
                 f"({sql_quote(pid)},{sql_quote(tag)},{sql_quote(weight)}) "
                 "ON CONFLICT(post_id,tag) DO UPDATE SET weight=excluded.weight, updated_at=CURRENT_TIMESTAMP;"
             )
+        if pid in seen_wiki_posts:
+            data_stmts.append(
+                "INSERT INTO reddit_post_tags (post_id,tag,weight) VALUES "
+                f"({sql_quote(pid)},'wiki-canonical',3.0) "
+                "ON CONFLICT(post_id,tag) DO UPDATE SET weight=excluded.weight, updated_at=CURRENT_TIMESTAMP;"
+            )
 
     for c in all_comments:
-        sql.append(emit_comment_sql(c))
+        data_stmts.append(emit_comment_sql(c))
 
-    sql.append(
+    final_stmt = (
         "UPDATE reddit_scan_runs SET status='success', finished_at=CURRENT_TIMESTAMP, "
         f"posts_seen={len(posts)}, threads_fetched={len(fetched_ids)}, comments_seen={len(all_comments)}, "
         f"raw_object_key={sql_quote(args.r2_key)}, error={sql_quote(json.dumps(thread_errors, ensure_ascii=False) if thread_errors else None)} "
         f"WHERE run_id={sql_quote(args.run_id)};"
     )
-    sql.append("COMMIT;")
 
     sql_dir = pathlib.Path(args.sql_dir)
     sql_dir.mkdir(parents=True, exist_ok=True)
-    start_stmt = sql[1]
-    final_stmt = sql[-2]
-    data_stmts = sql[2:-2]
     chunk_size = 200
-    chunks = []
-    chunks.append(("0000-start.sql", ["BEGIN;", start_stmt, "COMMIT;"]))
+    chunks = [("0000-start.sql", [start_stmt])]
     for offset in range(0, len(data_stmts), chunk_size):
-        payload = ["BEGIN;", *data_stmts[offset:offset + chunk_size], "COMMIT;"]
-        chunks.append((f"{1 + offset // chunk_size:04d}-data.sql", payload))
-    chunks.append((f"{1 + math.ceil(len(data_stmts) / chunk_size):04d}-finish.sql", ["BEGIN;", final_stmt, "COMMIT;"]))
+        chunks.append((f"{1 + offset // chunk_size:04d}-data.sql", data_stmts[offset:offset + chunk_size]))
+    chunks.append((f"{1 + math.ceil(len(data_stmts) / chunk_size):04d}-finish.sql", [final_stmt]))
     for name, payload in chunks:
         (sql_dir / name).write_text("\n".join(payload) + "\n", encoding="utf-8")
 
@@ -425,10 +561,17 @@ def main():
             "quality_score": quality(p),
             "score": int(p.get("score") or 0),
             "num_comments": int(p.get("num_comments") or 0),
+            "wiki_canonical": p["id"] in seen_wiki_posts,
             "tags": tags_for(p),
             "selected_for_thread": p["id"] in fetched_ids,
             "canonical_url": "https://www.reddit.com" + (p.get("permalink") or f"/comments/{p['id']}/"),
         })
+
+    external_hosts = Counter(
+        link["host"] for link in wiki_links if link.get("kind") == "external" and link.get("host")
+    )
+    wiki_reddit_threads_fetched = sum(1 for pid in wiki_post_ids if pid in fetched_ids)
+    wiki_errors = sum(1 for row in thread_errors if row.get("wiki"))
 
     manifest = {
         "ok": True,
@@ -437,15 +580,31 @@ def main():
         "mode": args.mode,
         "started_at": started,
         "finished_at": utc_now(),
+        "inventory_posts_seen": inventory_posts_seen,
         "posts_seen": len(posts),
-        "threads_requested": len(selected),
+        "threads_requested": len(selected_ids),
         "threads_fetched": len(fetched_ids),
+        "additional_threads_requested": len(additional_ids),
         "thread_errors": thread_errors,
         "comments_seen": len(all_comments),
         "raw_object_key": args.r2_key,
         "listing_requests": len([x for x in acquisition if x["kind"] == "listing"]),
         "thread_requests": len([x for x in acquisition if x["kind"] == "thread"]),
         "acquisition_hosts": sorted({x.get("via") for x in acquisition if x.get("via")}),
+        "wiki": {
+            "fetched": True,
+            "source_url": wiki_meta.get("url"),
+            "via": wiki_meta.get("via"),
+            "raw_object_key": raw_pointer_prefix + "wiki/index.md",
+            "links_object_key": raw_pointer_prefix + "wiki/links.json",
+            "links_total": len(wiki_links),
+            "reddit_threads": len(wiki_post_ids),
+            "reddit_threads_requested": wiki_threads_requested,
+            "reddit_threads_fetched": wiki_reddit_threads_fetched,
+            "thread_errors": wiki_errors,
+            "external_links": sum(1 for x in wiki_links if x.get("kind") == "external"),
+            "external_hosts": dict(external_hosts.most_common(30)),
+        },
         "top_candidates": top_preview,
     }
     pathlib.Path(args.manifest_out).write_text(
@@ -455,6 +614,8 @@ def main():
 
     if not posts:
         raise SystemExit("reddit_deep_sweep_no_posts")
+    if args.mode == "deep" and wiki_threads_requested and wiki_reddit_threads_fetched == 0:
+        raise SystemExit("reddit_deep_sweep_wiki_threads_not_fetched")
 
 
 if __name__ == "__main__":
