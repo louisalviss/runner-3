@@ -1,0 +1,68 @@
+name: Site1 Structural Hero A-B
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  structural-hero:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build structural hero candidate
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          RUNNER3_FCP_V2=1 node scripts/build-wordpress-edge-snapshot.mjs
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const p='edge/wordpress-edge-proxy/src/snapshot.generated.js';
+          const src=fs.readFileSync(p,'utf8');
+          const m=src.match(/export const SNAPSHOTS = Object\.freeze\(([\s\S]+)\);\n?$/);
+          if(!m) throw new Error('snapshot parse failed');
+          const snapshots=JSON.parse(m[1]);
+          let h=snapshots['/'];
+          let n=0;
+          h=h.replace(/<img\b[^>]*offset-demo-01[^>]*>/gi,(tag)=>{
+            n++;
+            if(n!==1) return tag;
+            const alt=(tag.match(/\balt=(['"])(.*?)\1/i)||[])[2]||'';
+            return `<div data-runner3-structural-hero="1" role="img" aria-label="${alt.replace(/"/g,'&quot;')}"></div>`;
+          });
+          if(n<1) throw new Error('hero not found');
+          const css='<style id="runner3-structural-hero-css">@media(max-width:767px){[data-runner3-structural-hero="1"]{display:block;width:80vw;max-width:580px;aspect-ratio:640/427;background:linear-gradient(135deg,#171717,#343434);border-radius:inherit}}@media(min-width:768px){[data-runner3-structural-hero="1"]{display:none}}</style>';
+          h=h.replace(/<\/head>/i,`${css}</head>`);
+          snapshots['/']=h;
+          fs.writeFileSync(p,src.replace(m[1],JSON.stringify(snapshots).replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029')));
+          console.log(JSON.stringify({heroMatches:n,homepageBytes:Buffer.byteLength(h),marker:h.includes('data-runner3-structural-hero="1"')}));
+          NODE
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"; echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/runner3wp-v2-fcp-test/scripts/pagespeed-ui-mobile-audit.mjs' -o /tmp/pagespeed-ui-mobile-audit.mjs
+      - name: Serve candidate locally
+        run: |
+          node --input-type=module - <<'NODE' >/tmp/hero-server.log 2>&1 &
+          import http from 'node:http';import fs from 'node:fs';
+          const s=fs.readFileSync('edge/wordpress-edge-proxy/src/snapshot.generated.js','utf8');
+          const m=s.match(/export const SNAPSHOTS = Object\.freeze\(([\s\S]+)\);\n?$/);const h=JSON.parse(m[1])['/'];
+          http.createServer((q,r)=>{r.setHeader('content-type','text/html;charset=utf-8');r.end(h)}).listen(8788,'127.0.0.1');
+          NODE
+          sleep 2
+          curl -fsS http://127.0.0.1:8788/ | grep -q 'data-runner3-structural-hero="1"'
+      - name: Browser LCP proof
+        run: |
+          node --input-type=module - <<'NODE'
+          import { chromium } from 'playwright-core';
+          const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,args:['--no-sandbox']});
+          const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
+          await page.addInitScript(()=>{window.__lcp=[];new PerformanceObserver(l=>window.__lcp.push(...l.getEntries().map(e=>({t:e.startTime,tag:e.element?.tagName,marker:e.element?.getAttribute?.('data-runner3-structural-hero')})))).observe({type:'largest-contentful-paint',buffered:true})});
+          await page.goto('http://127.0.0.1:8788/',{waitUntil:'networkidle'});await page.waitForTimeout(1000);
+          const result=await page.evaluate(()=>({lcp:window.__lcp,hero:!!document.querySelector('[data-runner3-structural-hero="1"]'),images:[...document.images].filter(x=>/offset-demo-01/i.test(x.currentSrc||x.src)).map(x=>({loading:x.loading,priority:x.fetchPriority,top:x.getBoundingClientRect().top}))}));
+          console.log(JSON.stringify(result,null,2));
+          if(!result.hero) throw new Error('structural hero missing');
+          if(result.images.some(x=>x.top<844 && x.loading!=='lazy')) throw new Error('hero image still competes above fold');
+          await browser.close();
+          NODE
