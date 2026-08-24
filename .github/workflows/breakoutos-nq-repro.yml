@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'research/breakoutos_nq_repro.py'
+      - 'research/breakoutos_nq_tv_repro.py'
       - 'research/download_usatech_h1.js'
       - '.github/workflows/breakoutos-nq-repro.yml'
 permissions:
@@ -23,17 +24,33 @@ jobs:
           python-version: '3.12'
       - run: npm install --no-save dukascopy-node@1.50.0
       - run: pip install requests
-      - name: Download long-horizon Nasdaq proxy
+      - name: Download public TradingView NQ1 hourly history
+        run: |
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://raw.githubusercontent.com/Wendigooor/nq_analyze/152cfcfebf2340dbe663775ad264b229fdd741b0/tradingview_futures_NQ/CME_MINI_DL_NQ1%21%2C%2060%2C%2030%20apr%202021%20-%2011%20May%202025.csv' \
+            -o /tmp/nq_tv.csv
+          wc -l /tmp/nq_tv.csv
+          head -2 /tmp/nq_tv.csv
+      - name: Download long-horizon Nasdaq CFD proxy
         continue-on-error: true
         run: node research/download_usatech_h1.js
-      - name: Run reproduction
+      - name: Run Yahoo NQ and optional CFD proxy reproduction
         env:
           DUKA_CSV: /tmp/usatech_h1.csv
           OUT: evidence/breakoutos-nq-repro
         run: python research/breakoutos_nq_repro.py
-      - name: Print compact result
+      - name: Run TradingView NQ1 long-horizon reproduction
+        env:
+          TV_CSV: /tmp/nq_tv.csv
+          OUT: evidence/breakoutos-nq-repro
+        run: python research/breakoutos_nq_tv_repro.py
+      - name: Print compact results
         if: always()
-        run: cat evidence/breakoutos-nq-repro/compact.json || true
+        run: |
+          echo '=== Yahoo / proxy ==='
+          cat evidence/breakoutos-nq-repro/compact.json || true
+          echo '=== TradingView NQ1 ==='
+          cat evidence/breakoutos-nq-repro/tradingview-compact.json || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
