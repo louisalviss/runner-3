@@ -1,3 +1,4 @@
+# trigger 2026-08-24T00:30Z
 name: PNTR Download Fast
 on:
   push:
@@ -42,14 +43,12 @@ jobs:
               cand=['dl3','dlrunner3','r3download','runner3dl']
               cf=requests.get(cfbase,headers=cfh,timeout=30).json()
               existing={x.get('name') for x in (cf.get('result') or [])}
-              # If a prior attempt already fully works, reuse it and stop.
               for name in cand:
                   fq=f'{name}.pntr.dev'
                   if fq not in existing: continue
                   try:
                       r=requests.get(f'https://{fq}/%40LinkFilesBot.apk',timeout=30)
-                      sha=hashlib.sha256(r.content).hexdigest()
-                      disp=r.headers.get('content-disposition','')
+                      sha=hashlib.sha256(r.content).hexdigest(); disp=r.headers.get('content-disposition','')
                       if r.status_code==200 and len(r.content)==13951503 and sha=='9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537' and disp.lower().startswith('attachment'):
                           save('verified',hostname=fq,directUrl=f'https://{fq}/%40LinkFilesBot.apk',httpCode=200,size=len(r.content),sha256=sha,contentDisposition=disp,workerHostnameHidden=True,reusedExisting=True)
                           raise SystemExit(0)
@@ -88,7 +87,6 @@ jobs:
               cookies=[{'name':c.name,'value':c.value,'domain':c.domain,'path':c.path,'secure':c.secure,'expires':c.expires} for c in s.cookies]
               Path('/tmp/pntr-fast/cookies.json').write_text(json.dumps(cookies)+'\n')
               save('pntr_registered',hostname=fq,directUrl=f'https://{fq}/%40LinkFilesBot.apk')
-              # Pages association first, then DNS.
               cf=requests.get(cfbase,headers=cfh,timeout=30).json(); current=next((x for x in (cf.get('result') or []) if x.get('name')==fq),None)
               if not current:
                   z=requests.post(cfbase,headers=cfh,json={'name':fq},timeout=30); zj=z.json()
@@ -98,7 +96,6 @@ jobs:
               rec=s.post(f'https://pntr.dev/api/subdomains/{subid}/records',json={'record_type':'CNAME','record_value':pages},timeout=30)
               if rec.status_code not in (200,201): raise RuntimeError(f'cname_http_{rec.status_code}:{rec.text[:300]}')
               save('cname_created')
-              # Poll 2 minutes max for DNS/TLS.
               status=(current or {}).get('status'); last={}
               for _ in range(24):
                   try:
