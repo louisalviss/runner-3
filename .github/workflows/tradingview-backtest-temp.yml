@@ -1,0 +1,165 @@
+name: TradingView Backtest Temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tradingview-backtest-temp.yml']
+permissions:
+  contents: write
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch TradingView 4H data and reproduce strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q pandas numpy websocket-client requests
+          git clone -q --depth 1 https://github.com/rongardF/tvDatafeed.git /tmp/tvDatafeed
+          OUT='evidence/tradingview-5he8tYVr-backtest'
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          PYTHONPATH=/tmp/tvDatafeed OUT="$OUT" python3 - <<'PY'
+          import os, json, math
+          from pathlib import Path
+          import numpy as np, pandas as pd
+          from tvDatafeed import TvDatafeed, Interval
+
+          out=Path(os.environ['OUT'])
+          tv=TvDatafeed()
+          attempts=[]; df=None; used=None
+          for exch in ['BIST_DLY','BIST']:
+              try:
+                  x=tv.get_hist(symbol='XU100',exchange=exch,interval=Interval.in_4_hour,n_bars=5000,extended_session=False)
+                  attempts.append({'exchange':exch,'rows':0 if x is None else len(x)})
+                  if x is not None and len(x)>500:
+                      df=x.copy(); used=exch; break
+              except Exception as e:
+                  attempts.append({'exchange':exch,'error':repr(e)})
+          if df is None: raise RuntimeError('No XU100 4H data: '+repr(attempts))
+          df=df.reset_index().rename(columns={'datetime':'time'})
+          if 'time' not in df.columns: df=df.rename(columns={df.columns[0]:'time'})
+          df['time']=pd.to_datetime(df['time'])
+          for c in ['open','high','low','close','volume']: df[c]=pd.to_numeric(df[c],errors='coerce')
+          df=df.dropna(subset=['open','high','low','close']).sort_values('time').reset_index(drop=True)
+          df.to_csv(out/'xu100_4h.csv',index=False)
+
+          def rma(s,n):
+              # Pine ta.rma: seed with SMA of first n valid values, then alpha=1/n recursive.
+              a=np.asarray(s,dtype=float); y=np.full(len(a),np.nan); vals=[]; start=None
+              for i,v in enumerate(a):
+                  if np.isfinite(v): vals.append(v)
+                  if len(vals)==n: start=i; y[i]=np.mean(vals[-n:]); break
+              if start is None:return pd.Series(y)
+              alpha=1.0/n
+              for i in range(start+1,len(a)):
+                  v=a[i]
+                  if np.isfinite(v): y[i]=alpha*v+(1-alpha)*y[i-1]
+                  else:y[i]=y[i-1]
+              return pd.Series(y)
+
+          def pine_rsi(close,n):
+              ch=close.diff(); up=rma(np.maximum(ch,0),n); down=rma(np.maximum(-ch,0),n)
+              r=pd.Series(np.where(down==0,100,np.where(up==0,0,100-(100/(1+up/down)))))
+              return r
+
+          def pine_atr(h,l,c,n):
+              pc=c.shift(1); tr=pd.concat([(h-l).abs(),(h-pc).abs(),(l-pc).abs()],axis=1).max(axis=1)
+              return rma(tr,n)
+
+          def supertrend(h,l,c,factor,n):
+              atr=pine_atr(h,l,c,n); hl2=(h+l)/2
+              basic_u=hl2+factor*atr; basic_l=hl2-factor*atr
+              ub=np.full(len(c),np.nan); lb=np.full(len(c),np.nan); st=np.full(len(c),np.nan); d=np.full(len(c),np.nan)
+              for i in range(len(c)):
+                  if not np.isfinite(atr.iloc[i]): continue
+                  if i==0 or not np.isfinite(ub[i-1]) or not np.isfinite(lb[i-1]):
+                      ub[i]=basic_u.iloc[i]; lb[i]=basic_l.iloc[i]; d[i]=1; st[i]=ub[i]; continue
+                  ub[i]=basic_u.iloc[i] if (basic_u.iloc[i] < ub[i-1] or c.iloc[i-1] > ub[i-1]) else ub[i-1]
+                  lb[i]=basic_l.iloc[i] if (basic_l.iloc[i] > lb[i-1] or c.iloc[i-1] < lb[i-1]) else lb[i-1]
+                  prevst=st[i-1]
+                  if np.isclose(prevst,ub[i-1],equal_nan=False): d[i] = -1 if c.iloc[i] > ub[i] else 1
+                  else: d[i] = 1 if c.iloc[i] < lb[i] else -1
+                  st[i]=lb[i] if d[i] < 0 else ub[i]
+              return pd.Series(st),pd.Series(d)
+
+          def signals(data,rsi_len=10,sig_len=10,trigger=50,cross_target=2,atr_len=10,st_factor=2.5):
+              r=pine_rsi(data.close,rsi_len); ma=r.rolling(sig_len,min_periods=sig_len).mean()
+              cross=(r>ma)&(r.shift(1)<=ma.shift(1)); count=0; buy=np.zeros(len(data),dtype=bool)
+              for i in range(len(data)):
+                  if np.isfinite(r.iloc[i]) and r.iloc[i]>trigger: count=0
+                  if bool(cross.iloc[i]) and r.iloc[i]<trigger: count+=1
+                  if bool(cross.iloc[i]) and r.iloc[i]<trigger and count==cross_target:
+                      buy[i]=True; count=0
+              st,dr=supertrend(data.high,data.low,data.close,st_factor,atr_len)
+              sell=(dr.diff()>0).fillna(False).to_numpy(bool)
+              return buy,sell,r,ma,dr
+
+          def backtest(data,params,cost_bps_side=0.0,start=None,end=None):
+              buy,sell,_,_,_=signals(data,**params)
+              eq=10000.0; pos=0.0; entry=0.0; trades=[]; curve=[]; pending=None
+              # Orders generated at close i fill at open i+1. No pyramiding.
+              for i,row in data.iterrows():
+                  t=row.time
+                  if pending is not None:
+                      action=pending; pending=None
+                      if action=='exit' and pos>0:
+                          fill=row.open*(1-cost_bps_side/10000.0)
+                          proceeds=pos*fill; pnl=proceeds-eq_entry_value
+                          eq=proceeds; trades[-1].update({'exit_time':str(t),'exit':float(fill),'pnl':float(pnl),'ret_pct':float((fill/entry-1)*100)})
+                          pos=0.0
+                      elif action=='entry' and pos==0:
+                          fill=row.open*(1+cost_bps_side/10000.0)
+                          pos=eq/fill; entry=fill; eq_entry_value=eq
+                          trades.append({'entry_time':str(t),'entry':float(fill),'equity_in':float(eq)})
+                  inwindow=(start is None or t>=pd.Timestamp(start)) and (end is None or t<=pd.Timestamp(end))
+                  # Only generate signals in requested period; force no new entry outside.
+                  if inwindow:
+                      if sell[i] and pos>0: pending='exit'
+                      elif buy[i] and pos==0: pending='entry'
+                  mark=eq if pos==0 else pos*row.close
+                  curve.append(mark)
+              if pos>0:
+                  fill=data.iloc[-1].close*(1-cost_bps_side/10000.0); proceeds=pos*fill; pnl=proceeds-eq_entry_value; eq=proceeds
+                  trades[-1].update({'exit_time':str(data.iloc[-1].time),'exit':float(fill),'pnl':float(pnl),'ret_pct':float((fill/entry-1)*100),'forced_end':True}); pos=0
+              closed=[x for x in trades if 'pnl'in x]
+              wins=[x for x in closed if x['pnl']>0]; losses=[x for x in closed if x['pnl']<0]
+              gp=sum(x['pnl'] for x in wins); gl=-sum(x['pnl'] for x in losses)
+              arr=np.asarray(curve,float); peak=np.maximum.accumulate(arr); dd=np.where(peak>0,(peak-arr)/peak,0)
+              return {'trades':len(closed),'wins':len(wins),'win_rate':100*len(wins)/len(closed) if closed else None,'profit_factor':gp/gl if gl>0 else None,'net_profit':eq-10000,'return_pct':100*(eq/10000-1),'max_dd_pct':100*np.nanmax(dd) if len(dd) else None,'trade_list':closed}
+
+          base={'rsi_len':10,'sig_len':10,'trigger':50,'cross_target':2,'atr_len':10,'st_factor':2.5}
+          periods={
+              'full':(None,None),
+              '2019_2022':('2019-01-01','2022-12-31 23:59:59'),
+              '2023_2024':('2023-01-01','2024-12-31 23:59:59'),
+              '2025_2026':('2025-01-01',None),
+          }
+          results={'data':{'exchange':used,'rows':len(df),'start':str(df.time.iloc[0]),'end':str(df.time.iloc[-1]),'attempts':attempts},'base':{},'friction':{},'sensitivity':[]}
+          for name,(s,e) in periods.items(): results['base'][name]=backtest(df,base,0,s,e)
+          for bps in [0,5,10,20,50]: results['friction'][str(bps)]=backtest(df,base,bps)
+          # One-at-a-time robustness around defaults.
+          tests=[]
+          for k,vals in {'rsi_len':[8,9,10,11,12,14],'sig_len':[8,9,10,11,12,14],'trigger':[45,50,55],'atr_len':[7,10,14],'st_factor':[2.0,2.5,3.0,3.5]}.items():
+              for v in vals:
+                  p=base.copy();p[k]=v;r=backtest(df,p,0);tests.append({'changed':k,'value':v,**{x:r[x] for x in ['trades','wins','win_rate','profit_factor','return_pct','max_dd_pct']}})
+          results['sensitivity']=tests
+          # Save signal diagnostics and compact trades.
+          buy,sell,r,ma,dr=signals(df,**base)
+          diag=df[['time','open','high','low','close']].copy();diag['rsi']=r;diag['rsi_sma']=ma;diag['buy']=buy;diag['st_direction']=dr;diag['sell']=sell;diag.to_csv(out/'signals.csv',index=False)
+          basefull=results['base']['full']; pd.DataFrame(basefull.pop('trade_list')).to_csv(out/'trades_full.csv',index=False)
+          for sec in results['base'].values(): sec.pop('trade_list',None)
+          for sec in results['friction'].values(): sec.pop('trade_list',None)
+          (out/'results.json').write_text(json.dumps(results,indent=2,ensure_ascii=False),encoding='utf-8')
+          print(json.dumps(results,indent=2,ensure_ascii=False))
+          PY
+      - name: Persist evidence
+        if: always()
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add evidence/tradingview-5he8tYVr-backtest || true
+          git commit -m 'Publish independent RSI SuperTrend backtest [skip ci]' || true
+          git pull --rebase origin main
+          git push origin HEAD:main || true
