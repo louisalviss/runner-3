@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'edge/wordpress-pages-gateway/dist/_worker.js'
+      - '.github/workflows/runner3wp-download-route-deploy.yml'
 
 permissions:
   contents: write
@@ -36,42 +37,76 @@ jobs:
           node-version: '22'
 
       - name: Preflight production root and Pages association
+        id: preflight
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          curl -fsSL -D /tmp/root-before.headers -o /tmp/root-before.html "https://${DOMAIN}/"
+          set -uo pipefail
+          mkdir -p /tmp/runner3wp-dl
+          root_code=$(curl -sS -L -D /tmp/root-before.headers -o /tmp/root-before.html -w '%{http_code}' "https://${DOMAIN}/" || true)
+          export root_code
           python3 - <<'PY'
-          import json, os, re, urllib.request
-          domain=os.environ['DOMAIN']; account=os.environ['CLOUDFLARE_ACCOUNT_ID']; project=os.environ['PROJECT']; token=os.environ['CLOUDFLARE_API_TOKEN']
-          raw=open('/tmp/root-before.html','rb').read()
-          text=raw.decode('utf-8','replace')
-          title=(re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S) or [None,''])[1]
-          title=re.sub(r'\s+',' ',title).strip()
-          headers=open('/tmp/root-before.headers',errors='replace').read()
-          xrobots=''
-          for line in headers.splitlines():
-              if line.lower().startswith('x-robots-tag:'): xrobots=line.split(':',1)[1].strip()
-          req=urllib.request.Request(f'https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/{project}/domains',headers={'Authorization':'Bearer '+token,'Accept':'application/json'})
-          with urllib.request.urlopen(req,timeout=30) as r: cf=json.load(r)
-          assoc=next((x for x in (cf.get('result') or []) if x.get('name')==domain),None)
-          if not assoc: raise SystemExit('custom_domain_not_associated_with_pages_project')
-          out={'httpOk':True,'title':title,'bodySize':len(raw),'xRobotsTag':xrobots,'customDomain':assoc}
-          open('/tmp/root-before.json','w').write(json.dumps(out,indent=2)+'\n')
+          import json, os, re, urllib.request, urllib.error, datetime
+          out={'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'ok':False,'stage':'preflight'}
+          try:
+              code=os.environ.get('root_code','')
+              if code!='200': raise RuntimeError(f'production_root_http_{code}')
+              raw=open('/tmp/root-before.html','rb').read()
+              text=raw.decode('utf-8','replace')
+              m=re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)
+              title=re.sub(r'\s+',' ',m.group(1) if m else '').strip()
+              headers=open('/tmp/root-before.headers',errors='replace').read()
+              xrobots=''
+              for line in headers.splitlines():
+                  if line.lower().startswith('x-robots-tag:'): xrobots=line.split(':',1)[1].strip()
+              account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+              token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+              if not account or not token: raise RuntimeError('cloudflare_secret_missing')
+              req=urllib.request.Request(
+                  f"https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/{os.environ['PROJECT']}/domains",
+                  headers={'Authorization':'Bearer '+token,'Accept':'application/json'})
+              with urllib.request.urlopen(req,timeout=30) as r: cf=json.load(r)
+              assoc=next((x for x in (cf.get('result') or []) if x.get('name')==os.environ['DOMAIN']),None)
+              if not assoc: raise RuntimeError('custom_domain_not_associated_with_pages_project')
+              out.update({'ok':True,'httpCode':code,'title':title,'bodySize':len(raw),'xRobotsTag':xrobots,'customDomain':assoc})
+              open('/tmp/root-before.json','w').write(json.dumps(out,indent=2)+'\n')
+          except Exception as e:
+              out['error']=f'{type(e).__name__}: {e}'
+          open('/tmp/runner3wp-dl/preflight.json','w').write(json.dumps(out,indent=2)+'\n')
           print(json.dumps(out,indent=2))
+          if not out['ok']: raise SystemExit(1)
           PY
 
       - name: Deploy existing Pages gateway with isolated /dl route
+        id: deploy
+        if: steps.preflight.outcome == 'success'
+        continue-on-error: true
         working-directory: edge/wordpress-pages-gateway
         shell: bash
         run: |
-          set -euo pipefail
-          npx --yes wrangler@4 pages deploy dist --project-name "$PROJECT" --branch main --commit-dirty=true 2>&1 | tee /tmp/deploy.log
+          set +e
+          mkdir -p /tmp/runner3wp-dl
+          npx --yes wrangler@4 pages deploy dist --project-name "$PROJECT" --branch main --commit-dirty=true > /tmp/deploy.log 2>&1
+          rc=$?
+          export rc
+          python3 - <<'PY'
+          import json,os,datetime
+          raw=open('/tmp/deploy.log',errors='replace').read() if os.path.exists('/tmp/deploy.log') else ''
+          out={'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'stage':'deploy','ok':os.environ.get('rc')=='0','exitCode':int(os.environ.get('rc') or 999),'logTail':raw[-4000:]}
+          open('/tmp/runner3wp-dl/deploy.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+          exit "$rc"
 
       - name: Verify root unchanged and direct download exact
+        id: verify
+        if: steps.preflight.outcome == 'success' && steps.deploy.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ok=false
+          root_code=''; dl_code=''; dl_size=0; dl_sha=''; dl_disp=''
           for i in 1 2 3 4 5 6 7 8 9 10; do
             root_code=$(curl -sS -L -D /tmp/root-after.headers -o /tmp/root-after.html -w '%{http_code}' "https://${DOMAIN}/" || true)
             dl_code=$(curl -sS -L -D /tmp/dl.headers -o /tmp/dl.apk -w '%{http_code}' "https://${DOMAIN}/dl/%40LinkFilesBot.apk" || true)
@@ -90,40 +125,65 @@ jobs:
           before=json.load(open('/tmp/root-before.json'))
           raw=open('/tmp/root-after.html','rb').read() if os.path.exists('/tmp/root-after.html') else b''
           text=raw.decode('utf-8','replace')
-          title=(re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S) or [None,''])[1]
-          title=re.sub(r'\s+',' ',title).strip()
+          m=re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)
+          title=re.sub(r'\s+',' ',m.group(1) if m else '').strip()
           headers=open('/tmp/root-after.headers',errors='replace').read() if os.path.exists('/tmp/root-after.headers') else ''
           xrobots=''
           for line in headers.splitlines():
               if line.lower().startswith('x-robots-tag:'): xrobots=line.split(':',1)[1].strip()
           before_size=int(before.get('bodySize') or 0); after_size=len(raw)
-          size_ratio=(after_size/before_size) if before_size else 0
-          root_compatible=(os.environ.get('root_code')=='200' and title==before.get('title') and 0.80 <= size_ratio <= 1.20 and xrobots==before.get('xRobotsTag'))
-          verified=(os.environ.get('ok')=='true' and root_compatible)
+          ratio=(after_size/before_size) if before_size else 0
+          root_compatible=(os.environ.get('root_code')=='200' and title==before.get('title') and 0.80 <= ratio <= 1.20 and xrobots==before.get('xRobotsTag'))
+          download_ok=os.environ.get('ok')=='true'
           out={
-            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'domain':os.environ['DOMAIN'],
-            'rootBefore':before,
-            'rootAfter':{'httpCode':os.environ.get('root_code'),'title':title,'bodySize':after_size,'sizeRatioVsBefore':size_ratio,'xRobotsTag':xrobots},
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'stage':'verify','ok':download_ok and root_compatible,
+            'rootAfter':{'httpCode':os.environ.get('root_code'),'title':title,'bodySize':after_size,'sizeRatioVsBefore':ratio,'xRobotsTag':xrobots},
             'rootUnchanged':root_compatible,
             'directUrl':f"https://{os.environ['DOMAIN']}/dl/%40LinkFilesBot.apk",
             'download':{'httpCode':os.environ.get('dl_code'),'size':int(os.environ.get('dl_size') or 0),'sha256':os.environ.get('dl_sha'),'contentDisposition':os.environ.get('dl_disp')},
-            'downloadVerified':os.environ.get('ok')=='true',
+            'downloadVerified':download_ok,
             'workersDevHidden':True,
-            'verified':verified,
           }
-          os.makedirs('/tmp/runner3wp-dl',exist_ok=True)
-          open('/tmp/runner3wp-dl/status.json','w').write(json.dumps(out,indent=2)+'\n')
+          if not out['ok']: out['error']='post_deploy_verification_failed'
+          open('/tmp/runner3wp-dl/verify.json','w').write(json.dumps(out,indent=2)+'\n')
           print(json.dumps(out,indent=2))
-          if not verified: raise SystemExit('post_deploy_verification_failed')
+          if not out['ok']: raise SystemExit(1)
           PY
 
-      - name: Persist verification
+      - name: Build final diagnostic status
+        if: always()
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        shell: bash
+        run: |
+          mkdir -p /tmp/runner3wp-dl
+          python3 - <<'PY'
+          import json,os,datetime
+          def read(name):
+              p=f'/tmp/runner3wp-dl/{name}.json'
+              if not os.path.exists(p): return None
+              try: return json.load(open(p))
+              except Exception as e: return {'ok':False,'error':f'parse_error: {e}'}
+          pre=read('preflight'); dep=read('deploy'); ver=read('verify')
+          out={
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'domain':os.environ['DOMAIN'],
+            'directUrl':f"https://{os.environ['DOMAIN']}/dl/%40LinkFilesBot.apk",
+            'outcomes':{'preflight':os.environ.get('PREFLIGHT_OUTCOME'),'deploy':os.environ.get('DEPLOY_OUTCOME'),'verify':os.environ.get('VERIFY_OUTCOME')},
+            'preflight':pre,'deploy':dep,'verify':ver,
+            'verified':bool(ver and ver.get('ok')),
+          }
+          open('/tmp/runner3wp-dl/status.json','w').write(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Persist diagnostic status
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          test -s /tmp/runner3wp-dl/status.json || exit 0
           cp /tmp/runner3wp-dl/status.json /tmp/status.safe.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -134,8 +194,19 @@ jobs:
             cp /tmp/status.safe.json ops/runner3wp-download-route/status.json
             git add ops/runner3wp-download-route/status.json
             git diff --cached --quiet && exit 0
-            git commit -m 'Persist runner3wp direct-download route [skip ci]'
+            git commit -m 'Persist runner3wp direct-download diagnostic [skip ci]'
             git push origin HEAD:main && exit 0
             sleep 2
           done
           exit 3
+
+      - name: Final gate
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          s=json.load(open('/tmp/status.safe.json'))
+          if not s.get('verified'): raise SystemExit('runner3wp download route not verified')
+          print('runner3wp download route verified')
+          PY
