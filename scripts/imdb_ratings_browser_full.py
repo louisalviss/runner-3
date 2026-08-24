@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 import json
 import re
-import time
 from pathlib import Path
-from urllib.parse import urljoin
 
 from cloakbrowser import launch
 
@@ -14,39 +12,39 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 
 def dedupe_title_links(page):
-    rows = page.evaluate("""() => {
+    return page.evaluate("""() => {
       const out = [];
       const seen = new Set();
       for (const a of document.querySelectorAll('a[href*="/title/tt"]')) {
         const m = a.getAttribute('href')?.match(/\/title\/(tt\d+)/);
         if (!m || seen.has(m[1])) continue;
         const card = a.closest('li.ipc-metadata-list-summary-item') || a.closest('[data-testid="list-item"]') || a.closest('li') || a.parentElement;
+        if (!card) continue;
+        const same = Array.from(card.querySelectorAll(`a[href*="/title/${m[1]}"]`));
+        const title = same.map(x => (x.textContent || '').trim()).find(Boolean) || '';
         seen.add(m[1]);
         const attrs = [];
-        if (card) {
-          for (const el of card.querySelectorAll('[aria-label],[title],[data-testid]')) {
-            const rec = {};
-            for (const k of ['aria-label','title','data-testid']) {
-              const v = el.getAttribute(k);
-              if (v) rec[k] = v;
-            }
-            if (Object.keys(rec).length) attrs.push(rec);
+        for (const el of card.querySelectorAll('[aria-label],[title],[data-testid]')) {
+          const rec = {};
+          for (const k of ['aria-label','title','data-testid']) {
+            const v = el.getAttribute(k);
+            if (v) rec[k] = v;
           }
+          if (Object.keys(rec).length) attrs.push(rec);
         }
         out.push({
           id: m[1],
-          title: (a.textContent || '').trim(),
+          title,
           href: a.href,
-          card_text: (card?.innerText || '').trim(),
+          card_text: (card.innerText || '').trim(),
           attrs
         });
       }
       return out;
     }""")
-    return rows
 
 
-def visible_more_buttons(page):
+def nav_controls(page):
     return page.evaluate("""() => Array.from(document.querySelectorAll('button,a'))
       .map((el, i) => ({i, text:(el.innerText||el.textContent||'').trim(), href:el.href||'', aria:el.getAttribute('aria-label')||''}))
       .filter(x => x.text || x.aria)
@@ -55,17 +53,13 @@ def visible_more_buttons(page):
 
 
 def scroll_until_stable(page, expected=None, max_rounds=35):
-    best = 0
     stable = 0
     history = []
-    for r in range(max_rounds):
-        rows = dedupe_title_links(page)
-        count = len(rows)
+    for _ in range(max_rounds):
+        count = len(dedupe_title_links(page))
         history.append(count)
-        best = max(best, count)
         if expected and count >= expected:
             break
-
         clicked = page.evaluate("""() => {
           const els = Array.from(document.querySelectorAll('button,a'));
           const target = els.find(el => {
@@ -94,29 +88,53 @@ def save_snapshot(page, label):
     (OUT / f"{label}.html").write_text(page.content(), encoding="utf-8")
     rows = dedupe_title_links(page)
     (OUT / f"{label}.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    (OUT / f"{label}-nav.json").write_text(json.dumps(visible_more_buttons(page), ensure_ascii=False, indent=2), encoding="utf-8")
+    (OUT / f"{label}-nav.json").write_text(json.dumps(nav_controls(page), ensure_ascii=False, indent=2), encoding="utf-8")
     return rows
 
 
-def find_next_href(page):
-    return page.evaluate("""() => {
-      const els = Array.from(document.querySelectorAll('a'));
-      const a = els.find(el => /^(next)$/i.test((el.innerText||el.textContent||'').trim()) || /next/i.test(el.getAttribute('aria-label')||''));
-      return a ? a.href : null;
+def click_next(page):
+    info = page.evaluate("""() => {
+      const els = Array.from(document.querySelectorAll('button,a'));
+      const el = els.find(x => {
+        const t=(x.innerText||x.textContent||'').trim();
+        const a=(x.getAttribute('aria-label')||'').trim();
+        return /^next$/i.test(t) || /^next$/i.test(a);
+      });
+      if (!el) return {clicked:false};
+      const before=location.href;
+      el.scrollIntoView({block:'center'});
+      el.click();
+      return {clicked:true, tag:el.tagName, href:el.href||'', before};
     }""")
+    if info.get("clicked"):
+        page.wait_for_timeout(6000)
+        info["after"] = page.url
+    return info
 
 
 def collect_graphql(page, bucket):
     def on_response(resp):
-        url = resp.url
-        if "graphql.imdb.com" not in url:
+        if "graphql.imdb.com" not in resp.url:
             return
         try:
-            text = resp.text()
-            bucket.append({"url": url, "status": resp.status, "body": text})
+            bucket.append({"url": resp.url, "status": resp.status, "body": resp.text()})
         except Exception as exc:
-            bucket.append({"url": url, "status": resp.status, "error": f"{type(exc).__name__}: {exc}"})
+            bucket.append({"url": resp.url, "status": resp.status, "error": f"{type(exc).__name__}: {exc}"})
     page.on("response", on_response)
+
+
+def rating_map_from_graphql(graphql):
+    out = {}
+    for rec in graphql:
+        try:
+            data = json.loads(rec.get("body") or "{}").get("data") or {}
+        except Exception:
+            continue
+        for item in data.get("titles") or []:
+            r = item.get("otherUserRating")
+            if item.get("id") and r and r.get("value") is not None:
+                out[item["id"]] = {"value": r.get("value"), "date": r.get("date")}
+    return out
 
 
 def main():
@@ -134,20 +152,22 @@ def main():
         if m:
             total = int(m.group(1))
 
-        # IMDb currently lazy-loads page 1 even when the pager says 1-250.
         hist1 = scroll_until_stable(page, expected=250)
         rows1 = save_snapshot(page, "page1-full")
-        next_href = find_next_href(page)
+        if total is None:
+            full_text = (OUT / "page1-full.txt").read_text(encoding="utf-8")
+            m = re.search(r"1-\d+\s*\nof\s+(\d+)", full_text)
+            if m:
+                total = int(m.group(1))
 
+        next_info = click_next(page)
         rows2 = []
         hist2 = []
-        if next_href:
-            page.goto(next_href, wait_until="domcontentloaded", timeout=90000)
-            page.wait_for_timeout(4000)
-            hist2 = scroll_until_stable(page, expected=(max(total - len(rows1), 1) if total else None), max_rounds=20)
+        if next_info.get("clicked"):
+            expected2 = max((total or 261) - len(rows1), 1)
+            hist2 = scroll_until_stable(page, expected=expected2, max_rounds=15)
             rows2 = save_snapshot(page, "page2-full")
 
-        # Merge by tt id, preserving page order.
         merged = []
         seen = set()
         for row in rows1 + rows2:
@@ -156,7 +176,22 @@ def main():
             seen.add(row["id"])
             merged.append(row)
 
+        ratings = rating_map_from_graphql(graphql)
+        clean = []
+        for row in merged:
+            rr = ratings.get(row["id"], {})
+            clean.append({
+                "id": row["id"],
+                "title": row.get("title") or "",
+                "user_rating": rr.get("value"),
+                "rated_at": rr.get("date"),
+                "card_text": row.get("card_text") or "",
+            })
+
         (OUT / "graphql-responses.json").write_text(json.dumps(graphql, ensure_ascii=False, indent=2), encoding="utf-8")
+        (OUT / "all-visible-ratings-cards.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+        (OUT / "ratings-clean.json").write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+
         summary = {
             "user_id": USER_ID,
             "start_url": START_URL,
@@ -165,13 +200,14 @@ def main():
             "page1_unique_titles": len(rows1),
             "page2_unique_titles": len(rows2),
             "merged_unique_titles": len(merged),
+            "ratings_from_graphql": len(ratings),
+            "ratings_joined_to_cards": sum(1 for x in clean if x["user_rating"] is not None),
             "page1_count_history": hist1,
             "page2_count_history": hist2,
-            "next_href": next_href,
+            "next": next_info,
             "graphql_response_count": len(graphql),
         }
         (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-        (OUT / "all-visible-ratings-cards.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(summary, ensure_ascii=False))
     finally:
         browser.close()
