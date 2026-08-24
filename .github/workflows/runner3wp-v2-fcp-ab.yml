@@ -1,0 +1,198 @@
+name: Runner3WP V2 FCP A-B
+
+on:
+  push:
+    branches: [runner3wp-v2-fcp-test]
+    paths:
+      - 'edge/wordpress-edge-proxy/**'
+      - 'scripts/build-wordpress-edge-snapshot.mjs'
+      - 'scripts/deploy-wordpress-workers-cache.mjs'
+      - 'scripts/pagespeed-ui-audit.mjs'
+      - '.github/workflows/runner3wp-v2-fcp-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3wp-v2-fcp-ab
+  cancel-in-progress: true
+
+jobs:
+  test-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_WORKER_NAME: wordpress-edge-proxy-v2
+      CF_WORKER_CONFIG: edge/wordpress-edge-proxy/wrangler.v2.jsonc
+      CF_EDGE_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev
+      CF_EDGE_OUT: /tmp/runner3wp-v2-edge.json
+      CF_SNAPSHOT_OUT: /tmp/runner3wp-v2-snapshot.json
+      PSI_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+      PSI_UI_OUT: /tmp/runner3wp-v2-pagespeed.json
+      PSI_UI_SCREENSHOT: /tmp/runner3wp-v2-mobile.png
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: runner3wp-v2-fcp-test
+          fetch-depth: 2
+
+      - name: Validate V2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check edge/wordpress-edge-proxy/src/index.js
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          node --check scripts/build-wordpress-edge-snapshot.mjs
+          node --check scripts/deploy-wordpress-workers-cache.mjs
+          node --check scripts/pagespeed-ui-audit.mjs
+
+      - name: Build snapshot and deploy isolated V2 Worker
+        id: deploy
+        continue-on-error: true
+        run: node scripts/deploy-wordpress-workers-cache.mjs
+
+      - name: Verify V2 structural parity and inline CSS
+        id: parity
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const baseline='https://runner3wp.pntr.dev/';
+          const candidate=process.env.CF_EDGE_URL+'/';
+          async function grab(url){
+            const r=await fetch(url,{headers:{'user-agent':'Runner3WP-AB-Parity/1.0'}});
+            const html=await r.text();
+            const text=html.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+            const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1]?.replace(/<[^>]+>/g,'').trim()||'';
+            const h1=(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)||[])[1]?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()||'';
+            const links=[...html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)].map(m=>m[1]);
+            const images=[...html.matchAll(/<img\b/gi)].length;
+            return {http:r.status,html,text,title,h1,links,images,headers:Object.fromEntries(r.headers.entries())};
+          }
+          const [a,b]=await Promise.all([grab(baseline),grab(candidate)]);
+          const inlineCount=Number(b.headers['x-runner3-v2-inline-css']||0);
+          const inlineTags=(b.html.match(/data-runner3-v2-inline-css=/g)||[]).length;
+          const noindex=/noindex/i.test(b.headers['x-robots-tag']||'');
+          const snapshot=b.headers['x-edge-mode']==='snapshot'&&String(b.headers['x-edge-snapshot']||'').toUpperCase()==='HIT';
+          const titleSame=a.title===b.title;
+          const h1Same=a.h1===b.h1;
+          const imageCountSame=a.images===b.images;
+          const textSame=a.text===b.text;
+          const majorLinksSame=a.links.slice(0,20).map(x=>x.replace(/^https?:\/\/[^/]+/,'')).join('|')===b.links.slice(0,20).map(x=>x.replace(/^https?:\/\/[^/]+/,'')).join('|');
+          const pass=a.http===200&&b.http===200&&inlineCount>0&&inlineTags>0&&noindex&&snapshot&&titleSame&&h1Same&&imageCountSame&&textSame&&majorLinksSame;
+          const out={status:pass?'ok':'failed',baseline,candidate,inlineCount,inlineTags,noindex,snapshot,titleSame,h1Same,imageCountSame,textSame,majorLinksSame,baselineImages:a.images,candidateImages:b.images,checkedAt:new Date().toISOString()};
+          fs.writeFileSync('/tmp/runner3wp-v2-parity.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          if(!pass) process.exit(7);
+          NODE
+
+      - name: Install PageSpeed browser runtime
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.61.0
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Measure V2 PageSpeed with retry
+        id: psi
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          ok=0
+          for attempt in 1 2 3; do
+            node scripts/pagespeed-ui-audit.mjs
+            rc=$?
+            if [ "$rc" -eq 0 ]; then ok=1; break; fi
+            sleep $((attempt * 12))
+          done
+          test "$ok" = 1
+
+      - name: Judge A-B candidate
+        id: judge
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,re,os
+          def load(path, fallback):
+              try:
+                  return json.load(open(path))
+              except Exception:
+                  return fallback
+          edge=load('/tmp/runner3wp-v2-edge.json',{'status':'missing'})
+          parity=load('/tmp/runner3wp-v2-parity.json',{'status':'missing'})
+          psi=load('/tmp/runner3wp-v2-pagespeed.json',{'status':'missing'})
+          def seconds(v):
+              if not isinstance(v,str): return None
+              m=re.match(r'([0-9.]+)\s*(ms|s)',v)
+              if not m: return None
+              x=float(m.group(1)); return x/1000 if m.group(2)=='ms' else x
+          mobile=psi.get('mobile') or {}
+          scores=mobile.get('scores') or {}
+          metrics=mobile.get('metrics') or {}
+          fcp=seconds(metrics.get('fcp'))
+          lcp=seconds(metrics.get('lcp'))
+          safety=(edge.get('status')=='completed' and parity.get('status')=='ok' and psi.get('status')=='ready' and scores.get('performance')==100 and scores.get('accessibility')==100 and scores.get('bestPractices')==100 and metrics.get('tbt') in ('0ms','0 ms') and str(metrics.get('cls','')).lower() in ('0','0s'))
+          target=bool(safety and fcp is not None and fcp<=0.5)
+          improved=bool(safety and fcp is not None and fcp<0.8)
+          verdict='TARGET_PASS' if target else ('IMPROVED_NOT_TARGET' if improved else 'REJECT_ROLLBACK')
+          out={
+            'status':'ready',
+            'verdict':verdict,
+            'baseline':{'url':'https://runner3wp.pntr.dev/','mobileFcpSeconds':0.8,'mobileLcpSeconds':1.7,'performance':100},
+            'candidate':{'url':os.environ.get('PSI_URL'),'mobileFcpSeconds':fcp,'mobileLcpSeconds':lcp,'scores':scores,'metrics':metrics},
+            'safetyPass':safety,
+            'targetMobileFcpSeconds':0.5,
+            'targetReached':target,
+            'improved':improved,
+            'edge':edge,
+            'parity':parity,
+          }
+          json.dump(out,open('/tmp/runner3wp-v2-ab.json','w'),indent=2)
+          print(json.dumps(out,indent=2))
+          if verdict=='REJECT_ROLLBACK': raise SystemExit(9)
+          PY
+
+      - name: Persist V2 A-B state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/runner3wp-v2-ab.json || echo '{"status":"failed","verdict":"REJECT_ROLLBACK","detail":"ab_result_missing"}' >/tmp/runner3wp-v2-ab.json
+          cp /tmp/runner3wp-v2-ab.json /tmp/ab-safe.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4; do
+            git fetch origin runner3wp-v2-fcp-test
+            git reset --hard origin/runner3wp-v2-fcp-test
+            mkdir -p ops/perf/ab
+            cp /tmp/ab-safe.json ops/perf/ab/runner3wp-v2.latest.json
+            git add ops/perf/ab/runner3wp-v2.latest.json
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Persist runner3wp V2 FCP A-B: ${GITHUB_RUN_ID}"
+            if git push origin HEAD:runner3wp-v2-fcp-test; then exit 0; fi
+            sleep 2
+          done
+          exit 2
+
+      - name: Require safe V2 candidate
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/runner3wp-v2-ab.json'))
+          assert d.get('verdict') in ('TARGET_PASS','IMPROVED_NOT_TARGET'), json.dumps(d,indent=2)
+          assert d.get('safetyPass') is True, json.dumps(d,indent=2)
+          PY

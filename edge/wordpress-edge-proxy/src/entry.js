@@ -6,6 +6,9 @@ const R2_ORIGIN = 'https://pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const R2_HOST = 'pub-f6e5190178814cd5be8f1eb531f1a164.r2.dev';
 const PURGE_PATH = '/__runner3/cache/purge';
 const HTML_CACHE_TAG = 'runner3-html';
+const LCP_R2_PREFIX = '/__runner3/r2-image/';
+const LCP_R2_NAME_RE = /^offset-demo-01-w(?:360|480|640)\.webp$/;
+const LCP_R2_KEY_PREFIX = 'sites/runner3-factory-smoke-2/responsive-v2/';
 
 class HeadResourceHints {
   element(element) {
@@ -57,12 +60,27 @@ async function directPublicResponse(request, env, ctx) {
     headers.set('Cloudflare-CDN-Cache-Control', 'no-store');
     headers.set('X-Edge-Cache-Policy', 'snapshot-fallback');
   } else {
-    // Unsnapshotted public routes stay correct by using the live origin until the
-    // next snapshot refresh. They are deliberately not inserted into the legacy
-    // PublicHtml cache.
     headers.set('X-Edge-Cache-Policy', 'origin-direct');
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function sameOriginLcpImage(request, env, incoming) {
+  const method = request.method.toUpperCase();
+  if (!['GET', 'HEAD'].includes(method)) return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
+  const name = incoming.pathname.slice(LCP_R2_PREFIX.length);
+  if (!LCP_R2_NAME_RE.test(name)) return new Response('Not Found', { status: 404 });
+  const key = `${LCP_R2_KEY_PREFIX}${name}`;
+  const object = method === 'HEAD' ? await env.MEDIA_BUCKET.head(key) : await env.MEDIA_BUCKET.get(key);
+  if (!object) return new Response('Not Found', { status: 404 });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('ETag', object.httpEtag);
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/webp');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  headers.set('X-Runner3-LCP', 'r2-binding-same-origin');
+  if (Number.isFinite(object.size)) headers.set('Content-Length', String(object.size));
+  return new Response(method === 'HEAD' ? null : object.body, { status: 200, headers });
 }
 
 function base64Bytes(value) { const binary = atob(String(value || '')); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i); return bytes; }
@@ -101,7 +119,9 @@ async function handlePurge(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
-    const incoming = new URL(request.url); if (incoming.pathname === PURGE_PATH) return handlePurge(request, env, ctx);
+    const incoming = new URL(request.url);
+    if (incoming.pathname === PURGE_PATH) return handlePurge(request, env, ctx);
+    if (incoming.pathname.startsWith(LCP_R2_PREFIX)) return sameOriginLcpImage(request, env, incoming);
     if (isPublicHtmlCacheCandidate(request)) return directPublicResponse(request, env, ctx);
     const response = await worker.fetch(request, env, ctx); return decorateFrontend(request, response);
   },

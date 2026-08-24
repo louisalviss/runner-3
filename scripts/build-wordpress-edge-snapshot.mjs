@@ -5,6 +5,7 @@ const modulePath = process.env.CF_SNAPSHOT_MODULE || 'edge/wordpress-edge-proxy/
 const outPath = process.env.CF_SNAPSHOT_OUT || '/tmp/runner3-edge-snapshot.json';
 const maxPages = Math.max(1, Number(process.env.CF_SNAPSHOT_MAX_PAGES || 40));
 const maxBytes = Math.max(250000, Number(process.env.CF_SNAPSHOT_MAX_BYTES || 2500000));
+const fcpV2 = process.env.RUNNER3_FCP_V2 === '1';
 
 function normalizePath(pathname) {
   const path = pathname || '/';
@@ -46,6 +47,60 @@ function internalPaths(html, baseUrl) {
     }
   }
   return paths;
+}
+
+function optimizeFcpHtml(html) {
+  if (!fcpV2) return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+
+  const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
+  if (!headMatch) return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+
+  const headHtml = headMatch[1];
+  const deferred = [];
+  let criticalOriginal = null;
+  const strippedHead = headHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>\s*/gi, (tag) => {
+    const id = (tag.match(/\bid=(["'])([^"']+)\1/i) || [])[2] || '';
+    deferred.push({ id, tag });
+    if (id.toLowerCase() === 'runner3-critical-css') criticalOriginal = tag;
+    return '';
+  });
+
+  if (!criticalOriginal || deferred.length < 2) {
+    return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+  }
+
+  const criticalMatch = criticalOriginal.match(/<style\b[^>]*>([\s\S]*?)<\/style>/i);
+  const criticalCss = criticalMatch?.[1] || '';
+  const rootStart = criticalCss.indexOf(':root {');
+  const editionStart = criticalCss.indexOf('.edition-hero {', rootStart);
+  const signalStart = criticalCss.indexOf('/* OFFSET / SIGNAL — front-page art direction */', rootStart);
+  if (rootStart < 0 || editionStart <= rootStart || signalStart <= editionStart) {
+    return { html, deferredStyleCount: 0, deferredStyleBytes: 0, criticalCopyBytes: 0, headSavedBytes: 0 };
+  }
+  const baseCritical = criticalCss.slice(rootStart, editionStart).trim();
+  const signalCritical = criticalCss.slice(signalStart).trim();
+  const criticalSubset = `${baseCritical}\n\n${signalCritical}`;
+  const criticalCopy = `<style id="runner3-v2-critical-css" data-runner3-v2-critical="r1">\n${criticalSubset}\n</style>`;
+  const optimizedHead = `${strippedHead}${criticalCopy}\n`;
+  const headStart = headMatch.index + headMatch[0].indexOf(headMatch[1]);
+  const headEnd = headStart + headMatch[1].length;
+  const withCritical = `${html.slice(0, headStart)}${optimizedHead}${html.slice(headEnd)}`;
+
+  const deferredCss = `\n<!-- runner3-v2-original-css-order -->\n${deferred.map(({ tag }) => tag.trim()).join('\n')}\n`;
+  const bodyClose = withCritical.lastIndexOf('</body>');
+  const optimized = bodyClose >= 0
+    ? `${withCritical.slice(0, bodyClose)}${deferredCss}${withCritical.slice(bodyClose)}`
+    : `${withCritical}${deferredCss}`;
+
+  const deferredStyleBytes = deferred.reduce((sum, { tag }) => sum + Buffer.byteLength(tag), 0);
+  const criticalCopyBytes = Buffer.byteLength(criticalCopy);
+  return {
+    html: optimized,
+    deferredStyleCount: deferred.length,
+    deferredStyleBytes,
+    criticalCopyBytes,
+    headSavedBytes: Math.max(0, Buffer.byteLength(headHtml) - Buffer.byteLength(optimizedHead)),
+  };
 }
 
 async function sitemapPaths() {
@@ -95,6 +150,11 @@ for (const path of await sitemapPaths()) {
 const snapshots = {};
 const errors = [];
 let totalBytes = 0;
+let deferredStyleCount = 0;
+let deferredStyleBytes = 0;
+let criticalCopyBytes = 0;
+let headSavedBytes = 0;
+let homepageFcp = null;
 
 while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < maxBytes) {
   const requestedPath = queue.shift();
@@ -114,7 +174,25 @@ while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < 
       continue;
     }
 
-    const html = await response.text();
+    const sourceHtml = await response.text();
+    const fcp = optimizeFcpHtml(sourceHtml);
+    const html = fcp.html;
+    deferredStyleCount += fcp.deferredStyleCount;
+    deferredStyleBytes += fcp.deferredStyleBytes;
+    criticalCopyBytes += fcp.criticalCopyBytes;
+    headSavedBytes += fcp.headSavedBytes;
+    if (normalizePath(requestedUrl.pathname) === '/') {
+      homepageFcp = {
+        enabled: fcpV2,
+        deferredStyleCount: fcp.deferredStyleCount,
+        deferredStyleBytes: fcp.deferredStyleBytes,
+        criticalCopyBytes: fcp.criticalCopyBytes,
+        headSavedBytes: fcp.headSavedBytes,
+        beforeBytes: Buffer.byteLength(sourceHtml),
+        afterBytes: Buffer.byteLength(html),
+      };
+    }
+
     const bytes = Buffer.byteLength(html);
     if (bytes < 256) {
       errors.push({ path: requestedPath, status: response.status, detail: `html_too_small=${bytes}` });
@@ -131,7 +209,7 @@ while (queue.length && Object.keys(snapshots).length < maxPages && totalBytes < 
     }
     if (finalKey !== requestedKey && !(finalKey in snapshots)) snapshots[finalKey] = html;
 
-    for (const path of internalPaths(html, finalUrl)) {
+    for (const path of internalPaths(sourceHtml, finalUrl)) {
       if (queued.has(path) || Object.keys(snapshots).length + queue.length >= maxPages) continue;
       queued.add(path);
       queue.push(path);
@@ -165,6 +243,14 @@ const result = {
   paths: Object.keys(snapshots).sort(),
   errors: errors.slice(0, 20),
   modulePath,
+  fcpV2: {
+    enabled: fcpV2,
+    deferredStyleCount,
+    deferredStyleBytes,
+    criticalCopyBytes,
+    headSavedBytes,
+    homepage: homepageFcp,
+  },
 };
 fs.writeFileSync(outPath, `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify(result, null, 2));

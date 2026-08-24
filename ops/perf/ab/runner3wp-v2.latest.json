@@ -1,0 +1,184 @@
+{
+  "status": "ready",
+  "verdict": "REJECT_ROLLBACK",
+  "baseline": {
+    "url": "https://runner3wp.pntr.dev/",
+    "mobileFcpSeconds": 0.8,
+    "mobileLcpSeconds": 1.7,
+    "performance": 100
+  },
+  "candidate": {
+    "url": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/",
+    "mobileFcpSeconds": 1.0,
+    "mobileLcpSeconds": 2.0,
+    "scores": {
+      "performance": 99,
+      "accessibility": 100,
+      "bestPractices": 100,
+      "seo": 66
+    },
+    "metrics": {
+      "fcp": "1.0s",
+      "lcp": "2.0s",
+      "tbt": "0ms",
+      "cls": "0S",
+      "speedIndex": "1.0s"
+    }
+  },
+  "safetyPass": false,
+  "targetMobileFcpSeconds": 0.5,
+  "targetReached": false,
+  "improved": false,
+  "edge": {
+    "status": "completed",
+    "edgeUrl": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev",
+    "architecture": "snapshot-direct",
+    "purgeEndpoint": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/__runner3/cache/purge",
+    "auth": "HMAC-SHA256-preserved",
+    "checkedAt": "2026-08-19T18:11:00.349Z",
+    "snapshot": {
+      "status": "ready",
+      "origin": "https://runner3-factory-smoke-2.wasmer.app",
+      "builtAt": "2026-08-19T18:10:31.409Z",
+      "pages": 16,
+      "bytes": 367037,
+      "paths": [
+        "/",
+        "/2026/08/17/a-field-guide-to-useful-friction/",
+        "/2026/08/17/after-the-feed-what-comes-next-for-the-open-web/",
+        "/2026/08/17/designing-for-people-who-skip-the-tutorial/",
+        "/2026/08/17/small-models-big-consequences/",
+        "/2026/08/17/the-new-geography-of-digital-work/",
+        "/2026/08/17/the-quiet-machines-running-the-city/",
+        "/2026/08/17/the-return-of-personal-software/",
+        "/2026/08/17/why-interfaces-are-becoming-invisible/",
+        "/2026/08/18/bentley-introduces-merino-wool-interior-for-upcoming-torcal-ev/",
+        "/about/",
+        "/category/culture/",
+        "/category/field-notes/",
+        "/category/systems/",
+        "/category/technology/",
+        "/contact/"
+      ],
+      "errors": [
+        {
+          "path": "/category/technology/feed/",
+          "status": 200,
+          "detail": "content-type=application/rss+xml; charset=UTF-8"
+        },
+        {
+          "path": "/category/culture/feed/",
+          "status": 200,
+          "detail": "content-type=application/rss+xml; charset=UTF-8"
+        },
+        {
+          "path": "/category/systems/feed/",
+          "status": 200,
+          "detail": "content-type=application/rss+xml; charset=UTF-8"
+        },
+        {
+          "path": "/category/field-notes/feed/",
+          "status": 200,
+          "detail": "content-type=application/rss+xml; charset=UTF-8"
+        }
+      ],
+      "modulePath": "edge/wordpress-edge-proxy/src/snapshot.generated.js"
+    },
+    "probe": {
+      "publicReady": true,
+      "policyReady": true,
+      "snapshotReady": true,
+      "coldFast": true,
+      "medianSnapshotMs": 40.9,
+      "cacheHit": false,
+      "signedPurgeRequired": true,
+      "loginSafe": true,
+      "cookieSafe": true,
+      "responsiveReady": true,
+      "noindexReady": true,
+      "unsignedPurgeHttp": 401,
+      "homeRuns": [
+        {
+          "http": 200,
+          "ms": 276.7,
+          "cfCacheStatus": null,
+          "age": null,
+          "edgeMode": "snapshot",
+          "edgeSnapshot": "HIT",
+          "edgePolicy": "snapshot-direct",
+          "snapshotBuiltAt": "2026-08-19T18:10:31.409Z"
+        },
+        {
+          "http": 200,
+          "ms": 36.9,
+          "cfCacheStatus": null,
+          "age": null,
+          "edgeMode": "snapshot",
+          "edgeSnapshot": "HIT",
+          "edgePolicy": "snapshot-direct",
+          "snapshotBuiltAt": "2026-08-19T18:10:31.409Z"
+        },
+        {
+          "http": 200,
+          "ms": 38.9,
+          "cfCacheStatus": null,
+          "age": null,
+          "edgeMode": "snapshot",
+          "edgeSnapshot": "HIT",
+          "edgePolicy": "snapshot-direct",
+          "snapshotBuiltAt": "2026-08-19T18:10:31.409Z"
+        },
+        {
+          "http": 200,
+          "ms": 40.9,
+          "cfCacheStatus": null,
+          "age": null,
+          "edgeMode": "snapshot",
+          "edgeSnapshot": "HIT",
+          "edgePolicy": "snapshot-direct",
+          "snapshotBuiltAt": "2026-08-19T18:10:31.409Z"
+        }
+      ],
+      "first": {
+        "http": 200,
+        "ms": 276.7,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct"
+      },
+      "second": {
+        "http": 200,
+        "ms": 40.9,
+        "cfCacheStatus": null,
+        "age": null,
+        "edgeMode": "snapshot",
+        "edgeSnapshot": "HIT",
+        "edgePolicy": "snapshot-direct"
+      },
+      "authBypass": {
+        "http": 200,
+        "edgeMode": "bypass",
+        "cacheControl": "private, no-store"
+      }
+    }
+  },
+  "parity": {
+    "status": "failed",
+    "baseline": "https://runner3wp.pntr.dev/",
+    "candidate": "https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/",
+    "inlineCount": 0,
+    "inlineTags": 0,
+    "noindex": true,
+    "snapshot": true,
+    "titleSame": true,
+    "h1Same": true,
+    "imageCountSame": true,
+    "textSame": true,
+    "majorLinksSame": true,
+    "baselineImages": 8,
+    "candidateImages": 8,
+    "checkedAt": "2026-08-19T18:11:00.694Z"
+  }
+}

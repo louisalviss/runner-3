@@ -1,0 +1,104 @@
+name: Site1 LCP 0.90 A-B
+
+on:
+  push:
+    branches: [perf/site1-lcp-090-20260824]
+    paths:
+      - 'edge/wordpress-edge-proxy/src/**'
+      - '.github/workflows/site1-lcp-090-ab.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site1-lcp-090-ab
+  cancel-in-progress: false
+
+env:
+  PROD_URL: https://runner3wp.pntr.dev/
+  TEST_URL: https://wordpress-edge-proxy-lcp090.ducduy2411.workers.dev/
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build current WordPress snapshot and deploy isolated candidate
+        run: |
+          set -euo pipefail
+          node --check edge/wordpress-edge-proxy/src/responsive-images.js
+          node --check edge/wordpress-edge-proxy/src/entry.js
+          node scripts/build-wordpress-edge-snapshot.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('edge/wordpress-edge-proxy/wrangler.v2.jsonc')
+          s=p.read_text().replace('"name": "wordpress-edge-proxy-v2"','"name": "wordpress-edge-proxy-lcp090"')
+          Path('edge/wordpress-edge-proxy/wrangler.lcp090.jsonc').write_text(s)
+          PY
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.lcp090.jsonc >/tmp/deploy.log 2>&1
+          sleep 4
+
+      - name: Candidate functional guard
+        run: |
+          set -euo pipefail
+          curl -fsS -D /tmp/h -o /tmp/home "$TEST_URL"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/h
+          grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/h
+          python3 - <<'PY'
+          import re
+          h=open('/tmp/home',errors='ignore').read()
+          imgs=[x for x in re.findall(r'<img\b[^>]*offset-demo-01[^>]*>',h,re.I)]
+          print('hero_occurrences',len(imgs))
+          for i,x in enumerate(imgs[:3],1): print('hero',i,x[:1000])
+          assert len(imgs)>=2
+          assert re.search(r'loading=["\']eager["\']',imgs[0],re.I)
+          assert re.search(r'fetchpriority=["\']high["\']',imgs[0],re.I)
+          assert re.search(r'decoding=["\']sync["\']',imgs[0],re.I)
+          assert re.search(r'loading=["\']lazy["\']',imgs[1],re.I)
+          assert re.search(r'fetchpriority=["\']low["\']',imgs[1],re.I)
+          PY
+          curl -fsS -D /tmp/ih -o /tmp/i "$TEST_URL/__runner3/r2-image/offset-demo-01-w640.webp"
+          grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/ih
+          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/ih
+          curl -sS -D /tmp/admin -o /dev/null "${TEST_URL}wp-admin/"
+          grep -Eiq '^HTTP/[^ ]+[[:space:]]+307' /tmp/admin
+
+      - name: Alternate 3x mobile Lighthouse A-B
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/lh
+          for i in 1 2 3; do
+            npx --yes lighthouse "$PROD_URL" --only-categories=performance --output=json --output-path="/tmp/lh/prod-$i.json" --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" >/dev/null
+            npx --yes lighthouse "$TEST_URL" --only-categories=performance --output=json --output-path="/tmp/lh/test-$i.json" --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" >/dev/null
+          done
+          python3 - <<'PY'
+          import json,statistics
+          def rows(prefix):
+            out=[]
+            for i in range(1,4):
+              d=json.load(open(f'/tmp/lh/{prefix}-{i}.json'));a=d['audits']
+              out.append({'performance':round(d['categories']['performance']['score']*100),'fcp':round(a['first-contentful-paint']['numericValue']),'lcp':round(a['largest-contentful-paint']['numericValue']),'tbt':round(a['total-blocking-time']['numericValue']),'cls':round(a['cumulative-layout-shift']['numericValue'],3),'si':round(a['speed-index']['numericValue'])})
+            return out
+          def summary(rs):
+            return {k:statistics.median([r[k] for r in rs]) for k in ('performance','fcp','lcp','tbt','cls','si')}
+          p,t=rows('prod'),rows('test')
+          print('PROD',json.dumps(p));print('PROD_MEDIAN',json.dumps(summary(p)))
+          print('TEST',json.dumps(t));print('TEST_MEDIAN',json.dumps(summary(t)))
+          s=summary(t)
+          passed=all(r['performance']==100 and r['cls']==0 for r in t) and s['lcp']<=950
+          print('TARGET_PASS',str(passed).lower())
+          open('/tmp/verdict','w').write('PASS' if passed else 'REJECT')
+          PY
+
+      - name: Report verdict only
+        if: always()
+        run: |
+          echo "VERDICT=$(cat /tmp/verdict 2>/dev/null || echo FAILED)"
