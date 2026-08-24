@@ -7,6 +7,10 @@ import urllib.parse
 import urllib.request
 
 DEFAULT_CORE_URL = "https://runner3-core.ducduy2411.workers.dev"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
 
 
 def _core_url(core_url=None):
@@ -19,7 +23,11 @@ def _quote(value):
 
 def _request_json(method, path, payload=None, *, core_url=None, timeout=15):
     data = None
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": os.environ.get("RUNNER3_CORE_USER_AGENT", DEFAULT_USER_AGENT),
+        "Cache-Control": "no-cache",
+    }
     if payload is not None:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         headers["Content-Type"] = "application/json"
