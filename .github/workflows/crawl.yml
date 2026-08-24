@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           JOB='${{ steps.job.outputs.job_file }}'
-          python crawler.py "$JOB" --validate-only
+          python crawler_aiua.py "$JOB" --validate-only
 
           MODE="$(python -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("mode","auto"))' "$JOB")"
           POLICY="$(python -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j.get("artifact_policy","none"))' "$JOB")"
@@ -83,7 +83,7 @@ jobs:
 
       - name: Crawl
         id: crawl
-        run: python crawler.py '${{ steps.job.outputs.job_file }}' --output crawl_output
+        run: python crawler_aiua.py '${{ steps.job.outputs.job_file }}' --output crawl_output
 
       - name: Upload approved public artifact
         if: always() && steps.config.outcome == 'success' && steps.config.outputs.artifact_policy != 'none'
