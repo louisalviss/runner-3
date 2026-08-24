@@ -13,8 +13,10 @@ import datetime as dt
 import hashlib
 import json
 import math
+import os
 import pathlib
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -249,7 +251,6 @@ def emit_post_sql(post: dict, sorts: list[str], raw_pointer: str | None, fetched
     quoted = ",".join(sql_quote(values[c]) for c in cols)
     update_cols = [c for c in cols if c != "post_id"]
     if not fetched:
-        # A listing refresh must never erase a previously captured thread snapshot.
         update_cols = [
             c for c in update_cols
             if c not in ("status", "last_thread_fetch_at", "comments_snapshot_count", "raw_object_key")
@@ -442,8 +443,8 @@ def main():
         "thread_errors": thread_errors,
         "comments_seen": len(all_comments),
         "raw_object_key": args.r2_key,
-        "listing_requests": len([x for x in acquisition if x["kind"] == "listing"),
-        "thread_requests": len([x for x in acquisition if x["kind"] == "thread"),
+        "listing_requests": len([x for x in acquisition if x["kind"] == "listing"]),
+        "thread_requests": len([x for x in acquisition if x["kind"] == "thread"]),
         "acquisition_hosts": sorted({x.get("via") for x in acquisition if x.get("via")}),
         "top_candidates": top_preview,
     }
