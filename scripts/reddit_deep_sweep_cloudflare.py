@@ -6,7 +6,8 @@ Acquisition order:
 2. Authenticated Cloudflare Reddit-only bridge.
 3. Source-specific public fallbacks:
    - Arctic Shift for subreddit listings and thread/comment trees.
-   - Jina Reader mirror for subreddit wiki pages.
+   - A sparse-cloned GitHub export of the RealDayTrading wiki as the canonical
+     base snapshot, with Jina Reader used only as a best-effort live refresh.
 
 The canonical ranking/storage code remains in reddit_deep_sweep.py.
 """
@@ -27,12 +28,17 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = Path(__file__).with_name("reddit_deep_sweep.py")
 STATUS_PATH = ROOT / "ops/audio-library/chatgpt-bridge-status.json"
-UA = "runner3-reddit-deep-sweep/3.0 (+public read-only research)"
+UA = "runner3-reddit-deep-sweep/3.1 (+public read-only research)"
 ARCHIVE_BASE = "https://arctic-shift.photon-reddit.com"
 JINA_BASE = "https://r.jina.ai/https://www.reddit.com"
+WIKI_EXPORT_REPO = "https://github.com/RichVarney/RealDayTrading_Wiki"
 LISTING_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/(top|new|hot)\.json$")
 THREAD_RE = re.compile(r"^/comments/([A-Za-z0-9]+)\.json$")
 WIKI_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/wiki/([A-Za-z0-9_.-]+)\.json$")
+ORIGINAL_POST_RE = re.compile(
+    r"Original post:\s*\[[^\]]*\]\((https?://(?:www\.)?reddit\.com/r/[^)\s]+/comments/[A-Za-z0-9]+/[^)]*)\)",
+    re.I,
+)
 
 
 def load_collector():
@@ -332,9 +338,129 @@ def public_fallback_request_json(path: str, query: dict[str, object] | None = No
     raise RuntimeError(f"public_fallback_path_not_supported:{path}")
 
 
+def export_wiki_snapshot(collector, subreddit: str, live_fetch_wiki):
+    export_dir_raw = os.environ.get("RDT_WIKI_EXPORT_DIR", "").strip()
+    if not export_dir_raw:
+        return live_fetch_wiki(subreddit)
+
+    export_dir = Path(export_dir_raw)
+    posts_dir = export_dir / "posts"
+    files = sorted(posts_dir.glob("*.md"))
+    if not files:
+        raise RuntimeError(f"rdt_wiki_export_posts_missing:{posts_dir}")
+
+    canonical_links = []
+    external_links = []
+    canonical_seen = set()
+    external_seen = set()
+    chunks = [
+        "# RealDayTrading Wiki export snapshot",
+        "",
+        f"Source: {WIKI_EXPORT_REPO}",
+        f"Snapshot commit: {os.environ.get('RDT_WIKI_EXPORT_COMMIT') or 'unknown'}",
+        "",
+    ]
+    total_bytes = 0
+
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        total_bytes += len(text.encode("utf-8"))
+        chunks.extend([f"\n\n<!-- source-file: {path.name} -->\n", text])
+
+        match = ORIGINAL_POST_RE.search(text)
+        if match:
+            url = collector.normalize_wiki_url(match.group(1), subreddit)
+            if url:
+                parts = urllib.parse.urlsplit(url)
+                pid_match = collector.POST_ID_RE.search(parts.path)
+                pid = pid_match.group(1) if pid_match else None
+                if pid and pid not in canonical_seen:
+                    canonical_seen.add(pid)
+                    canonical_links.append({
+                        "ordinal": len(canonical_links) + 1,
+                        "label": path.stem[:500],
+                        "url": url,
+                        "host": parts.netloc.lower(),
+                        "kind": "reddit-thread",
+                        "post_id": pid,
+                        "wiki_source": "github-export",
+                    })
+
+        for link in collector.extract_wiki_links(text, subreddit):
+            if link.get("kind") != "external":
+                continue
+            url = link.get("url")
+            if not url or url in external_seen:
+                continue
+            external_seen.add(url)
+            item = dict(link)
+            item["wiki_source"] = "github-export"
+            external_links.append(item)
+
+    if len(canonical_links) < 50:
+        raise RuntimeError(f"rdt_wiki_export_too_small:reddit_threads={len(canonical_links)}")
+
+    live_valid = False
+    live_error = None
+    live_links = []
+    live_markdown = ""
+    try:
+        _live_payload, live_markdown, candidate_links, _live_meta = live_fetch_wiki(subreddit)
+        live_reddit_ids = {x.get("post_id") for x in candidate_links if x.get("post_id")}
+        if len(candidate_links) >= 50 and len(live_reddit_ids) >= 50:
+            live_valid = True
+            live_links = candidate_links
+        else:
+            live_error = f"live_wiki_rejected:links={len(candidate_links)}:reddit_threads={len(live_reddit_ids)}"
+    except Exception as exc:
+        live_error = f"{type(exc).__name__}:{exc}"
+
+    links = list(canonical_links)
+    seen_urls = {x["url"] for x in links}
+    for link in external_links:
+        if link.get("url") not in seen_urls:
+            links.append(link)
+            seen_urls.add(link["url"])
+    if live_valid:
+        for link in live_links:
+            if link.get("url") not in seen_urls:
+                item = dict(link)
+                item["wiki_source"] = "live-refresh"
+                links.append(item)
+                seen_urls.add(item["url"])
+
+    combined = "\n".join(chunks)
+    if live_valid and live_markdown:
+        combined += "\n\n# Live wiki refresh\n\n" + live_markdown
+
+    payload = {
+        "kind": "wiki-export",
+        "data": {
+            "source_repo": WIKI_EXPORT_REPO,
+            "snapshot_commit": os.environ.get("RDT_WIKI_EXPORT_COMMIT"),
+            "post_files": len(files),
+            "canonical_reddit_threads": len(canonical_links),
+            "live_refresh_valid": live_valid,
+            "live_refresh_error": live_error,
+        },
+    }
+    meta = {
+        "url": WIKI_EXPORT_REPO,
+        "bytes": total_bytes,
+        "via": "github-wiki-export+live" if live_valid else "github-wiki-export",
+        "snapshot_commit": os.environ.get("RDT_WIKI_EXPORT_COMMIT"),
+        "post_files": len(files),
+        "canonical_reddit_threads": len(canonical_links),
+        "live_refresh_valid": live_valid,
+        "live_refresh_error": live_error,
+    }
+    return payload, combined, links, meta
+
+
 def main():
     collector = load_collector()
     direct_request_json = collector.request_json
+    original_fetch_wiki = collector.fetch_wiki
     bridge_available = True
 
     def request_json(path: str, query=None, tries: int = 3):
@@ -367,6 +493,11 @@ def main():
             ) from fallback_exc
 
     collector.request_json = request_json
+    collector.fetch_wiki = lambda subreddit: export_wiki_snapshot(
+        collector,
+        subreddit,
+        original_fetch_wiki,
+    )
     collector.main()
 
 
