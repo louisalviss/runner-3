@@ -4,8 +4,9 @@
 Acquisition order:
 1. Reddit / old Reddit JSON directly.
 2. Authenticated Cloudflare Reddit-only bridge.
-3. Arctic Shift public Reddit archive, synthesized into the Reddit JSON shapes
-   expected by the canonical collector.
+3. Source-specific public fallbacks:
+   - Arctic Shift for subreddit listings and thread/comment trees.
+   - Jina Reader mirror for subreddit wiki pages.
 
 The canonical ranking/storage code remains in reddit_deep_sweep.py.
 """
@@ -20,17 +21,18 @@ import os
 from pathlib import Path
 import re
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = Path(__file__).with_name("reddit_deep_sweep.py")
 STATUS_PATH = ROOT / "ops/audio-library/chatgpt-bridge-status.json"
-UA = "runner3-reddit-deep-sweep/2.0 (+public read-only research)"
+UA = "runner3-reddit-deep-sweep/3.0 (+public read-only research)"
 ARCHIVE_BASE = "https://arctic-shift.photon-reddit.com"
+JINA_BASE = "https://r.jina.ai/https://www.reddit.com"
 LISTING_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/(top|new|hot)\.json$")
 THREAD_RE = re.compile(r"^/comments/([A-Za-z0-9]+)\.json$")
+WIKI_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/wiki/([A-Za-z0-9_.-]+)\.json$")
 
 
 def load_collector():
@@ -124,6 +126,52 @@ def archive_get(path: str, query: dict[str, object], timeout: int = 70):
             if attempt < 3:
                 time.sleep(attempt)
     raise RuntimeError("arctic_shift_failed:" + " | ".join(errors[-3:]))
+
+
+def jina_wiki(path: str):
+    match = WIKI_RE.match(path)
+    if not match:
+        raise RuntimeError("jina_wiki_path_not_supported")
+    subreddit, page = match.groups()
+    source_url = f"https://www.reddit.com/r/{subreddit}/wiki/{page}/"
+    url = f"{JINA_BASE}/r/{subreddit}/wiki/{page}/"
+    errors = []
+    for attempt in range(1, 4):
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": UA, "Accept": "text/plain,text/markdown,*/*;q=0.1"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read()
+                status = resp.status
+            if status != 200:
+                raise RuntimeError(f"jina_http_{status}")
+            text = raw.decode("utf-8", "replace").strip()
+            if len(text) < 100:
+                raise RuntimeError("jina_wiki_too_short")
+            payload = {
+                "kind": "wikipage",
+                "data": {
+                    "content_md": text,
+                    "content_html": "",
+                    "revision_date": None,
+                },
+                "_runner3_mirror": {
+                    "source_url": source_url,
+                    "reader_url": url,
+                },
+            }
+            return payload, {
+                "url": source_url,
+                "bytes": len(raw),
+                "via": "jina-reader",
+            }
+        except Exception as exc:
+            errors.append(f"attempt={attempt}:{type(exc).__name__}:{exc}")
+            if attempt < 3:
+                time.sleep(attempt)
+    raise RuntimeError("jina_wiki_failed:" + " | ".join(errors[-3:]))
 
 
 def iso_utc(epoch: int | float) -> str:
@@ -274,12 +322,14 @@ def archive_thread(path: str, query: dict[str, object] | None):
     return payload, meta
 
 
-def archive_request_json(path: str, query: dict[str, object] | None = None):
+def public_fallback_request_json(path: str, query: dict[str, object] | None = None):
+    if WIKI_RE.match(path):
+        return jina_wiki(path)
     if LISTING_RE.match(path):
         return archive_listing(path, query)
     if THREAD_RE.match(path):
         return archive_thread(path, query)
-    raise RuntimeError(f"arctic_shift_path_not_supported:{path}")
+    raise RuntimeError(f"public_fallback_path_not_supported:{path}")
 
 
 def main():
@@ -304,17 +354,17 @@ def main():
                 bridge_available = False
 
         try:
-            return archive_request_json(path, query)
-        except Exception as archive_exc:
+            return public_fallback_request_json(path, query)
+        except Exception as fallback_exc:
             raise RuntimeError(
                 " | ".join(
                     part for part in [
                         f"direct_reddit_failed:{direct_error}" if direct_error else "",
                         f"bridge_failed:{bridge_error}" if bridge_error else ("bridge_disabled" if not bridge_available else ""),
-                        f"archive_failed:{archive_exc}",
+                        f"public_fallback_failed:{fallback_exc}",
                     ] if part
                 )
-            ) from archive_exc
+            ) from fallback_exc
 
     collector.request_json = request_json
     collector.main()
