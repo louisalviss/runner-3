@@ -1,0 +1,46 @@
+name: Earnings Follow-up
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'research/earnings_underreaction_20260824/followup.py'
+      - '.github/workflows/earnings-followup.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/earnings_underreaction_20260824/followup.py'
+      - '.github/workflows/earnings-followup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check numpy pandas
+      - name: Run earnings follow-up
+        run: python research/earnings_underreaction_20260824/followup.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: earnings-followup-20260824
+          path: artifacts/earnings_followup_20260824/
+          if-no-files-found: error
+      - name: Commit result
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/earnings_followup_20260824/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "research: record earnings follow-up result"
+          git push
