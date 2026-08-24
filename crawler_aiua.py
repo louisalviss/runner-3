@@ -30,6 +30,9 @@ AI_UA_PROFILES = [
         "Safari/537.36; compatible; OAI-SearchBot/1.4; "
         "+https://openai.com/searchbot",
     ),
+]
+
+EXPERIMENTAL_AI_UA_PROFILES = [
     (
         "bytespider-experimental",
         "Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 "
@@ -52,7 +55,14 @@ AUTH_BOUNDARY_MARKERS = (
 )
 
 AI_UA_RETRY_ENABLED = True
+EXPERIMENTAL_AI_UA_RETRY_ENABLED = False
 MIN_USABLE_TEXT_CHARS = 300
+
+
+def _active_profiles():
+    if EXPERIMENTAL_AI_UA_RETRY_ENABLED:
+        return [*AI_UA_PROFILES, *EXPERIMENTAL_AI_UA_PROFILES]
+    return AI_UA_PROFILES
 
 
 def _attempt_summary(profile, result):
@@ -114,7 +124,7 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
                 return initial_result, errors
 
             if AI_UA_RETRY_ENABLED and not _is_auth_boundary(initial_result):
-                for profile, ai_ua in AI_UA_PROFILES:
+                for profile, ai_ua in _active_profiles():
                     try:
                         alt = _fetch_with_profile(url, timeout, headers, profile, ai_ua)
                         attempts.append(_attempt_summary(profile, alt))
@@ -168,13 +178,14 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
 
 
 def _load_wrapper_config():
-    global AI_UA_RETRY_ENABLED
+    global AI_UA_RETRY_ENABLED, EXPERIMENTAL_AI_UA_RETRY_ENABLED
     if len(sys.argv) < 2 or sys.argv[1].startswith("-"):
         return
     try:
         with open(sys.argv[1], "r", encoding="utf-8") as f:
             job = json.load(f)
         AI_UA_RETRY_ENABLED = job.get("ai_ua_retry", True) is not False
+        EXPERIMENTAL_AI_UA_RETRY_ENABLED = job.get("experimental_ai_ua_retry", False) is True
     except Exception:
         # crawler.py remains authoritative for validation/error reporting.
         pass
