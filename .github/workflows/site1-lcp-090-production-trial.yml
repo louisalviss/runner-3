@@ -1,0 +1,13 @@
+name: Site1 LCP 0.90 Production Trial (superseded)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archived:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Superseded by site1-lcp-090-production-v3.yml'

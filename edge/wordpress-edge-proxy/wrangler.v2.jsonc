@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wordpress-edge-proxy-v2",
+  "main": "src/entry.js",
+  "compatibility_date": "2026-08-18",
+  "workers_dev": true,
+  "cache": {
+    "enabled": true
+  },
+  "exports": {
+    "default": {
+      "type": "worker",
+      "cache": { "enabled": false }
+    },
+    "PublicHtml": {
+      "type": "worker",
+      "cache": { "enabled": true }
+    }
+  },
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "runner3-wp-media"
+    }
+  ],
+  "vars": {
+    "ORIGIN": "https://runner3-factory-smoke-2.wasmer.app"
+  }
+}

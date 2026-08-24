@@ -1,0 +1,13 @@
+name: Site1 Mobile Inline Hero Production Trial (manual archive)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archived:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Archived duplicate production trial. Canonical trial is site1-lcp-090-production-trial.yml.'
