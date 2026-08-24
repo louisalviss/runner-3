@@ -1,10 +1,19 @@
 {
-  "name": "imdb-ur83495069-ratings",
+  "name": "imdb-ur83495069-ratings-by-score",
   "source_visibility": "public",
   "mode": "read-only",
   "urls": [
-    "https://www.imdb.com/user/ur83495069/ratings?ref_=ext_shr_lnk"
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=10&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=9&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=8&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=7&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=6&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=5&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=4&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=3&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=2&mode=detail",
+    "https://www.imdb.com/user/ur83495069/ratings?sort=date_added,desc&ratingFilter=1&mode=detail"
   ],
-  "timeout_seconds": 90,
-  "settle_ms": 9000
+  "timeout_seconds": 120,
+  "settle_ms": 6000
 }
