@@ -1,0 +1,74 @@
+name: PNTR Guest Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-guest-inspect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pntr-guest-inspect
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser
+        run: |
+          npm install --no-save playwright@latest
+          npx playwright install --with-deps chromium
+      - name: Inspect guest dashboard safely
+        shell: bash
+        run: |
+          cat >/tmp/inspect.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import fs from 'fs';
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext();
+          const events=[];
+          const page=await context.newPage();
+          page.on('request', req=>{
+            if(req.url().includes('pntr.dev/api/') || req.url().includes('api.pntr.dev')) {
+              let keys=[]; try { const p=req.postDataJSON(); if(p&&typeof p==='object') keys=Object.keys(p); } catch{}
+              events.push({kind:'request',method:req.method(),url:req.url().replace(/([?&](?:token|key|session|auth)[^=]*)=[^&]*/ig,'$1=[redacted]'),postKeys:keys});
+            }
+          });
+          page.on('response', r=>{
+            if(r.url().includes('pntr.dev/api/') || r.url().includes('api.pntr.dev')) events.push({kind:'response',status:r.status(),url:r.url().replace(/([?&](?:token|key|session|auth)[^=]*)=[^&]*/ig,'$1=[redacted]')});
+          });
+          for(const url of ['https://pntr.dev/free-dev-subdomain','https://pntr.dev/dashboard']){
+            try { await page.goto(url,{waitUntil:'networkidle',timeout:45000}); } catch {}
+          }
+          const inputs=await page.locator('input').evaluateAll(els=>els.map(e=>({type:e.type,name:e.name||null,placeholder:e.placeholder||null,aria:e.getAttribute('aria-label')})).slice(0,50));
+          const buttons=await page.locator('button').evaluateAll(els=>els.map(e=>(e.innerText||e.textContent||'').trim()).filter(Boolean).slice(0,80));
+          const text=(await page.locator('body').innerText()).slice(0,12000);
+          const cookies=(await context.cookies()).map(c=>({name:c.name,domain:c.domain,path:c.path,expires:c.expires,httpOnly:c.httpOnly,secure:c.secure,sameSite:c.sameSite}));
+          const out={checkedAt:new Date().toISOString(),finalUrl:page.url(),inputs,buttons,cookies,events,text};
+          fs.mkdirSync('ops/pntr-guest-inspect',{recursive:true});
+          fs.writeFileSync('ops/pntr-guest-inspect/latest.json',JSON.stringify(out,null,2)+'\n');
+          await browser.close();
+          JS
+          node /tmp/inspect.mjs
+      - name: Persist result
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/pntr-guest-inspect/latest.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Persist PNTR guest inspect [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
