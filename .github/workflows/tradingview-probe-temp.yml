@@ -14,98 +14,111 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Probe open-source TradingView strategy
+      - name: Restore authenticated TradingView session
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://www.tradingview.com/script/5he8tYVr-ProBorsa-RSI-SuperTrend-%C3%96zel-Dip-Stratejisi/'
+          test -s ops/tradingview/session-state.json.aes
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/session-state.json.aes \
+            -out /tmp/tv-state.json
+      - name: Extract public Pine source evidence
+        shell: bash
+        run: |
+          set -euo pipefail
           OUT='evidence/tradingview-5he8tYVr'
-          rm -rf "$OUT" && mkdir -p "$OUT"
-          python3 -m pip install -q -U requests beautifulsoup4 playwright playwright-stealth
-          python3 -m playwright install chromium >/dev/null
-          URL="$URL" OUT="$OUT" python3 - <<'PY'
-          import json, os, pathlib, re, requests, time
-          from bs4 import BeautifulSoup
-          from playwright.sync_api import sync_playwright
+          rm -rf "$OUT" && mkdir -p "$OUT/network"
+          npm install --no-save playwright-core@1.58.2 >/dev/null
+          OUT="$OUT" node <<'NODE'
+          const fs=require('fs'); const path=require('path'); const {chromium}=require('playwright-core');
+          const OUT=process.env.OUT;
+          const URL='https://www.tradingview.com/script/5he8tYVr-ProBorsa-RSI-SuperTrend-%C3%96zel-Dip-Stratejisi/';
+          const log=[]; const put=(f,s)=>fs.writeFileSync(path.join(OUT,f),s);
+          const jput=(f,o)=>put(f,JSON.stringify(o,null,2));
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          (async()=>{
+            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'].find(fs.existsSync);
+            if(!exe) throw new Error('Chrome/Chromium missing');
+            const storageState=JSON.parse(fs.readFileSync('/tmp/tv-state.json','utf8'));
+            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled']});
+            const context=await browser.newContext({storageState,viewport:{width:1920,height:1400},locale:'en-US',permissions:['clipboard-read','clipboard-write']});
+            const page=await context.newPage();
+            let n=0; const net=[];
+            page.on('response', async resp=>{
+              const u=resp.url(); const ct=(resp.headers()['content-type']||'');
+              if(/5he8tYVr|pine|script|study|publication|chart/i.test(u)){
+                const rec={status:resp.status(),url:u,contentType:ct}; net.push(rec);
+                if(n<80 && /json|text|javascript|html/.test(ct)){
+                  try{const b=await resp.text(); if(b && b.length<1500000){const fn=String(n++).padStart(3,'0')+'.txt'; put('network/'+fn,`URL=${u}\nSTATUS=${resp.status()}\nCONTENT_TYPE=${ct}\n\n${b}`); rec.file=fn; rec.bytes=b.length;}}catch(e){}
+                }
+              }
+            });
+            const resp=await page.goto(URL,{waitUntil:'domcontentloaded',timeout:90000});
+            await sleep(14000);
+            log.push('HTTP='+(resp?resp.status():'NONE')); log.push('FINAL_URL='+page.url()); log.push('TITLE='+await page.title());
+            let body=await page.locator('body').innerText().catch(()=> '');
+            log.push('AUTH='+(!/\bSign in\b/i.test(body)?'PASS':'CHECK'));
+            put('page-text.txt',body); put('page.html',await page.content());
+            await page.screenshot({path:path.join(OUT,'page.png'),fullPage:true});
+            const links=await page.locator('a').evaluateAll(els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href,title:a.title||''}))); jput('links.json',links);
+            const buttons=await page.locator('button').evaluateAll(els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),title:a.title||'',aria:a.getAttribute('aria-label')||''}))); jput('buttons.json',buttons);
+            const sourceish=[...links.map(x=>({kind:'a',...x})),...buttons.map(x=>({kind:'button',...x}))].filter(x=>/source|pine|code|kaynak|kod/i.test((x.text||'')+' '+(x.title||'')+' '+(x.aria||'')));
+            jput('source-candidates.json',sourceish);
 
-          url=os.environ['URL']; out=pathlib.Path(os.environ['OUT'])
-          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-          summary={}
+            // Search initial DOM for exposed Pine source.
+            const texts=await page.locator('pre,code,textarea,.monaco-editor,.view-lines').evaluateAll(els=>els.map(e=>(e.innerText||e.textContent||e.value||'')).filter(Boolean)).catch(()=>[]);
+            put('code-elements-initial.txt',texts.join('\n\n---ELEMENT---\n\n'));
 
-          # Raw HTTP evidence
-          try:
-              r=requests.get(url,headers={'User-Agent':ua,'Accept-Language':'en-US,en;q=0.9'},timeout=40)
-              summary['requests']={'status':r.status_code,'url':r.url,'bytes':len(r.content)}
-              (out/'requests.html').write_text(r.text,encoding='utf-8',errors='ignore')
-          except Exception as e:
-              summary['requests']={'error':repr(e)}
+            // Try source/code-like controls, then inspect DOM and clipboard-accessible Monaco.
+            const clickTexts=['Source code','Pine Script','Open-source script','Open source script','Kaynak kod','Kaynak Kodu'];
+            let clicked='NONE';
+            for(const t of clickTexts){
+              const loc=page.getByText(t,{exact:false});
+              const c=await loc.count().catch(()=>0);
+              for(let i=0;i<c;i++){
+                const e=loc.nth(i);
+                if(await e.isVisible().catch(()=>false)){
+                  try{await e.click({force:true,timeout:4000}); clicked=t; await sleep(7000); break;}catch(e){}
+                }
+              }
+              if(clicked!=='NONE') break;
+            }
+            log.push('CLICKED='+clicked);
+            body=await page.locator('body').innerText().catch(()=> ''); put('after-click-text.txt',body); put('after-click.html',await page.content());
+            await page.screenshot({path:path.join(OUT,'after-click.png'),fullPage:true});
+            const code2=await page.locator('pre,code,textarea,.monaco-editor,.view-lines').evaluateAll(els=>els.map(e=>(e.innerText||e.textContent||e.value||'')).filter(Boolean)).catch(()=>[]);
+            put('code-elements-after.txt',code2.join('\n\n---ELEMENT---\n\n'));
 
-          with sync_playwright() as p:
-              browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'])
-              context=browser.new_context(user_agent=ua,viewport={'width':1440,'height':1600},locale='en-US',timezone_id='Europe/Istanbul')
-              page=context.new_page()
-              responses=[]
-              def onresp(resp):
-                  u=resp.url
-                  if any(k in u.lower() for k in ['script','pine','study','chart','5he8tyvr']):
-                      responses.append({'status':resp.status,'url':u,'content_type':resp.headers.get('content-type','')})
-              page.on('response',onresp)
-              try:
-                  resp=page.goto(url,wait_until='domcontentloaded',timeout=60000)
-                  page.wait_for_timeout(12000)
-                  summary['playwright']={'status':resp.status if resp else None,'url':page.url,'title':page.title()}
-                  html=page.content()
-                  text=page.locator('body').inner_text(timeout=10000)
-                  (out/'page.html').write_text(html,encoding='utf-8',errors='ignore')
-                  (out/'page-text.txt').write_text(text[:100000],encoding='utf-8',errors='ignore')
-                  page.screenshot(path=str(out/'page.png'),full_page=True)
-                  links=page.eval_on_selector_all('a','els => els.map(a => ({text:(a.innerText||a.textContent||" ").trim(),href:a.href,title:a.title||""}))')
-                  (out/'links.json').write_text(json.dumps(links,ensure_ascii=False,indent=2),encoding='utf-8')
-                  buttons=page.eval_on_selector_all('button','els => els.map(a => ({text:(a.innerText||a.textContent||" ").trim(),title:a.title||"",aria:a.getAttribute("aria-label")||""}))')
-                  (out/'buttons.json').write_text(json.dumps(buttons,ensure_ascii=False,indent=2),encoding='utf-8')
-                  # Dump inline scripts containing likely strategy/source payloads.
-                  scripts=page.eval_on_selector_all('script','els => els.map(s => s.textContent||"")')
-                  hits=[]
-                  for i,s in enumerate(scripts):
-                      if any(k in s.lower() for k in ['5he8tyvr','pine','script_source','sourcecode','source_code','proborsa']):
-                          hits.append({'index':i,'text':s[:300000]})
-                  (out/'inline-script-hits.json').write_text(json.dumps(hits,ensure_ascii=False,indent=2),encoding='utf-8')
-                  # Try opening any visible Source code tab/button without relying on exact locale.
-                  candidates=[]
-                  for sel in ['a','button','div[role="tab"]','span']:
-                      for el in page.locator(sel).all():
-                          try:
-                              t=(el.inner_text(timeout=200) or '').strip()
-                              if t and any(k in t.lower() for k in ['source code','source','pine script','kaynak kod','kod kayna']):
-                                  candidates.append((sel,t))
-                          except Exception:
-                              pass
-                  (out/'source-candidates.json').write_text(json.dumps(candidates,ensure_ascii=False,indent=2),encoding='utf-8')
-                  clicked=False
-                  for sel,t in candidates:
-                      try:
-                          loc=page.get_by_text(t,exact=True).first
-                          if loc.is_visible():
-                              loc.click(timeout=3000)
-                              page.wait_for_timeout(5000)
-                              clicked=True
-                              break
-                      except Exception:
-                          pass
-                  if clicked:
-                      (out/'after-click.html').write_text(page.content(),encoding='utf-8',errors='ignore')
-                      (out/'after-click-text.txt').write_text(page.locator('body').inner_text(timeout=10000)[:150000],encoding='utf-8',errors='ignore')
-                      page.screenshot(path=str(out/'after-click.png'),full_page=True)
-              except Exception as e:
-                  summary['playwright_error']=repr(e)
-              (out/'network-responses.json').write_text(json.dumps(responses,ensure_ascii=False,indent=2),encoding='utf-8')
-              browser.close()
-          (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
-          PY
+            let clip='';
+            const monaco=page.locator('.monaco-editor textarea');
+            if(await monaco.count().catch(()=>0)){
+              try{const ta=monaco.last(); await ta.click({force:true}); await page.keyboard.press('Control+A'); await page.keyboard.press('Control+C'); await sleep(500); clip=await page.evaluate(()=>navigator.clipboard.readText()).catch(()=> '');}catch(e){}
+            }
+            put('monaco-clipboard.txt',clip);
+
+            // Inline script/state fragments likely to carry publication/source metadata.
+            const scripts=await page.locator('script').evaluateAll(els=>els.map((s,i)=>({i,text:s.textContent||''})).filter(x=>/5he8tYVr|ProBorsa|pine|source_code|sourceCode|scriptSource/i.test(x.text)).map(x=>({i:x.i,text:x.text.slice(0,800000)})));
+            jput('inline-script-hits.json',scripts);
+            jput('network-index.json',net); put('run.txt',log.join('\n')+'\n');
+            await browser.close();
+          })().catch(e=>{put('error.txt',e.stack+'\n'); console.error(e.stack); process.exit(7)});
+          NODE
+      - name: Persist evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$OUT"
+          git add evidence/tradingview-5he8tYVr || true
           git commit -m 'Publish TradingView 5he8tYVr evidence [skip ci]' || true
-          git push || true
+          git pull --rebase origin main
+          git push origin HEAD:main || true
+          rm -f /tmp/tv-state.json
