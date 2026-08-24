@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "book_id": "lowercase-stable-id",
+  "title": "Book title",
+  "author": "Author",
+  "language": "vi",
+  "chapter_count": 0,
+  "source_adapter": "project-specific",
+  "artifact_store": {
+    "kind": "dropbox",
+    "root_env": "EBOOK_DROPBOX_ROOT",
+    "default_root": "/Apps/remotely-save/AI/EBOOKS",
+    "relative_root": "lowercase-stable-id"
+  },
+  "master": {
+    "filename": "master.epub"
+  },
+  "editorial": {
+    "pipeline_version": 1,
+    "editor_profile": "gold-standard",
+    "prompt_version": "v1",
+    "story_bible_version": 1,
+    "glossary_version": 1,
+    "model": null,
+    "gold_standard_files": []
+  }
+}
