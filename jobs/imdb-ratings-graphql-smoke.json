@@ -1,0 +1,10 @@
+{
+  "name": "imdb-ratings-graphql-smoke",
+  "source_visibility": "public",
+  "mode": "http",
+  "artifact_policy": "raw",
+  "timeout_seconds": 30,
+  "urls": [
+    "https://api.graphql.imdb.com/?query=query%20%7B%0A%20%20userRatings%28userId%3A%20%22ur83495069%22%2C%20first%3A%205%29%20%7B%0A%20%20%20%20total%0A%20%20%20%20edges%20%7B%0A%20%20%20%20%20%20node%20%7B%0A%20%20%20%20%20%20%20%20title%20%7B%20id%20titleText%20%7B%20text%20%7D%20releaseYear%20%7B%20year%20%7D%20titleType%20%7B%20id%20text%20%7D%20%7D%0A%20%20%20%20%20%20%20%20userRating%20%7B%20value%20date%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20cursor%0A%20%20%20%20%7D%0A%20%20%20%20pageInfo%20%7B%20hasNextPage%20endCursor%20%7D%0A%20%20%7D%0A%7D"
+  ]
+}
