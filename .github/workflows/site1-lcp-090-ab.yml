@@ -6,6 +6,8 @@ on:
     paths:
       - 'edge/wordpress-edge-proxy/src/**'
       - '.github/workflows/site1-lcp-090-ab.yml'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
