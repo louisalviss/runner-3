@@ -1,0 +1,42 @@
+name: Factor Edge Search
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'research/factor_edge_search_20260824/**'
+      - '.github/workflows/factor-edge-search.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Run factor search
+        run: python research/factor_edge_search_20260824/backtest.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: factor-edge-search-20260824
+          path: artifacts/factor_edge_search_20260824/
+          if-no-files-found: error
+      - name: Commit result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/factor_edge_search_20260824/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "research: record factor edge search result"
+          git push
