@@ -1,0 +1,53 @@
+{
+  "engine": "cloakbrowser-vpngate-netns",
+  "job_file": "jobs/cloak-vpn/2026-08-25-imdb-ur83495069-score-filters.json",
+  "host_ip": "68.220.59.247",
+  "max_attempts": 6,
+  "attempts": [
+    {
+      "attempt": 1,
+      "country": "TH",
+      "relay": "171.6.228.23",
+      "exit_ip": "171.6.228.23",
+      "vpn_state": "VPN_OK",
+      "curl_http": "200",
+      "cloak_ok": false,
+      "cloak_http": "202",
+      "text_chars": 0
+    },
+    {
+      "attempt": 2,
+      "country": "TH",
+      "relay": "171.101.232.34",
+      "exit_ip": "",
+      "vpn_state": "VPN_FAIL",
+      "curl_http": "",
+      "cloak_ok": false,
+      "cloak_http": "",
+      "text_chars": 0
+    },
+    {
+      "attempt": 3,
+      "country": "TH",
+      "relay": "27.130.167.38",
+      "exit_ip": "27.130.167.38",
+      "vpn_state": "VPN_OK",
+      "curl_http": "200",
+      "cloak_ok": true,
+      "cloak_http": "202",
+      "text_chars": 7830
+    }
+  ],
+  "success": true,
+  "selected": {
+    "attempt": 3,
+    "country": "TH",
+    "relay": "27.130.167.38",
+    "exit_ip": "27.130.167.38",
+    "vpn_state": "VPN_OK",
+    "curl_http": "200",
+    "cloak_ok": true,
+    "cloak_http": "202",
+    "text_chars": 7830
+  }
+}
