@@ -4,84 +4,84 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
     paths:
-      - 'research/stock10_cci_ab.py'
-      - 'research/stock10_cci_merge.py'
       - '.github/workflows/wr-stock10-cci-ab.yml'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: wr-stock10-cci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  symbol:
+  recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      max-parallel: 24
-      matrix:
-        symbol: [AAPL,ADBE,ADI,ADP,ADSK,AEP,ALNY,AMAT,AMD,AMGN,AMZN,AVGO,BKR,CDNS,CMCSA,COST,CPRT,CSCO,CSGP,CSX,CTSH,DXCM,EA,EXC,FANG,FTNT,GILD,GOOG,GOOGL,HON,IDXX,INTC,INTU,ISRG,KHC,LRCX,MAR,MCHP,MDLZ,META,MPWR,MRVL,MSFT,MU,NFLX,NVDA,ODFL,ORLY,PANW,PAYX,PCAR,PEP,PLTR,PYPL,QCOM,REGN,ROST,SBUX,SNPS,TMUS,TSLA,TTWO,TXN,VRTX,WDAY,WDC,WMT,ZS]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install pandas requests websocket-client dukascopy-python
-      - name: Fetch frozen WR lineage and patch filter callback direction
+      - name: Download completed symbol artifacts from source run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: '32675923000'
         run: |
           set -euo pipefail
-          mkdir -p /tmp/wrbase /tmp/wrstruct /tmp/wrcci
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_tv_parity.py' -o /tmp/wrbase/wr_tv_parity.py
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/wr-canonical-clean2-20260821/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrbase/wr_dukascopy_expanded_matrix.py
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/27797cf9c4ea0a91b1bc8d62059d052c2c843eb5/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/close_confirm.py' -o /tmp/wrcci/close_confirm.py
-          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/a4afdebff87cb0f5ddd100c12a27872116a5c12e/apps/wave-rider-structural/stock10_close_ab.py' -o /tmp/wrstruct/stock10_close_ab.py
+          mkdir -p /tmp/recover/all /tmp/recover/zips
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN}/artifacts?per_page=100" \
+            | jq -sr '[.[].artifacts[]] | unique_by(.id) | .[] | select(.name|startswith("wr-stock10-cci-")) | select(.name!="wr-stock10-cci-final") | [.id,.name] | @tsv' \
+            | while IFS=$'\t' read -r id name; do
+                gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "/tmp/recover/zips/${name}.zip"
+                mkdir -p "/tmp/recover/all/${name}"
+                unzip -q -o "/tmp/recover/zips/${name}.zip" -d "/tmp/recover/all/${name}"
+              done
+      - name: Reconstruct variant labels and aggregate
+        run: |
           python - <<'PY'
+          import json
+          from collections import defaultdict
           from pathlib import Path
-          p=Path('/tmp/wrcci/close_confirm.py'); s=p.read_text()
-          old="if eligible_signal is not None and not bool(eligible_signal(int(b.ct))):"
-          new="signal_dir=1 if nl else -1\n                if eligible_signal is not None and not bool(eligible_signal(int(b.ct),signal_dir)):"
-          assert s.count(old)==1
-          p.write_text(s.replace(old,new))
+          root=Path('/tmp/recover/all'); out=Path('/tmp/recover/final'); out.mkdir(parents=True,exist_ok=True)
+          variants=('base_both','base_long','cci_long_exact','cci_symmetric')
+          rows=defaultdict(list); syms=[]; bad=[]
+          for jf in sorted(root.rglob('*.json')):
+              d=json.loads(jf.read_text())
+              if d.get('status')!='OK' or 'symbol' not in d: continue
+              sym=d['symbol']; tf=jf.with_name(f'{sym}-trades.jsonl')
+              if not tf.exists(): bad.append([sym,'missing trades']); continue
+              raw=[json.loads(x) for x in tf.read_text().splitlines() if x.strip()]
+              counts=[d['variants'][v]['oos_2024_2026']['gross']['n'] for v in variants]
+              if sum(counts)!=len(raw): bad.append([sym,f'count mismatch {counts} vs {len(raw)}']); continue
+              pos=0
+              for v,n in zip(variants,counts):
+                  for t in raw[pos:pos+n]:
+                      t=dict(t); t['variant']=v; rows[v].append(t)
+                  pos+=n
+              syms.append(sym)
+          def cost(t,bps):
+              e=float(t['e']); s=float(t['s']); d=abs(e-s)
+              return 0.0 if d<=0 else (e/d)*(bps/10000.0)
+          def met(ts,bps):
+              vals=[]
+              for t in sorted(ts,key=lambda x:(int(x['signal']),x.get('symbol',''))): vals.append(float(t['R'])-cost(t,bps))
+              gp=sum(max(x,0) for x in vals); gl=sum(max(-x,0) for x in vals); eq=peak=0.; dd=0.
+              for x in vals: eq+=x; peak=max(peak,eq); dd=min(dd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals) if vals else None,'PF':gp/gl if gl else None,'max_DD_R':dd,'win_rate':100*sum(x>0 for x in vals)/len(vals) if vals else None}
+          def rep(ts):
+              return {'oos':{str(b):met(ts,b) for b in (0,.5,1,2)},'years':{str(y):{str(b):met([t for t in ts if int(t['year'])==y],b) for b in (0,1,2)} for y in (2024,2025,2026)}}
+          R={v:rep(rows[v]) for v in variants}
+          def cmp(a,b):
+              A=a['oos']['1']; B=b['oos']['1']
+              return {'base_n':A['n'],'filtered_n':B['n'],'retention':B['n']/A['n'] if A['n'] else None,'base_R':A['R'],'filtered_R':B['R'],'delta_R':B['R']-A['R'],'base_avg_R':A['avg_R'],'filtered_avg_R':B['avg_R'],'delta_avg_R':B['avg_R']-A['avg_R'] if A['avg_R'] is not None and B['avg_R'] is not None else None,'base_PF':A['PF'],'filtered_PF':B['PF'],'base_DD':A['max_DD_R'],'filtered_DD':B['max_DD_R']}
+          expected=set('AAPL ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN AVGO BKR CDNS CMCSA COST CPRT CSCO CSGP CSX CTSH DXCM EA EXC FANG FTNT GILD GOOG GOOGL HON IDXX INTC INTU ISRG KHC LRCX MAR MCHP MDLZ META MPWR MRVL MSFT MU NFLX NVDA ODFL ORLY PANW PAYX PCAR PEP PLTR PYPL QCOM REGN ROST SBUX SNPS TMUS TSLA TTWO TXN VRTX WDAY WDC WMT ZS'.split())
+          result={'status':'RECOVERED','source_run':32675923000,'symbols_ok':len(set(syms)),'missing_symbols':sorted(expected-set(syms)),'bad':bad,'variants':R,'comparisons':{'exact_long':cmp(R['base_long'],R['cci_long_exact']),'symmetric':cmp(R['base_both'],R['cci_symmetric'])}}
+          (out/'summary.json').write_text(json.dumps(result,indent=2))
+          with (out/'trades-reconstructed.jsonl').open('w') as f:
+              for v in variants:
+                  for t in rows[v]: f.write(json.dumps(t)+'\n')
+          print('RECOVERY_FINAL',json.dumps(result['comparisons'],sort_keys=True))
+          print('MISSING',result['missing_symbols'],'BAD',bad)
           PY
-          python -m py_compile /tmp/wrbase/*.py /tmp/reference_verify.py /tmp/wrcci/close_confirm.py /tmp/wrstruct/stock10_close_ab.py research/stock10_cci_ab.py
-      - name: Run stock 10m CCI A-B
-        env:
-          WR_BASE_DIR: /tmp/wrbase
-          WR_STRUCT_DIR: /tmp/wrstruct
-          WR_PATCH_DIR: /tmp/wrcci
-          WR_OUT: /tmp/wr-stock10-cci
-          SYMBOL: ${{ matrix.symbol }}
-        run: python research/stock10_cci_ab.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: wr-stock10-cci-${{ matrix.symbol }}
-          path: /tmp/wr-stock10-cci/
-          retention-days: 7
-          if-no-files-found: warn
-  merge:
-    needs: symbol
-    if: always() && needs.symbol.result != 'cancelled'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: wr-stock10-cci-*
-          path: /tmp/all
-      - name: Merge results
-        env:
-          MERGE_ROOT: /tmp/all
-          FINAL_OUT: /tmp/final
-        run: python research/stock10_cci_merge.py
+      - name: Print result
+        run: cat /tmp/recover/final/summary.json
       - uses: actions/upload-artifact@v4
         with:
-          name: wr-stock10-cci-final
-          path: /tmp/final/
+          name: wr-stock10-cci-final-recovered
+          path: /tmp/recover/final/
           retention-days: 14
-          if-no-files-found: error
