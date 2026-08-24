@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-24T00:13:35.589926Z",
+  "checkedAt": "2026-08-24T00:41:41.331181Z",
   "url": "https://runner3-core.ducduy2411.workers.dev",
   "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
   "deployUrlSource": "wrangler-output",
@@ -10,9 +10,9 @@
       "ok": true,
       "service": "runner3-core",
       "d1": true,
-      "time": "2026-08-24T00:13:35.686Z"
+      "time": "2026-08-24T00:41:41.416Z"
     },
-    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-24T00:13:35.686Z\"}"
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"time\":\"2026-08-24T00:41:41.416Z\"}"
   },
   "postEvent": {
     "http": 200,
@@ -24,6 +24,27 @@
   "latest": {
     "http": 200,
     "json": [
+      {
+        "id": 28,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-24T00:41:41.331181Z\"}",
+        "created_at": "2026-08-24 00:41:41"
+      },
+      {
+        "id": 27,
+        "source": "reddit-runner",
+        "event_type": "workflow_status",
+        "payload": "{\"workflow\":\"Reddit Deep Sweep\",\"run_id\":\"32677352994\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"8b71870ca3819127cbd801b32f39696f8d9cd730\",\"ref\":\"refs/heads/main\",\"subreddit\":\"RealDayTrading\"}",
+        "created_at": "2026-08-24 00:40:28"
+      },
+      {
+        "id": 26,
+        "source": "reddit-runner",
+        "event_type": "workflow_status",
+        "payload": "{\"workflow\":\"Reddit Deep Sweep\",\"run_id\":\"32677184599\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"cd371500f33160204ef7366c505c776eb751b909\",\"ref\":\"refs/heads/main\",\"subreddit\":\"RealDayTrading\"}",
+        "created_at": "2026-08-24 00:39:16"
+      },
       {
         "id": 25,
         "source": "runner3-core-shadow",
@@ -142,30 +163,9 @@
         "event_type": "workflow_status",
         "payload": "{\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619387804\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"822595ab2fdec0c8755a9625db5a9b88450bad01\",\"ref\":\"main\"}",
         "created_at": "2026-08-23 05:04:04"
-      },
-      {
-        "id": 8,
-        "source": "audio-runner",
-        "event_type": "workflow_status",
-        "payload": "{\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619236499\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"b0cc53cc3ecc8fa84e36d4f4e5256c28aacbe3a1\",\"ref\":\"main\"}",
-        "created_at": "2026-08-23 05:00:21"
-      },
-      {
-        "id": 7,
-        "source": "audio-runner",
-        "event_type": "workflow_status",
-        "payload": "{\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619221143\",\"run_attempt\":\"1\",\"status\":\"success\",\"sha\":\"7c922df3664fd5ab1e276630a1bb41cbcf8e29c5\",\"ref\":\"main\"}",
-        "created_at": "2026-08-23 05:00:05"
-      },
-      {
-        "id": 6,
-        "source": "rss-runner",
-        "event_type": "workflow_status",
-        "payload": "{\"workflow\":\"RSS Runner\",\"run_id\":\"32619138072\",\"run_attempt\":\"1\",\"status\":\"success\",\"sha\":\"57e143b7cebc0d1230ae19889851590bb3ac5078\",\"ref\":\"main\"}",
-        "created_at": "2026-08-23 04:57:33"
       }
     ],
-    "body": "[{\"id\":25,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-24T00:13:35.589926Z\\\"}\",\"created_at\":\"2026-08-24 00:13:35\"},{\"id\":24,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T22:56:16.601414Z\\\"}\",\"created_at\":\"2026-08-23 22:56:16\"},{\"id\":23,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T22:53:44.363015Z\\\"}\",\"created_at\":\"2026-08-23 22:53:44\"},{\"id\":22,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-23T20:05:33.195437Z\\\"}\",\"created_at\":\"2026-08-23 20:05:33\"},{\"id\":21,\"source\":\"cloak-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Cloak Read-Only Fallback\\\",\\\"run_id\\\":\\\"32656592075\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"cda6075b436b781dcb962e724abb450da807a62d\\\",\\\"ref\\\":\\\"refs/heads/main\\\"}\",\"created_at\":\"2026-08-",
+    "body": "[{\"id\":28,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-24T00:41:41.331181Z\\\"}\",\"created_at\":\"2026-08-24 00:41:41\"},{\"id\":27,\"source\":\"reddit-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Reddit Deep Sweep\\\",\\\"run_id\\\":\\\"32677352994\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"8b71870ca3819127cbd801b32f39696f8d9cd730\\\",\\\"ref\\\":\\\"refs/heads/main\\\",\\\"subreddit\\\":\\\"RealDayTrading\\\"}\",\"created_at\":\"2026-08-24 00:40:28\"},{\"id\":26,\"source\":\"reddit-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Reddit Deep Sweep\\\",\\\"run_id\\\":\\\"32677184599\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"failure\\\",\\\"sha\\\":\\\"cd371500f33160204ef7366c505c776eb751b909\\\",\\\"ref\\\":\\\"refs/heads/main\\\",\\\"subreddit\\\":\\\"RealDayTrading\\\"}\",\"created_at\":\"2026-08-24 00:39:16\"},{\"id\":25,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-24T00:13:35.589926Z\\\"}\",\"created_at",
     "count": 20
   },
   "status": {
@@ -193,6 +193,16 @@
           "event_id": 21,
           "created_at": "2026-08-23 18:00:09"
         },
+        "reddit-runner": {
+          "status": "failure",
+          "workflow": "Reddit Deep Sweep",
+          "run_id": "32677352994",
+          "run_attempt": "1",
+          "sha": "8b71870ca3819127cbd801b32f39696f8d9cd730",
+          "ref": "refs/heads/main",
+          "event_id": 27,
+          "created_at": "2026-08-24 00:40:28"
+        },
         "rss-runner": {
           "status": "success",
           "workflow": "RSS Runner",
@@ -215,12 +225,13 @@
         }
       }
     },
-    "body": "{\"ok\":true,\"sources\":{\"audio-runner\":{\"status\":\"success\",\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619561201\",\"run_attempt\":\"1\",\"sha\":\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\",\"ref\":\"main\",\"event_id\":10,\"created_at\":\"2026-08-23 05:08:00\"},\"cloak-runner\":{\"status\":\"success\",\"workflow\":\"Cloak Read-Only Fallback\",\"run_id\":\"32656592075\",\"run_attempt\":\"1\",\"sha\":\"cda6075b436b781dcb962e724abb450da807a62d\",\"ref\":\"refs/heads/main\",\"event_id\":21,\"created_at\":\"2026-08-23 18:00:09\"},\"rss-runner\":{\"status\":\"success\",\"workflow\":\"RSS Runner\",\"run_id\":\"32619138072\",\"run_attempt\":\"1\",\"sha\":\"57e143b7cebc0d1230ae19889851590bb3ac5078\",\"ref\":\"main\",\"event_id\":6,\"created_at\":\"2026-08-23 04:57:33\"},\"x-runner\":{\"status\":\"success\",\"workflow\":\"X Runner\",\"run_id\":\"32618910514\",\"run_attempt\":\"1\",\"sha\":\"3de988017906382b6345c620e5db162846c03acb\",\"ref\":\"main\",\"event_id\":5,\"created_at\":\"2026-08-23 04:52:02\"}}}",
+    "body": "{\"ok\":true,\"sources\":{\"audio-runner\":{\"status\":\"success\",\"workflow\":\"Audio Library ChatGPT TTS\",\"run_id\":\"32619561201\",\"run_attempt\":\"1\",\"sha\":\"22cda2eaee8ddb27d2d6d1f72672799e3d9192cd\",\"ref\":\"main\",\"event_id\":10,\"created_at\":\"2026-08-23 05:08:00\"},\"cloak-runner\":{\"status\":\"success\",\"workflow\":\"Cloak Read-Only Fallback\",\"run_id\":\"32656592075\",\"run_attempt\":\"1\",\"sha\":\"cda6075b436b781dcb962e724abb450da807a62d\",\"ref\":\"refs/heads/main\",\"event_id\":21,\"created_at\":\"2026-08-23 18:00:09\"},\"reddit-runner\":{\"status\":\"failure\",\"workflow\":\"Reddit Deep Sweep\",\"run_id\":\"32677352994\",\"run_attempt\":\"1\",\"sha\":\"8b71870ca3819127cbd801b32f39696f8d9cd730\",\"ref\":\"refs/heads/main\",\"event_id\":27,\"created_at\":\"2026-08-24 00:40:28\"},\"rss-runner\":{\"status\":\"success\",\"workflow\":\"RSS Runner\",\"run_id\":\"32619138072\",\"run_attempt\":\"1\",\"sha\":\"57e143b7cebc0d1230ae19889851590bb3ac5078\",\"ref\":\"main\",\"event_id\":6,\"created_at\":\"2026-08-23 04:57:33\"},\"x-runner\":{\"status\":\"success\",\"workflow\":\"X Runner\",\"run_id\":\"32618910514",
     "schemaOk": true,
-    "sourceCount": 4,
+    "sourceCount": 5,
     "sourceShapeChecks": {
       "audio-runner": true,
       "cloak-runner": true,
+      "reddit-runner": true,
       "rss-runner": true,
       "x-runner": true
     }
@@ -233,15 +244,15 @@
         "state": {
           "source": "runner3-core-smoke",
           "status": "success",
-          "run_id": "32675948278",
+          "run_id": "32677184577",
           "detail": {
             "kind": "deploy-smoke",
-            "checkedAt": "2026-08-24T00:13:35.589926Z"
+            "checkedAt": "2026-08-24T00:41:41.331181Z"
           },
-          "updated_at": "2026-08-24 00:13:36"
+          "updated_at": "2026-08-24 00:41:41"
         }
       },
-      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32675948278\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-24T00:13:35.589926Z\"},\"updated_at\":\"2026-08-24 00:13:36\"}}"
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32677184577\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-24T00:41:41.331181Z\"},\"updated_at\":\"2026-08-24 00:41:41\"}}"
     },
     "get": {
       "http": 200,
@@ -250,15 +261,15 @@
         "state": {
           "source": "runner3-core-smoke",
           "status": "success",
-          "run_id": "32675948278",
+          "run_id": "32677184577",
           "detail": {
             "kind": "deploy-smoke",
-            "checkedAt": "2026-08-24T00:13:35.589926Z"
+            "checkedAt": "2026-08-24T00:41:41.331181Z"
           },
-          "updated_at": "2026-08-24 00:13:36"
+          "updated_at": "2026-08-24 00:41:41"
         }
       },
-      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32675948278\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-24T00:13:35.589926Z\"},\"updated_at\":\"2026-08-24 00:13:36\"}}"
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32677184577\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-24T00:41:41.331181Z\"},\"updated_at\":\"2026-08-24 00:41:41\"}}"
     },
     "ok": true
   },
@@ -274,14 +285,14 @@
           "status": "success",
           "position": {
             "phase": "deployed",
-            "run_id": "32675948278"
+            "run_id": "32677184577"
           },
           "dropbox_path": null,
           "last_error": null,
-          "updated_at": "2026-08-24 00:13:36"
+          "updated_at": "2026-08-24 00:41:41"
         }
       },
-      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32675948278\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-24 00:13:36\"}}"
+      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32677184577\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-24 00:41:41\"}}"
     },
     "get": {
       "http": 200,
@@ -294,14 +305,14 @@
           "status": "success",
           "position": {
             "phase": "deployed",
-            "run_id": "32675948278"
+            "run_id": "32677184577"
           },
           "dropbox_path": null,
           "last_error": null,
-          "updated_at": "2026-08-24 00:13:36"
+          "updated_at": "2026-08-24 00:41:41"
         }
       },
-      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32675948278\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-24 00:13:36\"}}"
+      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32677184577\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-24 00:41:41\"}}"
     },
     "ok": true
   },
