@@ -1,4 +1,5 @@
 name: TradingView RSI ST Ablation Temp
+# trigger: 2026-08-25 component validation
 on:
   push:
     branches: [main]
@@ -68,7 +69,6 @@ jobs:
           def bt(d,buy,exit_kind='st',f=None,bps=10,hold_bars=20):
               cost=bps/10000.; eq=10000.; qty=0.; entry=0.; basis=0.; entry_i=None; pending=None; trades=[]; curve=[]; exposure=0
               for i,row in d.iterrows():
-                  # fill prior close signal at next open
                   if pending=='exit' and qty>0:
                       px=float(row.open)*(1-cost); pro=qty*px; pnl=pro-basis; eq=pro
                       trades[-1].update(exit_i=i,exit=px,pnl=pnl,ret=px/entry-1); qty=0.; entry_i=None
@@ -90,24 +90,18 @@ jobs:
               arr=np.asarray(curve,float); peak=np.maximum.accumulate(arr); dd=(arr/peak)-1
               return {'trades':len(closed),'win_rate':100*len(wins)/len(closed) if closed else 0.,'pf':pf,'return_pct':100*(eq/10000-1),'max_dd_pct':100*dd.min(),'exposure_pct':100*exposure/len(d),'avg_trade_pct':100*np.mean([x['ret'] for x in closed]) if closed else 0.}
 
-          def st_only_bt(d,f,bps=10): return bt(d,f['st_bull'],'st',f,bps)
-
           def random_entry_dist(d,f,n_signals,bps=10,eligible=None,reps=300):
               if eligible is None: eligible=np.ones(len(d),bool)
               cand=np.flatnonzero(eligible & np.isfinite(f['rsi']))
               if len(cand)<max(5,n_signals): return None
-              vals=[]
-              n=min(n_signals,len(cand))
+              vals=[]; n=min(n_signals,len(cand))
               for _ in range(reps):
                   b=np.zeros(len(d),bool); b[RNG.choice(cand,size=n,replace=False)]=True
                   vals.append(bt(d,b,'st',f,bps))
               def q(k,p): return float(np.percentile([x[k] for x in vals],p))
               return {'reps':reps,'signals':n,'return_med':q('return_pct',50),'return_p95':q('return_pct',95),'pf_med':q('pf',50),'pf_p95':q('pf',95),'wr_med':q('win_rate',50)}
 
-          specs=[
-            ('XU100','BIST_DLY'),('THYAO','BIST'),('GARAN','BIST'),('ASELS','BIST'),('BIMAS','BIST'),('TUPRS','BIST'),
-            ('SPY','AMEX'),('QQQ','NASDAQ'),('AAPL','NASDAQ'),('MSFT','NASDAQ'),('NVDA','NASDAQ'),('AMZN','NASDAQ'),('TSLA','NASDAQ')
-          ]
+          specs=[('XU100','BIST_DLY'),('THYAO','BIST'),('GARAN','BIST'),('ASELS','BIST'),('BIMAS','BIST'),('TUPRS','BIST'),('SPY','AMEX'),('QQQ','NASDAQ'),('AAPL','NASDAQ'),('MSFT','NASDAQ'),('NVDA','NASDAQ'),('AMZN','NASDAQ'),('TSLA','NASDAQ')]
           intervals=[('4h',Interval.in_4_hour),('1h',Interval.in_1_hour)]
           rows=[]; randrows=[]; meta=[]
           for sym,ex in specs:
@@ -115,13 +109,11 @@ jobs:
                   try: d=tv.get_hist(sym,ex,iv,n_bars=5000,extended_session=False)
                   except Exception as e: meta.append({'symbol':sym,'exchange':ex,'interval':int_name,'error':repr(e)}); continue
                   if d is None or len(d)<500: meta.append({'symbol':sym,'exchange':ex,'interval':int_name,'rows':0 if d is None else len(d)}); continue
-                  d=d.reset_index(); d['datetime']=pd.to_datetime(d['datetime']);
+                  d=d.reset_index(); d['datetime']=pd.to_datetime(d['datetime'])
                   for c in ['open','high','low','close']: d[c]=pd.to_numeric(d[c],errors='coerce')
                   d=d.dropna(subset=['open','high','low','close']).reset_index(drop=True); f=features(d)
                   meta.append({'symbol':sym,'exchange':ex,'interval':int_name,'rows':len(d),'start':str(d.datetime.iloc[0]),'end':str(d.datetime.iloc[-1]),'second_signals':int(f['second'].sum())})
-                  variants=[
-                    ('E2_ST',f['second'],'st',20),('E2_TIME10',f['second'],'time',10),('E2_TIME20',f['second'],'time',20),('E2_TIME40',f['second'],'time',40),('E2_RSI50',f['second'],'rsi50',20),('E1_ST',f['first'],'st',20),('ST_ONLY',f['st_bull'],'st',20)
-                  ]
+                  variants=[('E2_ST',f['second'],'st',20),('E2_TIME10',f['second'],'time',10),('E2_TIME20',f['second'],'time',20),('E2_TIME40',f['second'],'time',40),('E2_RSI50',f['second'],'rsi50',20),('E1_ST',f['first'],'st',20),('ST_ONLY',f['st_bull'],'st',20)]
                   for name,buy,exit_kind,h in variants:
                       r=bt(d,buy,exit_kind,f,10,h); rows.append({'symbol':sym,'exchange':ex,'interval':int_name,'variant':name,'bps_side':10,**r})
                   rr=random_entry_dist(d,f,int(f['second'].sum()),10,None,300)
@@ -131,9 +123,7 @@ jobs:
                   if rr: randrows.append({'symbol':sym,'exchange':ex,'interval':int_name,'baseline':'RAND_RSI_LT50_ST',**rr})
           pd.DataFrame(rows).to_csv(OUT/'ablation.csv',index=False); pd.DataFrame(randrows).to_csv(OUT/'random_baselines.csv',index=False)
           (OUT/'results.json').write_text(json.dumps({'meta':meta,'ablation':rows,'random':randrows},indent=2),encoding='utf-8')
-          # compact decision summary
-          R=pd.DataFrame(rows); Z=pd.DataFrame(randrows)
-          summary=[]
+          R=pd.DataFrame(rows); summary=[]
           if len(R):
               for interval in ['4h','1h']:
                   q=R[(R.interval==interval)&(R.variant=='E2_ST')]
