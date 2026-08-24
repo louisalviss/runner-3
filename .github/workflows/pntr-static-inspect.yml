@@ -1,0 +1,50 @@
+name: PNTR Static Inspect
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/pntr-static-inspect.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Inspect PNTR frontend API references
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pntr ops/pntr-static-inspect
+          curl -fsSL https://pntr.dev/dashboard -o /tmp/pntr/index.html
+          grep -oE 'src="[^"]+\.js[^"]*"' /tmp/pntr/index.html | sed -E 's/^src="//;s/"$//' | head -40 >/tmp/pntr/js.txt || true
+          : >/tmp/pntr/snips.txt
+          while IFS= read -r src; do
+            [ -n "$src" ] || continue
+            case "$src" in http*) u="$src";; /*) u="https://pntr.dev$src";; *) u="https://pntr.dev/$src";; esac
+            f="/tmp/pntr/$(echo "$src" | tr '/?&=' '_')"
+            curl -fsSL "$u" -o "$f" || continue
+            grep -oE '.{0,140}(api/subdomains|api/check|domain_id|register_subdomain|guest|session).{0,220}' "$f" >>/tmp/pntr/snips.txt || true
+          done </tmp/pntr/js.txt
+          python - <<'PY'
+          import json,re,datetime,pathlib
+          html=pathlib.Path('/tmp/pntr/index.html').read_text(errors='replace')
+          js=pathlib.Path('/tmp/pntr/js.txt').read_text(errors='replace').splitlines()
+          sn=pathlib.Path('/tmp/pntr/snips.txt').read_text(errors='replace')[:30000]
+          sn=re.sub(r'(?i)(token|authorization|cookie|secret)(["\':= ]+)[A-Za-z0-9._~+/=-]{12,}',r'\1\2[redacted]',sn)
+          out={'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'js':js,'snippets':sn,'htmlHints':[x for x in ['api/subdomains','api/check','dashboard'] if x in html]}
+          pathlib.Path('ops/pntr-static-inspect/latest.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+      - name: Persist
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ops/pntr-static-inspect/latest.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Persist PNTR static inspect [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
