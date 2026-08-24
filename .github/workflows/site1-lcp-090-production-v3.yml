@@ -58,7 +58,7 @@ jobs:
           assert head in s
           assert header in s
           s=s.replace(head,'// R2 external preconnect removed from critical path.',1)
-          s=s.replace(header,'// R2 external Link preconnect removed from critical path.',1)
+          s=s.replace(header,"headers.delete('Link'); // Drop inherited/explicit R2 preconnect Link header.",1)
           p.write_text(s)
           PY
           node --check edge/wordpress-edge-proxy/src/entry.js
@@ -82,6 +82,7 @@ jobs:
           });
           if(!replaced) throw new Error('hero not found');
           html=html.replace(/<link\b[^>]*rel=["']preload["'][^>]*as=["']image["'][^>]*offset-demo-01[^>]*>/gi,'');
+          html=html.replace(/<link\b[^>]*rel=["'](?:preconnect|dns-prefetch)["'][^>]*r2\.dev[^>]*>/gi,'');
           snapshots['/']=html;
           const serialized=JSON.stringify(snapshots).replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
           fs.writeFileSync(path,[
@@ -109,7 +110,6 @@ jobs:
         id: deploy
         if: steps.prep.outcome == 'success'
         continue-on-error: true
-        shell: bash
         run: |
           set -euo pipefail
           npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-lcp090-v3.jsonc >/tmp/deploy.log 2>&1
@@ -136,7 +136,8 @@ jobs:
             sleep 4
           done
           test "$ok" = 1
-          if grep -Eiq '^link:.*r2\.dev.*preconnect' /tmp/h; then exit 8; fi
+          if grep -Eiq '^link:.*r2\.dev.*preconnect' /tmp/h; then echo HEADER_PRECONNECT_PRESENT; exit 8; fi
+          if grep -Eiq '<link[^>]+(?:preconnect|dns-prefetch)[^>]+r2\.dev' /tmp/home; then echo HTML_PRECONNECT_PRESENT; exit 9; fi
 
           node --input-type=module - <<'NODE'
           import { chromium } from 'playwright-core';
@@ -147,7 +148,7 @@ jobs:
             const x=await page.evaluate(()=>{
               const p=document.querySelector('[data-runner3-mobile-inline-lcp="v3"]');
               const img=p?.querySelector('img');
-              const r2pre=[...document.querySelectorAll('link[rel="preconnect"]')].some(x=>/r2\.dev/.test(x.href));
+              const r2pre=[...document.querySelectorAll('link[rel="preconnect"],link[rel="dns-prefetch"]')].some(x=>/r2\.dev/.test(x.href));
               return {picture:!!p,currentSrc:img?.currentSrc||'',naturalWidth:img?.naturalWidth||0,r2pre};
             });
             await page.close();
