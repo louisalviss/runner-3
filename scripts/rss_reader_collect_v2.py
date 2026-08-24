@@ -13,14 +13,15 @@ from the latest RSS payload. If a feed later supplies an earlier timestamp, the
 earlier value wins as a correction.
 
 It also extends the legacy base collector with Scientific American and Quanta,
-and enforces the canonical health gate: this entrypoint succeeds only when all
-12 Runner3 core RSS sources are healthy. A degraded 11/12 (or lower) run must
-fail the workflow instead of being reported as success.
+enforces the canonical health gate, bounds RSS discovery descriptions so mirrors
+do not become article-body archives, and verifies each persisted source mirror
+before a run is allowed to report healthy.
 """
 
 import contextlib
 import io
 import json
+import os
 
 import rss_reader_collect as base
 
@@ -44,10 +45,30 @@ EXTRA_SOURCES = [
     },
 ]
 
+# Mirrors are freshness/discovery surfaces, not article-body storage. Some feeds
+# (notably The Atlantic) place full transcripts/articles in RSS description.
+# Keeping a bounded excerpt avoids multi-megabyte JSON mirrors and connector
+# read failures while retaining ample discovery context.
+MAX_MIRROR_DESCRIPTION_CHARS = 4000
+
 _existing_source_keys = {source["key"] for source in base.SOURCES}
 base.SOURCES.extend(source for source in EXTRA_SOURCES if source["key"] not in _existing_source_keys)
 
 _base_merge_items = base.merge_items
+_base_write_json = base.write_json
+
+
+def _compact_description(item):
+    compacted = dict(item)
+    description = compacted.get("description")
+    if isinstance(description, str) and len(description) > MAX_MIRROR_DESCRIPTION_CHARS:
+        compacted["description"] = description[:MAX_MIRROR_DESCRIPTION_CHARS].rstrip() + "…"
+        compacted["descriptionTruncated"] = True
+    elif compacted.get("descriptionTruncated") and isinstance(description, str):
+        # Keep the audit flag only when the currently stored text is actually
+        # bounded by this wrapper.
+        compacted["descriptionTruncated"] = True
+    return compacted
 
 
 def _stable_merge_items(old_items, new_items):
@@ -76,7 +97,46 @@ def _stable_merge_items(old_items, new_items):
             item["firstSeenPublishedAt"] = item.get("publishedAt")
         stabilized.append(item)
 
-    return _base_merge_items(old_items, stabilized)
+    merged = _base_merge_items(old_items, stabilized)
+    return [_compact_description(item) for item in merged]
+
+
+def _atomic_verified_write_json(path, obj):
+    """Atomically persist JSON and fail closed if a source mirror cannot read back."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+
+        if path.parent == base.SOURCES_ROOT:
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            items = persisted.get("items")
+            expected_key = path.stem
+            if persisted.get("sourceKey") != expected_key:
+                raise RuntimeError(
+                    f"mirror_readback_source_mismatch:{expected_key}:{persisted.get('sourceKey')}"
+                )
+            if not isinstance(items, list):
+                raise RuntimeError(f"mirror_readback_items_invalid:{expected_key}")
+            expected_count = persisted.get("count")
+            expected_total = persisted.get("totalStored")
+            if expected_count != len(items) or expected_total != len(items):
+                raise RuntimeError(
+                    f"mirror_readback_count_mismatch:{expected_key}:"
+                    f"count={expected_count}:total={expected_total}:items={len(items)}"
+                )
+            if obj.get("items") and not items:
+                raise RuntimeError(f"mirror_readback_unexpected_empty:{expected_key}")
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _main_with_complete_health_gate():
@@ -121,6 +181,7 @@ def _main_with_complete_health_gate():
 
 
 base.merge_items = _stable_merge_items
+base.write_json = _atomic_verified_write_json
 
 
 if __name__ == "__main__":
