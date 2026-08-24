@@ -1,4 +1,4 @@
-# initial-runtime-trigger: 2026-08-24
+# wiki-first-runtime-trigger: 2026-08-25
 name: Reddit Deep Sweep
 
 on:
@@ -10,7 +10,7 @@ on:
         default: RealDayTrading
         type: string
       mode:
-        description: deep = historical discovery, delta = recent refresh
+        description: deep = wiki-first historical sweep, delta = recent refresh
         required: true
         default: deep
         type: choice
@@ -18,9 +18,9 @@ on:
           - deep
           - delta
       max_threads:
-        description: Number of highest-signal threads to snapshot
+        description: Deep = additional ranked non-wiki threads after all wiki threads; delta = recent thread cap
         required: true
-        default: "60"
+        default: "250"
         type: string
   push:
     branches: [main]
@@ -40,13 +40,13 @@ concurrency:
 jobs:
   sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       SUBREDDIT: ${{ github.event.inputs.subreddit || 'RealDayTrading' }}
       SWEEP_MODE: ${{ github.event.inputs.mode || 'deep' }}
-      MAX_THREADS: ${{ github.event.inputs.max_threads || '60' }}
+      MAX_THREADS: ${{ github.event.inputs.max_threads || '250' }}
       CORE_URL: https://runner3-core.ducduy2411.workers.dev
       R2_BUCKET: runner3-artifacts
 
@@ -62,6 +62,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Validate Reddit sweep scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/reddit_deep_sweep.py scripts/reddit_deep_sweep_cloudflare.py
 
       - name: Prepare run
         id: prep
@@ -98,7 +104,7 @@ jobs:
             --file=cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql \
             --config=cloudflare/runner3-core/wrangler.jsonc
 
-      - name: Acquire and rank Reddit
+      - name: Acquire wiki, inventory, and ranked threads
         id: acquire
         shell: bash
         run: |
@@ -158,8 +164,6 @@ jobs:
           count=0
           for sql_file in "$SQL"/*.sql; do
             echo "Applying ${sql_file}"
-            # Wrangler/D1 remote imports reject explicit SQL transaction wrappers.
-            # Each generated statement is already idempotent, so apply chunks directly.
             sed -i -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$sql_file"
             npx --yes wrangler@4 d1 execute runner3-core \
               --remote \
@@ -179,10 +183,11 @@ jobs:
           manifest = json.load(open(os.environ["MANIFEST"]))
           core = os.environ["CORE_URL"].rstrip("/")
           sub = os.environ["SUBREDDIT"]
+          wiki = manifest.get("wiki") or {}
 
           def request(path, method="GET", payload=None):
               data = json.dumps(payload).encode() if payload is not None else None
-              headers = {"Accept":"application/json","User-Agent":"runner3-reddit-deep-sweep/1.0"}
+              headers = {"Accept":"application/json","User-Agent":"runner3-reddit-deep-sweep/3.0"}
               if data is not None:
                   headers["Content-Type"] = "application/json"
               req = urllib.request.Request(core + path, data=data, headers=headers, method=method)
@@ -201,9 +206,13 @@ jobs:
                   "position":{
                       "run_id":manifest["run_id"],
                       "mode":manifest["mode"],
+                      "inventory_posts_seen":manifest.get("inventory_posts_seen"),
                       "posts_seen":manifest["posts_seen"],
                       "threads_fetched":manifest["threads_fetched"],
                       "comments_seen":manifest["comments_seen"],
+                      "wiki_links_total":wiki.get("links_total"),
+                      "wiki_reddit_threads":wiki.get("reddit_threads"),
+                      "wiki_threads_fetched":wiki.get("reddit_threads_fetched"),
                       "raw_object_key":manifest["raw_object_key"],
                       "finished_at":manifest["finished_at"],
                   },
@@ -228,6 +237,9 @@ jobs:
                       "posts_seen":manifest["posts_seen"],
                       "threads_fetched":manifest["threads_fetched"],
                       "comments_seen":manifest["comments_seen"],
+                      "wiki_links_total":wiki.get("links_total"),
+                      "wiki_reddit_threads":wiki.get("reddit_threads"),
+                      "wiki_threads_fetched":wiki.get("reddit_threads_fetched"),
                       "raw_object_key":manifest["raw_object_key"],
                   },
               },
@@ -322,7 +334,7 @@ jobs:
               req=urllib.request.Request(
                   os.environ["CORE_URL"].rstrip("/") + "/events",
                   data=json.dumps(payload).encode(),
-                  headers={"Content-Type":"application/json","User-Agent":"runner3-reddit-deep-sweep/1.0"},
+                  headers={"Content-Type":"application/json","User-Agent":"runner3-reddit-deep-sweep/3.0"},
                   method="POST",
               )
               urllib.request.urlopen(req, timeout=20).read()
