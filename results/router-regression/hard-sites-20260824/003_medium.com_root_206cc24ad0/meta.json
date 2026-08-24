@@ -1,0 +1,42 @@
+{
+  "engine": "http-aiua",
+  "requested_url": "https://medium.com/",
+  "final_url": "https://medium.com/",
+  "status": 200,
+  "content_type": "text/html; charset=utf-8",
+  "title": "Medium",
+  "elapsed_seconds": 0.427,
+  "ai_user_agent_profile": "chatgpt-user",
+  "blocked_or_challenge": false,
+  "fallback_used": true,
+  "http_attempts": [
+    {
+      "profile": "normal",
+      "engine": "http",
+      "status": 200,
+      "final_url": "https://medium.com/",
+      "text_chars": 300,
+      "html_bytes": 56077,
+      "elapsed_seconds": 0.058,
+      "too_thin": false,
+      "blocked_or_challenge": true
+    },
+    {
+      "profile": "chatgpt-user",
+      "engine": "http-aiua",
+      "status": 200,
+      "final_url": "https://medium.com/",
+      "text_chars": 300,
+      "html_bytes": 82004,
+      "elapsed_seconds": 0.427,
+      "too_thin": false,
+      "blocked_or_challenge": false
+    }
+  ],
+  "ok": true,
+  "fetched_at": "2026-08-24T01:06:42.610209+00:00",
+  "html_bytes": 82004,
+  "text_chars": 300,
+  "errors": [],
+  "output_dir": "003_medium.com_root_206cc24ad0"
+}

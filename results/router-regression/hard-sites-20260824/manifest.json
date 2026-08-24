@@ -1,0 +1,280 @@
+{
+  "job_name": "hard-sites-20260824",
+  "job_file": "jobs/router-regression/hard-sites-20260824.json",
+  "source_visibility": "public",
+  "artifact_policy": "text",
+  "response_headers_persisted": false,
+  "mode": "auto",
+  "started_at": "2026-08-24T01:06:34.969139+00:00",
+  "url_count": 5,
+  "results": [
+    {
+      "engine": "browser",
+      "requested_url": "https://www.reddit.com/r/artificial/",
+      "final_url": "https://www.reddit.com/r/artificial/",
+      "status": 403,
+      "content_type": "text/html",
+      "title": "",
+      "elapsed_seconds": 3.241,
+      "too_thin": true,
+      "blocked_or_challenge": true,
+      "fallback_used": true,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 221,
+          "html_bytes": 190243,
+          "elapsed_seconds": 0.074,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 801,
+          "html_bytes": 1522,
+          "elapsed_seconds": 0.032,
+          "too_thin": false,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "claude-user",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 221,
+          "html_bytes": 190243,
+          "elapsed_seconds": 0.053,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "oai-searchbot",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 221,
+          "html_bytes": 190243,
+          "elapsed_seconds": 0.045,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        }
+      ],
+      "ok": false,
+      "fetched_at": "2026-08-24T01:06:38.838803+00:00",
+      "html_bytes": 190296,
+      "text_chars": 221,
+      "errors": [],
+      "output_dir": "001_www.reddit.com_r_artificial_da81c7bb68"
+    },
+    {
+      "engine": "browser",
+      "requested_url": "https://www.quora.com/What-is-artificial-intelligence",
+      "final_url": "https://www.quora.com/What-is-artificial-intelligence-15",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "What is artificial intelligence? - Quora",
+      "elapsed_seconds": 3.085,
+      "too_thin": false,
+      "blocked_or_challenge": false,
+      "fallback_used": true,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 403,
+          "final_url": "https://www.quora.com/What-is-artificial-intelligence",
+          "text_chars": 16,
+          "html_bytes": 5817,
+          "elapsed_seconds": 0.051,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.quora.com/What-is-artificial-intelligence",
+          "text_chars": 16,
+          "html_bytes": 5838,
+          "elapsed_seconds": 0.048,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "claude-user",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.quora.com/What-is-artificial-intelligence",
+          "text_chars": 16,
+          "html_bytes": 5838,
+          "elapsed_seconds": 0.05,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "oai-searchbot",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.quora.com/What-is-artificial-intelligence",
+          "text_chars": 16,
+          "html_bytes": 6009,
+          "elapsed_seconds": 0.044,
+          "too_thin": true,
+          "blocked_or_challenge": true
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T01:06:42.120994+00:00",
+      "html_bytes": 594983,
+      "text_chars": 19962,
+      "errors": [],
+      "output_dir": "002_www.quora.com_What-is-artificial-intelligence_81bd845964"
+    },
+    {
+      "engine": "http-aiua",
+      "requested_url": "https://medium.com/",
+      "final_url": "https://medium.com/",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "Medium",
+      "elapsed_seconds": 0.427,
+      "ai_user_agent_profile": "chatgpt-user",
+      "blocked_or_challenge": false,
+      "fallback_used": true,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://medium.com/",
+          "text_chars": 300,
+          "html_bytes": 56077,
+          "elapsed_seconds": 0.058,
+          "too_thin": false,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://medium.com/",
+          "text_chars": 300,
+          "html_bytes": 82004,
+          "elapsed_seconds": 0.427,
+          "too_thin": false,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T01:06:42.610209+00:00",
+      "html_bytes": 82004,
+      "text_chars": 300,
+      "errors": [],
+      "output_dir": "003_medium.com_root_206cc24ad0"
+    },
+    {
+      "engine": "browser",
+      "requested_url": "https://www.douyin.com/video/7669061012259179785",
+      "final_url": "https://www.douyin.com/video/7669061012259179785",
+      "status": 200,
+      "content_type": "text/html",
+      "title": "",
+      "elapsed_seconds": 3.217,
+      "too_thin": true,
+      "blocked_or_challenge": true,
+      "fallback_used": true,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://www.douyin.com/video/7669061012259179785",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 1.076,
+          "too_thin": true,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/video/7669061012259179785",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.425,
+          "too_thin": true,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "claude-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/video/7669061012259179785",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.423,
+          "too_thin": true,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "oai-searchbot",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/video/7669061012259179785",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.401,
+          "too_thin": true,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": false,
+      "fetched_at": "2026-08-24T01:06:48.156531+00:00",
+      "html_bytes": 18708,
+      "text_chars": 0,
+      "errors": [],
+      "output_dir": "004_www.douyin.com_video_7669061012259179785_b017732501"
+    },
+    {
+      "engine": "http",
+      "requested_url": "https://www.linkedin.com/pulse/why-linkedin-pulse-articles-matter-more-than-ever-ai-search-mistry-2ayve",
+      "final_url": "https://www.linkedin.com/pulse/why-linkedin-pulse-articles-matter-more-than-ever-ai-search-mistry-2ayve",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "Why LinkedIn Pulse Articles Matter More Than Ever in the AI Search Era",
+      "elapsed_seconds": 0.935,
+      "blocked_or_challenge": false,
+      "fallback_used": false,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://www.linkedin.com/pulse/why-linkedin-pulse-articles-matter-more-than-ever-ai-search-mistry-2ayve",
+          "text_chars": 14087,
+          "html_bytes": 291262,
+          "elapsed_seconds": 0.935,
+          "too_thin": false,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T01:06:49.093326+00:00",
+      "html_bytes": 291262,
+      "text_chars": 14087,
+      "errors": [],
+      "output_dir": "005_www.linkedin.com_pulse_why-linkedin-pulse-articles-matter-more-than-ever-ai-search-mistry-2ayve_7043b4c0fb"
+    }
+  ],
+  "finished_at": "2026-08-24T01:06:49.093949+00:00",
+  "ok_count": 3,
+  "blocked_count": 2,
+  "failed_count": 2
+}
