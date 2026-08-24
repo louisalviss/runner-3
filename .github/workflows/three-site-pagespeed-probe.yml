@@ -1,76 +1,48 @@
-name: Site1 LCP deep probe
+name: Site1 official PageSpeed recheck
 
 on:
   push:
-    branches:
-      - probe/three-site-pagespeed-20260824
-    paths:
-      - .github/workflows/three-site-pagespeed-probe.yml
+    branches: [probe/three-site-pagespeed-20260824]
+    paths: [.github/workflows/three-site-pagespeed-probe.yml]
   pull_request:
     branches: [main]
-    paths:
-      - .github/workflows/three-site-pagespeed-probe.yml
+    paths: [.github/workflows/three-site-pagespeed-probe.yml]
 
 permissions:
   contents: read
 
 jobs:
-  lighthouse:
+  pagespeed:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Diagnose Site1 mobile LCP
-        shell: bash
+      - uses: actions/checkout@v4
+      - name: Prepare browser
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+      - name: PageSpeed mobile 3x
         run: |
           set -euo pipefail
           URL='https://runner3wp.pntr.dev/'
-          mkdir -p out
-          curl -fsSL -D out/headers.txt -o out/home.html "$URL"
-          echo '=== LIVE HEADERS ==='
-          grep -Ei '^(HTTP/|cf-|x-edge|cache-control|age|server|content-type)' out/headers.txt || true
-          echo '=== HTML PRIORITY MARKERS ==='
-          python3 - <<'PY'
-          import re
-          h=open('out/home.html',errors='ignore').read()
-          print('bytes',len(h.encode()))
-          print('fetchpriority_high',len(re.findall(r'fetchpriority=["\']high["\']',h,re.I)))
-          print('loading_eager',len(re.findall(r'loading=["\']eager["\']',h,re.I)))
-          print('image_preloads',len(re.findall(r'<link[^>]+rel=["\']preload["\'][^>]+as=["\']image["\']',h,re.I)))
-          for m in re.findall(r'<img\b[^>]*>',h,re.I)[:4]: print(m[:1200])
-          for m in re.findall(r'<link\b[^>]*rel=["\']preload["\'][^>]*>',h,re.I):
-            if re.search(r'as=["\']image["\']',m,re.I): print('PRELOAD',m[:1200])
-          PY
           for i in 1 2 3; do
-            npx --yes lighthouse "$URL" --only-categories=performance --output=json --output-path="out/mobile-$i.json" --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" >/dev/null
+            PSI_URL="$URL" PSI_UI_OUT="/tmp/psi-$i.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs
           done
           python3 - <<'PY'
-          import json,statistics
+          import json,re,statistics
+          def seconds(v):
+            if isinstance(v,(int,float)): return float(v)
+            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',str(v or '').strip())
+            if not m:return None
+            x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
           rows=[]
           for i in range(1,4):
-            d=json.load(open(f'out/mobile-{i}.json')); a=d['audits']
-            row={
-              'run':i,
-              'performance':round(d['categories']['performance']['score']*100),
-              'fcp':round(a['first-contentful-paint']['numericValue']),
-              'lcp':round(a['largest-contentful-paint']['numericValue']),
-              'tbt':round(a['total-blocking-time']['numericValue']),
-              'si':round(a['speed-index']['numericValue']),
-              'cls':round(a['cumulative-layout-shift']['numericValue'],3),
-              'ttfb':round(a['server-response-time']['numericValue']),
-            }
-            rows.append(row); print('RUN',json.dumps(row))
-          print('MEDIAN',json.dumps({k:statistics.median([r[k] for r in rows]) for k in ('performance','fcp','lcp','tbt','si','cls','ttfb')}))
-          d=json.load(open('out/mobile-2.json')); a=d['audits']
-          print('=== LCP AUDITS ===')
-          for k,v in a.items():
-            if 'lcp' in k.lower() or 'largest-contentful' in k.lower():
-              details=v.get('details')
-              print(k, json.dumps({'title':v.get('title'),'displayValue':v.get('displayValue'),'numericValue':v.get('numericValue'),'score':v.get('score'),'details':details},default=str)[:12000])
-          print('=== NETWORK hero/css/font ===')
-          items=(a.get('network-requests',{}).get('details') or {}).get('items') or []
-          for x in items:
-            u=x.get('url','')
-            if ('offset-demo-01' in u or u.endswith('.css') or '.woff' in u or '.ttf' in u):
-              keep={k:x.get(k) for k in ('url','resourceType','priority','transferSize','resourceSize','startTime','endTime','networkRequestTime','networkEndTime','statusCode','protocol')}
-              print(json.dumps(keep,default=str))
+            d=json.load(open(f'/tmp/psi-{i}.json'))
+            row={'run':i,'status':d.get('status'),'performance':d.get('performance'),'fcp':seconds(d.get('fcp')),'lcp':seconds(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')}
+            rows.append(row);print('PSI',json.dumps(row))
+          good=[r for r in rows if r['status']=='ready' and r['lcp'] is not None]
+          print('MEDIAN',json.dumps({'samples':len(good),'performance':statistics.median([r['performance'] for r in good]),'fcp':statistics.median([r['fcp'] for r in good]),'lcp':statistics.median([r['lcp'] for r in good])}))
           PY
