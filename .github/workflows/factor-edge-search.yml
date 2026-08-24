@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: pip install --disable-pip-version-check numpy pandas requests
       - name: Run factor search
-        run: python research/factor_edge_search_20260824/run_fast.py
+        run: python research/factor_edge_search_20260824/run_rigorous.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
