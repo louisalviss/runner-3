@@ -9,6 +9,7 @@ not be treated as an auth, paywall, CAPTCHA, or private-content bypass.
 
 import json
 import sys
+from urllib.parse import urlparse
 
 import crawler as base
 
@@ -54,6 +55,17 @@ AUTH_BOUNDARY_MARKERS = (
     "captcha",
 )
 
+AUTH_REDIRECT_PATH_MARKERS = (
+    "/signin",
+    "/login",
+    "/passport",
+    "/account/unhuman",
+    "/challenge",
+    "/captcha",
+    "/verify",
+    "/checkpoint",
+)
+
 AI_UA_RETRY_ENABLED = True
 EXPERIMENTAL_AI_UA_RETRY_ENABLED = False
 MIN_USABLE_TEXT_CHARS = 300
@@ -65,8 +77,19 @@ def _active_profiles():
     return AI_UA_PROFILES
 
 
-def _attempt_summary(profile, result):
+def _redirected_to_auth(requested_url, final_url):
+    if not final_url:
+        return False
+    requested_path = (urlparse(requested_url).path or "/").lower()
+    final_path = (urlparse(final_url).path or "/").lower()
+    requested_is_auth = any(marker in requested_path for marker in AUTH_REDIRECT_PATH_MARKERS)
+    final_is_auth = any(marker in final_path for marker in AUTH_REDIRECT_PATH_MARKERS)
+    return final_is_auth and not requested_is_auth
+
+
+def _attempt_summary(profile, result, requested_url):
     text_chars = len(result.get("text") or "")
+    auth_redirect = _redirected_to_auth(requested_url, result.get("final_url"))
     return {
         "profile": profile,
         "engine": result.get("engine"),
@@ -76,15 +99,18 @@ def _attempt_summary(profile, result):
         "html_bytes": len((result.get("html") or "").encode("utf-8", errors="ignore")),
         "elapsed_seconds": result.get("elapsed_seconds"),
         "too_thin": text_chars < MIN_USABLE_TEXT_CHARS,
-        "blocked_or_challenge": base.looks_blocked(
+        "auth_redirect": auth_redirect,
+        "blocked_or_challenge": auth_redirect or base.looks_blocked(
             result.get("status"), result.get("html"), result.get("text")
         ),
     }
 
 
-def _is_auth_boundary(result):
+def _is_auth_boundary(result, requested_url):
     status = result.get("status")
     if status in {401, 407}:
+        return True
+    if _redirected_to_auth(requested_url, result.get("final_url")):
         return True
     text = (result.get("text") or "").lower()
     head = text[:4000]
@@ -92,9 +118,12 @@ def _is_auth_boundary(result):
     return len(text) < 5000 and any(marker in head for marker in AUTH_BOUNDARY_MARKERS)
 
 
-def _usable_http(result):
+def _usable_http(result, requested_url):
     status = result.get("status") or 0
-    blocked = base.looks_blocked(status, result.get("html"), result.get("text"))
+    auth_redirect = _redirected_to_auth(requested_url, result.get("final_url"))
+    blocked = auth_redirect or base.looks_blocked(
+        status, result.get("html"), result.get("text")
+    )
     too_thin = len(result.get("text") or "") < MIN_USABLE_TEXT_CHARS
     return status < 400 and not blocked and not too_thin
 
@@ -116,19 +145,19 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
     if mode in ("http", "auto"):
         try:
             initial_result = base.http_fetch(url, timeout, headers)
-            attempts.append(_attempt_summary("normal", initial_result))
-            if _usable_http(initial_result):
+            attempts.append(_attempt_summary("normal", initial_result, url))
+            if _usable_http(initial_result, url):
                 initial_result["blocked_or_challenge"] = False
                 initial_result["fallback_used"] = False
                 initial_result["http_attempts"] = attempts
                 return initial_result, errors
 
-            if AI_UA_RETRY_ENABLED and not _is_auth_boundary(initial_result):
+            if AI_UA_RETRY_ENABLED and not _is_auth_boundary(initial_result, url):
                 for profile, ai_ua in _active_profiles():
                     try:
                         alt = _fetch_with_profile(url, timeout, headers, profile, ai_ua)
-                        attempts.append(_attempt_summary(profile, alt))
-                        if _usable_http(alt):
+                        attempts.append(_attempt_summary(profile, alt, url))
+                        if _usable_http(alt, url):
                             alt["blocked_or_challenge"] = False
                             alt["fallback_used"] = True
                             alt["http_attempts"] = attempts
@@ -142,12 +171,14 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
         try:
             browser_result = base.browser_fetch(url, timeout, wait_ms, headers, user_agent)
             browser_text_chars = len(browser_result.get("text") or "")
-            browser_blocked = base.looks_blocked(
+            browser_auth_redirect = _redirected_to_auth(url, browser_result.get("final_url"))
+            browser_blocked = browser_auth_redirect or base.looks_blocked(
                 browser_result.get("status"),
                 browser_result.get("html"),
                 browser_result.get("text"),
             )
             browser_result["too_thin"] = browser_text_chars < MIN_USABLE_TEXT_CHARS
+            browser_result["auth_redirect"] = browser_auth_redirect
             browser_result["blocked_or_challenge"] = browser_blocked or browser_result["too_thin"]
             browser_result["fallback_used"] = mode == "auto"
             if attempts:
@@ -158,15 +189,18 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
 
     if initial_result is not None:
         initial_text_chars = len(initial_result.get("text") or "")
-        initial_blocked = base.looks_blocked(
+        initial_auth_redirect = _redirected_to_auth(url, initial_result.get("final_url"))
+        initial_blocked = initial_auth_redirect or base.looks_blocked(
             initial_result.get("status"), initial_result.get("html"), initial_result.get("text")
         )
         initial_result["too_thin"] = initial_text_chars < MIN_USABLE_TEXT_CHARS
+        initial_result["auth_redirect"] = initial_auth_redirect
         # Base crawler currently derives final ok from this field. Treat a
-        # materially thin public response as non-usable so HTTP 200 shells do
-        # not become false-positive successes.
+        # materially thin public response or auth redirect as non-usable so
+        # HTTP 200 shells/login redirects do not become false-positive successes.
         initial_result["blocked_or_challenge"] = initial_blocked or initial_result["too_thin"]
         initial_result["quality_failure"] = (
+            "auth_redirect" if initial_auth_redirect else
             "too_thin" if initial_result["too_thin"] and not initial_blocked else
             "blocked_or_challenge" if initial_blocked else None
         )
