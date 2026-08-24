@@ -1,0 +1,91 @@
+name: WR Stock10 CCI Merge Recovery
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/wr-stock10-cci-merge-recovery.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download completed symbol artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: '32675923000'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/recover/all /tmp/recover/zips
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN}/artifacts?per_page=100" \
+            | jq -sr '[.[].artifacts[]] | unique_by(.id) | .[] | select(.name|startswith("wr-stock10-cci-")) | select(.name!="wr-stock10-cci-final") | [.id,.name] | @tsv' \
+            | while IFS=$'\t' read -r id name; do
+                echo "download $name $id"
+                gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "/tmp/recover/zips/${name}.zip"
+                mkdir -p "/tmp/recover/all/${name}"
+                unzip -q -o "/tmp/recover/zips/${name}.zip" -d "/tmp/recover/all/${name}"
+              done
+          find /tmp/recover/all -name '*.json' -o -name '*.jsonl' | sort | head
+      - name: Reconstruct variants and aggregate
+        run: |
+          python - <<'PY'
+          import json
+          from collections import defaultdict
+          from pathlib import Path
+          root=Path('/tmp/recover/all'); out=Path('/tmp/recover/final'); out.mkdir(parents=True,exist_ok=True)
+          variants=('base_both','base_long','cci_long_exact','cci_symmetric')
+          rows=defaultdict(list); syms=[]; bad=[]
+          for jf in sorted(root.rglob('*.json')):
+              if jf.name=='summary.json': continue
+              d=json.loads(jf.read_text())
+              if d.get('status')!='OK' or 'symbol' not in d: continue
+              sym=d['symbol']; tf=jf.with_name(f'{sym}-trades.jsonl')
+              if not tf.exists(): bad.append([sym,'missing trades']); continue
+              raw=[json.loads(x) for x in tf.read_text().splitlines() if x.strip()]
+              counts=[d['variants'][v]['oos_2024_2026']['gross']['n'] for v in variants]
+              if sum(counts)!=len(raw):
+                  bad.append([sym,f'count mismatch {counts} vs {len(raw)}']); continue
+              pos=0
+              for v,n in zip(variants,counts):
+                  for t in raw[pos:pos+n]:
+                      t=dict(t); t['variant']=v; rows[v].append(t)
+                  pos+=n
+              syms.append(sym)
+          def cost(t,bps):
+              e=float(t['e']); s=float(t['s']); d=abs(e-s)
+              return 0.0 if d<=0 else (e/d)*(bps/10000.0)
+          def met(ts,bps):
+              pairs=sorted(((int(t['signal']),t.get('symbol',''),float(t['R'])-cost(t,bps)) for t in ts),key=lambda x:(x[0],x[1]))
+              vals=[x[2] for x in pairs]; gp=sum(max(x,0) for x in vals); gl=sum(max(-x,0) for x in vals)
+              eq=peak=0.0; dd=0.0
+              for x in vals:
+                  eq+=x; peak=max(peak,eq); dd=min(dd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals) if vals else None,'PF':gp/gl if gl else None,'max_DD_R':dd,'win_rate':100*sum(x>0 for x in vals)/len(vals) if vals else None}
+          def rep(ts):
+              return {'oos':{str(b):met(ts,b) for b in (0,.5,1,2)},
+                      'years':{str(y):{str(b):met([t for t in ts if int(t['year'])==y],b) for b in (0,1,2)} for y in (2024,2025,2026)}}
+          R={v:rep(rows[v]) for v in variants}
+          def cmp(a,b):
+              A=a['oos']['1'];B=b['oos']['1']
+              return {'base_n':A['n'],'filtered_n':B['n'],'retention':B['n']/A['n'] if A['n'] else None,'base_R':A['R'],'filtered_R':B['R'],'delta_R':B['R']-A['R'],'base_avg_R':A['avg_R'],'filtered_avg_R':B['avg_R'],'delta_avg_R':B['avg_R']-A['avg_R'] if A['avg_R'] is not None and B['avg_R'] is not None else None,'base_PF':A['PF'],'filtered_PF':B['PF'],'base_DD':A['max_DD_R'],'filtered_DD':B['max_DD_R']}
+          expected=['AAPL','ADBE','ADI','ADP','ADSK','AEP','ALNY','AMAT','AMD','AMGN','AMZN','AVGO','BKR','CDNS','CMCSA','COST','CPRT','CSCO','CSGP','CSX','CTSH','DXCM','EA','EXC','FANG','FTNT','GILD','GOOG','GOOGL','HON','IDXX','INTC','INTU','ISRG','KHC','LRCX','MAR','MCHP','MDLZ','META','MPWR','MRVL','MSFT','MU','NFLX','NVDA','ODFL','ORLY','PANW','PAYX','PCAR','PEP','PLTR','PYPL','QCOM','REGN','ROST','SBUX','SNPS','TMUS','TSLA','TTWO','TXN','VRTX','WDAY','WDC','WMT','ZS']
+          result={'status':'COMPLETE_67_AVAILABLE','source_run':32675923000,'symbols_ok':len(set(syms)),'missing_symbols':sorted(set(expected)-set(syms)),'bad':bad,'rule':{'exact_long':'Lowest(CCI(27),18)<-100','symmetric_short_extension':'Highest(CCI(27),18)>+100'},'variants':R,'comparisons':{'exact_long':cmp(R['base_long'],R['cci_long_exact']),'symmetric':cmp(R['base_both'],R['cci_symmetric'])}}
+          (out/'summary.json').write_text(json.dumps(result,indent=2))
+          with (out/'trades-reconstructed.jsonl').open('w') as f:
+              for v in variants:
+                  for t in rows[v]: f.write(json.dumps(t)+'\n')
+          print('RECOVERY_FINAL',json.dumps(result['comparisons'],sort_keys=True))
+          print('MISSING',result['missing_symbols'],'BAD',bad)
+          PY
+      - name: Print result
+        run: cat /tmp/recover/final/summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-stock10-cci-final-recovered
+          path: /tmp/recover/final/
+          retention-days: 14
+          if-no-files-found: error
