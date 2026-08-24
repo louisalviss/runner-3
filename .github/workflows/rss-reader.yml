@@ -11,6 +11,8 @@ on:
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
       - "scripts/rss_selected_fetch.py"
+      - "scripts/rss_d1_shadow.py"
+      - ".github/scripts/runner3_core.py"
       - "data/rss-reader/analysis-request.json"
   schedule:
     - cron: "*/30 * * * *"
@@ -81,6 +83,13 @@ jobs:
           git commit -m "Update Runner3 RSS mirrors and health [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
+
+      - name: Report RSS operational state to Runner3 Core
+        if: always() && steps.checkout.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          python scripts/rss_d1_shadow.py operational --run-id "${{ github.run_id }}"
 
       - name: Enforce canonical ingestion health
         if: always()
