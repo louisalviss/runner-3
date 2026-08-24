@@ -16,6 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 BUCKET = os.environ.get('AUDIO_LIBRARY_BUCKET', 'runner3-wp-media')
 VOICE = os.environ.get('AUDIO_LIBRARY_VOICE', 'vi-VN-NamMinhNeural')
 VOICE_RATE = os.environ.get('AUDIO_LIBRARY_VOICE_RATE', '+3%')
+RUNNER3_SOURCE = 'audio-runner'
+CHECKPOINT_PROJECT = 'audio-library-tts'
+
+sys.path.insert(0, str(ROOT / '.github' / 'scripts'))
+from runner3_core import get_checkpoint, save_checkpoint  # noqa: E402
 
 
 def load_json(path):
@@ -38,6 +43,88 @@ def api(path, payload):
     if r.status_code >= 400:
         raise RuntimeError(f'Worker API {r.status_code}: {r.text[:300]}')
     return r.json() if r.content else None
+
+
+def payload_sha256(payload):
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
+
+
+def checkpoint_for(item_id):
+    try:
+        return get_checkpoint(CHECKPOINT_PROJECT, item_id)
+    except Exception as exc:
+        print(f'CHECKPOINT_READ_WARNING item={item_id} error={type(exc).__name__}: {exc}', file=sys.stderr)
+        return None
+
+
+def checkpoint_matches(checkpoint, item_id, digest):
+    if not isinstance(checkpoint, dict) or checkpoint.get('status') != 'success':
+        return False
+    position = checkpoint.get('position')
+    return bool(
+        isinstance(position, dict)
+        and str(position.get('item_id')) == str(item_id)
+        and position.get('payload_sha256') == digest
+        and position.get('phase') == 'complete'
+    )
+
+
+def remote_artifacts_match(audio_url, transcript_url, script):
+    try:
+        transcript = requests.get(transcript_url, timeout=30)
+        if transcript.status_code >= 400 or transcript.text != script:
+            return False
+        audio = requests.head(audio_url, allow_redirects=True, timeout=20)
+        return 200 <= audio.status_code < 400
+    except Exception:
+        return False
+
+
+def save_success_checkpoint(item_id, digest, audio_url, transcript_url, duration_seconds, *, recovered=False):
+    position = {
+        'phase': 'complete',
+        'item_id': item_id,
+        'payload_sha256': digest,
+        'audio_url': audio_url,
+        'transcript_url': transcript_url,
+        'duration_seconds': duration_seconds,
+        'recovered_from_artifacts': bool(recovered),
+    }
+    try:
+        return save_checkpoint(
+            CHECKPOINT_PROJECT,
+            RUNNER3_SOURCE,
+            scope=item_id,
+            status='success',
+            position=position,
+            last_error=None,
+        )
+    except Exception as exc:
+        print(f'CHECKPOINT_WRITE_WARNING item={item_id} error={type(exc).__name__}: {exc}', file=sys.stderr)
+        return None
+
+
+def save_failure_checkpoint(item_id, digest, exc):
+    try:
+        save_checkpoint(
+            CHECKPOINT_PROJECT,
+            RUNNER3_SOURCE,
+            scope=item_id,
+            status='failure',
+            position={
+                'phase': 'failed',
+                'item_id': item_id,
+                'payload_sha256': digest,
+            },
+            last_error=f'{type(exc).__name__}: {exc}'[:4000],
+        )
+    except Exception as checkpoint_exc:
+        print(
+            f'CHECKPOINT_FAILURE_WRITE_WARNING item={item_id} '
+            f'error={type(checkpoint_exc).__name__}: {checkpoint_exc}',
+            file=sys.stderr,
+        )
 
 
 def tts_chunks(text, limit=3200):
@@ -95,24 +182,64 @@ def process(payload_path):
     script = str(payload.get('script') or '').strip()
     if len(script) < 300:
         raise RuntimeError('ChatGPT script too short')
+
+    digest = payload_sha256(payload)
     base = load_json(ROOT / 'ops/r2-media/status.json')['baseUrl'].rstrip('/')
     prefix = f'audio-library/media/{item_id}/'
-    with tempfile.TemporaryDirectory(prefix='chatgpt-audio-') as td:
-        work = Path(td)
-        script_file = work / 'script.txt'
-        script_file.write_text(script, encoding='utf-8')
-        mp3 = asyncio.run(synthesize(script, work))
-        r2_put(mp3, prefix + 'episode.mp3', 'audio/mpeg')
-        r2_put(script_file, prefix + 'script.txt', 'text/plain; charset=utf-8')
-        api('/api/runner/complete', {
-            'id': item_id,
-            'title': title,
-            'sourceLabel': source_label,
-            'durationSeconds': duration(mp3),
-            'audioUrl': base + '/' + prefix + 'episode.mp3',
-            'transcriptUrl': base + '/' + prefix + 'script.txt',
-            'truncated': False,
-        })
+    audio_url = base + '/' + prefix + 'episode.mp3'
+    transcript_url = base + '/' + prefix + 'script.txt'
+
+    checkpoint = checkpoint_for(item_id)
+    checkpoint_ok = checkpoint_matches(checkpoint, item_id, digest)
+    artifacts_ok = remote_artifacts_match(audio_url, transcript_url, script)
+    if checkpoint_ok and artifacts_ok:
+        print(json.dumps({'itemId': item_id, 'status': 'skipped', 'reason': 'checkpoint-and-artifacts-match'}))
+        return {'itemId': item_id, 'status': 'skipped'}
+
+    if artifacts_ok:
+        prior_position = checkpoint.get('position') if isinstance(checkpoint, dict) else None
+        prior_duration = prior_position.get('duration_seconds') if isinstance(prior_position, dict) else None
+        save_success_checkpoint(
+            item_id,
+            digest,
+            audio_url,
+            transcript_url,
+            prior_duration,
+            recovered=True,
+        )
+        print(json.dumps({'itemId': item_id, 'status': 'skipped', 'reason': 'artifacts-match-checkpoint-recovered'}))
+        return {'itemId': item_id, 'status': 'skipped'}
+
+    try:
+        with tempfile.TemporaryDirectory(prefix='chatgpt-audio-') as td:
+            work = Path(td)
+            script_file = work / 'script.txt'
+            script_file.write_text(script, encoding='utf-8')
+            mp3 = asyncio.run(synthesize(script, work))
+            duration_seconds = duration(mp3)
+            r2_put(mp3, prefix + 'episode.mp3', 'audio/mpeg')
+            r2_put(script_file, prefix + 'script.txt', 'text/plain; charset=utf-8')
+            api('/api/runner/complete', {
+                'id': item_id,
+                'title': title,
+                'sourceLabel': source_label,
+                'durationSeconds': duration_seconds,
+                'audioUrl': audio_url,
+                'transcriptUrl': transcript_url,
+                'truncated': False,
+            })
+            save_success_checkpoint(
+                item_id,
+                digest,
+                audio_url,
+                transcript_url,
+                duration_seconds,
+            )
+            print(json.dumps({'itemId': item_id, 'status': 'completed', 'durationSeconds': duration_seconds}))
+            return {'itemId': item_id, 'status': 'completed', 'durationSeconds': duration_seconds}
+    except Exception as exc:
+        save_failure_checkpoint(item_id, digest, exc)
+        raise
 
 
 if __name__ == '__main__':
