@@ -26,6 +26,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/reddit_deep_sweep.py'
+      - 'scripts/reddit_deep_sweep_cloudflare.py'
       - '.github/workflows/reddit-deep-sweep.yml'
       - 'cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql'
 
@@ -102,7 +103,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/reddit_deep_sweep.py \
+          python3 scripts/reddit_deep_sweep_cloudflare.py \
             --subreddit "$SUBREDDIT" \
             --mode "$SWEEP_MODE" \
             --max-threads "$MAX_THREADS" \
