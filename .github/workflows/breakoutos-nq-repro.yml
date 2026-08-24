@@ -24,6 +24,7 @@ jobs:
       - run: npm install --no-save dukascopy-node@1.50.0
       - run: pip install requests
       - name: Download long-horizon Nasdaq proxy
+        continue-on-error: true
         run: node research/download_usatech_h1.js
       - name: Run reproduction
         env:
