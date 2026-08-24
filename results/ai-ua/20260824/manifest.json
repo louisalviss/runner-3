@@ -1,11 +1,11 @@
 {
-  "job_name": "ai-ua-probe-20260824",
+  "job_name": "ai-ua-probe-20260824-r3",
   "job_file": "jobs/ai-ua-probe-20260824.json",
   "source_visibility": "public",
   "artifact_policy": "text",
   "response_headers_persisted": false,
   "mode": "http",
-  "started_at": "2026-08-24T00:30:52.328794+00:00",
+  "started_at": "2026-08-24T00:35:09.456488+00:00",
   "url_count": 4,
   "results": [
     {
@@ -15,8 +15,10 @@
       "status": 200,
       "content_type": "text/html",
       "title": "",
-      "elapsed_seconds": 1.348,
-      "blocked_or_challenge": false,
+      "elapsed_seconds": 0.865,
+      "too_thin": true,
+      "blocked_or_challenge": true,
+      "quality_failure": "too_thin",
       "fallback_used": false,
       "http_attempts": [
         {
@@ -26,7 +28,8 @@
           "final_url": "https://www.douyin.com/",
           "text_chars": 14,
           "html_bytes": 2397,
-          "elapsed_seconds": 1.348,
+          "elapsed_seconds": 0.865,
+          "too_thin": true,
           "blocked_or_challenge": false
         },
         {
@@ -36,7 +39,8 @@
           "final_url": "https://www.douyin.com/",
           "text_chars": 14,
           "html_bytes": 2397,
-          "elapsed_seconds": 0.339,
+          "elapsed_seconds": 0.391,
+          "too_thin": true,
           "blocked_or_challenge": false
         },
         {
@@ -46,7 +50,8 @@
           "final_url": "https://www.douyin.com/",
           "text_chars": 14,
           "html_bytes": 2397,
-          "elapsed_seconds": 0.333,
+          "elapsed_seconds": 0.388,
+          "too_thin": true,
           "blocked_or_challenge": false
         },
         {
@@ -56,7 +61,8 @@
           "final_url": "https://www.douyin.com/",
           "text_chars": 14,
           "html_bytes": 2397,
-          "elapsed_seconds": 0.332,
+          "elapsed_seconds": 0.366,
+          "too_thin": true,
           "blocked_or_challenge": false
         },
         {
@@ -66,12 +72,13 @@
           "final_url": "https://www.douyin.com/",
           "text_chars": 14,
           "html_bytes": 2397,
-          "elapsed_seconds": 0.324,
+          "elapsed_seconds": 0.409,
+          "too_thin": true,
           "blocked_or_challenge": false
         }
       ],
-      "ok": true,
-      "fetched_at": "2026-08-24T00:30:55.010135+00:00",
+      "ok": false,
+      "fetched_at": "2026-08-24T00:35:11.878189+00:00",
       "html_bytes": 2397,
       "text_chars": 14,
       "errors": [],
@@ -84,7 +91,7 @@
       "status": 200,
       "content_type": "text/html; charset=utf-8",
       "title": "LinkedIn: Log In or Sign Up",
-      "elapsed_seconds": 0.284,
+      "elapsed_seconds": 0.321,
       "blocked_or_challenge": false,
       "fallback_used": false,
       "http_attempts": [
@@ -94,14 +101,15 @@
           "status": 200,
           "final_url": "https://www.linkedin.com/",
           "text_chars": 5139,
-          "html_bytes": 140634,
-          "elapsed_seconds": 0.284,
+          "html_bytes": 140664,
+          "elapsed_seconds": 0.321,
+          "too_thin": false,
           "blocked_or_challenge": false
         }
       ],
       "ok": true,
-      "fetched_at": "2026-08-24T00:30:55.295625+00:00",
-      "html_bytes": 140634,
+      "fetched_at": "2026-08-24T00:35:12.200722+00:00",
+      "html_bytes": 140664,
       "text_chars": 5139,
       "errors": [],
       "output_dir": "002_www.linkedin.com_root_31d9e011b5"
@@ -113,7 +121,7 @@
       "status": 200,
       "content_type": "text/html; charset=utf-8",
       "title": "Medium",
-      "elapsed_seconds": 0.808,
+      "elapsed_seconds": 0.33,
       "ai_user_agent_profile": "chatgpt-user",
       "blocked_or_challenge": false,
       "fallback_used": true,
@@ -124,8 +132,9 @@
           "status": 200,
           "final_url": "https://medium.com/",
           "text_chars": 300,
-          "html_bytes": 56074,
-          "elapsed_seconds": 0.088,
+          "html_bytes": 56072,
+          "elapsed_seconds": 0.172,
+          "too_thin": false,
           "blocked_or_challenge": true
         },
         {
@@ -134,14 +143,15 @@
           "status": 200,
           "final_url": "https://medium.com/",
           "text_chars": 300,
-          "html_bytes": 81729,
-          "elapsed_seconds": 0.808,
+          "html_bytes": 81854,
+          "elapsed_seconds": 0.33,
+          "too_thin": false,
           "blocked_or_challenge": false
         }
       ],
       "ok": true,
-      "fetched_at": "2026-08-24T00:30:56.195528+00:00",
-      "html_bytes": 81729,
+      "fetched_at": "2026-08-24T00:35:12.705890+00:00",
+      "html_bytes": 81854,
       "text_chars": 300,
       "errors": [],
       "output_dir": "003_medium.com_root_206cc24ad0"
@@ -153,8 +163,10 @@
       "status": 403,
       "content_type": "text/html",
       "title": "",
-      "elapsed_seconds": 0.055,
+      "elapsed_seconds": 0.195,
+      "too_thin": true,
       "blocked_or_challenge": true,
+      "quality_failure": "blocked_or_challenge",
       "fallback_used": false,
       "http_attempts": [
         {
@@ -164,7 +176,8 @@
           "final_url": "https://www.reddit.com/r/artificial/",
           "text_chars": 221,
           "html_bytes": 190243,
-          "elapsed_seconds": 0.055,
+          "elapsed_seconds": 0.195,
+          "too_thin": true,
           "blocked_or_challenge": true
         },
         {
@@ -174,7 +187,8 @@
           "final_url": "https://www.reddit.com/r/artificial/",
           "text_chars": 801,
           "html_bytes": 1522,
-          "elapsed_seconds": 0.046,
+          "elapsed_seconds": 0.094,
+          "too_thin": false,
           "blocked_or_challenge": true
         },
         {
@@ -184,7 +198,8 @@
           "final_url": "https://www.reddit.com/r/artificial/",
           "text_chars": 221,
           "html_bytes": 190243,
-          "elapsed_seconds": 0.048,
+          "elapsed_seconds": 0.143,
+          "too_thin": true,
           "blocked_or_challenge": true
         },
         {
@@ -194,7 +209,8 @@
           "final_url": "https://www.reddit.com/r/artificial/",
           "text_chars": 221,
           "html_bytes": 190243,
-          "elapsed_seconds": 0.05,
+          "elapsed_seconds": 0.137,
+          "too_thin": true,
           "blocked_or_challenge": true
         },
         {
@@ -204,20 +220,21 @@
           "final_url": "https://www.reddit.com/r/artificial/",
           "text_chars": 0,
           "html_bytes": 0,
-          "elapsed_seconds": 0.132,
+          "elapsed_seconds": 0.218,
+          "too_thin": true,
           "blocked_or_challenge": true
         }
       ],
       "ok": false,
-      "fetched_at": "2026-08-24T00:30:56.532143+00:00",
+      "fetched_at": "2026-08-24T00:35:13.496543+00:00",
       "html_bytes": 190243,
       "text_chars": 221,
       "errors": [],
       "output_dir": "004_www.reddit.com_r_artificial_da81c7bb68"
     }
   ],
-  "finished_at": "2026-08-24T00:30:56.532747+00:00",
-  "ok_count": 3,
-  "blocked_count": 1,
-  "failed_count": 1
+  "finished_at": "2026-08-24T00:35:13.496965+00:00",
+  "ok_count": 2,
+  "blocked_count": 2,
+  "failed_count": 2
 }
