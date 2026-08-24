@@ -6,6 +6,10 @@ on:
       - probe/three-site-pagespeed-20260824
     paths:
       - .github/workflows/three-site-pagespeed-probe.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/three-site-pagespeed-probe.yml
 
 permissions:
   contents: read
