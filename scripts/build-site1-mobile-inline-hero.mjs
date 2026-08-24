@@ -4,9 +4,9 @@ import sharp from 'sharp';
 const modulePath = process.env.CF_SNAPSHOT_MODULE
   || 'edge/wordpress-edge-proxy/src/snapshot.generated.js';
 const marker = process.env.SITE1_INLINE_HERO_MARKER || 'v1';
-const maxBytes = Number(process.env.SITE1_INLINE_HERO_MAX_BYTES || 12000);
+const maxBytes = Number(process.env.SITE1_INLINE_HERO_MAX_BYTES || 10000);
 const width = Number(process.env.SITE1_INLINE_HERO_WIDTH || 320);
-const quality = Number(process.env.SITE1_INLINE_HERO_QUALITY || 74);
+const quality = Number(process.env.SITE1_INLINE_HERO_QUALITY || 58);
 
 const sourceCandidates = [
   process.env.SITE1_HERO_SOURCE_URL,
