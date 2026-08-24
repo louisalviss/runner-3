@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "book_id": "vbth",
+  "title": "Vương Bài Tiến Hóa",
+  "author": "Quyển Thổ",
+  "language": "vi",
+  "chapter_count": 1214,
+  "source_adapter": "tienvuc-segmented",
+  "artifact_store": {
+    "kind": "dropbox",
+    "root_env": "EBOOK_DROPBOX_ROOT",
+    "default_root": "/Apps/remotely-save/AI/EBOOKS",
+    "relative_root": "vbth"
+  },
+  "master": {
+    "filename": "Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub"
+  },
+  "editorial": {
+    "pipeline_version": 1,
+    "editor_profile": "gold-standard",
+    "prompt_version": "gold-v1",
+    "story_bible_version": 1,
+    "glossary_version": 1,
+    "model": null,
+    "gold_standard_files": [
+      "Vuong_Bai_Tien_Hoa_Gold_3_Chuong.txt",
+      "Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub"
+    ]
+  },
+  "legacy_checkpoint": {
+    "project": "vbth-editorial",
+    "scope": "main"
+  }
+}
