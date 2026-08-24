@@ -15,6 +15,7 @@ H = ("4w","8w","13w")
 
 # New hypotheses fixed before reading their results. Because they are generated after
 # the first earnings test, any apparent winner requires fresh 2025-2026 OOS.
+# diagnostic trigger: 2026-08-24
 SPECS = {
     "BEAT_CONFIRM": {
         "signal": lambda x: (x.surprise_pct >= 10) & (x.reaction_2session >= .03),
@@ -51,7 +52,6 @@ def month_cluster_ci(weeks, excess, reps=3000):
 def nearest(s, pool, spec):
     c=pool[spec["control"](pool)].copy()
     if c.empty: return None
-    # Time locality, then match surprise magnitude, drawdown, and pre-event momentum.
     for days in (28,56,112):
         z=c[(c.event_date-s.event_date).abs().dt.days<=days].copy()
         if z.empty: continue
