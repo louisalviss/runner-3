@@ -1,3 +1,4 @@
+// trigger corrected PNTR guest flow 2026-08-24
 import { chromium } from 'playwright';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -24,7 +25,6 @@ async function api(path,method='GET',data=undefined){
   return {status:r.status(),body};
 }
 
-// Dashboard frontend does this automatically when a guest has no session.
 let subs=await api('/api/subdomains');
 if(subs.status===401){
   const anon=await api('/api/auth/anonymous','POST');
@@ -61,7 +61,6 @@ if(!subId){
 }
 if(!subId) throw new Error('pntr_subdomain_id_missing');
 
-// Associate domain in Cloudflare Pages before changing DNS.
 const cfBase=`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/pages/projects/${project}/domains`;
 const cfHeaders={Authorization:`Bearer ${cfToken}`,'Content-Type':'application/json'};
 let cfList=await fetch(cfBase,{headers:cfHeaders}).then(r=>r.json());
@@ -74,7 +73,6 @@ if(!current){
   current=j.result;
 }
 
-// Add the only DNS record needed on this brand-new PNTR hostname.
 const rec=await api(`/api/subdomains/${encodeURIComponent(subId)}/records`,'POST',{record_type:'CNAME',record_value:pagesTarget});
 if(![200,201].includes(rec.status)) throw new Error('pntr_cname_failed:'+rec.status+':'+JSON.stringify(rec.body).slice(0,400));
 
