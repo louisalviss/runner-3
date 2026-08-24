@@ -8,6 +8,13 @@ const LCP_R2_PREFIX = '/__runner3/r2-image/';
 const LCP_R2_NAME_RE = /^offset-demo-01-w(?:360|480|640)\.webp$/;
 const LCP_R2_KEY_PREFIX = 'sites/runner3-factory-smoke-2/responsive-v2/';
 
+class DropR2ResourceHint {
+  element(element) {
+    const href = element.getAttribute('href') || '';
+    if (/r2\.dev/i.test(href)) element.remove();
+  }
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -39,6 +46,8 @@ async function decorateFrontend(request, response) {
 
   if (request.method.toUpperCase() !== 'HEAD') {
     htmlResponse = new HTMLRewriter()
+      .on('link[rel="preconnect"]', new DropR2ResourceHint())
+      .on('link[rel="dns-prefetch"]', new DropR2ResourceHint())
       .on('img[src]', new StaticResponsiveImageRewriter())
       .on('link[rel="preload"][as="image"]', new StaticImagePreloadRewriter())
       .transform(htmlResponse);
@@ -60,6 +69,7 @@ async function publicHtmlResponse(request, env, ctx) {
   response = await decorateFrontend(request, response);
   const headers = new Headers(response.headers);
   headers.delete('Content-Length');
+  headers.delete('Link');
 
   if (!cacheableHtmlResponse(response)) {
     headers.set('Cache-Control', 'no-store');
@@ -100,6 +110,7 @@ async function directPublicResponse(request, env, ctx) {
   response = await decorateFrontend(request, response);
   const headers = new Headers(response.headers);
   headers.delete('Content-Length');
+  headers.delete('Link');
   headers.delete('Cache-Tag');
   headers.delete('Cloudflare-CDN-Cache-Control');
 
