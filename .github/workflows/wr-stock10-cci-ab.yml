@@ -11,7 +11,7 @@ permissions:
   contents: read
 concurrency:
   group: wr-stock10-cci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   symbol:
     runs-on: ubuntu-24.04-arm
