@@ -31,23 +31,48 @@ function score(text, label) {
   return null;
 }
 
-const browser = await chromium.launch({ headless: true, executablePath, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath,
+  args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+});
 const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
-const result = { status: 'starting', target, checkedAt: new Date().toISOString(), resultUrl: null, performance: null, fcp: null, lcp: null, tbt: null, cls: null, detail: null };
+const result = {
+  status: 'starting',
+  target,
+  checkedAt: new Date().toISOString(),
+  resultUrl: null,
+  performance: null,
+  fcp: null,
+  lcp: null,
+  tbt: null,
+  cls: null,
+  detail: null,
+};
+
 try {
-  await page.goto('https://pagespeed.web.dev/?hl=en', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.goto('https://pagespeed.web.dev/?hl=en', {
+    waitUntil: 'domcontentloaded',
+    timeout: 60_000,
+  });
   const input = page.locator('input').first();
   await input.waitFor({ state: 'visible', timeout: 30_000 });
   await input.fill(target);
   await page.getByRole('button', { name: /analy[sz]e/i }).first().click();
-  await page.waitForURL(/pagespeed\.web\.dev\/analysis\//, { timeout: 90_000 }).catch(() => {});
+
+  // waitForFunction(pageFunction, arg, options): passing the timeout object as
+  // arg silently left Playwright's default 30s timeout in effect. Wait directly
+  // on the actual result content and let the result URL settle independently.
   await page.waitForFunction(() => {
     const t = document.body.innerText || '';
-    return /First Contentful Paint/i.test(t) && /Largest Contentful Paint/i.test(t) && /\bPerformance\b/i.test(t);
-  }, { timeout: 180_000 });
+    return /First Contentful Paint/i.test(t)
+      && /Largest Contentful Paint/i.test(t)
+      && /\bPerformance\b/i.test(t);
+  }, null, { timeout: 75_000, polling: 1000 });
+
   const started = Date.now();
   let body = '';
-  while (Date.now() - started < 60_000) {
+  while (Date.now() - started < 45_000) {
     body = await page.locator('body').innerText();
     result.performance = score(body, 'Performance');
     result.fcp = metric(body, 'First Contentful Paint');
@@ -55,18 +80,26 @@ try {
     result.tbt = metric(body, 'Total Blocking Time');
     result.cls = metric(body, 'Cumulative Layout Shift');
     if (result.performance !== null && result.fcp && result.lcp) break;
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(1000);
   }
-  if (result.performance === null || !result.fcp || !result.lcp) throw new Error('PageSpeed numeric mobile result did not settle');
+
+  if (result.performance === null || !result.fcp || !result.lcp) {
+    throw new Error('PageSpeed numeric mobile result did not settle');
+  }
   result.resultUrl = page.url();
   result.status = 'ready';
 } catch (error) {
   result.status = 'failed';
   result.resultUrl = page.url();
-  result.detail = String(error?.stack || error);
+  let body = '';
+  try {
+    body = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim().slice(0, 1200);
+  } catch (_) {}
+  result.detail = `${String(error?.stack || error)}${body ? `\nPAGE_BODY: ${body}` : ''}`;
 } finally {
   fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
   await browser.close();
 }
+
 console.log(JSON.stringify(result, null, 2));
 if (result.status !== 'ready') process.exitCode = 1;
