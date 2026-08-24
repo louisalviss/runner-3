@@ -179,11 +179,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          # PageSpeed's UI occasionally times out even when the tested page is
+          # healthy. Retry transport/UI failures, but require exactly five valid
+          # official results before evaluating the performance target.
           for i in 1 2 3 4 5; do
-            PSI_URL="$PROD_DOMAIN/" \
-              PSI_UI_OUT="/tmp/psi-$i.json" \
-              timeout 330s \
-              node scripts/pagespeed-ui-mobile-audit.mjs
+            valid=0
+            for attempt in 1 2 3 4; do
+              echo "=== PSI sample=$i attempt=$attempt ==="
+              rm -f "/tmp/psi-$i.json"
+              if PSI_URL="$PROD_DOMAIN/" \
+                PSI_UI_OUT="/tmp/psi-$i.json" \
+                timeout 330s \
+                node scripts/pagespeed-ui-mobile-audit.mjs; then
+                if node -e '
+                  const fs = require("fs");
+                  const d = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                  const ok = d.status === "ready"
+                    && Number.isFinite(d.performance)
+                    && typeof d.lcp === "string"
+                    && d.lcp.length > 0;
+                  process.exit(ok ? 0 : 1);
+                ' "/tmp/psi-$i.json"; then
+                  valid=1
+                  break
+                fi
+              fi
+              echo "PSI_RETRY sample=$i attempt=$attempt"
+              sleep 5
+            done
+            if [ "$valid" != 1 ]; then
+              echo "PSI_SAMPLE_FAILED sample=$i"
+              exit 12
+            fi
           done
 
           node --input-type=module - <<'NODE'
