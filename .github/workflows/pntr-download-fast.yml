@@ -1,0 +1,153 @@
+name: PNTR Download Fast
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-download-fast.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pntr-download-fast
+  cancel-in-progress: true
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PROJECT: runner3-download-gateway
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Create PNTR hostname with HTTP session
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pntr-fast
+          python - <<'PY'
+          import os,json,time,hashlib,datetime,requests
+          from pathlib import Path
+          out={'verified':False,'stage':'start','checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          def save(stage,**kw):
+              out.update(kw); out['stage']=stage; out['checkedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+              Path('/tmp/pntr-fast/status.json').write_text(json.dumps(out,indent=2)+'\n')
+          try:
+              cf_token=os.environ['CLOUDFLARE_API_TOKEN']; account=os.environ['CLOUDFLARE_ACCOUNT_ID']; project=os.environ['CF_PROJECT']
+              pages=f'{project}.pages.dev'; cfbase=f'https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/{project}/domains'
+              cfh={'Authorization':'Bearer '+cf_token,'Content-Type':'application/json'}
+              cand=['dl3','dlrunner3','r3download','runner3dl']
+              cf=requests.get(cfbase,headers=cfh,timeout=30).json()
+              existing={x.get('name') for x in (cf.get('result') or [])}
+              # If a prior attempt already fully works, reuse it and stop.
+              for name in cand:
+                  fq=f'{name}.pntr.dev'
+                  if fq not in existing: continue
+                  try:
+                      r=requests.get(f'https://{fq}/%40LinkFilesBot.apk',timeout=30)
+                      sha=hashlib.sha256(r.content).hexdigest()
+                      disp=r.headers.get('content-disposition','')
+                      if r.status_code==200 and len(r.content)==13951503 and sha=='9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537' and disp.lower().startswith('attachment'):
+                          save('verified',hostname=fq,directUrl=f'https://{fq}/%40LinkFilesBot.apk',httpCode=200,size=len(r.content),sha256=sha,contentDisposition=disp,workerHostnameHidden=True,reusedExisting=True)
+                          raise SystemExit(0)
+                  except requests.RequestException: pass
+              s=requests.Session(); s.headers.update({'User-Agent':'Mozilla/5.0 Runner3 PNTR setup','Accept':'application/json'})
+              r=s.get('https://pntr.dev/api/subdomains',timeout=30)
+              if r.status_code==401:
+                  a=s.post('https://pntr.dev/api/auth/anonymous',timeout=30)
+                  if a.status_code>=300: raise RuntimeError(f'anonymous_auth_http_{a.status_code}')
+                  r=s.get('https://pntr.dev/api/subdomains',timeout=30)
+              if r.status_code!=200: raise RuntimeError(f'subdomains_http_{r.status_code}')
+              save('guest_session_ready')
+              d=s.get('https://pntr.dev/api/domains',timeout=30)
+              if d.status_code!=200: raise RuntimeError(f'domains_http_{d.status_code}')
+              body=d.json(); arr=body if isinstance(body,list) else body.get('domains') or body.get('data') or body.get('result') or []
+              dom=next((x for x in arr if 'pntr.dev' in str(x.get('name') or x.get('domain') or x.get('hostname') or x.get('full_domain') or '').lower()), arr[0] if arr else None)
+              domain_id=(dom or {}).get('id') or (dom or {}).get('domain_id')
+              if not domain_id: raise RuntimeError('domain_id_missing')
+              save('domain_catalog_ready')
+              chosen=None; sub=None
+              for name in cand:
+                  fq=f'{name}.pntr.dev'
+                  if fq in existing: continue
+                  ck=s.get(f'https://pntr.dev/api/check/{domain_id}/{name}',timeout=30)
+                  if ck.status_code!=200 or not ck.json().get('available'): continue
+                  cr=s.post('https://pntr.dev/api/subdomains',json={'name':name,'domain_id':domain_id,'description':'Runner3 direct download'},timeout=30)
+                  if cr.status_code in (200,201):
+                      b=cr.json(); sub=b.get('subdomain') or b.get('data') or b.get('result') or b; chosen=name; break
+              if not chosen: raise RuntimeError('no_available_candidate_or_existing_pending')
+              fq=f'{chosen}.pntr.dev'; subid=(sub or {}).get('id') or (sub or {}).get('subdomain_id')
+              if not subid:
+                  q=s.get('https://pntr.dev/api/subdomains',timeout=30).json(); aa=q if isinstance(q,list) else q.get('subdomains') or q.get('data') or q.get('result') or []
+                  x=next((v for v in aa if v.get('name')==chosen or str(v.get('full_domain') or v.get('fqdn') or v.get('hostname') or '')==fq),None)
+                  subid=(x or {}).get('id') or (x or {}).get('subdomain_id')
+              if not subid: raise RuntimeError('subdomain_id_missing')
+              cookies=[{'name':c.name,'value':c.value,'domain':c.domain,'path':c.path,'secure':c.secure,'expires':c.expires} for c in s.cookies]
+              Path('/tmp/pntr-fast/cookies.json').write_text(json.dumps(cookies)+'\n')
+              save('pntr_registered',hostname=fq,directUrl=f'https://{fq}/%40LinkFilesBot.apk')
+              # Pages association first, then DNS.
+              cf=requests.get(cfbase,headers=cfh,timeout=30).json(); current=next((x for x in (cf.get('result') or []) if x.get('name')==fq),None)
+              if not current:
+                  z=requests.post(cfbase,headers=cfh,json={'name':fq},timeout=30); zj=z.json()
+                  if z.status_code not in (200,201) or not zj.get('success'): raise RuntimeError('pages_domain_create:'+json.dumps(zj.get('errors') or [])[:400])
+                  current=zj.get('result') or {}
+              save('pages_domain_associated',customDomainStatus=(current or {}).get('status'))
+              rec=s.post(f'https://pntr.dev/api/subdomains/{subid}/records',json={'record_type':'CNAME','record_value':pages},timeout=30)
+              if rec.status_code not in (200,201): raise RuntimeError(f'cname_http_{rec.status_code}:{rec.text[:300]}')
+              save('cname_created')
+              # Poll 2 minutes max for DNS/TLS.
+              status=(current or {}).get('status'); last={}
+              for _ in range(24):
+                  try:
+                      cj=requests.get(cfbase+'/'+fq,headers=cfh,timeout=20).json(); status=(cj.get('result') or {}).get('status') or status
+                  except Exception: pass
+                  try:
+                      rr=requests.get(f'https://{fq}/%40LinkFilesBot.apk',timeout=30)
+                      sha=hashlib.sha256(rr.content).hexdigest(); disp=rr.headers.get('content-disposition',''); ctype=rr.headers.get('content-type','')
+                      last={'httpCode':rr.status_code,'size':len(rr.content),'sha256':sha,'contentDisposition':disp,'contentType':ctype}
+                      if rr.status_code==200 and len(rr.content)==13951503 and sha=='9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537' and disp.lower().startswith('attachment'):
+                          save('verified',customDomainStatus=status,workerHostnameHidden=True,**last); raise SystemExit(0)
+                  except requests.RequestException as e: last={'verifyError':type(e).__name__}
+                  time.sleep(5)
+              save('waiting_dns_tls',customDomainStatus=status,**last)
+          except SystemExit: raise
+          except Exception as e:
+              save('failed',error=str(e)[:800])
+              raise
+          PY
+      - name: Encrypt guest ownership cookies
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -s /tmp/pntr-fast/cookies.json ]; then
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -in /tmp/pntr-fast/cookies.json -out /tmp/pntr-fast/cookies.aes -pass env:CLOUDFLARE_API_TOKEN
+            rm -f /tmp/pntr-fast/cookies.json
+          fi
+      - name: Persist result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/pntr-fast/status.json || printf '{"verified":false,"stage":"workflow_failed_before_status"}\n' >/tmp/pntr-fast/status.json
+          cp /tmp/pntr-fast/status.json /tmp/pntr-fast-status.json
+          test ! -s /tmp/pntr-fast/cookies.aes || cp /tmp/pntr-fast/cookies.aes /tmp/pntr-fast-cookies.aes
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          for n in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pntr-download-fast
+            cp /tmp/pntr-fast-status.json ops/pntr-download-fast/status.json
+            test ! -s /tmp/pntr-fast-cookies.aes || cp /tmp/pntr-fast-cookies.aes ops/pntr-download-fast/cookies.aes
+            git add ops/pntr-download-fast/status.json
+            test ! -s /tmp/pntr-fast-cookies.aes || git add ops/pntr-download-fast/cookies.aes
+            git diff --cached --quiet && exit 0
+            git commit -m 'Persist PNTR fast download domain [skip ci]'
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
