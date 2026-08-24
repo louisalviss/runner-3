@@ -1,0 +1,223 @@
+{
+  "job_name": "ai-ua-probe-20260824",
+  "job_file": "jobs/ai-ua-probe-20260824.json",
+  "source_visibility": "public",
+  "artifact_policy": "text",
+  "response_headers_persisted": false,
+  "mode": "http",
+  "started_at": "2026-08-24T00:30:52.328794+00:00",
+  "url_count": 4,
+  "results": [
+    {
+      "engine": "http",
+      "requested_url": "https://www.douyin.com/",
+      "final_url": "https://www.douyin.com/",
+      "status": 200,
+      "content_type": "text/html",
+      "title": "",
+      "elapsed_seconds": 1.348,
+      "blocked_or_challenge": false,
+      "fallback_used": false,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://www.douyin.com/",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 1.348,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.339,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "claude-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.333,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "oai-searchbot",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.332,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "bytespider-experimental",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://www.douyin.com/",
+          "text_chars": 14,
+          "html_bytes": 2397,
+          "elapsed_seconds": 0.324,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T00:30:55.010135+00:00",
+      "html_bytes": 2397,
+      "text_chars": 14,
+      "errors": [],
+      "output_dir": "001_www.douyin.com_root_73a07da775"
+    },
+    {
+      "engine": "http",
+      "requested_url": "https://www.linkedin.com/",
+      "final_url": "https://www.linkedin.com/",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "LinkedIn: Log In or Sign Up",
+      "elapsed_seconds": 0.284,
+      "blocked_or_challenge": false,
+      "fallback_used": false,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://www.linkedin.com/",
+          "text_chars": 5139,
+          "html_bytes": 140634,
+          "elapsed_seconds": 0.284,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T00:30:55.295625+00:00",
+      "html_bytes": 140634,
+      "text_chars": 5139,
+      "errors": [],
+      "output_dir": "002_www.linkedin.com_root_31d9e011b5"
+    },
+    {
+      "engine": "http-aiua",
+      "requested_url": "https://medium.com/",
+      "final_url": "https://medium.com/",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "Medium",
+      "elapsed_seconds": 0.808,
+      "ai_user_agent_profile": "chatgpt-user",
+      "blocked_or_challenge": false,
+      "fallback_used": true,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://medium.com/",
+          "text_chars": 300,
+          "html_bytes": 56074,
+          "elapsed_seconds": 0.088,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://medium.com/",
+          "text_chars": 300,
+          "html_bytes": 81729,
+          "elapsed_seconds": 0.808,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T00:30:56.195528+00:00",
+      "html_bytes": 81729,
+      "text_chars": 300,
+      "errors": [],
+      "output_dir": "003_medium.com_root_206cc24ad0"
+    },
+    {
+      "engine": "http",
+      "requested_url": "https://www.reddit.com/r/artificial/",
+      "final_url": "https://www.reddit.com/r/artificial/",
+      "status": 403,
+      "content_type": "text/html",
+      "title": "",
+      "elapsed_seconds": 0.055,
+      "blocked_or_challenge": true,
+      "fallback_used": false,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 221,
+          "html_bytes": 190243,
+          "elapsed_seconds": 0.055,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 801,
+          "html_bytes": 1522,
+          "elapsed_seconds": 0.046,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "claude-user",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 221,
+          "html_bytes": 190243,
+          "elapsed_seconds": 0.048,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "oai-searchbot",
+          "engine": "http-aiua",
+          "status": 403,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 221,
+          "html_bytes": 190243,
+          "elapsed_seconds": 0.05,
+          "blocked_or_challenge": true
+        },
+        {
+          "profile": "bytespider-experimental",
+          "engine": "http-aiua",
+          "status": 429,
+          "final_url": "https://www.reddit.com/r/artificial/",
+          "text_chars": 0,
+          "html_bytes": 0,
+          "elapsed_seconds": 0.132,
+          "blocked_or_challenge": true
+        }
+      ],
+      "ok": false,
+      "fetched_at": "2026-08-24T00:30:56.532143+00:00",
+      "html_bytes": 190243,
+      "text_chars": 221,
+      "errors": [],
+      "output_dir": "004_www.reddit.com_r_artificial_da81c7bb68"
+    }
+  ],
+  "finished_at": "2026-08-24T00:30:56.532747+00:00",
+  "ok_count": 3,
+  "blocked_count": 1,
+  "failed_count": 1
+}
