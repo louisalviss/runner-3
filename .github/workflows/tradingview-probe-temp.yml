@@ -1,95 +1,38 @@
 name: TradingView Probe Temp
-
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/tradingview-probe-temp.yml'
-  workflow_dispatch:
-
+    paths: ['.github/workflows/tradingview-probe-temp.yml']
 permissions:
   contents: write
-
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Capture source code and strategy report tabs
+      - name: Capture report detail tabs
         shell: bash
         run: |
           set -euo pipefail
-          OUT='evidence/tradingview-5he8tYVr-tabs'
-          rm -rf "$OUT" && mkdir -p "$OUT/network"
+          OUT='evidence/tradingview-5he8tYVr-report'
+          rm -rf "$OUT" && mkdir -p "$OUT"
           npm install --no-save playwright-core@1.58.2 >/dev/null
           OUT="$OUT" node <<'NODE'
-          const fs=require('fs'), path=require('path');
-          const {chromium}=require('playwright-core');
-          const OUT=process.env.OUT;
+          const fs=require('fs'),path=require('path'),{chromium}=require('playwright-core');const OUT=process.env.OUT;
           const URL='https://www.tradingview.com/script/5he8tYVr-ProBorsa-RSI-SuperTrend-%C3%96zel-Dip-Stratejisi/';
-          const put=(f,s)=>fs.writeFileSync(path.join(OUT,f),s);
-          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-          const net=[]; let n=0;
-          (async()=>{
-            const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'].find(fs.existsSync);
-            if(!exe) throw new Error('Chrome/Chromium missing');
-            const browser=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled']});
-            const context=await browser.newContext({viewport:{width:1920,height:1400},locale:'en-US',permissions:['clipboard-read','clipboard-write']});
-            const page=await context.newPage();
-            page.on('response', async r=>{
-              const u=r.url(), ct=r.headers()['content-type']||'';
-              if(/pine|script|study|publication|5he8tYVr|strategy/i.test(u)){
-                const rec={status:r.status(),url:u,ct}; net.push(rec);
-                if(n<120 && /json|text|javascript|html/.test(ct)){
-                  try{const t=await r.text(); if(t && t.length<1800000){const f=String(n++).padStart(3,'0')+'.txt'; put('network/'+f,`URL=${u}\nSTATUS=${r.status()}\nCT=${ct}\n\n${t}`); rec.file=f;rec.bytes=t.length;}}catch(e){}
-                }
-              }
-            });
-            const resp=await page.goto(URL,{waitUntil:'domcontentloaded',timeout:90000});
-            await sleep(12000);
-            put('load.txt',`HTTP=${resp?resp.status():'NONE'}\nURL=${page.url()}\nTITLE=${await page.title()}\n`);
-
-            const codeTab=page.locator('button#code');
-            put('code-tab-count.txt',String(await codeTab.count()));
-            if(!await codeTab.count()) throw new Error('button#code missing');
-            await codeTab.first().click({force:true,timeout:5000});
-            await sleep(10000);
-            let body=await page.locator('body').innerText().catch(()=> '');
-            put('source-tab-text.txt',body);
-            put('source-tab.html',await page.content());
-            const codeEls=await page.locator('pre,code,textarea,.monaco-editor,.view-lines,[data-role*="code" i]').evaluateAll(es=>es.map(e=>(e.innerText||e.textContent||e.value||'')).filter(x=>x&&x.trim())).catch(()=>[]);
-            put('source-code-elements.txt',codeEls.join('\n\n---ELEMENT---\n\n'));
-            let clip='';
-            const monaco=page.locator('.monaco-editor textarea');
-            if(await monaco.count().catch(()=>0)){
-              try{const ta=monaco.last();await ta.click({force:true});await page.keyboard.press('Control+A');await page.keyboard.press('Control+C');await sleep(500);clip=await page.evaluate(()=>navigator.clipboard.readText()).catch(()=> '');}catch(e){}
-            }
-            put('source-monaco-clipboard.txt',clip);
-            await page.screenshot({path:path.join(OUT,'source-tab.png'),fullPage:true});
-
-            const strategyTab=page.locator('button#strategy');
-            put('strategy-tab-count.txt',String(await strategyTab.count()));
-            if(await strategyTab.count()){
-              await strategyTab.first().click({force:true,timeout:5000});
-              await sleep(10000);
-              body=await page.locator('body').innerText().catch(()=> '');
-              put('strategy-tab-text.txt',body);
-              put('strategy-tab.html',await page.content());
-              await page.screenshot({path:path.join(OUT,'strategy-tab.png'),fullPage:true});
-            }
-            put('network-index.json',JSON.stringify(net,null,2));
-            await browser.close();
-          })().catch(e=>{put('error.txt',e.stack+'\n');console.error(e.stack);process.exit(7)});
+          const put=(f,s)=>fs.writeFileSync(path.join(OUT,f),s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          (async()=>{const exe=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium'].find(fs.existsSync);const b=await chromium.launch({executablePath:exe,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});const c=await b.newContext({viewport:{width:1920,height:1600},locale:'en-US'});const p=await c.newPage();await p.goto(URL,{waitUntil:'domcontentloaded',timeout:90000});await sleep(10000);await p.locator('button#strategy').click({force:true});await sleep(8000);
+          for(const id of ['Properties','List of Trades','Performance','Trades Analysis','Ratios']){const tab=p.locator(`button[id="${id}"]`);put(id.replaceAll(' ','-').toLowerCase()+'-count.txt',String(await tab.count()));if(await tab.count()){await tab.click({force:true});await sleep(4000);put(id.replaceAll(' ','-').toLowerCase()+'.txt',await p.locator('body').innerText());put(id.replaceAll(' ','-').toLowerCase()+'.html',await p.content());}}
+          await b.close();})().catch(e=>{put('error.txt',e.stack+'\n');console.error(e.stack);process.exit(7)});
           NODE
-      - name: Persist evidence
+      - name: Persist
         if: always()
         shell: bash
         run: |
-          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add evidence/tradingview-5he8tYVr-tabs || true
-          git commit -m 'Publish TradingView tab evidence [skip ci]' || true
+          git add evidence/tradingview-5he8tYVr-report || true
+          git commit -m 'Publish TradingView report details [skip ci]' || true
           git pull --rebase origin main
           git push origin HEAD:main || true
