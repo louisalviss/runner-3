@@ -158,6 +158,9 @@ jobs:
           count=0
           for sql_file in "$SQL"/*.sql; do
             echo "Applying ${sql_file}"
+            # Wrangler/D1 remote imports reject explicit SQL transaction wrappers.
+            # Each generated statement is already idempotent, so apply chunks directly.
+            sed -i -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$sql_file"
             npx --yes wrangler@4 d1 execute runner3-core \
               --remote \
               --file="$sql_file" \
