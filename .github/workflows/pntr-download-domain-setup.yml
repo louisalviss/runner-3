@@ -1,0 +1,195 @@
+name: PNTR Download Domain Setup
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pntr-download-domain-setup.yml'
+      - 'apps/r2-download-pages/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pntr-download-domain-setup
+  cancel-in-progress: true
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PROJECT: runner3-download-gateway
+      PAGES_TARGET: runner3-download-gateway.pages.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy Pages gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages project create "$CF_PROJECT" --production-branch main >/tmp/pages-create.log 2>&1 || true
+          npx --yes wrangler@4 pages deploy apps/r2-download-pages --project-name "$CF_PROJECT" --branch main --commit-dirty=true >/tmp/pages-deploy.log 2>&1
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /tmp/pages-test -w '%{http_code}' "https://${PAGES_TARGET}/%40LinkFilesBot.apk" || true)
+            [ "$code" = 200 ] && [ "$(stat -c '%s' /tmp/pages-test 2>/dev/null || echo 0)" = 13951503 ] && break
+            sleep 3
+          done
+          [ "$code" = 200 ]
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@latest
+          npx playwright install --with-deps chromium
+      - name: Register PNTR and cut over DNS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/pntr-setup.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import fs from 'fs';
+          const cfToken=process.env.CLOUDFLARE_API_TOKEN;
+          const cfAccount=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const project=process.env.CF_PROJECT;
+          const pagesTarget=process.env.PAGES_TARGET;
+          const candidates=['dl3','dlrunner3','r3download','runner3dl'];
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext();
+          const page=await context.newPage();
+          let bearer=''; let domainId='';
+          page.on('request', req=>{
+            if(req.url().includes('api.pntr.dev') || req.url().includes('/api/')) {
+              const h=req.headers(); if(h.authorization) bearer=h.authorization;
+              const m=req.url().match(/\/api\/check\/([^/]+)\//); if(m) domainId=decodeURIComponent(m[1]);
+            }
+          });
+          await page.goto('https://pntr.dev/dashboard',{waitUntil:'networkidle',timeout:45000}).catch(()=>{});
+          await page.goto('https://pntr.dev/free-dev-subdomain',{waitUntil:'networkidle',timeout:45000}).catch(()=>{});
+
+          async function api(url,method='GET',data=undefined){
+            const headers={}; if(bearer) headers.Authorization=bearer;
+            const opts={method,headers,failOnStatusCode:false}; if(data!==undefined) opts.data=data;
+            const r=await context.request.fetch(url,opts); let body=null; try{body=await r.json();}catch{body=await r.text();}
+            return {status:r.status(),body};
+          }
+
+          // Discover pntr.dev domain id through dashboard API or the Check-name UI request.
+          for(const u of ['https://api.pntr.dev/api/domains','https://pntr.dev/api/domains']){
+            const r=await api(u); if(r.status===200){
+              const arr=Array.isArray(r.body)?r.body:(r.body?.domains||r.body?.data||r.body?.result||[]);
+              const d=Array.isArray(arr)?arr.find(x=>String(x?.name||x?.domain||x?.hostname||'').includes('pntr.dev')):null;
+              if(d?.id) {domainId=String(d.id); break;}
+            }
+          }
+          if(!domainId){
+            const input=page.locator('input').first();
+            if(await input.count()){
+              await input.fill(candidates[0]);
+              const check=page.getByRole('button',{name:/check/i}).first();
+              if(await check.count()){ await check.click(); await page.waitForTimeout(1800); }
+            }
+          }
+          if(!domainId) throw new Error('pntr_domain_id_not_discovered');
+
+          let chosen='', sub=null;
+          for(const name of candidates){
+            const ck=await api(`https://api.pntr.dev/api/check/${encodeURIComponent(domainId)}/${name}`);
+            const available=ck.status===200 && (ck.body?.available===true || ck.body?.is_available===true || ck.body?.success===true && ck.body?.available!==false);
+            if(!available) continue;
+            const cr=await api('https://api.pntr.dev/api/subdomains','POST',{name,domain_id:domainId,description:'Runner3 direct download'});
+            if([200,201].includes(cr.status)){
+              sub=cr.body?.subdomain||cr.body?.data||cr.body?.result||cr.body;
+              chosen=name; break;
+            }
+          }
+          if(!chosen) throw new Error('pntr_registration_failed');
+          const fqdn=`${chosen}.pntr.dev`;
+          let subId=sub?.id||sub?.subdomain_id;
+          if(!subId){
+            const ls=await api('https://api.pntr.dev/api/subdomains');
+            const arr=Array.isArray(ls.body)?ls.body:(ls.body?.subdomains||ls.body?.data||ls.body?.result||[]);
+            const x=Array.isArray(arr)?arr.find(v=>[v?.fqdn,v?.hostname,v?.domain,v?.name].map(String).some(s=>s===fqdn||s===chosen)):null;
+            subId=x?.id||x?.subdomain_id;
+          }
+          if(!subId) throw new Error('pntr_subdomain_id_missing');
+
+          // Associate external custom domain to the Pages project before DNS cutover.
+          const cfBase=`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/pages/projects/${project}/domains`;
+          const cfHeaders={Authorization:`Bearer ${cfToken}`,'Content-Type':'application/json'};
+          let list=await fetch(cfBase,{headers:cfHeaders}).then(r=>r.json());
+          let current=(list.result||[]).find(x=>x.name===fqdn);
+          if(!current){
+            const r=await fetch(cfBase,{method:'POST',headers:cfHeaders,body:JSON.stringify({name:fqdn})});
+            const j=await r.json(); if(!j.success) throw new Error('pages_custom_domain_failed:'+JSON.stringify(j.errors||[]));
+            current=j.result;
+          }
+
+          // New PNTR hostname should have no records; add the Pages CNAME.
+          const rr=await api(`https://api.pntr.dev/api/subdomains/${encodeURIComponent(subId)}/records`,'POST',{record_type:'CNAME',record_value:pagesTarget});
+          if(![200,201].includes(rr.status)) throw new Error('pntr_cname_failed:'+rr.status+':'+JSON.stringify(rr.body).slice(0,400));
+
+          // Save browser ownership state for encrypted persistence.
+          fs.mkdirSync('/tmp/pntr-download',{recursive:true});
+          await context.storageState({path:'/tmp/pntr-download/storage-state.json'});
+          await browser.close();
+
+          // Poll custom-domain API and public HTTPS.
+          let domainStatus=null, http=0, disp='',ctype='',size=0,sha='';
+          for(let i=0;i<20;i++){
+            const e=cfBase+'/'+encodeURIComponent(fqdn);
+            const j=await fetch(e,{headers:cfHeaders}).then(r=>r.json()).catch(()=>null);
+            domainStatus=j?.result?.status||domainStatus;
+            try{
+              const r=await fetch(`https://${fqdn}/%40LinkFilesBot.apk`,{redirect:'manual'});
+              http=r.status; disp=r.headers.get('content-disposition')||''; ctype=r.headers.get('content-type')||'';
+              if(http===200){
+                const b=Buffer.from(await r.arrayBuffer()); size=b.length;
+                const crypto=await import('crypto'); sha=crypto.createHash('sha256').update(b).digest('hex');
+                if(size===13951503 && sha==='9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537' && /^attachment/i.test(disp)) break;
+              }
+            }catch{}
+            await new Promise(r=>setTimeout(r,5000));
+          }
+          const verified=http===200&&size===13951503&&sha==='9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537'&&/^attachment/i.test(disp);
+          const out={checkedAt:new Date().toISOString(),hostname:fqdn,pagesTarget,customDomainStatus:domainStatus,directUrl:`https://${fqdn}/%40LinkFilesBot.apk`,httpCode:http,contentDisposition:disp,contentType:ctype,size,sha256:sha,verified,workerHostnameHidden:true,oldDomainUntouched:'runner3wp.pntr.dev'};
+          fs.writeFileSync('/tmp/pntr-download/status.json',JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out,null,2));
+          if(!verified) process.exit(2);
+          JS
+          node /tmp/pntr-setup.mjs
+      - name: Encrypt PNTR guest ownership state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pntr-download
+          if [ -s /tmp/pntr-download/storage-state.json ]; then
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -in /tmp/pntr-download/storage-state.json -out /tmp/pntr-download/browser-state.aes -pass env:CLOUDFLARE_API_TOKEN
+            rm -f /tmp/pntr-download/storage-state.json
+          fi
+      - name: Persist safe state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/pntr-download/status.json || printf '{"verified":false,"error":"setup_failed_before_status"}\n' >/tmp/pntr-download/status.json
+          cp /tmp/pntr-download/status.json /tmp/pntr-status-safe.json
+          test ! -s /tmp/pntr-download/browser-state.aes || cp /tmp/pntr-download/browser-state.aes /tmp/pntr-state-safe.aes
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          for n in 1 2 3 4; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p ops/pntr-download
+            cp /tmp/pntr-status-safe.json ops/pntr-download/status.json
+            test ! -s /tmp/pntr-state-safe.aes || cp /tmp/pntr-state-safe.aes ops/pntr-download/browser-state.aes
+            git add ops/pntr-download/status.json ops/pntr-download/browser-state.aes 2>/dev/null || git add ops/pntr-download/status.json
+            git diff --cached --quiet && exit 0
+            git commit -m 'Persist PNTR download domain state [skip ci]'
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
