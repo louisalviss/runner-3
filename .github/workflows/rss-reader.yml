@@ -10,6 +10,7 @@ on:
       - "scripts/rss_reader_collect_v2.py"
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
+      - "scripts/rss_render_inventory.py"
       - "scripts/rss_selected_fetch.py"
       - "scripts/rss_d1_shadow.py"
       - ".github/scripts/runner3_core.py"
@@ -50,6 +51,18 @@ jobs:
         continue-on-error: true
         run: python scripts/rss_reader_run.py
 
+      - name: Build render source-accounting inventories
+        id: render_inventory
+        if: always() && steps.checkout.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TZ=Asia/Ho_Chi_Minh
+          today="$(date +%F)"
+          yesterday="$(date -d 'yesterday' +%F)"
+          python scripts/rss_render_inventory.py --date "$today" --out data/rss-reader/render-inventory-today.json
+          python scripts/rss_render_inventory.py --date "$yesterday" --out data/rss-reader/render-inventory-yesterday.json
+
       - name: Upload per-run health
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,10 +72,12 @@ jobs:
             data/rss-reader/health.json
             data/rss-reader/substack-health.json
             data/rss-reader/runtime-health.json
+            data/rss-reader/render-inventory-today.json
+            data/rss-reader/render-inventory-yesterday.json
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Persist source mirrors and latest health snapshots
+      - name: Persist source mirrors, health, and render inventories
         if: always() && steps.checkout.outcome == 'success'
         shell: bash
         run: |
@@ -74,13 +89,15 @@ jobs:
           [[ -f data/rss-reader/health.json ]] && git add data/rss-reader/health.json
           [[ -f data/rss-reader/substack-health.json ]] && git add data/rss-reader/substack-health.json
           [[ -f data/rss-reader/runtime-health.json ]] && git add data/rss-reader/runtime-health.json
+          [[ -f data/rss-reader/render-inventory-today.json ]] && git add data/rss-reader/render-inventory-today.json
+          [[ -f data/rss-reader/render-inventory-yesterday.json ]] && git add data/rss-reader/render-inventory-yesterday.json
 
           if git diff --cached --quiet; then
-            echo "No RSS mirror or health changes"
+            echo "No RSS mirror, health, or inventory changes"
             exit 0
           fi
 
-          git commit -m "Update Runner3 RSS mirrors and health [skip ci]"
+          git commit -m "Update Runner3 RSS mirrors, health and render inventories [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
 
@@ -91,14 +108,16 @@ jobs:
         run: |
           python scripts/rss_d1_shadow.py operational --run-id "${{ github.run_id }}"
 
-      - name: Enforce canonical ingestion health
+      - name: Enforce canonical ingestion and inventory health
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          outcome='${{ steps.rss.outcome }}'
-          echo "rss=$outcome"
-          [[ "$outcome" == "success" ]]
+          rss_outcome='${{ steps.rss.outcome }}'
+          inventory_outcome='${{ steps.render_inventory.outcome }}'
+          echo "rss=$rss_outcome inventory=$inventory_outcome"
+          [[ "$rss_outcome" == "success" ]]
+          [[ "$inventory_outcome" == "success" ]]
 
   selected-analysis:
     if: github.event_name == 'push'
