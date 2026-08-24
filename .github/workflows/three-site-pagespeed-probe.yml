@@ -1,0 +1,51 @@
+name: Three-site PageSpeed probe
+
+on:
+  push:
+    branches:
+      - probe/three-site-pagespeed-20260824
+    paths:
+      - .github/workflows/three-site-pagespeed-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Measure all sites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cat > /tmp/sites.tsv <<'EOF'
+          site1	https://runner3wp.pntr.dev/
+          site2	https://runner3-wp-a94b8fd2.wasmer.app/
+          site3	https://runner3-speed-site3-realistic.wasmer.app/
+          EOF
+          while IFS=$'\t' read -r site url; do
+            echo "=== $site $url ==="
+            curl -L --max-time 45 -sS -o /dev/null -w 'HTTP status=%{http_code} ttfb=%{time_starttransfer} total=%{time_total}\n' "$url"
+            npx --yes lighthouse "$url" --only-categories=performance --output=json --output-path="out/${site}-mobile.json" --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" >/dev/null
+            npx --yes lighthouse "$url" --preset=desktop --only-categories=performance --output=json --output-path="out/${site}-desktop.json" --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" >/dev/null
+          done < /tmp/sites.tsv
+          python3 - <<'PY'
+          import json
+          for site in ('site1','site2','site3'):
+              print(site)
+              for mode in ('mobile','desktop'):
+                  d=json.load(open(f'out/{site}-{mode}.json'))
+                  a=d['audits']
+                  print(json.dumps({
+                    'mode':mode,
+                    'performance':round(d['categories']['performance']['score']*100),
+                    'FCP_ms':round(a['first-contentful-paint']['numericValue']),
+                    'LCP_ms':round(a['largest-contentful-paint']['numericValue']),
+                    'TBT_ms':round(a['total-blocking-time']['numericValue']),
+                    'CLS':round(a['cumulative-layout-shift']['numericValue'],3),
+                    'SpeedIndex_ms':round(a['speed-index']['numericValue']),
+                    'TTFB_ms':round(a['server-response-time']['numericValue'])
+                  }))
+          PY
