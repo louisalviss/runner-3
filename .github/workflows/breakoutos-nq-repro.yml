@@ -1,0 +1,41 @@
+name: BreakoutOS NQ CCI Reproduction
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'research/breakoutos_nq_repro.py'
+      - 'research/download_usatech_h1.js'
+      - '.github/workflows/breakoutos-nq-repro.yml'
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --no-save dukascopy-node@1.50.0
+      - run: pip install requests
+      - name: Download long-horizon Nasdaq proxy
+        run: node research/download_usatech_h1.js
+      - name: Run reproduction
+        env:
+          DUKA_CSV: /tmp/usatech_h1.csv
+          OUT: evidence/breakoutos-nq-repro
+        run: python research/breakoutos_nq_repro.py
+      - name: Print compact result
+        if: always()
+        run: cat evidence/breakoutos-nq-repro/compact.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: breakoutos-nq-repro-${{ github.run_id }}
+          path: evidence/breakoutos-nq-repro/
+          retention-days: 14
