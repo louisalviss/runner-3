@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   symbol:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
@@ -63,7 +63,7 @@ jobs:
   merge:
     needs: symbol
     if: always() && needs.symbol.result != 'cancelled'
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
