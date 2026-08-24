@@ -37,29 +37,22 @@ jobs:
           git fetch origin "$CANONICAL_REF"
           git checkout --detach "origin/$CANONICAL_REF"
           npm install --no-save sharp@0.34.3 playwright-core@1.61.0 >/dev/null
-          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
-          test -n "$C"
-          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
 
       - name: Compare three inline hero payloads
         shell: bash
         run: |
           set -euo pipefail
-          : > /tmp/results.tsv
-
           run_candidate() {
             local label="$1" width="$2" quality="$3"
-            echo "=== $label width=$width quality=$quality ==="
+            echo "=== CANDIDATE_START $label width=$width quality=$quality ==="
             git checkout -- edge/wordpress-edge-proxy/src/snapshot.generated.js
             node scripts/build-wordpress-edge-snapshot.mjs >/tmp/${label}-snapshot.log
             SITE1_INLINE_HERO_MARKER="$label" \
               SITE1_INLINE_HERO_WIDTH="$width" \
               SITE1_INLINE_HERO_QUALITY="$quality" \
               node scripts/build-site1-mobile-inline-hero.mjs | tee /tmp/${label}-hero.log
-
             npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.jsonc >/tmp/${label}-deploy.log 2>&1
             sleep 5
-
             ok=0
             for attempt in 1 2 3 4 5 6; do
               B="__margin=${label}-$(date +%s%N)-$attempt"
@@ -74,33 +67,16 @@ jobs:
             done
             test "$ok" = 1
             ! grep -Eiq '^link:.*r2\.dev.*preconnect' /tmp/${label}.h
-
             for i in 1 2 3; do
+              echo "=== PSI $label run=$i ==="
               PSI_URL="$PROD_DOMAIN/" PSI_UI_OUT="/tmp/${label}-psi-$i.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs
             done
-
-            LABEL="$label" WIDTH="$width" QUALITY="$quality" node --input-type=module - <<'NODE'
-            import fs from 'node:fs';
-            const label=process.env.LABEL;
-            function sec(v){const m=String(v??'').trim().match(/^([0-9.]+)\s*(ms|s)?$/);if(!m)return null;const n=Number(m[1]);return m[2]==='ms'?n/1000:n;}
-            const rows=[];
-            for(let i=1;i<=3;i++){
-              const d=JSON.parse(fs.readFileSync(`/tmp/${label}-psi-${i}.json`,'utf8'));
-              rows.push({performance:d.performance,fcp:sec(d.fcp),lcp:sec(d.lcp),url:d.resultUrl});
-            }
-            const lcp=rows.map(r=>r.lcp).sort((a,b)=>a-b);
-            const fcp=rows.map(r=>r.fcp).sort((a,b)=>a-b);
-            const s={label,width:Number(process.env.WIDTH),quality:Number(process.env.QUALITY),medianLcp:lcp[1],medianFcp:fcp[1],p100:rows.filter(r=>r.performance===100).length,rows};
-            console.log('CANDIDATE_RESULT',JSON.stringify(s));
-            fs.appendFileSync('/tmp/results.tsv',`${label}\t${s.width}\t${s.quality}\t${s.medianLcp}\t${s.medianFcp}\t${s.p100}\n`);
-            NODE
+            echo "=== CANDIDATE_END $label ==="
           }
 
           run_candidate w320q58 320 58
-          run_candidate w280q66 280 66
-          run_candidate w240q74 240 74
-          echo '=== SUMMARY ==='
-          cat /tmp/results.tsv
+          run_candidate w300q66 300 66
+          run_candidate w300q58 300 58
 
       - name: Restore known-safe production
         if: always()
