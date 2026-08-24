@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
-"""Run reddit_deep_sweep with an authenticated Cloudflare Reddit-JSON fallback.
+"""Run reddit_deep_sweep with resilient public-source fallbacks.
 
-The canonical collector remains unchanged. It tries Reddit/old Reddit directly first;
-only when that lane fails do we relay the exact allow-listed Reddit JSON URL through
-the existing private Cloudflare bridge.
+Acquisition order:
+1. Reddit / old Reddit JSON directly.
+2. Authenticated Cloudflare Reddit-only bridge.
+3. Arctic Shift public Reddit archive, synthesized into the Reddit JSON shapes
+   expected by the canonical collector.
+
+The canonical ranking/storage code remains in reddit_deep_sweep.py.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = Path(__file__).with_name("reddit_deep_sweep.py")
 STATUS_PATH = ROOT / "ops/audio-library/chatgpt-bridge-status.json"
-UA = "runner3-reddit-deep-sweep-cloudflare/1.0"
+UA = "runner3-reddit-deep-sweep/2.0 (+public read-only research)"
+ARCHIVE_BASE = "https://arctic-shift.photon-reddit.com"
+LISTING_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/(top|new|hot)\.json$")
+THREAD_RE = re.compile(r"^/comments/([A-Za-z0-9]+)\.json$")
 
 
 def load_collector():
@@ -59,10 +69,7 @@ def bridge_request_json(path: str, query: dict[str, str | int] | None = None):
     payload = json.dumps({"url": target}).encode("utf-8")
     errors: list[str] = []
     endpoint = bridge_url() + "/source/reddit-json"
-
-    # A config commit can trigger the bridge deployment at the same time as a sweep.
-    # Retry 404/5xx briefly so the sweep survives that rollout race.
-    for attempt in range(1, 7):
+    for attempt in range(1, 3):
         req = urllib.request.Request(
             endpoint,
             data=payload,
@@ -91,25 +98,230 @@ def bridge_request_json(path: str, query: dict[str, str | int] | None = None):
             }
         except Exception as exc:
             errors.append(f"attempt={attempt}:{type(exc).__name__}:{exc}")
-            if attempt < 6:
-                time.sleep(min(2 * attempt, 8))
-    raise RuntimeError("cloudflare_reddit_json_failed:" + " | ".join(errors[-6:]))
+            if attempt < 2:
+                time.sleep(1)
+    raise RuntimeError("cloudflare_reddit_json_failed:" + " | ".join(errors[-2:]))
+
+
+def archive_get(path: str, query: dict[str, object], timeout: int = 70):
+    url = ARCHIVE_BASE + path + "?" + urllib.parse.urlencode(query)
+    errors = []
+    for attempt in range(1, 4):
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": UA, "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                status = resp.status
+            if status != 200:
+                raise RuntimeError(f"archive_http_{status}")
+            body = json.loads(raw.decode("utf-8"))
+            return body, {"url": url, "bytes": len(raw), "via": "arctic-shift"}
+        except Exception as exc:
+            errors.append(f"attempt={attempt}:{type(exc).__name__}:{exc}")
+            if attempt < 3:
+                time.sleep(attempt)
+    raise RuntimeError("arctic_shift_failed:" + " | ".join(errors[-3:]))
+
+
+def iso_utc(epoch: int | float) -> str:
+    return dt.datetime.fromtimestamp(float(epoch), tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def period_floor(period: str | None) -> str | None:
+    now = dt.datetime.now(dt.timezone.utc)
+    delta = {
+        "hour": dt.timedelta(hours=2),
+        "day": dt.timedelta(days=2),
+        "week": dt.timedelta(days=8),
+        "month": dt.timedelta(days=32),
+        "year": dt.timedelta(days=367),
+    }.get(str(period or "").lower())
+    if not delta:
+        return None
+    return (now - delta).isoformat().replace("+00:00", "Z")
+
+
+def normalize_post(row: dict, subreddit_hint: str = "") -> dict:
+    post = dict(row or {})
+    pid = str(post.get("id") or "").removeprefix("t3_")
+    subreddit = str(post.get("subreddit") or subreddit_hint)
+    post["id"] = pid
+    post["subreddit"] = subreddit
+    post["title"] = str(post.get("title") or "")
+    post["selftext"] = str(post.get("selftext") or "")
+    post["author"] = post.get("author")
+    post["score"] = int(post.get("score") or 0)
+    post["num_comments"] = int(post.get("num_comments") or 0)
+    post["created_utc"] = int(float(post.get("created_utc") or 0))
+    if not post.get("permalink") and pid:
+        post["permalink"] = f"/r/{subreddit}/comments/{pid}/"
+    return post
+
+
+def archive_listing(path: str, query: dict[str, object] | None):
+    match = LISTING_RE.match(path)
+    if not match:
+        raise RuntimeError("archive_listing_path_not_supported")
+    subreddit, endpoint = match.groups()
+    query = dict(query or {})
+    params: dict[str, object] = {
+        "subreddit": subreddit,
+        "sort": "desc",
+        # The API documents `auto` as returning 100-1000 records depending on
+        # capacity. This gives the historical sweep much better coverage than
+        # Reddit's 100-item listing page while the canonical collector still
+        # deduplicates/ranks everything locally.
+        "limit": "auto",
+    }
+    floor = period_floor(str(query.get("t") or "")) if endpoint == "top" else None
+    if floor:
+        params["after"] = floor
+
+    cursor = str(query.get("after") or "")
+    if cursor.startswith("archive:"):
+        try:
+            params["before"] = iso_utc(int(cursor.split(":", 1)[1]))
+        except Exception:
+            pass
+
+    body, meta = archive_get("/api/posts/search", params)
+    rows = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        rows = []
+    posts = [normalize_post(row, subreddit) for row in rows if isinstance(row, dict) and row.get("id")]
+    posts = [p for p in posts if p.get("id")]
+
+    next_cursor = None
+    stamps = [int(p.get("created_utc") or 0) for p in posts if int(p.get("created_utc") or 0) > 0]
+    if posts and stamps:
+        next_cursor = f"archive:{min(stamps) - 1}"
+
+    payload = {
+        "kind": "Listing",
+        "data": {
+            "children": [{"kind": "t3", "data": p} for p in posts],
+            "after": next_cursor,
+            "before": None,
+        },
+        "_runner3_archive": {
+            "endpoint": endpoint,
+            "period": query.get("t"),
+            "source_meta": meta,
+        },
+    }
+    return payload, meta
+
+
+def collect_archive_comments(obj, out: dict[str, dict], depth: int = 0):
+    if isinstance(obj, list):
+        for item in obj:
+            collect_archive_comments(item, out, depth)
+        return
+    if not isinstance(obj, dict):
+        return
+
+    cid = str(obj.get("id") or "").removeprefix("t1_")
+    body = obj.get("body")
+    if cid and isinstance(body, str):
+        out[cid] = {
+            "id": cid,
+            "parent_id": obj.get("parent_id"),
+            "author": obj.get("author"),
+            "depth": int(obj.get("depth") if obj.get("depth") is not None else depth),
+            "body": body,
+            "score": int(obj.get("score") or 0),
+            "created_utc": int(float(obj.get("created_utc") or 0)),
+            "replies": "",
+        }
+
+    for key, value in obj.items():
+        if key in {"body", "body_html", "selftext", "selftext_html"}:
+            continue
+        collect_archive_comments(value, out, depth + (1 if key in {"replies", "children"} else 0))
+
+
+def archive_thread(path: str, query: dict[str, object] | None):
+    match = THREAD_RE.match(path)
+    if not match:
+        raise RuntimeError("archive_thread_path_not_supported")
+    pid = match.group(1)
+
+    post_body, post_meta = archive_get("/api/posts/ids", {"ids": pid})
+    rows = post_body.get("data") if isinstance(post_body, dict) else None
+    if not isinstance(rows, list):
+        rows = post_body.get("posts") if isinstance(post_body, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError(f"arctic_shift_post_not_found:{pid}")
+    post = normalize_post(rows[0] if isinstance(rows[0], dict) else {}, "")
+
+    comments_body, comments_meta = archive_get(
+        "/api/comments/tree",
+        {"link_id": "t3_" + pid, "limit": 9999},
+        timeout=100,
+    )
+    comments: dict[str, dict] = {}
+    collect_archive_comments(comments_body, comments)
+    children = [{"kind": "t1", "data": row} for row in comments.values()]
+
+    payload = [
+        {"kind": "Listing", "data": {"children": [{"kind": "t3", "data": post}]}},
+        {"kind": "Listing", "data": {"children": children}},
+    ]
+    meta = {
+        "url": comments_meta.get("url"),
+        "bytes": int(post_meta.get("bytes") or 0) + int(comments_meta.get("bytes") or 0),
+        "via": "arctic-shift",
+    }
+    return payload, meta
+
+
+def archive_request_json(path: str, query: dict[str, object] | None = None):
+    if LISTING_RE.match(path):
+        return archive_listing(path, query)
+    if THREAD_RE.match(path):
+        return archive_thread(path, query)
+    raise RuntimeError(f"arctic_shift_path_not_supported:{path}")
 
 
 def main():
     collector = load_collector()
     direct_request_json = collector.request_json
+    bridge_available = True
 
     def request_json(path: str, query=None, tries: int = 3):
+        nonlocal bridge_available
+        direct_error = None
+        bridge_error = None
         try:
             return direct_request_json(path, query, tries)
-        except Exception as direct_exc:
+        except Exception as exc:
+            direct_error = exc
+
+        if bridge_available:
             try:
                 return bridge_request_json(path, query)
-            except Exception as bridge_exc:
-                raise RuntimeError(
-                    f"direct_reddit_failed:{direct_exc} | bridge_failed:{bridge_exc}"
-                ) from bridge_exc
+            except Exception as exc:
+                bridge_error = exc
+                # A Reddit-origin 4xx/5xx through the bridge is deterministic
+                # for this run; avoid paying the same failed hop for every
+                # listing and each of ~60 thread fetches.
+                bridge_available = False
+
+        try:
+            return archive_request_json(path, query)
+        except Exception as archive_exc:
+            raise RuntimeError(
+                " | ".join(
+                    part for part in [
+                        f"direct_reddit_failed:{direct_error}" if direct_error else "",
+                        f"bridge_failed:{bridge_error}" if bridge_error else ("bridge_disabled" if not bridge_available else ""),
+                        f"archive_failed:{archive_exc}",
+                    ] if part
+                )
+            ) from archive_exc
 
     collector.request_json = request_json
     collector.main()
