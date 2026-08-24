@@ -1,0 +1,60 @@
+name: AI UA Retrieval Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crawler_aiua.py'
+      - 'jobs/ai-ua-probe-20260824.json'
+      - '.github/workflows/ai-ua-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-ua-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run probe
+        run: python crawler_aiua.py jobs/ai-ua-probe-20260824.json --output ai_ua_probe_output
+
+      - name: Persist probe result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ai_ua_probe_output/manifest.json || exit 0
+          dest='results/ai-ua/20260824'
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          cp -R ai_ua_probe_output/. "$dest/"
+          git config user.name 'runner-3-ai-ua-probe'
+          git config user.email 'runner-3-ai-ua-probe@users.noreply.github.com'
+          git add -- "$dest"
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Store AI UA retrieval probe 20260824 [skip ci]'
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 1
