@@ -1,3 +1,4 @@
+// PNTR download gateway trigger 2026-08-24
 const ORIGIN = 'https://pub-7c042a29063743a5ad1e9d919b268036.r2.dev';
 
 function safeName(pathname) {
