@@ -1,0 +1,45 @@
+name: Cloak Read Public
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.runner/cloak-job.json'
+      - '.github/workflows/cloak-read-public.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  read-public:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read public pages with CloakBrowser
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f .runner/cloak-job.json ] || { echo 'No cloak job'; exit 0; }
+          python3 -m pip install -q -U cloakbrowser
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb >/dev/null
+          OUT="evidence/cloak-latest"
+          rm -rf "$OUT"
+          set +e
+          xvfb-run -a python3 cloak_fetch.py .runner/cloak-job.json --output "$OUT"
+          RC=$?
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m "Publish Cloak evidence [skip ci]" || true
+          git push || true
+          exit "$RC"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloak-read-${{ github.run_id }}
+          path: evidence/cloak-latest/
+          retention-days: 3
