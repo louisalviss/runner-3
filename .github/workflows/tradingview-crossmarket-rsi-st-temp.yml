@@ -1,0 +1,88 @@
+name: TradingView Crossmarket RSI ST Temp
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tradingview-crossmarket-rsi-st-temp.yml']
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-market replication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q pandas numpy websocket-client requests
+          git clone -q --depth 1 https://github.com/rongardF/tvDatafeed.git /tmp/tvDatafeed
+          OUT='evidence/rsi-supertrend-crossmarket'
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          PYTHONPATH=/tmp/tvDatafeed OUT="$OUT" python3 - <<'PY'
+          import os,json,numpy as np,pandas as pd
+          from pathlib import Path
+          from tvDatafeed import TvDatafeed,Interval
+          out=Path(os.environ['OUT']); tv=TvDatafeed()
+          def rma(s,n):
+            a=np.asarray(s,float); y=np.full(len(a),np.nan); vals=[]; start=None
+            for i,v in enumerate(a):
+              if np.isfinite(v): vals.append(v)
+              if len(vals)==n: start=i;y[i]=np.mean(vals[-n:]);break
+            if start is None:return pd.Series(y)
+            for i in range(start+1,len(a)): y[i]=((n-1)*y[i-1]+a[i])/n if np.isfinite(a[i]) else y[i-1]
+            return pd.Series(y)
+          def signals(d):
+            ch=d.close.diff();up=rma(np.maximum(ch,0),10);dn=rma(np.maximum(-ch,0),10);r=pd.Series(np.where(dn==0,100,np.where(up==0,0,100-100/(1+up/dn))))
+            ma=r.rolling(10,min_periods=10).mean();cross=(r>ma)&(r.shift(1)<=ma.shift(1));buy=np.zeros(len(d),bool);cnt=0
+            for i in range(len(d)):
+              if np.isfinite(r.iloc[i]) and r.iloc[i]>50:cnt=0
+              if bool(cross.iloc[i]) and r.iloc[i]<50:cnt+=1
+              if bool(cross.iloc[i]) and r.iloc[i]<50 and cnt==2:buy[i]=True;cnt=0
+            pc=d.close.shift(1);tr=pd.concat([(d.high-d.low).abs(),(d.high-pc).abs(),(d.low-pc).abs()],axis=1).max(axis=1);atr=rma(tr,10);hl2=(d.high+d.low)/2;bu=hl2+2.5*atr;bl=hl2-2.5*atr
+            ub=np.full(len(d),np.nan);lb=np.full(len(d),np.nan);st=np.full(len(d),np.nan);di=np.full(len(d),np.nan)
+            for i in range(len(d)):
+              if not np.isfinite(atr.iloc[i]):continue
+              if i==0 or not np.isfinite(ub[i-1]):ub[i]=bu.iloc[i];lb[i]=bl.iloc[i];di[i]=1;st[i]=ub[i];continue
+              ub[i]=bu.iloc[i] if bu.iloc[i]<ub[i-1] or d.close.iloc[i-1]>ub[i-1] else ub[i-1]
+              lb[i]=bl.iloc[i] if bl.iloc[i]>lb[i-1] or d.close.iloc[i-1]<lb[i-1] else lb[i-1]
+              if np.isclose(st[i-1],ub[i-1]):di[i]=-1 if d.close.iloc[i]>ub[i] else 1
+              else:di[i]=1 if d.close.iloc[i]<lb[i] else -1
+              st[i]=lb[i] if di[i]<0 else ub[i]
+            sell=np.r_[False,np.diff(di)>0];return buy,sell
+          def bt(d,bps):
+            buy,sell=signals(d);eq=10000.;qty=0.;entry=0.;basis=0.;tr=[];curve=[];pending=None;inbars=0;c=bps/10000.
+            for i,row in d.iterrows():
+              if pending=='exit' and qty>0:
+                px=row.open*(1-c);pro=qty*px;pnl=pro-basis;eq=pro;tr[-1].update(pnl=pnl,ret=px/entry-1);qty=0
+              elif pending=='entry' and qty==0:
+                px=row.open*(1+c);basis=eq;qty=eq/px;entry=px;tr.append({'entry':px})
+              pending=None
+              if sell[i] and qty>0:pending='exit'
+              elif buy[i] and qty==0:pending='entry'
+              mark=eq if qty==0 else qty*row.close;curve.append(mark);inbars+=qty>0
+            if qty>0:
+              px=d.iloc[-1].close*(1-c);pro=qty*px;pnl=pro-basis;eq=pro;tr[-1].update(pnl=pnl,ret=px/entry-1)
+            closed=[x for x in tr if 'pnl'in x];wins=[x for x in closed if x['pnl']>0];loss=[x for x in closed if x['pnl']<0];gp=sum(x['pnl'] for x in wins);gl=-sum(x['pnl'] for x in loss)
+            arr=np.asarray(curve);pk=np.maximum.accumulate(arr);dd=arr/pk-1;bh=d.close.iloc[-1]/d.open.iloc[0]-1
+            return {'trades':len(closed),'win_rate_pct':100*len(wins)/len(closed) if closed else 0,'pf':gp/gl if gl else None,'return_pct':100*(eq/10000-1),'maxdd_pct':100*dd.min(),'buyhold_pct':100*bh,'delta_bhr_pp':100*((eq/10000-1)-bh),'exposure_pct':100*inbars/len(d)}
+          rows=[];meta=[]
+          for sym in ['SOLUSDT','ETHUSDT','XRPUSDT']:
+            for name,iv in [('4h',Interval.in_4_hour),('1h',Interval.in_1_hour)]:
+              try:d=tv.get_hist(sym,'BINANCE',iv,n_bars=5000,extended_session=False)
+              except Exception as e:meta.append({'symbol':sym,'interval':name,'error':repr(e)});continue
+              if d is None or len(d)<100:meta.append({'symbol':sym,'interval':name,'rows':0 if d is None else len(d)});continue
+              d=d.reset_index(); d['datetime']=pd.to_datetime(d['datetime']);meta.append({'symbol':sym,'interval':name,'rows':len(d),'start':str(d.datetime.iloc[0]),'end':str(d.datetime.iloc[-1])})
+              for bps in [0,10,20]:rows.append({'symbol':sym,'interval':name,'cost_bps_side':bps,**bt(d,bps)})
+          (out/'results.json').write_text(json.dumps({'meta':meta,'results':rows},indent=2),encoding='utf-8');pd.DataFrame(rows).to_csv(out/'results.csv',index=False);print(pd.DataFrame(rows).to_string(index=False))
+          PY
+      - name: Persist
+        if: always()
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add evidence/rsi-supertrend-crossmarket || true
+          git commit -m 'Publish RSI SuperTrend crossmarket test [skip ci]' || true
+          git pull --rebase origin main
+          git push origin HEAD:main || true
