@@ -77,6 +77,10 @@ def validate_packet(health: dict[str, Any], packet: dict[str, Any]) -> list[str]
     return sorted(ids)
 
 
+def run_meta(name: str, fallback: str) -> str | None:
+    return os.environ.get(name) or os.environ.get(fallback)
+
+
 def main() -> None:
     health = load_json(HEALTH_PATH)
     packet = load_json(SIGNALS_PATH)
@@ -86,6 +90,10 @@ def main() -> None:
     intake_ids_sha256 = sha256_json(intake_ids)
     signals_sha256 = sha256_file(SIGNALS_PATH)
     health_sha256 = sha256_file(HEALTH_PATH)
+    run_id = run_meta("RADAR_RUN_ID", "GITHUB_RUN_ID")
+    run_attempt = run_meta("RADAR_RUN_ATTEMPT", "GITHUB_RUN_ATTEMPT")
+    trigger_sha = run_meta("RADAR_TRIGGER_SHA", "GITHUB_SHA")
+    workflow = run_meta("RADAR_WORKFLOW", "GITHUB_WORKFLOW") or "Runner3 Opportunity Radar Market V2"
 
     previous = get_checkpoint(PROJECT, SCOPE)
     previous_position = previous.get("position") if isinstance(previous, dict) else None
@@ -107,9 +115,9 @@ def main() -> None:
         "intake_ids_sha256": intake_ids_sha256,
         "signals_sha256": signals_sha256,
         "health_sha256": health_sha256,
-        "run_id": os.environ.get("GITHUB_RUN_ID"),
-        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-        "trigger_sha": os.environ.get("GITHUB_SHA"),
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "trigger_sha": trigger_sha,
     }
 
     checkpoint = save_checkpoint(
@@ -124,9 +132,9 @@ def main() -> None:
     state = report_status(
         SOURCE,
         "success",
-        run_id=os.environ.get("GITHUB_RUN_ID"),
+        run_id=run_id,
         detail={
-            "workflow": os.environ.get("GITHUB_WORKFLOW") or "Runner3 Opportunity Radar Market V2",
+            "workflow": workflow,
             "phase": "persisted",
             "lane": "MARKET_PRICING",
             "source_session_date": session,
