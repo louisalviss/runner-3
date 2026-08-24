@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
+import pandas as pd
 sys.path[:0]=[os.environ['WR_PATCH_DIR'],os.environ['WR_BASE_DIR'],os.environ['WR_STRUCT_DIR']]
 from close_confirm import run_case, assert_canonical_parity
 import stock10_close_ab as old
 import wr_dukascopy_expanded_matrix as exp
+# Decision test only: OOS 2024-2026, with one month warm-up for indicator/regime state.
+exp.STATE_START=pd.Timestamp('2023-12-01T00:00:00Z')
+exp.START=pd.Timestamp('2024-01-01T00:00:00Z')
+exp.END=pd.Timestamp('2026-08-21T00:00:00Z')
 OUT=Path(os.getenv('WR_OUT','/tmp/wr-stock10-cci')); OUT.mkdir(parents=True,exist_ok=True)
 SYM=os.environ['SYMBOL'].upper(); N=27; LB=18
 
@@ -42,7 +47,7 @@ def main():
         tr,rawx=run_case(base,ref,bars,info,hist,start,end,variant='canonical',anchor='start',use_session=True,eligible_signal=gate)
         runs[name]=(tr,old.report_variant(name,tr,rawx))
     reps={k:v[1] for k,v in runs.items()}
-    payload={'status':'OK','symbol':SYM,'bars':len(bars),'rejected_10m_buckets':reject,'parity_n':parity,'instrument':inst,
+    payload={'status':'OK','symbol':SYM,'bars':len(bars),'rejected_10m_buckets':reject,'parity_n':parity,'instrument':inst,'window':{'warmup':'2023-12-01','report':'2024-01-01..2026-08-21'},
              'rule':{'exact_long':'Lowest(CCI(27),18)<-100','short_extension':'Highest(CCI(27),18)>+100; not source-published'},
              'variants':reps,'comparisons':{'exact_long':cmp(reps['base_long'],reps['cci_long_exact']),'symmetric':cmp(reps['base_both'],reps['cci_symmetric'])},'manifest':manifest}
     (OUT/f'{SYM}.json').write_text(json.dumps(payload,indent=2,default=str))
