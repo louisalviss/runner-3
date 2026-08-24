@@ -15,6 +15,7 @@ STATE_PATH = ROOT / "story_pipeline" / "state.json"
 PROJECT = "vbth-editorial"
 SCOPE = "main"
 SOURCE = "runner-3/story_pipeline"
+# Every sync is verified by reading the durable checkpoint back from D1.
 
 
 def main() -> int:
