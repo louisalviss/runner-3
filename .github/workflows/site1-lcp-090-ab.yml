@@ -19,7 +19,7 @@ concurrency:
 
 env:
   PROD_URL: https://runner3wp.pntr.dev/
-  TEST_URL: https://wordpress-edge-proxy-v2.ducduy2411.workers.dev/
+  TEST_URL: https://wordpress-edge-proxy-lcp090.ducduy2411.workers.dev/
 
 jobs:
   ab:
@@ -37,7 +37,13 @@ jobs:
           node --check edge/wordpress-edge-proxy/src/responsive-images.js
           node --check edge/wordpress-edge-proxy/src/entry.js
           node scripts/build-wordpress-edge-snapshot.mjs
-          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.v2.jsonc >/tmp/deploy.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('edge/wordpress-edge-proxy/wrangler.v2.jsonc')
+          s=p.read_text().replace('"name": "wordpress-edge-proxy-v2"','"name": "wordpress-edge-proxy-lcp090"')
+          Path('edge/wordpress-edge-proxy/wrangler.lcp090.jsonc').write_text(s)
+          PY
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.lcp090.jsonc >/tmp/deploy.log 2>&1
           sleep 4
 
       - name: Candidate functional guard
