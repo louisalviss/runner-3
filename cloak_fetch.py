@@ -23,7 +23,16 @@ BLOCK_PAGE_MARKERS = (
     "you've been blocked by network security",
     "access denied",
     "request blocked",
+    "prove your humanity",
+    "verify you are human",
+    "verify your identity to continue",
+    "captcha",
+    "服务器出现问题",
+    "请稍后重试",
+    "安全验证",
+    "验证码",
 )
+MIN_USABLE_TEXT_CHARS = 300
 MAX_URLS = 20
 
 
@@ -117,10 +126,13 @@ def safe_dir(index, url):
 def detect_block(status, text):
     if status is not None and status >= 400:
         return f"http_{status}"
-    lowered = text.lower()
+    stripped = (text or "").strip()
+    lowered = stripped.lower()
     for marker in BLOCK_PAGE_MARKERS:
-        if marker in lowered:
+        if marker.lower() in lowered:
             return marker.replace(" ", "_")
+    if len(stripped) < MIN_USABLE_TEXT_CHARS:
+        return "too_thin"
     return None
 
 
