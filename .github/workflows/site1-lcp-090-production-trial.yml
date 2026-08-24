@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: runner3wp-production-lcp090-trial
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   PROD_DOMAIN: https://runner3wp.pntr.dev
@@ -18,7 +18,7 @@ env:
 jobs:
   trial:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -27,9 +27,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare mobile-only inline hero candidate
+      - name: Prepare quality-gated mobile inline hero
         id: prep
         continue-on-error: true
+        shell: bash
         run: |
           set -euo pipefail
           echo REJECT > /tmp/verdict
@@ -41,22 +42,41 @@ jobs:
           import fs from 'node:fs';
           import sharp from 'sharp';
           const source='/tmp/hero.webp';
-          const variants=[];
-          for (const q of [66,70,74,78]) {
+          const reference=await sharp(source).resize({width:320,withoutEnlargement:true}).removeAlpha().raw().toBuffer({resolveWithObject:true});
+          const rows=[];
+          for (const q of [42,46,50,54,58,62,66,70]) {
             const path=`/tmp/mobile-q${q}.webp`;
             await sharp(source).resize({width:320,withoutEnlargement:true}).webp({quality:q,effort:6,smartSubsample:true}).toFile(path);
-            const m=await sharp(path).metadata();
-            variants.push({q,path,size:fs.statSync(path).size,width:m.width,height:m.height});
+            const decoded=await sharp(path).removeAlpha().raw().toBuffer({resolveWithObject:true});
+            let mse=0;
+            for(let i=0;i<reference.data.length;i++){const d=reference.data[i]-decoded.data[i];mse+=d*d;}
+            mse/=reference.data.length;
+            const psnr=mse===0?99:10*Math.log10((255*255)/mse);
+            rows.push({q,path,size:fs.statSync(path).size,psnr:+psnr.toFixed(2),width:decoded.info.width,height:decoded.info.height});
           }
-          const eligible=variants.filter(v=>v.size<=12000).sort((a,b)=>b.q-a.q || a.size-b.size);
-          console.log(JSON.stringify({sourceBytes:fs.statSync(source).size,variants,eligible},null,2));
-          if(!eligible.length) throw new Error('no 320px WebP <=12KB');
+          const eligible=rows.filter(v=>v.psnr>=36 && v.size<=11000).sort((a,b)=>a.size-b.size || b.psnr-a.psnr);
+          console.log(JSON.stringify({sourceBytes:fs.statSync(source).size,rows,eligible},null,2));
+          if(!eligible.length) throw new Error('no 320px WebP passes PSNR>=36 and <=11KB');
           const pick=eligible[0];
           fs.copyFileSync(pick.path,'/tmp/mobile-hero.webp');
           fs.writeFileSync('/tmp/mobile-pick.json',JSON.stringify(pick,null,2));
           NODE
 
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('edge/wordpress-edge-proxy/src/entry.js')
+          s=p.read_text()
+          old='element.prepend(`<link rel="dns-prefetch" href="//${R2_HOST}"><link rel="preconnect" href="${R2_ORIGIN}" crossorigin>`, { html: true });'
+          if old in s:
+              s=s.replace(old,'// Site1 hero is same-origin/inline; external R2 preconnect is unnecessary on the critical path.',1)
+          old2="headers.append('Link', `<${R2_ORIGIN}>; rel=preconnect; crossorigin`);"
+          if old2 in s:
+              s=s.replace(old2,'// No external R2 Link preconnect: hero uses inline mobile source and same-origin desktop binding.',1)
+          p.write_text(s)
+          PY
+          node --check edge/wordpress-edge-proxy/src/entry.js
           node scripts/build-wordpress-edge-snapshot.mjs
+
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const p='edge/wordpress-edge-proxy/src/snapshot.generated.js';
@@ -71,7 +91,7 @@ jobs:
           h=h.replace(/<img\b[^>]*offset-demo-01[^>]*>/gi,(tag)=>{
             if(done) return tag;
             done=true;
-            return `<picture data-runner3-mobile-inline-lcp="1"><source media="(max-width: 767px)" srcset="data:image/webp;base64,${b64}">${tag}</picture>`;
+            return `<picture data-runner3-mobile-inline-lcp="2"><source media="(max-width: 767px)" srcset="data:image/webp;base64,${b64}">${tag}</picture>`;
           });
           if(!done) throw new Error('homepage hero not found');
           h=h.replace(/<link\b[^>]*rel=["']preload["'][^>]*as=["']image["'][^>]*offset-demo-01[^>]*>/gi,'');
@@ -83,14 +103,14 @@ jobs:
             `export const SNAPSHOTS = Object.freeze(${serialized});`,
             '',
           ].join('\n'));
-          console.log(JSON.stringify({pick:JSON.parse(fs.readFileSync('/tmp/mobile-pick.json','utf8')),homepageBytes:Buffer.byteLength(h),marker:h.includes('data-runner3-mobile-inline-lcp="1"')}));
+          console.log(JSON.stringify({pick:JSON.parse(fs.readFileSync('/tmp/mobile-pick.json','utf8')),homepageBytes:Buffer.byteLength(h),marker:h.includes('data-runner3-mobile-inline-lcp="2"')}));
           NODE
 
           python3 - <<'PY'
           import json
           d=json.load(open('edge/wordpress-edge-proxy/wrangler.v2.jsonc'))
           d['name']='wordpress-edge-proxy'
-          open('edge/wordpress-edge-proxy/wrangler.prod-mobile-inline.jsonc','w').write(json.dumps(d,indent=2)+'\n')
+          open('edge/wordpress-edge-proxy/wrangler.prod-lcp090.jsonc','w').write(json.dumps(d,indent=2)+'\n')
           PY
           C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"; echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
           mkdir -p scripts
@@ -102,7 +122,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-mobile-inline.jsonc >/tmp/deploy.log 2>&1
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.prod-lcp090.jsonc >/tmp/deploy.log 2>&1
           touch /tmp/deployed
           sleep 5
 
@@ -114,21 +134,22 @@ jobs:
           set -euo pipefail
           ok=0
           for attempt in 1 2 3 4 5 6; do
-            B="__mobileinline=$(date +%s%N)-$attempt"
+            B="__lcp090v2=$(date +%s%N)-$attempt"
             if curl -fsS -H 'Cache-Control: no-cache' -D /tmp/h -o /tmp/home "$PROD_DOMAIN/?$B" \
               && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/h \
               && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/h \
-              && grep -q 'data-runner3-mobile-inline-lcp="1"' /tmp/home; then ok=1; break; fi
+              && grep -q 'data-runner3-mobile-inline-lcp="2"' /tmp/home; then ok=1; break; fi
             sleep 4
           done
           test "$ok" = 1
+          ! grep -Eiq 'pub-f6e5190178814cd5be8f1eb531f1a164\.r2\.dev.*rel=preconnect' /tmp/h || false
           node --input-type=module - <<'NODE'
           import { chromium } from 'playwright-core';
           const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,args:['--no-sandbox','--disable-dev-shm-usage']});
           async function check(width,height){
             const page=await browser.newPage({viewport:{width,height}});
             await page.goto(process.env.PROD_DOMAIN+'/?__browser='+Date.now(),{waitUntil:'networkidle',timeout:60000});
-            const x=await page.evaluate(()=>{const p=document.querySelector('[data-runner3-mobile-inline-lcp="1"]');const img=p?.querySelector('img');return {picture:!!p,currentSrc:img?.currentSrc||'',naturalWidth:img?.naturalWidth||0,naturalHeight:img?.naturalHeight||0};});
+            const x=await page.evaluate(()=>{const p=document.querySelector('[data-runner3-mobile-inline-lcp="2"]');const img=p?.querySelector('img');return {picture:!!p,currentSrc:img?.currentSrc||'',naturalWidth:img?.naturalWidth||0,naturalHeight:img?.naturalHeight||0};});
             await page.close(); return x;
           }
           const mobile=await check(390,844); const desktop=await check(1440,1200);
@@ -144,13 +165,13 @@ jobs:
           curl -fsS -H 'Cookie: wordpress_logged_in_probe=1' -D /tmp/auth -o /tmp/authbody "$PROD_DOMAIN/"
           grep -Eiq '^x-edge-mode:[[:space:]]*bypass' /tmp/auth
 
-      - name: Official PageSpeed target gate
+      - name: Official PageSpeed 5-sample target gate
         id: psi
         if: steps.guard.outcome == 'success'
         continue-on-error: true
         run: |
           set -euo pipefail
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5; do
             PSI_URL="$PROD_DOMAIN/" PSI_UI_OUT="/tmp/psi-$i.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs
           done
           python3 - <<'PY'
@@ -160,14 +181,15 @@ jobs:
             if not m:return None
             x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
           rows=[]
-          for i in range(1,4):
+          for i in range(1,6):
             d=json.load(open(f'/tmp/psi-{i}.json'))
             r={'run':i,'performance':d.get('performance'),'fcp':sec(d.get('fcp')),'lcp':sec(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'url':d.get('resultUrl')}
             rows.append(r);print('PSI',json.dumps(r))
           good=[r for r in rows if r['lcp'] is not None]
           med=statistics.median([r['lcp'] for r in good]) if good else 99
-          passed=len(good)==3 and all(r['performance']==100 for r in rows) and med<=0.9
-          print('MEDIAN_LCP',med);print('TARGET_PASS',str(passed).lower())
+          p100=sum(r['performance']==100 for r in rows)
+          passed=len(good)==5 and p100==5 and med<=0.9
+          print('MEDIAN_LCP',med);print('P100_COUNT',p100);print('TARGET_PASS',str(passed).lower())
           open('/tmp/verdict','w').write('PASS' if passed else 'REJECT')
           PY
 
