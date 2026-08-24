@@ -6,12 +6,14 @@ on:
     paths:
       - 'research/factor_edge_search_20260824/quality_factor.py'
       - 'research/factor_edge_search_20260824/quality_openfundex.py'
+      - 'research/factor_edge_search_20260824/quality_openfundex_v2.py'
       - '.github/workflows/quality-factor-search.yml'
   pull_request:
     branches: [main]
     paths:
       - 'research/factor_edge_search_20260824/quality_factor.py'
       - 'research/factor_edge_search_20260824/quality_openfundex.py'
+      - 'research/factor_edge_search_20260824/quality_openfundex_v2.py'
       - '.github/workflows/quality-factor-search.yml'
   workflow_dispatch:
 
@@ -31,7 +33,7 @@ jobs:
           python-version: '3.12'
       - run: pip install --disable-pip-version-check numpy pandas requests pyarrow
       - name: Run quality factor search
-        run: python research/factor_edge_search_20260824/quality_openfundex.py
+        run: python research/factor_edge_search_20260824/quality_openfundex_v2.py
       - uses: actions/upload-artifact@v4
         with:
           name: quality-factor-20260824
