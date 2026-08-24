@@ -45,8 +45,16 @@ def api(path, payload):
     return r.json() if r.content else None
 
 
-def payload_sha256(payload):
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+def audio_input_sha256(item_id, title, source_label, script):
+    semantic = {
+        'id': str(item_id),
+        'title': str(title),
+        'sourceLabel': str(source_label),
+        'script': str(script),
+        'voice': VOICE,
+        'voiceRate': VOICE_RATE,
+    }
+    raw = json.dumps(semantic, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -183,7 +191,7 @@ def process(payload_path):
     if len(script) < 300:
         raise RuntimeError('ChatGPT script too short')
 
-    digest = payload_sha256(payload)
+    digest = audio_input_sha256(item_id, title, source_label, script)
     base = load_json(ROOT / 'ops/r2-media/status.json')['baseUrl'].rstrip('/')
     prefix = f'audio-library/media/{item_id}/'
     audio_url = base + '/' + prefix + 'episode.mp3'
@@ -199,12 +207,13 @@ def process(payload_path):
     if artifacts_ok:
         prior_position = checkpoint.get('position') if isinstance(checkpoint, dict) else None
         prior_duration = prior_position.get('duration_seconds') if isinstance(prior_position, dict) else None
+        recovered_duration = prior_duration if prior_duration is not None else payload.get('durationSeconds')
         save_success_checkpoint(
             item_id,
             digest,
             audio_url,
             transcript_url,
-            prior_duration,
+            recovered_duration,
             recovered=True,
         )
         print(json.dumps({'itemId': item_id, 'status': 'skipped', 'reason': 'artifacts-match-checkpoint-recovered'}))

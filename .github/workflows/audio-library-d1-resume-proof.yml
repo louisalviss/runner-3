@@ -1,0 +1,153 @@
+name: Audio Library D1 Resume Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audio-library-d1-resume-proof.yml'
+
+permissions:
+  contents: write
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  AUDIO_LIBRARY_BUCKET: runner3-wp-media
+  AUDIO_LIBRARY_VOICE: vi-VN-NamMinhNeural
+  AUDIO_LIBRARY_VOICE_RATE: +3%
+  ITEM_ID: 679a0c83-4d20-4d83-bc50-6413923f0175
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: python -m pip install -q requests edge-tts
+
+      - name: Read completed item and transcript from R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y wrangler@4.123.0 r2 object get \
+            "${AUDIO_LIBRARY_BUCKET}/audio-library/items/${ITEM_ID}.json" \
+            --file=/tmp/item.json --remote
+          npx -y wrangler@4.123.0 r2 object get \
+            "${AUDIO_LIBRARY_BUCKET}/audio-library/media/${ITEM_ID}/script.txt" \
+            --file=/tmp/script.txt --remote
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          item=json.loads(Path('/tmp/item.json').read_text(encoding='utf-8'))
+          script=Path('/tmp/script.txt').read_text(encoding='utf-8').strip()
+          if str(item.get('id')) != os.environ['ITEM_ID']:
+              raise SystemExit('item id mismatch')
+          if len(script) < 300:
+              raise SystemExit('stored transcript too short')
+          payload={
+              'id': os.environ['ITEM_ID'],
+              'title': item.get('title') or 'Audio',
+              'sourceLabel': item.get('sourceLabel') or 'Web',
+              'script': script,
+              'durationSeconds': item.get('durationSeconds'),
+          }
+          Path('/tmp/payload.json').write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
+          PY
+
+      - name: Run existing TTS pipeline in resume mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/audio_library_tts_from_chatgpt.py /tmp/payload.json | tee /tmp/resume.log
+
+      - name: Verify skip and D1 checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('.github/scripts').resolve()))
+          from runner3_core import get_checkpoint
+
+          rows=[]
+          for line in Path('/tmp/resume.log').read_text(encoding='utf-8').splitlines():
+              try:
+                  value=json.loads(line)
+              except Exception:
+                  continue
+              if isinstance(value,dict): rows.append(value)
+          result=next((x for x in reversed(rows) if x.get('itemId')==os.environ['ITEM_ID']),None)
+          if not result or result.get('status') != 'skipped':
+              raise SystemExit(f'resume did not skip: {result!r}')
+          if result.get('reason') not in {'artifacts-match-checkpoint-recovered','checkpoint-and-artifacts-match'}:
+              raise SystemExit(f'unexpected resume reason: {result!r}')
+
+          checkpoint=get_checkpoint('audio-library-tts', os.environ['ITEM_ID'])
+          position=checkpoint.get('position') if isinstance(checkpoint,dict) else None
+          checkpoint_ok=bool(
+              isinstance(checkpoint,dict)
+              and checkpoint.get('status')=='success'
+              and checkpoint.get('project')=='audio-library-tts'
+              and checkpoint.get('scope')==os.environ['ITEM_ID']
+              and isinstance(position,dict)
+              and position.get('phase')=='complete'
+              and str(position.get('item_id'))==os.environ['ITEM_ID']
+              and bool(position.get('payload_sha256'))
+          )
+          if not checkpoint_ok:
+              raise SystemExit(f'checkpoint verification failed: {checkpoint!r}')
+
+          item=json.loads(Path('/tmp/item.json').read_text(encoding='utf-8'))
+          proof={
+              'ok': True,
+              'runId': int(os.environ['GITHUB_RUN_ID']),
+              'itemId': os.environ['ITEM_ID'],
+              'resumeResult': result,
+              'checkpoint': checkpoint,
+              'artifact': {
+                  'itemStatus': item.get('status'),
+                  'durationSeconds': item.get('durationSeconds'),
+                  'hasAudioUrl': bool(item.get('audioUrl')),
+                  'hasTranscriptUrl': bool(item.get('transcriptUrl')),
+              },
+          }
+          Path('/tmp/audio-library-d1-resume-proof.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(proof,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Persist proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/audio-library
+          if [ -s /tmp/audio-library-d1-resume-proof.json ]; then
+            cp /tmp/audio-library-d1-resume-proof.json ops/audio-library/d1-resume-proof.json
+          else
+            printf '{"ok":false,"runId":%s,"error":"proof_result_missing"}\n' "$GITHUB_RUN_ID" > ops/audio-library/d1-resume-proof.json
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/audio-library/d1-resume-proof.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist Audio Library D1 resume proof: ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
