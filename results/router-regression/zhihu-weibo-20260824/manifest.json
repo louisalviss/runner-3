@@ -1,0 +1,88 @@
+{
+  "job_name": "zhihu-weibo-20260824",
+  "job_file": "jobs/router-regression/zhihu-weibo-20260824.json",
+  "source_visibility": "public",
+  "artifact_policy": "text",
+  "response_headers_persisted": false,
+  "mode": "auto",
+  "started_at": "2026-08-24T01:13:19.508963+00:00",
+  "url_count": 2,
+  "results": [
+    {
+      "engine": "http",
+      "requested_url": "https://www.zhihu.com/",
+      "final_url": "https://www.zhihu.com/signin?next=%2F",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "知乎 - 有问题，就会有答案",
+      "elapsed_seconds": 1.327,
+      "blocked_or_challenge": false,
+      "fallback_used": false,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://www.zhihu.com/signin?next=%2F",
+          "text_chars": 485,
+          "html_bytes": 46224,
+          "elapsed_seconds": 1.327,
+          "too_thin": false,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T01:13:20.837277+00:00",
+      "html_bytes": 46224,
+      "text_chars": 485,
+      "errors": [],
+      "output_dir": "001_www.zhihu.com_root_c98e39a37a"
+    },
+    {
+      "engine": "http-aiua",
+      "requested_url": "https://weibo.com/",
+      "final_url": "https://weibo.com/us",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "title": "微博北美站",
+      "elapsed_seconds": 1.545,
+      "ai_user_agent_profile": "chatgpt-user",
+      "blocked_or_challenge": false,
+      "fallback_used": true,
+      "http_attempts": [
+        {
+          "profile": "normal",
+          "engine": "http",
+          "status": 200,
+          "final_url": "https://passport.weibo.com/visitor/visitor?entry=miniblog&a=enter&url=https%3A%2F%2Fweibo.com%2F&domain=weibo.com&ua=Mozilla%2F5.0%20%28X11%3B%20Linux%20x86_64%29%20AppleWebKit%2F537.36%20%28KHTML%2C%20like%20Gecko%29%20Chrome%2F124.0%20Safari%2F537.36%20runner-3%2F1.1&_rand=1787534001721&sudaref=",
+          "text_chars": 19,
+          "html_bytes": 10158,
+          "elapsed_seconds": 2.054,
+          "too_thin": true,
+          "blocked_or_challenge": false
+        },
+        {
+          "profile": "chatgpt-user",
+          "engine": "http-aiua",
+          "status": 200,
+          "final_url": "https://weibo.com/us",
+          "text_chars": 543,
+          "html_bytes": 91348,
+          "elapsed_seconds": 1.545,
+          "too_thin": false,
+          "blocked_or_challenge": false
+        }
+      ],
+      "ok": true,
+      "fetched_at": "2026-08-24T01:13:24.440165+00:00",
+      "html_bytes": 91348,
+      "text_chars": 543,
+      "errors": [],
+      "output_dir": "002_weibo.com_root_a7b18273c3"
+    }
+  ],
+  "finished_at": "2026-08-24T01:13:24.440529+00:00",
+  "ok_count": 2,
+  "blocked_count": 0,
+  "failed_count": 0
+}
