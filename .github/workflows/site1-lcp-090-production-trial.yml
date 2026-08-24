@@ -28,31 +28,78 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare candidate and browser
+      - name: Prepare inline-hero candidate and browser
         run: |
           set -euo pipefail
           echo REJECT > /tmp/verdict
+
+          # Capture the exact current 640px hero before changing production.
+          curl -fsS -D /tmp/base-hero.h -o /tmp/hero.webp "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w640.webp?capture=$(date +%s%N)"
+          grep -Eiq '^content-type:[[:space:]]*image/webp' /tmp/base-hero.h
+          test "$(wc -c </tmp/hero.webp)" -gt 20000
+
+          # Inline LCP does not need an external-R2 resource hint. Preserve all other edge behavior.
           python3 - <<'PY'
           from pathlib import Path
           p=Path('edge/wordpress-edge-proxy/src/entry.js')
           s=p.read_text()
           old="headers.append('Link', `<${R2_ORIGIN}>; rel=preconnect; crossorigin`);"
-          new="const heroPreload = new URL('/__runner3/r2-image/offset-demo-01-w640.webp', request.url).href; headers.append('Link', `<${heroPreload}>; rel=preload; as=image; type=image/webp; fetchpriority=high`);"
           assert old in s
-          s=s.replace(old,new,1)
+          s=s.replace(old,"// LCP hero is embedded in the homepage snapshot; no external R2 preconnect needed.",1)
           old2="new HTMLRewriter().on('head', new HeadResourceHints()).on('img[src]', new StaticResponsiveImageRewriter()).on('link[rel=\"preload\"][as=\"image\"]', new StaticImagePreloadRewriter())"
           new2="new HTMLRewriter().on('img[src]', new StaticResponsiveImageRewriter()).on('link[rel=\"preload\"][as=\"image\"]', new StaticImagePreloadRewriter())"
           assert old2 in s
           p.write_text(s.replace(old2,new2,1))
+
+          p=Path('edge/wordpress-edge-proxy/src/responsive-images.js')
+          s=p.read_text()
+          old='''  element(element) {\n    const info = responsiveInfo(element.getAttribute('src'));'''
+          new='''  element(element) {\n    if (element.getAttribute('data-runner3-inline-lcp') === '1') {\n      this.heroCount += 1;\n      element.setAttribute('loading', 'eager');\n      element.setAttribute('fetchpriority', 'high');\n      element.setAttribute('decoding', 'sync');\n      element.removeAttribute('srcset');\n      element.removeAttribute('sizes');\n      return;\n    }\n\n    const info = responsiveInfo(element.getAttribute('src'));'''
+          assert old in s
+          p.write_text(s.replace(old,new,1))
           PY
           node --check edge/wordpress-edge-proxy/src/entry.js
           node --check edge/wordpress-edge-proxy/src/responsive-images.js
+
           node scripts/build-wordpress-edge-snapshot.mjs
+
+          # Rewrite only the first homepage hero to an inline WebP. Same pixels, no quality reduction.
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const p='edge/wordpress-edge-proxy/src/snapshot.generated.js';
+          const src=fs.readFileSync(p,'utf8');
+          const m=src.match(/export const SNAPSHOT_BUILT_AT = ([^;]+);\nexport const SNAPSHOTS = Object\.freeze\(([\s\S]+)\);\n?$/);
+          if(!m) throw new Error('snapshot module parse failed');
+          const builtAt=JSON.parse(m[1]);
+          const snapshots=JSON.parse(m[2]);
+          let h=snapshots['/'];
+          const b64=fs.readFileSync('/tmp/hero.webp').toString('base64');
+          let done=false;
+          h=h.replace(/<img\b[^>]*>/gi,(tag)=>{
+            if(done || !/offset-demo-01/i.test(tag)) return tag;
+            done=true;
+            tag=tag.replace(/\s(?:srcset|sizes|loading|fetchpriority|decoding)=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,'');
+            tag=tag.replace(/\ssrc=(?:"[^"]*"|'[^']*'|[^\s>]+)/i,` src="data:image/webp;base64,${b64}"`);
+            return tag.replace(/^<img\b/i,'<img data-runner3-inline-lcp="1" loading="eager" fetchpriority="high" decoding="sync"');
+          });
+          if(!done) throw new Error('homepage hero not found');
+          snapshots['/']=h;
+          const serialized=JSON.stringify(snapshots).replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
+          fs.writeFileSync(p,[
+            '// Generated immediately before Cloudflare deployment. Do not hand-edit.',
+            `export const SNAPSHOT_BUILT_AT = ${JSON.stringify(builtAt)};`,
+            `export const SNAPSHOTS = Object.freeze(${serialized});`,
+            '',
+          ].join('\n'));
+          console.log(JSON.stringify({inlineHeroBytes:fs.statSync('/tmp/hero.webp').size,homepageBytes:Buffer.byteLength(h),marker:h.includes('data-runner3-inline-lcp="1"')}));
+          NODE
+
           python3 - <<'PY'
           import json
           src='edge/wordpress-edge-proxy/wrangler.v2.jsonc';dst='edge/wordpress-edge-proxy/wrangler.prod-lcp090.jsonc'
           d=json.load(open(src));d['name']='wordpress-edge-proxy';open(dst,'w').write(json.dumps(d,indent=2)+'\n')
           PY
+
           npm install --no-save playwright-core@1.61.0 >/dev/null
           C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"; test -n "$C"; echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
           mkdir -p scripts
@@ -78,20 +125,25 @@ jobs:
             if curl -fsS -H 'Cache-Control: no-cache' -D /tmp/h -o /tmp/home "$PROD_DOMAIN/?$B" \
               && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/h \
               && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/h \
-              && grep -Eiq '^link:.*__runner3/r2-image/offset-demo-01-w640\.webp.*rel=preload' /tmp/h; then ok=1; break; fi
+              && grep -q 'data-runner3-inline-lcp="1"' /tmp/home; then ok=1; break; fi
             sleep 4
           done
           test "$ok" = 1
           python3 - <<'PY'
           import re
           h=open('/tmp/home',errors='ignore').read()
-          imgs=re.findall(r'<img\b[^>]*offset-demo-01[^>]*>',h,re.I)
-          assert len(imgs)>=2
-          assert re.search(r'decoding=["\']sync["\']',imgs[0],re.I)
-          assert re.search(r'fetchpriority=["\']high["\']',imgs[0],re.I)
-          assert re.search(r'loading=["\']lazy["\']',imgs[1],re.I)
-          assert re.search(r'fetchpriority=["\']low["\']',imgs[1],re.I)
-          print('hero_priority_guard=PASS')
+          m=re.search(r'<img\b[^>]*data-runner3-inline-lcp="1"[^>]*>',h,re.I)
+          assert m, 'inline hero missing'
+          hero=m.group(0)
+          assert 'src="data:image/webp;base64,' in hero
+          assert not re.search(r'\ssrcset=',hero,re.I)
+          assert re.search(r'decoding=["\']sync["\']',hero,re.I)
+          assert re.search(r'fetchpriority=["\']high["\']',hero,re.I)
+          repeats=[x for x in re.findall(r'<img\b[^>]*offset-demo-01[^>]*>',h,re.I)]
+          assert repeats, 'below-fold repeated hero missing'
+          assert re.search(r'loading=["\']lazy["\']',repeats[0],re.I)
+          assert re.search(r'fetchpriority=["\']low["\']',repeats[0],re.I)
+          print('inline_hero_guard=PASS',len(hero),len(h))
           PY
           curl -fsS -H 'Cache-Control: no-cache' -D /tmp/ih -o /tmp/i "$PROD_DOMAIN/__runner3/r2-image/offset-demo-01-w640.webp?$B"
           grep -Eiq '^x-runner3-lcp:[[:space:]]*r2-binding-same-origin' /tmp/ih
@@ -114,7 +166,7 @@ jobs:
           python3 - <<'PY'
           import json,re,statistics
           def sec(v):
-            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',str(v or '').strip());
+            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',str(v or '').strip())
             if not m:return None
             x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
           rows=[]
