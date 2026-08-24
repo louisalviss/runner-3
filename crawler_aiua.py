@@ -52,17 +52,20 @@ AUTH_BOUNDARY_MARKERS = (
 )
 
 AI_UA_RETRY_ENABLED = True
+MIN_USABLE_TEXT_CHARS = 300
 
 
 def _attempt_summary(profile, result):
+    text_chars = len(result.get("text") or "")
     return {
         "profile": profile,
         "engine": result.get("engine"),
         "status": result.get("status"),
         "final_url": result.get("final_url"),
-        "text_chars": len(result.get("text") or ""),
+        "text_chars": text_chars,
         "html_bytes": len((result.get("html") or "").encode("utf-8", errors="ignore")),
         "elapsed_seconds": result.get("elapsed_seconds"),
+        "too_thin": text_chars < MIN_USABLE_TEXT_CHARS,
         "blocked_or_challenge": base.looks_blocked(
             result.get("status"), result.get("html"), result.get("text")
         ),
@@ -82,7 +85,7 @@ def _is_auth_boundary(result):
 def _usable_http(result):
     status = result.get("status") or 0
     blocked = base.looks_blocked(status, result.get("html"), result.get("text"))
-    too_thin = len(result.get("text") or "") < 300
+    too_thin = len(result.get("text") or "") < MIN_USABLE_TEXT_CHARS
     return status < 400 and not blocked and not too_thin
 
 
@@ -128,11 +131,14 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
     if mode in ("browser", "auto"):
         try:
             browser_result = base.browser_fetch(url, timeout, wait_ms, headers, user_agent)
-            browser_result["blocked_or_challenge"] = base.looks_blocked(
+            browser_text_chars = len(browser_result.get("text") or "")
+            browser_blocked = base.looks_blocked(
                 browser_result.get("status"),
                 browser_result.get("html"),
                 browser_result.get("text"),
             )
+            browser_result["too_thin"] = browser_text_chars < MIN_USABLE_TEXT_CHARS
+            browser_result["blocked_or_challenge"] = browser_blocked or browser_result["too_thin"]
             browser_result["fallback_used"] = mode == "auto"
             if attempts:
                 browser_result["http_attempts"] = attempts
@@ -141,10 +147,18 @@ def crawl_one(url, mode, timeout, wait_ms, headers, user_agent):
             errors.append(f"browser: {type(exc).__name__}: {exc}")
 
     if initial_result is not None:
-        initial_result["blocked_or_challenge"] = base.looks_blocked(
-            initial_result.get("status"),
-            initial_result.get("html"),
-            initial_result.get("text"),
+        initial_text_chars = len(initial_result.get("text") or "")
+        initial_blocked = base.looks_blocked(
+            initial_result.get("status"), initial_result.get("html"), initial_result.get("text")
+        )
+        initial_result["too_thin"] = initial_text_chars < MIN_USABLE_TEXT_CHARS
+        # Base crawler currently derives final ok from this field. Treat a
+        # materially thin public response as non-usable so HTTP 200 shells do
+        # not become false-positive successes.
+        initial_result["blocked_or_challenge"] = initial_blocked or initial_result["too_thin"]
+        initial_result["quality_failure"] = (
+            "too_thin" if initial_result["too_thin"] and not initial_blocked else
+            "blocked_or_challenge" if initial_blocked else None
         )
         initial_result["fallback_used"] = False
         initial_result["http_attempts"] = attempts
