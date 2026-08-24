@@ -1,0 +1,194 @@
+name: External Alpha RSI E2 ST 60m Actual Execution
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/external-alpha-rsi-e2st-60m.yml'
+      - 'research/external_alpha_rsi_e2st_60m_20260825/**'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: external-alpha-rsi-e2st-60m-20260825
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests dukascopy-python
+      - name: Fetch frozen Dukascopy helper
+        shell: bash
+        run: |
+          mkdir -p /tmp/extalpha
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/extalpha/exp.py
+      - name: Run frozen external-alpha validation shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          EXT_HELPER_DIR: /tmp/extalpha
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=/tmp/rsi-e2st-60m
+          mkdir -p "$OUT"
+          python3 - <<'PY'
+          import os, subprocess
+          symbols='AAPL ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN AVGO BKR CDNS CMCSA COST CPRT CSCO CSGP CSX CTSH DXCM EA EXC FANG FTNT GILD GOOG GOOGL HON IDXX INTC INTU ISRG KHC LRCX MAR MCHP MDLZ META MPWR MRVL MSFT MU NFLX NVDA ODFL ORLY PANW PAYX PCAR PEP PLTR PYPL QCOM REGN ROST SBUX SNPS TMUS TSLA TTWO TXN VRTX WDAY WDC WMT ZS'.split()
+          shard=int(os.environ['SHARD']); mine=[s for i,s in enumerate(symbols) if i%8==shard]
+          print('SHARD',shard,'SYMBOLS',mine,flush=True)
+          for sym in mine:
+              print('START',sym,flush=True)
+              subprocess.run([
+                  'python3','research/external_alpha_rsi_e2st_60m_20260825/validate.py',
+                  '--symbol',sym,'--out','/tmp/rsi-e2st-60m'
+              ],check=True,env=os.environ.copy())
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rsi-e2st-60m-shard-${{ matrix.shard }}
+          path: /tmp/rsi-e2st-60m
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: validate
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rsi-e2st-60m-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Evaluate frozen preregistered gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/final
+          python3 - <<'PY'
+          import json, pathlib, statistics
+          root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final')
+          SEEN={'AAPL','AMZN','MSFT','NVDA','TSLA'}
+          summaries=[]; trades=[]
+          for p in root.rglob('summary-*.json'):
+              try:summaries.append(json.loads(p.read_text()))
+              except Exception:pass
+          for p in root.rglob('trades-*.jsonl'):
+              for line in p.read_text().splitlines():
+                  if line.strip():
+                      try:trades.append(json.loads(line))
+                      except Exception:pass
+          summaries.sort(key=lambda x:x.get('symbol',''))
+          trades.sort(key=lambda x:(x.get('entry_time',''),x.get('symbol','')))
+
+          def pf(vals):
+              gp=sum(max(float(x),0.0) for x in vals);gl=sum(max(-float(x),0.0) for x in vals)
+              return gp/gl if gl else (999.0 if gp>0 else None)
+          def met(ts,key='actual_return'):
+              vals=[float(x[key]) for x in ts]
+              return {
+                  'n':len(vals),'PF':pf(vals),
+                  'mean_bps':statistics.mean([v*10000 for v in vals]) if vals else None,
+                  'median_bps':statistics.median([v*10000 for v in vals]) if vals else None,
+                  'sum_return':sum(vals),
+                  'win_rate':100*sum(v>0 for v in vals)/len(vals) if vals else None,
+              }
+          def group(symbols):
+              ss=[s for s in summaries if s.get('symbol') in symbols and s.get('status')=='OK']
+              st=[t for t in trades if t.get('symbol') in symbols]
+              actual=met(st,'actual_return');mid=met(st,'mid_return')
+              bysym={}
+              for sym in sorted(symbols):
+                  tt=[t for t in st if t['symbol']==sym]
+                  if tt:bysym[sym]={'actual':met(tt,'actual_return'),'mid':met(tt,'mid_return')}
+              eligible_pf=[v['actual']['PF'] for v in bysym.values() if v['actual']['n']>=5 and v['actual']['PF'] is not None]
+              positive=sum(v['actual']['sum_return']>0 for v in bysym.values())
+              return {
+                  'expected_symbols':len(symbols),'ok_symbols':len(ss),'actual':actual,'midpoint':mid,
+                  'positive_symbols':positive,'symbols_with_trades':len(bysym),
+                  'positive_symbol_fraction':positive/len(bysym) if bysym else 0.0,
+                  'median_symbol_PF_ge5':statistics.median(eligible_pf) if eligible_pf else None,
+                  'symbols':bysym,
+              }
+
+          all_symbols={s.get('symbol') for s in summaries if s.get('symbol')}
+          expected=set('AAPL ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN AVGO BKR CDNS CMCSA COST CPRT CSCO CSGP CSX CTSH DXCM EA EXC FANG FTNT GILD GOOG GOOGL HON IDXX INTC INTU ISRG KHC LRCX MAR MCHP MDLZ META MPWR MRVL MSFT MU NFLX NVDA ODFL ORLY PANW PAYX PCAR PEP PLTR PYPL QCOM REGN ROST SBUX SNPS TMUS TSLA TTWO TXN VRTX WDAY WDC WMT ZS'.split())
+          holdout=expected-SEEN
+          primary=group(holdout);all68=group(expected)
+
+          years={}
+          primary_trades=[t for t in trades if t['symbol'] in holdout]
+          for y in range(2022,2027):
+              yy=[t for t in primary_trades if int(t.get('entry_year',0))==y]
+              years[str(y)]={'actual':met(yy,'actual_return'),'midpoint':met(yy,'mid_return')}
+          pre=[t for t in primary_trades if int(t.get('entry_year',0))<=2025]
+          pre_actual=met(pre,'actual_return')
+          positive_recent_years=sum(years[str(y)]['actual']['PF'] is not None and years[str(y)]['actual']['PF']>1.05 for y in (2024,2025,2026))
+          entry_sp=[float(t['entry_spread_bps']) for t in primary_trades if t.get('entry_spread_bps') is not None]
+          exit_sp=[float(t['exit_spread_bps']) for t in primary_trades if t.get('exit_spread_bps') is not None]
+          flags={
+              'coverage_ge_60_of_63':primary['ok_symbols']>=60,
+              'trades_ge_300':primary['actual']['n']>=300,
+              'actual_PF_ge_1_20':primary['actual']['PF'] is not None and primary['actual']['PF']>=1.20,
+              'actual_mean_ge_10bps':primary['actual']['mean_bps'] is not None and primary['actual']['mean_bps']>=10.0,
+              'mid_PF_ge_1_25':primary['midpoint']['PF'] is not None and primary['midpoint']['PF']>=1.25,
+              'mid_mean_positive':primary['midpoint']['mean_bps'] is not None and primary['midpoint']['mean_bps']>0,
+              'positive_symbol_fraction_ge_60pct':primary['positive_symbol_fraction']>=0.60,
+              'median_symbol_PF_ge_1_05':primary['median_symbol_PF_ge5'] is not None and primary['median_symbol_PF_ge5']>=1.05,
+              'pre2026_actual_PF_ge_1_10':pre_actual['PF'] is not None and pre_actual['PF']>=1.10,
+              'recent_positive_years_ge_2':positive_recent_years>=2,
+          }
+          passed=all(flags.values())
+          report={
+              'status':'COMPLETE',
+              'lineage':'RSI E2 + SuperTrend 60m independent executable external alpha',
+              'preregistration_commit':'e40a18777f26ce449140604cace83e07b35b1579',
+              'strategy':{'rsi':10,'rsi_sma':10,'trigger':50,'cross_count':2,'supertrend_atr':10,'supertrend_factor':2.5,'direction':'LONG_ONLY'},
+              'execution':'Dukascopy paired M5 BID/ASK; midpoint 60m regular-session chart; next-chart-bar market fill; entry ASK, exit BID',
+              'primary_holdout_symbols':sorted(holdout),
+              'seen_excluded_from_primary':sorted(SEEN),
+              'primary_holdout':primary,
+              'secondary_all68':all68,
+              'years_primary':years,
+              'pre2026_primary_actual':pre_actual,
+              'positive_recent_years_2024_2026':positive_recent_years,
+              'median_entry_spread_bps':statistics.median(entry_sp) if entry_sp else None,
+              'median_exit_spread_bps':statistics.median(exit_sp) if exit_sp else None,
+              'gate_flags':flags,
+              'PASS_EXECUTABLE_EXTERNAL_ALPHA':passed,
+              'promotion_if_pass':'EXECUTABLE_EXTERNAL_ALPHA_CANDIDATE; eligible for separately preregistered WR matched A/B only',
+              'failure_rule':'No WR combination and no parameter/timeframe/ticker/sector/regime rescue from this lineage',
+              'raw_summaries':summaries,
+          }
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          with (out/'trades.jsonl').open('w') as f:
+              for t in trades:f.write(json.dumps(t)+'\n')
+          print('SUMMARIES',len(summaries),'TRADES',len(trades))
+          print('PRIMARY',json.dumps({k:v for k,v in primary.items() if k!='symbols'},indent=2))
+          print('ALL68',json.dumps({k:v for k,v in all68.items() if k!='symbols'},indent=2))
+          print('YEARS',json.dumps(years,indent=2))
+          print('PRE2026',pre_actual)
+          print('SPREADS',report['median_entry_spread_bps'],report['median_exit_spread_bps'])
+          print('FLAGS',flags)
+          print('PASS_EXECUTABLE_EXTERNAL_ALPHA',passed)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: external-alpha-rsi-e2st-60m-final
+          path: /tmp/final
+          retention-days: 30
