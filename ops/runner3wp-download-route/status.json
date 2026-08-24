@@ -1,0 +1,64 @@
+{
+  "checkedAt": "2026-08-24T01:06:43.315069+00:00",
+  "domain": "runner3wp.pntr.dev",
+  "directUrl": "https://runner3wp.pntr.dev/dl/%40LinkFilesBot.apk",
+  "outcomes": {
+    "preflight": "success",
+    "deploy": "success",
+    "verify": "success"
+  },
+  "preflight": {
+    "checkedAt": "2026-08-24T01:06:29.656646+00:00",
+    "ok": true,
+    "stage": "preflight",
+    "httpCode": "200",
+    "title": "OFFSET \u2014 Independent Journal &#8211; Technology, culture and the systems underneath.",
+    "bodySize": 60566,
+    "xRobotsTag": "noindex, nofollow, noarchive, nosnippet",
+    "customDomain": {
+      "id": "1542fd3f-e686-42a7-8d6a-0a3865c3c0b0",
+      "domain_id": "1542fd3f-e686-42a7-8d6a-0a3865c3c0b0",
+      "name": "runner3wp.pntr.dev",
+      "status": "active",
+      "verification_data": {
+        "status": "active"
+      },
+      "validation_data": {
+        "status": "active",
+        "method": "http"
+      },
+      "certificate_authority": "google",
+      "created_on": "2026-08-18T20:31:05.344078Z"
+    }
+  },
+  "deploy": {
+    "checkedAt": "2026-08-24T01:06:42.482879+00:00",
+    "stage": "deploy",
+    "ok": true,
+    "exitCode": 0,
+    "logTail": "\n \u26c5\ufe0f wrangler 4.125.0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nUploading... (0/0)\n\u2728 Success! Uploaded 0 files (0.33 sec)\n\n\u2728 Compiled Worker successfully\n\u2728 Uploading Worker bundle\n\ud83c\udf0e Deploying...\n\u2728 Deployment complete! Take a peek over at https://9f2102cd.runner3wp-pages-gateway.pages.dev\n"
+  },
+  "verify": {
+    "checkedAt": "2026-08-24T01:06:43.269333+00:00",
+    "stage": "verify",
+    "ok": true,
+    "rootAfter": {
+      "httpCode": "200",
+      "title": "OFFSET \u2014 Independent Journal &#8211; Technology, culture and the systems underneath.",
+      "bodySize": 60566,
+      "sizeRatioVsBefore": 1.0,
+      "xRobotsTag": "noindex, nofollow, noarchive, nosnippet"
+    },
+    "rootUnchanged": true,
+    "directUrl": "https://runner3wp.pntr.dev/dl/%40LinkFilesBot.apk",
+    "download": {
+      "httpCode": "200",
+      "size": 13951503,
+      "sha256": "9e72a0ab7e8ae1f31b8c1086efdffa6b4842aff114e8ea1fc7162501571fb537",
+      "contentDisposition": "attachment; filename=\"@LinkFilesBot.apk\"; filename*=UTF-8''%40LinkFilesBot.apk"
+    },
+    "downloadVerified": true,
+    "workersDevHidden": true
+  },
+  "verified": true
+}
