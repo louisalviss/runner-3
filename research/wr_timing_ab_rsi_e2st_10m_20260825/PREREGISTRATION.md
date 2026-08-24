@@ -48,6 +48,13 @@ Frozen WR 10m long setup uses canonical `reference_verify.py` commit `27797cf9c4
 - US regular-session guard active;
 - no new WR timing setup if the signal bar is within/approaches the final 40 minutes of the regular session, matching canonical session-guard intent.
 
+Timing-layer state clarification, frozen before B is run:
+- evaluate the raw canonical WR LONG setup condition independently on every completed 10m bar;
+- do NOT import WR standalone position lifecycle or suppress a timing setup because a hypothetical unrelated WR standalone trade would still be active;
+- this is intentional: B tests the WR setup as an entry-timing layer attached to each external-alpha opportunity, not the standalone WR trade engine;
+- only the one-bar pending stop-entry state described below applies;
+- if multiple qualifying WR setups/fills occur within one external-alpha timing window, use the earliest actual fill only.
+
 WR entry execution:
 - planned stop entry = 10m signal high + $0.01 tick;
 - pending order is valid ONLY during the immediately following 10m bar;
