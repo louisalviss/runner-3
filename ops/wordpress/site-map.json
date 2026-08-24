@@ -1,0 +1,29 @@
+{
+  "updatedAt": "2026-08-24T07:29:00+07:00",
+  "canonical": true,
+  "sites": {
+    "site1": {
+      "app": "runner3-factory-smoke-2",
+      "origin": "https://runner3-factory-smoke-2.wasmer.app/",
+      "domain": "https://runner3wp.pntr.dev/",
+      "domainProvider": "PNTR",
+      "notes": "Existing PNTR domain belongs to Site 1. Do not reassign it to Site 2 or Site 3."
+    },
+    "site2": {
+      "app": "runner3-wp-a94b8fd2",
+      "origin": "https://runner3-wp-a94b8fd2.wasmer.app/",
+      "domain": null
+    },
+    "site3": {
+      "app": "runner3-speed-site3-realistic",
+      "origin": "https://runner3-speed-site3-realistic.wasmer.app/",
+      "domain": null,
+      "notes": "If a custom/free domain is requested, provision a separate hostname; never move runner3wp.pntr.dev from Site 1."
+    }
+  },
+  "rules": [
+    "Site numbering is fixed to the mappings above unless explicitly changed and re-verified.",
+    "Before attaching a custom domain, verify the target Wasmer app and read that app/domain's current CNAME target.",
+    "Do not infer domain ownership from app creation order or stale checkpoints."
+  ]
+}
