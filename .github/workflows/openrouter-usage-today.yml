@@ -110,3 +110,176 @@ jobs:
             gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/openrouter-usage-today-status.json" -f message='Publish OpenRouter usage today [skip ci]' -f content="$C" -f branch=main >/dev/null
           fi
           cat "$RUNNER_TEMP/status.json"
+
+  benchmark:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DSH_VERSION: '0.1.0-rc.7'
+      PLAYWRIGHT_MCP_VERSION: '0.0.78'
+      DSH_HOME: ${{ runner.temp }}/dsh-home
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Clone production Runner-6
+        run: git clone --depth=1 https://github.com/louisalviss/runner-6.git runner6
+
+      - name: Read starting key usage
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: curl -fsS -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/key > "$RUNNER_TEMP/key-before.json"
+
+      - name: Configure metered OpenRouter route
+        run: |
+          set -euo pipefail
+          mkdir -p "$DSH_HOME"
+          cat > "$DSH_HOME/settings.yaml" <<'YAML'
+          llm-pi-ai:
+            providers:
+              openrouter-v4:
+                displayName: OpenRouter DeepSeek V4 Pro Metered
+                apiKeyEnv: OPENROUTER_API_KEY
+                api: openai-completions
+                baseURL: http://127.0.0.1:18080/api/v1
+                compat:
+                  thinkingFormat: openrouter
+                models:
+                  - id: deepseek/deepseek-v4-pro
+                    name: DeepSeek V4 Pro
+                    contextWindow: 1000000
+                    maxTokens: 8192
+                    input: [text]
+          agent-default-model:
+            provider: openrouter-v4
+            model: deepseek/deepseek-v4-pro
+          YAML
+          chmod 600 "$DSH_HOME/settings.yaml"
+
+      - name: Install and activate production DSH guard
+        run: |
+          set -euo pipefail
+          bash runner6/scripts/setup-dsh-runtime.sh
+          bash runner6/scripts/activate-dsh-runtime.sh
+          "$DSH_BIN" --profile headless --dump-config > "$RUNNER_TEMP/composed.yml"
+          python - <<'PY'
+          import os
+          s=open(os.environ['RUNNER_TEMP']+'/composed.yml').read()
+          p=s.find('id: compaction-basic')
+          assert p>=0
+          b=s[p:p+800]
+          assert 'thresholdRatio: 0.06' in b,b
+          assert 'retainTokens: 12000' in b,b
+          assert 'maxTokens: 4096' in b,b
+          print(b)
+          PY
+
+      - name: Start metering proxy
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          cat > "$RUNNER_TEMP/meter.mjs" <<'NODE'
+          import http from 'node:http';
+          import fs from 'node:fs';
+          const log=process.env.RUNNER_TEMP+'/meter.jsonl'; let seq=0;
+          const append=x=>fs.appendFileSync(log,JSON.stringify(x)+'\n');
+          http.createServer(async(req,res)=>{
+            const chunks=[]; for await(const c of req) chunks.push(c);
+            const raw=Buffer.concat(chunks); let obj=null,body=raw;
+            try{obj=JSON.parse(raw.toString());obj.usage={include:true};body=Buffer.from(JSON.stringify(obj));}catch{}
+            const msgs=Array.isArray(obj?.messages)?obj.messages:[];
+            const chars=msgs.reduce((a,m)=>a+JSON.stringify(m).length,0);
+            const roles={}; for(const m of msgs) roles[m.role]=(roles[m.role]||0)+JSON.stringify(m).length;
+            const n=++seq,started=Date.now();
+            try{
+              const up=await fetch('https://openrouter.ai'+req.url,{method:req.method,headers:{authorization:'Bearer '+process.env.OPENROUTER_API_KEY,'content-type':'application/json','x-title':'DSH cost guard benchmark'},body});
+              const text=await up.text(); let usage=null,id=null,model=null;
+              for(const line of text.split(/\r?\n/)){
+                if(!line.startsWith('data:'))continue; const d=line.slice(5).trim(); if(!d||d==='[DONE]')continue;
+                try{const j=JSON.parse(d);if(j.usage)usage=j.usage;id=j.id||id;model=j.model||model;}catch{}
+              }
+              if(!usage){try{const j=JSON.parse(text);usage=j.usage||null;id=j.id||null;model=j.model||null;}catch{}}
+              append({seq:n,status:up.status,message_chars:chars,request_bytes:body.length,roles,generation_id:id,model_response:model,usage,duration_ms:Date.now()-started});
+              res.writeHead(up.status,{'content-type':up.headers.get('content-type')||'application/json'});res.end(text);
+            }catch(e){append({seq:n,error:String(e),message_chars:chars,request_bytes:body.length,roles});res.writeHead(502);res.end(JSON.stringify({error:String(e)}));}
+          }).listen(18080,'127.0.0.1',()=>console.log('meter-ready'));
+          NODE
+          node "$RUNNER_TEMP/meter.mjs" > "$RUNNER_TEMP/meter.log" 2>&1 &
+          for i in {1..40}; do grep -q meter-ready "$RUNNER_TEMP/meter.log" && exit 0; sleep .25; done
+          cat "$RUNNER_TEMP/meter.log"; exit 1
+
+      - name: Force context growth
+        id: dsh
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/bench-work" && cd "$RUNNER_TEMP/bench-work"
+          TASK=$(cat <<'EOF'
+          Controlled compaction benchmark. Use bash exactly 12 times, one call at a time. For call N=1..12 run exactly this shape, replacing N in both places: python -c "import random,string; random.seed(N); print('BLOCK_N_BEGIN'); print(''.join(random.choice(string.ascii_letters+string.digits) for _ in range(16000))); print('BLOCK_N_END')". After each bash result immediately make the next bash call. Never summarize or quote the random output. After call 12 answer only BENCH_DONE. Do not stop early and do not combine calls.
+          EOF
+          )
+          timeout --signal=TERM --kill-after=10s 360s "$DSH_BIN" --profile headless "$TASK" > "$RUNNER_TEMP/dsh-out.txt" 2> "$RUNNER_TEMP/dsh-err.txt"
+          CODE=$?
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Analyze benchmark
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DSH_EXIT: ${{ steps.dsh.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          sleep 3
+          curl -fsS -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/key > "$RUNNER_TEMP/key-after.json"
+          python - <<'PY'
+          import json,os
+          t=os.environ['RUNNER_TEMP']
+          def usage(p): return float((json.load(open(p)).get('data') or {}).get('usage') or 0)
+          before,after=usage(t+'/key-before.json'),usage(t+'/key-after.json')
+          rows=[]
+          if os.path.exists(t+'/meter.jsonl'):
+            for l in open(t+'/meter.jsonl'):
+              try:rows.append(json.loads(l))
+              except:pass
+          pts=[]; costs=[]; cached=[]
+          for r in rows:
+            u=r.get('usage') or {}
+            pt=u.get('prompt_tokens',u.get('promptTokens'))
+            if isinstance(pt,(int,float)):pts.append(int(pt))
+            c=u.get('cost')
+            if isinstance(c,(int,float)):costs.append(float(c))
+            det=u.get('prompt_tokens_details') or u.get('promptTokensDetails') or {}
+            ct=det.get('cached_tokens',det.get('cachedTokens')) if isinstance(det,dict) else None
+            if isinstance(ct,(int,float)):cached.append(int(ct))
+          chars=[int(r.get('message_chars') or 0) for r in rows]
+          reset=False;at=None;peak=0
+          for i,x in enumerate(pts):
+            if peak>40000 and x<peak*.70:reset=True;at=i+1;break
+            peak=max(peak,x)
+          if not reset:
+            peak=0
+            for r in rows:
+              x=int(r.get('message_chars') or 0)
+              if peak>100000 and x<peak*.70:reset=True;at=r.get('seq');break
+              peak=max(peak,x)
+          out={'status':'pass' if rows else 'fail','run_id':os.environ['GITHUB_RUN_ID'],'dsh_exit':int(os.environ.get('DSH_EXIT') or -1),'requests':len(rows),'benchmark_cost_usd':round(after-before,9),'usage_before_usd':before,'usage_after_usd':after,'sum_response_cost_usd':round(sum(costs),9) if costs else None,'prompt_tokens':pts,'cached_tokens':cached,'message_chars':chars,'max_prompt_tokens':max(pts) if pts else None,'max_message_chars':max(chars) if chars else None,'compaction_reset_observed':reset,'reset_request_seq':at,'guard':{'threshold_tokens':60000,'retain_tokens':12000,'summary_max_tokens':4096},'output_tail':open(t+'/dsh-out.txt',errors='replace').read()[-300:] if os.path.exists(t+'/dsh-out.txt') else '', 'stderr_tail':open(t+'/dsh-err.txt',errors='replace').read()[-1000:] if os.path.exists(t+'/dsh-err.txt') else ''}
+          open(t+'/bench-result.json','w').write(json.dumps(out,separators=(',',':')))
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Publish benchmark result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/bench-result.json" || printf '{"status":"fail","run_id":"%s","error":"result_missing"}' "$GITHUB_RUN_ID" > "$RUNNER_TEMP/bench-result.json"
+          C="$(base64 -w0 "$RUNNER_TEMP/bench-result.json")"
+          S="$(gh api "repos/$GITHUB_REPOSITORY/contents/dsh-cost-guard-benchmark-result.json?ref=main" --jq .sha 2>/dev/null || true)"
+          if [ -n "$S" ]; then gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/dsh-cost-guard-benchmark-result.json" -f message='Update DSH cost guard benchmark [skip ci]' -f content="$C" -f sha="$S" -f branch=main >/dev/null; else gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/dsh-cost-guard-benchmark-result.json" -f message='Publish DSH cost guard benchmark [skip ci]' -f content="$C" -f branch=main >/dev/null; fi
