@@ -1,0 +1,65 @@
+name: Site1 Baseline PSI Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/site1-baseline-psi-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  psi_baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PSI_URL: https://runner3wp.pntr.dev/
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe current production baseline 5x
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          export CHROME_PATH="$C"
+
+          for i in 1 2 3 4 5; do
+            PSI_UI_OUT="/tmp/baseline-$i.json" node scripts/pagespeed-ui-mobile-audit.mjs
+          done
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+
+          function seconds(value) {
+            const match = String(value ?? '').trim().match(/^([0-9.]+)\s*(ms|s)?$/);
+            if (!match) return null;
+            const number = Number(match[1]);
+            return match[2] === 'ms' ? number / 1000 : number;
+          }
+
+          const rows = [];
+          for (let i = 1; i <= 5; i += 1) {
+            const data = JSON.parse(fs.readFileSync(`/tmp/baseline-${i}.json`, 'utf8'));
+            const row = {
+              run: i,
+              performance: data.performance,
+              fcp: seconds(data.fcp),
+              lcp: seconds(data.lcp),
+              tbt: data.tbt,
+              cls: data.cls,
+              url: data.resultUrl,
+            };
+            rows.push(row);
+            console.log('BASELINE_PSI', JSON.stringify(row));
+          }
+
+          const lcp = rows.map((r) => r.lcp).sort((a, b) => a - b);
+          const fcp = rows.map((r) => r.fcp).sort((a, b) => a - b);
+          console.log('BASELINE_MEDIAN_LCP', lcp[2]);
+          console.log('BASELINE_MEDIAN_FCP', fcp[2]);
+          console.log('BASELINE_P100_COUNT', rows.filter((r) => r.performance === 100).length);
+          NODE
