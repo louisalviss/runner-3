@@ -127,7 +127,7 @@ def archive_get(path: str, query: dict[str, object], timeout: int = 70):
 
 
 def iso_utc(epoch: int | float) -> str:
-    return dt.datetime.fromtimestamp(float(epoch), tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    return dt.datetime.fromtimestamp(float(epoch), tz=dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def period_floor(period: str | None) -> str | None:
@@ -141,7 +141,7 @@ def period_floor(period: str | None) -> str | None:
     }.get(str(period or "").lower())
     if not delta:
         return None
-    return (now - delta).isoformat().replace("+00:00", "Z")
+    return (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def normalize_post(row: dict, subreddit_hint: str = "") -> dict:
@@ -170,10 +170,6 @@ def archive_listing(path: str, query: dict[str, object] | None):
     params: dict[str, object] = {
         "subreddit": subreddit,
         "sort": "desc",
-        # The API documents `auto` as returning 100-1000 records depending on
-        # capacity. This gives the historical sweep much better coverage than
-        # Reddit's 100-item listing page while the canonical collector still
-        # deduplicates/ranks everything locally.
         "limit": "auto",
     }
     floor = period_floor(str(query.get("t") or "")) if endpoint == "top" else None
@@ -305,9 +301,6 @@ def main():
                 return bridge_request_json(path, query)
             except Exception as exc:
                 bridge_error = exc
-                # A Reddit-origin 4xx/5xx through the bridge is deterministic
-                # for this run; avoid paying the same failed hop for every
-                # listing and each of ~60 thread fetches.
                 bridge_available = False
 
         try:
