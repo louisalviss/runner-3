@@ -1,0 +1,111 @@
+name: TradingView Probe Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tradingview-probe-temp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe open-source TradingView strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.tradingview.com/script/5he8tYVr-ProBorsa-RSI-SuperTrend-%C3%96zel-Dip-Stratejisi/'
+          OUT='evidence/tradingview-5he8tYVr'
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          python3 -m pip install -q -U requests beautifulsoup4 playwright playwright-stealth
+          python3 -m playwright install chromium >/dev/null
+          URL="$URL" OUT="$OUT" python3 - <<'PY'
+          import json, os, pathlib, re, requests, time
+          from bs4 import BeautifulSoup
+          from playwright.sync_api import sync_playwright
+
+          url=os.environ['URL']; out=pathlib.Path(os.environ['OUT'])
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+          summary={}
+
+          # Raw HTTP evidence
+          try:
+              r=requests.get(url,headers={'User-Agent':ua,'Accept-Language':'en-US,en;q=0.9'},timeout=40)
+              summary['requests']={'status':r.status_code,'url':r.url,'bytes':len(r.content)}
+              (out/'requests.html').write_text(r.text,encoding='utf-8',errors='ignore')
+          except Exception as e:
+              summary['requests']={'error':repr(e)}
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'])
+              context=browser.new_context(user_agent=ua,viewport={'width':1440,'height':1600},locale='en-US',timezone_id='Europe/Istanbul')
+              page=context.new_page()
+              responses=[]
+              def onresp(resp):
+                  u=resp.url
+                  if any(k in u.lower() for k in ['script','pine','study','chart','5he8tyvr']):
+                      responses.append({'status':resp.status,'url':u,'content_type':resp.headers.get('content-type','')})
+              page.on('response',onresp)
+              try:
+                  resp=page.goto(url,wait_until='domcontentloaded',timeout=60000)
+                  page.wait_for_timeout(12000)
+                  summary['playwright']={'status':resp.status if resp else None,'url':page.url,'title':page.title()}
+                  html=page.content()
+                  text=page.locator('body').inner_text(timeout=10000)
+                  (out/'page.html').write_text(html,encoding='utf-8',errors='ignore')
+                  (out/'page-text.txt').write_text(text[:100000],encoding='utf-8',errors='ignore')
+                  page.screenshot(path=str(out/'page.png'),full_page=True)
+                  links=page.eval_on_selector_all('a','els => els.map(a => ({text:(a.innerText||a.textContent||" ").trim(),href:a.href,title:a.title||""}))')
+                  (out/'links.json').write_text(json.dumps(links,ensure_ascii=False,indent=2),encoding='utf-8')
+                  buttons=page.eval_on_selector_all('button','els => els.map(a => ({text:(a.innerText||a.textContent||" ").trim(),title:a.title||"",aria:a.getAttribute("aria-label")||""}))')
+                  (out/'buttons.json').write_text(json.dumps(buttons,ensure_ascii=False,indent=2),encoding='utf-8')
+                  # Dump inline scripts containing likely strategy/source payloads.
+                  scripts=page.eval_on_selector_all('script','els => els.map(s => s.textContent||"")')
+                  hits=[]
+                  for i,s in enumerate(scripts):
+                      if any(k in s.lower() for k in ['5he8tyvr','pine','script_source','sourcecode','source_code','proborsa']):
+                          hits.append({'index':i,'text':s[:300000]})
+                  (out/'inline-script-hits.json').write_text(json.dumps(hits,ensure_ascii=False,indent=2),encoding='utf-8')
+                  # Try opening any visible Source code tab/button without relying on exact locale.
+                  candidates=[]
+                  for sel in ['a','button','div[role="tab"]','span']:
+                      for el in page.locator(sel).all():
+                          try:
+                              t=(el.inner_text(timeout=200) or '').strip()
+                              if t and any(k in t.lower() for k in ['source code','source','pine script','kaynak kod','kod kayna']):
+                                  candidates.append((sel,t))
+                          except Exception:
+                              pass
+                  (out/'source-candidates.json').write_text(json.dumps(candidates,ensure_ascii=False,indent=2),encoding='utf-8')
+                  clicked=False
+                  for sel,t in candidates:
+                      try:
+                          loc=page.get_by_text(t,exact=True).first
+                          if loc.is_visible():
+                              loc.click(timeout=3000)
+                              page.wait_for_timeout(5000)
+                              clicked=True
+                              break
+                      except Exception:
+                          pass
+                  if clicked:
+                      (out/'after-click.html').write_text(page.content(),encoding='utf-8',errors='ignore')
+                      (out/'after-click-text.txt').write_text(page.locator('body').inner_text(timeout=10000)[:150000],encoding='utf-8',errors='ignore')
+                      page.screenshot(path=str(out/'after-click.png'),full_page=True)
+              except Exception as e:
+                  summary['playwright_error']=repr(e)
+              (out/'network-responses.json').write_text(json.dumps(responses,ensure_ascii=False,indent=2),encoding='utf-8')
+              browser.close()
+          (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'Publish TradingView 5he8tYVr evidence [skip ci]' || true
+          git push || true
