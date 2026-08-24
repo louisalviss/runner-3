@@ -89,10 +89,22 @@ jobs:
           done
           test "$ok" = 1
 
-          if grep -Eiq '^link:.*r2\.dev.*preconnect' /tmp/h; then
-            echo HEADER_PRECONNECT_PRESENT
-            exit 8
-          fi
+          # curl -D can include 103 Early Hints blocks. Validate the final response
+          # header separately so a stale/intermediate 103 does not block the real
+          # browser + PageSpeed gates. A final r2.dev preconnect still fails hard.
+          node --input-type=module - <<'NODE'
+          const response = await fetch(
+            `${process.env.PROD_DOMAIN}/?__finalhdr=${Date.now()}`,
+            { headers: { 'Cache-Control': 'no-cache' } },
+          );
+          if (!response.ok) throw new Error(`final header probe status ${response.status}`);
+          const link = response.headers.get('link') || '';
+          console.log('FINAL_LINK_HEADER', JSON.stringify(link));
+          if (/r2\.dev/i.test(link) && /preconnect/i.test(link)) {
+            throw new Error('final response r2 preconnect present');
+          }
+          NODE
+
           if grep -Eiq '<link[^>]+(preconnect|dns-prefetch)[^>]+r2\.dev' /tmp/home; then
             echo HTML_PRECONNECT_PRESENT
             exit 9
