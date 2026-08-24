@@ -39,7 +39,7 @@ jobs:
           token=hashlib.sha256(b'runner3-chatgpt-queue-v2\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).hexdigest()
           verifier=hashlib.sha256(token.encode()).hexdigest()
           raw=re.sub(r'"CHATGPT_QUEUE_SHA256"\s*:\s*"[0-9a-f]+"',f'"CHATGPT_QUEUE_SHA256": "{verifier}"',raw)
-          open('/tmp/wrangler-reddit-bridge.jsonc','w',encoding='utf-8').write(raw)
+          open('apps/audio-chatgpt-bridge/wrangler.deploy.jsonc','w',encoding='utf-8').write(raw)
           PY
       - name: Deploy bridge
         id: deploy
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           export NO_COLOR=1
-          npx -y wrangler@4.123.0 deploy --config /tmp/wrangler-reddit-bridge.jsonc | tee /tmp/deploy.log
+          npx -y wrangler@4.123.0 deploy --config apps/audio-chatgpt-bridge/wrangler.deploy.jsonc | tee /tmp/deploy.log
           url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' /tmp/deploy.log | tail -n 1 || true)"
           test -n "$url"
           echo "BRIDGE_URL=$url" >> "$GITHUB_ENV"
