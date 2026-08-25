@@ -7,8 +7,8 @@ on:
       - 'trends_vn_live.py'
       - '.github/workflows/trends-vn-live.yml'
   schedule:
-    # 20:45 Asia/Ho_Chi_Minh, before the 21:00 Radar.
-    - cron: '45 13 * * *'
+    # Every 3 hours at :45 Asia/Ho_Chi_Minh so Radar requests stay fresh all day.
+    - cron: '45 1,4,7,10,13,16,19,22 * * *'
   workflow_dispatch:
 
 permissions:
