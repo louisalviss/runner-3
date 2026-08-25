@@ -11,19 +11,55 @@ KEEP_DEFAULT = {
 PROMO_PATTERNS = [
     r"\bsăn sale\b", r"\bdeal\b", r"\bgiảm giá\b", r"\bmã giảm\b", r"\bcoupon\b",
     r"\bbình chọn\b", r"better choice awards", r"\bquà tặng\b", r"\bgiftcode\b",
-    r"\bkhuyến mãi\b", r"\bmua .* nhận\b", r"\bưu đãi\b"
+    r"\bkhuyến mãi\b", r"\bmua .* nhận\b", r"\bưu đãi\b", r"\bmiễn phí\b"
+]
+GENK_LOW_SIGNAL = [
+    r"nữ đại gia", r"nam diễn viên", r"nữ diễn viên", r"hoa hậu", r"hot girl", r"body", r"gây sốt",
+    r"mẫu xe tay ga", r"xe tay ga .*giá", r"ra mắt tai nghe", r"thương hiệu được người việt tin dùng",
+    r"hàng nhật bãi", r"tửu lượng", r"trò đùa quái gở", r"giá iphone .*chạm đáy", r"danh sách private",
+    r"trải nghiệm loạt công nghệ .* cuối tuần", r"esports world cup", r"giành cúp vô địch esports",
+    r"mặt xinh", r"khóa môi", r"phim ngắn.*nam diễn viên", r"săn sale"
+]
+GENK_SIGNAL = [
+    r"\bai\b", r"trí tuệ nhân tạo", r"chip", r"semiconductor", r"ram", r"vram", r"ssd", r"cpu", r"gpu",
+    r"nvidia", r"amd", r"intel", r"apple", r"iphone", r"mac mini", r"mac studio", r"microsoft", r"windows",
+    r"google", r"openai", r"chatgpt", r"deepseek", r"robot", r"quantum", r"lượng tử", r"công nghệ", r"khoa học",
+    r"nghiên cứu", r"ung thư", r"bluetooth", r"chrome", r"trình duyệt", r"bảo mật", r"hack", r"mã độc",
+    r"dữ liệu", r"vneid", r"bhxh", r"bảo hiểm xã hội", r"quy định", r"nghị định", r"pháp luật", r"cổ phiếu",
+    r"bitcoin", r"crypto", r"thị trường", r"kinh tế", r"doanh nghiệp", r"ceo", r"sản xuất", r"công nghiệp",
+    r"năng lượng", r"nhiên liệu", r"hạt nhân", r"xe điện", r"ev\b", r"pin", r"máy ảnh", r"hasselblad",
+    r"camera", r"smartphone", r"galaxy", r"exynos", r"snapdragon", r"xring", r"xiaomi", r"huawei",
+    r"internet", r"viễn thông", r"server", r"máy chủ", r"data center", r"trung quốc", r"nhật bản", r"mỹ"
 ]
 LOW_SIGNAL_GAMEK = [
-    r"hot girl", r"cosplay", r"nữ streamer", r"cộng đồng game thủ", r"miễn phí.*nhận",
-    r"giftcode", r"top \d+.*game", r"sale", r"khuyến mãi"
+    r"hot girl", r"cosplay", r"streamer", r"livestream", r"triệu view", r"fan nam", r"nữ diễn viên", r"người phụ nữ",
+    r"nữ tài xế", r"mỹ nhân", r"hoa hậu", r"body", r"gia thế", r"hải sapa", r"fandom", r"blackpink",
+    r"miễn phí", r"giftcode", r"top \d+", r"sale", r"khuyến mãi", r"tip hẳn", r"ảnh nghìn like",
+    r"funder drama", r"nhung nhớ", r"em gái", r"hồng hài nhi", r"phim hàn"
+]
+GAMEK_STRONG_SIGNAL = [
+    r"black myth", r"game science", r"steam", r"playstation", r"xbox", r"nintendo", r"epic games", r"unity",
+    r"unreal engine", r"phát hành", r"ra mắt", r"trì hoãn", r"doanh thu", r"studio", r"nhà phát triển",
+    r"nhà phát hành", r"thâu tóm", r"acquisition", r"layoff", r"sa thải", r"công nghệ", r"engine", r"gpu",
+    r"ai\b", r"bom tấn", r"where winds meet", r"gta", r"elden ring", r"wukong", r"zhong kui"
 ]
 VHH_SIGNAL = [
     "đầu tư", "chứng khoán", "cổ phiếu", "vic", "vnindex", "vn-index", "yield", "trái phiếu",
     "btc", "bitcoin", "crypto", "vàng", "lãi suất", "quỹ", "dca", "kinh tế", "thị trường",
     "ngân hàng", "fed", "usd", "tỷ giá", "regulation", "công nghệ", "ai"
 ]
-NCQT_EXCLUDE = [r"^mục lục", r"^thế giới hôm nay:?\s*$"]
+NCQT_EXCLUDE = [r"^mục lục"]
 ATLANTIC_EXCLUDE = [r"/press-releases/", r"^the atlantic announces\b"]
+ATLANTIC_KEEP_URL = [
+    r"/technology/", r"/science/", r"/health/", r"/ideas/", r"/politics/", r"/national-security/",
+    r"/international/", r"/education/", r"/business/", r"/economy/", r"/climate/"
+]
+ATLANTIC_SIGNAL = [
+    r"trump", r"iran", r"khamenei", r"qatar", r"israel", r"china", r"russia", r"ukraine", r"war\b", r"politic",
+    r"policy", r"government", r"econom", r"business", r"market", r"college", r"university", r"education",
+    r"technology", r"password", r"login", r"ai\b", r"science", r"health", r"climate", r"data center", r"immigration",
+    r"democracy", r"social", r"middle class", r"downwardly mobile", r"hitler", r"antisemit", r"jews?"
+]
 
 
 def norm(s):
@@ -64,20 +100,23 @@ def decide(source, item):
     if not item.get("canonicalUrl") or not item.get("title"):
         return False, "invalid item: missing canonicalUrl/title"
 
+    # Canonical keep-default / curated-feed lanes.
     if source in KEEP_DEFAULT:
         if source == "economist" and match_any(text, [r"^subscribe", r"newsletter sign-up"]):
             return False, "non-article subscription/promo surface"
-        return True, "default keep by source policy"
+        return True, "canonical source-policy keep"
 
     if source == "nghiencuuquocte":
         if match_any(title, NCQT_EXCLUDE):
             return False, "index/non-substantive utility post"
-        return True, "substantive article/default keep"
+        return True, "valid substantive NCQT item"
 
     if source == "theatlantic":
         if match_any(url, ATLANTIC_EXCLUDE) or match_any(title, ATLANTIC_EXCLUDE):
             return False, "press-release/corporate announcement"
-        return True, "editorial content/default keep"
+        if match_any(url, ATLANTIC_KEEP_URL) or match_any(text, ATLANTIC_SIGNAL):
+            return True, "material tech/science/economy/policy/geopolitics/Ideas/social-analysis signal"
+        return False, "culture/profile/lifestyle item without material canonical-lane signal"
 
     if source == "vohoanghac":
         if item.get("itemType") == "article":
@@ -89,13 +128,18 @@ def decide(source, item):
     if source == "genk":
         if match_any(text, PROMO_PATTERNS):
             return False, "commerce/promo/award low-signal"
-        # high-recall canonical mode: exclude only explicit promo/noise; keep substantive tech/science/policy/security/business.
-        return True, "high-recall semantic keep"
+        if match_any(title, GENK_LOW_SIGNAL):
+            return False, "celebrity/drama/filler/minor-product low-signal"
+        if match_any(text, GENK_SIGNAL):
+            return True, "substantive tech/AI/science/economics/markets/business/industry/regulation signal"
+        return False, "no strong GenK canonical-lane signal"
 
     if source == "gamek":
-        if match_any(text, LOW_SIGNAL_GAMEK) or match_any(text, PROMO_PATTERNS):
-            return False, "community/promo/entertainment-noise"
-        return True, "substantive game/industry keep"
+        if match_any(text, PROMO_PATTERNS) or match_any(title, LOW_SIGNAL_GAMEK):
+            return False, "fandom/streamer/drama/listicle/promo/minor-esports noise"
+        if match_any(text, GAMEK_STRONG_SIGNAL):
+            return True, "substantive game/business/technology signal"
+        return False, "no strong GameK canonical-lane signal"
 
     return True, "default keep"
 
@@ -154,7 +198,6 @@ def build(root, inventory_path):
             "filterReasonSummary": reasons, "keptItems": kept, "filteredItems": filtered
         })
 
-    # Fail closed on duplicate stable identities inside runner manifest.
     seen = set(); deduped = []
     for item in sorted(all_kept, key=lambda x: x.get("publishedAt") or "", reverse=True):
         sid = stable_id(item)
@@ -175,12 +218,12 @@ def build(root, inventory_path):
         item["number"] = i
 
     return {
-        "version": 1,
+        "version": 2,
         "scope": "rss-kept-manifest-runner13",
         "date": inv.get("date"),
         "timezone": inv.get("timezone"),
         "windowUtc": inv.get("windowUtc"),
-        "filterPolicyVersion": "2026-08-25-high-recall-v1",
+        "filterPolicyVersion": "2026-08-25-canonical-source-policy-v2",
         "logicalSourceCount": 15,
         "runnerSourceCount": 13,
         "directSourceCount": 2,
