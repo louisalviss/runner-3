@@ -5,11 +5,13 @@ import { chromium } from 'playwright-core';
 
 const target = (process.env.SITE2_URL || 'https://runner3-wp-a94b8fd2.wasmer.app').replace(/\/$/, '');
 const fixtureZip = process.env.FIXTURE_ZIP;
+const fixturePluginSlug = process.env.FIXTURE_PLUGIN_SLUG || 'runner3-site2-fixture-v2';
 const out = process.env.SETUP_OUT || '/tmp/site2-realistic-setup.json';
 let token = String(process.env.WASMER_TOKEN || '').replace(/[\r\n]/g, '').trim();
 if (!token) throw new Error('WASMER_TOKEN is required');
 if (!token.startsWith('wap_')) token = `wap_${token}`;
 if (!fixtureZip || !fs.existsSync(fixtureZip)) throw new Error('FIXTURE_ZIP is required');
+if (!/^[a-z0-9-]+$/.test(fixturePluginSlug)) throw new Error('invalid FIXTURE_PLUGIN_SLUG');
 
 const expectedHost = new URL(target).host;
 const liveconfigUrl = `${target}/?rest_route=/wasmer/v1/liveconfig`;
@@ -29,9 +31,7 @@ async function readLiveconfig() {
   const data = await response.json();
   const wpUrl = data?.wordpress?.url;
   if (!wpUrl) throw new Error('liveconfig missing wordpress.url');
-  if (new URL(wpUrl).host !== expectedHost) {
-    throw new Error(`target guard failed: liveconfig host ${new URL(wpUrl).host}`);
-  }
+  if (new URL(wpUrl).host !== expectedHost) throw new Error(`target guard failed: ${wpUrl}`);
   return data;
 }
 
@@ -44,7 +44,9 @@ function compactLiveconfig(data) {
     posts: data?.wordpress?.posts ?? null,
     pages: data?.wordpress?.pages ?? null,
     active_theme: themes.find((x) => x.status === 'active')?.name ?? null,
-    active_plugins: plugins.filter((x) => ['active', 'active-network', 'must-use'].includes(x.status)).map((x) => x.name),
+    active_plugins: plugins
+      .filter((x) => ['active', 'active-network', 'must-use'].includes(x.status))
+      .map((x) => x.name),
   };
 }
 
@@ -58,6 +60,10 @@ async function gotoAdminHref(page, locator) {
   await page.goto(resolved.href, { waitUntil: 'domcontentloaded', timeout: 90_000 });
 }
 
+function fixtureRow(page) {
+  return page.locator(`tr[data-slug="${fixturePluginSlug}"]`);
+}
+
 async function activateRowIfNeeded(page, row) {
   const activate = row.getByRole('link', { name: /^Activate$/i });
   if (await activate.count()) await gotoAdminHref(page, activate.first());
@@ -67,13 +73,16 @@ async function ensureFixturePlugin(page) {
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   if (new URL(page.url()).host !== expectedHost) throw new Error('wp-admin target host changed unexpectedly');
 
-  let row = page.locator('tr[data-slug="runner3-site2-fixture"]');
+  let row = fixtureRow(page);
   if (await row.count()) {
     await activateRowIfNeeded(page, row);
     return 'reused';
   }
 
-  await page.goto(`${target}/wp-admin/plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.goto(`${target}/wp-admin/plugin-install.php?tab=upload`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 60_000,
+  });
   const input = page.locator('input[type="file"][name="pluginzip"]');
   await input.waitFor({ state: 'visible', timeout: 30_000 });
   await input.setInputFiles(fixtureZip);
@@ -83,8 +92,10 @@ async function ensureFixturePlugin(page) {
   const body = await page.locator('body').innerText();
   if (/Destination folder already exists/i.test(body)) {
     await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    row = page.locator('tr[data-slug="runner3-site2-fixture"]');
-    if (!(await row.count())) throw new Error('fixture plugin folder exists but plugin row is missing');
+    row = fixtureRow(page);
+    if (!(await row.count())) {
+      throw new Error(`fixture package ${fixturePluginSlug} exists but is not enumerable; use a new package slug rather than deleting unknown state`);
+    }
     await activateRowIfNeeded(page, row);
     return 'reused';
   }
@@ -93,8 +104,8 @@ async function ensureFixturePlugin(page) {
   if (await activateNow.count()) await gotoAdminHref(page, activateNow.first());
 
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  row = page.locator('tr[data-slug="runner3-site2-fixture"]');
-  if (!(await row.count())) throw new Error('fixture plugin installation did not produce an installed plugin row');
+  row = fixtureRow(page);
+  if (!(await row.count())) throw new Error(`fixture plugin ${fixturePluginSlug} was not installed`);
   await activateRowIfNeeded(page, row);
   return 'installed';
 }
@@ -128,7 +139,10 @@ async function verifyFrontend(page) {
     if (!response || response.status() >= 400) throw new Error(`frontend verification failed for ${path}`);
   }
 
-  await page.goto(`${target}/shop/?__fixture_products=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.goto(`${target}/shop/?__fixture_products=${Date.now()}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 90_000,
+  });
   const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
   if (productCards < 8) throw new Error(`expected >=8 visible shop product cards, got ${productCards}`);
   checks.shop_product_cards = productCards;
@@ -138,6 +152,7 @@ async function verifyFrontend(page) {
 const result = {
   target,
   fixture: 'astra-woo-v1',
+  fixture_plugin_slug: fixturePluginSlug,
   started_at: new Date().toISOString(),
   status: 'starting',
   before: null,
@@ -149,16 +164,14 @@ const result = {
 
 let browser;
 try {
-  const before = await readLiveconfig();
-  result.before = compactLiveconfig(before);
+  result.before = compactLiveconfig(await readLiveconfig());
 
-  const chromeCandidates = [
+  const executablePath = [
     process.env.CHROME_PATH,
     '/usr/bin/google-chrome-stable',
     '/usr/bin/google-chrome',
     '/usr/bin/chromium',
-  ].filter(Boolean);
-  const executablePath = chromeCandidates.find((p) => fs.existsSync(p));
+  ].filter(Boolean).find((p) => fs.existsSync(p));
   if (!executablePath) throw new Error('Chrome executable not found');
 
   browser = await chromium.launch({
@@ -172,11 +185,8 @@ try {
   page.setDefaultNavigationTimeout(120_000);
 
   const magicUrl = `${target}/?rest_route=/wasmer/v1/magiclogin&magiclogin=${encodeURIComponent(token)}`;
-  try {
-    await page.goto(magicUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
-  } catch (_) {
-    throw new Error('Wasmer magic-login navigation failed');
-  }
+  await page.goto(magicUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 })
+    .catch(() => { throw new Error('Wasmer magic-login navigation failed'); });
   if (new URL(page.url()).host !== expectedHost || !page.url().includes('/wp-admin')) {
     throw new Error('Wasmer magic-login did not reach the expected Site2 wp-admin');
   }
@@ -185,8 +195,7 @@ try {
   result.fixture_message = await runFixture(page);
   result.frontend = await verifyFrontend(page);
 
-  const after = await readLiveconfig();
-  result.after = compactLiveconfig(after);
+  result.after = compactLiveconfig(await readLiveconfig());
   const plugins = new Set(result.after.active_plugins || []);
   if (result.after.active_theme !== 'astra') throw new Error(`expected active theme astra, got ${result.after.active_theme}`);
   if (!plugins.has('woocommerce')) throw new Error('WooCommerce is not active after fixture setup');
@@ -201,8 +210,5 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => {});
   fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
-  console.log(JSON.stringify({
-    ...result,
-    error: result.error ? sanitize(result.error) : undefined,
-  }, null, 2));
+  console.log(JSON.stringify({ ...result, error: result.error ? sanitize(result.error) : undefined }, null, 2));
 }
