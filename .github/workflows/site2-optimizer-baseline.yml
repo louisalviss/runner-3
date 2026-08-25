@@ -44,6 +44,12 @@ jobs:
           test -n "$C"
           echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
 
+          # Concurrency prevents two baseline jobs for this PR from running at once.
+          # Recover any orphaned Site2 baseline row left in `running` by a prior
+          # interrupted/syntax-failed workflow before opening the next run.
+          STALE_SQL="UPDATE optimization_runs SET status='failed', finished_at=CURRENT_TIMESTAMP, metadata_json=json_set(COALESCE(metadata_json,'{}'),'$.recovered_reason','orphaned prior Site2 baseline run recovered before new attempt') WHERE site_id='${SITE_ID}' AND phase='baseline' AND status='running';"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --command "$STALE_SQL" >/tmp/stale-recovery.log
+
           RUN_ID="site2-baseline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "OPTIMIZER_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
 
@@ -105,20 +111,20 @@ jobs:
               else
                 FAIL_DETAIL="collector produced no result file"
               fi
-              FAIL_DETAIL="$FAIL_DETAIL" SAMPLE_NO="$i" node --input-type=module - <<'NODE'
-              import fs from 'node:fs';
-              const event = {
-                type: 'measurement.upsert',
-                run_id: process.env.OPTIMIZER_RUN_ID,
-                phase: 'baseline',
-                sample_no: Number(process.env.SAMPLE_NO),
-                valid: false,
-                collector: 'pagespeed-web-ui-mobile',
-                failure_reason: process.env.FAIL_DETAIL,
-                raw: { attempts_exhausted: 4 },
-              };
-              fs.writeFileSync('/tmp/measurement-failed.json', JSON.stringify(event));
-              NODE
+              FAIL_DETAIL="$FAIL_DETAIL" SAMPLE_NO="$i" node -e '
+                const fs = require("fs");
+                const event = {
+                  type: "measurement.upsert",
+                  run_id: process.env.OPTIMIZER_RUN_ID,
+                  phase: "baseline",
+                  sample_no: Number(process.env.SAMPLE_NO),
+                  valid: false,
+                  collector: "pagespeed-web-ui-mobile",
+                  failure_reason: process.env.FAIL_DETAIL,
+                  raw: { attempts_exhausted: 4 },
+                };
+                fs.writeFileSync("/tmp/measurement-failed.json", JSON.stringify(event));
+              '
               node scripts/wp-optimizer-state.mjs --event-file /tmp/measurement-failed.json || true
               exit 12
             fi
@@ -247,14 +253,15 @@ jobs:
         run: |
           set +e
           if [ -n "${OPTIMIZER_RUN_ID:-}" ]; then
-            cat >/tmp/run-failed.json <<JSON
-            {
-              "type": "run.finish",
-              "run_id": "$OPTIMIZER_RUN_ID",
-              "status": "failed",
-              "metadata": {"reason":"Site2 baseline workflow failed before five valid persisted samples"}
-            }
-            JSON
+            RUN_ID="$OPTIMIZER_RUN_ID" node -e '
+              const fs = require("fs");
+              fs.writeFileSync("/tmp/run-failed.json", JSON.stringify({
+                type: "run.finish",
+                run_id: process.env.RUN_ID,
+                status: "failed",
+                metadata: { reason: "Site2 baseline workflow failed before five valid persisted samples" },
+              }));
+            '
             node scripts/wp-optimizer-state.mjs --event-file /tmp/run-failed.json
           fi
 
