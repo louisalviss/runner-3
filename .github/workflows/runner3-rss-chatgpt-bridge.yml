@@ -1,0 +1,172 @@
+name: Runner3 RSS ChatGPT Bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-rss-chatgpt-bridge.yml'
+      - 'ops/rss-library/chatgpt-requests/*.json'
+      - 'ops/rss-library/chatgpt-outbox/*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-rss-chatgpt-bridge
+  cancel-in-progress: false
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install crypto dependency
+        run: python -m pip install -q 'cryptography>=45,<47'
+
+      - name: Process encrypted RSS handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          mkdir -p ops/rss-library/chatgpt-responses ops/rss-library/translation-proofs
+          mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")
+          python - "${changed[@]}" <<'PY'
+          import base64, datetime, hashlib, json, os, secrets, sys, urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes, serialization
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+          base=os.environ['BASE_URL'].rstrip('/')
+          core_token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          cf_token=os.environ['CLOUDFLARE_API_TOKEN']
+
+          def api(path, method='GET', body=None):
+              headers={'Accept':'application/json','Authorization':'Bearer '+core_token,'Cache-Control':'no-cache'}
+              data=None
+              if body is not None:
+                  data=json.dumps(body,ensure_ascii=False).encode('utf-8')
+                  headers['Content-Type']='application/json; charset=utf-8'
+              req=urllib.request.Request(base+path,headers=headers,data=data,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=60) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return r.status, json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode('utf-8','replace')
+                  try: parsed=json.loads(raw) if raw else {}
+                  except Exception: parsed={'error':'HTTP_'+str(e.code)}
+                  return e.code,parsed
+
+          def hkdf(shared, info):
+              return HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=info).derive(shared)
+
+          def encrypt_for(recipient_b64, payload, aad, info):
+              recipient=X25519PublicKey.from_public_bytes(base64.b64decode(recipient_b64))
+              eph=X25519PrivateKey.generate()
+              shared=eph.exchange(recipient)
+              key=hkdf(shared,info)
+              nonce=secrets.token_bytes(12)
+              plain=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+              cipher=ChaCha20Poly1305(key).encrypt(nonce,plain,aad.encode())
+              pub=eph.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)
+              return {
+                  'ephemeralPublicKey':base64.b64encode(pub).decode(),
+                  'nonce':base64.b64encode(nonce).decode(),
+                  'ciphertext':base64.b64encode(cipher).decode(),
+              }
+
+          seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+cf_token.encode()).digest()
+          bridge_private=X25519PrivateKey.from_private_bytes(seed)
+
+          changed=[p for p in sys.argv[1:] if p]
+          for name in changed:
+              p=Path(name)
+              if not p.exists() or p.suffix.lower()!='.json':
+                  continue
+
+              if name.startswith('ops/rss-library/chatgpt-requests/'):
+                  req=json.loads(p.read_text(encoding='utf-8'))
+                  request_id=str(req['requestId'])
+                  article_id=str(req['articleId'])
+                  recipient=str(req['recipientPublicKey'])
+                  q=urllib.parse.quote(article_id,safe='')
+                  status,packet=api('/api/rss/articles/'+q+'/translation-packet')
+                  if status!=200 or not packet.get('ok'):
+                      payload={'ok':False,'articleId':article_id,'http':status,'error':packet.get('error')}
+                  else:
+                      payload={'ok':True,'articleId':article_id,'packet':packet}
+                  env=encrypt_for(recipient,payload,request_id,b'runner3-rss-library-packet-v1')
+                  env.update({'version':1,'requestId':request_id,'articleId':article_id,'createdAt':datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                  out=Path('ops/rss-library/chatgpt-responses')/(request_id+'.json')
+                  out.write_text(json.dumps(env,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+                  print('encrypted packet response:',request_id,article_id,'http',status)
+
+              elif name.startswith('ops/rss-library/chatgpt-outbox/'):
+                  env=json.loads(p.read_text(encoding='utf-8'))
+                  article_id=str(env['articleId'])
+                  eph=X25519PublicKey.from_public_bytes(base64.b64decode(env['ephemeralPublicKey']))
+                  shared=bridge_private.exchange(eph)
+                  key=hkdf(shared,b'runner3-rss-library-chatgpt-v1')
+                  plain=ChaCha20Poly1305(key).decrypt(
+                      base64.b64decode(env['nonce']),
+                      base64.b64decode(env['ciphertext']),
+                      article_id.encode(),
+                  )
+                  payload=json.loads(plain)
+                  if str(payload.get('articleId')) != article_id:
+                      raise SystemExit('article id mismatch')
+                  q=urllib.parse.quote(article_id,safe='')
+                  publish={
+                      'sourceChecksum':payload['sourceChecksum'],
+                      'sections':payload['sections'],
+                      'translationVersion':payload.get('translationVersion','chatgpt-v1'),
+                      'glossaryVersion':payload.get('glossaryVersion'),
+                  }
+                  status,result=api('/api/rss/articles/'+q+'/translation',method='POST',body=publish)
+                  proof={
+                      'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      'runId':os.environ.get('GITHUB_RUN_ID'),
+                      'articleId':article_id,
+                      'http':status,
+                      'ok':bool(status==200 and result.get('ok')),
+                      'error':result.get('error'),
+                      'translationChecksum':result.get('translationChecksum'),
+                      'objectKey':result.get('objectKey'),
+                      'coverageQa':result.get('coverageQa'),
+                      'consistencyQa':result.get('consistencyQa'),
+                  }
+                  out=Path('ops/rss-library/translation-proofs')/(article_id+'.json')
+                  out.write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+                  print('translation publish:',article_id,'http',status,'ok',proof['ok'])
+                  if not proof['ok']:
+                      raise SystemExit('translation publish failed for '+article_id)
+          PY
+
+      - name: Persist encrypted responses and proofs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/rss-library/chatgpt-responses ops/rss-library/translation-proofs
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist RSS ChatGPT bridge output [skip ci]"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
