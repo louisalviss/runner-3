@@ -1,0 +1,31 @@
+name: Site2 Starter Templates UI Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/site2-starter-ui-probe.mjs'
+      - '.github/workflows/site2-starter-ui-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
+      WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe current Starter Templates UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          CHROME_PATH="$C" node scripts/site2-starter-ui-probe.mjs
