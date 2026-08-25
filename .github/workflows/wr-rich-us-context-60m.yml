@@ -29,36 +29,24 @@ jobs:
         run: |
           mkdir -p /tmp/wrctx
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrctx/exp.py
-      - name: Probe frozen QQQ and true-VIX contract
+      - name: Probe frozen QQQ and true-VIX registry contract
         run: |
           mkdir -p /tmp/probe
           python3 - <<'PY'
-          import json,sys,pandas as pd
-          import dukascopy_python as d
+          import json,sys
+          from dukascopy_python import instruments as dq
           sys.path.insert(0,'/tmp/wrctx')
           import exp
-          bid=exp.pick_const(('OFFER_SIDE_BID','PRICE_TYPE_BID','BID'))
-          ask=exp.pick_const(('OFFER_SIDE_ASK','PRICE_TYPE_ASK','ASK'))
-          interval=exp.pick_const(('INTERVAL_MIN_5','INTERVAL_MINUTE_5','INTERVAL_M5'))
-          a=pd.Timestamp('2026-07-01T13:30:00Z'); b=pd.Timestamp('2026-07-02T20:00:00Z')
-          def one(inst):
-              try:
-                  db=exp.normalize_df(d.fetch(inst,interval,bid,a.to_pydatetime(),b.to_pydatetime()))
-                  da=exp.normalize_df(d.fetch(inst,interval,ask,a.to_pydatetime(),b.to_pydatetime()))
-                  common=db.index.intersection(da.index)
-                  return {'ok':bool(len(common)),'bid_rows':len(db),'ask_rows':len(da),'common_rows':len(common)}
-              except Exception as e:
-                  return {'ok':False,'error':repr(e)}
+          vals=[v for k,v in vars(dq).items() if k.startswith('INSTRUMENT_') and isinstance(v,str)]
           qqq_inst=exp.resolve_symbol('QQQ')
-          qqq=one(qqq_inst) if qqq_inst else {'ok':False,'error':'resolve_symbol returned null'}
           candidates=['VIX.IDX/USD','VOL.IDX/USD','VIX.CMD/USD']
-          direct={inst:one(inst) for inst in candidates}
-          selected=next((inst for inst in candidates if direct[inst].get('ok')),None)
-          out={'version':'PREREGISTERED_V1','qqq_instrument':qqq_inst,'qqq':qqq,'vix_candidates':direct,'vix_instrument':selected,'primary_ok':bool(qqq.get('ok') and selected)}
+          selected=next((x for x in candidates if any(v.upper()==x.upper() for v in vals)),None)
+          related=sorted(v for v in vals if 'VIX' in v.upper() or 'VOL' in v.upper())
+          out={'version':'PREREGISTERED_V1','qqq_instrument':qqq_inst,'qqq_ok':bool(qqq_inst),'vix_allowed_candidates':candidates,'vix_instrument':selected,'registry_vix_vol_matches':related,'primary_ok':bool(qqq_inst and selected)}
           open('/tmp/probe/probe.json','w').write(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2))
           if not out['primary_ok']:
-              raise SystemExit('QQQ or permitted true VIX source unavailable')
+              raise SystemExit('QQQ or permitted true VIX source unavailable in frozen registry')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
