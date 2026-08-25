@@ -1,4 +1,8 @@
 import app from './index.js';
+import { extractArticleImages } from './image-extract.js';
+
+const IMAGE_TIMEOUT_MS = 6000;
+const UA = 'Mozilla/5.0 (compatible; runner-3-rss-fastlane/1.0; +https://github.com/louisalviss/runner-3)';
 
 function json(value, status = 400) {
   return new Response(JSON.stringify(value), {
@@ -9,6 +13,32 @@ function json(value, status = 400) {
       'access-control-allow-origin': '*',
     },
   });
+}
+
+async function enrichImages(payload) {
+  const fetched = Array.isArray(payload?.fetched) ? payload.fetched : [];
+  if (!fetched.length) return payload;
+  await Promise.all(fetched.map(async (item) => {
+    const target = String(item?.resolvedUrl || item?.canonicalUrl || '').trim();
+    if (!/^https?:\/\//i.test(target)) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort('timeout'), IMAGE_TIMEOUT_MS);
+    try {
+      const response = await fetch(target, {
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,*/*;q=0.8', dnt: '1' },
+      });
+      if (response.status !== 200) return;
+      const raw = await response.text();
+      item.images = extractArticleImages(raw, response.url || target);
+    } catch {
+      item.images = [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+  return payload;
 }
 
 export default {
@@ -40,11 +70,16 @@ export default {
       const internalUrl = new URL(request.url);
       internalUrl.pathname = '/v1/rss/selected-analysis';
       internalUrl.search = '';
-      return app.fetch(new Request(internalUrl.toString(), {
+      const response = await app.fetch(new Request(internalUrl.toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'user-agent': 'runner3-chatgpt-fastlane/1.0' },
         body: JSON.stringify({ requestId: `direct-${sourceKey}-${Date.now()}`, items: [{ displayIndex, sourceKey, sourceName: sourceKey, canonicalUrl, title, itemType: 'article' }] }),
       }), env, ctx);
+
+      const payload = await response.json().catch(() => null);
+      if (!payload) return response;
+      if (response.ok) await enrichImages(payload);
+      return json(payload, response.status);
     }
 
     return app.fetch(request, env, ctx);
