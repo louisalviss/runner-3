@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-25T02:14:37.534908Z",
+  "checkedAt": "2026-08-25T02:17:12.690747Z",
   "url": "https://runner3-core.ducduy2411.workers.dev",
   "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
   "deployUrlSource": "wrangler-output",
@@ -12,9 +12,10 @@
       "d1": true,
       "r2": true,
       "artifact_auth": true,
-      "time": "2026-08-25T02:14:37.694Z"
+      "write_auth": "compat",
+      "time": "2026-08-25T02:17:12.775Z"
     },
-    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"r2\":true,\"artifact_auth\":true,\"time\":\"2026-08-25T02:14:37.694Z\"}"
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"r2\":true,\"artifact_auth\":true,\"write_auth\":\"compat\",\"time\":\"2026-08-25T02:17:12.775Z\"}"
   },
   "postEvent": {
     "http": 200,
@@ -26,6 +27,13 @@
   "latest": {
     "http": 200,
     "json": [
+      {
+        "id": 47,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-25T02:17:12.690747Z\"}",
+        "created_at": "2026-08-25 02:17:12"
+      },
       {
         "id": 46,
         "source": "runner3-core-shadow",
@@ -158,16 +166,9 @@
         "event_type": "health",
         "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-24T00:41:41.331181Z\"}",
         "created_at": "2026-08-24 00:41:41"
-      },
-      {
-        "id": 27,
-        "source": "reddit-runner",
-        "event_type": "workflow_status",
-        "payload": "{\"workflow\":\"Reddit Deep Sweep\",\"run_id\":\"32677352994\",\"run_attempt\":\"1\",\"status\":\"failure\",\"sha\":\"8b71870ca3819127cbd801b32f39696f8d9cd730\",\"ref\":\"refs/heads/main\",\"subreddit\":\"RealDayTrading\"}",
-        "created_at": "2026-08-24 00:40:28"
       }
     ],
-    "body": "[{\"id\":46,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T02:14:37.534908Z\\\"}\",\"created_at\":\"2026-08-25 02:14:43\"},{\"id\":45,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:59:03.004464Z\\\"}\",\"created_at\":\"2026-08-25 01:59:03\"},{\"id\":44,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:58:26.046423Z\\\"}\",\"created_at\":\"2026-08-25 01:58:26\"},{\"id\":43,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:54:23.490106Z\\\"}\",\"created_at\":\"2026-08-25 01:54:23\"},{\"id\":42,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:52:13.644931Z\\\"}\",\"created_at\":\"2026-08-25 01:52:13\"},{\"id\":41,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T",
+    "body": "[{\"id\":47,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T02:17:12.690747Z\\\"}\",\"created_at\":\"2026-08-25 02:17:12\"},{\"id\":46,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T02:14:37.534908Z\\\"}\",\"created_at\":\"2026-08-25 02:14:43\"},{\"id\":45,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:59:03.004464Z\\\"}\",\"created_at\":\"2026-08-25 01:59:03\"},{\"id\":44,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:58:26.046423Z\\\"}\",\"created_at\":\"2026-08-25 01:58:26\"},{\"id\":43,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:54:23.490106Z\\\"}\",\"created_at\":\"2026-08-25 01:54:23\"},{\"id\":42,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T",
     "count": 20
   },
   "status": {
@@ -246,15 +247,15 @@
         "state": {
           "source": "runner3-core-smoke",
           "status": "success",
-          "run_id": "32800621535",
+          "run_id": "32800790113",
           "detail": {
             "kind": "deploy-smoke",
-            "checkedAt": "2026-08-25T02:14:37.534908Z"
+            "checkedAt": "2026-08-25T02:17:12.690747Z"
           },
-          "updated_at": "2026-08-25 02:14:43"
+          "updated_at": "2026-08-25 02:17:13"
         }
       },
-      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32800621535\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T02:14:37.534908Z\"},\"updated_at\":\"2026-08-25 02:14:43\"}}"
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32800790113\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T02:17:12.690747Z\"},\"updated_at\":\"2026-08-25 02:17:13\"}}"
     },
     "get": {
       "http": 200,
@@ -263,15 +264,15 @@
         "state": {
           "source": "runner3-core-smoke",
           "status": "success",
-          "run_id": "32800621535",
+          "run_id": "32800790113",
           "detail": {
             "kind": "deploy-smoke",
-            "checkedAt": "2026-08-25T02:14:37.534908Z"
+            "checkedAt": "2026-08-25T02:17:12.690747Z"
           },
-          "updated_at": "2026-08-25 02:14:43"
+          "updated_at": "2026-08-25 02:17:13"
         }
       },
-      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32800621535\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T02:14:37.534908Z\"},\"updated_at\":\"2026-08-25 02:14:43\"}}"
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32800790113\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T02:17:12.690747Z\"},\"updated_at\":\"2026-08-25 02:17:13\"}}"
     },
     "ok": true
   },
@@ -287,14 +288,14 @@
           "status": "success",
           "position": {
             "phase": "deployed",
-            "run_id": "32800621535"
+            "run_id": "32800790113"
           },
           "dropbox_path": null,
           "last_error": null,
-          "updated_at": "2026-08-25 02:14:44"
+          "updated_at": "2026-08-25 02:17:13"
         }
       },
-      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32800621535\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 02:14:44\"}}"
+      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32800790113\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 02:17:13\"}}"
     },
     "get": {
       "http": 200,
@@ -307,14 +308,14 @@
           "status": "success",
           "position": {
             "phase": "deployed",
-            "run_id": "32800621535"
+            "run_id": "32800790113"
           },
           "dropbox_path": null,
           "last_error": null,
-          "updated_at": "2026-08-25 02:14:44"
+          "updated_at": "2026-08-25 02:17:13"
         }
       },
-      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32800621535\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 02:14:44\"}}"
+      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32800790113\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 02:17:13\"}}"
     },
     "ok": true
   },
