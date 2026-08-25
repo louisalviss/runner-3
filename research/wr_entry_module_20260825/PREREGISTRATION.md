@@ -39,11 +39,9 @@ All variants share the exact same external-alpha signal and frozen SuperTrend ex
 
 Reference breakout level `L` = midpoint HIGH of the completed 60m bar that generated the RSI E2 entry signal.
 
-Entry search starts at the external signal close and ends at the earliest of:
-1. signal close + 120 minutes; or
-2. the frozen parent exit time.
+Entry search starts at the external signal close and spans at most the next **120 regular-session minutes = 24 available M5 regular-session bars**, carrying across overnight/weekend gaps when necessary. It ends earlier if the frozen parent exit time is reached.
 
-The 120-minute window is fixed before results because retest entry is a two-phase structure and needs room for breakout followed by retest. No 60/90/180-minute sweep is allowed.
+The 120-regular-session-minute window is fixed before results because retest entry is a two-phase structure and needs room for breakout followed by retest. No 60/90/180-minute sweep is allowed.
 
 ### A — MARKET baseline
 
@@ -57,7 +55,7 @@ On the first causal M5 bar where ASK high >= `L`:
 - if ASK open >= `L`, fill at ASK open;
 - otherwise fill at `L`.
 
-Exit remains the frozen parent BID exit. If no trigger before the entry window closes, opportunity return = 0.
+Exit remains the frozen parent BID exit. If no trigger before the 24-bar entry window closes, opportunity return = 0.
 
 No extra breakout buffer and no threshold sweep.
 
@@ -65,19 +63,20 @@ No extra breakout buffer and no threshold sweep.
 
 First detect the same breakout event as B.
 
-To avoid same-M5 path ambiguity, retest eligibility begins strictly on the NEXT M5 bar after the breakout-trigger bar.
+To avoid same-M5 path ambiguity, retest eligibility begins strictly on the NEXT regular-session M5 bar after the breakout-trigger bar.
 
-A buy-limit is then modeled at the same level `L` until the fixed entry window closes:
+A buy-limit is then modeled at the same level `L` for the remainder of the same fixed 24-bar window:
 - if ASK open <= `L`, fill at ASK open;
 - else if ASK low <= `L`, fill at `L`.
 
-Exit remains the frozen parent BID exit. If no breakout or no later retest before the window closes, opportunity return = 0.
+Exit remains the frozen parent BID exit. If no breakout or no later retest before the 24-bar window closes, opportunity return = 0.
 
 No tolerance band around `L`, no ATR buffer, and no retest-depth sweep.
 
 ## Causality and execution rules
 
 - All entry decisions use only M5 bars available after the completed external-alpha signal bar.
+- Only M5 bars inside the canonical US regular session are counted toward the 24-bar horizon.
 - ASK side governs long entry triggers/fills.
 - Frozen BID exit from the parent strategy is reused.
 - If a candidate entry would occur at or after the frozen exit time, it is a miss and receives zero return.
@@ -127,7 +126,7 @@ Bootstrap:
 ## No-rescue rule
 
 After results are seen, do NOT:
-- change 120m horizon
+- change the 24-M5 / 120-regular-session-minute horizon
 - add breakout buffer
 - change retest tolerance/depth
 - switch to close-confirmation
