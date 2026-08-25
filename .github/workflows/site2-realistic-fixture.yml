@@ -20,6 +20,7 @@ env:
   SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
   WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
   WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
+  FIXTURE_PLUGIN_SLUG: runner3-site2-fixture-v2
 
 jobs:
   setup_fixture:
@@ -53,12 +54,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/site2-fixture/runner3-site2-fixture
+          ROOT="/tmp/site2-fixture/$FIXTURE_PLUGIN_SLUG"
+          mkdir -p "$ROOT"
           cp fixtures/site2-realistic/runner3-site2-fixture.php \
-            /tmp/site2-fixture/runner3-site2-fixture/runner3-site2-fixture.php
+            "$ROOT/runner3-site2-fixture.php"
           cd /tmp/site2-fixture
-          zip -qr /tmp/runner3-site2-fixture.zip runner3-site2-fixture
-          test -s /tmp/runner3-site2-fixture.zip
+          zip -qr "/tmp/$FIXTURE_PLUGIN_SLUG.zip" "$FIXTURE_PLUGIN_SLUG"
+          test -s "/tmp/$FIXTURE_PLUGIN_SLUG.zip"
 
       - name: Magic-login, build fixture, and verify frontend
         shell: bash
@@ -72,7 +74,7 @@ jobs:
           C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           test -n "$C"
           CHROME_PATH="$C" \
-          FIXTURE_ZIP=/tmp/runner3-site2-fixture.zip \
+          FIXTURE_ZIP="/tmp/$FIXTURE_PLUGIN_SLUG.zip" \
           SETUP_OUT=/tmp/site2-realistic-setup.json \
           node scripts/site2-realistic-setup.mjs
 
@@ -94,6 +96,7 @@ jobs:
               status:"realistic-fixture",
               metadata:{
                 fixture:"astra-woo-v1",
+                fixture_plugin_slug:setup.fixture_plugin_slug,
                 theme:"astra",
                 commerce:"woocommerce",
                 fixture_source_sha:process.env.SOURCE_SHA,
@@ -155,11 +158,12 @@ jobs:
             echo
             echo '- target: `https://runner3-wp-a94b8fd2.wasmer.app/`'
             echo '- profile: `Astra + WooCommerce + astra-woo-v1 fixture`'
+            echo "- package: \`$FIXTURE_PLUGIN_SLUG\`"
             if [ -f /tmp/site2-realistic-setup.json ]; then
               echo '- setup result:'
               echo '```json'
               cat /tmp/site2-realistic-setup.json
               echo '```'
             fi
-            echo '- old D1 baseline `site2-baseline-32792586937-1` is marked historical/non-comparable.'
+            echo '- old D1 baseline `site2-baseline-32792586937-1` is marked historical/non-comparable after successful setup.'
           } >> "$GITHUB_STEP_SUMMARY"
