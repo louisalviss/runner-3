@@ -9,15 +9,37 @@ const chrome=[process.env.CHROME_PATH,'/usr/bin/google-chrome-stable','/usr/bin/
 const browser=await chromium.launch({headless:true,executablePath:chrome,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']});
 const page=await browser.newPage({viewport:{width:1440,height:1100}});
 await page.goto(`${target}/?rest_route=/wasmer/v1/magiclogin&magiclogin=${encodeURIComponent(token)}`,{waitUntil:'domcontentloaded',timeout:90000});
-await page.goto(`${target}/wp-admin/themes.php?page=starter-templates`,{waitUntil:'domcontentloaded',timeout:120000});
-await page.waitForTimeout(5000);
-const build=page.getByText(/Build with Templates/i).first(); if(await build.count()) await build.evaluate(el=>el.click());
-await page.waitForTimeout(4000);
-const block=page.getByText(/^Block Editor$/i).first(); if(await block.count()) await block.evaluate(el=>el.click());
-await page.waitForTimeout(9000);
-const organic=page.getByText(/^Organic Store$/i).first();
-if(!(await organic.count())) throw new Error('Organic Store not found');
-const chain=await organic.evaluate(el=>{const out=[];let n=el;for(let i=0;i<8&&n;i++,n=n.parentElement){out.push({tag:n.tagName,class:n.className,id:n.id,role:n.getAttribute('role'),href:n.getAttribute('href'),data:Object.fromEntries([...n.attributes].filter(a=>a.name.startsWith('data-')).map(a=>[a.name,a.value])),html:n.outerHTML.slice(0,3000)});}return out;});
-const rect=await organic.boundingBox();
-console.log('ORGANIC_CARD_DOM',JSON.stringify({url:page.url(),rect,chain},null,2));
+
+const out={};
+await page.goto(`${target}/wp-admin/edit.php?post_type=product`,{waitUntil:'domcontentloaded',timeout:120000});
+out.admin={
+  url:page.url(),
+  title:await page.title(),
+  productRows:await page.locator('table.wp-list-table tbody tr').count(),
+  publishedText:(await page.locator('.subsubsub').innerText().catch(()=>'')),
+  body:(await page.locator('body').innerText().catch(()=>'')).slice(0,5000)
+};
+
+const api=await page.request.get(`${target}/?rest_route=/wc/store/v1/products&per_page=100&_=${Date.now()}`);
+let apiBody=''; try{apiBody=await api.text();}catch{}
+let apiJson=null; try{apiJson=JSON.parse(apiBody);}catch{}
+out.storeApi={status:api.status(),count:Array.isArray(apiJson)?apiJson.length:null,body:apiBody.slice(0,3000)};
+
+for(const path of ['/','/shop/']){
+  const r=await page.goto(`${target}${path}?__woo_probe=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:120000});
+  const body=await page.locator('body').innerText().catch(()=>'');
+  out[path]={
+    status:r?.status()??null,
+    url:page.url(),
+    title:await page.title(),
+    bodyClass:await page.locator('body').getAttribute('class'),
+    productCards:await page.locator('li.product, .wc-block-product, .products .product').count(),
+    addToCart:await page.getByText(/Add to cart/i).count(),
+    text:body.slice(0,6000)
+  };
+}
+
+await page.goto(`${target}/wp-admin/admin.php?page=wc-settings`,{waitUntil:'domcontentloaded',timeout:120000});
+out.settings={url:page.url(),body:(await page.locator('body').innerText().catch(()=>'')).slice(0,7000)};
+console.log('SITE2_WOO_PROBE',JSON.stringify(out,null,2));
 await browser.close();
