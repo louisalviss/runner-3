@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/runner3-core/**'
+      - '.github/scripts/runner3_core_deploy_smoke.py'
       - '.github/workflows/runner3-core-deploy.yml'
 
 permissions:
@@ -42,19 +43,20 @@ jobs:
           import json, os, urllib.request
           token=os.environ['CLOUDFLARE_API_TOKEN']; account=os.environ['CLOUDFLARE_ACCOUNT_ID']
           base=f'https://api.cloudflare.com/client/v4/accounts/{account}/d1/database'
-          h={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+          headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
           def call(url, method='GET', body=None):
-            req=urllib.request.Request(url,data=(json.dumps(body).encode() if body else None),headers=h,method=method)
-            with urllib.request.urlopen(req,timeout=30) as r: return json.load(r)
+            req=urllib.request.Request(url,data=(json.dumps(body).encode() if body else None),headers=headers,method=method)
+            with urllib.request.urlopen(req,timeout=30) as response: return json.load(response)
           data=call(base+'?page=1&per_page=100')
           db=next((x for x in data.get('result',[]) if x.get('name')=='runner3-core'),None)
           if not db:
             db=call(base,'POST',{'name':'runner3-core'}).get('result')
           uuid=db.get('uuid') or db.get('id')
           if not uuid: raise SystemExit('D1 database id missing')
-          p='cloudflare/runner3-core/wrangler.jsonc'
-          cfg=json.load(open(p)); cfg['d1_databases'][0]['database_id']=uuid
-          open(p,'w').write(json.dumps(cfg,indent=2)+'\n')
+          path='cloudflare/runner3-core/wrangler.jsonc'
+          cfg=json.load(open(path))
+          cfg['d1_databases'][0]['database_id']=uuid
+          open(path,'w').write(json.dumps(cfg,indent=2)+'\n')
           open('/tmp/d1-id','w').write(uuid)
           PY
 
@@ -79,236 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import datetime, json, os, pathlib, re, time, urllib.error, urllib.parse, urllib.request
-
-          deploy_log = pathlib.Path('/tmp/runner3-core-deploy.log').read_text(errors='replace') if pathlib.Path('/tmp/runner3-core-deploy.log').exists() else ''
-          urls = re.findall(r'https://[A-Za-z0-9.-]+\.workers\.dev', deploy_log)
-          base = next((u.rstrip('/') for u in urls if 'runner3-core.' in u), None)
-          if not base:
-              base = 'https://runner3-core.ducduy2411.workers.dev'
-
-          browser_ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-          core_token = os.environ.get('RUNNER3_CORE_TOKEN', '').strip()
-          if not core_token:
-              raise SystemExit('RUNNER3_CORE_TOKEN secret missing')
-
-          def request_json(path, method='GET', payload=None, authenticated=True):
-              data = json.dumps(payload, separators=(',', ':')).encode() if payload is not None else None
-              headers = {
-                  'Accept': 'application/json',
-                  'User-Agent': browser_ua,
-                  'Cache-Control': 'no-cache',
-              }
-              if authenticated:
-                  headers['Authorization'] = 'Bearer ' + core_token
-              if data is not None:
-                  headers['Content-Type'] = 'application/json'
-              req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      raw = r.read().decode(errors='replace')
-                      try: parsed = json.loads(raw) if raw else None
-                      except Exception: parsed = None
-                      return {'http': r.status, 'json': parsed, 'body': raw[:1000]}
-              except urllib.error.HTTPError as e:
-                  raw = e.read().decode(errors='replace')
-                  try: parsed = json.loads(raw) if raw else None
-                  except Exception: parsed = None
-                  return {'http': e.code, 'json': parsed, 'body': raw[:1000], 'error': str(e)}
-              except Exception as e:
-                  return {'http': 0, 'json': None, 'body': '', 'error': str(e)[:1000]}
-
-          def rollout_request(path, method='GET', payload=None, attempts=10, authenticated=True):
-              last = None
-              for attempt in range(1, attempts + 1):
-                  last = request_json(path, method, payload, authenticated=authenticated)
-                  if last.get('http') not in (0, 404):
-                      return last
-                  if attempt < attempts:
-                      time.sleep(min(attempt, 3))
-              return last
-
-          checked = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')
-          run_id = str('${{ github.run_id }}')
-          health = request_json('/health', authenticated=False)
-
-          unauth_checkpoint_path = '/checkpoints/runner3-core-auth-proof/unauth-' + urllib.parse.quote(run_id, safe='')
-          unauth_checkpoint = request_json(unauth_checkpoint_path, 'PUT', {
-              'source':'runner3-core-auth-proof',
-              'status':'failed-if-written',
-              'position':{'probe':'unauthenticated'}
-          }, authenticated=False)
-
-          posted = request_json('/events', 'POST', {
-              'source':'runner3-core-shadow',
-              'event_type':'health',
-              'payload':{'status':'ok','checkedAt':checked}
-          })
-          latest = request_json('/events/latest', authenticated=False)
-          status = request_json('/status', authenticated=False)
-
-          state_source = 'runner3-core-smoke'
-          state_path = '/state/' + urllib.parse.quote(state_source, safe='')
-          state_put = rollout_request(state_path, 'PUT', {
-              'status':'success',
-              'run_id':run_id,
-              'detail':{'kind':'deploy-smoke','checkedAt':checked,'auth':'bearer'}
-          })
-          state_get = rollout_request(state_path, authenticated=False)
-
-          checkpoint_project = 'runner3-core-smoke'
-          checkpoint_scope = 'deploy'
-          checkpoint_path = '/checkpoints/' + urllib.parse.quote(checkpoint_project, safe='') + '/' + urllib.parse.quote(checkpoint_scope, safe='')
-          checkpoint_put = rollout_request(checkpoint_path, 'PUT', {
-              'source':'runner3-core-smoke',
-              'status':'success',
-              'position':{'phase':'deployed','run_id':run_id,'auth':'bearer'},
-              'dropbox_path':None,
-              'last_error':None
-          })
-          checkpoint_get = rollout_request(checkpoint_path, authenticated=False)
-
-          artifact_path = '/artifacts/runner3-core-smoke/' + urllib.parse.quote(run_id, safe='') + '/proof.json'
-          artifact_payload = {'kind':'runner3-core-auth-proof','run_id':run_id,'checkedAt':checked}
-          artifact_unauth = request_json(artifact_path, 'HEAD', authenticated=False)
-          artifact_put = request_json(artifact_path, 'PUT', artifact_payload)
-          artifact_get = request_json(artifact_path, 'GET')
-
-          health_json = health.get('json') if isinstance(health.get('json'), dict) else {}
-          post_json = posted.get('json') if isinstance(posted.get('json'), dict) else {}
-          latest_json = latest.get('json')
-          status_json = status.get('json') if isinstance(status.get('json'), dict) else {}
-          raw_sources = status_json.get('sources')
-          status_sources = raw_sources if isinstance(raw_sources, dict) else None
-          allowed_statuses = {'success', 'failure', 'cancelled', 'skipped'}
-          source_shape_checks = {}
-          if status_sources is not None:
-              for source, record in status_sources.items():
-                  source_shape_checks[source] = bool(
-                      isinstance(source, str) and source
-                      and isinstance(record, dict)
-                      and record.get('status') in allowed_statuses
-                      and isinstance(record.get('workflow'), str) and record.get('workflow')
-                      and str(record.get('run_id', '')).strip()
-                      and str(record.get('run_attempt', '')).strip()
-                      and isinstance(record.get('sha'), str)
-                      and isinstance(record.get('ref'), str)
-                      and isinstance(record.get('event_id'), int)
-                      and isinstance(record.get('created_at'), str)
-                  )
-          status_schema_ok = bool(
-              status.get('http') == 200
-              and status_json.get('ok') is True
-              and status_sources is not None
-              and all(source_shape_checks.values())
-          )
-
-          state_put_json = state_put.get('json') if isinstance(state_put.get('json'), dict) else {}
-          state_get_json = state_get.get('json') if isinstance(state_get.get('json'), dict) else {}
-          state_record = state_get_json.get('state') if isinstance(state_get_json.get('state'), dict) else {}
-          state_ok = bool(
-              state_put.get('http') == 200
-              and state_put_json.get('ok') is True
-              and state_get.get('http') == 200
-              and state_get_json.get('ok') is True
-              and state_record.get('source') == state_source
-              and state_record.get('status') == 'success'
-              and str(state_record.get('run_id')) == run_id
-              and isinstance(state_record.get('detail'), dict)
-              and state_record['detail'].get('kind') == 'deploy-smoke'
-              and state_record['detail'].get('auth') == 'bearer'
-          )
-
-          checkpoint_put_json = checkpoint_put.get('json') if isinstance(checkpoint_put.get('json'), dict) else {}
-          checkpoint_get_json = checkpoint_get.get('json') if isinstance(checkpoint_get.get('json'), dict) else {}
-          checkpoint_record = checkpoint_get_json.get('checkpoint') if isinstance(checkpoint_get_json.get('checkpoint'), dict) else {}
-          checkpoint_ok = bool(
-              checkpoint_put.get('http') == 200
-              and checkpoint_put_json.get('ok') is True
-              and checkpoint_get.get('http') == 200
-              and checkpoint_get_json.get('ok') is True
-              and checkpoint_record.get('project') == checkpoint_project
-              and checkpoint_record.get('scope') == checkpoint_scope
-              and checkpoint_record.get('source') == 'runner3-core-smoke'
-              and checkpoint_record.get('status') == 'success'
-              and isinstance(checkpoint_record.get('position'), dict)
-              and checkpoint_record['position'].get('phase') == 'deployed'
-              and str(checkpoint_record['position'].get('run_id')) == run_id
-              and checkpoint_record['position'].get('auth') == 'bearer'
-          )
-
-          artifact_put_json = artifact_put.get('json') if isinstance(artifact_put.get('json'), dict) else {}
-          artifact_get_json = artifact_get.get('json') if isinstance(artifact_get.get('json'), dict) else {}
-          artifact_ok = bool(
-              artifact_unauth.get('http') == 401
-              and artifact_put.get('http') == 200
-              and artifact_put_json.get('ok') is True
-              and artifact_get.get('http') == 200
-              and artifact_get_json == artifact_payload
-          )
-          auth_ok = bool(
-              health_json.get('write_auth') == 'required'
-              and health_json.get('artifact_auth') is True
-              and unauth_checkpoint.get('http') == 401
-          )
-
-          result = {
-              'checkedAt': checked,
-              'url': base,
-              'd1DatabaseId': pathlib.Path('/tmp/d1-id').read_text().strip(),
-              'deployUrlSource': 'wrangler-output' if any('runner3-core.' in u for u in urls) else 'known-fallback',
-              'smokeUserAgent': 'browser-compatible',
-              'health': health,
-              'auth': {
-                  'ok': auth_ok,
-                  'unauthenticatedCheckpointWriteHttp': unauth_checkpoint.get('http'),
-                  'unauthenticatedArtifactHeadHttp': artifact_unauth.get('http'),
-              },
-              'postEvent': posted,
-              'latest': {
-                  **latest,
-                  'count': len(latest_json) if isinstance(latest_json, list) else None,
-              },
-              'status': {
-                  **status,
-                  'schemaOk': status_schema_ok,
-                  'sourceCount': len(status_sources) if status_sources is not None else None,
-                  'sourceShapeChecks': source_shape_checks,
-              },
-              'state': {
-                  'put': state_put,
-                  'get': state_get,
-                  'ok': state_ok,
-              },
-              'checkpoint': {
-                  'put': checkpoint_put,
-                  'get': checkpoint_get,
-                  'ok': checkpoint_ok,
-              },
-              'artifact': {
-                  'put': artifact_put,
-                  'get': artifact_get,
-                  'ok': artifact_ok,
-              },
-              'ok': bool(
-                  health.get('http') == 200 and health_json.get('ok') is True
-                  and health_json.get('d1') is True and health_json.get('r2') is True
-                  and auth_ok
-                  and posted.get('http') == 200 and post_json.get('ok') is True
-                  and latest.get('http') == 200 and isinstance(latest_json, list) and len(latest_json) >= 1
-                  and status_schema_ok
-                  and state_ok
-                  and checkpoint_ok
-                  and artifact_ok
-              )
-          }
-
-          pathlib.Path('/tmp/runner3-core-smoke.json').write_text(json.dumps(result, indent=2) + '\n')
-          print(json.dumps(result, indent=2))
-          if not result['ok']:
-              raise SystemExit('runner3_core_smoke_failed')
-          PY
+          python3 .github/scripts/runner3_core_deploy_smoke.py
 
       - name: Persist binding and smoke result
         if: always()
