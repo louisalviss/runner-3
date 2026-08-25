@@ -11,10 +11,10 @@
   "logicalSourceCount": 15,
   "runnerSourceCount": 13,
   "directSourceCount": 2,
-  "runnerRawCount": 0,
-  "runnerKeptCount": 0,
+  "runnerRawCount": 1,
+  "runnerKeptCount": 1,
   "runnerFilteredCount": 0,
-  "runnerManifestCount": 0,
+  "runnerManifestCount": 1,
   "sourceRows": [
     {
       "sourceKey": "tinhte",
@@ -108,11 +108,22 @@
       "sourceKey": "economist",
       "mode": "runner3",
       "status": "ok",
-      "rawCount": 0,
-      "keptCount": 0,
+      "rawCount": 1,
+      "keptCount": 1,
       "filteredCount": 0,
       "filterReasonSummary": {},
-      "keptItems": [],
+      "keptItems": [
+        {
+          "key": "url:9387c87cd39f052177c4",
+          "articleId": null,
+          "noteId": null,
+          "itemType": null,
+          "title": "The universe is peculiar. But it may soon become less so",
+          "canonicalUrl": "https://www.economist.com/science-and-technology/2026/08/25/the-universe-is-peculiar-but-it-may-soon-become-less-so",
+          "publishedAt": "2026-08-25T17:21:06Z",
+          "filterReason": "canonical source-policy keep"
+        }
+      ],
       "filteredItems": []
     },
     {
@@ -182,7 +193,20 @@
       "filteredItems": []
     }
   ],
-  "manifest": [],
+  "manifest": [
+    {
+      "key": "url:9387c87cd39f052177c4",
+      "articleId": null,
+      "noteId": null,
+      "itemType": null,
+      "title": "The universe is peculiar. But it may soon become less so",
+      "canonicalUrl": "https://www.economist.com/science-and-technology/2026/08/25/the-universe-is-peculiar-but-it-may-soon-become-less-so",
+      "publishedAt": "2026-08-25T17:21:06Z",
+      "filterReason": "canonical source-policy keep",
+      "sourceKey": "economist",
+      "number": 1
+    }
+  ],
   "directVerificationPending": [
     "hoquoctuan",
     "vnhacker"
