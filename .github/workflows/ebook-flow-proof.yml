@@ -8,6 +8,8 @@ on:
       - 'story_pipeline/ebook_checkpoint.py'
       - 'story_pipeline/test_ebook_checkpoint.py'
       - 'story_pipeline/books/**'
+      - 'docs/FLOW_STORAGE_STANDARD.md'
+      - 'ops/flow-control/**'
       - '.github/workflows/ebook-flow-proof.yml'
 
 permissions:
@@ -16,6 +18,11 @@ permissions:
 concurrency:
   group: ebook-flow-proof
   cancel-in-progress: true
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  R2_BUCKET: runner3-artifacts
 
 jobs:
   proof:
@@ -28,16 +35,38 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Run semantic resume contract tests
         working-directory: story_pipeline
         run: python -m unittest -v test_ebook_checkpoint.py
 
-      - name: Verify shared Runner3 Core D1 round-trip
+      - name: Verify R2 artifact write and readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY="proof/ebook-flow/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          printf 'ebook-flow-proof:%s:%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > /tmp/ebook-flow-proof.txt
+          npx --yes wrangler@4 r2 object put "${R2_BUCKET}/${KEY}" \
+            --file=/tmp/ebook-flow-proof.txt \
+            --content-type=text/plain \
+            --remote \
+            --config=cloudflare/runner3-core/wrangler.jsonc
+          npx --yes wrangler@4 r2 object get "${R2_BUCKET}/${KEY}" \
+            --file=/tmp/ebook-flow-proof.readback.txt \
+            --remote \
+            --config=cloudflare/runner3-core/wrangler.jsonc
+          cmp /tmp/ebook-flow-proof.txt /tmp/ebook-flow-proof.readback.txt
+          echo "PROOF_R2_KEY=${KEY}" >> "$GITHUB_ENV"
+
+      - name: Verify D1 commit after R2 proof
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, sys
+          import hashlib, json, os, sys
           from pathlib import Path
           sys.path.insert(0, str(Path('.github/scripts').resolve()))
           from runner3_core import get_checkpoint, save_checkpoint
@@ -46,12 +75,18 @@ jobs:
           scope = 'generic-contract'
           source = 'ebook-flow-proof'
           token = f"{os.environ['GITHUB_RUN_ID']}:{os.environ['GITHUB_RUN_ATTEMPT']}"
+          artifact = Path('/tmp/ebook-flow-proof.readback.txt')
+          digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
           position = {
-              'schema_version': 1,
+              'schema_version': 2,
               'phase': 'proof',
-              'contract': 'dropbox-artifact-d1-control-plane',
+              'contract': 'r2-artifact-d1-control-plane-sheet-dropbox-human-projection',
               'run_token': token,
               'sha': os.environ['GITHUB_SHA'],
+              'artifact_store': 'r2',
+              'artifact_bucket': os.environ['R2_BUCKET'],
+              'artifact_r2_key': os.environ['PROOF_R2_KEY'],
+              'artifact_sha256': digest,
           }
           saved = save_checkpoint(
               project,
@@ -68,5 +103,18 @@ jobs:
               raise SystemExit(f'D1 status mismatch: {durable!r}')
           if actual.get('run_token') != token or actual.get('contract') != position['contract']:
               raise SystemExit(f'D1 round-trip mismatch: {durable!r}')
+          if actual.get('artifact_r2_key') != os.environ['PROOF_R2_KEY'] or actual.get('artifact_sha256') != digest:
+              raise SystemExit(f'R2 identity mismatch in D1: {durable!r}')
           print(json.dumps({'ok': True, 'saved': saved, 'verified': durable}, ensure_ascii=False))
           PY
+
+      - name: Cleanup R2 proof object
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${PROOF_R2_KEY:-}" ]; then
+            npx --yes wrangler@4 r2 object delete "${R2_BUCKET}/${PROOF_R2_KEY}" \
+              --remote \
+              --config=cloudflare/runner3-core/wrangler.jsonc
+          fi
