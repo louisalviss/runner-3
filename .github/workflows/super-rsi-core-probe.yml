@@ -1,4 +1,4 @@
-name: Super RSI Core Capability Probe
+name: Private Backtest Capability Probe
 
 on:
   push:
@@ -12,13 +12,21 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+      DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
+      DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
     steps:
-      - name: Check Runner3 Core credential presence
+      - name: Check credential presence without printing values
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${RUNNER3_CORE_TOKEN:-}" ]]; then
-            echo 'RUNNER3_CORE_TOKEN is missing' >&2
-            exit 23
-          fi
-          echo 'RUNNER3_CORE_TOKEN is present'
+          present() { if [[ -n "${!1:-}" ]]; then echo "$1=present"; else echo "$1=missing"; fi; }
+          present RUNNER3_CORE_TOKEN
+          present DROPBOX_ACCESS_TOKEN
+          present DROPBOX_TOKEN
+          present DROPBOX_REFRESH_TOKEN
+          present DROPBOX_APP_KEY
+          present DROPBOX_APP_SECRET
+          [[ -n "${RUNNER3_CORE_TOKEN:-}" ]] || exit 23
