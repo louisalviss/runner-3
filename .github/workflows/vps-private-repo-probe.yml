@@ -1,0 +1,36 @@
+name: VPS Private Repo Access Probe
+
+on:
+  push:
+    paths:
+      - '.github/workflows/vps-private-repo-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe private repository access from VPS
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          TARGET='louisalviss/wave-rider-scanner'
+          if git ls-remote "git@github.com:${TARGET}.git" HEAD >/dev/null 2>&1; then
+            echo 'PRIVATE_REPO_ACCESS=SSH'
+            exit 0
+          fi
+          if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+            if gh repo view "$TARGET" --json name >/dev/null 2>&1; then
+              echo 'PRIVATE_REPO_ACCESS=GH'
+              exit 0
+            fi
+          fi
+          echo 'PRIVATE_REPO_ACCESS=NONE'
+          exit 2
