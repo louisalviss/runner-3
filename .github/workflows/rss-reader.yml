@@ -108,8 +108,18 @@ jobs:
           fi
 
           git commit -m "Update Runner3 RSS mirrors and reconciled render manifests [skip ci]"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          for attempt in 1 2 3 4 5; do
+            echo "persist attempt=$attempt"
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              echo "RSS persistence succeeded on attempt=$attempt"
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          echo "RSS persistence failed after 5 attempts" >&2
+          exit 1
 
       - name: Report RSS operational state to Runner3 Core
         if: always() && steps.checkout.outcome == 'success'
@@ -210,8 +220,16 @@ jobs:
           git add data/rss-reader/analysis-cache-index.json
           git diff --cached --quiet && exit 0
           git commit -m "Update RSS analysis cache pointers [skip ci]"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          for attempt in 1 2 3 4 5; do
+            echo "analysis persistence attempt=$attempt"
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          exit 1
 
       - name: Report selected-analysis outcome
         if: always()
