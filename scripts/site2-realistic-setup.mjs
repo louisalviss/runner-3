@@ -61,16 +61,28 @@ async function gotoAdminHref(page, locator) {
 }
 
 function fixtureRow(page) {
-  // data-slug is not stable for arbitrary uploaded plugins. The plugin title is
-  // controlled by this fixture and remains stable across resumable package folders.
   return page.locator('tr').filter({ hasText: 'Runner3 Site2 Realistic Fixture' });
 }
 
 async function activateRowIfNeeded(page, rows) {
   if (!(await rows.count())) return;
-  const row = rows.first();
-  const activate = row.getByRole('link', { name: /^Activate$/i });
+  const activate = rows.first().getByRole('link', { name: /^Activate$/i });
   if (await activate.count()) await gotoAdminHref(page, activate.first());
+}
+
+async function deactivateFixtureHelper(page) {
+  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  const rows = fixtureRow(page);
+  if (!(await rows.count())) throw new Error('fixture helper missing before cleanup');
+  const deactivate = rows.first().getByRole('link', { name: /^Deactivate$/i });
+  if (await deactivate.count()) await gotoAdminHref(page, deactivate.first());
+
+  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  const postRows = fixtureRow(page);
+  if (!(await postRows.count())) throw new Error('fixture helper disappeared during cleanup');
+  if (await postRows.first().getByRole('link', { name: /^Deactivate$/i }).count()) {
+    throw new Error('fixture helper remained active after cleanup');
+  }
 }
 
 async function ensureFixturePlugin(page) {
@@ -164,6 +176,7 @@ const result = {
   plugin_action: null,
   fixture_message: null,
   frontend: null,
+  fixture_helper_active_after_setup: null,
 };
 
 let browser;
@@ -197,12 +210,15 @@ try {
 
   result.plugin_action = await ensureFixturePlugin(page);
   result.fixture_message = await runFixture(page);
+  await deactivateFixtureHelper(page);
   result.frontend = await verifyFrontend(page);
 
   result.after = compactLiveconfig(await readLiveconfig());
   const plugins = new Set(result.after.active_plugins || []);
+  result.fixture_helper_active_after_setup = plugins.has(fixturePluginSlug);
   if (result.after.active_theme !== 'astra') throw new Error(`expected active theme astra, got ${result.after.active_theme}`);
   if (!plugins.has('woocommerce')) throw new Error('WooCommerce is not active after fixture setup');
+  if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive before baseline');
 
   result.status = 'ready';
   result.completed_at = new Date().toISOString();
