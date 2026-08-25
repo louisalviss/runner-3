@@ -16,6 +16,7 @@ import private_backtest_worker_v2 as core
 def diagnose(req: dict, work: Path) -> dict:
     report_path = work / "report.json"
     csv_path = work / "symbol_summary.csv"
+    work.mkdir(parents=True, exist_ok=True)
     core.download_artifact(req["project"], req["scope"], "final/report.json", report_path)
     core.download_artifact(req["project"], req["scope"], "final/symbol_summary.csv", csv_path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -37,6 +38,26 @@ def diagnose(req: dict, work: Path) -> dict:
     }
 
 
+def patch_runtime_aliases(helper_path: Path, symbol: str) -> None:
+    """Patch known vendor symbol aliases only in the ephemeral repair runtime."""
+    if symbol.upper() != "META":
+        return
+    text = helper_path.read_text(encoding="utf-8")
+    if '"META": "FB"' in text:
+        return
+    needle = '    if not symbol:\n        return None\n    return f"{symbol}.US/USD"'
+    replacement = (
+        '    if not symbol:\n'
+        '        return None\n'
+        '    aliases = {"META": "FB"}\n'
+        '    symbol = aliases.get(symbol, symbol)\n'
+        '    return f"{symbol}.US/USD"'
+    )
+    if needle not in text:
+        raise RuntimeError("unable to apply META->FB runtime alias to helper")
+    helper_path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
 def repair_one(req: dict, symbol: str, work: Path) -> dict:
     pkg_root = work / "pkg"
     helper_dir = work / "helper"
@@ -50,6 +71,7 @@ def repair_one(req: dict, symbol: str, work: Path) -> dict:
     symbol = symbol.upper()
     if symbol not in universe:
         raise ValueError(f"repair symbol not in universe: {symbol}")
+    patch_runtime_aliases(helper_dir / "exp.py", symbol)
     shard_id = universe.index(symbol) % int(req["shards"])
 
     archive = work / f"shard-{shard_id:02d}.tar.gz"
@@ -98,12 +120,12 @@ def repair_one(req: dict, symbol: str, work: Path) -> dict:
     status = json.loads(status_path.read_text(encoding="utf-8"))
     status["failed_symbols"] = [s for s in status.get("failed_symbols", []) if str(s).upper() != symbol]
     status["failed_count"] = len(status["failed_symbols"])
-    status.setdefault("repair", []).append({"symbol": symbol, "completed_at": core.now_iso()})
+    status.setdefault("repair", []).append({"symbol": symbol, "completed_at": core.now_iso(), "runtime_alias": "META->FB" if symbol == "META" else None})
     status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     core.upload_artifact(req["project"], req["scope"], f"shards/shard-{shard_id:02d}.tar.gz", archive, "application/gzip")
     core.upload_artifact(req["project"], req["scope"], f"shards/shard-{shard_id:02d}.json", status_path, "application/json; charset=utf-8")
-    return {"symbol": symbol, "shard": shard_id, "status": "repaired"}
+    return {"symbol": symbol, "shard": shard_id, "status": "repaired", "runtime_alias": "META->FB" if symbol == "META" else None}
 
 
 def main() -> int:
@@ -119,14 +141,14 @@ def main() -> int:
 
     work = Path(tempfile.mkdtemp(prefix="private-bt-repair-"))
     before = diagnose(req, work / "diagnose-before")
-    print(json.dumps({"diagnose_before": before}, ensure_ascii=False))
+    print(json.dumps({"diagnose_before": before}, ensure_ascii=False), flush=True)
 
     candidates = sorted(set(before["missing_ok"]) | set(before["missing_trades"]))
     if len(candidates) != 1:
         raise RuntimeError(f"expected exactly one repair candidate, got {candidates}")
 
     repaired = repair_one(req, candidates[0], work / "repair")
-    print(json.dumps({"repair": repaired}, ensure_ascii=False))
+    print(json.dumps({"repair": repaired}, ensure_ascii=False), flush=True)
 
     exit_code = core.evaluate(SimpleNamespace(request=args.request))
     return exit_code
