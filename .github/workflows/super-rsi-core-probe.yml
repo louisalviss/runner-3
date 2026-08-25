@@ -1,4 +1,4 @@
-name: Private Backtest Capability Probe
+name: Private Backtest Crypto Probe
 
 on:
   push:
@@ -11,22 +11,20 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
-      DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
-      DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
-      DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
-      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
-      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Check credential presence without printing values
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -q 'cryptography>=45,<47'
+      - name: Derive public key only
         shell: bash
         run: |
-          set -euo pipefail
-          present() { if [[ -n "${!1:-}" ]]; then echo "$1=present"; else echo "$1=missing"; fi; }
-          present RUNNER3_CORE_TOKEN
-          present DROPBOX_ACCESS_TOKEN
-          present DROPBOX_TOKEN
-          present DROPBOX_REFRESH_TOKEN
-          present DROPBOX_APP_KEY
-          present DROPBOX_APP_SECRET
-          [[ -n "${RUNNER3_CORE_TOKEN:-}" ]] || exit 23
+          python - <<'PY'
+          import base64,hashlib,os
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+          from cryptography.hazmat.primitives import serialization
+          seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).digest()
+          pub=X25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)
+          print('DERIVED_PUBLIC_KEY='+base64.b64encode(pub).decode())
+          PY
