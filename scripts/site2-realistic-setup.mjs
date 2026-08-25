@@ -48,19 +48,28 @@ function compactLiveconfig(data) {
   };
 }
 
+async function gotoAdminHref(page, locator) {
+  const href = await locator.getAttribute('href');
+  if (!href) throw new Error('WordPress admin action link has no href');
+  const resolved = new URL(href, `${target}/wp-admin/`);
+  if (resolved.host !== expectedHost || !resolved.pathname.startsWith('/wp-admin/')) {
+    throw new Error('WordPress admin action target guard failed');
+  }
+  await page.goto(resolved.href, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+}
+
+async function activateRowIfNeeded(page, row) {
+  const activate = row.getByRole('link', { name: /^Activate$/i });
+  if (await activate.count()) await gotoAdminHref(page, activate.first());
+}
+
 async function ensureFixturePlugin(page) {
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   if (new URL(page.url()).host !== expectedHost) throw new Error('wp-admin target host changed unexpectedly');
 
   let row = page.locator('tr[data-slug="runner3-site2-fixture"]');
   if (await row.count()) {
-    const activate = row.getByRole('link', { name: /^Activate$/i });
-    if (await activate.count()) {
-      await Promise.all([
-        page.waitForLoadState('domcontentloaded'),
-        activate.first().click(),
-      ]);
-    }
+    await activateRowIfNeeded(page, row);
     return 'reused';
   }
 
@@ -68,8 +77,7 @@ async function ensureFixturePlugin(page) {
   const input = page.locator('input[type="file"][name="pluginzip"]');
   await input.waitFor({ state: 'visible', timeout: 30_000 });
   await input.setInputFiles(fixtureZip);
-  const submit = page.locator('#install-plugin-submit');
-  await submit.click();
+  await page.locator('#install-plugin-submit').click();
   await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
 
   const body = await page.locator('body').innerText();
@@ -77,24 +85,17 @@ async function ensureFixturePlugin(page) {
     await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     row = page.locator('tr[data-slug="runner3-site2-fixture"]');
     if (!(await row.count())) throw new Error('fixture plugin folder exists but plugin row is missing');
-    const activate = row.getByRole('link', { name: /^Activate$/i });
-    if (await activate.count()) await activate.first().click();
+    await activateRowIfNeeded(page, row);
     return 'reused';
   }
 
   const activateNow = page.locator('a.button.activate-now, a.button[href*="action=activate"]');
-  if (await activateNow.count()) {
-    await activateNow.first().click();
-    await page.waitForLoadState('domcontentloaded', { timeout: 60_000 }).catch(() => {});
-  }
+  if (await activateNow.count()) await gotoAdminHref(page, activateNow.first());
 
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   row = page.locator('tr[data-slug="runner3-site2-fixture"]');
   if (!(await row.count())) throw new Error('fixture plugin installation did not produce an installed plugin row');
-  if (await row.getByRole('link', { name: /^Activate$/i }).count()) {
-    await row.getByRole('link', { name: /^Activate$/i }).first().click();
-    await page.waitForLoadState('domcontentloaded', { timeout: 60_000 }).catch(() => {});
-  }
+  await activateRowIfNeeded(page, row);
   return 'installed';
 }
 
