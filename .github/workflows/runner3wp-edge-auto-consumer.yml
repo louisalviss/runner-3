@@ -1,12 +1,6 @@
 name: Runner3WP Edge Auto Consumer
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/runner3wp-edge-auto-consumer.yml'
   workflow_dispatch:
 
 permissions:
