@@ -1,5 +1,6 @@
 import legacy from "./rss-wrapper.js";
 import { handleRssLibrary } from "./src/rss-library.js";
+import { handleRssReader } from "./src/rss-reader.js";
 
 const BLOCKED_INCOMPLETE_SOURCE_IDS = new Set([
   "projectsyndicate-url-26a9686e21ebe4fa865d",
@@ -21,9 +22,9 @@ function blockedRestrictedFetch(request, url) {
   }, { status: 409, headers: { "cache-control": "private, no-store" } });
 }
 
-// Preserve the production-proven /v1/rss/* routes while exposing the full
-// private RSS Library API/UI implemented in src/rss-library.js. The legacy
-// /ui/rss entry now points to the protected reader instead of a status-only table.
+// Preserve the production-proven /v1/rss/* and private /api/rss/* routes.
+// The browser reader is a separate read-only surface with its own token and
+// never receives RUNNER3_CORE_TOKEN.
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -34,6 +35,10 @@ export default {
 
     const integrityResponse = blockedRestrictedFetch(request, url);
     if (integrityResponse) return integrityResponse;
+
+    const readerResponse = await handleRssReader(request, env, url);
+    if (readerResponse) return readerResponse;
+
     const rssResponse = await handleRssLibrary(request, env, url);
     if (rssResponse) return rssResponse;
     return legacy.fetch(request, env, ctx);
