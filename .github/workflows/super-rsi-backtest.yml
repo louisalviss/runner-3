@@ -1,0 +1,150 @@
+name: Super RSI Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Profile path'
+        required: true
+        default: 'strategies/super_rsi/profiles/canonical-us-equities-60m-v1.json'
+        type: string
+  push:
+    branches: [super-rsi-backtest-flow]
+    paths:
+      - '.github/workflows/super-rsi-backtest.yml'
+      - 'strategies/super_rsi/**'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: super-rsi-${{ github.ref }}-${{ inputs.profile || 'canonical-us-equities-60m-v1' }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[super-rsi-run]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -q pandas numpy requests dukascopy-python
+
+      - name: Resolve profile and frozen helper
+        id: cfg
+        shell: bash
+        env:
+          INPUT_PROFILE: ${{ inputs.profile }}
+        run: |
+          set -euo pipefail
+          PROFILE="${INPUT_PROFILE:-strategies/super_rsi/profiles/canonical-us-equities-60m-v1.json}"
+          test -f "$PROFILE"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          python3 - "$PROFILE" <<'PY'
+          import json, pathlib, sys
+          p=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print("PROFILE", p["name"])
+          print("STRATEGY", p["strategy_name"])
+          print("ASSET_CLASS", p["asset_class"])
+          print("TIMEFRAME", p["timeframe_minutes"])
+          print("UNIVERSE", len(p["universe"]))
+          pathlib.Path("/tmp/helper-url.txt").write_text(p["frozen_helper"]["url"])
+          PY
+          mkdir -p /tmp/super-rsi-helper
+          curl -fsSL "$(cat /tmp/helper-url.txt)" -o /tmp/super-rsi-helper/exp.py
+
+      - name: Run Super RSI shard
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+          PROFILE: ${{ steps.cfg.outputs.profile }}
+          SUPER_RSI_HELPER_DIR: /tmp/super-rsi-helper
+        run: |
+          set -euo pipefail
+          OUT=/tmp/super-rsi
+          mkdir -p "$OUT"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          profile_path=os.environ["PROFILE"]
+          p=json.loads(pathlib.Path(profile_path).read_text())
+          symbols=list(p["universe"])
+          shard=int(os.environ["SHARD"])
+          mine=[s for i,s in enumerate(symbols) if i%8==shard]
+          print("SHARD", shard, "SYMBOLS", mine, flush=True)
+          for sym in mine:
+              print("START", sym, flush=True)
+              subprocess.run([
+                  "python3", "strategies/super_rsi/backtest.py",
+                  "--profile", profile_path,
+                  "--symbol", sym,
+                  "--out", "/tmp/super-rsi",
+              ], check=True, env=os.environ.copy())
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: super-rsi-shard-${{ matrix.shard }}
+          path: /tmp/super-rsi
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: validate
+    if: always() && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[super-rsi-run]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: super-rsi-shard-*
+          path: /tmp/all
+          merge-multiple: false
+
+      - name: Resolve profile
+        id: cfg
+        shell: bash
+        env:
+          INPUT_PROFILE: ${{ inputs.profile }}
+        run: |
+          set -euo pipefail
+          PROFILE="${INPUT_PROFILE:-strategies/super_rsi/profiles/canonical-us-equities-60m-v1.json}"
+          test -f "$PROFILE"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate
+        env:
+          PROFILE: ${{ steps.cfg.outputs.profile }}
+        run: |
+          mkdir -p /tmp/final
+          python3 strategies/super_rsi/evaluate.py \
+            --profile "$PROFILE" \
+            --input /tmp/all \
+            --out /tmp/final
+          cat /tmp/final/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: super-rsi-final
+          path: /tmp/final
+          retention-days: 30
