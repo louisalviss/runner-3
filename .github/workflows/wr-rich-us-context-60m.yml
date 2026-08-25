@@ -1,0 +1,58 @@
+name: WR Rich US Context 60m
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-rich-us-context-60m.yml'
+      - 'research/wr_rich_us_context_60m_20260825/**'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-rich-us-context-60m-20260825
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas requests dukascopy-python
+      - name: Fetch frozen Dukascopy helper
+        run: |
+          mkdir -p /tmp/wrctx
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrctx/exp.py
+      - name: Probe QQQ and volatility index candidates
+        run: |
+          mkdir -p /tmp/probe
+          python3 - <<'PY'
+          import json,sys,pandas as pd
+          sys.path.insert(0,'/tmp/wrctx')
+          import exp
+          out={'QQQ_resolved':exp.resolve_symbol('QQQ'),'VIX_resolved':exp.resolve_symbol('VIX'),'direct':{}}
+          bid=exp.pick_const(('OFFER_SIDE_BID','PRICE_TYPE_BID','BID'))
+          a=pd.Timestamp('2026-07-01T13:30:00Z'); b=pd.Timestamp('2026-07-02T20:00:00Z')
+          candidates=['VIX.IDX/USD','VOL.IDX/USD','VIX.CMD/USD','VXX.US/USD']
+          for inst in candidates:
+              try:
+                  df=exp.fetch_side(inst,bid,a,b,5)
+                  out['direct'][inst]={'ok':bool(len(df)),'rows':int(len(df))}
+              except Exception as e:
+                  out['direct'][inst]={'ok':False,'rows':0,'error':repr(e)}
+          out['qqq_ok']=bool(out['QQQ_resolved'])
+          open('/tmp/probe/probe.json','w').write(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-rich-us-context-probe
+          path: /tmp/probe
+          retention-days: 30
