@@ -11,6 +11,7 @@ on:
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
       - "scripts/rss_render_inventory.py"
+      - "scripts/rss_kept_manifest.py"
       - "scripts/rss_selected_fetch.py"
       - "scripts/rss_d1_shadow.py"
       - ".github/scripts/runner3_core.py"
@@ -63,6 +64,15 @@ jobs:
           python scripts/rss_render_inventory.py --date "$today" --out data/rss-reader/render-inventory-today.json
           python scripts/rss_render_inventory.py --date "$yesterday" --out data/rss-reader/render-inventory-yesterday.json
 
+      - name: Build reconciled Runner13 kept manifests
+        id: kept_manifest
+        if: always() && steps.render_inventory.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/rss_kept_manifest.py --inventory data/rss-reader/render-inventory-today.json --out data/rss-reader/kept-manifest-today.json
+          python scripts/rss_kept_manifest.py --inventory data/rss-reader/render-inventory-yesterday.json --out data/rss-reader/kept-manifest-yesterday.json
+
       - name: Upload per-run health
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,10 +84,12 @@ jobs:
             data/rss-reader/runtime-health.json
             data/rss-reader/render-inventory-today.json
             data/rss-reader/render-inventory-yesterday.json
+            data/rss-reader/kept-manifest-today.json
+            data/rss-reader/kept-manifest-yesterday.json
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Persist source mirrors, health, and render inventories
+      - name: Persist source mirrors, health, inventories and kept manifests
         if: always() && steps.checkout.outcome == 'success'
         shell: bash
         run: |
@@ -86,18 +98,16 @@ jobs:
           git config user.email "runner3-rss-bot@users.noreply.github.com"
 
           git add data/rss-reader/sources/
-          [[ -f data/rss-reader/health.json ]] && git add data/rss-reader/health.json
-          [[ -f data/rss-reader/substack-health.json ]] && git add data/rss-reader/substack-health.json
-          [[ -f data/rss-reader/runtime-health.json ]] && git add data/rss-reader/runtime-health.json
-          [[ -f data/rss-reader/render-inventory-today.json ]] && git add data/rss-reader/render-inventory-today.json
-          [[ -f data/rss-reader/render-inventory-yesterday.json ]] && git add data/rss-reader/render-inventory-yesterday.json
+          for f in health.json substack-health.json runtime-health.json render-inventory-today.json render-inventory-yesterday.json kept-manifest-today.json kept-manifest-yesterday.json; do
+            [[ -f "data/rss-reader/$f" ]] && git add "data/rss-reader/$f"
+          done
 
           if git diff --cached --quiet; then
-            echo "No RSS mirror, health, or inventory changes"
+            echo "No RSS mirror, health, inventory or kept-manifest changes"
             exit 0
           fi
 
-          git commit -m "Update Runner3 RSS mirrors, health and render inventories [skip ci]"
+          git commit -m "Update Runner3 RSS mirrors and reconciled render manifests [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
 
@@ -105,19 +115,20 @@ jobs:
         if: always() && steps.checkout.outcome == 'success'
         continue-on-error: true
         shell: bash
-        run: |
-          python scripts/rss_d1_shadow.py operational --run-id "${{ github.run_id }}"
+        run: python scripts/rss_d1_shadow.py operational --run-id "${{ github.run_id }}"
 
-      - name: Enforce canonical ingestion and inventory health
+      - name: Enforce canonical ingestion, inventory and kept-manifest health
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           rss_outcome='${{ steps.rss.outcome }}'
           inventory_outcome='${{ steps.render_inventory.outcome }}'
-          echo "rss=$rss_outcome inventory=$inventory_outcome"
+          manifest_outcome='${{ steps.kept_manifest.outcome }}'
+          echo "rss=$rss_outcome inventory=$inventory_outcome kept_manifest=$manifest_outcome"
           [[ "$rss_outcome" == "success" ]]
           [[ "$inventory_outcome" == "success" ]]
+          [[ "$manifest_outcome" == "success" ]]
 
   selected-analysis:
     if: github.event_name == 'push'
@@ -173,15 +184,9 @@ jobs:
         run: |
           set +e
           rm -rf /tmp/rss-analysis-fetch
-          python scripts/rss_selected_fetch.py \
-            --request data/rss-reader/analysis-request.json \
-            --run-id "${{ github.run_id }}" | tee /tmp/rss-analysis-fetch.log
+          python scripts/rss_selected_fetch.py --request data/rss-reader/analysis-request.json --run-id "${{ github.run_id }}" | tee /tmp/rss-analysis-fetch.log
           rc=${PIPESTATUS[0]}
-          if [[ -s /tmp/rss-analysis-fetch/payload.json ]]; then
-            echo "has_payload=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_payload=false" >> "$GITHUB_OUTPUT"
-          fi
+          if [[ -s /tmp/rss-analysis-fetch/payload.json ]]; then echo "has_payload=true" >> "$GITHUB_OUTPUT"; else echo "has_payload=false" >> "$GITHUB_OUTPUT"; fi
           exit "$rc"
 
       - name: Upload selected article payload
@@ -199,17 +204,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f data/rss-reader/analysis-cache-index.json ]]; then
-            echo "No analysis cache index generated"
-            exit 0
-          fi
+          [[ -f data/rss-reader/analysis-cache-index.json ]] || exit 0
           git config user.name "runner3-rss-bot"
           git config user.email "runner3-rss-bot@users.noreply.github.com"
           git add data/rss-reader/analysis-cache-index.json
-          if git diff --cached --quiet; then
-            echo "No analysis cache pointer changes"
-            exit 0
-          fi
+          git diff --cached --quiet && exit 0
           git commit -m "Update RSS analysis cache pointers [skip ci]"
           git pull --rebase origin main
           git push origin HEAD:main
@@ -220,6 +219,4 @@ jobs:
         run: |
           echo "request_exists=${{ steps.request_file.outputs.exists }}"
           echo "selected_fetch=${{ steps.selected_fetch.outcome }}"
-          # Per-item failures are recorded in analysis-cache-index.json.
-          # Partial batch success remains usable and does not fail RSS freshness.
           exit 0
