@@ -1,19 +1,23 @@
 import legacy from "./rss-wrapper.js";
 import { handleRssLibrary } from "./src/rss-library.js";
 import { handleRssReader } from "./src/rss-reader.js";
+import { enrichFetchedArticleImages } from "./src/rss-image-enrich.js";
 
 const BLOCKED_INCOMPLETE_SOURCE_IDS = new Set([
   "projectsyndicate-url-26a9686e21ebe4fa865d",
   "projectsyndicate-url-db223b141f372578df3c",
 ]);
 
-function blockedRestrictedFetch(request, url) {
+function fetchArticleId(request, url) {
   if (request.method !== "POST") return null;
   const match = url.pathname.match(/^\/api\/rss\/articles\/([^/]+)\/fetch$/);
   if (!match) return null;
-  let articleId;
-  try { articleId = decodeURIComponent(match[1]); } catch { return null; }
-  if (!BLOCKED_INCOMPLETE_SOURCE_IDS.has(articleId)) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
+
+function blockedRestrictedFetch(request, url) {
+  const articleId = fetchArticleId(request, url);
+  if (!articleId || !BLOCKED_INCOMPLETE_SOURCE_IDS.has(articleId)) return null;
   return Response.json({
     ok: false,
     error: "INCOMPLETE_RESTRICTED_SOURCE_DIRECT_ONLY",
@@ -39,8 +43,18 @@ export default {
     const readerResponse = await handleRssReader(request, env, url);
     if (readerResponse) return readerResponse;
 
+    const articleId = fetchArticleId(request, url);
     const rssResponse = await handleRssLibrary(request, env, url);
-    if (rssResponse) return rssResponse;
+    if (rssResponse) {
+      if (articleId && rssResponse.ok) {
+        try {
+          await enrichFetchedArticleImages(env, articleId);
+        } catch (error) {
+          console.warn("rss image enrichment failed", articleId, String(error?.message || error));
+        }
+      }
+      return rssResponse;
+    }
     return legacy.fetch(request, env, ctx);
   },
 
