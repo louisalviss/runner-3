@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "standard": "docs/FLOW_STORAGE_STANDARD.md",
+  "control_center": {
+    "kind": "google_sheet",
+    "title": "AI Flow Control Center",
+    "spreadsheet_id": "1w04Z0HavtB36DwsSgKhEtNGJS4wauNCEyjQCY4pXc_A",
+    "sheet": "Flows"
+  },
+  "shared_r2": {
+    "default_bucket": "runner3-artifacts"
+  },
+  "flows": [
+    {
+      "flow_id": "ebook-editorial",
+      "pattern": "full",
+      "d1": {"project": "ebook-editorial", "scope": "book:<book_id>:*"},
+      "r2": {"bucket": "runner3-artifacts", "prefix": "ebooks/<book_id>"},
+      "sheet": {"mode": "projection", "row_key": "ebook-editorial-<book_id>"},
+      "dropbox": {"mode": "human-library-only", "publish": ["overview", "long-context", "sample", "final-deliverable"]}
+    },
+    {
+      "flow_id": "audio-library-tts",
+      "pattern": "full",
+      "d1": {"project": "audio-library-tts", "scope": "<item_id>"},
+      "r2": {"bucket": "runner3-wp-media", "prefix": "audio-library"},
+      "sheet": {"mode": "projection"},
+      "dropbox": {"mode": "optional-human-output"}
+    },
+    {
+      "flow_id": "reddit-deep-sweep",
+      "pattern": "full",
+      "d1": {"project": "reddit-deep-sweep", "scope": "<subreddit>", "custom_index": true},
+      "r2": {"bucket": "runner3-artifacts", "prefix": "reddit/<subreddit>"},
+      "sheet": {"mode": "projection"},
+      "dropbox": {"mode": "optional-digest-only"}
+    },
+    {
+      "flow_id": "rss-reader",
+      "pattern": "lean",
+      "d1": {"project": "rss-reader", "role": "operational-shadow-checkpoint"},
+      "r2": {"mode": "not-required-by-default"},
+      "sheet": {"mode": "optional-projection"},
+      "dropbox": {"mode": "optional-report"}
+    },
+    {
+      "flow_id": "vietnam-news-radar",
+      "pattern": "lean",
+      "d1": {"project": "vietnam-news-radar", "role": "bounded-story-and-f33-ledger"},
+      "r2": {"mode": "only-for-large-raw-archives"},
+      "sheet": {"mode": "optional-projection"},
+      "dropbox": {"mode": "human-report"}
+    },
+    {
+      "flow_id": "opportunity-radar-v2",
+      "pattern": "special",
+      "d1": {"project": "opportunity-radar-v2", "role": "runtime-checkpoint"},
+      "r2": {"mode": "only-for-large-artifacts"},
+      "sheet": {"mode": "decision-layer-plus-projection", "human_decisions_authoritative": true},
+      "dropbox": {"mode": "docs-archive"}
+    },
+    {
+      "flow_id": "wordpress-optimizer",
+      "pattern": "lean",
+      "d1": {"role": "site-run-machine-state"},
+      "r2": {"mode": "use-for-large-proof-artifacts"},
+      "sheet": {"mode": "projection"},
+      "dropbox": {"mode": "human-report-final"}
+    }
+  ]
+}
