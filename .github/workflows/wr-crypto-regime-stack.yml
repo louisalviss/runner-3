@@ -1,6 +1,11 @@
 name: WR Full Crypto Regime Stack
 
 on:
+  push:
+    branches: ['research/wr-crypto-regime-stack-20260825']
+    paths:
+      - 'research/wr_crypto_regime_stack_20260825/**'
+      - '.github/workflows/wr-crypto-regime-stack.yml'
   pull_request:
     branches: [main]
     paths:
