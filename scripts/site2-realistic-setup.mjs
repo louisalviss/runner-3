@@ -114,7 +114,7 @@ async function ensureAstra(page) {
 
 async function ensureStarterTemplates(page) {
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil:'domcontentloaded', timeout:60000 });
-  let row = page.locator('tr[data-slug="astra-sites"], tr').filter({ has:page.locator('a[href*="astra-sites"]') }).first();
+  let row = page.locator('tr[data-slug="astra-sites"]').first();
   if (!(await row.count())) {
     await page.goto(`${target}/wp-admin/plugin-install.php?s=Starter%20Templates&tab=search&type=term`, { waitUntil:'domcontentloaded', timeout:90000 });
     const card = page.locator('.plugin-card-astra-sites').first();
@@ -123,10 +123,13 @@ async function ensureStarterTemplates(page) {
     if (await install.count()) await gotoAdminHref(page, install);
   }
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil:'domcontentloaded', timeout:60000 });
-  row = page.locator('tr[data-slug="astra-sites"], tr').filter({ has:page.locator('a[href*="astra-sites"]') }).first();
+  row = page.locator('tr[data-slug="astra-sites"]').first();
   if (!(await row.count())) throw new Error('Starter Templates plugin missing');
-  const activate = row.getByRole('link', { name:/^Activate$/i });
-  if (await activate.count()) await gotoAdminHref(page, activate.first());
+  let activate = row.locator('a[href*="action=activate"]').first();
+  if (await activate.count()) await gotoAdminHref(page, activate);
+  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil:'domcontentloaded', timeout:60000 });
+  row = page.locator('tr[data-slug="astra-sites"]').first();
+  if (!(await row.locator('a[href*="action=deactivate"]').count())) throw new Error('Starter Templates activation did not persist');
 }
 
 async function clickButton(page, regex, timeout=5000) {
@@ -147,16 +150,19 @@ function authBlocked(text) {
 
 async function importOfficialStarterTemplate(page) {
   await page.goto(`${target}/wp-admin/themes.php?page=starter-templates`, { waitUntil:'domcontentloaded', timeout:120000 });
+  await page.waitForTimeout(5000);
   let body=await page.locator('body').innerText().catch(()=> '');
+  if (/not allowed to access this page/i.test(body)) throw new Error('Starter Templates admin route unavailable after activation');
   if (authBlocked(body)) throw new Error('Starter Templates requires ZipWP authentication');
   await clickButton(page,/Build with Templates/i,12000);
+  await page.waitForTimeout(4000);
   const classic=page.getByText(/Classic Starter Templates/i).first();
-  if (await classic.count() && await classic.isVisible().catch(()=>false)) await classic.click();
+  if (await classic.count() && await classic.isVisible().catch(()=>false)) { await classic.click(); await page.waitForTimeout(7000); }
   body=await page.locator('body').innerText().catch(()=> '');
   if (authBlocked(body)) throw new Error('Classic Starter Templates library requires ZipWP authentication');
   let search=page.locator('input[type="search"]').first();
   if (!(await search.count()) || !(await search.isVisible().catch(()=>false))) search=page.locator('input[placeholder*="Search" i]').first();
-  if (!(await search.count())) throw new Error('Starter Templates search input not found');
+  if (!(await search.count())) throw new Error(`Starter Templates search input not found; page=${page.url()}; body=${body.slice(0,2500)}`);
   await search.fill(templateName);
   await page.waitForTimeout(2500);
   const exact=page.getByText(new RegExp(`^${templateName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')).first();
