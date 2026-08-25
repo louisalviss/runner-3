@@ -1,0 +1,34 @@
+name: Private Backtest Capacity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-backtest-capacity.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-capacity
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Analyze preregistered capital capacity
+        shell: bash
+        run: |
+          SCOPE="$(python -c 'import json; print(json.load(open("jobs/private-backtest-capacity.json"))["scope"])')"
+          python tools/private_backtest_capacity.py --scope "$SCOPE"
