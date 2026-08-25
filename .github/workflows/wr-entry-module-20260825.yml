@@ -1,0 +1,97 @@
+name: WR Breakout Retest Execution Module
+
+on:
+  push:
+    branches:
+      - 'research/wr-entry-module-20260825'
+    paths:
+      - 'research/wr_entry_module_20260825/**'
+      - '.github/workflows/wr-entry-module-20260825.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-entry-module-20260825
+  cancel-in-progress: true
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests dukascopy-python
+      - name: Fetch frozen Dukascopy helper
+        run: |
+          mkdir -p /tmp/wr-entry-helper
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-entry-helper/exp.py
+      - name: Reconstruct parent and score frozen entry variants
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '8'
+          WR_ENTRY_HELPER_DIR: /tmp/wr-entry-helper
+          WR_ENTRY_OUT: /tmp/wr-entry
+        run: |
+          python3 -m py_compile research/wr_entry_module_20260825/run.py
+          python3 research/wr_entry_module_20260825/run.py shard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-entry-module-shard-${{ matrix.shard }}
+          path: /tmp/wr-entry
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests dukascopy-python
+      - name: Fetch frozen Dukascopy helper
+        run: |
+          mkdir -p /tmp/wr-entry-helper
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-entry-helper/exp.py
+      - name: Download shards
+        if: needs.shard.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-entry-module-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge and enforce frozen promotion gates
+        env:
+          WR_ENTRY_HELPER_DIR: /tmp/wr-entry-helper
+          WR_ENTRY_MERGE_ROOT: /tmp/all
+          WR_ENTRY_FINAL_OUT: /tmp/final
+        run: |
+          mkdir -p /tmp/final
+          if [ '${{ needs.shard.result }}' != 'success' ]; then
+            printf '{"status":"INFRASTRUCTURE_BLOCKED","reason":"one_or_more_shards_failed","PASS_WR_EXECUTION_MODULE":false}\n' > /tmp/final/report.json
+            printf '# WR Breakout/Retest Execution Module\n\nINFRASTRUCTURE_BLOCKED: shard failure.\n' > /tmp/final/SUMMARY.md
+          else
+            python3 research/wr_entry_module_20260825/run.py merge
+          fi
+          cat /tmp/final/SUMMARY.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-entry-module-final
+          path: /tmp/final
+          retention-days: 30
+          if-no-files-found: warn
