@@ -1,0 +1,103 @@
+name: IMDb GraphQL Capture Browser
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/imdb_capture_rating_graphql.py'
+      - '.github/workflows/imdb-graphql-capture.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOAKBROWSER_VERSION: '146.0.7680.177.5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl xvfb
+          python -m pip install -q 'cloakbrowser==0.5.3'
+          python -m playwright install-deps chromium
+          CLOAKBROWSER_VERSION="$CLOAKBROWSER_VERSION" python -m cloakbrowser install
+      - name: Build relays
+        run: |
+          mkdir -p /tmp/relays
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64,csv,io,pathlib
+          pref=['TH','SG','JP','KR','VN','MY','PH','ID','TW']
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          out=[]
+          for c in pref:
+            rs=[r for r in rows if (r.get('CountryShort') or '').upper()==c and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+            rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
+            for r in rs[:3]:
+              try: cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+              except Exception: continue
+              cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+              p=pathlib.Path(f'/tmp/relays/{len(out):02d}-{c}.ovpn');p.write_text(cfg);out.append((str(p),c))
+          pathlib.Path('/tmp/relays.tsv').write_text('\n'.join('\t'.join(x) for x in out)+'\n')
+          PY
+      - name: Browser capture
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          PYTHON_BIN=$(command -v python3); RUNNER_USER=$(id -un)
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn
+          sudo ip link set vn netns vpnns
+          sudo ip addr add 10.239.0.1/24 dev vh; sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.239.0.2/24 dev vn
+          sudo ip netns exec vpnns ip link set lo up; sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.239.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.239.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns; printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+          Xvfb :99 -screen 0 1365x900x24 >/tmp/xvfb.log 2>&1 & sleep 1
+          ok=0; n=0
+          while IFS=$'\t' read -r cfg country; do
+            n=$((n+1)); [ "$n" -le 8 ] || break
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true; sleep 1
+            sudo rm -f /tmp/openvpn.log; sudo touch /tmp/openvpn.log; sudo chmod 666 /tmp/openvpn.log
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/openvpn.log || true
+            vpn=0
+            for i in {1..15}; do sleep 1; grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && { vpn=1; break; }; done
+            [ "$vpn" = 1 ] || continue
+            rm -rf imdb_graphql_capture
+            set +e
+            sudo ip netns exec vpnns sudo -u "$RUNNER_USER" env HOME="$HOME" DISPLAY=:99 PATH="$PATH" "$PYTHON_BIN" "$GITHUB_WORKSPACE/scripts/imdb_capture_rating_graphql.py"
+            rc=$?
+            set -e
+            if [ "$rc" = 0 ] && grep -q '"count": 250' imdb_graphql_capture/summary.json 2>/dev/null; then ok=1; echo "$country" > imdb_graphql_capture/vpn_country.txt; break; fi
+          done < /tmp/relays.tsv
+          [ "$ok" = 1 ]
+      - name: Persist
+        if: success()
+        run: |
+          DEST='runner-output/imdb-graphql-capture'; rm -rf "$DEST"; mkdir -p "$DEST"; cp -a imdb_graphql_capture/. "$DEST/"
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$DEST"; git diff --cached --quiet || git commit -m 'Store IMDb GraphQL browser capture [skip ci]'
+          git pull --rebase origin main || true; git push origin HEAD:main
+      - name: Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imdb-graphql-capture-${{ github.run_id }}
+          path: imdb_graphql_capture/
+          retention-days: 3
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo ip netns exec vpnns pkill openvpn 2>/dev/null || true
+          sudo ip netns del vpnns 2>/dev/null || true
