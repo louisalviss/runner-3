@@ -84,9 +84,14 @@ async function deactivateFixtureHelper(page) {
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   const postRows = fixtureRow(page);
   if (!(await postRows.count())) throw new Error('fixture helper disappeared during cleanup');
-  if (await postRows.first().getByRole('link', { name: /^Deactivate$/i }).count()) {
-    throw new Error('fixture helper remained active after cleanup');
-  }
+  const deactivateAfter = postRows.first().getByRole('link', { name: /^Deactivate$/i });
+  if (await deactivateAfter.count()) throw new Error('fixture helper remained active after cleanup');
+  const activateAfter = postRows.first().getByRole('link', { name: /^Activate$/i });
+  if (!(await activateAfter.count())) throw new Error('fixture helper inactive state could not be verified in wp-admin');
+  return {
+    verified_inactive: true,
+    source: 'wp-admin/plugins.php',
+  };
 }
 
 async function ensureFixturePlugin(page) {
@@ -180,7 +185,9 @@ const result = {
   plugin_action: null,
   fixture_message: null,
   frontend: null,
+  fixture_helper_cleanup: null,
   fixture_helper_active_after_setup: null,
+  fixture_helper_liveconfig_active_after_setup: null,
 };
 
 let browser;
@@ -214,12 +221,13 @@ try {
 
   result.plugin_action = await ensureFixturePlugin(page);
   result.fixture_message = await runFixture(page);
-  await deactivateFixtureHelper(page);
+  result.fixture_helper_cleanup = await deactivateFixtureHelper(page);
   result.frontend = await verifyFrontend(page);
 
   result.after = compactLiveconfig(await readLiveconfig());
   const plugins = new Set(result.after.active_plugins || []);
-  result.fixture_helper_active_after_setup = plugins.has(fixturePluginSlug);
+  result.fixture_helper_active_after_setup = !result.fixture_helper_cleanup?.verified_inactive;
+  result.fixture_helper_liveconfig_active_after_setup = plugins.has(fixturePluginSlug);
   if (result.after.active_theme !== 'astra') throw new Error(`expected active theme astra, got ${result.after.active_theme}`);
   if (!plugins.has('woocommerce')) throw new Error('WooCommerce is not active after fixture setup');
   if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive before baseline');
