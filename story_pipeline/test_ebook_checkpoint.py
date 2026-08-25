@@ -15,12 +15,16 @@ class EbookCheckpointTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "book_id": "sample-book",
             "title": "Sample Book",
-            "artifact_store": {"kind": "dropbox", "relative_root": "sample-book"},
+            "artifact_store": {
+                "kind": "r2",
+                "default_bucket": "runner3-artifacts",
+                "prefix": "ebooks/sample-book",
+            },
             "editorial": {
-                "pipeline_version": 1,
+                "pipeline_version": 2,
                 "editor_profile": "gold-standard",
                 "prompt_version": "v1",
                 "story_bible_version": 1,
@@ -57,6 +61,19 @@ class EbookCheckpointTests(unittest.TestCase):
                 artifact_meta_file=self.meta,
                 config_files=[self.config],
             )
+
+    def test_manifest_requires_r2(self):
+        self.assertEqual(ec.require_manifest(self.manifest)["artifact_store"]["kind"], "r2")
+        bad = dict(self.manifest)
+        bad["artifact_store"] = {"kind": "dropbox", "relative_root": "sample-book"}
+        with self.assertRaises(ValueError):
+            ec.require_manifest(bad)
+
+    def test_r2_key_must_stay_under_book_prefix(self):
+        good = ec.require_r2_key(self.manifest, "ebooks/sample-book/chapters/0004.txt", label="artifact")
+        self.assertEqual(good, "ebooks/sample-book/chapters/0004.txt")
+        with self.assertRaises(ValueError):
+            ec.require_r2_key(self.manifest, "ebooks/other-book/0004.txt", label="artifact")
 
     def test_verified_artifact_recovers_missing_checkpoint(self):
         result = self.decision(None)
