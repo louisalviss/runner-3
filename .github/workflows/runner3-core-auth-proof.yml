@@ -1,0 +1,104 @@
+name: Runner3 Core Auth Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-core-auth-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Verify stable required auth, D1 and R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.request
+
+          base = os.environ['RUNNER3_CORE_URL'].rstrip('/')
+          token = os.environ.get('RUNNER3_CORE_TOKEN', '').strip()
+          if not token:
+              raise SystemExit('RUNNER3_CORE_TOKEN secret missing')
+
+          def call(path, method='GET', payload=None, auth=False):
+              body = json.dumps(payload, separators=(',', ':')).encode() if payload is not None else None
+              headers = {'Accept':'application/json','Cache-Control':'no-cache','User-Agent':'runner3-core-auth-proof'}
+              if body is not None:
+                  headers['Content-Type'] = 'application/json'
+              if auth:
+                  headers['Authorization'] = 'Bearer ' + token
+              req = urllib.request.Request(base + path, data=body, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      raw = r.read()
+                      try: parsed = json.loads(raw.decode()) if raw else None
+                      except Exception: parsed = None
+                      return r.status, parsed
+              except urllib.error.HTTPError as e:
+                  raw = e.read()
+                  try: parsed = json.loads(raw.decode()) if raw else None
+                  except Exception: parsed = None
+                  return e.code, parsed
+
+          health_http, health = call('/health')
+          assert health_http == 200, (health_http, health)
+          assert health.get('write_auth') == 'required', health
+          assert health.get('d1') is True and health.get('r2') is True, health
+          assert health.get('artifact_auth') is True, health
+
+          run_id = os.environ.get('GITHUB_RUN_ID', 'manual')
+          unauth_path = f'/checkpoints/runner3-core-auth-proof/unauth-{run_id}'
+          unauth_payload = {'source':'runner3-core-auth-proof','status':'must-not-write','position':{'probe':'unauth'}}
+
+          consecutive_401 = 0
+          observed = []
+          for _ in range(15):
+              status, _ = call(unauth_path, 'PUT', unauth_payload, auth=False)
+              observed.append(status)
+              if status == 401:
+                  consecutive_401 += 1
+                  if consecutive_401 >= 3:
+                      break
+              else:
+                  consecutive_401 = 0
+              time.sleep(1)
+          assert consecutive_401 >= 3, {'unauth_checkpoint_http': observed}
+
+          auth_path = f'/checkpoints/runner3-core-auth-proof/auth-{run_id}'
+          auth_payload = {'source':'runner3-core-auth-proof','status':'success','position':{'probe':'authenticated','run_id':run_id}}
+          status, body = call(auth_path, 'PUT', auth_payload, auth=True)
+          assert status == 200 and body.get('ok') is True, (status, body)
+
+          artifact_path = f'/artifacts/runner3-core-auth-proof/{run_id}/proof.json'
+          artifact_payload = {'kind':'runner3-core-auth-proof','run_id':run_id}
+          status, _ = call(artifact_path, 'HEAD', auth=False)
+          assert status == 401, status
+          status, body = call(artifact_path, 'PUT', artifact_payload, auth=True)
+          assert status == 200 and body.get('ok') is True, (status, body)
+          status, body = call(artifact_path, 'GET', auth=True)
+          assert status == 200 and body == artifact_payload, (status, body)
+
+          event_payload = {'source':'runner3-core-auth-proof','event_type':'auth_proof','payload':{'run_id':run_id,'status':'success'}}
+          status, body = call('/events', 'POST', event_payload, auth=True)
+          assert status == 200 and body.get('ok') is True, (status, body)
+
+          print(json.dumps({
+              'ok': True,
+              'write_auth': health.get('write_auth'),
+              'unauth_checkpoint_http': observed,
+              'authenticated_checkpoint': 200,
+              'unauthenticated_artifact_head': 401,
+              'authenticated_artifact_put_get': 200,
+              'authenticated_event_post': 200,
+          }, indent=2))
+          PY
