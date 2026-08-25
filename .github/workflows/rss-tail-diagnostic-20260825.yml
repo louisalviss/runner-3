@@ -22,6 +22,7 @@ jobs:
       - name: Inspect tail structure without printing article text
         run: |
           set -euo pipefail
+          # Structural diagnostics only: never print article prose.
           python3 - <<'PY'
           import json, os, re, urllib.parse, urllib.request
           base=os.environ['BASE_URL'].rstrip('/')
@@ -65,7 +66,6 @@ jobs:
             'year_paren':r'\((?:19|20)\d{2}[a-z]?\)',
           }
           stats={k:len(re.findall(p,tail,re.I)) for k,p in patterns.items()}
-          # Find earliest position in final 45% where a 3000-char window is citation-heavy.
           dense=None
           start=max(tail_start,int(n*0.55))
           for pos in range(start,n,500):
