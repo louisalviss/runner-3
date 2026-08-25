@@ -1,0 +1,180 @@
+name: Runner3 RSS Library Rollout 2026-08-25
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-rss-rollout-20260825.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-rss-library-rollout-20260825
+  cancel-in-progress: false
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply RSS D1 migrations and deploy Core
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$RUNNER3_CORE_TOKEN"
+          for migration in migrations/*.sql; do
+            echo "Applying ${migration}"
+            npx --yes wrangler@4 d1 execute runner3-core --remote --file="${migration}"
+          done
+          npx --yes wrangler@4 deploy
+
+      - name: Fetch six pilot sources and verify private dual-view API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+
+          base=os.environ['BASE_URL'].rstrip('/')
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          ids=[
+            'projectsyndicate-url-26a9686e21ebe4fa865d',
+            'projectsyndicate-url-db223b141f372578df3c',
+            'genk-165260824141950644',
+            'fulcrum-url-a87e54dbda2e37fe40a7',
+            'tinhte-4171630',
+            'nghiencuuquocte-url-6cd04807aefc80d9be93',
+          ]
+          english=set(ids[:2]+[ids[3]])
+          native_vi=set(ids)-english
+
+          def call(path, method='GET', auth=True):
+            headers={'Accept':'application/json','User-Agent':'runner3-rss-rollout/1.0','Cache-Control':'no-cache'}
+            if auth: headers['Authorization']='Bearer '+token
+            req=urllib.request.Request(base+path,headers=headers,method=method)
+            try:
+              with urllib.request.urlopen(req,timeout=40) as r:
+                raw=r.read().decode('utf-8','replace')
+                try: body=json.loads(raw) if raw else None
+                except Exception: body={'rawPrefix':raw[:500]}
+                return r.status,body
+            except urllib.error.HTTPError as e:
+              raw=e.read().decode('utf-8','replace')
+              try: body=json.loads(raw) if raw else None
+              except Exception: body={'rawPrefix':raw[:500]}
+              return e.code,body
+
+          # Give the just-deployed worker a short convergence window.
+          health=None
+          for _ in range(8):
+            status,body=call('/health',auth=False)
+            if status==200 and isinstance(body,dict) and body.get('ok'):
+              health={'http':status,'ok':True,'d1':body.get('d1'),'r2':body.get('r2')}
+              break
+            time.sleep(2)
+          if not health:
+            raise SystemExit('runner3_core_health_failed_after_rollout')
+
+          status,catalog=call('/api/rss/library?limit=20')
+          if status!=200 or not isinstance(catalog,dict) or not catalog.get('ok'):
+            raise SystemExit(f'rss_private_catalog_failed:{status}:{catalog}')
+          got={x.get('article_id') for x in catalog.get('articles',[])}
+          missing=[x for x in ids if x not in got]
+          if missing:
+            raise SystemExit('rss_seed_missing:'+','.join(missing))
+
+          fetch_results={}
+          for article_id in ids:
+            q=urllib.parse.quote(article_id,safe='')
+            http,body=call(f'/api/rss/articles/{q}/fetch',method='POST')
+            summary={'http':http,'ok':bool(isinstance(body,dict) and body.get('ok'))}
+            if isinstance(body,dict):
+              for key in ('error','checksum','versionId','objectKey','chars','nativeVi'):
+                if key in body: summary[key]=body.get(key)
+            fetch_results[article_id]=summary
+
+          details={}
+          views={}
+          packets={}
+          for article_id in ids:
+            q=urllib.parse.quote(article_id,safe='')
+            http,body=call(f'/api/rss/articles/{q}')
+            article=body.get('article',{}) if isinstance(body,dict) else {}
+            details[article_id]={
+              'http':http,
+              'fetch_status':article.get('fetch_status'),
+              'translation_status':article.get('translation_status'),
+              'source_checksum':article.get('source_checksum'),
+              'translation_checksum':article.get('translation_checksum'),
+              'qa_state':article.get('qa_state'),
+              'last_error':article.get('last_error'),
+            }
+            if article_id in native_vi:
+              vhttp,vbody=call(f'/api/rss/articles/{q}/vi')
+              artifact=vbody.get('artifact',{}) if isinstance(vbody,dict) else {}
+              views[article_id]={
+                'vi_http':vhttp,
+                'nativeVi':vbody.get('nativeVi') if isinstance(vbody,dict) else None,
+                'body_chars':len(str(artifact.get('body') or '')),
+              }
+            else:
+              phttp,pbody=call(f'/api/rss/articles/{q}/translation-packet')
+              packets[article_id]={
+                'http':phttp,
+                'ok':bool(isinstance(pbody,dict) and pbody.get('ok')),
+                'sourceChecksum':pbody.get('sourceChecksum') if isinstance(pbody,dict) else None,
+                'sectionCount':pbody.get('sectionCount') if isinstance(pbody,dict) else None,
+                'error':pbody.get('error') if isinstance(pbody,dict) else None,
+              }
+
+          proof={
+            'checkedAt':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+            'runId':os.environ.get('GITHUB_RUN_ID'),
+            'baseUrl':base,
+            'health':health,
+            'catalogCount':catalog.get('count'),
+            'sixSeedPresent':not missing,
+            'fetch':fetch_results,
+            'details':details,
+            'nativeViViews':views,
+            'translationPackets':packets,
+          }
+          Path('/tmp/rss-library-rollout.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(proof,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Persist rollout proof without article bodies
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/rss-library
+          test -s /tmp/rss-library-rollout.json || printf '{"ok":false,"error":"rollout_proof_missing","runId":"%s"}\n' "$GITHUB_RUN_ID" >/tmp/rss-library-rollout.json
+          cp /tmp/rss-library-rollout.json ops/rss-library/rollout-20260825.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/rss-library/rollout-20260825.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist RSS Library rollout proof: ${GITHUB_RUN_ID} [skip ci]"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
