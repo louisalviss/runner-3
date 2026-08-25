@@ -12,7 +12,6 @@ const browser=await chromium.launch({headless:true,executablePath:chrome,args:['
 const admin=await browser.newPage({viewport:{width:1440,height:1100}});
 await admin.goto(`${target}/?rest_route=/wasmer/v1/magiclogin&magiclogin=${encodeURIComponent(token)}`,{waitUntil:'domcontentloaded',timeout:90000});
 
-// Launch the store using WooCommerce's own Site visibility setting.
 await admin.goto(`${target}/wp-admin/admin.php?page=wc-settings&tab=site-visibility`,{waitUntil:'domcontentloaded',timeout:120000});
 await admin.waitForTimeout(1500);
 const form=admin.locator('form#mainform').first();
@@ -32,41 +31,40 @@ await admin.goto(`${target}/wp-admin/admin.php?page=wc-settings&tab=site-visibil
 const after=await admin.locator('input[name="woocommerce_coming_soon"]').first().inputValue();
 if(after!=='no') throw new Error(`Store did not switch to Live; woocommerce_coming_soon=${after}`);
 
-// Confirm the official Astra-imported Shop remains the WooCommerce-assigned page.
 await admin.goto(`${target}/wp-admin/admin.php?page=wc-settings&tab=products`,{waitUntil:'domcontentloaded',timeout:120000});
 const shopPageId=await admin.locator('#woocommerce_shop_page_id').inputValue();
 if(!shopPageId) throw new Error('WooCommerce Shop page is not assigned');
 
-// Verify from a fresh, unauthenticated visitor context.
 const context=await browser.newContext({viewport:{width:390,height:844}});
 const visitor=await context.newPage();
 const checks={visibility:{before,after},shop_page_id:shopPageId};
-async function visit(path){
-  const r=await visitor.goto(`${target}${path}${path.includes('?')?'&':'?'}__public_verify=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:120000});
+async function visitAbsolute(url,label){
+  const u=new URL(url,target); u.searchParams.set('__public_verify',Date.now());
+  const r=await visitor.goto(u.href,{waitUntil:'domcontentloaded',timeout:120000});
   const text=(await visitor.locator('body').innerText().catch(()=>''))||'';
-  if(!r||r.status()>=400) throw new Error(`Public ${path} HTTP ${r?.status()}`);
-  if(/coming soon/i.test(text.slice(0,1200)) && text.length<2500) throw new Error(`Public ${path} is still behind Coming Soon`);
-  return {status:r.status(),url:visitor.url(),title:await visitor.title(),body_chars:text.length,product_cards:await visitor.locator('li.product, .wc-block-product, .products .product').count(),images:await visitor.locator('main img, #content img, .site-content img').count(),text:text.slice(0,1200)};
+  if(!r||r.status()>=400) throw new Error(`Public ${label} HTTP ${r?.status()}`);
+  if(/coming soon/i.test(text.slice(0,1200)) && text.length<2500) throw new Error(`Public ${label} is still behind Coming Soon`);
+  return {status:r.status(),url:visitor.url(),title:await visitor.title(),body_chars:text.length,product_cards:await visitor.locator('li.product, .wc-block-product, .products .product').count(),images:await visitor.locator('main img, #content img, .site-content img').count(),purchase_actions:await visitor.locator('button[name="add-to-cart"], .single_add_to_cart_button, a.add_to_cart_button').count(),text:text.slice(0,1200)};
 }
+async function visit(path){return visitAbsolute(`${target}${path}`,path);}
+
 checks.home=await visit('/');
 if(checks.home.body_chars<800||checks.home.product_cards<4) throw new Error(`Homepage incomplete: ${JSON.stringify(checks.home)}`);
-const everything=visitor.getByRole('link',{name:/^Everything$/i}).first();
-if(!(await everything.count())) throw new Error('Official Organic Store catalog link “Everything” missing');
-const shopHref=await everything.getAttribute('href');
-if(!shopHref) throw new Error('Official catalog link has no href');
-const shopUrl=new URL(shopHref,target);
-checks.catalog_path=shopUrl.pathname;
-checks.catalog=await visit(shopUrl.pathname);
+
+// Resolve the WooCommerce-assigned shop page canonically; this survives duplicate slugs created by imports.
+const catalogResponse=await visitor.goto(`${target}/?page_id=${encodeURIComponent(shopPageId)}&__public_verify=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:120000});
+if(!catalogResponse||catalogResponse.status()>=400) throw new Error(`Assigned Shop page HTTP ${catalogResponse?.status()}`);
+const catalogUrl=visitor.url();
+checks.catalog_path=new URL(catalogUrl).pathname;
+checks.catalog=await visitAbsolute(catalogUrl,'assigned-shop');
 if(checks.catalog.product_cards<4) throw new Error(`Catalog incomplete: ${JSON.stringify(checks.catalog)}`);
 
 const api=await visitor.request.get(`${target}/?rest_route=/wc/store/v1/products&per_page=100&_=${Date.now()}`);
 const products=await api.json();
 if(!Array.isArray(products)||products.length<20) throw new Error(`Woo Store API product count too small: ${Array.isArray(products)?products.length:'non-array'}`);
 checks.store_api_products=products.length;
-const firstProduct=new URL(products[0].permalink,target);
-checks.product=await visit(firstProduct.pathname);
-const productText=checks.product.text;
-if(!/add to cart|buy product|select options/i.test(productText)) throw new Error('Public product page lacks purchase action');
+checks.product=await visitAbsolute(products[0].permalink,'first-product');
+if(checks.product.purchase_actions<1) throw new Error(`Public product page lacks purchase action: ${JSON.stringify(checks.product)}`);
 
 for(const path of ['/product-category/groceries/','/cart/','/checkout/','/about/','/contact/']) checks[path]=await visit(path);
 if(checks['/product-category/groceries/'].product_cards<2) throw new Error('Groceries category is incomplete');
