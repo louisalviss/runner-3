@@ -61,10 +61,14 @@ async function gotoAdminHref(page, locator) {
 }
 
 function fixtureRow(page) {
-  return page.locator(`tr[data-slug="${fixturePluginSlug}"]`);
+  // data-slug is not stable for arbitrary uploaded plugins. The plugin title is
+  // controlled by this fixture and remains stable across resumable package folders.
+  return page.locator('tr').filter({ hasText: 'Runner3 Site2 Realistic Fixture' });
 }
 
-async function activateRowIfNeeded(page, row) {
+async function activateRowIfNeeded(page, rows) {
+  if (!(await rows.count())) return;
+  const row = rows.first();
   const activate = row.getByRole('link', { name: /^Activate$/i });
   if (await activate.count()) await gotoAdminHref(page, activate.first());
 }
