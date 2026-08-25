@@ -22,13 +22,15 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+import reddit_common as reddit
+
 ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / 'ops/audio-library/chatgpt-bridge-status.json'
 INBOX_DIR = ROOT / 'ops/audio-library/chatgpt-inbox'
 OUTBOX_DIR = ROOT / 'ops/audio-library/chatgpt-outbox'
 MAX_ITEMS = int(os.environ.get('AUDIO_LIBRARY_EXTRACT_MAX_ITEMS', '3'))
 MAX_RAW_CHARS = int(os.environ.get('AUDIO_LIBRARY_MAX_RAW_CHARS', '120000'))
-UA = 'Mozilla/5.0 (compatible; Runner3AudioExtractor/2.1; +https://github.com/louisalviss/runner-3)'
+UA = 'Mozilla/5.0 (compatible; Runner3AudioExtractor/2.2; +https://github.com/louisalviss/runner-3)'
 
 
 def clean_text(text: str) -> str:
@@ -60,142 +62,43 @@ def trim_raw(text: str):
 
 def resolve_url(url: str):
     r = requests.get(url, headers={'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,*/*'}, timeout=35, allow_redirects=True)
-    final = r.url
-    if 'reddit.com' in (urlparse(final).hostname or '').lower() and '/s/' in urlparse(final).path:
-        try:
-            soup = BeautifulSoup(r.text, 'html.parser')
-            canonical = soup.find('link', rel='canonical')
-            if canonical and canonical.get('href'):
-                final = canonical['href']
-        except Exception:
-            pass
-    return final, r
-
-
-def reddit_json_extract(canonical_url: str):
-    base = canonical_url.split('?')[0].rstrip('/')
-    if '/comments/' not in base:
-        raise RuntimeError('Reddit canonical URL did not resolve to comments thread')
-    endpoint = base + '.json?raw_json=1&limit=100&sort=top'
-    r = requests.get(endpoint, headers={'User-Agent': UA, 'Accept': 'application/json'}, timeout=40)
-    if r.status_code != 200:
-        raise RuntimeError(f'Reddit JSON HTTP {r.status_code}')
-    data = r.json()
-    if not isinstance(data, list) or len(data) < 2:
-        raise RuntimeError('Reddit JSON shape invalid')
-    post = data[0]['data']['children'][0]['data']
-    title = clean_text(str(post.get('title') or 'Reddit'))
-    selftext = clean_text(str(post.get('selftext') or ''))
-    comments = []
-
-    def walk(children, depth=0):
-        if depth > 2 or len(comments) >= 120:
-            return
-        for child in children or []:
-            if len(comments) >= 120:
-                return
-            if child.get('kind') != 't1':
-                continue
-            d = child.get('data') or {}
-            body = clean_text(str(d.get('body') or ''))
-            if len(body) >= 40:
-                score = d.get('score')
-                prefix = f'[Comment score {score}] ' if isinstance(score, int) else '[Comment] '
-                comments.append(prefix + body)
-            replies = d.get('replies')
-            if isinstance(replies, dict):
-                walk(((replies.get('data') or {}).get('children') or []), depth + 1)
-
-    walk(((data[1].get('data') or {}).get('children') or []))
-    parts = []
-    if selftext:
-        parts.append('[Post]\n' + selftext)
-    parts.extend(comments)
-    text = clean_text('\n\n'.join(parts))
-    if len(text) < 400:
-        raise RuntimeError('Reddit JSON returned too little useful text')
-    return title, text, 'Reddit'
-
-
-def reddit_rss_extract(canonical_url: str):
-    parsed = urlparse(canonical_url)
-    path = parsed.path.rstrip('/')
-    errors = []
-    for host in ['www.reddit.com', 'old.reddit.com', 'en.reddit.com']:
-        feed_url = f'https://{host}{path}.rss?sort=top&limit=100'
-        try:
-            r = requests.get(feed_url, headers={'User-Agent': UA, 'Accept': 'application/atom+xml,text/xml,*/*'}, timeout=35)
-            if r.status_code != 200 or len(r.text) < 800:
-                errors.append(f'{host}:{r.status_code}/{len(r.text)}')
-                continue
-            soup = BeautifulSoup(r.text, 'xml')
-            title_tag = soup.find('title')
-            title = clean_text(title_tag.get_text(' ', strip=True) if title_tag else 'Reddit')
-            entries = []
-            for entry in soup.find_all('entry')[:100]:
-                content = entry.find('content')
-                if not content:
-                    continue
-                body = BeautifulSoup(content.get_text(' ', strip=True), 'html.parser').get_text(' ', strip=True)
-                body = clean_text(body)
-                if len(body) >= 50:
-                    entries.append(body)
-            text = clean_text('\n\n'.join(entries))
-            if len(text) >= 400:
-                return title, text, 'Reddit'
-            errors.append(f'{host}:thin')
-        except Exception as e:
-            errors.append(f'{host}:{e}')
-    raise RuntimeError('Reddit RSS failed: ' + '; '.join(errors))
-
-
-def reddit_reader_extract(url: str):
-    errors = []
-    for prefix in ['https://r.jina.ai/https://', 'https://r.jina.ai/http://']:
-        target = prefix + url.split('://', 1)[-1]
-        try:
-            r = requests.get(target, headers={'User-Agent': UA, 'Accept': 'text/plain'}, timeout=60)
-            if r.status_code != 200 or len(r.text) < 800:
-                errors.append(f'{r.status_code}/{len(r.text)}')
-                continue
-            raw = r.text
-            title_match = re.search(r'(?mi)^Title:\s*(.+)$', raw)
-            source_match = re.search(r'(?mi)^URL Source:\s*(https?://\S+)', raw)
-            title = clean_text(title_match.group(1)) if title_match else 'Reddit'
-            canonical = source_match.group(1).strip() if source_match else url
-            text = clean_text(raw)
-            # Remove Reader metadata from narration source, but keep the actual Reddit body/comments.
-            text = re.sub(r'(?mi)^(Title|URL Source|Published Time|Markdown Content):\s*.*$', '', text)
-            text = clean_text(text)
-            if len(text) >= 800:
-                return title, text, 'Reddit', canonical
-            errors.append('reader-thin')
-        except Exception as e:
-            errors.append(str(e))
-    raise RuntimeError('Reddit reader fallback failed: ' + '; '.join(errors))
+    return r.url, r
 
 
 def extract_reddit(url: str):
-    canonical, _first = resolve_url(url)
-    json_error = None
-    rss_error = None
-    try:
-        title, text, label = reddit_json_extract(canonical)
-        return title, text, label, canonical
-    except Exception as e:
-        json_error = e
-    try:
-        title, text, label = reddit_rss_extract(canonical)
-        return title, text, label, canonical
-    except Exception as e:
-        rss_error = e
-    try:
-        return reddit_reader_extract(url)
-    except Exception as reader_error:
-        raise RuntimeError(f'Reddit extract failed: JSON={json_error}; RSS={rss_error}; Reader={reader_error}; final={canonical}')
+    canonical, post_id, resolver, post, comments, meta = reddit.read_current_thread(url)
+    title = clean_text(str(post.get('title') or 'Reddit'))
+    selftext = clean_text(str(post.get('selftext') or ''))
+    parts = []
+    if selftext:
+        parts.append('[Post]\n' + selftext)
+
+    kept = 0
+    for row in comments:
+        if kept >= 250:
+            break
+        body = clean_text(str(row.get('body') or ''))
+        if not body or body.lower() in {'[deleted]', '[removed]'} or len(body) < 20:
+            continue
+        depth = int(row.get('depth') or 0)
+        score = row.get('score')
+        if isinstance(score, int):
+            prefix = f'[Comment depth {depth} score {score}] '
+        else:
+            prefix = f'[Comment depth {depth}] '
+        parts.append(prefix + body)
+        kept += 1
+
+    text = clean_text('\n\n'.join(parts))
+    if len(text) < 400:
+        raise RuntimeError(
+            f'Reddit shared acquisition returned too little useful text: '
+            f'via={meta.get("via")} resolver={resolver.get("via")} comments={len(comments)}'
+        )
+    return title, text, 'Reddit', canonical
 
 
-def parse_vtt(text: str):
+def parse_vtt(text: str) -> str:
     out, prev = [], None
     for line in text.splitlines():
         line = re.sub(r'<[^>]+>', '', line).strip()
@@ -294,7 +197,7 @@ def extract_web(url: str):
 
 def extract_source(url: str, work: Path):
     host = (urlparse(url).hostname or '').lower()
-    if 'reddit.com' in host:
+    if host == 'reddit.com' or host.endswith('.reddit.com'):
         return extract_reddit(url)
     if host in {'youtu.be', 'youtube.com', 'www.youtube.com', 'm.youtube.com'} or host.endswith('.youtube.com'):
         return extract_youtube(url, work)
