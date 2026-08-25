@@ -38,7 +38,6 @@ jobs:
               'schedule','push','workflow_dispatch','workflow_run','pull_request',
               'pull_request_target','repository_dispatch'
           )
-          auto_trigger_keys = {'schedule','push','workflow_run','repository_dispatch'}
           write_permissions = (
               'actions','checks','contents','deployments','discussions','id-token',
               'issues','packages','pages','pull-requests','repository-projects',
@@ -56,36 +55,42 @@ jobs:
               r'^MODAL_(?:TOKEN|SECRET)'
           ]
 
-          def refs(text):
+          def secret_refs(text):
               out = set(re.findall(r'secrets\.([A-Za-z0-9_]+)', text))
               out.update(re.findall(r"secrets\[['\"]([A-Za-z0-9_]+)['\"]\]", text))
               return sorted(out)
 
-          def broad(name):
+          def is_broad(name):
               return any(re.search(p, name, re.I) for p in broad_patterns)
+
+          def has_trigger(text, key):
+              return bool(re.search(r'(?m)^\s{2,}' + re.escape(key) + r'\s*:', text))
 
           rows = []
           for path in files:
               text = path.read_text(encoding='utf-8', errors='replace')
-              secret_refs = refs(text)
-              broad_refs = sorted(s for s in secret_refs if broad(s))
-              triggers = [
-                  k for k in trigger_keys
-                  if re.search(r'(?m)^\s{2,}' + re.escape(k) + r'\s*:', text)
-              ]
-              auto_triggers = sorted(set(triggers) & auto_trigger_keys)
+              refs = secret_refs(text)
+              broad = sorted(s for s in refs if is_broad(s))
+              triggers = [k for k in trigger_keys if has_trigger(text, k)]
               writes = sorted({
                   p for p in write_permissions
                   if re.search(r'(?mi)^\s*' + re.escape(p) + r'\s*:\s*write\s*(?:#.*)?$', text)
               })
               git_push = bool(re.search(r'(?m)\bgit\s+push\b', text))
               self_hosted = bool(re.search(r'runs-on\s*:.*self-hosted|\[\s*self-hosted', text, re.I))
-              core_write = bool(re.search(r"/(?:events(?:['\"?]|$)|state/|checkpoints/)", text))
-              core_token = 'RUNNER3_CORE_TOKEN' in secret_refs
+              push_path_filtered = 'push' in triggers and bool(re.search(r'(?m)^\s{4,}(?:paths|paths-ignore)\s*:', text))
 
-              if broad_refs:
+              # Only count Runner3 Core API writes when the workflow also references the
+              # Core hostname/URL variable. This avoids false positives such as
+              # /__runner3/automation/events on unrelated WordPress Workers.
+              core_context = bool(re.search(r'runner3-core\.ducduy2411\.workers\.dev|RUNNER3_CORE_URL|CORE_URL', text))
+              core_write_path = bool(re.search(r"/(?:events(?:['\"?]|$)|state/|checkpoints/)", text))
+              core_write = core_context and core_write_path
+              core_token = 'RUNNER3_CORE_TOKEN' in refs
+
+              if broad:
                   category = 'move_private'
-              elif secret_refs or writes or git_push or 'workflow_run' in triggers or (core_write and not core_token):
+              elif refs or writes or git_push or 'workflow_run' in triggers or (core_write and not core_token):
                   category = 'harden_only'
               else:
                   category = 'keep_public'
@@ -94,28 +99,34 @@ jobs:
                   'file': path.name,
                   'category': category,
                   'triggers': triggers,
-                  'auto_triggers': auto_triggers,
-                  'secret_refs': secret_refs,
-                  'broad_secret_refs': broad_refs,
+                  'secret_refs': refs,
+                  'broad_secret_refs': broad,
                   'write_permissions': writes,
                   'git_push': git_push,
                   'self_hosted': self_hosted,
+                  'push_path_filtered': push_path_filtered,
                   'core_write': core_write,
                   'core_token': core_token,
               })
 
+          broad_rows = [r for r in rows if r['broad_secret_refs']]
+          core_rows = [r for r in rows if r['core_write']]
           summary = {
               'active_workflows': len(rows),
               'with_secret_refs': sum(bool(r['secret_refs']) for r in rows),
-              'with_broad_secret_refs': sum(bool(r['broad_secret_refs']) for r in rows),
+              'with_broad_secret_refs': len(broad_rows),
               'with_write_permissions': sum(bool(r['write_permissions']) for r in rows),
               'with_git_push': sum(r['git_push'] for r in rows),
               'self_hosted': sum(r['self_hosted'] for r in rows),
               'pull_request_target': sum('pull_request_target' in r['triggers'] for r in rows),
-              'runner3_core_write_callers': sum(r['core_write'] for r in rows),
-              'runner3_core_write_missing_token': sum(r['core_write'] and not r['core_token'] for r in rows),
+              'runner3_core_write_callers': len(core_rows),
+              'runner3_core_write_missing_token': sum(not r['core_token'] for r in core_rows),
               'runner3_core_token_consumers': sum('RUNNER3_CORE_TOKEN' in r['secret_refs'] for r in rows),
               'cloudflare_api_token_consumers': sum('CLOUDFLARE_API_TOKEN' in r['secret_refs'] for r in rows),
+              'broad_manual_only': sum(r['triggers'] == ['workflow_dispatch'] for r in broad_rows),
+              'broad_scheduled_or_chained': sum(any(t in r['triggers'] for t in ('schedule','workflow_run','repository_dispatch')) for r in broad_rows),
+              'broad_unfiltered_push': sum('push' in r['triggers'] and not r['push_path_filtered'] for r in broad_rows),
+              'broad_path_filtered_push': sum('push' in r['triggers'] and r['push_path_filtered'] for r in broad_rows),
               'move_private': sum(r['category'] == 'move_private' for r in rows),
               'harden_only': sum(r['category'] == 'harden_only' for r in rows),
               'keep_public': sum(r['category'] == 'keep_public' for r in rows),
@@ -124,11 +135,15 @@ jobs:
               'summary': summary,
               'core_write_callers': [
                   {'file':r['file'], 'token':r['core_token'], 'triggers':r['triggers']}
-                  for r in rows if r['core_write']
+                  for r in core_rows
               ],
-              'broad_secret_auto_triggered': [
-                  {'file':r['file'], 'secrets':r['broad_secret_refs'], 'triggers':r['auto_triggers']}
-                  for r in rows if r['broad_secret_refs'] and r['auto_triggers']
+              'broad_scheduled_or_chained': [
+                  {'file':r['file'], 'secrets':r['broad_secret_refs'], 'triggers':r['triggers']}
+                  for r in broad_rows if any(t in r['triggers'] for t in ('schedule','workflow_run','repository_dispatch'))
+              ],
+              'broad_unfiltered_push': [
+                  {'file':r['file'], 'secrets':r['broad_secret_refs'], 'triggers':r['triggers']}
+                  for r in broad_rows if 'push' in r['triggers'] and not r['push_path_filtered']
               ],
               'self_hosted_with_secrets': [
                   {'file':r['file'], 'secrets':r['secret_refs']}
