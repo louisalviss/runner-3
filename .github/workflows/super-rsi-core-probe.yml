@@ -1,0 +1,24 @@
+name: Super RSI Core Capability Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/super-rsi-core-probe.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Check Runner3 Core credential presence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RUNNER3_CORE_TOKEN:-}" ]]; then
+            echo 'RUNNER3_CORE_TOKEN is missing' >&2
+            exit 23
+          fi
+          echo 'RUNNER3_CORE_TOKEN is present'
