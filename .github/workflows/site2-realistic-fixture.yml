@@ -1,0 +1,169 @@
+name: Site2 Realistic WordPress Fixture
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'fixtures/site2-realistic/**'
+      - 'scripts/site2-realistic-setup.mjs'
+      - '.github/workflows/site2-realistic-fixture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-site2-realistic-fixture
+  cancel-in-progress: false
+
+env:
+  SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
+  WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
+  WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
+  FIXTURE_PLUGIN_SLUG: runner3-site2-fixture-v2
+
+jobs:
+  setup_fixture:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preflight exact Site2 identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 \
+            "$SITE2_URL/?rest_route=/wasmer/v1/liveconfig&__preflight=$(date +%s)" \
+            -o /tmp/site2-before.json
+          SITE2_URL="$SITE2_URL" node -e '
+            const fs=require("fs");
+            const d=JSON.parse(fs.readFileSync("/tmp/site2-before.json","utf8"));
+            const expected=new URL(process.env.SITE2_URL).host;
+            const actual=new URL(d?.wordpress?.url||"").host;
+            if(actual!==expected) throw new Error(`Site2 identity mismatch: ${actual}`);
+            console.log("SITE2_PREFLIGHT_OK", JSON.stringify({url:d.wordpress.url,posts:d.wordpress.posts,pages:d.wordpress.pages}));
+          '
+
+      - name: Build fixture plugin zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="/tmp/site2-fixture/$FIXTURE_PLUGIN_SLUG"
+          mkdir -p "$ROOT"
+          cp fixtures/site2-realistic/runner3-site2-fixture.php \
+            "$ROOT/runner3-site2-fixture.php"
+          cd /tmp/site2-fixture
+          zip -qr "/tmp/$FIXTURE_PLUGIN_SLUG.zip" "$FIXTURE_PLUGIN_SLUG"
+          test -s "/tmp/$FIXTURE_PLUGIN_SLUG.zip"
+
+      - name: Magic-login, build fixture, and verify frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${WASMER_TOKEN:-}" ]; then
+            echo 'WASMER_TOKEN is unavailable'
+            exit 2
+          fi
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          CHROME_PATH="$C" \
+          FIXTURE_ZIP="/tmp/$FIXTURE_PLUGIN_SLUG.zip" \
+          SETUP_OUT=/tmp/site2-realistic-setup.json \
+          node scripts/site2-realistic-setup.mjs
+
+      - name: Persist realistic fixture identity in D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          SOURCE_SHA="$SOURCE_SHA" node -e '
+            const fs=require("fs");
+            const setup=JSON.parse(fs.readFileSync("/tmp/site2-realistic-setup.json","utf8"));
+            if(setup.status!=="ready") throw new Error("setup output is not ready");
+            fs.writeFileSync("/tmp/site2-upsert.json", JSON.stringify({
+              type:"site.upsert",
+              site_id:"site2",
+              name:"Site 2",
+              public_url:process.env.SITE2_URL+"/",
+              origin_url:process.env.SITE2_URL+"/",
+              status:"realistic-fixture",
+              metadata:{
+                fixture:"astra-woo-v1",
+                fixture_plugin_slug:setup.fixture_plugin_slug,
+                theme:"astra",
+                commerce:"woocommerce",
+                fixture_source_sha:process.env.SOURCE_SHA,
+                previous_baseline_run:"site2-baseline-32792586937-1",
+                previous_baseline_scope:"pre-realistic / non-comparable",
+                setup_completed_at:setup.completed_at,
+                frontend:setup.frontend
+              }
+            }));
+            fs.writeFileSync("/tmp/old-baseline-scope.json", JSON.stringify({
+              type:"gate.upsert",
+              run_id:"site2-baseline-32792586937-1",
+              gate_name:"fixture_scope",
+              status:"HISTORICAL",
+              details:{
+                reason:"Baseline predates Astra + WooCommerce realistic fixture and must not be used for post-fixture candidate comparisons.",
+                replaced_by_scope:"astra-woo-v1"
+              }
+            }));
+          '
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/site2-upsert.json
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/old-baseline-scope.json
+
+      - name: Verify D1 and live WordPress shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 \
+            "$SITE2_URL/?rest_route=/wasmer/v1/liveconfig&__verify=$(date +%s)" \
+            -o /tmp/site2-after.json
+          node -e '
+            const fs=require("fs");
+            const d=JSON.parse(fs.readFileSync("/tmp/site2-after.json","utf8"));
+            const themes=d?.wordpress?.themes||[];
+            const plugins=d?.wordpress?.plugins||[];
+            const activeTheme=themes.find(x=>x.status==="active")?.name;
+            const woo=plugins.find(x=>x.name==="woocommerce");
+            if(activeTheme!=="astra") throw new Error(`Astra not active: ${activeTheme}`);
+            if(!woo || !["active","active-network"].includes(woo.status)) throw new Error("WooCommerce not active");
+            console.log("SITE2_REALISTIC_LIVECONFIG_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,posts:d.wordpress.posts,pages:d.wordpress.pages}));
+          '
+          SQL="SELECT site_id,status,json_extract(metadata_json,'$.fixture') AS fixture,json_extract(metadata_json,'$.previous_baseline_scope') AS prior_scope FROM sites WHERE site_id='site2';"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" \
+            | tee /tmp/site2-d1-fixture.json
+          node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync("/tmp/site2-d1-fixture.json","utf8"));
+            const r=p.flatMap(x=>x.results||[])[0];
+            if(!r || r.status!=="realistic-fixture" || r.fixture!=="astra-woo-v1") throw new Error("D1 fixture state mismatch");
+            console.log("SITE2_D1_FIXTURE_OK", JSON.stringify(r));
+          '
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Site2 realistic WordPress fixture'
+            echo
+            echo '- target: `https://runner3-wp-a94b8fd2.wasmer.app/`'
+            echo '- profile: `Astra + WooCommerce + astra-woo-v1 fixture`'
+            echo "- package: \`$FIXTURE_PLUGIN_SLUG\`"
+            if [ -f /tmp/site2-realistic-setup.json ]; then
+              echo '- setup result:'
+              echo '```json'
+              cat /tmp/site2-realistic-setup.json
+              echo '```'
+            fi
+            echo '- old D1 baseline `site2-baseline-32792586937-1` is marked historical/non-comparable after successful setup.'
+          } >> "$GITHUB_STEP_SUMMARY"
