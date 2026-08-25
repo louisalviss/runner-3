@@ -1,0 +1,165 @@
+name: WR Full Crypto Regime Stack
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/wr_crypto_regime_stack_20260825/**'
+      - '.github/workflows/wr-crypto-regime-stack.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-crypto-regime-stack-20260825
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr-crypto-stage1-close-final-corrected
+          path: /tmp/source-full
+          repository: louisalviss/runner-3
+          run-id: 32618199814
+          github-token: ${{ github.token }}
+      - name: Freeze canonical 359-trade parent
+        run: |
+          mkdir -p /tmp/source-slim
+          python3 - <<'PY'
+          import json, pathlib
+          files=list(pathlib.Path('/tmp/source-full').rglob('trades.jsonl'))
+          if len(files)!=1: raise SystemExit(f'trades files={files}')
+          rows=[]
+          for line in files[0].read_text().splitlines():
+              if line.strip():
+                  t=json.loads(line)
+                  if t.get('variant')=='canonical': rows.append(t)
+          if len(rows)!=359: raise SystemExit(f'canonical parent n={len(rows)}')
+          with open('/tmp/source-slim/trades.jsonl','w') as f:
+              for t in rows: f.write(json.dumps(t,separators=(',',':'))+'\n')
+          print('PARENT_FROZEN',len(rows))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-crypto-regime-parent-slim
+          path: /tmp/source-slim
+          retention-days: 30
+
+  benchmark:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr-crypto-regime-parent-slim
+          path: /tmp/source
+      - name: Build causal BTC/ETH/volatility regime
+        env:
+          SOURCE_ROOT: /tmp/source
+          OUT: /tmp/out
+        run: |
+          python3 -m py_compile research/wr_crypto_regime_stack_20260825/crypto_regime_stack.py
+          python3 research/wr_crypto_regime_stack_20260825/crypto_regime_stack.py benchmark
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-crypto-regime-benchmark
+          path: /tmp/out
+          retention-days: 30
+
+  alt:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr-crypto-regime-parent-slim
+          path: /tmp/source
+      - name: Build causal alt breadth/correlation features
+        env:
+          SOURCE_ROOT: /tmp/source
+          OUT: /tmp/out
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '8'
+        run: |
+          python3 -m py_compile research/wr_crypto_regime_stack_20260825/crypto_regime_stack.py
+          python3 research/wr_crypto_regime_stack_20260825/crypto_regime_stack.py shard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-crypto-regime-alt-${{ matrix.shard }}
+          path: /tmp/out
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: [prepare, benchmark, alt]
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests
+      - uses: actions/download-artifact@v4
+        with:
+          name: wr-crypto-regime-parent-slim
+          path: /tmp/source
+      - name: Download benchmark
+        if: needs.benchmark.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-crypto-regime-benchmark
+          path: /tmp/all/benchmark
+      - name: Download alt shards
+        if: needs.alt.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-crypto-regime-alt-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Evaluate frozen six-component regime stack
+        env:
+          SOURCE_ROOT: /tmp/source
+          MERGE_ROOT: /tmp/all
+          FINAL_OUT: /tmp/final
+        run: |
+          mkdir -p /tmp/final
+          if [ '${{ needs.benchmark.result }}' != 'success' ] || [ '${{ needs.alt.result }}' != 'success' ]; then
+            printf '{"status":"INFRASTRUCTURE_BLOCKED","PASS_FULL_CRYPTO_REGIME_WR":false,"reason":"benchmark_or_alt_job_failed"}\n' > /tmp/final/report.json
+            printf '# WR Full Crypto Regime Stack\n\nINFRASTRUCTURE_BLOCKED before evaluation.\n' > /tmp/final/SUMMARY.md
+          else
+            python3 research/wr_crypto_regime_stack_20260825/crypto_regime_stack.py merge
+          fi
+          cat /tmp/final/SUMMARY.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-full-crypto-regime-stack-final
+          path: /tmp/final
+          retention-days: 30
+          if-no-files-found: warn
