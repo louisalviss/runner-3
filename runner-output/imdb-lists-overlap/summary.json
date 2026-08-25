@@ -1,38 +1,30 @@
 {
   "watchlist": {
     "source_url": "https://www.imdb.com/user/ur83495069/watchlist?ref_=ext_shr_lnk",
-    "final_url": "https://www.imdb.com/user/p.b3hgo5f6ynque2jbqvituonlgy/watchlist/?ref_=ext_shr_lnk",
-    "http_status": 202,
-    "reported_total": 591,
-    "captured_unique": 250,
-    "count_history": [
-      0,
-      25,
-      250,
-      250,
-      250,
-      250,
-      250,
-      250
-    ]
+    "reported_total": 589,
+    "captured_unique": 589,
+    "complete": true
   },
   "watched": {
     "source_url": "https://www.imdb.com/list/ls569620232?ref_=ext_shr_lnk",
-    "final_url": "https://www.imdb.com/list/ls569620232?ref_=ext_shr_lnk",
-    "http_status": 200,
-    "reported_total": 464,
-    "captured_unique": 250,
-    "count_history": [
-      250,
-      250,
-      250,
-      250,
-      250,
-      250
-    ]
+    "reported_total": 463,
+    "captured_unique": 463,
+    "complete": true
   },
-  "overlap_count": 0,
-  "overlap_ids": [],
-  "overlap_titles": [],
-  "rule": "Appears in both Watchlist and Đã xem => watched but intentionally retained to wait for a later season/part; verify title-level semantics before write if title is not episodic/franchise-capable."
+  "overlap_count": 2,
+  "overlap_ids": [
+    "tt31510819",
+    "tt11280740"
+  ],
+  "overlap_titles": [
+    "MobLand",
+    "Severance"
+  ],
+  "waiting_next_season_count": 0,
+  "waiting_next_season_titles": [],
+  "overlap_movies_not_auto_tagged": [
+    "MobLand",
+    "Severance"
+  ],
+  "rule": "Overlap is evidence only. Only TV-series overlaps are tagged as watched + waiting for the next season; movie overlaps are not auto-tagged."
 }
