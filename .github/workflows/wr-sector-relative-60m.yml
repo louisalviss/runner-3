@@ -29,20 +29,30 @@ jobs:
         run: |
           mkdir -p /tmp/wrsector
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrsector/exp.py
-      - name: Probe V2 benchmark instrument resolution
+      - name: Probe V3 exact benchmark availability
         run: |
           mkdir -p /tmp/probe
           python3 - <<'PY'
-          import json,sys
+          import json,sys,pandas as pd
           sys.path.insert(0,'/tmp/wrsector')
           import exp
-          syms='SPY XLK VOX XLY XLP XLE XLF XLV XLI XLU VNQ'.split()
-          resolved={s:exp.resolve_symbol(s) for s in syms}
-          ok=all(resolved.values())
-          out={'ok':ok,'version':'V2','resolved':resolved}
+          ordinary='SPY XLK XLY XLP XLE XLF XLV XLI XLU'.split()
+          resolved={s:exp.resolve_symbol(s) for s in ordinary}
+          bid=exp.pick_const(('OFFER_SIDE_BID','PRICE_TYPE_BID','BID'))
+          direct={}
+          a=pd.Timestamp('2026-07-01T13:30:00Z');b=pd.Timestamp('2026-07-02T20:00:00Z')
+          for s in ('XLC','XLRE'):
+            inst=f'{s}.US/USD'
+            try:
+              df=exp.fetch_side(inst,bid,a,b,5)
+              direct[s]={'instrument':inst,'rows':int(len(df)),'ok':bool(len(df))}
+            except Exception as e:
+              direct[s]={'instrument':inst,'rows':0,'ok':False,'error':repr(e)}
+          ok=all(resolved.values()) and all(x['ok'] for x in direct.values())
+          out={'ok':ok,'version':'V3','resolved':resolved,'direct':direct}
           open('/tmp/probe/benchmark-probe.json','w').write(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2))
-          if not ok: raise SystemExit('V2 benchmark resolution failed')
+          if not ok: raise SystemExit('V3 exact benchmark fetch failed')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -78,7 +88,7 @@ jobs:
         run: |
           mkdir -p /tmp/wrsector
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrsector/exp.py
-      - name: Score frozen WR trades with V2 sector-relative context
+      - name: Score frozen WR trades with V3 sector-relative context
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: '8'
@@ -115,7 +125,7 @@ jobs:
         with:
           name: wr-sector-benchmark-probe
           path: /tmp/all/probe
-      - name: Evaluate frozen V2 gates
+      - name: Evaluate frozen V3 gates
         run: |
           mkdir -p /tmp/final
           python3 research/wr_sector_relative_60m_20260825/evaluate.py --input /tmp/all --out /tmp/final
