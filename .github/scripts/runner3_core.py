@@ -28,6 +28,9 @@ def _request_json(method, path, payload=None, *, core_url=None, timeout=15):
         "User-Agent": os.environ.get("RUNNER3_CORE_USER_AGENT", DEFAULT_USER_AGENT),
         "Cache-Control": "no-cache",
     }
+    token = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     if payload is not None:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         headers["Content-Type"] = "application/json"
