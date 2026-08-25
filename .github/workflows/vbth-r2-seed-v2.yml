@@ -1,0 +1,192 @@
+name: VBTH R2 Seed v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vbth-r2-seed-v2.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: vbth-r2-seed-v2
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  R2_BUCKET: runner3-artifacts
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Discover VBTH workflow artifacts and download via curl
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vbth-v2/zips /tmp/vbth-v2/found
+          python - <<'PY'
+          import json, os, re, subprocess, urllib.error, urllib.request
+          from pathlib import Path
+
+          repo=os.environ['GITHUB_REPOSITORY']; token=os.environ['GH_TOKEN']
+          api='https://api.github.com'
+          headers={
+            'Authorization':f'Bearer {token}',
+            'Accept':'application/vnd.github+json',
+            'X-GitHub-Api-Version':'2022-11-28',
+            'User-Agent':'runner3-vbth-seed-v2/1.0',
+          }
+          workflows=[
+            'vbth-full-build.yml','vbth-metruyen-full.yml','vbth-metruyen-full-v2.yml',
+            'vbth-full-matrix.yml','vbth-cn-reference.yml','vbth-tienvuc-tail.yml'
+          ]
+          def get_json(url):
+            r=urllib.request.Request(url,headers=headers)
+            with urllib.request.urlopen(r,timeout=60) as resp: return json.load(resp)
+
+          artifacts={}
+          workflow_probe=[]
+          for wf in workflows:
+            try:
+              runs=get_json(f'{api}/repos/{repo}/actions/workflows/{wf}/runs?per_page=100').get('workflow_runs') or []
+            except urllib.error.HTTPError as exc:
+              workflow_probe.append({'workflow':wf,'error':f'HTTP {exc.code}'})
+              continue
+            workflow_probe.append({'workflow':wf,'runs':len(runs)})
+            for run in runs:
+              rid=int(run['id'])
+              try:
+                rows=get_json(f'{api}/repos/{repo}/actions/runs/{rid}/artifacts?per_page=100').get('artifacts') or []
+              except Exception:
+                continue
+              for a in rows:
+                if not a.get('expired'): artifacts[int(a['id'])]=a
+
+          # Also include any live artifact whose name itself looks VBTH-related.
+          page=1
+          while True:
+            body=get_json(f'{api}/repos/{repo}/actions/artifacts?per_page=100&page={page}')
+            rows=body.get('artifacts') or []
+            for a in rows:
+              if not a.get('expired') and re.search(r'(vbth|vuong|vương|tienvuc|tiênvuc|metruyen|mêtruyện)',str(a.get('name') or ''),re.I):
+                artifacts[int(a['id'])]=a
+            if len(rows)<100: break
+            page+=1
+
+          manifest={'schema':'vbth-artifact-history-v2','workflow_probe':workflow_probe,'artifacts':[]}
+          for aid,a in sorted(artifacts.items(),key=lambda kv:str(kv[1].get('created_at') or ''),reverse=True):
+            out=Path('/tmp/vbth-v2/zips')/f'{aid}.zip'
+            cmd=[
+              'curl','-fL','--retry','2','--retry-all-errors',
+              '-H',f'Authorization: Bearer {token}',
+              '-H','Accept: application/vnd.github+json',
+              '-H','X-GitHub-Api-Version: 2022-11-28',
+              f'{api}/repos/{repo}/actions/artifacts/{aid}/zip','-o',str(out),
+            ]
+            proc=subprocess.run(cmd,text=True,capture_output=True)
+            manifest['artifacts'].append({
+              'id':aid,'name':a.get('name'),'created_at':a.get('created_at'),
+              'size_in_bytes':a.get('size_in_bytes'),'zip':str(out) if proc.returncode==0 else None,
+              'download_rc':proc.returncode,'download_error':proc.stderr[-500:] if proc.returncode else None,
+            })
+          Path('/tmp/vbth-v2/history.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps({'workflow_probe':workflow_probe,'artifact_count':len(artifacts),'downloaded':sum(1 for x in manifest['artifacts'] if x['download_rc']==0)},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Find exact Library hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,zipfile
+          from pathlib import Path
+          targets={
+            'master':('Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub','f09a40ed0dc3dc54593a1e8be3700607575056fb3cb8ad620add9d138bc72685','ebooks/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub',True),
+            'v3':('Vuong_Bai_Tien_Hoa_FULL_Bien_Tap_V3.epub','71bf17e92e7bf75ed67cf5a528b92f9b65193cc9278da0c10ee6b59fbfc6c41f','ebooks/vbth/legacy/Vuong_Bai_Tien_Hoa_FULL_Bien_Tap_V3.epub',False),
+            'gold':('Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub','48ee9ad003eef5678fb398192f80195e86b0cb9c4c86a356ff30b812eb005235','ebooks/vbth/config/gold/Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub',True),
+            'source_index':('SOURCE_INDEX.json','444ad94638de8571322df95157ca427ee3344cc60e8c1e083608ab1903c324da','ebooks/vbth/source/SOURCE_INDEX.json',True),
+            'editorial_sample':('vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt','e15d5eb43b55233f376b918d74a3ab1473fbae253e7aaebd4fd5c916df893cd1','ebooks/vbth/config/vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt',True),
+          }
+          byhash={v[1]:k for k,v in targets.items()}; history=json.load(open('/tmp/vbth-v2/history.json'))
+          found={}; scanned=[]
+          for art in history['artifacts']:
+            zp=art.get('zip'); members=[]
+            if not zp or not Path(zp).is_file(): continue
+            try: z=zipfile.ZipFile(zp)
+            except Exception as exc:
+              scanned.append({'artifact_id':art['id'],'name':art['name'],'zip_error':str(exc)}); continue
+            hits=[]
+            for info in z.infolist():
+              if info.is_dir(): continue
+              data=z.read(info); digest=hashlib.sha256(data).hexdigest(); members.append({'name':info.filename,'bytes':len(data),'sha256':digest})
+              key=byhash.get(digest)
+              if key and key not in found:
+                fn,_,r2key,_=targets[key]; Path('/tmp/vbth-v2/found',fn).write_bytes(data)
+                found[key]={'artifact_id':art['id'],'artifact_name':art['name'],'member':info.filename,'bytes':len(data),'sha256':digest,'r2_key':r2key}; hits.append(key)
+            scanned.append({'artifact_id':art['id'],'name':art['name'],'hits':hits,'members':members[:200]})
+          missing=[k for k in targets if k not in found]
+          report={'schema':'vbth-r2-seed-v2','targets':{k:{'filename':v[0],'sha256':v[1],'r2_key':v[2],'required':v[3]} for k,v in targets.items()},'found':found,'missing':missing,'required_missing':[k for k,v in targets.items() if v[3] and k not in found],'history':history,'scanned':scanned}
+          Path('/tmp/vbth-v2/discovery.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps({'found':found,'missing':missing,'required_missing':report['required_missing']},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Seed exact matches to R2 and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >/tmp/vbth-v2/upload.tsv
+          import json
+          d=json.load(open('/tmp/vbth-v2/discovery.json'))
+          for k,row in d['found'].items(): print('\t'.join([k,d['targets'][k]['filename'],row['r2_key'],row['sha256']]))
+          PY
+          : >/tmp/vbth-v2/r2-proof.jsonl
+          while IFS=$'\t' read -r key fn r2key sha; do
+            [ -n "$key" ] || continue
+            src="/tmp/vbth-v2/found/$fn"; rb="/tmp/vbth-v2/readback-$key"
+            npx --yes wrangler@4 r2 object put "${R2_BUCKET}/${r2key}" --file="$src" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+            npx --yes wrangler@4 r2 object get "${R2_BUCKET}/${r2key}" --file="$rb" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+            actual="$(sha256sum "$rb"|awk '{print $1}')"; test "$actual" = "$sha"
+            printf '{"logical":"%s","r2_key":"%s","sha256":"%s","verified":true}\n' "$key" "$r2key" "$sha" >>/tmp/vbth-v2/r2-proof.jsonl
+          done </tmp/vbth-v2/upload.tsv
+
+      - name: Commit D1 and proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path('.github/scripts').resolve()))
+          from runner3_core import get_checkpoint,save_checkpoint,report_status
+          d=json.load(open('/tmp/vbth-v2/discovery.json')); proofs=[]
+          p=Path('/tmp/vbth-v2/r2-proof.jsonl')
+          if p.exists(): proofs=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
+          verified={x['logical']:x for x in proofs if x.get('verified')}; required={'master','gold','source_index','editorial_sample'}; missing=sorted(required-set(verified)); status='success' if not missing else 'running'
+          pos={'schema_version':2,'phase':'seed-complete' if status=='success' else 'seed-partial','book_id':'vbth','artifact_store':'r2','artifact_bucket':os.environ['R2_BUCKET'],'verified':verified,'required_missing':missing,'discovery_missing':d['missing'],'source':'github-actions-artifact-history-v2','run_id':os.environ['GITHUB_RUN_ID']}
+          save_checkpoint('ebook-editorial','ebook-editorial/vbth',scope='book:vbth:seed',status=status,position=pos,dropbox_path=None,last_error=None if status=='success' else 'legacy artifacts still missing')
+          durable=get_checkpoint('ebook-editorial','book:vbth:seed'); report_status('ebook-editorial/vbth',status,run_id=os.environ['GITHUB_RUN_ID'],detail={'scope':'book:vbth:seed','position':pos})
+          final={**d,'r2_proofs':proofs,'d1_status':status,'d1_checkpoint':durable}; out=Path('ops/ebook/vbth-r2-seed-proof.json'); out.parent.mkdir(parents=True,exist_ok=True); out.write_text(json.dumps(final,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps({'status':status,'verified':sorted(verified),'required_missing':missing},ensure_ascii=False,indent=2))
+          PY
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/ebook/vbth-r2-seed-proof.json
+          git diff --cached --quiet || git commit -m "Persist VBTH R2 seed v2 proof: ${GITHUB_RUN_ID} [skip ci]"
+          for i in 1 2 3 4; do git pull --rebase origin main || true; git push origin HEAD:main && exit 0; sleep 2; done
+          exit 3
