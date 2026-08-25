@@ -1,0 +1,148 @@
+name: Site2 Performance Diagnose
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/site2-performance-diagnose.mjs'
+      - '.github/workflows/site2-performance-diagnose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site2-performance-diagnose-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app/
+  FIXTURE_ID: astra-woo-v1
+  BASELINE_RUN_ID: site2-baseline-32801765874-1
+  WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
+  WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  diagnose:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard Site2 fixture and baseline identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="SELECT s.status,json_extract(s.metadata_json,'$.fixture') AS fixture,(SELECT status FROM optimization_runs WHERE run_id='${BASELINE_RUN_ID}') AS baseline_status FROM sites s WHERE s.site_id='site2';"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" > /tmp/site2-diag-scope.json
+          FIXTURE_ID="$FIXTURE_ID" node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync("/tmp/site2-diag-scope.json","utf8"));
+            const r=p.flatMap(x=>x.results||[])[0];
+            if(!r || r.status!=="realistic-fixture" || r.fixture!==process.env.FIXTURE_ID || r.baseline_status!=="completed") {
+              throw new Error(`diagnostic scope mismatch: ${JSON.stringify(r)}`);
+            }
+            console.log("SITE2_DIAG_SCOPE_OK", JSON.stringify(r));
+          '
+
+      - name: Open D1 diagnosis run
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID="site2-diagnose-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "OPTIMIZER_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          cat >/tmp/run-start.json <<JSON
+          {
+            "type":"run.start",
+            "run_id":"$RUN_ID",
+            "site_id":"site2",
+            "phase":"diagnosis",
+            "baseline_run_id":"$BASELINE_RUN_ID",
+            "workflow_name":"$GITHUB_WORKFLOW",
+            "workflow_run_id":"$GITHUB_RUN_ID",
+            "status":"running",
+            "commit_sha":"$SOURCE_SHA",
+            "metadata":{"fixture":"$FIXTURE_ID","target":"$SITE2_URL","purpose":"identify LCP/resource bottleneck before candidate creation"}
+          }
+          JSON
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/run-start.json
+
+      - name: Browser LCP and resource diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          CHROME_PATH="$C" SITE2_DIAG_OUT=/tmp/site2-diagnose.json node scripts/site2-performance-diagnose.mjs
+
+      - name: Persist diagnostic evidence to D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const d=JSON.parse(fs.readFileSync('/tmp/site2-diagnose.json','utf8'));
+          if(d.status!=='ready') throw new Error('diagnostic result not ready');
+          const details={
+            fixture:process.env.FIXTURE_ID,
+            baseline_run_id:process.env.BASELINE_RUN_ID,
+            navigation:d.navigation,
+            lcp:d.lcp,
+            hero:d.hero,
+            resourceSummary:d.resourceSummary,
+            largestResources:d.largestResources?.slice(0,8),
+            imageCount:d.imageCount,
+            imagesAboveFold:d.imagesAboveFold?.slice(0,8),
+          };
+          fs.writeFileSync('/tmp/diag-gate.json',JSON.stringify({
+            type:'gate.upsert',run_id:process.env.OPTIMIZER_RUN_ID,gate_name:'diagnostic_snapshot',status:'PASS',details
+          }));
+          fs.writeFileSync('/tmp/run-finish.json',JSON.stringify({
+            type:'run.finish',run_id:process.env.OPTIMIZER_RUN_ID,status:'completed',metadata:details
+          }));
+          NODE
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/diag-gate.json
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/run-finish.json
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Site2 performance diagnosis'
+            echo
+            echo "- target: \`$SITE2_URL\`"
+            echo "- fixture: \`$FIXTURE_ID\`"
+            echo "- baseline: \`$BASELINE_RUN_ID\`"
+            echo "- D1 diagnosis run: \`${OPTIMIZER_RUN_ID:-not-opened}\`"
+            if [ -f /tmp/site2-diagnose.json ]; then
+              node -e '
+                const d=require("/tmp/site2-diagnose.json");
+                console.log(`- browser TTFB: ${d.navigation?.ttfbMs ?? "n/a"} ms`);
+                console.log(`- LCP node: ${d.lcp?.tag ?? "n/a"} ${d.lcp?.className ?? ""}`);
+                console.log(`- LCP observed start/render: ${d.lcp?.startTime ?? "n/a"} ms`);
+                console.log(`- hero: ${d.hero?.url ?? "n/a"}`);
+                console.log(`- hero bytes: ${d.hero?.bytes ?? "n/a"}`);
+                console.log(`- hero dimensions: ${d.hero?.naturalWidth ?? "n/a"}x${d.hero?.naturalHeight ?? "n/a"}`);
+              ' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark failed diagnosis
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${OPTIMIZER_RUN_ID:-}" ]; then
+            RUN_ID="$OPTIMIZER_RUN_ID" node -e '
+              const fs=require("fs");
+              fs.writeFileSync("/tmp/diag-failed.json",JSON.stringify({type:"run.finish",run_id:process.env.RUN_ID,status:"failed",metadata:{reason:"Site2 diagnosis workflow failed"}}));
+            '
+            node scripts/wp-optimizer-state.mjs --event-file /tmp/diag-failed.json
+          fi
