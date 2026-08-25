@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "book_id": "lowercase-stable-id",
   "title": "Book title",
   "author": "Author",
@@ -7,16 +7,29 @@
   "chapter_count": 0,
   "source_adapter": "project-specific",
   "artifact_store": {
-    "kind": "dropbox",
-    "root_env": "EBOOK_DROPBOX_ROOT",
-    "default_root": "/Apps/remotely-save/AI/EBOOKS",
-    "relative_root": "lowercase-stable-id"
+    "kind": "r2",
+    "bucket_env": "EBOOK_R2_BUCKET",
+    "default_bucket": "runner3-artifacts",
+    "prefix": "ebooks/lowercase-stable-id"
+  },
+  "human_projection": {
+    "google_sheet": {
+      "title": "AI Flow Control Center",
+      "spreadsheet_id": "1w04Z0HavtB36DwsSgKhEtNGJS4wauNCEyjQCY4pXc_A",
+      "flow_key": "ebook-editorial-lowercase-stable-id"
+    },
+    "dropbox": {
+      "role": "human-library-only",
+      "root": "/Apps/remotely-save/AI/EBOOKS/lowercase-stable-id",
+      "publish": ["overview", "long-context", "sample", "final-deliverable"],
+      "exclude": ["raw", "intermediate", "sidecars", "retries", "qa-temp"]
+    }
   },
   "master": {
     "filename": "master.epub"
   },
   "editorial": {
-    "pipeline_version": 1,
+    "pipeline_version": 2,
     "editor_profile": "gold-standard",
     "prompt_version": "v1",
     "story_bible_version": 1,
