@@ -54,7 +54,9 @@ def dedupe_title_links(page):
         }
         title=title.replace(/^\d+\.\s+/, '').trim();
         const cardText=(card.innerText||'').trim();
-        const isSeries=/\bTV Series\b|\bTV Mini Series\b|\bTV Short\b/i.test(cardText);
+        // IMDb sometimes concatenates metadata as "TV-MATV Series", so do not
+        // require a word boundary before the second "TV" token.
+        const isSeries=/TV Series|TV Mini Series|TV Short/i.test(cardText);
         seen.add(m[1]);
         out.push({id:m[1],title,href:a.href,card_text:cardText,is_series:isSeries});
       }
