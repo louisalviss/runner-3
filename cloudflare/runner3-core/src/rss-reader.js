@@ -44,18 +44,42 @@ function cleanRow(row) {
   };
 }
 
-function trimReaderBody(value) {
+function trimReaderBody(value, sourceKey = "") {
   const text = String(value ?? "").replace(/\r/g, "").trim();
   if (!text) return text;
 
   const lines = text.split("\n");
-  const floor = Math.max(8, Math.floor(lines.length * 0.55));
-  const footerMarker = /^(?:copy link|lấy link|link bài gốc|tags?\s*:|từ khóa\s*:|chủ đề\s*:|bài viết liên quan|bài liên quan|tin liên quan|xem thêm|đọc thêm|có thể bạn quan tâm|bình luận|comments?|share|chia sẻ|newsletter|subscribe|recommended|related (?:articles|posts)|more from|you may also like)\b/i;
+  const floor = Math.max(8, Math.floor(lines.length * 0.50));
+  const genericFooter = /^(?:copy link|lấy link|link bài gốc|tags?\s*:|từ khóa\s*:|chủ đề\s*:|bài viết liên quan|bài liên quan|tin liên quan|xem thêm|đọc thêm|có thể bạn quan tâm|bình luận|comments?|share|chia sẻ|newsletter|subscribe|recommended|related (?:articles|posts)|more from|you may also like)\b/i;
+  const referenceHeading = /^(?:tài liệu tham khảo|tham khảo|nguồn tham khảo|nguồn|chú thích|ghi chú|references?|reference list|bibliography|footnotes?|endnotes?|notes?)\s*:?[\s-]*$/i;
+
   let cut = lines.length;
   for (let i = floor; i < lines.length; i++) {
-    if (footerMarker.test(lines[i].trim())) {
+    const line = lines[i].trim();
+    if (genericFooter.test(line) || referenceHeading.test(line)) {
       cut = i;
       break;
+    }
+  }
+
+  // Nghiên cứu Quốc tế often carries a reference block after the editorial body.
+  // If the heading itself was stripped by extraction, detect a dense citation/URL run
+  // only near the tail, so inline sourcing inside the article is preserved.
+  if (String(sourceKey).toLowerCase() === "nghiencuuquocte" && cut === lines.length) {
+    const tailFloor = Math.max(floor, Math.floor(lines.length * 0.72));
+    const refLike = (line) => {
+      const s = line.trim();
+      return /^https?:\/\/\S+/i.test(s) ||
+        /^\[?\d{1,3}\]?\s*[.)-]\s+/.test(s) ||
+        /(?:doi\.org\/|www\.|https?:\/\/)/i.test(s) ||
+        /\([12][0-9]{3}[a-z]?\)\.?$/.test(s);
+    };
+    for (let i = tailFloor; i < lines.length; i++) {
+      const window = lines.slice(i, Math.min(lines.length, i + 7)).filter((x) => x.trim());
+      if (window.length >= 3 && window.filter(refLike).length >= 3) {
+        cut = i;
+        break;
+      }
     }
   }
 
@@ -115,7 +139,7 @@ async function articleView(env, articleId, kind) {
   const artifact = await readArtifact(env, key);
   if (!artifact) return json({ ok: false, error: "ARTIFACT_MISSING", article: cleanRow(article) }, 500);
 
-  artifact.body = trimReaderBody(artifact.body);
+  artifact.body = trimReaderBody(artifact.body, article.source_key);
   if (kind === "vi" && article.source_language !== "vi" && article.original_object_key) {
     const original = await readArtifact(env, article.original_object_key);
     if (original?.images?.length) artifact.images = original.images;
