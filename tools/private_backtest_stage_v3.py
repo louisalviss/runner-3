@@ -19,6 +19,7 @@ import private_backtest_worker_v2 as core
 
 CRYPTO_SEED_PREFIX = b"runner3-audio-library-chatgpt-bridge-v1\0"
 CRYPTO_INFO = b"runner3-private-backtest-v1"
+DROPBOX_BLOCK_SIZE = 4 * 1024 * 1024
 
 
 def decrypt_compressed(env: dict) -> dict:
@@ -43,6 +44,17 @@ def decrypt_compressed(env: dict) -> dict:
     return payload
 
 
+def dropbox_content_hash(path: Path) -> str:
+    overall = hashlib.sha256()
+    with path.open("rb") as f:
+        while True:
+            block = f.read(DROPBOX_BLOCK_SIZE)
+            if not block:
+                break
+            overall.update(hashlib.sha256(block).digest())
+    return overall.hexdigest()
+
+
 def stage(request_path: Path) -> int:
     env = core.load_envelope(request_path)
     payload = decrypt_compressed(env)
@@ -53,10 +65,17 @@ def stage(request_path: Path) -> int:
         "profile": work / "profile.json",
         "helper": work / "exp.py",
     }
+
     hashes_out = {}
+    source_content_hashes = {}
     for key in ("engine", "evaluator", "profile"):
         spec = payload["sources"][key]
-        hashes_out[key] = core.download_private_source(spec["url"], local[key], spec["sha256"])
+        hashes_out[key] = core.download_private_source(spec["url"], local[key], "")
+        expected = str(spec.get("dropbox_content_hash") or spec.get("sha256") or "").lower()
+        got_content = dropbox_content_hash(local[key])
+        source_content_hashes[key] = got_content
+        if expected and got_content.lower() != expected:
+            raise ValueError(f"Dropbox content hash mismatch for {local[key].name}")
 
     local["helper"].write_bytes(base64.b64decode(payload["helper_b64"]))
     hashes_out["helper"] = core.sha256_file(local["helper"])
@@ -85,6 +104,7 @@ def stage(request_path: Path) -> int:
         "compute_scope": env["scope"],
         "created_at": core.now_iso(),
         "files": files,
+        "source_dropbox_content_hash": source_content_hashes,
         "symbol_timeout_seconds": int(payload.get("symbol_timeout_seconds", 5400)),
         "retries": int(payload.get("retries", 1)),
         "parity_target": payload["parity_target"],
@@ -108,6 +128,7 @@ def stage(request_path: Path) -> int:
                 "artifact_scope": env["scope"],
                 "artifact_name": "manifest.json",
                 "source_sha256": hashes_out,
+                "source_dropbox_content_hash": source_content_hashes,
             },
             "dropbox_path": None,
             "last_error": None,
