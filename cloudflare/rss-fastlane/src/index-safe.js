@@ -4,6 +4,8 @@ const DIRECT_ONLY_HOSTS = Object.freeze({
   projectsyndicate: ["project-syndicate.org"],
   economist: ["economist.com"],
   theatlantic: ["theatlantic.com"],
+  huggingface: ["huggingface.co"],
+  cloudflare: ["cloudflare.com"],
 });
 const MIN_TEXT_CHARS = 600;
 const MAX_TEXT_CHARS = 120000;
@@ -106,7 +108,7 @@ async function directOnlyFetch(request, env, incoming) {
       coverage: "best_accessible",
       chars: Math.min(text.length, MAX_TEXT_CHARS),
     };
-    return json({ ok: true, serviceVersion: "direct-only-2026-08-25.1", requestedCount: 1, fetchedCount: 1, errorCount: 0, fetched: [fetched], errors: [] });
+    return json({ ok: true, serviceVersion: "direct-only-2026-08-25.2", requestedCount: 1, fetchedCount: 1, errorCount: 0, fetched: [fetched], errors: [] });
   } catch (error) {
     const detail = `${error?.name || "Error"}: ${error?.message || error}`;
     return json({ ok: false, error: detail, fetched: [], errors: [{ sourceKey, canonicalUrl, error: detail }] }, 502);
@@ -118,7 +120,12 @@ async function directOnlyFetch(request, env, incoming) {
 export default {
   async fetch(request, env, ctx) {
     const incoming = new URL(request.url);
-    if (request.method === "GET" && incoming.pathname === "/v1/rss/fetch" && incoming.searchParams.get("accessMode") === "direct_only") {
+    const sourceKey = String(incoming.searchParams.get("sourceKey") || "").trim().toLowerCase();
+    if (
+      request.method === "GET" &&
+      incoming.pathname === "/v1/rss/fetch" &&
+      (incoming.searchParams.get("accessMode") === "direct_only" || sourceKey === "huggingface" || sourceKey === "cloudflare")
+    ) {
       return directOnlyFetch(request, env, incoming);
     }
     return app.fetch(request, env, ctx);
