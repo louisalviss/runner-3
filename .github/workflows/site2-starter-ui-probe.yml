@@ -1,18 +1,22 @@
-name: Site2 Starter Templates UI Probe
+name: Site2 Woo Finalize
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'scripts/site2-starter-ui-probe.mjs'
+      - 'scripts/site2-woo-finalize.mjs'
       - '.github/workflows/site2-starter-ui-probe.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: runner3-site2-woo-finalize
+  cancel-in-progress: true
+
 jobs:
-  probe:
+  finalize:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -21,11 +25,11 @@ jobs:
       WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Probe current Starter Templates UI
+      - name: Launch store and verify public demo
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.61.0 >/dev/null
           C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           test -n "$C"
-          CHROME_PATH="$C" node scripts/site2-starter-ui-probe.mjs
+          CHROME_PATH="$C" node scripts/site2-woo-finalize.mjs
