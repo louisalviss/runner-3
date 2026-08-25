@@ -1,4 +1,4 @@
-name: Maintenance - Workflow Security Audit v4
+name: Maintenance - Workflow Security Audit
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: maintenance-workflow-security-audit
@@ -22,8 +22,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
-      - name: Scan every active workflow
+      - name: Audit all active workflows
         shell: bash
         run: |
           set -euo pipefail
@@ -31,224 +32,114 @@ jobs:
           import json, re
           from pathlib import Path
 
-          ROOT = Path('.github/workflows')
-          files = sorted(list(ROOT.glob('*.yml')) + list(ROOT.glob('*.yaml')))
-
-          TRIGGER_KEYS = (
+          root = Path('.github/workflows')
+          files = sorted(list(root.glob('*.yml')) + list(root.glob('*.yaml')))
+          trigger_keys = (
               'schedule','push','workflow_dispatch','workflow_run','pull_request',
               'pull_request_target','repository_dispatch'
           )
-          WRITE_PERMS = (
+          auto_trigger_keys = {'schedule','push','workflow_run','repository_dispatch'}
+          write_permissions = (
               'actions','checks','contents','deployments','discussions','id-token',
               'issues','packages','pages','pull-requests','repository-projects',
               'security-events','statuses'
           )
-
-          # Credentials with account/infra/admin blast radius. These should not live in
-          # the public execution plane unless there is a specific reason.
-          BROAD_SECRET_PATTERNS = [
+          broad_patterns = [
               r'^CLOUDFLARE_(?:API_TOKEN|API_KEY|GLOBAL_API_KEY)$',
               r'^CF_(?:API_TOKEN|API_KEY)$',
               r'^(?:GH|GITHUB)_(?:PAT|PERSONAL_ACCESS_TOKEN)$',
-              r'(?:SSH|SFTP).*PRIVATE.*KEY',
-              r'PRIVATE_KEY',
+              r'(?:SSH|SFTP).*PRIVATE.*KEY', r'PRIVATE_KEY',
               r'(?:^|_)(?:PASSWORD|PASSWD|PASS)$',
-              r'^WASMER_.*TOKEN$',
-              r'^VERCEL_.*TOKEN$',
-              r'^DROPBOX_.*TOKEN$',
-              r'^AWS_.*(?:SECRET|KEY)$',
-              r'^R2_.*(?:SECRET|KEY)$',
+              r'^WASMER_.*TOKEN$', r'^VERCEL_.*TOKEN$', r'^DROPBOX_.*TOKEN$',
+              r'^AWS_.*(?:SECRET|KEY)$', r'^R2_.*(?:SECRET|KEY)$',
               r'^(?:WP|WORDPRESS)_.*(?:PASSWORD|TOKEN)$',
-              r'^MODAL_(?:TOKEN|SECRET)',
+              r'^MODAL_(?:TOKEN|SECRET)'
           ]
 
-          # Scoped workload credential deliberately designed for Runner3 Core.
-          SCOPED_SECRETS = {'RUNNER3_CORE_TOKEN'}
-
-          def cron_interval(expr):
-              parts = expr.split()
-              if len(parts) < 5:
-                  return None
-              minute, hour = parts[0], parts[1]
-              m = re.fullmatch(r'\*/(\d+)', minute)
-              if m and hour == '*':
-                  return int(m.group(1))
-              if minute == '*' and hour == '*':
-                  return 1
-              if hour == '*' and minute.isdigit():
-                  return 60
-              h = re.fullmatch(r'\*/(\d+)', hour)
-              if h and minute.isdigit():
-                  return int(h.group(1)) * 60
-              return None
-
-          def secret_refs(text):
+          def refs(text):
               out = set(re.findall(r'secrets\.([A-Za-z0-9_]+)', text))
               out.update(re.findall(r"secrets\[['\"]([A-Za-z0-9_]+)['\"]\]", text))
               return sorted(out)
 
-          def is_broad_secret(name):
-              return any(re.search(p, name, re.I) for p in BROAD_SECRET_PATTERNS)
+          def broad(name):
+              return any(re.search(p, name, re.I) for p in broad_patterns)
 
           rows = []
           for path in files:
               text = path.read_text(encoding='utf-8', errors='replace')
-              low = text.lower()
-              refs = secret_refs(text)
-              broad = sorted(s for s in refs if is_broad_secret(s))
-              scoped = sorted(s for s in refs if s in SCOPED_SECRETS)
-
-              crons = re.findall(r"cron:\s*['\"]([^'\"]+)['\"]", text)
-              intervals = [x for x in (cron_interval(c) for c in crons) if x is not None]
-              interval = min(intervals) if intervals else None
-
-              nm = re.search(r'(?m)^name:\s*(.+)$', text)
-              name = nm.group(1).strip().strip('"').strip("'") if nm else path.stem
-              triggers = [k for k in TRIGGER_KEYS if re.search(r'(?m)^\s{2,}' + re.escape(k) + r'\s*:', text)]
-
-              write_permissions = sorted({
-                  p for p in WRITE_PERMS
+              secret_refs = refs(text)
+              broad_refs = sorted(s for s in secret_refs if broad(s))
+              triggers = [
+                  k for k in trigger_keys
+                  if re.search(r'(?m)^\s{2,}' + re.escape(k) + r'\s*:', text)
+              ]
+              auto_triggers = sorted(set(triggers) & auto_trigger_keys)
+              writes = sorted({
+                  p for p in write_permissions
                   if re.search(r'(?mi)^\s*' + re.escape(p) + r'\s*:\s*write\s*(?:#.*)?$', text)
               })
-              contents_write = 'contents' in write_permissions
-              github_token = bool(re.search(r'github\.token|GITHUB_TOKEN', text, re.I))
               git_push = bool(re.search(r'(?m)\bgit\s+push\b', text))
-              git_commit = bool(re.search(r'(?m)\bgit\s+commit\b', text))
               self_hosted = bool(re.search(r'runs-on\s*:.*self-hosted|\[\s*self-hosted', text, re.I))
-              path_filter = bool(re.search(r'(?m)^\s+paths(?:-ignore)?\s*:\s*$', text))
-              pr_target = 'pull_request_target' in triggers
-
-              uses = sorted(set(re.findall(r'(?m)^\s*-?\s*uses:\s*([^\s#]+)', text)))
-              third_party = [u for u in uses if not u.startswith('actions/') and not u.startswith('./')]
-              unpinned = [u for u in uses if '@' in u and not re.search(r'@[0-9a-f]{40}$', u)]
-
-              admin_markers = []
-              marker_patterns = {
-                  'cloudflare-api': r'api\.cloudflare\.com',
-                  'wrangler-deploy': r'\bwrangler(?:@\d+)?\s+deploy\b',
-                  'wrangler-d1-write': r'\bwrangler(?:@\d+)?\s+d1\s+(?:create|execute|delete)\b',
-                  'wrangler-r2-write': r'\bwrangler(?:@\d+)?\s+r2\s+(?:bucket|object)\b',
-                  'ssh-or-scp': r'(?m)(?:^|\s)(?:ssh|scp|sftp)\s',
-                  'wasmer-admin': r'\bwasmer\b.*\b(?:deploy|publish|login|token)\b',
-                  'wordpress-admin': r'\bwp\s+(?:plugin|theme|option|user|db|config|core)\b',
-              }
-              for label, pat in marker_patterns.items():
-                  if re.search(pat, text, re.I | re.S):
-                      admin_markers.append(label)
-
               core_write = bool(re.search(r"/(?:events(?:['\"?]|$)|state/|checkpoints/)", text))
-              core_token = 'RUNNER3_CORE_TOKEN' in refs
-              core_write_missing_token = core_write and not core_token
+              core_token = 'RUNNER3_CORE_TOKEN' in secret_refs
 
-              reasons = []
-              category = 'keep_public'
-
-              if pr_target and (refs or write_permissions or github_token):
+              if broad_refs:
                   category = 'move_private'
-                  reasons.append('pull_request_target with credential/write surface')
-
-              if broad:
-                  category = 'move_private'
-                  reasons.append('broad/account credential: ' + ','.join(broad))
-
-              if self_hosted and refs:
-                  category = 'move_private'
-                  reasons.append('self-hosted runner receives secrets')
-
-              if category != 'move_private':
-                  if refs:
-                      category = 'harden_only'
-                      reasons.append('uses scoped/API secret')
-                  if write_permissions:
-                      category = 'harden_only'
-                      reasons.append('write permissions: ' + ','.join(write_permissions))
-                  if git_push:
-                      category = 'harden_only'
-                      reasons.append('git push')
-                  if 'workflow_run' in triggers:
-                      category = 'harden_only'
-                      reasons.append('workflow_run chain')
-                  if core_write_missing_token:
-                      category = 'harden_only'
-                      reasons.append('Runner3 Core write without RUNNER3_CORE_TOKEN ref')
-
-              # Frequency is operational risk, separate from credential classification.
-              operational = []
-              if interval is not None and interval < 15:
-                  operational.append(f'cron~{interval}m')
-              elif interval is not None and interval < 60:
-                  operational.append(f'cron~{interval}m')
-              if unpinned:
-                  operational.append('actions-not-sha-pinned')
+              elif secret_refs or writes or git_push or 'workflow_run' in triggers or (core_write and not core_token):
+                  category = 'harden_only'
+              else:
+                  category = 'keep_public'
 
               rows.append({
                   'file': path.name,
-                  'name': name,
                   'category': category,
-                  'reasons': reasons,
                   'triggers': triggers,
-                  'crons': crons,
-                  'min_interval_minutes': interval,
-                  'secret_refs': refs,
-                  'broad_secret_refs': broad,
-                  'scoped_secret_refs': scoped,
-                  'write_permissions': write_permissions,
-                  'github_token_ref': github_token,
-                  'git_commit': git_commit,
+                  'auto_triggers': auto_triggers,
+                  'secret_refs': secret_refs,
+                  'broad_secret_refs': broad_refs,
+                  'write_permissions': writes,
                   'git_push': git_push,
-                  'push_path_filter': path_filter,
                   'self_hosted': self_hosted,
-                  'admin_markers': admin_markers,
-                  'runner3_core_write': core_write,
-                  'runner3_core_token_ref': core_token,
-                  'runner3_core_write_missing_token': core_write_missing_token,
-                  'third_party_actions': third_party,
-                  'actions_not_sha_pinned': unpinned,
-                  'operational_flags': operational,
+                  'core_write': core_write,
+                  'core_token': core_token,
               })
 
-          rank = {'move_private': 0, 'harden_only': 1, 'keep_public': 2}
-          rows.sort(key=lambda r: (rank[r['category']], r['file']))
           summary = {
               'active_workflows': len(rows),
-              'scheduled': sum(bool(r['crons']) for r in rows),
               'with_secret_refs': sum(bool(r['secret_refs']) for r in rows),
               'with_broad_secret_refs': sum(bool(r['broad_secret_refs']) for r in rows),
               'with_write_permissions': sum(bool(r['write_permissions']) for r in rows),
               'with_git_push': sum(r['git_push'] for r in rows),
               'self_hosted': sum(r['self_hosted'] for r in rows),
               'pull_request_target': sum('pull_request_target' in r['triggers'] for r in rows),
-              'runner3_core_write_callers': sum(r['runner3_core_write'] for r in rows),
-              'runner3_core_write_missing_token': sum(r['runner3_core_write_missing_token'] for r in rows),
+              'runner3_core_write_callers': sum(r['core_write'] for r in rows),
+              'runner3_core_write_missing_token': sum(r['core_write'] and not r['core_token'] for r in rows),
               'runner3_core_token_consumers': sum('RUNNER3_CORE_TOKEN' in r['secret_refs'] for r in rows),
               'cloudflare_api_token_consumers': sum('CLOUDFLARE_API_TOKEN' in r['secret_refs'] for r in rows),
               'move_private': sum(r['category'] == 'move_private' for r in rows),
               'harden_only': sum(r['category'] == 'harden_only' for r in rows),
               'keep_public': sum(r['category'] == 'keep_public' for r in rows),
           }
-          report = {'version': 4, 'summary': summary, 'workflows': rows}
-          Path('/tmp/workflow-audit.json').write_text(
-              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
-          )
-          print(json.dumps(summary, indent=2))
+          focus = {
+              'summary': summary,
+              'core_write_callers': [
+                  {'file':r['file'], 'token':r['core_token'], 'triggers':r['triggers']}
+                  for r in rows if r['core_write']
+              ],
+              'broad_secret_auto_triggered': [
+                  {'file':r['file'], 'secrets':r['broad_secret_refs'], 'triggers':r['auto_triggers']}
+                  for r in rows if r['broad_secret_refs'] and r['auto_triggers']
+              ],
+              'self_hosted_with_secrets': [
+                  {'file':r['file'], 'secrets':r['secret_refs']}
+                  for r in rows if r['self_hosted'] and r['secret_refs']
+              ],
+              'pull_request_target_sensitive': [
+                  {'file':r['file'], 'secrets':r['secret_refs'], 'write_permissions':r['write_permissions']}
+                  for r in rows if 'pull_request_target' in r['triggers'] and (r['secret_refs'] or r['write_permissions'])
+              ],
+          }
+          print('SECURITY_AUDIT_JSON_BEGIN')
+          print(json.dumps(focus, ensure_ascii=False, indent=2))
+          print('SECURITY_AUDIT_JSON_END')
           PY
-
-      - name: Publish audit report
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          repo="$GITHUB_REPOSITORY"
-          path='ops/workflow-audit.json'
-          content="$(base64 -w0 /tmp/workflow-audit.json)"
-          sha="$(gh api "repos/$repo/contents/$path" --jq '.sha' 2>/dev/null || true)"
-          if [ -n "$sha" ]; then
-            gh api --method PUT "repos/$repo/contents/$path" \
-              -f message='Publish workflow security audit v4 [skip ci]' \
-              -f content="$content" -f sha="$sha" >/dev/null
-          else
-            gh api --method PUT "repos/$repo/contents/$path" \
-              -f message='Publish workflow security audit v4 [skip ci]' \
-              -f content="$content" >/dev/null
-          fi
