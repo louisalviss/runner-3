@@ -19,7 +19,8 @@ env:
   SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
   WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
   WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
-  STARTER_TEMPLATE_NAME: Generic eCommerce
+  STARTER_TEMPLATE_NAME: Organic Store
+  STARTER_FIXTURE_ID: astra-starter-organic-store-gutenberg
   LEGACY_FIXTURE_PLUGIN_SLUG: runner3-site2-fixture-v2
 
 jobs:
@@ -74,9 +75,9 @@ jobs:
               public_url:process.env.SITE2_URL+"/", origin_url:process.env.SITE2_URL+"/",
               status:"official-demo-fixture",
               metadata:{
-                fixture:"astra-starter-generic-ecommerce-02",
+                fixture:"astra-starter-organic-store-gutenberg",
                 fixture_source:"official Astra Starter Templates complete-site demo",
-                template:"Generic eCommerce",
+                template:"Organic Store",
                 theme:"astra", commerce:"woocommerce",
                 fixture_source_sha:process.env.SOURCE_SHA,
                 prior_custom_fixture:"astra-woo-v1 / historical / non-comparable",
@@ -87,7 +88,7 @@ jobs:
             for (const run_id of ["site2-baseline-32792586937-1","site2-baseline-32801765874-1"]) {
               fs.writeFileSync(`/tmp/${run_id}.json`, JSON.stringify({
                 type:"gate.upsert", run_id, gate_name:"fixture_scope", status:"HISTORICAL",
-                details:{reason:"Baseline predates official Astra Generic eCommerce complete-site fixture and is non-comparable.",replaced_by_scope:"astra-starter-generic-ecommerce-02"}
+                details:{reason:"Baseline predates official Astra Organic Store complete-site fixture and is non-comparable.",replaced_by_scope:"astra-starter-organic-store-gutenberg"}
               }));
             }
           '
@@ -109,9 +110,10 @@ jobs:
             const plugins=d?.wordpress?.plugins||[];
             const activeTheme=themes.find(x=>x.status==="active")?.name;
             const woo=plugins.find(x=>x.name==="woocommerce");
+            const pages=typeof d.wordpress.pages==="object" ? Number(d.wordpress.pages.count||0) : Number(d.wordpress.pages||0);
             if(activeTheme!=="astra") throw new Error(`Astra not active: ${activeTheme}`);
             if(!woo || !["active","active-network"].includes(woo.status)) throw new Error("WooCommerce not active");
-            if((d.wordpress.pages||0)<3) throw new Error("Official demo page count too small");
+            if(pages<3) throw new Error("Official demo page count too small");
             console.log("SITE2_OFFICIAL_DEMO_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,posts:d.wordpress.posts,pages:d.wordpress.pages}));
           '
           SQL="SELECT site_id,status,json_extract(metadata_json,'$.fixture') AS fixture FROM sites WHERE site_id='site2';"
@@ -119,7 +121,7 @@ jobs:
           node -e '
             const fs=require("fs"); const p=JSON.parse(fs.readFileSync("/tmp/site2-d1.json","utf8"));
             const r=p.flatMap(x=>x.results||[])[0];
-            if(!r || r.status!=="official-demo-fixture" || r.fixture!=="astra-starter-generic-ecommerce-02") throw new Error("D1 fixture mismatch");
+            if(!r || r.status!=="official-demo-fixture" || r.fixture!=="astra-starter-organic-store-gutenberg") throw new Error("D1 fixture mismatch");
           '
 
       - name: Evidence summary
@@ -130,7 +132,7 @@ jobs:
             echo '## Site2 official Astra demo'
             echo '- target: `https://runner3-wp-a94b8fd2.wasmer.app/`'
             echo '- source: official Astra Starter Templates complete-site import'
-            echo '- template: `Generic eCommerce`'
+            echo '- template: `Organic Store` (free, Block Editor library)'
             echo '- no hand-written pages, products, CSS or benchmark content are created by Runner3'
             if [ -f /tmp/site2-realistic-setup.json ]; then
               echo '```json'; cat /tmp/site2-realistic-setup.json; echo '```'
