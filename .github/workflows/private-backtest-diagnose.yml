@@ -1,0 +1,40 @@
+name: Private Backtest Diagnose
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-backtest-diagnose.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Diagnose missing primary symbols
+        run: |
+          python - <<'PY'
+          import json, tempfile
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'tools')
+          import private_backtest_worker_v2 as core
+          from private_backtest_repair import diagnose
+          req = core.load_envelope(Path('jobs/private-backtest-v3.enc.json'))
+          spec = json.loads(Path('jobs/private-backtest-diagnose.json').read_text())
+          if spec.get('scope') != req['scope']:
+              raise SystemExit('scope mismatch')
+          print(json.dumps(diagnose(req, Path(tempfile.mkdtemp(prefix='bt-diagnose-'))), ensure_ascii=False))
+          PY
