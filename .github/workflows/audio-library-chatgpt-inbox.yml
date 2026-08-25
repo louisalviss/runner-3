@@ -8,9 +8,7 @@ on:
       - '.github/workflows/audio-library-chatgpt-inbox.yml'
       - 'scripts/audio_library_extract_for_chatgpt.py'
       - 'scripts/audio_library_extract_for_chatgpt_r2.py'
-      - 'scripts/audio_library_resolve_reddit_via_rxddit.py'
-      - 'scripts/audio_library_resolve_reddit_via_curlx_next.py'
-      - 'scripts/audio_library_resolve_reddit_via_unfurl.py'
+      - 'scripts/reddit_common.py'
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
@@ -57,7 +55,15 @@ jobs:
           set -euo pipefail
           python -m pip install -q -U requests beautifulsoup4 lxml pypdf yt-dlp playwright 'cryptography>=45,<47'
 
-      - name: Read Library, resolve sources, extract raw and encrypt for ChatGPT
+      - name: Validate shared Reddit and Audio Library extractors
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            scripts/reddit_common.py \
+            scripts/audio_library_extract_for_chatgpt.py \
+            scripts/audio_library_extract_for_chatgpt_r2.py
+
+      - name: Read Library and extract raw source for ChatGPT
         id: extract
         continue-on-error: true
         shell: bash
@@ -101,6 +107,7 @@ jobs:
             'discoveryMode':'library-items-read-only-retry-safe',
             'extractOutcome':os.environ.get('EXTRACT_OUTCOME','unknown'),
             'extractExitCode':os.environ.get('EXTRACT_EXIT_CODE',''),
+            'redditAcquisition':'scripts/reddit_common.py',
             'extractor':load('/tmp/audio-chatgpt-inbox-result.json'),
             'extractStderr':stderr,
             'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
