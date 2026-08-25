@@ -1,8 +1,6 @@
 name: Palm 30s TTS
 on:
-  push:
-    paths:
-      - '.github/workflows/palm30-tts.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
