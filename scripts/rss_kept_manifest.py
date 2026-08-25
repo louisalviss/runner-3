@@ -49,7 +49,9 @@ VHH_SIGNAL = [
     "ngân hàng", "fed", "usd", "tỷ giá", "regulation", "công nghệ", "ai"
 ]
 NCQT_EXCLUDE = [r"^mục lục"]
-ATLANTIC_EXCLUDE = [r"/press-releases/", r"^the atlantic announces\b"]
+ATLANTIC_EXCLUDE = [
+    r"/press-releases/", r"^the atlantic announces\b", r"/summer-songs-", r"\bsummer songs\b"
+]
 ATLANTIC_KEEP_URL = [
     r"/technology/", r"/science/", r"/health/", r"/ideas/", r"/politics/", r"/national-security/",
     r"/international/", r"/education/", r"/business/", r"/economy/", r"/climate/"
@@ -100,7 +102,6 @@ def decide(source, item):
     if not item.get("canonicalUrl") or not item.get("title"):
         return False, "invalid item: missing canonicalUrl/title"
 
-    # Canonical keep-default / curated-feed lanes.
     if source in KEEP_DEFAULT:
         if source == "economist" and match_any(text, [r"^subscribe", r"newsletter sign-up"]):
             return False, "non-article subscription/promo surface"
@@ -113,7 +114,7 @@ def decide(source, item):
 
     if source == "theatlantic":
         if match_any(url, ATLANTIC_EXCLUDE) or match_any(title, ATLANTIC_EXCLUDE):
-            return False, "press-release/corporate announcement"
+            return False, "press-release/culture-package/non-canonical surface"
         if match_any(url, ATLANTIC_KEEP_URL) or match_any(text, ATLANTIC_SIGNAL):
             return True, "material tech/science/economy/policy/geopolitics/Ideas/social-analysis signal"
         return False, "culture/profile/lifestyle item without material canonical-lane signal"
@@ -218,12 +219,12 @@ def build(root, inventory_path):
         item["number"] = i
 
     return {
-        "version": 2,
+        "version": 3,
         "scope": "rss-kept-manifest-runner13",
         "date": inv.get("date"),
         "timezone": inv.get("timezone"),
         "windowUtc": inv.get("windowUtc"),
-        "filterPolicyVersion": "2026-08-25-canonical-source-policy-v2",
+        "filterPolicyVersion": "2026-08-25-canonical-source-policy-v3",
         "logicalSourceCount": 15,
         "runnerSourceCount": 13,
         "directSourceCount": 2,
