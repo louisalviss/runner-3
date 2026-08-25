@@ -2,11 +2,13 @@
 """Generic durable checkpoint adapter for long-form ebook editorial pipelines.
 
 House pattern:
-- Dropbox is the canonical artifact store for ebook source/output files.
+- Cloudflare R2 is the canonical machine artifact store for ebook source/output.
 - Runner3 Core + Cloudflare D1 is the durable control plane only.
-- A chapter is DONE only after the output artifact and its metadata sidecar have
-  been created, QA-passed, uploaded/verified by the storage caller, and their
-  hashes are supplied here for the final D1 checkpoint.
+- Google Sheet is the human control/dashboard projection.
+- Dropbox is a human library for long context, samples, and final deliverables.
+- A chapter is DONE only after the output artifact and metadata sidecar are
+  QA-passed, uploaded to R2, read-back verified by the storage caller, and their
+  hashes/keys are supplied here for the final D1 checkpoint.
 - Recovery is allowed only when a sidecar proves that an existing artifact was
   produced from the exact current semantic input. Mere file existence is never
   sufficient to recover/skip.
@@ -73,8 +75,13 @@ def require_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     if not book_id or any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for ch in book_id):
         raise ValueError("book_id must use lowercase a-z, 0-9, '-' or '_'")
     store = manifest.get("artifact_store")
-    if not isinstance(store, dict) or store.get("kind") != "dropbox":
-        raise ValueError("artifact_store.kind must be 'dropbox' for the canonical ebook flow")
+    if not isinstance(store, dict) or store.get("kind") != "r2":
+        raise ValueError("artifact_store.kind must be 'r2' for the canonical ebook flow")
+    if not (store.get("bucket_env") or store.get("default_bucket")):
+        raise ValueError("artifact_store requires bucket_env or default_bucket")
+    prefix = str(store.get("prefix") or "").strip("/")
+    if not prefix:
+        raise ValueError("artifact_store.prefix is required")
     return manifest
 
 
@@ -94,6 +101,28 @@ def chapter_scope(manifest: dict[str, Any], chapter: int) -> str:
     if chapter < 1:
         raise ValueError("chapter must be >= 1")
     return f"book:{manifest['book_id']}:chapter:{chapter:04d}"
+
+
+def artifact_store_info(manifest: dict[str, Any]) -> dict[str, str | None]:
+    store = manifest.get("artifact_store") or {}
+    bucket_env = str(store.get("bucket_env") or "").strip() or None
+    default_bucket = str(store.get("default_bucket") or "").strip() or None
+    return {
+        "kind": "r2",
+        "bucket_env": bucket_env,
+        "bucket": os.getenv(bucket_env) if bucket_env and os.getenv(bucket_env) else default_bucket,
+        "prefix": str(store.get("prefix") or "").strip("/"),
+    }
+
+
+def require_r2_key(manifest: dict[str, Any], key: str, *, label: str) -> str:
+    value = str(key or "").strip().lstrip("/")
+    if not value:
+        raise ValueError(f"{label} is required")
+    prefix = str((manifest.get("artifact_store") or {}).get("prefix") or "").strip("/")
+    if value != prefix and not value.startswith(prefix + "/"):
+        raise ValueError(f"{label} must stay under R2 prefix {prefix!r}")
+    return value
 
 
 def semantic_config_payload(
@@ -285,16 +314,16 @@ def save_chapter_complete(
     source_file: str | Path,
     artifact_file: str | Path,
     artifact_meta_file: str | Path,
-    artifact_dropbox_path: str,
-    artifact_meta_dropbox_path: str,
+    artifact_r2_key: str,
+    artifact_meta_r2_key: str,
     config_files: Iterable[str | Path] = (),
     model: str | None = None,
     recovered: bool = False,
     run_id: str | None = None,
     core_url: str | None = None,
 ) -> dict[str, Any]:
-    if not artifact_dropbox_path.strip() or not artifact_meta_dropbox_path.strip():
-        raise ValueError("Dropbox artifact and sidecar paths are required")
+    artifact_r2_key = require_r2_key(manifest, artifact_r2_key, label="artifact_r2_key")
+    artifact_meta_r2_key = require_r2_key(manifest, artifact_meta_r2_key, label="artifact_meta_r2_key")
     artifact = Path(artifact_file)
     meta_path = Path(artifact_meta_file)
     if not meta_path.is_file():
@@ -311,9 +340,10 @@ def save_chapter_complete(
     if not sidecar_ok or not artifact_digest:
         raise ValueError(f"cannot complete chapter: {sidecar_reason}")
     meta_digest = file_sha256(meta_path)
+    store = artifact_store_info(manifest)
     scope = chapter_scope(manifest, chapter)
     position = {
-        "schema_version": 1,
+        "schema_version": 2,
         "phase": "complete",
         "book_id": manifest["book_id"],
         "chapter": chapter,
@@ -321,9 +351,10 @@ def save_chapter_complete(
         "artifact_sha256": artifact_digest,
         "artifact_meta_sha256": meta_digest,
         "artifact_bytes": artifact.stat().st_size,
-        "artifact_store": "dropbox",
-        "artifact_dropbox_path": artifact_dropbox_path,
-        "artifact_meta_dropbox_path": artifact_meta_dropbox_path,
+        "artifact_store": "r2",
+        "artifact_bucket": store.get("bucket"),
+        "artifact_r2_key": artifact_r2_key,
+        "artifact_meta_r2_key": artifact_meta_r2_key,
         "qa": "pass",
         "recovered": bool(recovered),
         "completed_at": now_iso(),
@@ -335,7 +366,7 @@ def save_chapter_complete(
         scope=scope,
         status="success",
         position=position,
-        dropbox_path=artifact_dropbox_path,
+        dropbox_path=None,
         last_error=None,
         core_url=core_url,
     )
@@ -349,6 +380,8 @@ def save_chapter_complete(
         raise RuntimeError("chapter D1 artifact hash round-trip mismatch")
     if durable_position.get("artifact_meta_sha256") != meta_digest:
         raise RuntimeError("chapter D1 sidecar hash round-trip mismatch")
+    if durable_position.get("artifact_r2_key") != artifact_r2_key:
+        raise RuntimeError("chapter D1 R2 key round-trip mismatch")
     return {"checkpoint": saved, "verified": durable}
 
 
@@ -362,7 +395,7 @@ def save_chapter_failure(
 ) -> dict[str, Any]:
     scope = chapter_scope(manifest, chapter)
     position = {
-        "schema_version": 1,
+        "schema_version": 2,
         "phase": "failed",
         "book_id": manifest["book_id"],
         "chapter": chapter,
@@ -393,8 +426,9 @@ def sync_book_main(
     status = "success" if released and released >= verified_through else "running"
     if prepared_through and edited < prepared_through:
         status = "running"
+    store = artifact_store_info(manifest)
     position = {
-        "schema_version": 1,
+        "schema_version": 2,
         "book_id": manifest["book_id"],
         "title": manifest.get("title"),
         "pipeline_version": state.get("pipeline_version") or (manifest.get("editorial") or {}).get("pipeline_version"),
@@ -404,8 +438,10 @@ def sync_book_main(
         "verified_original_chapters_through": verified_through,
         "story_bible_version": editing.get("story_bible_version") or (manifest.get("editorial") or {}).get("story_bible_version"),
         "next_action": state.get("next_action"),
-        "artifact_store": "dropbox",
-        "artifact_root": (manifest.get("artifact_store") or {}).get("relative_root"),
+        "artifact_store": "r2",
+        "artifact_bucket": store.get("bucket"),
+        "artifact_prefix": store.get("prefix"),
+        "human_projection": manifest.get("human_projection"),
         "git_sha": os.getenv("GITHUB_SHA"),
         "run_id": os.getenv("GITHUB_RUN_ID"),
     }
@@ -416,7 +452,7 @@ def sync_book_main(
         scope=scope,
         status=status,
         position=position,
-        dropbox_path=(manifest.get("artifact_store") or {}).get("relative_root"),
+        dropbox_path=None,
         last_error=None,
         core_url=core_url,
     )
@@ -451,7 +487,7 @@ def main() -> int:
     p = sub.add_parser("status"); add_common(p); p.add_argument("--chapter", type=int, required=True)
     p = sub.add_parser("prepare-sidecar"); add_common(p); p.add_argument("--chapter", type=int, required=True); p.add_argument("--source-file", required=True); p.add_argument("--artifact-file", required=True); p.add_argument("--meta-out", required=True); p.add_argument("--config-file", action="append", default=[]); p.add_argument("--model")
     p = sub.add_parser("decision"); add_common(p); p.add_argument("--chapter", type=int, required=True); p.add_argument("--source-file", required=True); p.add_argument("--artifact-file"); p.add_argument("--artifact-meta-file"); p.add_argument("--config-file", action="append", default=[]); p.add_argument("--model")
-    p = sub.add_parser("complete"); add_common(p); p.add_argument("--chapter", type=int, required=True); p.add_argument("--source-file", required=True); p.add_argument("--artifact-file", required=True); p.add_argument("--artifact-meta-file", required=True); p.add_argument("--artifact-dropbox-path", required=True); p.add_argument("--artifact-meta-dropbox-path", required=True); p.add_argument("--config-file", action="append", default=[]); p.add_argument("--model"); p.add_argument("--recovered", action="store_true")
+    p = sub.add_parser("complete"); add_common(p); p.add_argument("--chapter", type=int, required=True); p.add_argument("--source-file", required=True); p.add_argument("--artifact-file", required=True); p.add_argument("--artifact-meta-file", required=True); p.add_argument("--artifact-r2-key", required=True); p.add_argument("--artifact-meta-r2-key", required=True); p.add_argument("--config-file", action="append", default=[]); p.add_argument("--model"); p.add_argument("--recovered", action="store_true")
     p = sub.add_parser("fail"); add_common(p); p.add_argument("--chapter", type=int, required=True); p.add_argument("--error", required=True)
 
     args = parser.parse_args()
@@ -467,7 +503,7 @@ def main() -> int:
     elif args.command == "decision":
         emit(inspect_resume(manifest, args.chapter, source_file=args.source_file, artifact_file=args.artifact_file, artifact_meta_file=args.artifact_meta_file, config_files=args.config_file, model=args.model, core_url=args.core_url))
     elif args.command == "complete":
-        emit(save_chapter_complete(manifest, args.chapter, source_file=args.source_file, artifact_file=args.artifact_file, artifact_meta_file=args.artifact_meta_file, artifact_dropbox_path=args.artifact_dropbox_path, artifact_meta_dropbox_path=args.artifact_meta_dropbox_path, config_files=args.config_file, model=args.model, recovered=args.recovered, core_url=args.core_url))
+        emit(save_chapter_complete(manifest, args.chapter, source_file=args.source_file, artifact_file=args.artifact_file, artifact_meta_file=args.artifact_meta_file, artifact_r2_key=args.artifact_r2_key, artifact_meta_r2_key=args.artifact_meta_r2_key, config_files=args.config_file, model=args.model, recovered=args.recovered, core_url=args.core_url))
     elif args.command == "fail":
         emit({"ok": True, "checkpoint": save_chapter_failure(manifest, args.chapter, args.error, core_url=args.core_url)})
     return 0
