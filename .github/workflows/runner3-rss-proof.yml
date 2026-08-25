@@ -29,7 +29,8 @@ jobs:
           curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/v1/rss/articles?limit=10" -o /tmp/articles.json
           curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/v1/rss/articles?q=TeamViewer" -o /tmp/search.json
           curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/ui/rss" -o /tmp/rss.html
-          body_http="$(curl -sS -o /tmp/body.json -w '%{http_code}' "$BASE_URL/v1/rss/article?id=genk-165260824141950644&lang=original")"
+          BODY_HTTP="$(curl -sS -o /tmp/body.json -w '%{http_code}' "$BASE_URL/v1/rss/article?id=genk-165260824141950644&lang=original")"
+          export BODY_HTTP
 
           python3 - <<'PY'
           import json, os, pathlib
@@ -60,5 +61,3 @@ jobs:
           if not result['ok']:
             raise SystemExit('rss_library_proof_failed')
           PY
-        env:
-          BODY_HTTP: ${{ steps.body.outputs.http }}
