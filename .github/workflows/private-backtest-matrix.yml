@@ -56,8 +56,8 @@ jobs:
           cache: pip
       - name: Install frozen backtest runtime
         run: python -m pip install --disable-pip-version-check -q 'dukascopy-python==4.0.1' 'numpy>=1.26,<3' 'pandas>=2.1,<3'
-      - name: Run private shard
-        run: python tools/private_backtest_worker_v2.py shard --request jobs/private-backtest-v3.enc.json --shard '${{ matrix.shard }}'
+      - name: Run private shard with strict summary validation
+        run: python tools/private_backtest_shard_strict.py --request jobs/private-backtest-v3.enc.json --shard '${{ matrix.shard }}'
 
   evaluate:
     name: merge-and-evaluate
