@@ -25,6 +25,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'scripts/reddit_common.py'
       - 'scripts/reddit_deep_sweep.py'
       - 'scripts/reddit_deep_sweep_cloudflare.py'
       - '.github/workflows/reddit-deep-sweep.yml'
@@ -68,7 +69,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/reddit_deep_sweep.py scripts/reddit_deep_sweep_cloudflare.py
+          python3 -m py_compile \
+            scripts/reddit_common.py \
+            scripts/reddit_deep_sweep.py \
+            scripts/reddit_deep_sweep_cloudflare.py
 
       - name: Prepare run
         id: prep
@@ -193,7 +197,7 @@ jobs:
               data = json.dumps(payload).encode() if payload is not None else None
               headers = {
                   "Accept":"application/json",
-                  "User-Agent":"runner3-reddit-deep-sweep/3.0",
+                  "User-Agent":"runner3-reddit-deep-sweep/4.0",
                   "Authorization":"Bearer " + token,
               }
               if data is not None:
@@ -348,7 +352,7 @@ jobs:
                   data=json.dumps(payload).encode(),
                   headers={
                       "Content-Type":"application/json",
-                      "User-Agent":"runner3-reddit-deep-sweep/3.0",
+                      "User-Agent":"runner3-reddit-deep-sweep/4.0",
                       "Authorization":"Bearer " + token,
                   },
                   method="POST",
