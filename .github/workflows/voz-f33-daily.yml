@@ -102,9 +102,9 @@ jobs:
           name: voz-f33-daily-${{ github.run_id }}
           path: voz_f33_output/
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 30
 
-      - name: Publish final latest-run pointer
+      - name: Publish final latest and dated pointers
         if: always()
         uses: actions/github-script@v7
         env:
@@ -113,13 +113,17 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const path = 'voz_f33_latest.json';
             let manifest = {};
             try {
               manifest = JSON.parse(fs.readFileSync('voz_f33_output/manifest.json', 'utf8'));
             } catch (e) {
               manifest = {status: 'FAILED', manifest_error: String(e)};
             }
+            const parts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(new Date());
+            const dateParts = Object.fromEntries(parts.map(p => [p.type, p.value]));
+            const dateKey = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
             const pointer = {
               workflow: 'VOZ F33 Daily Full Crawl',
               run_id: context.runId,
@@ -129,6 +133,7 @@ jobs:
               artifact_url: process.env.ARTIFACT_URL || '',
               commit_sha: context.sha,
               generated_at: new Date().toISOString(),
+              vietnam_date: dateKey,
               status: manifest.status || 'UNKNOWN',
               threads_discovered: manifest.threads_discovered ?? null,
               threads_healthy: manifest.threads_healthy ?? null,
@@ -139,34 +144,40 @@ jobs:
               missing_pages_total: manifest.missing_pages_total ?? null,
               posts_total: manifest.posts_total ?? null
             };
-            let sha;
-            let currentPointer = null;
-            try {
-              const current = await github.rest.repos.getContent({
+
+            async function writePointer(path, message) {
+              let sha;
+              let existing = null;
+              try {
+                const current = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path,
+                  ref: process.env.GITHUB_REF_NAME
+                });
+                sha = current.data.sha;
+                existing = JSON.parse(Buffer.from(current.data.content, 'base64').toString('utf8'));
+              } catch (e) {
+                if (e.status !== 404 && !(e instanceof SyntaxError)) throw e;
+              }
+              if (existing?.run_id && Number(existing.run_id) > Number(context.runId)) {
+                core.warning(`Skip stale pointer write to ${path} from run ${context.runId}; newer run ${existing.run_id} exists`);
+                return;
+              }
+              const args = {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 path,
-                ref: process.env.GITHUB_REF_NAME
-              });
-              sha = current.data.sha;
-              currentPointer = JSON.parse(Buffer.from(current.data.content, 'base64').toString('utf8'));
-            } catch (e) {
-              if (e.status !== 404 && !(e instanceof SyntaxError)) throw e;
+                message,
+                content: Buffer.from(JSON.stringify(pointer, null, 2) + '\n').toString('base64'),
+                branch: process.env.GITHUB_REF_NAME
+              };
+              if (sha) args.sha = sha;
+              await github.rest.repos.createOrUpdateFileContents(args);
             }
-            if (currentPointer?.run_id && Number(currentPointer.run_id) > Number(context.runId)) {
-              core.warning(`Skip stale final-pointer write from run ${context.runId}; newer run ${currentPointer.run_id} already owns pointer`);
-              return;
-            }
-            const args = {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              path,
-              message: `chore: update VOZ F33 latest pointer [skip ci]`,
-              content: Buffer.from(JSON.stringify(pointer, null, 2) + '\n').toString('base64'),
-              branch: process.env.GITHUB_REF_NAME
-            };
-            if (sha) args.sha = sha;
-            await github.rest.repos.createOrUpdateFileContents(args);
+
+            await writePointer('voz_f33_latest.json', 'chore: update VOZ F33 latest pointer [skip ci]');
+            await writePointer(`voz_f33_history/${dateKey}.json`, `chore: index VOZ F33 ${dateKey} artifact [skip ci]`);
             core.info(JSON.stringify(pointer));
 
       - name: Enforce complete-page health gate
