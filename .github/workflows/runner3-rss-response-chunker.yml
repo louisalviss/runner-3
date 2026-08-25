@@ -1,0 +1,61 @@
+name: Runner3 RSS Response Chunker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/rss-library/chunk-requests/*.json'
+
+permissions:
+  contents: write
+
+jobs:
+  chunk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Split requested encrypted response files
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          req_dir = Path('ops/rss-library/chunk-requests')
+          out_root = Path('ops/rss-library/chatgpt-response-chunks')
+          out_root.mkdir(parents=True, exist_ok=True)
+
+          for req_path in sorted(req_dir.glob('*.json')):
+              req = json.loads(req_path.read_text())
+              request_id = req['requestId']
+              response_path = Path(req.get('responsePath', f'ops/rss-library/chatgpt-responses/{request_id}.json'))
+              if not response_path.exists():
+                  raise SystemExit(f'missing response: {response_path}')
+              text = response_path.read_text()
+              chunk_size = int(req.get('chunkSize', 3500))
+              out_dir = out_root / request_id
+              out_dir.mkdir(parents=True, exist_ok=True)
+              for old in out_dir.glob('*.txt'):
+                  old.unlink()
+              chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+              for i, chunk in enumerate(chunks):
+                  (out_dir / f'{i:03d}.txt').write_text(chunk)
+              meta = {
+                  'requestId': request_id,
+                  'responsePath': str(response_path),
+                  'chunkSize': chunk_size,
+                  'chunkCount': len(chunks),
+                  'totalChars': len(text),
+              }
+              (out_dir / 'meta.json').write_text(json.dumps(meta, indent=2) + '\n')
+          PY
+      - name: Commit chunks
+        run: |
+          if git status --porcelain ops/rss-library/chatgpt-response-chunks | grep -q .; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add ops/rss-library/chatgpt-response-chunks
+            git commit -m 'Chunk RSS encrypted response [skip ci]'
+            git push
+          fi
