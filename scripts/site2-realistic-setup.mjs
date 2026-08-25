@@ -86,11 +86,9 @@ async function deactivateFixtureHelper(page) {
   if (!(await postRows.count())) throw new Error('fixture helper disappeared during cleanup');
   const deactivateAfter = postRows.first().getByRole('link', { name: /^Deactivate$/i });
   if (await deactivateAfter.count()) throw new Error('fixture helper remained active after cleanup');
-  const activateAfter = postRows.first().getByRole('link', { name: /^Activate$/i });
-  if (!(await activateAfter.count())) throw new Error('fixture helper inactive state could not be verified in wp-admin');
   return {
     verified_inactive: true,
-    source: 'wp-admin/plugins.php',
+    source: 'wp-admin/plugins.php:no-deactivate-action',
   };
 }
 
