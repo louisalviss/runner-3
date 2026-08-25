@@ -7,17 +7,22 @@ import pandas as pd
 
 sys.path.insert(0, os.environ.get('WR_SECTOR_HELPER_DIR','/tmp/wrsector'))
 import exp
+_orig_resolve=exp.resolve_symbol
+def _resolve(symbol):
+    if symbol in {'XLC','XLRE'}: return f'{symbol}.US/USD'
+    return _orig_resolve(symbol)
+exp.resolve_symbol=_resolve
 OUT=Path(os.environ.get('WR_SECTOR_OUT','/tmp/wr-sector')); OUT.mkdir(parents=True,exist_ok=True)
 UNIVERSE='AAPL ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN AVGO BKR CDNS CMCSA COST CPRT CSCO CSGP CSX CTSH DXCM EA EXC FANG FTNT GILD GOOG GOOGL HON IDXX INTC INTU ISRG KHC LRCX MAR MCHP MDLZ META MPWR MRVL MSFT MU NFLX NVDA ODFL ORLY PANW PAYX PCAR PEP PLTR PYPL QCOM REGN ROST SBUX SNPS TMUS TSLA TTWO TXN VRTX WDAY WDC WMT ZS'.split()
 SECTOR={}
 for sec,names in {
  'XLK':'AAPL ADBE ADI ADSK AMAT AMD AVGO CDNS CSCO CTSH FTNT INTC INTU LRCX MCHP MPWR MRVL MSFT MU NVDA PANW PLTR QCOM SNPS TXN WDAY WDC ZS'.split(),
- 'VOX':'CMCSA EA GOOG GOOGL META NFLX TMUS TTWO'.split(),
+ 'XLC':'CMCSA EA GOOG GOOGL META NFLX TMUS TTWO'.split(),
  'XLY':'AMZN MAR ORLY ROST SBUX TSLA'.split(),
  'XLP':'COST KHC MDLZ PEP WMT'.split(),
  'XLE':'BKR FANG'.split(), 'XLF':'PYPL'.split(),
  'XLV':'ALNY AMGN DXCM GILD IDXX ISRG REGN VRTX'.split(),
- 'XLI':'ADP CPRT CSX HON ODFL PAYX PCAR'.split(), 'XLU':'AEP EXC'.split(), 'VNQ':'CSGP'.split(),
+ 'XLI':'ADP CPRT CSX HON ODFL PAYX PCAR'.split(), 'XLU':'AEP EXC'.split(), 'XLRE':'CSGP'.split(),
 }.items():
     for s in names: SECTOR[s]=sec
 if set(SECTOR)!=set(UNIVERSE): raise RuntimeError('sector map mismatch')
