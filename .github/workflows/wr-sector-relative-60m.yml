@@ -29,22 +29,20 @@ jobs:
         run: |
           mkdir -p /tmp/wrsector
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrsector/exp.py
-      - name: Probe benchmark instrument resolution
-        env:
-          WR_SECTOR_HELPER_DIR: /tmp/wrsector
+      - name: Probe V2 benchmark instrument resolution
         run: |
           mkdir -p /tmp/probe
           python3 - <<'PY'
           import json,sys
           sys.path.insert(0,'/tmp/wrsector')
           import exp
-          syms='SPY XLK XLC XLY XLP XLE XLF XLV XLI XLU XLRE'.split()
+          syms='SPY XLK VOX XLY XLP XLE XLF XLV XLI XLU VNQ'.split()
           resolved={s:exp.resolve_symbol(s) for s in syms}
           ok=all(resolved.values())
-          out={'ok':ok,'resolved':resolved}
+          out={'ok':ok,'version':'V2','resolved':resolved}
           open('/tmp/probe/benchmark-probe.json','w').write(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2))
-          if not ok: raise SystemExit('benchmark resolution failed')
+          if not ok: raise SystemExit('V2 benchmark resolution failed')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -80,7 +78,7 @@ jobs:
         run: |
           mkdir -p /tmp/wrsector
           curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrsector/exp.py
-      - name: Score frozen WR trades with sector-relative context
+      - name: Score frozen WR trades with V2 sector-relative context
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: '8'
@@ -117,7 +115,7 @@ jobs:
         with:
           name: wr-sector-benchmark-probe
           path: /tmp/all/probe
-      - name: Evaluate frozen gates
+      - name: Evaluate frozen V2 gates
         run: |
           mkdir -p /tmp/final
           python3 research/wr_sector_relative_60m_20260825/evaluate.py --input /tmp/all --out /tmp/final
