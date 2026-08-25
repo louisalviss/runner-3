@@ -1,0 +1,159 @@
+{
+  "schema": "vbth-r2-seed-discovery-v1",
+  "repo": "louisalviss/runner-3",
+  "run_id": "32797341679",
+  "targets": {
+    "master": {
+      "filename": "Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
+      "sha256": "f09a40ed0dc3dc54593a1e8be3700607575056fb3cb8ad620add9d138bc72685",
+      "r2_key": "ebooks/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
+      "required": true
+    },
+    "v3": {
+      "filename": "Vuong_Bai_Tien_Hoa_FULL_Bien_Tap_V3.epub",
+      "sha256": "71bf17e92e7bf75ed67cf5a528b92f9b65193cc9278da0c10ee6b59fbfc6c41f",
+      "r2_key": "ebooks/vbth/legacy/Vuong_Bai_Tien_Hoa_FULL_Bien_Tap_V3.epub",
+      "required": false
+    },
+    "gold": {
+      "filename": "Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub",
+      "sha256": "48ee9ad003eef5678fb398192f80195e86b0cb9c4c86a356ff30b812eb005235",
+      "r2_key": "ebooks/vbth/config/gold/Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub",
+      "required": true
+    },
+    "source_index": {
+      "filename": "SOURCE_INDEX.json",
+      "sha256": "444ad94638de8571322df95157ca427ee3344cc60e8c1e083608ab1903c324da",
+      "r2_key": "ebooks/vbth/source/SOURCE_INDEX.json",
+      "required": true
+    },
+    "editorial_sample": {
+      "filename": "vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt",
+      "sha256": "e15d5eb43b55233f376b918d74a3ab1473fbae253e7aaebd4fd5c916df893cd1",
+      "r2_key": "ebooks/vbth/config/vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt",
+      "required": true
+    }
+  },
+  "live_artifact_count": 9306,
+  "candidate_artifact_count": 14,
+  "found": {},
+  "missing": [
+    "master",
+    "v3",
+    "gold",
+    "source_index",
+    "editorial_sample"
+  ],
+  "required_missing": [
+    "master",
+    "gold",
+    "source_index",
+    "editorial_sample"
+  ],
+  "scanned": [
+    {
+      "artifact_id": 9486736963,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9486441101,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9485779257,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9484916247,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9483232088,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9480336061,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9480305951,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9480081566,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9480064092,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9480011044,
+      "artifact_name": "story-cloudflare-benchmark",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9429361267,
+      "artifact_name": "wr-tv-reference-history-probe",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9429128026,
+      "artifact_name": "wr-tv-reference-history-probe",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9429104563,
+      "artifact_name": "wr-tv-reference-history-probe",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    },
+    {
+      "artifact_id": 9429000681,
+      "artifact_name": "wr-tv-reference-history-probe",
+      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
+    }
+  ],
+  "r2_proofs": [],
+  "d1_status": "running",
+  "d1_checkpoint": {
+    "project": "ebook-editorial",
+    "scope": "book:vbth:seed",
+    "source": "ebook-editorial/vbth",
+    "status": "running",
+    "position": {
+      "schema_version": 2,
+      "phase": "seed-partial",
+      "book_id": "vbth",
+      "artifact_store": "r2",
+      "artifact_bucket": "runner3-artifacts",
+      "verified": {},
+      "missing": [
+        "master",
+        "v3",
+        "gold",
+        "source_index",
+        "editorial_sample"
+      ],
+      "required_missing": [
+        "editorial_sample",
+        "gold",
+        "master",
+        "source_index"
+      ],
+      "source": "github-actions-artifact-discovery",
+      "run_id": "32797341679"
+    },
+    "dropbox_path": null,
+    "last_error": "legacy artifacts still missing",
+    "updated_at": "2026-08-25 01:24:10"
+  }
+}
