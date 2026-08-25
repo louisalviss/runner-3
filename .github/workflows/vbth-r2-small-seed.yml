@@ -1,0 +1,110 @@
+name: VBTH R2 Small Seed
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/ebook/vbth-seed-staging/small-assets.tar.gz.b64'
+      - '.github/workflows/vbth-r2-small-seed.yml'
+
+permissions:
+  contents: write
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  R2_BUCKET: runner3-artifacts
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Decode and verify staging bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE=ops/ebook/vbth-seed-staging/small-assets.tar.gz.b64
+          mkdir -p /tmp/vbth-small
+          base64 -d "$STAGE" >/tmp/vbth-small/assets.tar.gz
+          test "$(sha256sum /tmp/vbth-small/assets.tar.gz | awk '{print $1}')" = "6a319a510dd8f5141997acf83d6045f3dacc6dc14db3f11857fb40463e318551"
+          tar -xzf /tmp/vbth-small/assets.tar.gz -C /tmp/vbth-small
+          test "$(sha256sum /tmp/vbth-small/Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub | awk '{print $1}')" = "48ee9ad003eef5678fb398192f80195e86b0cb9c4c86a356ff30b812eb005235"
+          test "$(sha256sum /tmp/vbth-small/SOURCE_INDEX.json | awk '{print $1}')" = "444ad94638de8571322df95157ca427ee3344cc60e8c1e083608ab1903c324da"
+          test "$(sha256sum /tmp/vbth-small/vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt | awk '{print $1}')" = "e15d5eb43b55233f376b918d74a3ab1473fbae253e7aaebd4fd5c916df893cd1"
+
+      - name: Upload to R2 and verify readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          : >/tmp/vbth-small/proof.jsonl
+          put_verify() {
+            logical="$1"; src="$2"; key="$3"; expected="$4"; rb="/tmp/vbth-small/readback-$logical"
+            npx --yes wrangler@4 r2 object put "${R2_BUCKET}/${key}" --file="$src" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+            npx --yes wrangler@4 r2 object get "${R2_BUCKET}/${key}" --file="$rb" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+            actual="$(sha256sum "$rb" | awk '{print $1}')"; test "$actual" = "$expected"
+            printf '{"logical":"%s","r2_key":"%s","sha256":"%s","verified":true}\n' "$logical" "$key" "$actual" >>/tmp/vbth-small/proof.jsonl
+          }
+          put_verify gold /tmp/vbth-small/Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub ebooks/vbth/config/gold/Vuong_Bai_Tien_Hoa_Gold_3_Chuong.epub 48ee9ad003eef5678fb398192f80195e86b0cb9c4c86a356ff30b812eb005235
+          put_verify source_index /tmp/vbth-small/SOURCE_INDEX.json ebooks/vbth/source/SOURCE_INDEX.json 444ad94638de8571322df95157ca427ee3344cc60e8c1e083608ab1903c324da
+          put_verify editorial_sample /tmp/vbth-small/vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt ebooks/vbth/config/vuong_bai_tien_hoa_mau_bien_tap_2_chuong.txt e15d5eb43b55233f376b918d74a3ab1473fbae253e7aaebd4fd5c916df893cd1
+
+      - name: Merge D1 seed checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path('.github/scripts').resolve()))
+          from runner3_core import get_checkpoint,save_checkpoint,report_status
+          current=get_checkpoint('ebook-editorial','book:vbth:seed') or {}
+          pos=current.get('position') if isinstance(current.get('position'),dict) else {}
+          verified=dict(pos.get('verified') or {})
+          for line in Path('/tmp/vbth-small/proof.jsonl').read_text().splitlines():
+            row=json.loads(line); verified[row['logical']]=row
+          required={'master','gold','source_index','editorial_sample'}; missing=sorted(required-set(verified)); status='success' if not missing else 'running'
+          nextpos={
+            'schema_version':2,'phase':'seed-complete' if status=='success' else 'seed-partial',
+            'book_id':'vbth','artifact_store':'r2','artifact_bucket':os.environ['R2_BUCKET'],
+            'verified':verified,'required_missing':missing,'source':'verified-library-small-seed',
+            'run_id':os.environ['GITHUB_RUN_ID'],
+          }
+          save_checkpoint('ebook-editorial','ebook-editorial/vbth',scope='book:vbth:seed',status=status,position=nextpos,dropbox_path=None,last_error=None if status=='success' else 'master seed pending')
+          durable=get_checkpoint('ebook-editorial','book:vbth:seed')
+          if (durable or {}).get('status')!=status or set(((durable or {}).get('position') or {}).get('verified',{}))!=set(verified):
+            raise SystemExit(f'D1 merge verify failed: {durable!r}')
+          report_status('ebook-editorial/vbth',status,run_id=os.environ['GITHUB_RUN_ID'],detail={'scope':'book:vbth:seed','position':nextpos})
+          Path('/tmp/vbth-small/d1.json').write_text(json.dumps(durable,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps({'status':status,'verified':sorted(verified),'required_missing':missing},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Persist proof and remove staging bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('ops/ebook/vbth-r2-small-seed-proof.json')
+          rows=[json.loads(x) for x in Path('/tmp/vbth-small/proof.jsonl').read_text().splitlines() if x.strip()]
+          d1=json.loads(Path('/tmp/vbth-small/d1.json').read_text())
+          p.write_text(json.dumps({'schema':'vbth-r2-small-seed-v1','r2_proofs':rows,'d1_checkpoint':d1},ensure_ascii=False,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/ebook/vbth-r2-small-seed-proof.json
+          git rm -f ops/ebook/vbth-seed-staging/small-assets.tar.gz.b64
+          git commit -m "Persist VBTH small R2 seed proof and remove staging [skip ci]"
+          for i in 1 2 3 4; do git pull --rebase origin main || true; git push origin HEAD:main && exit 0; sleep 2; done
+          exit 3
