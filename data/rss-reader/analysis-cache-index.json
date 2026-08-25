@@ -1,15 +1,48 @@
 {
   "version": 1,
   "policy": "lazy-selected-analysis-fetch; parallel-batch; raw-text-artifact-ttl-7d; repo-stores-pointer-only",
-  "updatedAt": "2026-08-24T20:59:56Z",
+  "updatedAt": "2026-08-25T02:08:03Z",
   "latestRequestId": "rss-deep-20260823-2-3-4-9-14-15-18-25-28",
-  "latestRunId": 32777021105,
-  "latestArtifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32777021105",
+  "latestRunId": 32800203901,
+  "latestArtifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32800203901",
   "requestedCount": 9,
-  "cacheHitCount": 6,
+  "cacheHitCount": 7,
   "fetchedCount": 1,
-  "errorCount": 2,
+  "errorCount": 1,
   "entries": {
+    "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted": {
+      "displayIndex": 4,
+      "sourceKey": "economist",
+      "sourceName": "The Economist",
+      "canonicalUrl": "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted",
+      "title": "Is Scott Bessent the Fed chair Donald Trump always wanted?",
+      "publishedAt": "2026-08-23T13:38:58Z",
+      "contentHash": null,
+      "itemType": "article",
+      "runId": 32800203901,
+      "requestId": "rss-deep-20260823-2-3-4-9-14-15-18-25-28",
+      "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32800203901",
+      "route": "jina-live",
+      "coverage": "best_accessible",
+      "chars": 21079,
+      "rawTextSha256": "sha256:40167b5ce79b947ade64d18a276ea39cb7d04ac64cf9afa4e9514338610407a8",
+      "fetchedAt": "2026-08-25T02:08:03Z",
+      "expiresAt": "2026-09-01T02:08:03Z",
+      "status": "ready"
+    },
+    "https://www.economist.com/business/2026/08/23/china-will-struggle-to-make-money-from-humanoid-robots": {
+      "displayIndex": 3,
+      "sourceKey": "economist",
+      "sourceName": "The Economist",
+      "canonicalUrl": "https://www.economist.com/business/2026/08/23/china-will-struggle-to-make-money-from-humanoid-robots",
+      "title": "China will struggle to make money from humanoid robots",
+      "publishedAt": "2026-08-23T13:52:45Z",
+      "contentHash": null,
+      "itemType": "article",
+      "status": "error",
+      "lastError": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 257",
+      "lastErrorAt": "2026-08-25T02:07:51Z"
+    },
     "https://www.economist.com/business/2026/08/23/china-is-training-up-thousands-of-humanoid-robots": {
       "displayIndex": 2,
       "sourceKey": "economist",
@@ -29,32 +62,6 @@
       "fetchedAt": "2026-08-24T20:59:56Z",
       "expiresAt": "2026-08-31T20:59:56Z",
       "status": "ready"
-    },
-    "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted": {
-      "displayIndex": 4,
-      "sourceKey": "economist",
-      "sourceName": "The Economist",
-      "canonicalUrl": "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted",
-      "title": "Is Scott Bessent the Fed chair Donald Trump always wanted?",
-      "publishedAt": "2026-08-23T13:38:58Z",
-      "contentHash": null,
-      "itemType": "article",
-      "status": "error",
-      "lastError": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 273",
-      "lastErrorAt": "2026-08-24T20:59:51Z"
-    },
-    "https://www.economist.com/business/2026/08/23/china-will-struggle-to-make-money-from-humanoid-robots": {
-      "displayIndex": 3,
-      "sourceKey": "economist",
-      "sourceName": "The Economist",
-      "canonicalUrl": "https://www.economist.com/business/2026/08/23/china-will-struggle-to-make-money-from-humanoid-robots",
-      "title": "China will struggle to make money from humanoid robots",
-      "publishedAt": "2026-08-23T13:52:45Z",
-      "contentHash": null,
-      "itemType": "article",
-      "status": "error",
-      "lastError": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 257",
-      "lastErrorAt": "2026-08-24T20:59:50Z"
     },
     "https://hoquoctuan.substack.com/p/oc-cham-238-cuoc-chien-loi-suat-trai": {
       "displayIndex": 15,
@@ -321,6 +328,15 @@
     "requestId": "rss-deep-20260823-2-3-4-9-14-15-18-25-28",
     "cacheHits": [
       {
+        "displayIndex": 2,
+        "canonicalUrl": "https://www.economist.com/business/2026/08/23/china-is-training-up-thousands-of-humanoid-robots",
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32777021105",
+        "runId": 32777021105,
+        "rawTextSha256": "sha256:cac49726006898e05866b08c82f703484b9508c9f75baefb45898b50f704c38d",
+        "expiresAt": "2026-08-31T20:59:56Z",
+        "status": "cache_hit"
+      },
+      {
         "displayIndex": 9,
         "canonicalUrl": "https://genk.vn/cong-an-phat-thong-bao-quan-trong-ve-thay-doi-moi-tu-28-9-toi-tat-ca-nhung-ai-co-tai-khoan-vneid-165260823171357428.chn",
         "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32678019508",
@@ -377,13 +393,13 @@
     ],
     "fetched": [
       {
-        "displayIndex": 2,
+        "displayIndex": 4,
         "sourceKey": "economist",
-        "canonicalUrl": "https://www.economist.com/business/2026/08/23/china-is-training-up-thousands-of-humanoid-robots",
+        "canonicalUrl": "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted",
         "route": "jina-live",
-        "chars": 20763,
-        "rawTextSha256": "sha256:cac49726006898e05866b08c82f703484b9508c9f75baefb45898b50f704c38d",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32777021105"
+        "chars": 21079,
+        "rawTextSha256": "sha256:40167b5ce79b947ade64d18a276ea39cb7d04ac64cf9afa4e9514338610407a8",
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32800203901"
       }
     ],
     "errors": [
@@ -393,13 +409,6 @@
         "canonicalUrl": "https://www.economist.com/business/2026/08/23/china-will-struggle-to-make-money-from-humanoid-robots",
         "title": "China will struggle to make money from humanoid robots",
         "error": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 257"
-      },
-      {
-        "displayIndex": 4,
-        "sourceKey": "economist",
-        "canonicalUrl": "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted",
-        "title": "Is Scott Bessent the Fed chair Donald Trump always wanted?",
-        "error": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 273"
       }
     ]
   }
