@@ -1,0 +1,68 @@
+{
+  "name": "super-rsi-canonical-us-equities-60m-v1",
+  "strategy_name": "Super RSI",
+  "status": "FROZEN_CANONICAL",
+  "asset_class": "US_EQUITIES",
+  "timeframe_minutes": 60,
+  "source_minutes": 5,
+  "session": {
+    "timezone": "America/New_York",
+    "open_minute": 570,
+    "close_minute": 960,
+    "allow_final_partial_bar": true
+  },
+  "dates": {
+    "warmup": "2021-12-01T00:00:00Z",
+    "report_start": "2022-01-01T00:00:00Z",
+    "end": "2026-08-25T00:00:00Z"
+  },
+  "strategy": {
+    "direction": "LONG_ONLY",
+    "rsi_length": 10,
+    "rsi_signal_sma": 10,
+    "reset_trigger": 50,
+    "cross_count": 2,
+    "supertrend_atr": 10,
+    "supertrend_factor": 2.5,
+    "pyramiding": 0
+  },
+  "execution": {
+    "chart_price": "MIDPOINT",
+    "order_timing": "NEXT_CHART_BAR_OPEN",
+    "long_entry": "ASK_OPEN",
+    "long_exit": "BID_OPEN",
+    "spread_embedded": true
+  },
+  "universe": [
+    "AAPL", "ADBE", "ADI", "ADP", "ADSK", "AEP", "ALNY", "AMAT", "AMD", "AMGN", "AMZN", "AVGO",
+    "BKR", "CDNS", "CMCSA", "COST", "CPRT", "CSCO", "CSGP", "CSX", "CTSH", "DXCM", "EA", "EXC", "FANG",
+    "FTNT", "GILD", "GOOG", "GOOGL", "HON", "IDXX", "INTC", "INTU", "ISRG", "KHC", "LRCX", "MAR", "MCHP",
+    "MDLZ", "META", "MPWR", "MRVL", "MSFT", "MU", "NFLX", "NVDA", "ODFL", "ORLY", "PANW", "PAYX", "PCAR",
+    "PEP", "PLTR", "PYPL", "QCOM", "REGN", "ROST", "SBUX", "SNPS", "TMUS", "TSLA", "TTWO", "TXN", "VRTX",
+    "WDAY", "WDC", "WMT", "ZS"
+  ],
+  "primary_exclude": ["AAPL", "AMZN", "MSFT", "NVDA", "TSLA"],
+  "recent_years": [2024, 2025, 2026],
+  "pre_cutoff_year": 2025,
+  "gates": {
+    "coverage_min": 60,
+    "trades_min": 300,
+    "actual_pf_min": 1.2,
+    "actual_mean_bps_min": 10.0,
+    "mid_pf_min": 1.25,
+    "positive_symbol_fraction_min": 0.6,
+    "median_symbol_pf_min": 1.05,
+    "pre2026_actual_pf_min": 1.1,
+    "recent_year_pf_threshold": 1.05,
+    "recent_years_min": 2
+  },
+  "frozen_helper": {
+    "url": "https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py",
+    "sha_lineage": "3f11639856334ecb1636d26f26ae61e5fa600c9a"
+  },
+  "lineage": {
+    "origin_pr": 222,
+    "origin_validation_run": 32772722993,
+    "origin_preregistration_commit": "e40a18777f26ce449140604cace83e07b35b1579"
+  }
+}
