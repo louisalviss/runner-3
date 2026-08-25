@@ -15,9 +15,7 @@ const expectedHost = new URL(target).host;
 const liveconfigUrl = `${target}/?rest_route=/wasmer/v1/liveconfig`;
 
 function sanitize(value) {
-  return String(value || '')
-    .replaceAll(token, '[REDACTED]')
-    .replace(/magiclogin=[^&\s"']+/gi, 'magiclogin=[REDACTED]');
+  return String(value || '').replaceAll(token, '[REDACTED]').replace(/magiclogin=[^&\s"']+/gi, 'magiclogin=[REDACTED]');
 }
 
 async function readLiveconfig() {
@@ -109,10 +107,7 @@ async function ensureAstra(page) {
   card = page.locator('.theme[data-slug="astra"]').first();
   if (!(await card.count())) throw new Error('Astra theme missing after install check');
   const activate = card.locator('a.activate').first();
-  if (await activate.count() && await activate.isVisible().catch(() => false)) {
-    await activate.click();
-    await page.waitForLoadState('domcontentloaded', { timeout:60000 }).catch(() => {});
-  }
+  if (await activate.count()) await gotoAdminHref(page, activate);
   const live = compactLiveconfig(await readLiveconfig());
   if (live.active_theme !== 'astra') throw new Error(`Astra activation failed: ${live.active_theme}`);
 }
