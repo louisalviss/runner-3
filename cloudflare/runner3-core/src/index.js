@@ -32,6 +32,30 @@ function requireArtifactAuth(request, env) {
   return null;
 }
 
+function coreWriteAuthMode(env) {
+  const raw = typeof env.RUNNER3_CORE_WRITE_AUTH === "string"
+    ? env.RUNNER3_CORE_WRITE_AUTH.trim().toLowerCase()
+    : "";
+  return new Set(["required", "enforce", "1", "true"]).has(raw) ? "required" : "compat";
+}
+
+function requireCoreWriteAuth(request, env) {
+  if (coreWriteAuthMode(env) !== "required") return null;
+
+  const expected = typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
+  if (!expected) {
+    return Response.json({ ok: false, error: "WRITE_AUTH_NOT_CONFIGURED" }, { status: 503 });
+  }
+
+  const auth = request.headers.get("Authorization") || "";
+  const prefix = "Bearer ";
+  const supplied = auth.startsWith(prefix) ? auth.slice(prefix.length).trim() : "";
+  if (!supplied || supplied !== expected) {
+    return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  return null;
+}
+
 function cleanKey(value, name) {
   const text = typeof value === "string" ? value.trim() : "";
   if (!text) return { error: `${name} is required` };
@@ -228,6 +252,7 @@ export default {
         d1: !!env.DB,
         r2: !!env.ARTIFACTS,
         artifact_auth: !!(typeof env.RUNNER3_CORE_TOKEN === "string" && env.RUNNER3_CORE_TOKEN.trim()),
+        write_auth: coreWriteAuthMode(env),
         time: new Date().toISOString()
       });
     }
@@ -254,6 +279,8 @@ export default {
       }
 
       if (request.method === "PUT") {
+        const authError = requireCoreWriteAuth(request, env);
+        if (authError) return authError;
         try {
           const body = await request.json();
           const detail = serializeJson(body.detail, "detail");
@@ -313,6 +340,8 @@ export default {
       }
 
       if (request.method === "PUT") {
+        const authError = requireCoreWriteAuth(request, env);
+        if (authError) return authError;
         try {
           const body = await request.json();
           const sourceResult = cleanKey(body.source, "source");
@@ -363,6 +392,8 @@ export default {
       if (!env.DB) {
         return Response.json({ error: "D1_NOT_BOUND" }, { status: 503 });
       }
+      const authError = requireCoreWriteAuth(request, env);
+      if (authError) return authError;
 
       const body = await request.json();
       await env.DB.prepare(
