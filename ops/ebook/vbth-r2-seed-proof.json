@@ -1,7 +1,5 @@
 {
-  "schema": "vbth-r2-seed-discovery-v1",
-  "repo": "louisalviss/runner-3",
-  "run_id": "32797341679",
+  "schema": "vbth-r2-seed-v2",
   "targets": {
     "master": {
       "filename": "Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
@@ -34,8 +32,6 @@
       "required": true
     }
   },
-  "live_artifact_count": 9306,
-  "candidate_artifact_count": 14,
   "found": {},
   "missing": [
     "master",
@@ -50,78 +46,37 @@
     "source_index",
     "editorial_sample"
   ],
-  "scanned": [
-    {
-      "artifact_id": 9486736963,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9486441101,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9485779257,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9484916247,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9483232088,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9480336061,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9480305951,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9480081566,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9480064092,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9480011044,
-      "artifact_name": "story-cloudflare-benchmark",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9429361267,
-      "artifact_name": "wr-tv-reference-history-probe",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9429128026,
-      "artifact_name": "wr-tv-reference-history-probe",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9429104563,
-      "artifact_name": "wr-tv-reference-history-probe",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    },
-    {
-      "artifact_id": 9429000681,
-      "artifact_name": "wr-tv-reference-history-probe",
-      "download_error": "HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header."
-    }
-  ],
+  "history": {
+    "schema": "vbth-artifact-history-v2",
+    "workflow_probe": [
+      {
+        "workflow": "vbth-full-build.yml",
+        "runs": 1
+      },
+      {
+        "workflow": "vbth-metruyen-full.yml",
+        "runs": 1
+      },
+      {
+        "workflow": "vbth-metruyen-full-v2.yml",
+        "runs": 1
+      },
+      {
+        "workflow": "vbth-full-matrix.yml",
+        "error": "HTTP 404"
+      },
+      {
+        "workflow": "vbth-cn-reference.yml",
+        "runs": 1
+      },
+      {
+        "workflow": "vbth-tienvuc-tail.yml",
+        "error": "HTTP 404"
+      }
+    ],
+    "artifacts": []
+  },
+  "scanned": [],
   "r2_proofs": [],
   "d1_status": "running",
   "d1_checkpoint": {
@@ -136,24 +91,24 @@
       "artifact_store": "r2",
       "artifact_bucket": "runner3-artifacts",
       "verified": {},
-      "missing": [
-        "master",
-        "v3",
-        "gold",
-        "source_index",
-        "editorial_sample"
-      ],
       "required_missing": [
         "editorial_sample",
         "gold",
         "master",
         "source_index"
       ],
-      "source": "github-actions-artifact-discovery",
-      "run_id": "32797341679"
+      "discovery_missing": [
+        "master",
+        "v3",
+        "gold",
+        "source_index",
+        "editorial_sample"
+      ],
+      "source": "github-actions-artifact-history-v2",
+      "run_id": "32797950337"
     },
     "dropbox_path": null,
     "last_error": "legacy artifacts still missing",
-    "updated_at": "2026-08-25 01:24:10"
+    "updated_at": "2026-08-25 01:33:25"
   }
 }
