@@ -61,7 +61,11 @@ async function gotoAdminHref(page, locator) {
 }
 
 function fixtureRow(page) {
-  return page.locator('tr').filter({ hasText: 'Runner3 Site2 Realistic Fixture' });
+  // Match the exact package basename through its plugin action links. This avoids
+  // ambiguity when an older partial upload has the same Plugin Name.
+  return page.locator('tr').filter({
+    has: page.locator(`a[href*="${fixturePluginSlug}"]`),
+  });
 }
 
 async function activateRowIfNeeded(page, rows) {
@@ -73,7 +77,7 @@ async function activateRowIfNeeded(page, rows) {
 async function deactivateFixtureHelper(page) {
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   const rows = fixtureRow(page);
-  if (!(await rows.count())) throw new Error('fixture helper missing before cleanup');
+  if (!(await rows.count())) throw new Error(`fixture helper ${fixturePluginSlug} missing before cleanup`);
   const deactivate = rows.first().getByRole('link', { name: /^Deactivate$/i });
   if (await deactivate.count()) await gotoAdminHref(page, deactivate.first());
 
