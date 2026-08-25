@@ -8,6 +8,11 @@ on:
         required: true
         default: 'strategies/super_rsi/profiles/canonical-us-equities-60m-v1.json'
         type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/super-rsi-backtest.yml'
+      - 'strategies/super_rsi/**'
   push:
     branches: [super-rsi-backtest-flow]
     paths:
@@ -24,7 +29,7 @@ concurrency:
 
 jobs:
   validate:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[super-rsi-run]')
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[super-rsi-run]')
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -104,7 +109,7 @@ jobs:
 
   merge:
     needs: validate
-    if: always() && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[super-rsi-run]'))
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[super-rsi-run]'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
