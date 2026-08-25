@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-25T05:39:11.993615+00:00",
-  "runId": "32813658174",
+  "checkedAt": "2026-08-25T05:41:20.857810+00:00",
+  "runId": "32813792466",
   "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
   "retiredProjectSyndicateIds": [
     "projectsyndicate-url-26a9686e21ebe4fa865d",
@@ -14,20 +14,37 @@
     "huggingface-url-d556a48bace2bfaa6a70": {
       "http": 502,
       "ok": false,
-      "error": "unsupported sourceKey: huggingface",
+      "error": "direct text too thin: 60",
       "chars": null,
       "checksum": null
     },
     "cloudflare-url-781ba125e818919ba95e": {
-      "http": 502,
-      "ok": false,
-      "error": "unsupported sourceKey: cloudflare",
-      "chars": null,
-      "checksum": null
+      "http": 200,
+      "ok": true,
+      "error": null,
+      "chars": 11019,
+      "checksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
-  "originals": {},
-  "translationPackets": {},
+  "originals": {
+    "cloudflare-url-781ba125e818919ba95e": {
+      "http": 200,
+      "bodyChars": 11019,
+      "route": "direct",
+      "coverage": "best_accessible",
+      "truncated": false,
+      "resolvedUrl": "https://blog.cloudflare.com/cloudflare-computer/"
+    }
+  },
+  "translationPackets": {
+    "cloudflare-url-781ba125e818919ba95e": {
+      "http": 200,
+      "ok": true,
+      "sectionCount": 62,
+      "sourceChecksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e",
+      "error": null
+    }
+  },
   "catalog": {
     "http": 200,
     "count": 6,
@@ -43,8 +60,7 @@
     "retiredAbsent": true
   },
   "errors": [
-    "fetch:huggingface-url-d556a48bace2bfaa6a70:502:unsupported sourceKey: huggingface",
-    "fetch:cloudflare-url-781ba125e818919ba95e:502:unsupported sourceKey: cloudflare"
+    "fetch:huggingface-url-d556a48bace2bfaa6a70:502:direct text too thin: 60"
   ],
   "ok": false
 }
