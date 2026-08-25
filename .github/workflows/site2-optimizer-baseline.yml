@@ -1,0 +1,284 @@
+name: Site2 Optimizer Baseline
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/site2-optimizer-baseline.yml'
+      - 'scripts/wp-optimizer-state.mjs'
+      - 'scripts/pagespeed-ui-mobile-audit.mjs'
+      - 'infra/wordpress-optimizer/d1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp-optimizer-site2-baseline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  SITE_ID: site2
+  PSI_URL: https://runner3-wp-a94b8fd2.wasmer.app/
+  WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
+  WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  baseline:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare collector and open D1 run
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+
+          # Concurrency prevents two baseline jobs for this PR from running at once.
+          # Recover any orphaned Site2 baseline row left in `running` by a prior
+          # interrupted/syntax-failed workflow before opening the next run.
+          STALE_SQL="UPDATE optimization_runs SET status='failed', finished_at=CURRENT_TIMESTAMP, metadata_json=json_set(COALESCE(metadata_json,'{}'),'$.recovered_reason','orphaned prior Site2 baseline run recovered before new attempt') WHERE site_id='${SITE_ID}' AND phase='baseline' AND status='running';"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --command "$STALE_SQL" >/tmp/stale-recovery.log
+
+          RUN_ID="site2-baseline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "OPTIMIZER_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+
+          cat >/tmp/run-start.json <<JSON
+          {
+            "type": "run.start",
+            "run_id": "$RUN_ID",
+            "site_id": "$SITE_ID",
+            "phase": "baseline",
+            "workflow_name": "$GITHUB_WORKFLOW",
+            "workflow_run_id": "$GITHUB_RUN_ID",
+            "status": "running",
+            "commit_sha": "$SOURCE_SHA",
+            "metadata": {
+              "target": "$PSI_URL",
+              "device": "mobile",
+              "sample_policy": "5 valid official PageSpeed UI runs",
+              "purpose": "generic-engine proof-of-reuse"
+            }
+          }
+          JSON
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/run-start.json
+
+      - name: Collect 5 valid official PageSpeed mobile samples
+        id: collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/site2-psi
+
+          for i in 1 2 3 4 5; do
+            valid=0
+            for attempt in 1 2 3 4; do
+              echo "=== SITE2 PSI sample=$i attempt=$attempt ==="
+              OUT="/tmp/site2-psi/sample-$i.json"
+              rm -f "$OUT"
+              if PSI_UI_OUT="$OUT" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs; then
+                if node -e '
+                  const fs = require("fs");
+                  const d = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                  const ok = d.status === "ready"
+                    && Number.isFinite(d.performance)
+                    && typeof d.fcp === "string" && d.fcp.length > 0
+                    && typeof d.lcp === "string" && d.lcp.length > 0;
+                  process.exit(ok ? 0 : 1);
+                ' "$OUT"; then
+                  valid=1
+                  break
+                fi
+              fi
+              echo "SITE2_PSI_RETRY sample=$i attempt=$attempt"
+              sleep 5
+            done
+
+            if [ "$valid" != 1 ]; then
+              echo "SITE2_PSI_SAMPLE_FAILED sample=$i"
+              if [ -f "/tmp/site2-psi/sample-$i.json" ]; then
+                FAIL_DETAIL="$(node -e 'const d=require(process.argv[1]); process.stdout.write(String(d.detail||d.status||"collector failure").slice(0,1800))' "/tmp/site2-psi/sample-$i.json")"
+              else
+                FAIL_DETAIL="collector produced no result file"
+              fi
+              FAIL_DETAIL="$FAIL_DETAIL" SAMPLE_NO="$i" node -e '
+                const fs = require("fs");
+                const event = {
+                  type: "measurement.upsert",
+                  run_id: process.env.OPTIMIZER_RUN_ID,
+                  phase: "baseline",
+                  sample_no: Number(process.env.SAMPLE_NO),
+                  valid: false,
+                  collector: "pagespeed-web-ui-mobile",
+                  failure_reason: process.env.FAIL_DETAIL,
+                  raw: { attempts_exhausted: 4 },
+                };
+                fs.writeFileSync("/tmp/measurement-failed.json", JSON.stringify(event));
+              '
+              node scripts/wp-optimizer-state.mjs --event-file /tmp/measurement-failed.json || true
+              exit 12
+            fi
+          done
+
+      - name: Persist baseline samples and summary to D1
+        id: persist
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+
+          function timeMs(value) {
+            const match = String(value ?? '').trim().match(/^([0-9.]+)\s*(ms|s)?$/i);
+            if (!match) return null;
+            const n = Number(match[1]);
+            if (!Number.isFinite(n)) return null;
+            return String(match[2] || '').toLowerCase() === 's' ? n * 1000 : n;
+          }
+
+          function numeric(value) {
+            const match = String(value ?? '').trim().match(/^([0-9.]+)/);
+            if (!match) return null;
+            const n = Number(match[1]);
+            return Number.isFinite(n) ? n : null;
+          }
+
+          const rows = [];
+          for (let i = 1; i <= 5; i += 1) {
+            const data = JSON.parse(fs.readFileSync(`/tmp/site2-psi/sample-${i}.json`, 'utf8'));
+            const row = {
+              sample_no: i,
+              performance: data.performance,
+              fcp_ms: timeMs(data.fcp),
+              lcp_ms: timeMs(data.lcp),
+              tbt_ms: timeMs(data.tbt),
+              cls: numeric(data.cls),
+              result_url: data.resultUrl,
+              measured_at: data.checkedAt,
+            };
+            if (![row.performance, row.fcp_ms, row.lcp_ms].every(Number.isFinite)) {
+              throw new Error(`invalid parsed baseline sample ${i}: ${JSON.stringify(row)}`);
+            }
+            rows.push(row);
+            const event = {
+              type: 'measurement.upsert',
+              run_id: process.env.OPTIMIZER_RUN_ID,
+              phase: 'baseline',
+              sample_no: i,
+              valid: true,
+              performance: row.performance,
+              fcp_ms: row.fcp_ms,
+              lcp_ms: row.lcp_ms,
+              tbt_ms: row.tbt_ms,
+              cls: row.cls,
+              collector: 'pagespeed-web-ui-mobile',
+              result_url: row.result_url,
+              measured_at: row.measured_at,
+              raw: data,
+            };
+            fs.writeFileSync(`/tmp/site2-psi/event-${i}.json`, JSON.stringify(event));
+            console.log('SITE2_BASELINE_SAMPLE', JSON.stringify(row));
+          }
+
+          const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+          const summary = {
+            samples: 5,
+            valid_samples: 5,
+            median_performance: median(rows.map((r) => r.performance)),
+            median_fcp_ms: median(rows.map((r) => r.fcp_ms)),
+            median_lcp_ms: median(rows.map((r) => r.lcp_ms)),
+            median_tbt_ms: median(rows.map((r) => r.tbt_ms).filter(Number.isFinite)),
+            median_cls: median(rows.map((r) => r.cls).filter(Number.isFinite)),
+            p100_count: rows.filter((r) => r.performance === 100).length,
+          };
+          fs.writeFileSync('/tmp/site2-psi/summary.json', JSON.stringify(summary));
+          console.log('SITE2_BASELINE_SUMMARY', JSON.stringify(summary));
+          NODE
+
+          for i in 1 2 3 4 5; do
+            node scripts/wp-optimizer-state.mjs --event-file "/tmp/site2-psi/event-$i.json"
+          done
+
+          SUMMARY="$(cat /tmp/site2-psi/summary.json)"
+          SUMMARY="$SUMMARY" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const summary = JSON.parse(process.env.SUMMARY);
+          fs.writeFileSync('/tmp/baseline-gate.json', JSON.stringify({
+            type: 'gate.upsert',
+            run_id: process.env.OPTIMIZER_RUN_ID,
+            gate_name: 'clean_baseline',
+            status: 'PASS',
+            details: summary,
+          }));
+          fs.writeFileSync('/tmp/run-finish.json', JSON.stringify({
+            type: 'run.finish',
+            run_id: process.env.OPTIMIZER_RUN_ID,
+            status: 'completed',
+            metadata: { baseline: summary },
+          }));
+          NODE
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/baseline-gate.json
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/run-finish.json
+
+      - name: Verify D1 baseline ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="SELECT r.run_id,r.site_id,r.status,COUNT(m.id) AS valid_samples,ROUND(AVG(m.performance),1) AS avg_performance FROM optimization_runs r JOIN measurements m ON m.run_id=r.run_id AND m.valid=1 WHERE r.run_id='${OPTIMIZER_RUN_ID}' GROUP BY r.run_id,r.site_id,r.status;"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" | tee /tmp/site2-ledger-proof.json
+          RUN_ID="$OPTIMIZER_RUN_ID" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const payload = JSON.parse(fs.readFileSync('/tmp/site2-ledger-proof.json', 'utf8'));
+          const rows = payload.flatMap((item) => item.results || []);
+          const row = rows.find((x) => x.run_id === process.env.RUN_ID);
+          if (!row) throw new Error('Site2 baseline run missing from D1');
+          if (Number(row.valid_samples) !== 5) throw new Error(`expected 5 valid samples, got ${row.valid_samples}`);
+          if (row.status !== 'completed') throw new Error(`run not completed: ${row.status}`);
+          console.log('SITE2_D1_BASELINE_LEDGER_OK', JSON.stringify(row));
+          NODE
+
+      - name: Mark failed run in D1
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${OPTIMIZER_RUN_ID:-}" ]; then
+            RUN_ID="$OPTIMIZER_RUN_ID" node -e '
+              const fs = require("fs");
+              fs.writeFileSync("/tmp/run-failed.json", JSON.stringify({
+                type: "run.finish",
+                run_id: process.env.RUN_ID,
+                status: "failed",
+                metadata: { reason: "Site2 baseline workflow failed before five valid persisted samples" },
+              }));
+            '
+            node scripts/wp-optimizer-state.mjs --event-file /tmp/run-failed.json
+          fi
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Site 2 D1-backed clean baseline'
+            echo
+            echo "- target: \`$PSI_URL\`"
+            echo "- D1 run: \`${OPTIMIZER_RUN_ID:-not-opened}\`"
+            if [ -f /tmp/site2-psi/summary.json ]; then
+              echo '- summary:'
+              echo '```json'
+              cat /tmp/site2-psi/summary.json
+              echo
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,137 @@
+name: WordPress Optimizer D1 Bootstrap
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/wordpress-optimizer/d1/**'
+      - 'scripts/wp-optimizer-state.mjs'
+      - '.github/workflows/wp-optimizer-d1-bootstrap.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/wordpress-optimizer/d1/**'
+      - 'scripts/wp-optimizer-state.mjs'
+      - '.github/workflows/wp-optimizer-d1-bootstrap.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp-optimizer-d1-bootstrap-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
+  WRANGLER_VERSION: '4.124.0'
+
+jobs:
+  bootstrap:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate state writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/wp-optimizer-state.mjs
+          cat >/tmp/state-event.json <<'JSON'
+          {
+            "type": "gate.upsert",
+            "run_id": "dry-run",
+            "gate_name": "schema",
+            "status": "PASS",
+            "details": {"mode":"dry-run"}
+          }
+          JSON
+          node scripts/wp-optimizer-state.mjs \
+            --event-file /tmp/state-event.json \
+            --dry-run >/tmp/state.sql
+          grep -q 'INSERT INTO gates' /tmp/state.sql
+
+      - name: Verify Cloudflare auth and ensure database
+        id: database
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@${WRANGLER_VERSION} whoami
+          npx --yes wrangler@${WRANGLER_VERSION} d1 list --json > /tmp/d1-list.json
+
+          if DB_NAME="$WP_OPTIMIZER_D1_DB" node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const rows = JSON.parse(fs.readFileSync('/tmp/d1-list.json', 'utf8'));
+          const found = Array.isArray(rows) && rows.some((row) => row.name === process.env.DB_NAME);
+          process.exit(found ? 0 : 1);
+          NODE
+          then
+            echo "D1_EXISTS=$WP_OPTIMIZER_D1_DB"
+            echo 'created=false' >> "$GITHUB_OUTPUT"
+          else
+            echo "D1_CREATE=$WP_OPTIMIZER_D1_DB"
+            npx --yes wrangler@${WRANGLER_VERSION} d1 create \
+              "$WP_OPTIMIZER_D1_DB" \
+              --location apac
+            echo 'created=true' >> "$GITHUB_OUTPUT"
+            sleep 2
+          fi
+
+      - name: Apply idempotent schema and canonical site seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@${WRANGLER_VERSION} d1 execute \
+            "$WP_OPTIMIZER_D1_DB" \
+            --remote --yes \
+            --file infra/wordpress-optimizer/d1/schema.sql
+
+          npx --yes wrangler@${WRANGLER_VERSION} d1 execute \
+            "$WP_OPTIMIZER_D1_DB" \
+            --remote --yes \
+            --file infra/wordpress-optimizer/d1/seed-sites.sql
+
+      - name: Verify schema and seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@${WRANGLER_VERSION} d1 execute \
+            "$WP_OPTIMIZER_D1_DB" \
+            --remote --yes --json \
+            --command 'PRAGMA quick_check;' | tee /tmp/quick-check.json
+
+          npx --yes wrangler@${WRANGLER_VERSION} d1 execute \
+            "$WP_OPTIMIZER_D1_DB" \
+            --remote --yes --json \
+            --command "SELECT site_id,name,public_url,status,current_deployment FROM sites ORDER BY site_id;" \
+            | tee /tmp/sites.json
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const payload = JSON.parse(fs.readFileSync('/tmp/sites.json', 'utf8'));
+          const rows = payload.flatMap((item) => item.results || []);
+          const ids = new Set(rows.map((row) => row.site_id));
+          for (const id of ['site1', 'site2', 'site3']) {
+            if (!ids.has(id)) throw new Error(`missing seeded site ${id}`);
+          }
+          console.log('D1_SITE_SEED_OK', JSON.stringify(rows));
+          NODE
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## WordPress Optimizer D1 Bootstrap'
+            echo
+            echo "- database: \`$WP_OPTIMIZER_D1_DB\`"
+            echo "- database created this run: \`${{ steps.database.outputs.created || 'unknown' }}\`"
+            echo '- schema: `infra/wordpress-optimizer/d1/schema.sql`'
+            echo '- canonical sites: Site 1 / Site 2 / Site 3'
+            echo '- heavy artifacts remain optional R2 pointers; D1 stores structured state only'
+          } >> "$GITHUB_STEP_SUMMARY"
