@@ -4,18 +4,10 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 import requests
-
-# Reddit RSS is the reliable fallback from GitHub-hosted runners. Ensure the
-# XML parser exists even if the surrounding workflow forgot to install it.
-try:
-    import lxml  # noqa: F401
-except Exception:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'lxml'])
 
 import audio_library_extract_for_chatgpt as core
 
@@ -77,41 +69,12 @@ def already_staged(item_id: str) -> bool:
     return (core.INBOX_DIR / f'{item_id}.json').exists() or (core.OUTBOX_DIR / f'{item_id}.json').exists()
 
 
-def resolve_reddit_share(item: dict):
-    src = str(item.get('sourceUrl') or '')
-    if 'reddit.com' not in src.lower() or '/s/' not in src:
-        return item
-    try:
-        import audio_library_resolve_reddit_via_rxddit as rx
-        import audio_library_resolve_reddit_via_curlx_next as base
-        canonical, mode = rx.try_rxddit(src)
-        if not canonical:
-            for fn in (base.try_reddit_lynx, base.try_microlink, base.try_domainee, base.try_curlx, base.try_reddit_headers):
-                canonical, mode = fn(src)
-                if canonical:
-                    break
-        if canonical:
-            try:
-                base.update(str(item.get('id') or ''), src, canonical)
-            except Exception:
-                pass
-            item = dict(item)
-            item['sharedUrl'] = src
-            item['sourceUrl'] = canonical
-            item['canonicalUrl'] = canonical
-            item['resolveMode'] = mode
-    except Exception:
-        pass
-    return item
-
-
 def active_items_from_worker():
     """Read active Library items without claiming or mutating the queue.
 
-    This is intentionally read-only. Extraction failures therefore remain
-    eligible for the next 5-minute run instead of being stranded in
-    `processing`. Existing inbox/outbox files are filtered before MAX_ITEMS so
-    they cannot starve newer work.
+    Reddit URL resolution/acquisition is deliberately not owned here. The core
+    extractor routes Reddit through scripts/reddit_common.py, the same source
+    layer used by reddit-read and reddit-deep-sweep.
     """
     headers = {
         'Authorization': 'Bearer ' + library_session_token(),
@@ -135,10 +98,8 @@ def active_items_from_worker():
             continue
         candidates.append(item)
 
-    # Oldest first prevents a repeatedly failing new item from starving older
-    # queued work, while MAX_ITEMS still bounds each run.
     candidates.sort(key=lambda x: str(x.get('createdAt') or ''))
-    return [resolve_reddit_share(x) for x in candidates[:core.MAX_ITEMS]]
+    return candidates[:core.MAX_ITEMS]
 
 
 def collect_legacy_ids():
@@ -174,7 +135,7 @@ def legacy_pending_items():
             continue
         if str(item.get('status') or '') not in ACTIVE_STATUSES:
             continue
-        items.append(resolve_reddit_share(item))
+        items.append(item)
         if len(items) >= core.MAX_ITEMS:
             break
     return items
