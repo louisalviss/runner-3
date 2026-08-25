@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "pointer": "forum_signal_latest.json",
+  "artifact_prefix": "forum-signal-",
+  "files": {
+    "manifest": "manifest.json",
+    "health": "forum_health.json",
+    "health_summary": "forum_health.md",
+    "raw_posts": "forum_signal.jsonl",
+    "general_candidates": "forum_insight_candidates.jsonl",
+    "all_routes_candidates": "forum_insight_candidates_all_routes.jsonl",
+    "mmo_candidates": "forum_insight_candidates_mmo.jsonl",
+    "crypto_candidates": "forum_insight_candidates_crypto.jsonl",
+    "rejections": "forum_candidate_rejections.jsonl",
+    "general_summary": "forum_insights.md",
+    "mmo_summary": "forum_insights_mmo.md",
+    "crypto_summary": "forum_insights_crypto.md",
+    "public_fallback": "public_feed_fallback.json"
+  },
+  "consumer_rule": "Use forum_signal_latest.json only to resolve the latest run/artifact. Inside the artifact, use the filenames in this contract. Do not infer filenames from pointer convenience fields."
+}
