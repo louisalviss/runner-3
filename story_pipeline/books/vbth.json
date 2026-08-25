@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "book_id": "vbth",
   "title": "Vương Bài Tiến Hóa",
   "author": "Quyển Thổ",
@@ -7,16 +7,40 @@
   "chapter_count": 1214,
   "source_adapter": "tienvuc-segmented",
   "artifact_store": {
-    "kind": "dropbox",
-    "root_env": "EBOOK_DROPBOX_ROOT",
-    "default_root": "/Apps/remotely-save/AI/EBOOKS",
-    "relative_root": "vbth"
+    "kind": "r2",
+    "bucket_env": "EBOOK_R2_BUCKET",
+    "default_bucket": "runner3-artifacts",
+    "prefix": "ebooks/vbth"
+  },
+  "human_projection": {
+    "google_sheet": {
+      "title": "AI Flow Control Center",
+      "spreadsheet_id": "1w04Z0HavtB36DwsSgKhEtNGJS4wauNCEyjQCY4pXc_A",
+      "flow_key": "ebook-editorial-vbth"
+    },
+    "dropbox": {
+      "role": "human-library-only",
+      "root": "/Apps/remotely-save/AI/EBOOKS/VBTH",
+      "publish": [
+        "overview",
+        "long-context",
+        "sample",
+        "final-epub"
+      ],
+      "exclude": [
+        "raw",
+        "intermediate",
+        "chapter-sidecars",
+        "retry-artifacts",
+        "qa-temp"
+      ]
+    }
   },
   "master": {
     "filename": "Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub"
   },
   "editorial": {
-    "pipeline_version": 1,
+    "pipeline_version": 2,
     "editor_profile": "gold-standard",
     "prompt_version": "gold-v1",
     "story_bible_version": 1,
