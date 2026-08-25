@@ -1,0 +1,64 @@
+name: Runner3 RSS Library Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-rss-proof.yml'
+  workflow_run:
+    workflows: ['Runner3 Core Shadow Deploy']
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify RSS Library production endpoints
+        shell: bash
+        env:
+          BASE_URL: https://runner3-core.ducduy2411.workers.dev
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/health" -o /tmp/health.json
+          curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/v1/rss/articles?limit=10" -o /tmp/articles.json
+          curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/v1/rss/articles?q=TeamViewer" -o /tmp/search.json
+          curl -fsS --retry 5 --retry-delay 2 "$BASE_URL/ui/rss" -o /tmp/rss.html
+          body_http="$(curl -sS -o /tmp/body.json -w '%{http_code}' "$BASE_URL/v1/rss/article?id=genk-165260824141950644&lang=original")"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          health=json.loads(pathlib.Path('/tmp/health.json').read_text())
+          articles=json.loads(pathlib.Path('/tmp/articles.json').read_text())
+          search=json.loads(pathlib.Path('/tmp/search.json').read_text())
+          html=pathlib.Path('/tmp/rss.html').read_text(errors='replace')
+          expected={
+            'projectsyndicate-url-26a9686e21ebe4fa865d',
+            'projectsyndicate-url-db223b141f372578df3c',
+            'genk-165260824141950644',
+            'fulcrum-url-a87e54dbda2e37fe40a7',
+            'tinhte-4171630',
+            'nghiencuuquocte-url-6cd04807aefc80d9be93',
+          }
+          got={x.get('article_id') for x in articles.get('articles', [])}
+          search_titles=[x.get('title','') for x in search.get('articles', [])]
+          checks={
+            'health': health.get('ok') is True and health.get('d1') is True and health.get('r2') is True,
+            'catalog_ok': articles.get('ok') is True,
+            'six_seed_present': expected.issubset(got),
+            'search_ok': search.get('ok') is True and any('TeamViewer' in t for t in search_titles),
+            'ui_ok': 'Runner3 RSS Library' in html and 'TeamViewer' in html,
+            'body_route_private': os.environ.get('BODY_HTTP') == '401',
+          }
+          result={'ok': all(checks.values()), 'checks': checks, 'catalog_count': articles.get('count'), 'seed_ids': sorted(expected)}
+          print(json.dumps(result, indent=2, ensure_ascii=False))
+          if not result['ok']:
+            raise SystemExit('rss_library_proof_failed')
+          PY
+        env:
+          BODY_HTTP: ${{ steps.body.outputs.http }}
