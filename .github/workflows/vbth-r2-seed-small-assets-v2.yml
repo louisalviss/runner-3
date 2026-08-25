@@ -1,0 +1,212 @@
+name: VBTH R2 Seed Small Assets v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/ebook/vbth-small-seed.json'
+      - '.github/workflows/vbth-r2-seed-small-assets-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vbth-r2-seed-small-assets-v2
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  R2_BUCKET: runner3-artifacts
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Fetch unreferenced bundle blob and verify exact bytes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vbth-small
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, urllib.request
+
+          spec=json.load(open('ops/ebook/vbth-small-seed.json',encoding='utf-8'))
+          blob_sha=spec['bundle']['git_blob_sha']
+          expected=spec['bundle']['sha256']
+          repo=os.environ['GITHUB_REPOSITORY']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/git/blobs/{blob_sha}',
+              headers={
+                  'Authorization':f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28',
+                  'User-Agent':'runner3-vbth-small-seed-v2/1.0',
+              },
+          )
+          with urllib.request.urlopen(req,timeout=60) as resp:
+              body=json.load(resp)
+          if body.get('encoding')!='base64':
+              raise SystemExit(f"unexpected blob encoding: {body.get('encoding')!r}")
+          raw=base64.b64decode(''.join(str(body.get('content') or '').split()))
+          actual=hashlib.sha256(raw).hexdigest()
+          if actual!=expected:
+              raise SystemExit(f'bundle sha mismatch: {actual} != {expected}')
+          p=pathlib.Path('/tmp/vbth-small/assets.tar.gz')
+          p.write_bytes(raw)
+          print(json.dumps({'ok':True,'blob_sha':blob_sha,'bytes':len(raw),'sha256':actual}))
+          PY
+          tar -xzf /tmp/vbth-small/assets.tar.gz -C /tmp/vbth-small
+          python - <<'PY'
+          import hashlib,json,pathlib
+          spec=json.load(open('ops/ebook/vbth-small-seed.json',encoding='utf-8'))
+          proof={}
+          for logical,row in spec['assets'].items():
+              p=pathlib.Path('/tmp/vbth-small')/row['filename']
+              if not p.is_file():
+                  raise SystemExit(f'missing extracted asset: {p}')
+              actual=hashlib.sha256(p.read_bytes()).hexdigest()
+              if actual!=row['sha256']:
+                  raise SystemExit(f'{logical} sha mismatch: {actual} != {row["sha256"]}')
+              proof[logical]={'filename':row['filename'],'bytes':p.stat().st_size,'sha256':actual}
+          pathlib.Path('/tmp/vbth-small/local-proof.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(proof,ensure_ascii=False))
+          PY
+
+      - name: Upload exact assets to R2 and verify readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          python - <<'PY' >/tmp/vbth-small/upload.tsv
+          import json
+          spec=json.load(open('ops/ebook/vbth-small-seed.json',encoding='utf-8'))
+          for logical,row in spec['assets'].items():
+              print('\t'.join([logical,row['filename'],row['r2_key'],row['sha256']]))
+          PY
+          : >/tmp/vbth-small/r2-proof.jsonl
+          while IFS=$'\t' read -r logical filename r2key expected; do
+            [ -n "$logical" ] || continue
+            src="/tmp/vbth-small/${filename}"
+            readback="/tmp/vbth-small/readback-${logical}"
+            npx --yes wrangler@4 r2 object put "${R2_BUCKET}/${r2key}" \
+              --file="$src" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+            npx --yes wrangler@4 r2 object get "${R2_BUCKET}/${r2key}" \
+              --file="$readback" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+            actual="$(sha256sum "$readback" | awk '{print $1}')"
+            test "$actual" = "$expected"
+            bytes="$(wc -c < "$readback" | tr -d ' ')"
+            python - "$logical" "$r2key" "$actual" "$bytes" <<'PY' >>/tmp/vbth-small/r2-proof.jsonl
+          import json,sys
+          print(json.dumps({'logical':sys.argv[1],'r2_key':sys.argv[2],'sha256':sys.argv[3],'bytes':int(sys.argv[4]),'verified':True}))
+          PY
+          done </tmp/vbth-small/upload.tsv
+          cat /tmp/vbth-small/r2-proof.jsonl
+          test "$(wc -l < /tmp/vbth-small/r2-proof.jsonl | tr -d ' ')" = "3"
+
+      - name: Commit D1 partial seed only after R2 verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime,json,os,sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path('.github/scripts').resolve()))
+          from runner3_core import get_checkpoint, save_checkpoint, report_status
+
+          proofs=[]
+          for line in Path('/tmp/vbth-small/r2-proof.jsonl').read_text(encoding='utf-8').splitlines():
+              if line.strip(): proofs.append(json.loads(line))
+          verified={row['logical']:row for row in proofs if row.get('verified')}
+          if set(verified)!={'gold','source_index','editorial_sample'}:
+              raise SystemExit(f'incomplete R2 proof: {sorted(verified)}')
+
+          scope='book:vbth:seed'
+          old=get_checkpoint('ebook-editorial',scope) or {}
+          old_pos=old.get('position') or {}
+          merged=dict(old_pos.get('verified') or {})
+          merged.update(verified)
+          required={'master','gold','source_index','editorial_sample'}
+          required_missing=sorted(required-set(merged))
+          if required_missing!=['master']:
+              raise SystemExit(f'unexpected required_missing after merge: {required_missing}')
+
+          position={
+              **old_pos,
+              'schema_version':2,
+              'phase':'seed-partial',
+              'book_id':'vbth',
+              'artifact_store':'r2',
+              'artifact_bucket':os.environ['R2_BUCKET'],
+              'verified':merged,
+              'required_missing':required_missing,
+              'source':'chatgpt-library-exact-small-assets-via-unreferenced-git-blob',
+              'small_asset_seed_run_id':os.environ['GITHUB_RUN_ID'],
+              'small_asset_seed_sha':os.environ['GITHUB_SHA'],
+          }
+          saved=save_checkpoint(
+              'ebook-editorial','ebook-editorial/vbth',scope=scope,
+              status='running',position=position,dropbox_path=None,
+              last_error='canonical master still missing',
+          )
+          durable=get_checkpoint('ebook-editorial',scope)
+          actual=(durable or {}).get('position') or {}
+          if (durable or {}).get('status')!='running':
+              raise SystemExit(f'D1 status mismatch: {durable!r}')
+          if sorted(actual.get('required_missing') or [])!=['master']:
+              raise SystemExit(f'D1 required_missing mismatch: {durable!r}')
+          for key,row in verified.items():
+              got=(actual.get('verified') or {}).get(key) or {}
+              if got.get('sha256')!=row['sha256'] or got.get('r2_key')!=row['r2_key']:
+                  raise SystemExit(f'D1 verified mismatch for {key}: {got!r}')
+          report_status('ebook-editorial/vbth','running',run_id=os.environ['GITHUB_RUN_ID'],detail={'scope':scope,'phase':'seed-partial','required_missing':['master']})
+
+          proof={
+              'schema':'vbth-small-r2-seed-proof-v2',
+              'ok':True,
+              'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),
+              'run_id':os.environ['GITHUB_RUN_ID'],
+              'sha':os.environ['GITHUB_SHA'],
+              'bucket':os.environ['R2_BUCKET'],
+              'verified':verified,
+              'required_missing':['master'],
+              'd1_checkpoint':durable,
+          }
+          out=Path('ops/ebook/vbth-small-seed-proof.json')
+          out.write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'ok':True,'verified':sorted(verified),'required_missing':['master'],'saved':saved},ensure_ascii=False))
+          PY
+
+      - name: Persist proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/ebook/vbth-small-seed-proof.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist VBTH small R2 seed proof: ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
