@@ -1,6 +1,6 @@
 {
   "name": "runner3-core",
-  "main": "rss-wrapper.js",
+  "main": "rss-entry.js",
   "compatibility_date": "2026-08-22",
   "vars": {
     "RUNNER3_CORE_WRITE_AUTH": "required"
@@ -21,6 +21,12 @@
     {
       "binding": "ARTIFACTS",
       "bucket_name": "runner3-artifacts"
+    }
+  ],
+  "services": [
+    {
+      "binding": "RSS_FASTLANE",
+      "service": "runner3-rss-fastlane"
     }
   ]
 }
