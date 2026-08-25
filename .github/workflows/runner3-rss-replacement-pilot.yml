@@ -1,0 +1,182 @@
+name: Runner3 RSS Replacement Pilot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-rss-replacement-pilot.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-rss-replacement-pilot
+  cancel-in-progress: false
+
+jobs:
+  replace-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply replacement migration
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$RUNNER3_CORE_TOKEN"
+          npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0008_rss_replace_restricted_pilot.sql
+
+      - name: Fetch replacements and verify exact-six pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json, os, urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+
+          base=os.environ['BASE_URL'].rstrip('/')
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          replacements=[
+            'huggingface-url-d556a48bace2bfaa6a70',
+            'cloudflare-url-781ba125e818919ba95e',
+          ]
+          expected={
+            'genk-165260824141950644',
+            'fulcrum-url-a87e54dbda2e37fe40a7',
+            'tinhte-4171630',
+            'nghiencuuquocte-url-6cd04807aefc80d9be93',
+            *replacements,
+          }
+          retired={
+            'projectsyndicate-url-26a9686e21ebe4fa865d',
+            'projectsyndicate-url-db223b141f372578df3c',
+          }
+
+          def call(path, method='GET'):
+            req=urllib.request.Request(
+              base+path,
+              headers={
+                'Accept':'application/json',
+                'Authorization':'Bearer '+token,
+                'User-Agent':'runner3-rss-replacement-pilot/1.0',
+                'Cache-Control':'no-cache',
+              },
+              method=method,
+            )
+            try:
+              with urllib.request.urlopen(req, timeout=50) as r:
+                raw=r.read().decode('utf-8','replace')
+                return r.status, json.loads(raw) if raw else None
+            except urllib.error.HTTPError as e:
+              raw=e.read().decode('utf-8','replace')
+              try: body=json.loads(raw) if raw else None
+              except Exception: body={'rawPrefix':raw[:500]}
+              return e.code, body
+
+          proof={
+            'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'runId':os.environ.get('GITHUB_RUN_ID'),
+            'baseUrl':base,
+            'retiredProjectSyndicateIds':sorted(retired),
+            'replacementIds':replacements,
+            'fetch':{},
+            'originals':{},
+            'translationPackets':{},
+          }
+          errors=[]
+
+          for article_id in replacements:
+            q=urllib.parse.quote(article_id,safe='')
+            http,body=call(f'/api/rss/articles/{q}/fetch', 'POST')
+            proof['fetch'][article_id]={
+              'http':http,
+              'ok':bool(isinstance(body,dict) and body.get('ok')),
+              'error':body.get('error') if isinstance(body,dict) else None,
+              'chars':body.get('chars') if isinstance(body,dict) else None,
+              'checksum':body.get('checksum') if isinstance(body,dict) else None,
+            }
+            if http != 200 or not isinstance(body,dict) or not body.get('ok'):
+              errors.append(f'fetch:{article_id}:{http}:{proof["fetch"][article_id]["error"]}')
+              continue
+
+            ohttp,obody=call(f'/api/rss/articles/{q}/original')
+            artifact=obody.get('artifact',{}) if isinstance(obody,dict) else {}
+            fetch_meta=artifact.get('fetch',{}) if isinstance(artifact,dict) else {}
+            body_chars=len(str(artifact.get('body') or '')) if isinstance(artifact,dict) else 0
+            proof['originals'][article_id]={
+              'http':ohttp,
+              'bodyChars':body_chars,
+              'route':fetch_meta.get('route'),
+              'coverage':fetch_meta.get('coverage'),
+              'truncated':fetch_meta.get('truncated'),
+              'resolvedUrl':fetch_meta.get('resolvedUrl'),
+            }
+            if ohttp != 200 or body_chars < 1000 or bool(fetch_meta.get('truncated')):
+              errors.append(f'original:{article_id}:{ohttp}:chars={body_chars}:truncated={fetch_meta.get("truncated")}')
+
+            phttp,pbody=call(f'/api/rss/articles/{q}/translation-packet')
+            proof['translationPackets'][article_id]={
+              'http':phttp,
+              'ok':bool(isinstance(pbody,dict) and pbody.get('ok')),
+              'sectionCount':pbody.get('sectionCount') if isinstance(pbody,dict) else None,
+              'sourceChecksum':pbody.get('sourceChecksum') if isinstance(pbody,dict) else None,
+              'error':pbody.get('error') if isinstance(pbody,dict) else None,
+            }
+            if phttp != 200 or not isinstance(pbody,dict) or not pbody.get('ok'):
+              errors.append(f'packet:{article_id}:{phttp}')
+
+          ch,catalog=call('/api/rss/library?limit=100')
+          articles=catalog.get('articles',[]) if isinstance(catalog,dict) else []
+          ids={x.get('article_id') for x in articles}
+          proof['catalog']={
+            'http':ch,
+            'count':catalog.get('count') if isinstance(catalog,dict) else None,
+            'ids':sorted(x for x in ids if x),
+            'exactSix':ids == expected and len(articles) == 6,
+            'retiredAbsent':not bool(ids & retired),
+          }
+          if ch != 200 or ids != expected or len(articles) != 6:
+            errors.append('catalog_not_exact_six')
+          if ids & retired:
+            errors.append('retired_projectsyndicate_still_present')
+
+          proof['errors']=errors
+          proof['ok']=not errors
+          Path('/tmp/rss-replacement-proof.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(proof,ensure_ascii=False,indent=2))
+          if errors:
+            raise SystemExit(1)
+          PY
+
+      - name: Persist replacement proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/rss-library
+          test -s /tmp/rss-replacement-proof.json || printf '{"ok":false,"error":"replacement_proof_missing","runId":"%s"}\n' "$GITHUB_RUN_ID" >/tmp/rss-replacement-proof.json
+          cp /tmp/rss-replacement-proof.json ops/rss-library/replacement-proof-20260825.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/rss-library/replacement-proof-20260825.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist RSS replacement proof: ${GITHUB_RUN_ID} [skip ci]"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
