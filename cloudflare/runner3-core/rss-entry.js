@@ -21,11 +21,17 @@ function blockedRestrictedFetch(request, url) {
   }, { status: 409, headers: { "cache-control": "private, no-store" } });
 }
 
-// Preserve the production-proven /v1/rss/* and /ui/rss routes while exposing
-// the full private RSS Library API/UI implemented in src/rss-library.js.
+// Preserve the production-proven /v1/rss/* routes while exposing the full
+// private RSS Library API/UI implemented in src/rss-library.js. The legacy
+// /ui/rss entry now points to the protected reader instead of a status-only table.
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (request.method === "GET" && url.pathname === "/ui/rss") {
+      return Response.redirect(new URL("/rss/library", url).toString(), 302);
+    }
+
     const integrityResponse = blockedRestrictedFetch(request, url);
     if (integrityResponse) return integrityResponse;
     const rssResponse = await handleRssLibrary(request, env, url);
