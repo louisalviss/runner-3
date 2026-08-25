@@ -1,0 +1,90 @@
+name: Runner3 RSS Fulcrum Publish Retry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-rss-fulcrum-publish-retry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -q 'cryptography>=45,<47'
+      - name: Decrypt, publish, and retain exact proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/rss-library/translation-proofs
+          python - <<'PY'
+          import base64,datetime,hashlib,json,os,urllib.error,urllib.parse,urllib.request
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+          article_id='fulcrum-url-a87e54dbda2e37fe40a7'
+          src=Path('ops/rss-library/chatgpt-outbox/fulcrum-url-a87e54dbda2e37fe40a7-chatgpt2.json')
+          proof={'checkedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'runId':os.environ.get('GITHUB_RUN_ID'),'articleId':article_id,'ok':False}
+          try:
+              env=json.loads(src.read_text(encoding='utf-8'))
+              seed=hashlib.sha256(b'runner3-audio-library-chatgpt-bridge-v1\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).digest()
+              private=X25519PrivateKey.from_private_bytes(seed)
+              public=private.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)
+              proof['bridgePublicKey']=base64.b64encode(public).decode()
+              eph=X25519PublicKey.from_public_bytes(base64.b64decode(env['ephemeralPublicKey']))
+              shared=private.exchange(eph)
+              key=HKDF(algorithm=hashes.SHA256(),length=32,salt=None,info=b'runner3-rss-library-chatgpt-v1').derive(shared)
+              plain=ChaCha20Poly1305(key).decrypt(base64.b64decode(env['nonce']),base64.b64decode(env['ciphertext']),article_id.encode())
+              payload=json.loads(plain)
+              proof['decryptOk']=True
+              publish={
+                  'sourceChecksum':payload['sourceChecksum'],
+                  'sections':payload['sections'],
+                  'translationVersion':payload.get('translationVersion','chatgpt-v1'),
+                  'glossaryVersion':payload.get('glossaryVersion'),
+              }
+              q=urllib.parse.quote(article_id,safe='')
+              data=json.dumps(publish,ensure_ascii=False).encode('utf-8')
+              req=urllib.request.Request(os.environ['BASE_URL'].rstrip('/')+'/api/rss/articles/'+q+'/translation',data=data,headers={'Accept':'application/json','Content-Type':'application/json; charset=utf-8','Authorization':'Bearer '+os.environ['RUNNER3_CORE_TOKEN'].strip(),'User-Agent':'runner3-rss-fulcrum-retry/1.0'},method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=60) as r:
+                      status=r.status; raw=r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e:
+                  status=e.code; raw=e.read().decode('utf-8','replace')
+              try: result=json.loads(raw) if raw else {}
+              except Exception: result={'rawPrefix':raw[:1000]}
+              proof.update({'http':status,'result':result,'ok':bool(status==200 and isinstance(result,dict) and result.get('ok'))})
+          except Exception as exc:
+              proof['phaseError']=type(exc).__name__+': '+str(exc)
+          Path('ops/rss-library/translation-proofs/fulcrum-url-a87e54dbda2e37fe40a7.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(proof,ensure_ascii=False))
+          PY
+      - name: Persist proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/rss-library/translation-proofs/fulcrum-url-a87e54dbda2e37fe40a7.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist Fulcrum translation publish proof: ${GITHUB_RUN_ID} [skip ci]"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
