@@ -30,6 +30,14 @@
     {
       "flow_id": "reddit-deep-sweep",
       "pattern": "full",
+      "single_link": {
+        "workflow": ".github/workflows/reddit-thread-read.yml",
+        "request": "ops/reddit-thread-read/request.json",
+        "checkpoint": "ops/reddit-thread-read/latest.json",
+        "resolver_order": ["canonical", "rxddit"],
+        "thread_acquisition": "arctic-shift-recursive-tree",
+        "coverage_rule": "use captured tree snapshot counts; do not infer completeness from reported_num_comments"
+      },
       "d1": {"project": "reddit-deep-sweep", "scope": "<subreddit>", "custom_index": true},
       "r2": {"bucket": "runner3-artifacts", "prefix": "reddit/<subreddit>"},
       "sheet": {"mode": "projection"},
