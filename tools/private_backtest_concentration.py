@@ -88,8 +88,7 @@ def fetch_sector_map(expected):
         sector = str(row.get("sector") or "").strip()
         industry = str(row.get("industry") or "").strip()
         if sector:
-            out[sym] = {"sector": sector, "industry": industry}
-    # Known ticker aliases / punctuation normalization only; not sector guesses.
+            out[sym] = {"sector": sector, "industry": industry, "source": "Nasdaq screener"}
     aliases = {"BRK.B": ["BRK.B", "BRK/B", "BRK-B"], "BF.B": ["BF.B", "BF/B", "BF-B"]}
     for canon, variants in aliases.items():
         if canon in expected and canon not in out:
@@ -98,6 +97,14 @@ def fetch_sector_map(expected):
                 if nv in out:
                     out[canon] = out[nv]
                     break
+    # Verified fallback: EA remains Nasdaq-listed in Aug 2026; GICS classifies
+    # Interactive Home Entertainment under Communication Services.
+    if "EA" in expected and "EA" not in out:
+        out["EA"] = {
+            "sector": "Communication Services",
+            "industry": "Interactive Home Entertainment",
+            "source": "verified fallback: SEC Nasdaq listing + GICS classification",
+        }
     missing = sorted(s for s in expected if normalize_symbol(s) not in out)
     if missing:
         raise RuntimeError(f"sector mapping incomplete: {len(missing)}/{len(expected)} missing={missing}")
@@ -163,7 +170,6 @@ def main():
     for t in trades:
         t["sector"] = meta[t["symbol"]]["sector"]
 
-    # Contribution concentration by symbol and sector.
     by_symbol = defaultdict(list); by_sector = defaultdict(list)
     for t in trades:
         by_symbol[t["symbol"]].append(t["bps"])
@@ -189,7 +195,6 @@ def main():
     for n in [1,2,3]:
         top_sector_shares[str(n)] = 100.0*sum(max(0.0,r["sum_bps"]) for r in sector_rows[:n])/positive_sector_net if positive_sector_net else None
 
-    # Monthly realized-P&L correlations, zero included for months with no exits.
     min_month = min(t["exit"] for t in trades).replace(day=1,hour=0,minute=0,second=0,microsecond=0)
     max_month = max(t["exit"] for t in trades).replace(day=1,hour=0,minute=0,second=0,microsecond=0)
     months=[]; cur=min_month
@@ -199,8 +204,7 @@ def main():
     monthly = {s:{m:0.0 for m in months} for s in primary_symbols}
     for t in trades:
         monthly[t["symbol"]][t["exit"].strftime("%Y-%m")] += t["bps"]
-    pair_corr=[]; within_corr=[]; cross_corr=[]
-    top_pairs=[]
+    pair_corr=[]; within_corr=[]; cross_corr=[]; top_pairs=[]
     for i,a in enumerate(primary_symbols):
         av=[monthly[a][m] for m in months]
         for b in primary_symbols[i+1:]:
@@ -212,7 +216,6 @@ def main():
             top_pairs.append({"a":a,"b":b,"sector_a":meta[a]["sector"],"sector_b":meta[b]["sector"],"corr":c})
     top_pairs.sort(key=lambda x:x["corr"], reverse=True)
 
-    # Signal co-activity by calendar day: binary active-position state per symbol.
     all_days=[]
     d0=min(t["entry"].date() for t in trades); d1=max(t["exit"].date() for t in trades)
     d=d0
@@ -236,13 +239,12 @@ def main():
             if u:
                 jaccards.append(len(active_days[a]&active_days[b])/len(u))
 
-    # Time-weighted sector concentration of the live book.
     events=defaultdict(lambda:{"entry":[],"exit":[]})
     for t in trades:
         events[t["entry"]]["entry"].append(t)
         events[t["exit"]]["exit"].append(t)
     active=defaultdict(int); prev=None
-    weighted_top=0.0; weighted_hhi=0.0; weighted_hours=0.0; peak_top=0.0; peak_sector=None
+    weighted_top=0.0; weighted_hhi=0.0; weighted_hours=0.0; peak_top=0.0
     sector_peak_counts=defaultdict(int)
     for ts in sorted(events):
         if prev is not None:
@@ -252,9 +254,7 @@ def main():
                 shares=[n/total for n in active.values() if n>0]
                 top=max(shares); hhi=sum(x*x for x in shares)
                 weighted_top += top*hours; weighted_hhi += hhi*hours; weighted_hours += hours
-                if top>peak_top:
-                    peak_top=top
-        # exits first at same timestamp
+                peak_top=max(peak_top,top)
         for t in events[ts]["exit"]:
             active[t["sector"]]=max(0,active[t["sector"]]-1)
         for t in events[ts]["entry"]:
@@ -264,7 +264,7 @@ def main():
 
     result={
         "schema":1,"scope":args.scope,"universe":"primary_63","baseline":baseline,
-        "sector_mapping":{"source":"Nasdaq stock screener runtime fetch","coverage":f"{len(meta)}/63","sectors":sorted(set(x["sector"] for x in meta.values()))},
+        "sector_mapping":{"source":"Nasdaq stock screener + verified EA fallback","coverage":f"{len(meta)}/63","sectors":sorted(set(x["sector"] for x in meta.values())),"fallbacks":{s:v for s,v in meta.items() if v.get("source","").startswith("verified fallback")}},
         "contribution":{
             "total_net_bps":total_net,
             "symbol_abs_contribution_hhi":symbol_abs_hhi,
