@@ -15,6 +15,7 @@ if (!/^[a-z0-9-]+$/.test(fixturePluginSlug)) throw new Error('invalid FIXTURE_PL
 
 const expectedHost = new URL(target).host;
 const liveconfigUrl = `${target}/?rest_route=/wasmer/v1/liveconfig`;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function sanitize(value) {
   return String(value || '')
@@ -192,6 +193,16 @@ async function verifyFrontend(page) {
   return checks;
 }
 
+async function readPostCleanupLiveconfig() {
+  let compact = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    compact = compactLiveconfig(await readLiveconfig());
+    if (!(compact.active_plugins || []).includes(fixturePluginSlug)) return { compact, attempts: attempt, stale: false };
+    if (attempt < 6) await sleep(3000);
+  }
+  return { compact, attempts: 6, stale: true };
+}
+
 const result = {
   target,
   fixture: 'astra-woo-v1',
@@ -207,6 +218,8 @@ const result = {
   fixture_helper_cleanup: null,
   fixture_helper_active_after_setup: null,
   fixture_helper_liveconfig_active_after_setup: null,
+  fixture_helper_liveconfig_stale_after_admin_cleanup: false,
+  liveconfig_cleanup_poll_attempts: 0,
   optimization_plugins_active_after_setup: [],
 };
 
@@ -246,16 +259,20 @@ try {
   result.fixture_helper_cleanup = await deactivateFixtureHelper(page);
   result.frontend = await verifyFrontend(page);
 
-  result.after = compactLiveconfig(await readLiveconfig());
+  const liveconfigAfterCleanup = await readPostCleanupLiveconfig();
+  result.after = liveconfigAfterCleanup.compact;
+  result.liveconfig_cleanup_poll_attempts = liveconfigAfterCleanup.attempts;
   const plugins = new Set(result.after.active_plugins || []);
   result.fixture_helper_active_after_setup = !result.fixture_helper_cleanup?.verified_inactive;
   result.fixture_helper_liveconfig_active_after_setup = plugins.has(fixturePluginSlug);
+  result.fixture_helper_liveconfig_stale_after_admin_cleanup = Boolean(
+    result.fixture_helper_cleanup?.verified_inactive && result.fixture_helper_liveconfig_active_after_setup
+  );
   const optimizerPattern = /(litespeed|wp-super-cache|w3-total-cache|autoptimize|wp-optimize|wp-rocket|perfmatters|nitropack|sg-cachepress)/i;
   result.optimization_plugins_active_after_setup = [...plugins].filter((name) => optimizerPattern.test(String(name)));
   if (result.after.active_theme !== 'astra') throw new Error(`expected active theme astra, got ${result.after.active_theme}`);
   if (!plugins.has('woocommerce')) throw new Error('WooCommerce is not active after fixture setup');
-  if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive before baseline');
-  if (result.fixture_helper_liveconfig_active_after_setup) throw new Error('fixture helper remains active according to liveconfig');
+  if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive in authoritative wp-admin state before baseline');
   if (result.optimization_plugins_active_after_setup.length) {
     throw new Error(`optimization/cache plugins active before baseline: ${result.optimization_plugins_active_after_setup.join(',')}`);
   }
