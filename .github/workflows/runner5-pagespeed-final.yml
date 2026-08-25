@@ -1,10 +1,6 @@
 name: Runner5 Final Google PageSpeed
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/runner5-pagespeed-final.yml'
   workflow_dispatch:
 
 permissions:
@@ -79,6 +75,7 @@ PY
         shell: bash
         run: |
           set -euo pipefail
+          test -s /tmp/runner3-final-psi.json || true
           test -s /tmp/runner5-final-psi.json || printf '{"status":"failed","detail":"missing_result"}\n' >/tmp/runner5-final-psi.json
           cp /tmp/runner5-final-psi.json /tmp/final-psi-safe.json
           git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
