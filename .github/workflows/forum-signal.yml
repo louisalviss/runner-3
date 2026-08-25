@@ -27,7 +27,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: forum-signal-${{ github.ref }}
@@ -44,6 +44,51 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+
+      - name: Publish run-start pointer
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const path = 'forum_signal_latest.json';
+            const pointer = {
+              workflow: 'Tin VN · Forum Signal',
+              run_id: context.runId,
+              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1),
+              artifact_id: 0,
+              artifact_name: `forum-signal-${context.runId}`,
+              commit_sha: context.sha,
+              generated_at: new Date().toISOString(),
+              status: 'RUNNING'
+            };
+            let sha;
+            let currentPointer = null;
+            try {
+              const current = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path,
+                ref: process.env.GITHUB_REF_NAME
+              });
+              sha = current.data.sha;
+              currentPointer = JSON.parse(Buffer.from(current.data.content, 'base64').toString('utf8'));
+            } catch (e) {
+              if (e.status !== 404 && !(e instanceof SyntaxError)) throw e;
+            }
+            if (currentPointer?.run_id && Number(currentPointer.run_id) > Number(context.runId)) {
+              core.warning(`Skip stale start-pointer write from run ${context.runId}; newer run ${currentPointer.run_id} already owns pointer`);
+              return;
+            }
+            const args = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              message: `chore: mark Forum Signal run ${context.runId} started [skip ci]`,
+              content: Buffer.from(JSON.stringify(pointer, null, 2) + '\n').toString('base64'),
+              branch: process.env.GITHUB_REF_NAME
+            };
+            if (sha) args.sha = sha;
+            await github.rest.repos.createOrUpdateFileContents(args);
+            core.info(JSON.stringify(pointer));
 
       - name: Resolve job file
         id: job
@@ -129,6 +174,7 @@ jobs:
           key: forum-signal-state-${{ github.run_id }}
 
       - name: Upload forum signal artifact
+        id: artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -136,6 +182,79 @@ jobs:
           path: crawl_output/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish final latest-run pointer
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          CRAWL_OUTCOME: ${{ steps.crawl.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'forum_signal_latest.json';
+            let health = {};
+            let manifest = {};
+            try {
+              health = JSON.parse(fs.readFileSync('crawl_output/forum_health.json', 'utf8'));
+            } catch (e) {
+              health = {overall_status: process.env.CRAWL_OUTCOME === 'success' ? 'UNKNOWN' : 'FAILED', health_error: String(e)};
+            }
+            try {
+              manifest = JSON.parse(fs.readFileSync('crawl_output/manifest.json', 'utf8'));
+            } catch (e) {
+              manifest = {manifest_error: String(e)};
+            }
+            const pointer = {
+              workflow: 'Tin VN · Forum Signal',
+              run_id: context.runId,
+              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1),
+              artifact_id: Number(process.env.ARTIFACT_ID || 0),
+              artifact_name: `forum-signal-${context.runId}`,
+              artifact_url: process.env.ARTIFACT_URL || '',
+              commit_sha: context.sha,
+              generated_at: new Date().toISOString(),
+              status: health.overall_status || (process.env.CRAWL_OUTCOME === 'success' ? 'UNKNOWN' : 'FAILED'),
+              crawl_outcome: process.env.CRAWL_OUTCOME || 'unknown',
+              sources_total: manifest.sources_total ?? manifest.source_count ?? null,
+              posts_total: manifest.posts_total ?? manifest.items_total ?? null,
+              candidates_file: 'forum_insight_candidates.jsonl',
+              general_file: 'forum_candidates_general.jsonl',
+              mmo_file: 'forum_candidates_mmo.jsonl',
+              crypto_file: 'forum_candidates_crypto.jsonl',
+              health_file: 'forum_health.json',
+              manifest_file: 'manifest.json'
+            };
+            let sha;
+            let currentPointer = null;
+            try {
+              const current = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path,
+                ref: process.env.GITHUB_REF_NAME
+              });
+              sha = current.data.sha;
+              currentPointer = JSON.parse(Buffer.from(current.data.content, 'base64').toString('utf8'));
+            } catch (e) {
+              if (e.status !== 404 && !(e instanceof SyntaxError)) throw e;
+            }
+            if (currentPointer?.run_id && Number(currentPointer.run_id) > Number(context.runId)) {
+              core.warning(`Skip stale final-pointer write from run ${context.runId}; newer run ${currentPointer.run_id} already owns pointer`);
+              return;
+            }
+            const args = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              message: 'chore: update Forum Signal latest pointer [skip ci]',
+              content: Buffer.from(JSON.stringify(pointer, null, 2) + '\n').toString('base64'),
+              branch: process.env.GITHUB_REF_NAME
+            };
+            if (sha) args.sha = sha;
+            await github.rest.repos.createOrUpdateFileContents(args);
+            core.info(JSON.stringify(pointer));
 
       - name: Enforce critical health gate
         if: always() && steps.crawl.outcome == 'success'
