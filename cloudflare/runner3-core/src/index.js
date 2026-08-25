@@ -2,10 +2,32 @@
 const EVENT_RETENTION_DAYS = 90;
 const MAX_JSON_CHARS = 200000;
 const MAX_KEY_CHARS = 200;
+const MAX_ARTIFACT_KEY_CHARS = 900;
 
 function requireDb(env) {
   if (!env.DB) {
     return Response.json({ ok: false, error: "D1_NOT_BOUND" }, { status: 503 });
+  }
+  return null;
+}
+
+function requireArtifacts(env) {
+  if (!env.ARTIFACTS) {
+    return Response.json({ ok: false, error: "R2_NOT_BOUND" }, { status: 503 });
+  }
+  return null;
+}
+
+function requireArtifactAuth(request, env) {
+  const expected = typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
+  if (!expected) {
+    return Response.json({ ok: false, error: "ARTIFACT_AUTH_NOT_CONFIGURED" }, { status: 503 });
+  }
+  const auth = request.headers.get("Authorization") || "";
+  const prefix = "Bearer ";
+  const supplied = auth.startsWith(prefix) ? auth.slice(prefix.length).trim() : "";
+  if (!supplied || supplied !== expected) {
+    return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
   return null;
 }
@@ -15,6 +37,38 @@ function cleanKey(value, name) {
   if (!text) return { error: `${name} is required` };
   if (text.length > MAX_KEY_CHARS) return { error: `${name} too long` };
   return { value: text };
+}
+
+function cleanArtifactSegment(value, name) {
+  const result = cleanKey(value, name);
+  if (result.error) return result;
+  if (result.value === "." || result.value === ".." || /[\\/\u0000-\u001f\u007f]/.test(result.value)) {
+    return { error: `${name} contains invalid characters` };
+  }
+  return result;
+}
+
+function artifactKeyFromSegments(segments) {
+  if (segments.length < 4) return { error: "artifact name is required" };
+  const project = cleanArtifactSegment(segments[1], "project");
+  const scope = cleanArtifactSegment(segments[2], "scope");
+  if (project.error || scope.error) {
+    return { error: project.error || scope.error };
+  }
+
+  const nameParts = [];
+  for (let i = 3; i < segments.length; i += 1) {
+    const part = cleanArtifactSegment(segments[i], `name[${i - 3}]`);
+    if (part.error) return { error: part.error };
+    nameParts.push(part.value);
+  }
+
+  const name = nameParts.join("/");
+  const key = `core/${project.value}/${scope.value}/${name}`;
+  if (key.length > MAX_ARTIFACT_KEY_CHARS) {
+    return { error: `artifact key too long (max ${MAX_ARTIFACT_KEY_CHARS} chars)` };
+  }
+  return { project: project.value, scope: scope.value, name, key };
 }
 
 function optionalText(value) {
@@ -46,6 +100,90 @@ function decodePath(pathname) {
   } catch {
     return null;
   }
+}
+
+function artifactHeaders(object, artifact) {
+  const headers = new Headers();
+  if (typeof object.writeHttpMetadata === "function") {
+    object.writeHttpMetadata(headers);
+  }
+  if (object.httpEtag) headers.set("ETag", object.httpEtag);
+  if (Number.isFinite(object.size)) headers.set("Content-Length", String(object.size));
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("X-Runner3-Artifact-Project", artifact.project);
+  headers.set("X-Runner3-Artifact-Scope", artifact.scope);
+  headers.set("X-Runner3-Artifact-Name", artifact.name);
+  return headers;
+}
+
+async function handleArtifact(request, env, segments) {
+  const r2Error = requireArtifacts(env);
+  if (r2Error) return r2Error;
+  const authError = requireArtifactAuth(request, env);
+  if (authError) return authError;
+
+  const artifact = artifactKeyFromSegments(segments);
+  if (artifact.error) {
+    return Response.json({ ok: false, error: artifact.error }, { status: 400 });
+  }
+
+  if (request.method === "PUT") {
+    if (!request.body) {
+      return Response.json({ ok: false, error: "artifact body is required" }, { status: 400 });
+    }
+    const contentType = request.headers.get("Content-Type") || "application/octet-stream";
+    const source = (request.headers.get("X-Runner3-Source") || "unknown").slice(0, 200);
+    const object = await env.ARTIFACTS.put(artifact.key, request.body, {
+      httpMetadata: { contentType },
+      customMetadata: {
+        project: artifact.project,
+        scope: artifact.scope,
+        name: artifact.name,
+        source,
+      },
+    });
+    return Response.json({
+      ok: true,
+      artifact: {
+        project: artifact.project,
+        scope: artifact.scope,
+        name: artifact.name,
+        key: artifact.key,
+        size: object?.size ?? null,
+        etag: object?.httpEtag || object?.etag || null,
+        uploaded: object?.uploaded ? object.uploaded.toISOString() : null,
+        content_type: contentType,
+      },
+    });
+  }
+
+  if (request.method === "HEAD") {
+    const object = await env.ARTIFACTS.head(artifact.key);
+    if (!object) return new Response(null, { status: 404 });
+    return new Response(null, { status: 200, headers: artifactHeaders(object, artifact) });
+  }
+
+  if (request.method === "GET") {
+    const object = await env.ARTIFACTS.get(artifact.key);
+    if (!object) {
+      return Response.json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, { status: 404 });
+    }
+    return new Response(object.body, {
+      status: 200,
+      headers: artifactHeaders(object, artifact),
+    });
+  }
+
+  if (request.method === "DELETE") {
+    const existing = await env.ARTIFACTS.head(artifact.key);
+    if (!existing) {
+      return Response.json({ ok: true, deleted: false, artifact: artifact.key });
+    }
+    await env.ARTIFACTS.delete(artifact.key);
+    return Response.json({ ok: true, deleted: true, artifact: artifact.key });
+  }
+
+  return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
 }
 
 async function cleanupOldEvents(env) {
@@ -88,8 +226,14 @@ export default {
         ok: true,
         service: "runner3-core",
         d1: !!env.DB,
+        r2: !!env.ARTIFACTS,
+        artifact_auth: !!(typeof env.RUNNER3_CORE_TOKEN === "string" && env.RUNNER3_CORE_TOKEN.trim()),
         time: new Date().toISOString()
       });
+    }
+
+    if (segments[0] === "artifacts") {
+      return handleArtifact(request, env, segments);
     }
 
     if (segments[0] === "state" && segments.length === 2) {
