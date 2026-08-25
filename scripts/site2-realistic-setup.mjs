@@ -120,7 +120,7 @@ async function ensureStarterTemplates(page) {
     const card = page.locator('.plugin-card-astra-sites').first();
     await card.waitFor({ state:'visible', timeout:45000 });
     const install = card.locator('a.install-now').first();
-    if (await install.count()) { await install.click(); await page.waitForTimeout(8000); }
+    if (await install.count()) await gotoAdminHref(page, install);
   }
   await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil:'domcontentloaded', timeout:60000 });
   row = page.locator('tr[data-slug="astra-sites"], tr').filter({ has:page.locator('a[href*="astra-sites"]') }).first();
