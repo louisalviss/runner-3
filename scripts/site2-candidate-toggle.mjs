@@ -1,0 +1,154 @@
+#!/usr/bin/env node
+
+import fs from 'node:fs';
+import { chromium } from 'playwright-core';
+
+const target = (process.env.SITE2_URL || 'https://runner3-wp-a94b8fd2.wasmer.app').replace(/\/$/, '');
+const action = process.env.CANDIDATE_ACTION || 'activate';
+const pluginZip = process.env.CANDIDATE_ZIP || '';
+const pluginSlug = process.env.CANDIDATE_PLUGIN_SLUG || 'runner3-site2-hero-preload';
+const preloadId = process.env.CANDIDATE_PRELOAD_ID || 'runner3-site2-hero-preload';
+const out = process.env.CANDIDATE_OUT || '/tmp/site2-candidate-toggle.json';
+let token = String(process.env.WASMER_TOKEN || '').replace(/[\r\n]/g, '').trim();
+if (!token) throw new Error('WASMER_TOKEN is required');
+if (!token.startsWith('wap_')) token = `wap_${token}`;
+if (!['activate', 'deactivate'].includes(action)) throw new Error(`unsupported CANDIDATE_ACTION=${action}`);
+if (action === 'activate' && (!pluginZip || !fs.existsSync(pluginZip))) throw new Error('CANDIDATE_ZIP is required for activation');
+if (!/^[a-z0-9-]+$/.test(pluginSlug)) throw new Error('invalid CANDIDATE_PLUGIN_SLUG');
+
+const expectedHost = new URL(target).host;
+
+function sanitize(value) {
+  return String(value || '')
+    .replaceAll(token, '[REDACTED]')
+    .replace(/magiclogin=[^&\s"']+/gi, 'magiclogin=[REDACTED]');
+}
+
+async function gotoAdminHref(page, locator) {
+  const href = await locator.getAttribute('href');
+  if (!href) throw new Error('WordPress admin action link has no href');
+  const resolved = new URL(href, `${target}/wp-admin/`);
+  if (resolved.host !== expectedHost || !resolved.pathname.startsWith('/wp-admin/')) {
+    throw new Error('WordPress admin target guard failed');
+  }
+  await page.goto(resolved.href, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+}
+
+function pluginRow(page) {
+  return page.locator('tr').filter({ has: page.locator(`a[href*="${pluginSlug}"]`) });
+}
+
+async function readState(page) {
+  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  const rows = pluginRow(page);
+  if (!(await rows.count())) return { installed: false, active: false };
+  const row = rows.first();
+  const deactivate = row.locator('a[href*="action=deactivate"]');
+  const activate = row.locator('a[href*="action=activate"]');
+  return {
+    installed: true,
+    active: (await deactivate.count()) > 0,
+    activateActionVisible: (await activate.count()) > 0,
+    deactivateActionVisible: (await deactivate.count()) > 0,
+  };
+}
+
+async function ensureInstalled(page) {
+  let state = await readState(page);
+  if (state.installed) return 'reused';
+
+  await page.goto(`${target}/wp-admin/plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  const input = page.locator('input[type="file"][name="pluginzip"]');
+  await input.waitFor({ state: 'visible', timeout: 30_000 });
+  await input.setInputFiles(pluginZip);
+  await page.locator('#install-plugin-submit').click();
+  await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
+
+  const body = await page.locator('body').innerText();
+  if (!/Destination folder already exists/i.test(body)) {
+    const activateNow = page.locator('a.button.activate-now, a.button[href*="action=activate"]');
+    if (await activateNow.count()) await gotoAdminHref(page, activateNow.first());
+  }
+
+  state = await readState(page);
+  if (!state.installed) throw new Error(`candidate plugin ${pluginSlug} was not installed`);
+  return 'installed';
+}
+
+async function setActive(page, shouldBeActive) {
+  const state = await readState(page);
+  if (!state.installed && !shouldBeActive) return state;
+  if (!state.installed) throw new Error('candidate plugin missing');
+  if (state.active === shouldBeActive) return state;
+
+  const rows = pluginRow(page);
+  const row = rows.first();
+  const locator = shouldBeActive
+    ? row.locator('a[href*="action=activate"]').first()
+    : row.locator('a[href*="action=deactivate"]').first();
+  if (!(await locator.count())) throw new Error(`candidate ${shouldBeActive ? 'activate' : 'deactivate'} action unavailable`);
+  await gotoAdminHref(page, locator);
+
+  const after = await readState(page);
+  if (after.active !== shouldBeActive) throw new Error(`candidate active state mismatch after ${action}`);
+  return after;
+}
+
+async function verifyFrontend(page, shouldBeActive) {
+  const homeResponse = await page.goto(`${target}/?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  if (!homeResponse || homeResponse.status() >= 400) throw new Error(`homepage failed with ${homeResponse?.status()}`);
+  const preload = page.locator(`link#${preloadId}[rel="preload"][as="image"]`);
+  const count = await preload.count();
+  if (shouldBeActive && count !== 1) throw new Error(`expected exactly one candidate hero preload, got ${count}`);
+  if (!shouldBeActive && count !== 0) throw new Error('candidate preload remained after rollback');
+  const href = count ? await preload.first().getAttribute('href') : null;
+  if (href && new URL(href, target).host !== expectedHost) throw new Error('candidate preload points off origin');
+
+  const hero = page.locator('.runner3-fixture-home section').first();
+  const heroRect = await hero.boundingBox();
+  const headline = (await hero.locator('h1').first().textContent().catch(() => ''))?.trim() || '';
+  if (!heroRect || heroRect.width < 250 || heroRect.height < 450) throw new Error(`hero geometry regression: ${JSON.stringify(heroRect)}`);
+  if (!headline.includes('Everyday goods')) throw new Error('hero headline regression');
+
+  const shopResponse = await page.goto(`${target}/shop/?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  if (!shopResponse || shopResponse.status() >= 400) throw new Error(`shop failed with ${shopResponse?.status()}`);
+  const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
+  if (productCards < 8) throw new Error(`shop product regression: ${productCards}`);
+
+  return { preloadCount: count, preloadHref: href, heroRect, headline, shopProductCards: productCards };
+}
+
+const result = { target, action, pluginSlug, status: 'starting', startedAt: new Date().toISOString() };
+let browser;
+try {
+  const executablePath = [process.env.CHROME_PATH, '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium']
+    .filter(Boolean).find((p) => fs.existsSync(p));
+  if (!executablePath) throw new Error('Chrome executable not found');
+
+  browser = await chromium.launch({ headless: true, executablePath, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  page.setDefaultTimeout(60_000);
+  page.setDefaultNavigationTimeout(120_000);
+
+  const magicUrl = `${target}/?rest_route=/wasmer/v1/magiclogin&magiclogin=${encodeURIComponent(token)}`;
+  await page.goto(magicUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  if (new URL(page.url()).host !== expectedHost || !page.url().includes('/wp-admin')) {
+    throw new Error('Wasmer magic login did not reach Site2 wp-admin');
+  }
+
+  if (action === 'activate') result.installAction = await ensureInstalled(page);
+  result.plugin = await setActive(page, action === 'activate');
+  result.frontend = await verifyFrontend(page, action === 'activate');
+  result.status = 'ready';
+  result.completedAt = new Date().toISOString();
+} catch (error) {
+  result.status = 'failed';
+  result.error = sanitize(error?.stack || error?.message || error);
+  result.completedAt = new Date().toISOString();
+  process.exitCode = 1;
+} finally {
+  if (browser) await browser.close().catch(() => {});
+  fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
+  console.log(JSON.stringify(result, null, 2));
+}
