@@ -27,8 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Analyze canonical trade overlap
+      - name: Analyze canonical primary-63 trade overlap
         shell: bash
         run: |
           SCOPE="$(python -c 'import json; print(json.load(open("jobs/private-backtest-overlap.json"))["scope"])')"
-          python tools/private_backtest_overlap.py --scope "$SCOPE"
+          python tools/private_backtest_overlap_v2.py --scope "$SCOPE"
