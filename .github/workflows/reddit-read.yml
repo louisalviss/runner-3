@@ -13,7 +13,6 @@ on:
       - 'ops/reddit-read/request.json'
       - 'scripts/reddit_common.py'
       - 'scripts/reddit_read.py'
-      - 'scripts/reddit_deep_sweep_cloudflare.py'
       - '.github/workflows/reddit-read.yml'
 
 permissions:
@@ -68,14 +67,12 @@ jobs:
           esac
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Validate unified Reddit code
+      - name: Validate unified Reddit read code
         run: |
           set -euo pipefail
           python3 -m py_compile \
             scripts/reddit_common.py \
-            scripts/reddit_read.py \
-            scripts/reddit_deep_sweep.py \
-            scripts/reddit_deep_sweep_cloudflare.py
+            scripts/reddit_read.py
 
       - name: Read current Reddit snapshot
         id: read
