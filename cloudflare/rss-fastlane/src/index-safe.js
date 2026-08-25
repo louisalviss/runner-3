@@ -1,4 +1,5 @@
 import app from "./index-get.js";
+import { extractArticleImages } from "./image-extract.js";
 
 const DIRECT_ONLY_HOSTS = Object.freeze({
   projectsyndicate: ["project-syndicate.org"],
@@ -95,6 +96,7 @@ async function directOnlyFetch(request, env, incoming) {
     if (text.length < MIN_TEXT_CHARS) {
       return json({ ok: false, error: `direct text too thin: ${text.length}`, fetched: [], errors: [{ sourceKey, canonicalUrl, error: `direct text too thin: ${text.length}` }] }, 502);
     }
+    const resolvedUrl = response.url || parsed.toString();
     const fetched = {
       sourceKey,
       sourceName: sourceKey,
@@ -102,14 +104,15 @@ async function directOnlyFetch(request, env, incoming) {
       title,
       itemType: "article",
       route: "direct",
-      resolvedUrl: response.url || parsed.toString(),
+      resolvedUrl,
       extractedTitle: title,
       rawText: text.slice(0, MAX_TEXT_CHARS),
       truncated: text.length > MAX_TEXT_CHARS,
       coverage: "best_accessible",
       chars: Math.min(text.length, MAX_TEXT_CHARS),
+      images: extractArticleImages(raw, resolvedUrl),
     };
-    return json({ ok: true, serviceVersion: "direct-only-2026-08-25.3", requestedCount: 1, fetchedCount: 1, errorCount: 0, fetched: [fetched], errors: [] });
+    return json({ ok: true, serviceVersion: "direct-only-2026-08-25.4", requestedCount: 1, fetchedCount: 1, errorCount: 0, fetched: [fetched], errors: [] });
   } catch (error) {
     const detail = `${error?.name || "Error"}: ${error?.message || error}`;
     return json({ ok: false, error: detail, fetched: [], errors: [{ sourceKey, canonicalUrl, error: detail }] }, 502);
