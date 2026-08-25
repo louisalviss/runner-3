@@ -51,19 +51,31 @@ async function visit(path){return visitAbsolute(`${target}${path}`,path);}
 checks.home=await visit('/');
 if(checks.home.body_chars<800||checks.home.product_cards<4) throw new Error(`Homepage incomplete: ${JSON.stringify(checks.home)}`);
 
-// Resolve the WooCommerce-assigned shop page canonically; this survives duplicate slugs created by imports.
-const catalogResponse=await visitor.goto(`${target}/?page_id=${encodeURIComponent(shopPageId)}&__public_verify=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:120000});
-if(!catalogResponse||catalogResponse.status()>=400) throw new Error(`Assigned Shop page HTTP ${catalogResponse?.status()}`);
-const catalogUrl=visitor.url();
-checks.catalog_path=new URL(catalogUrl).pathname;
-checks.catalog=await visitAbsolute(catalogUrl,'assigned-shop');
-if(checks.catalog.product_cards<4) throw new Error(`Catalog incomplete: ${JSON.stringify(checks.catalog)}`);
+// The official demo was imported onto a WordPress that already had Woo pages, so its Shop may be /shop-2/.
+// Discover public shop-like links, then verify candidates by actual Woo product-card content rather than slug or page-id assumptions.
+const homeHrefs=await visitor.locator('a[href]').evaluateAll(xs=>xs.map(a=>a.href));
+const catalogCandidates=new Set(['/shop-2/','/shop/']);
+for(const href of homeHrefs){
+  try{
+    const u=new URL(href,target);
+    if(u.host===new URL(target).host && /^\/shop(?:-\d+)?\/?$/.test(u.pathname)) catalogCandidates.add(u.pathname.endsWith('/')?u.pathname:`${u.pathname}/`);
+  }catch{}
+}
+checks.catalog_candidates=[...catalogCandidates];
+const attempted=[];
+for(const path of catalogCandidates){
+  const result=await visit(path);
+  attempted.push({path,...result});
+  if(result.product_cards>=4){checks.catalog_path=path;checks.catalog=result;break;}
+}
+if(!checks.catalog) throw new Error(`No usable public catalog found: ${JSON.stringify(attempted)}`);
 
 const api=await visitor.request.get(`${target}/?rest_route=/wc/store/v1/products&per_page=100&_=${Date.now()}`);
 const products=await api.json();
 if(!Array.isArray(products)||products.length<20) throw new Error(`Woo Store API product count too small: ${Array.isArray(products)?products.length:'non-array'}`);
 checks.store_api_products=products.length;
-checks.product=await visitAbsolute(products[0].permalink,'first-product');
+const testProduct=products.find(p=>p?.is_purchasable && p?.type!=='external') || products.find(p=>p?.type==='simple') || products[0];
+checks.product=await visitAbsolute(testProduct.permalink,'test-product');
 if(checks.product.purchase_actions<1) throw new Error(`Public product page lacks purchase action: ${JSON.stringify(checks.product)}`);
 
 for(const path of ['/product-category/groceries/','/cart/','/checkout/','/about/','/contact/']) checks[path]=await visit(path);
