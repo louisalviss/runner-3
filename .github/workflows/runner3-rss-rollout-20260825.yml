@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/runner3-rss-rollout-20260825.yml'
       - 'cloudflare/runner3-core/**'
+      - 'cloudflare/rss-fastlane/**'
 
 permissions:
   contents: write
@@ -32,6 +33,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Deploy RSS Fastlane
+        working-directory: cloudflare/rss-fastlane
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy
 
       - name: Apply RSS D1 migrations and deploy Core
         working-directory: cloudflare/runner3-core
@@ -73,11 +80,11 @@ jobs:
           }
 
           def call(path,method='GET',auth=True):
-            headers={'Accept':'application/json','User-Agent':'runner3-rss-rollout/2.0','Cache-Control':'no-cache'}
+            headers={'Accept':'application/json','User-Agent':'runner3-rss-rollout/2.1','Cache-Control':'no-cache'}
             if auth: headers['Authorization']='Bearer '+token
             req=urllib.request.Request(base+path,headers=headers,method=method)
             try:
-              with urllib.request.urlopen(req,timeout=50) as r:
+              with urllib.request.urlopen(req,timeout=70) as r:
                 raw=r.read().decode('utf-8','replace')
                 try: body=json.loads(raw) if raw else None
                 except Exception: body={'rawPrefix':raw[:500]}
@@ -121,8 +128,10 @@ jobs:
             if article_id in native_vi:
               vhttp,vbody=call(f'/api/rss/articles/{q}/vi')
               artifact=vbody.get('artifact',{}) if isinstance(vbody,dict) else {}
-              native_views[article_id]={'http':vhttp,'nativeVi':vbody.get('nativeVi') if isinstance(vbody,dict) else None,'bodyChars':len(str(artifact.get('body') or ''))}
+              image_count=len(artifact.get('images') or []) if isinstance(artifact,dict) else 0
+              native_views[article_id]={'http':vhttp,'nativeVi':vbody.get('nativeVi') if isinstance(vbody,dict) else None,'bodyChars':len(str(artifact.get('body') or '')),'imageCount':image_count}
               if vhttp!=200: errors.append(f'native_vi:{article_id}:{vhttp}')
+              if article_id=='genk-165260824141950644' and image_count<1: errors.append('images:genk:missing')
             else:
               phttp,pbody=call(f'/api/rss/articles/{q}/translation-packet')
               packets[article_id]={'http':phttp,'ok':bool(isinstance(pbody,dict) and pbody.get('ok')),'sectionCount':pbody.get('sectionCount') if isinstance(pbody,dict) else None,'sourceChecksum':pbody.get('sourceChecksum') if isinstance(pbody,dict) else None}
