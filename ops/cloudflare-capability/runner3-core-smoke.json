@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-25T01:54:23.490106Z",
+  "checkedAt": "2026-08-25T01:58:26.046423Z",
   "url": "https://runner3-core.ducduy2411.workers.dev",
   "d1DatabaseId": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
   "deployUrlSource": "wrangler-output",
@@ -12,9 +12,9 @@
       "d1": true,
       "r2": true,
       "artifact_auth": true,
-      "time": "2026-08-25T01:54:23.574Z"
+      "time": "2026-08-25T01:58:26.188Z"
     },
-    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"r2\":true,\"artifact_auth\":true,\"time\":\"2026-08-25T01:54:23.574Z\"}"
+    "body": "{\"ok\":true,\"service\":\"runner3-core\",\"d1\":true,\"r2\":true,\"artifact_auth\":true,\"time\":\"2026-08-25T01:58:26.188Z\"}"
   },
   "postEvent": {
     "http": 200,
@@ -26,6 +26,13 @@
   "latest": {
     "http": 200,
     "json": [
+      {
+        "id": 44,
+        "source": "runner3-core-shadow",
+        "event_type": "health",
+        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-25T01:58:26.046423Z\"}",
+        "created_at": "2026-08-25 01:58:26"
+      },
       {
         "id": 43,
         "source": "runner3-core-shadow",
@@ -158,16 +165,9 @@
         "event_type": "health",
         "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-24T00:13:35.589926Z\"}",
         "created_at": "2026-08-24 00:13:35"
-      },
-      {
-        "id": 24,
-        "source": "runner3-core-shadow",
-        "event_type": "health",
-        "payload": "{\"status\":\"ok\",\"checkedAt\":\"2026-08-23T22:56:16.601414Z\"}",
-        "created_at": "2026-08-23 22:56:16"
       }
     ],
-    "body": "[{\"id\":43,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:54:23.490106Z\\\"}\",\"created_at\":\"2026-08-25 01:54:23\"},{\"id\":42,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:52:13.644931Z\\\"}\",\"created_at\":\"2026-08-25 01:52:13\"},{\"id\":41,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:51:33.959538Z\\\"}\",\"created_at\":\"2026-08-25 01:51:34\"},{\"id\":40,\"source\":\"reddit-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Reddit Deep Sweep\\\",\\\"run_id\\\":\\\"32774556645\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"82308052cf183cdce0d56b2af4fa7ecfde44dff2\\\",\\\"ref\\\":\\\"refs/heads/main\\\",\\\"subreddit\\\":\\\"RealDayTrading\\\",\\\"posts_seen\\\":908,\\\"threads_fetched\\\":555,\\\"comments_seen\\\":15454,\\\"wiki_links_total\\\":512,\\\"wiki_reddit_threads\\\":305,\\\"wiki_threads_fetched\\\":305,\\\"raw_object_key\\\":\\\"red",
+    "body": "[{\"id\":44,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:58:26.046423Z\\\"}\",\"created_at\":\"2026-08-25 01:58:26\"},{\"id\":43,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:54:23.490106Z\\\"}\",\"created_at\":\"2026-08-25 01:54:23\"},{\"id\":42,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:52:13.644931Z\\\"}\",\"created_at\":\"2026-08-25 01:52:13\"},{\"id\":41,\"source\":\"runner3-core-shadow\",\"event_type\":\"health\",\"payload\":\"{\\\"status\\\":\\\"ok\\\",\\\"checkedAt\\\":\\\"2026-08-25T01:51:33.959538Z\\\"}\",\"created_at\":\"2026-08-25 01:51:34\"},{\"id\":40,\"source\":\"reddit-runner\",\"event_type\":\"workflow_status\",\"payload\":\"{\\\"workflow\\\":\\\"Reddit Deep Sweep\\\",\\\"run_id\\\":\\\"32774556645\\\",\\\"run_attempt\\\":\\\"1\\\",\\\"status\\\":\\\"success\\\",\\\"sha\\\":\\\"82308052cf183cdce0d56b2af4fa7ecfde44dff2\\\",\\\"ref\\\":\\\"refs/heads/main\\\",\\\"subreddit\\\":\\\"RealDayTrading",
     "count": 20
   },
   "status": {
@@ -246,15 +246,15 @@
         "state": {
           "source": "runner3-core-smoke",
           "status": "success",
-          "run_id": "32799294862",
+          "run_id": "32799559880",
           "detail": {
             "kind": "deploy-smoke",
-            "checkedAt": "2026-08-25T01:54:23.490106Z"
+            "checkedAt": "2026-08-25T01:58:26.046423Z"
           },
-          "updated_at": "2026-08-25 01:54:24"
+          "updated_at": "2026-08-25 01:58:26"
         }
       },
-      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32799294862\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T01:54:23.490106Z\"},\"updated_at\":\"2026-08-25 01:54:24\"}}"
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32799559880\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T01:58:26.046423Z\"},\"updated_at\":\"2026-08-25 01:58:26\"}}"
     },
     "get": {
       "http": 200,
@@ -263,15 +263,15 @@
         "state": {
           "source": "runner3-core-smoke",
           "status": "success",
-          "run_id": "32799294862",
+          "run_id": "32799559880",
           "detail": {
             "kind": "deploy-smoke",
-            "checkedAt": "2026-08-25T01:54:23.490106Z"
+            "checkedAt": "2026-08-25T01:58:26.046423Z"
           },
-          "updated_at": "2026-08-25 01:54:24"
+          "updated_at": "2026-08-25 01:58:26"
         }
       },
-      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32799294862\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T01:54:23.490106Z\"},\"updated_at\":\"2026-08-25 01:54:24\"}}"
+      "body": "{\"ok\":true,\"state\":{\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"run_id\":\"32799559880\",\"detail\":{\"kind\":\"deploy-smoke\",\"checkedAt\":\"2026-08-25T01:58:26.046423Z\"},\"updated_at\":\"2026-08-25 01:58:26\"}}"
     },
     "ok": true
   },
@@ -287,14 +287,14 @@
           "status": "success",
           "position": {
             "phase": "deployed",
-            "run_id": "32799294862"
+            "run_id": "32799559880"
           },
           "dropbox_path": null,
           "last_error": null,
-          "updated_at": "2026-08-25 01:54:24"
+          "updated_at": "2026-08-25 01:58:26"
         }
       },
-      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32799294862\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 01:54:24\"}}"
+      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32799559880\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 01:58:26\"}}"
     },
     "get": {
       "http": 200,
@@ -307,14 +307,14 @@
           "status": "success",
           "position": {
             "phase": "deployed",
-            "run_id": "32799294862"
+            "run_id": "32799559880"
           },
           "dropbox_path": null,
           "last_error": null,
-          "updated_at": "2026-08-25 01:54:24"
+          "updated_at": "2026-08-25 01:58:26"
         }
       },
-      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32799294862\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 01:54:24\"}}"
+      "body": "{\"ok\":true,\"checkpoint\":{\"project\":\"runner3-core-smoke\",\"scope\":\"deploy\",\"source\":\"runner3-core-smoke\",\"status\":\"success\",\"position\":{\"phase\":\"deployed\",\"run_id\":\"32799559880\"},\"dropbox_path\":null,\"last_error\":null,\"updated_at\":\"2026-08-25 01:58:26\"}}"
     },
     "ok": true
   },

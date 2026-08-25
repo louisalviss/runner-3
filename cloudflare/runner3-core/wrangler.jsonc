@@ -1,6 +1,6 @@
 {
   "name": "runner3-core",
-  "main": "src/index-rss.js",
+  "main": "src/index.js",
   "compatibility_date": "2026-08-22",
   "triggers": {
     "crons": [
@@ -18,12 +18,6 @@
     {
       "binding": "ARTIFACTS",
       "bucket_name": "runner3-artifacts"
-    }
-  ],
-  "services": [
-    {
-      "binding": "RSS_FASTLANE",
-      "service": "runner3-rss-fastlane"
     }
   ]
 }
