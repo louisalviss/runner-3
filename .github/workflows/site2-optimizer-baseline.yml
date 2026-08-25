@@ -20,6 +20,7 @@ concurrency:
 env:
   SITE_ID: site2
   PSI_URL: https://runner3-wp-a94b8fd2.wasmer.app/
+  FIXTURE_ID: astra-woo-v1
   WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
   WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -34,6 +35,39 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify realistic Site2 fixture scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 \
+            "$PSI_URL?rest_route=/wasmer/v1/liveconfig&__baseline_scope=$(date +%s)" \
+            -o /tmp/site2-baseline-liveconfig.json
+          node -e '
+            const fs=require("fs");
+            const d=JSON.parse(fs.readFileSync("/tmp/site2-baseline-liveconfig.json","utf8"));
+            const themes=d?.wordpress?.themes||[];
+            const plugins=d?.wordpress?.plugins||[];
+            const activeTheme=themes.find(x=>x.status==="active")?.name;
+            const woo=plugins.find(x=>x.name==="woocommerce" && ["active","active-network"].includes(x.status));
+            if(activeTheme!=="astra") throw new Error(`Site2 fixture scope mismatch: active theme=${activeTheme}`);
+            if(!woo) throw new Error("Site2 fixture scope mismatch: WooCommerce is not active");
+            console.log("SITE2_BASELINE_LIVE_FIXTURE_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,posts:d.wordpress.posts,pages:d.wordpress.pages}));
+          '
+
+          SQL="SELECT status,json_extract(metadata_json,'$.fixture') AS fixture FROM sites WHERE site_id='${SITE_ID}';"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" \
+            | tee /tmp/site2-baseline-scope.json
+          FIXTURE_ID="$FIXTURE_ID" node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync("/tmp/site2-baseline-scope.json","utf8"));
+            const r=p.flatMap(x=>x.results||[])[0];
+            if(!r) throw new Error("Site2 fixture identity missing from D1");
+            if(r.status!=="realistic-fixture" || r.fixture!==process.env.FIXTURE_ID) {
+              throw new Error(`Site2 D1 fixture scope mismatch: ${JSON.stringify(r)}`);
+            }
+            console.log("SITE2_BASELINE_D1_FIXTURE_OK", JSON.stringify(r));
+          '
 
       - name: Prepare collector and open D1 run
         shell: bash
@@ -66,8 +100,9 @@ jobs:
             "metadata": {
               "target": "$PSI_URL",
               "device": "mobile",
+              "fixture": "$FIXTURE_ID",
               "sample_policy": "5 valid official PageSpeed UI runs",
-              "purpose": "generic-engine proof-of-reuse"
+              "purpose": "post-fixture clean baseline for optimizer candidate comparisons"
             }
           }
           JSON
@@ -192,6 +227,7 @@ jobs:
 
           const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
           const summary = {
+            fixture: process.env.FIXTURE_ID,
             samples: 5,
             valid_samples: 5,
             median_performance: median(rows.map((r) => r.performance)),
@@ -259,7 +295,7 @@ jobs:
                 type: "run.finish",
                 run_id: process.env.RUN_ID,
                 status: "failed",
-                metadata: { reason: "Site2 baseline workflow failed before five valid persisted samples" },
+                metadata: { reason: "Site2 post-fixture baseline workflow failed before five valid persisted samples" },
               }));
             '
             node scripts/wp-optimizer-state.mjs --event-file /tmp/run-failed.json
@@ -270,9 +306,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## Site 2 D1-backed clean baseline'
+            echo '## Site 2 D1-backed post-fixture clean baseline'
             echo
             echo "- target: \`$PSI_URL\`"
+            echo "- fixture: \`$FIXTURE_ID\`"
             echo "- D1 run: \`${OPTIMIZER_RUN_ID:-not-opened}\`"
             if [ -f /tmp/site2-psi/summary.json ]; then
               echo '- summary:'
