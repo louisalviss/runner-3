@@ -33,6 +33,15 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Deploy RSS fastlane source support
+        working-directory: cloudflare/rss-fastlane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          npx --yes wrangler@4 deploy
+
       - name: Apply replacement migration
         working-directory: cloudflare/runner3-core
         shell: bash
