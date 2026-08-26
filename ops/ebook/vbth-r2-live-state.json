@@ -1,0 +1,92 @@
+{
+  "schema": "vbth-r2-live-state-v1",
+  "run_id": "32918829928",
+  "git_sha": "36c282ab1c04983cbe391c0c771aa010fe369464",
+  "expected": {
+    "filename": "Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
+    "bytes": 21369197,
+    "sha256": "f09a40ed0dc3dc54593a1e8be3700607575056fb3cb8ad620add9d138bc72685"
+  },
+  "r2": [
+    {
+      "key": "core/ebook-editorial/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
+      "exists": false
+    },
+    {
+      "key": "ebooks/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
+      "exists": false
+    },
+    {
+      "key": "ebook-editorial/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub",
+      "exists": false
+    }
+  ],
+  "canonical_r2_verified": false,
+  "canonical_r2_keys": [],
+  "d1": {
+    "checkpoint": {
+      "project": "ebook-editorial",
+      "scope": "book:vbth:seed",
+      "source": "ebook-editorial/vbth",
+      "status": "running",
+      "position": {
+        "schema_version": 2,
+        "phase": "seed-partial",
+        "book_id": "vbth",
+        "artifact_store": "r2",
+        "artifact_bucket": "runner3-artifacts",
+        "verified": {},
+        "required_missing": [
+          "editorial_sample",
+          "gold",
+          "master",
+          "source_index"
+        ],
+        "discovery_missing": [
+          "master",
+          "v3",
+          "gold",
+          "source_index",
+          "editorial_sample"
+        ],
+        "source": "github-actions-artifact-history-v2",
+        "run_id": "32797950337"
+      },
+      "dropbox_path": null,
+      "last_error": "legacy artifacts still missing",
+      "updated_at": "2026-08-25 01:33:25"
+    },
+    "state": {
+      "source": "ebook-editorial/vbth",
+      "status": "running",
+      "run_id": "32797950337",
+      "detail": {
+        "scope": "book:vbth:seed",
+        "position": {
+          "schema_version": 2,
+          "phase": "seed-partial",
+          "book_id": "vbth",
+          "artifact_store": "r2",
+          "artifact_bucket": "runner3-artifacts",
+          "verified": {},
+          "required_missing": [
+            "editorial_sample",
+            "gold",
+            "master",
+            "source_index"
+          ],
+          "discovery_missing": [
+            "master",
+            "v3",
+            "gold",
+            "source_index",
+            "editorial_sample"
+          ],
+          "source": "github-actions-artifact-history-v2",
+          "run_id": "32797950337"
+        }
+      },
+      "updated_at": "2026-08-25 01:33:25"
+    }
+  }
+}
