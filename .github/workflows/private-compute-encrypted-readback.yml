@@ -12,6 +12,67 @@ permissions:
 jobs:
   encrypted_readback:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Probe
-        run: echo ENCRYPTED_READBACK_PROBE=PASS
+      - name: Checkout public harness
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch sealed result and encrypt
+        shell: bash
+        env:
+          RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          scope="$(tr -d '\r\n[:space:]' < jobs/private-compute-trigger.txt)"
+          base="${RUNNER3_CORE_URL:-https://runner3-core.ducduy2411.workers.dev}"
+          work="${RUNNER_TEMP}/encrypted-readback"
+          mkdir -p "$work"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${RUNNER3_CORE_TOKEN}" \
+            -H 'Cache-Control: no-cache' \
+            "${base%/}/artifacts/private-compute/${scope}/result.tar.gz" \
+            -o "$work/result.tar.gz"
+          cat > "$work/cert.pem" <<'CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIDMTCCAhmgAwIBAgIUTTp3SLJ3pSH6UD1M6DpkuadBpSYwDQYJKoZIhvcNAQEL
+          BQAwKDEmMCQGA1UEAwwdRmVsaXBlIFBJVCBFcGhlbWVyYWwgUmVhZGJhY2swHhcN
+          MjYwODI2MTQ0MjIyWhcNMjYwODI3MTQ0MjIyWjAoMSYwJAYDVQQDDB1GZWxpcGUg
+          UElUIEVwaGVtZXJhbCBSZWFkYmFjazCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
+          AQoCggEBANcEFTXmOqdPszDxePBy1VX3G1he0D5RxXuUucR3bVHgywY7vlG8UGXO
+          ynNeGSePklpmYQNaoTcUmS4eG5eiHAPEPx3tQn4du96BTOgXUfHKyXPi8m6f/NIR
+          KbIln3lFTQZQToVCRX9EHv08R1H2hlfImCX2Ewb8yfZw/6bgp7+ffyJzrbdDdYi0
+          8k+IlTzMSTkSTQDRp5Y0GurEftUWseRXyVFwXanV+ca9wpgDVr3hEJX26RYWKbU0
+          F4z39KcPlQ1H5tS67GOVgwGnoYUWcX4fcjOQlho9hD7jNOlo1FN0EgDPO2Oxv2gK
+          vWCi/MhJJsjpurxMv8jp9H16sIiaLDMCAwEAAaNTMFEwHQYDVR0OBBYEFPiCWqa2
+          +kkZC03g1neHm4vUDw2QMB8GA1UdIwQYMBaAFPiCWqa2+kkZC03g1neHm4vUDw2Q
+          MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAHGMa42MT0OYNV3r
+          aKbx76JH4ombgTWc4Q8UJwXAUrKV59OwjU/fsZAomflSz1YQEaTssNM1hPMqbLCT
+          axQ6OUxgl21yGSPE4JBaUuOvNE8V//TNHGgJ06aW1fPOtaEFD+/D7caF3H3xtoq5
+          l3dbmxsgsXazNF8Wa2jMxXc40HZm0hqr2nEZPmlzkgXkoy7QgrTgwOkFW0capqM5
+          qSgvhQwQDDU6n4b/FnDlqFBy6pyx2bs5Umv9V9GvoP5K2FcrlRzW3HbusoF4UiWE
+          VR4PeD6CUgygD3tIrXPllRwz0ZGjIUNRSXlYuiEjycnLE+jQf+1iYkbrlFpzBTeD
+          jR7h+xA=
+          -----END CERTIFICATE-----
+          CERT
+          sed -i 's/^          //' "$work/cert.pem"
+          openssl cms -encrypt -binary -aes-256-cbc \
+            -in "$work/result.tar.gz" \
+            -out "$work/result.cms.der" \
+            -outform DER "$work/cert.pem"
+          rm -f "$work/result.tar.gz" "$work/cert.pem"
+          echo 'ENCRYPTED_READBACK=PASS'
+
+      - name: Upload ciphertext
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-compute-encrypted-readback
+          path: ${{ runner.temp }}/encrypted-readback/result.cms.der
+          if-no-files-found: error
+          retention-days: 1
