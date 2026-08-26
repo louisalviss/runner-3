@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
-# trigger: packetize-v2-core-scoped
+# trigger: packetize-v3-core-scoped
+import importlib.util
 import json
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-import audio_library_extract_for_chatgpt as core
 import audio_media_core as media
 
-ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
 ITEM_PREFIX = 'audio-library/items/'
 STATUS = ROOT / 'ops/audio-library/chatgpt-inbox-status.json'
 OUT_ROOT = ROOT / 'ops/audio-library/chatgpt-inbox-records'
 PACKET_CHARS = int(os.environ.get('AUDIO_LIBRARY_PACKET_CHARS', '3500'))
+
+
+def load_core():
+    path = SCRIPT_DIR / 'audio_library_extract_for_chatgpt.py'
+    spec = importlib.util.spec_from_file_location('_runner3_audio_packet_core', path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError('unable to load audio extractor core')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for name in ('extract_source', 'clean_text', 'trim_raw', 'encrypt_payload'):
+        if not callable(getattr(module, name, None)):
+            raise RuntimeError(f'audio extractor {name} missing from {path}')
+    return module
+
+
+core = load_core()
 
 
 def ids_from_status():
