@@ -28,4 +28,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run preregistered robustness battery
-        run: python tools/private_backtest_us60_robustness.py --config jobs/private-backtest-us60-robustness-v1.json
+        run: python tools/private_backtest_us60_robustness_transport.py --config jobs/private-backtest-us60-robustness-v1.json
