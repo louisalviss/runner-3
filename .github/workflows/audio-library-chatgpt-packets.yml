@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'scripts/audio_media_core.py'
       - 'scripts/audio_library_extract_packets_for_chatgpt.py'
       - '.github/workflows/audio-library-chatgpt-packets.yml'
   schedule:
@@ -22,9 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      AUDIO_LIBRARY_BUCKET: runner3-wp-media
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: github-audio-chatgpt-packets
       CHATGPT_INBOX_PUBLIC_KEY: sYGZHQp2jOgHK7mnuF+Yij8rZOxYbgxKNOP4okx0k3E=
       AUDIO_LIBRARY_MAX_RAW_CHARS: '120000'
       AUDIO_LIBRARY_PACKET_CHARS: '3500'
@@ -33,14 +34,16 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install extraction dependencies
         run: python -m pip install -q -U requests beautifulsoup4 pypdf yt-dlp 'cryptography>=45,<47'
+      - name: Validate scoped Audio Library packetizer
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          python -m py_compile scripts/audio_media_core.py scripts/audio_library_extract_packets_for_chatgpt.py
       - name: Build encrypted source packets
         run: python scripts/audio_library_extract_packets_for_chatgpt.py | tee /tmp/packet-result.json
       - name: Publish packets
