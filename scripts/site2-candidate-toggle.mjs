@@ -8,6 +8,7 @@ const action = process.env.CANDIDATE_ACTION || 'activate';
 const pluginZip = process.env.CANDIDATE_ZIP || '';
 const pluginSlug = process.env.CANDIDATE_PLUGIN_SLUG || 'runner3-site2-hero-preload';
 const preloadId = process.env.CANDIDATE_PRELOAD_ID || 'runner3-site2-hero-preload';
+const expectedLcpUrl = process.env.EXPECTED_LCP_URL || '';
 const out = process.env.CANDIDATE_OUT || '/tmp/site2-candidate-toggle.json';
 let token = String(process.env.WASMER_TOKEN || '').replace(/[\r\n]/g, '').trim();
 if (!token) throw new Error('WASMER_TOKEN is required');
@@ -81,8 +82,7 @@ async function setActive(page, shouldBeActive) {
   if (!state.installed) throw new Error('candidate plugin missing');
   if (state.active === shouldBeActive) return state;
 
-  const rows = pluginRow(page);
-  const row = rows.first();
+  const row = pluginRow(page).first();
   const locator = shouldBeActive
     ? row.locator('a[href*="action=activate"]').first()
     : row.locator('a[href*="action=deactivate"]').first();
@@ -97,25 +97,48 @@ async function setActive(page, shouldBeActive) {
 async function verifyFrontend(page, shouldBeActive) {
   const homeResponse = await page.goto(`${target}/?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   if (!homeResponse || homeResponse.status() >= 400) throw new Error(`homepage failed with ${homeResponse?.status()}`);
+
   const preload = page.locator(`link#${preloadId}[rel="preload"][as="image"]`);
   const count = await preload.count();
   if (shouldBeActive && count !== 1) throw new Error(`expected exactly one candidate hero preload, got ${count}`);
   if (!shouldBeActive && count !== 0) throw new Error('candidate preload remained after rollback');
   const href = count ? await preload.first().getAttribute('href') : null;
   if (href && new URL(href, target).host !== expectedHost) throw new Error('candidate preload points off origin');
+  if (shouldBeActive && expectedLcpUrl && new URL(href, target).href !== new URL(expectedLcpUrl, target).href) {
+    throw new Error(`candidate preloads wrong LCP resource: ${href}`);
+  }
 
-  const hero = page.locator('.runner3-fixture-home section').first();
-  const heroRect = await hero.boundingBox();
-  const headline = (await hero.locator('h1').first().textContent().catch(() => ''))?.trim() || '';
-  if (!heroRect || heroRect.width < 250 || heroRect.height < 450) throw new Error(`hero geometry regression: ${JSON.stringify(heroRect)}`);
-  if (!headline.includes('Everyday goods')) throw new Error('hero headline regression');
+  const homeText = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+  if (!homeText.includes('Best Quality Products') || !homeText.includes('Join The Organic Movement!')) {
+    throw new Error('official Organic Store homepage identity regression');
+  }
+  const homeProductCards = await page.locator('li.product, .wc-block-product, .products .product').count();
+  if (homeProductCards < 8) throw new Error(`Organic Store homepage product regression: ${homeProductCards}`);
 
-  const shopResponse = await page.goto(`${target}/shop/?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
-  if (!shopResponse || shopResponse.status() >= 400) throw new Error(`shop failed with ${shopResponse?.status()}`);
-  const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
-  if (productCards < 8) throw new Error(`shop product regression: ${productCards}`);
+  const apiResponse = await page.context().request.get(`${target}/?rest_route=/wc/store/v1/products&per_page=100&__candidate_verify=${Date.now()}`);
+  if (!apiResponse.ok()) throw new Error(`Store API failed with ${apiResponse.status()}`);
+  const products = await apiResponse.json();
+  if (!Array.isArray(products) || products.length < 30) throw new Error(`Store API product regression: ${Array.isArray(products) ? products.length : 'non-array'}`);
 
-  return { preloadCount: count, preloadHref: href, heroRect, headline, shopProductCards: productCards };
+  let catalog = null;
+  for (const path of ['/shop-3/', '/shop-2/', '/shop/']) {
+    const response = await page.goto(`${target}${path}?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 }).catch(() => null);
+    if (!response || response.status() >= 400) continue;
+    const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
+    if (productCards >= 8) {
+      catalog = { path, status: response.status(), productCards };
+      break;
+    }
+  }
+  if (!catalog) throw new Error('no healthy official Woo catalog route found');
+
+  return {
+    preloadCount: count,
+    preloadHref: href,
+    homeProductCards,
+    storeApiProducts: products.length,
+    catalog,
+  };
 }
 
 const result = { target, action, pluginSlug, status: 'starting', startedAt: new Date().toISOString() };
