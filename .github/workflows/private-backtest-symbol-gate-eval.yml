@@ -1,0 +1,32 @@
+name: Private Backtest Symbol Gate Eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/private_backtest_symbol_gate_eval.py'
+      - '.github/workflows/private-backtest-symbol-gate-eval.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [forex, metals, indices]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Evaluate preregistered symbol gates
+        run: python tools/private_backtest_symbol_gate_eval.py --config jobs/private-backtest-cross-asset-30m-expanded.json --family ${{ matrix.family }}
