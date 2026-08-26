@@ -24,44 +24,36 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Poll Core and persist ciphertext only
+      - name: Poll newest Core result and persist ciphertext only
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p mailbox/outbox
           core='https://runner3-core.ducduy2411.workers.dev'
-          mapfile -t ids < <(python3 - <<'PY'
-          import json
+          rid="$(python3 - <<'PY'
+          import json, pathlib
           d=json.load(open('mailbox/inbox.json',encoding='utf-8'))
-          vals=[]
-          for x in d.get('requests',[]):
-              s=str(x).strip()
-              if s: vals.append(s)
-          for s in reversed(vals):
-              print(s)
+          vals=[str(x).strip() for x in d.get('requests',[]) if str(x).strip()]
+          for rid in reversed(vals):
+              if not pathlib.Path(f'mailbox/outbox/{rid}.json').exists():
+                  print(rid)
+                  break
           PY
-          )
-          if [ "${#ids[@]}" -eq 0 ]; then
-            echo 'No mailbox requests'
+          )"
+          if [ -z "$rid" ]; then
+            echo 'No pending mailbox request'
             exit 0
           fi
 
-          changed=0
-          checked=0
-          for rid in "${ids[@]}"; do
-            out="mailbox/outbox/${rid}.json"
-            if [ -s "$out" ]; then
-              continue
-            fi
-            checked=$((checked+1))
-            [ "$checked" -le 8 ] || break
-            echo "Polling encrypted result for ${rid}"
-            for attempt in $(seq 1 12); do
-              tmp="$(mktemp)"
-              code="$(curl -sS --max-time 8 -o "$tmp" -w '%{http_code}' \
-                "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${attempt}" || true)"
-              if [ "$code" = 200 ]; then
-                if python3 - "$tmp" "$out" <<'PY'
+          out="mailbox/outbox/${rid}.json"
+          echo "Polling newest encrypted result for ${rid}"
+          ready=0
+          for attempt in $(seq 1 20); do
+            tmp="$(mktemp)"
+            code="$(curl -sS --max-time 8 -o "$tmp" -w '%{http_code}' \
+              "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${attempt}" || true)"
+            if [ "$code" = 200 ]; then
+              if python3 - "$tmp" "$out" <<'PY'
           import json,sys,os
           src,out=sys.argv[1:]
           try: d=json.load(open(src,encoding='utf-8'))
@@ -79,24 +71,23 @@ jobs:
               json.dump(detail,f,ensure_ascii=False,separators=(',',':')); f.write('\n')
           print(f"relayed {detail['request_id']} status={state.get('status')}")
           PY
-                then
-                  changed=1
-                  rm -f "$tmp"
-                  break
-                fi
+              then
+                ready=1
+                rm -f "$tmp"
+                break
               fi
-              rm -f "$tmp"
-              sleep 2
-            done
+            fi
+            rm -f "$tmp"
+            sleep 2
           done
 
-          if [ "$changed" = 0 ]; then
-            echo 'No new ciphertext results were ready'
+          if [ "$ready" != 1 ]; then
+            echo "Newest result not ready: ${rid}"
             exit 0
           fi
           git config user.name 'vps-mailbox-relay[bot]'
           git config user.email 'vps-mailbox-relay[bot]@users.noreply.github.com'
-          git add mailbox/outbox/*.json
+          git add "$out"
           git commit -m "Relay encrypted VPS mailbox result [skip ci]"
           git pull --rebase origin main
           git push
