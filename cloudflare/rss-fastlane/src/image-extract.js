@@ -64,7 +64,7 @@ function classifyImage(text) {
   return "photo";
 }
 
-function imageFromTag(tag, baseUrl, caption = "", inFigure = false) {
+function imageFromTag(tag, baseUrl, caption = "", inFigure = false, surroundingHtml = "") {
   const source = [
     attr(tag, "data-original"),
     attr(tag, "data-src"),
@@ -85,7 +85,8 @@ function imageFromTag(tag, baseUrl, caption = "", inFigure = false) {
   const role = textFromHtml(attr(tag, "role"));
   const width = Number.parseInt(attr(tag, "width") || "0", 10) || 0;
   const height = Number.parseInt(attr(tag, "height") || "0", 10) || 0;
-  const haystack = `${url} ${alt} ${title} ${cleanCaption} ${className} ${id} ${role}`;
+  const localContext = String(surroundingHtml || "").slice(0, 1800);
+  const haystack = `${url} ${alt} ${title} ${cleanCaption} ${className} ${id} ${role} ${localContext}`;
 
   if ((width && width < 120) || (height && height < 120)) return null;
   if (width && height) {
@@ -124,6 +125,12 @@ function articleScope(rawHtml) {
   return main?.[0] || html;
 }
 
+function surrounding(scope, start, length, radius = 420) {
+  const from = Math.max(0, start - radius);
+  const to = Math.min(scope.length, start + length + radius);
+  return scope.slice(from, to);
+}
+
 export function extractArticleImages(rawHtml, baseUrl, maxImages = 24) {
   const scope = articleScope(rawHtml);
   const images = [];
@@ -140,11 +147,12 @@ export function extractArticleImages(rawHtml, baseUrl, maxImages = 24) {
     const tag = block.match(/<img\b[^>]*>/i)?.[0];
     if (!tag) continue;
     const caption = block.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption\s*>/i)?.[1] || "";
-    add(imageFromTag(tag, baseUrl, caption, true));
+    add(imageFromTag(tag, baseUrl, caption, true, match[0]));
   }
 
   for (const match of scope.matchAll(/<img\b[^>]*>/gi)) {
-    add(imageFromTag(match[0], baseUrl));
+    const context = surrounding(scope, match.index || 0, match[0].length);
+    add(imageFromTag(match[0], baseUrl, "", false, context));
   }
 
   return images;
