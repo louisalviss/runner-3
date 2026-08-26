@@ -32,3 +32,6 @@ jobs:
           echo '---RESULT-BEGIN---'
           cat results/felipe-breakout-public-pilot.json
           echo '---RESULT-END---'
+          echo '---ROBUSTNESS-BEGIN---'
+          python3 scripts/felipe_breakout_public_robustness.py
+          echo '---ROBUSTNESS-END---'
