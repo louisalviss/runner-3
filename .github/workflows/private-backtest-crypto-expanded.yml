@@ -34,8 +34,24 @@ jobs:
       - name: Stage expanded crypto venue
         run: python tools/private_backtest_crypto_expanded.py stage --config jobs/private-backtest-crypto-30m-expanded.json --venue ${{ matrix.venue }}
 
-  shard:
+  transport_repair:
     needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply USD-M SHIB contract alias
+        run: python tools/private_backtest_crypto_perp_shib_repair.py
+
+  shard:
+    needs: [stage, transport_repair]
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -59,8 +75,8 @@ jobs:
         run: python tools/private_backtest_crypto_expanded.py shard --config jobs/private-backtest-crypto-30m-expanded.json --venue ${{ matrix.venue }} --shard ${{ matrix.shard }}
 
   evaluate:
-    if: ${{ always() && needs.stage.result == 'success' }}
-    needs: [stage, shard]
+    if: ${{ always() && needs.stage.result == 'success' && needs.transport_repair.result == 'success' }}
+    needs: [stage, transport_repair, shard]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
