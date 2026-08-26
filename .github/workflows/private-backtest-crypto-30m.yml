@@ -1,0 +1,80 @@
+name: Private Backtest Crypto 30m
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-backtest-crypto-30m.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-crypto-30m
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        venue: [spot, perp]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stage crypto venue
+        run: python tools/private_backtest_crypto_30m.py stage --config jobs/private-backtest-crypto-30m.json --venue ${{ matrix.venue }}
+
+  shard:
+    needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        venue: [spot, perp]
+        shard: [0,1]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<3' 'pandas>=2,<3'
+      - name: Run crypto shard
+        run: python tools/private_backtest_crypto_30m.py shard --config jobs/private-backtest-crypto-30m.json --venue ${{ matrix.venue }} --shard ${{ matrix.shard }}
+
+  evaluate:
+    if: ${{ always() && needs.stage.result == 'success' }}
+    needs: [stage, shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        venue: [spot, perp]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Evaluate crypto venue
+        run: python tools/private_backtest_crypto_30m.py evaluate --config jobs/private-backtest-crypto-30m.json --venue ${{ matrix.venue }}
