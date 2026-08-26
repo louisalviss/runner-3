@@ -1,0 +1,50 @@
+{
+  "source_scope": "bt-20260825-0455z-v3c",
+  "timeframe_minutes": 60,
+  "source_minutes": 60,
+  "warmup": "2021-12-01T00:00:00Z",
+  "report_start": "2022-01-01T00:00:00Z",
+  "holdout_start": "2025-01-01T00:00:00Z",
+  "end": "2026-08-25T00:00:00Z",
+  "shards": 4,
+  "retries": 1,
+  "symbol_timeout_seconds": 5400,
+  "stress_extra_rt_bps": 10.0,
+  "symbol_gates": {
+    "trades_min": 80,
+    "pre_trades_min": 50,
+    "holdout_trades_min": 25,
+    "actual_pf_min": 1.20,
+    "actual_mean_bps_min": 10.0,
+    "pre_holdout_pf_min": 1.05,
+    "holdout_pf_min": 1.10,
+    "stress_pf_min": 1.10
+  },
+  "venues": {
+    "spot": {
+      "scope": "bt-super-rsi-crypto60-binance-spot-expanded-v1",
+      "profile_name": "super-rsi-binance-spot-liquid-majors-60m-v1",
+      "asset_class": "CRYPTO_SPOT_LIQUID_MAJORS",
+      "fee_bps_per_side": 10.0,
+      "half_spread_slippage_bps": 2.5,
+      "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_REQUIRED",
+      "symbols": ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","TRXUSDT","LINKUSDT","LTCUSDT","BCHUSDT","AVAXUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","ETCUSDT","XLMUSDT","ATOMUSDT","NEARUSDT","FILUSDT","ICPUSDT","HBARUSDT","ALGOUSDT","VETUSDT","SHIBUSDT"]
+    },
+    "perp": {
+      "scope": "bt-super-rsi-crypto60-binance-usdm-perp-expanded-v1",
+      "profile_name": "super-rsi-binance-usdm-perp-liquid-majors-60m-v1",
+      "asset_class": "CRYPTO_USDM_PERP_LIQUID_MAJORS",
+      "fee_bps_per_side": 5.0,
+      "half_spread_slippage_bps": 2.5,
+      "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_AND_FUNDING_REQUIRED",
+      "symbols": ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","TRXUSDT","LINKUSDT","LTCUSDT","BCHUSDT","AVAXUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","ETCUSDT","XLMUSDT","ATOMUSDT","NEARUSDT","FILUSDT","ICPUSDT","HBARUSDT","ALGOUSDT","VETUSDT","SHIBUSDT"]
+    }
+  },
+  "discipline": {
+    "strategy_parameters": "UNCHANGED_FROM_FROZEN_US_EQUITIES_CANONICAL",
+    "direction": "LONG_ONLY",
+    "purpose": "SEPARATE_ASSET_EFFECT_FROM_TIMEFRAME_EFFECT",
+    "symbol_gate_preregistered_before_outcomes": true
+  },
+  "fee_note": "Same preregistered screening fees and synthetic half-spread/slippage as 30m lineage; top-of-book and perp funding remain promotion blockers."
+}
