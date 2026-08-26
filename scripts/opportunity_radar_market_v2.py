@@ -417,6 +417,8 @@ def build_anomalies(
         "early_watch": 0,
         "continuation": 0,
         "early_watch_carried": 0,
+        "early_watch_emitted": 0,
+        "raw_anomaly_emitted": 0,
     }
 
     for rec in records.values():
@@ -507,17 +509,27 @@ def build_anomalies(
 
     normal.sort(key=lambda x: (x["volume_confirmation"], x["raw_priority"]), reverse=True)
     early.sort(key=lambda x: (x.get("continuation_candidate", False), x["raw_priority"]), reverse=True)
-    merged = normal + early[: CFG["max_early_watch"]]
+
+    # Reserve packet capacity for discovery. Without this reservation a noisy
+    # RAW_ANOMALY universe can fill all max_candidates slots and silently drop
+    # every EARLY_WATCH signal even though it was detected.
+    early_cap = min(CFG["max_early_watch"], CFG["max_candidates"])
+    early_selected = early[:early_cap]
+    normal_slots = max(0, CFG["max_candidates"] - len(early_selected))
+    normal_selected = normal[:normal_slots]
+    stats["early_watch_emitted"] = len(early_selected)
+    stats["raw_anomaly_emitted"] = len(normal_selected)
+
+    merged = normal_selected + early_selected
     merged.sort(
         key=lambda x: (
-            x.get("discovery_state") != "EARLY_WATCH",
             x.get("continuation_candidate", False),
             x.get("volume_confirmation", False),
             x.get("raw_priority", 0),
         ),
         reverse=True,
     )
-    return merged[: CFG["max_candidates"]], stats
+    return merged, stats
 
 
 def signal_from(rec: dict[str, Any], generated_at: str, prior: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -690,6 +702,8 @@ def main() -> None:
             snapshot_ok=bool(snapshot),
             snapshot_error=snapshot_error,
             early_watch=guard_stats["early_watch"],
+            early_watch_emitted=guard_stats["early_watch_emitted"],
+            raw_anomaly_emitted=guard_stats["raw_anomaly_emitted"],
             continuation=guard_stats["continuation"],
             corporate_action_suppressed=guard_stats["corporate_action_suppressed"],
             corporate_action_unverified_suppressed=guard_stats["corporate_action_unverified_suppressed"],
