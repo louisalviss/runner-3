@@ -15,7 +15,8 @@ import forum_signal_rank as rank
 
 
 ORIGINAL_EXTRACT_POSTS = rank.base.extract_posts
-COMMENT_WORD_RE = re.compile(r"comment|reply|discussion|response", re.I)
+ORIGINAL_FETCH = rank.base.fetch
+COMMENT_WORD_RE = re.compile(r"comment|reply|discussion|response|phan.?hoi|binh.?luan", re.I)
 TINHTE_TZ = timezone(timedelta(hours=7))
 TINHTE_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?\b")
 TINHTE_REL_RE = re.compile(r"\b(\d+)\s*(phút|giờ|ngày)\s*(?:trước)?\b", re.I)
@@ -29,6 +30,11 @@ def clean_text(value):
     else:
         text = str(value)
     return "\n".join(x.strip() for x in text.splitlines() if x.strip())
+
+
+def is_tinhte_url(url):
+    host = (urlparse(url).hostname or "").lower()
+    return host == "tinhte.vn" or host.endswith(".tinhte.vn")
 
 
 def fingerprint_row(row):
@@ -69,13 +75,22 @@ def walk_comment_json(value, path=()):
     rows = []
     if isinstance(value, dict):
         path_text = "/".join(str(p).lower() for p in path)
-        is_comment_path = bool(COMMENT_WORD_RE.search(path_text))
+        node_type = clean_text(first_value(value, ["@type", "type", "__typename"]) or "").lower()
+        is_comment_path = bool(COMMENT_WORD_RE.search(path_text)) or node_type in {
+            "comment", "reply", "postcomment", "discussioncomment"
+        }
         text_value = first_value(value, ["content", "body", "message", "text", "html", "comment"])
-        comment_id = first_value(value, ["commentId", "comment_id", "replyId", "reply_id", "id"])
-        author_value = first_value(value, ["author", "user", "username", "member", "creator", "createdBy"])
+        comment_id = first_value(value, ["commentId", "comment_id", "replyId", "reply_id", "postId", "post_id", "id"])
+        author_value = first_value(value, ["author", "user", "username", "member", "creator", "createdBy", "created_by"])
         timestamp = first_value(value, ["createdAt", "created_at", "publishedAt", "published_at", "date", "time", "timestamp"])
         text = clean_text(text_value)
-        if is_comment_path and 20 <= len(text) <= 12000 and (comment_id is not None or author_value is not None):
+        comment_shape = (
+            20 <= len(text) <= 12000
+            and comment_id is not None
+            and author_value is not None
+            and timestamp is not None
+        )
+        if (is_comment_path or comment_shape) and 20 <= len(text) <= 12000 and (comment_id is not None or author_value is not None):
             rows.append({
                 "post_id": clean_text(comment_id),
                 "author": author_from_value(author_value),
@@ -115,7 +130,6 @@ def parse_tinhte_timestamp(value):
     raw = " ".join(str(value or "").split())
     if not raw:
         return ""
-
     m = TINHTE_DATE_RE.search(raw)
     if m:
         day, month, year = map(int, m.group(1, 2, 3))
@@ -125,14 +139,12 @@ def parse_tinhte_timestamp(value):
             return datetime(year, month, day, hour, minute, tzinfo=TINHTE_TZ).isoformat()
         except ValueError:
             return ""
-
     lowered = raw.lower()
     now = datetime.now(TINHTE_TZ)
     if "vừa xong" in lowered or "vừa mới" in lowered:
         return now.isoformat()
     if "hôm qua" in lowered:
         return (now - timedelta(days=1)).isoformat()
-
     m = TINHTE_REL_RE.search(lowered)
     if m:
         amount = int(m.group(1))
@@ -157,16 +169,18 @@ def strip_tinhte_author_meta(value):
 
 
 def extract_tinhte_dom_comments(soup):
-    # Tinhte currently server-renders comments. Stable semantic classes coexist with
-    # rotating styled-jsx hashes: post-item__container -> author-info -> post-body.
     selectors = [
         "div.post-item__container",
+        "[class*='post-item__container']",
         "[data-comment-id]",
         "[data-reply-id]",
+        "[data-post-id]",
         "[id^='comment-']",
         "[id^='reply-']",
         ".comment-item",
         ".commentItem",
+        "[class*='comment-item']",
+        "[class*='reply-item']",
         "article[class*='comment']",
         "li[class*='comment']",
     ]
@@ -188,7 +202,9 @@ def extract_tinhte_dom_comments(soup):
     seen_text = set()
     for node in nodes:
         body = node.select_one(
-            ".post-body, .comment-content, .commentContent, [class*='comment-content'], [class*='commentContent']"
+            ".post-body, [class*='post-body'], [class*='postBody'], "
+            ".comment-content, .commentContent, [class*='comment-content'], "
+            "[class*='commentContent'], [class*='reply-content'], [class*='replyContent']"
         )
         if body is None:
             continue
@@ -212,13 +228,14 @@ def extract_tinhte_dom_comments(soup):
             or ""
         )
         author_node = node.select_one(
-            ".author-info, .author, [class*='username'], [class*='user-name'], [class*='userName'], a[href*='/members/'], a[href*='/user/']"
+            ".author-info, .author, [class*='author-info'], [class*='username'], "
+            "[class*='user-name'], [class*='userName'], a[href*='/members/'], a[href*='/user/']"
         )
         author_raw = clean_text(author_node.get_text(" ", strip=True)) if author_node else ""
         name_node = author_node.select_one("a[href]") if author_node else None
         author = clean_text(name_node.get_text(" ", strip=True)) if name_node else strip_tinhte_author_meta(author_raw)
 
-        time_node = node.select_one("time")
+        time_node = node.select_one("time, [class*='time'], [class*='date']")
         timestamp = ""
         if time_node:
             timestamp = time_node.get("datetime") or time_node.get("title") or clean_text(time_node.get_text(" ", strip=True))
@@ -236,8 +253,7 @@ def extract_tinhte_dom_comments(soup):
 
 
 def enhanced_extract_posts(html, url, max_posts):
-    host = (urlparse(url).hostname or "").lower()
-    if host != "tinhte.vn" and not host.endswith(".tinhte.vn"):
+    if not is_tinhte_url(url):
         return ORIGINAL_EXTRACT_POSTS(html, url, max_posts)
 
     soup = BeautifulSoup(html or "", "html.parser")
@@ -246,7 +262,6 @@ def enhanced_extract_posts(html, url, max_posts):
     if not title and soup.title:
         title = clean_text(soup.title.get_text(" ", strip=True))
 
-    # Prefer the current server-rendered DOM. JSON remains a fallback for future frontend changes.
     rows = extract_tinhte_dom_comments(soup)
     if not rows:
         rows = extract_tinhte_json_comments(soup)
@@ -256,9 +271,13 @@ def enhanced_extract_posts(html, url, max_posts):
         seen = set()
         for row in rows:
             key = row.get("post_id") or hashlib.sha1(
-                (rank.base.normalize_text(row.get("author", "")) + "|" +
-                 rank.base.normalize_text(row.get("timestamp", "")) + "|" +
-                 rank.base.normalize_text(row.get("text", ""))).encode("utf-8", errors="ignore")
+                (
+                    rank.base.normalize_text(row.get("author", ""))
+                    + "|"
+                    + rank.base.normalize_text(row.get("timestamp", ""))
+                    + "|"
+                    + rank.base.normalize_text(row.get("text", ""))
+                ).encode("utf-8", errors="ignore")
             ).hexdigest()
             if key in seen:
                 continue
@@ -267,6 +286,25 @@ def enhanced_extract_posts(html, url, max_posts):
         return title, deduped[-max_posts:]
 
     return ORIGINAL_EXTRACT_POSTS(html, url, max_posts)
+
+
+def enhanced_fetch(url, policy, headers, user_agent):
+    if not is_tinhte_url(url):
+        return ORIGINAL_FETCH(url, policy, headers, user_agent)
+
+    rendered_policy = dict(policy)
+    rendered_policy["mode"] = "browser"
+    rendered_policy["wait_ms"] = max(int(policy.get("wait_ms", 0)), 3000)
+    result, errors = ORIGINAL_FETCH(url, rendered_policy, headers, user_agent)
+
+    if result is None or not result.get("ok"):
+        http_policy = dict(policy)
+        http_policy["mode"] = "http"
+        fallback, fallback_errors = ORIGINAL_FETCH(url, http_policy, headers, user_agent)
+        errors = list(errors or []) + [f"browser_fallback: {e}" for e in (fallback_errors or [])]
+        if fallback is not None:
+            return fallback, errors
+    return result, errors
 
 
 def load_state(path):
@@ -291,6 +329,7 @@ def save_state(path, state):
 def run_ranker(job_file, output, validate_only=False):
     old_argv = sys.argv[:]
     rank.base.extract_posts = enhanced_extract_posts
+    rank.base.fetch = enhanced_fetch
     try:
         argv = ["forum_signal_rank.py", job_file, "--output", str(output)]
         if validate_only:
@@ -300,10 +339,11 @@ def run_ranker(job_file, output, validate_only=False):
     finally:
         sys.argv = old_argv
         rank.base.extract_posts = ORIGINAL_EXTRACT_POSTS
+        rank.base.fetch = ORIGINAL_FETCH
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Forum signal ranker with Tinhte comments and persistent delta state")
+    parser = argparse.ArgumentParser(description="Forum signal ranker with Tinhte rendered comments and persistent delta state")
     parser.add_argument("job_file")
     parser.add_argument("--output", default="crawl_output")
     parser.add_argument("--state-file", default=".forum-state/state.json")
@@ -321,6 +361,7 @@ def main():
             "runner": "forum_signal_delta",
             "state_file": args.state_file,
             "state_history": args.state_history,
+            "tinhte_rendered_fetch": True,
             "validated": True,
         }, ensure_ascii=False))
         return
@@ -384,6 +425,7 @@ def main():
     manifest["state_history_per_thread"] = args.state_history
     manifest["delta_output"] = "forum_signal.jsonl"
     manifest["snapshot_audit_output"] = "forum_signal_snapshot.jsonl"
+    manifest["tinhte_rendered_fetch"] = True
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(json.dumps({
@@ -392,6 +434,7 @@ def main():
         "snapshot_rows": len(snapshot_rows),
         "delta_rows": len(new_rows),
         "state_threads": len(state.get("threads", {})),
+        "tinhte_rendered_fetch": True,
         "output": str(out_root),
     }, ensure_ascii=False))
 
