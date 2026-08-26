@@ -1,4 +1,4 @@
-name: Site2 Rejected Candidate Cleanup
+name: Site2 Candidate Force Off
 
 on:
   pull_request:
@@ -9,10 +9,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: runner3-site2-optimization
-  cancel-in-progress: false
 
 env:
   SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
