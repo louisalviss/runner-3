@@ -33,6 +33,14 @@ NEWSISH = [
     "theo báo", "báo viết", "nguồn tin", "reuters", "bloomberg", "cnn", "bbc", "vnexpress", "tuổi trẻ",
     "dantri", "cafef", "cafebiz", "zing", "link báo", "bài báo",
 ]
+TINHTE_PRODUCT = [
+    "apple", "mac", "iphone", "ipad", "android", "windows", "laptop", "pc", "màn hình", "camera",
+    "pin", "sạc", "ram", "ssd", "chip", "cpu", "gpu", "router", "nas", "wifi", "tai nghe", "loa",
+    "đồng hồ", "watch", "app", "ứng dụng", "firmware", "xe điện", "ev", "máy lạnh", "máy lọc",
+]
+TINHTE_PROMO = [
+    "ví trả sau", "đăng ký trả góp", "mã giảm giá", "mã khuyến mãi", "affiliate", "mua ngay", "đặt hàng",
+]
 NOISE_PATTERNS = [
     re.compile(r"^(\+1|up|ké|hóng|chấm|lol|vl|vãi|ok|oke|thanks|thank|=\)+|:v|haha+)[.!? ]*$", re.I),
     re.compile(r"^(ngon|hay|đẹp|xấu|ảo|ghê|kinh|chịu|thôi|đúng|sai)[.!? ]*$", re.I),
@@ -164,8 +172,30 @@ def score_row(row, max_age_hours):
         score -= 1.2
         reasons.append("page_fallback")
 
-    # A candidate must contain at least one core community signal. Numbers/links alone are not insight.
-    if not firsthand and not reasoning and not current and score >= 3.0:
+    # Tinhte's useful signal is often terse product ownership/price evidence rather than long-form reasoning.
+    # Only boost structured comments from the latest active-thread slice, and require substantive evidence.
+    tinhte_proxy = (
+        str(row.get("source") or "") == "Tinhte"
+        and str(row.get("extraction") or "") == "structured_post"
+        and str(row.get("timestamp_recovery_source") or "") == "tinhte_active_thread_fetch"
+    )
+    tinhte_product_hits = hits(f"{title} {text}", TINHTE_PRODUCT) if tinhte_proxy else []
+    tinhte_promo_hits = hits(text, TINHTE_PROMO) if tinhte_proxy else []
+    if tinhte_proxy and n >= 90 and tinhte_product_hits and (firsthand or reasoning or len(numbers) >= 2):
+        score += 0.75
+        reasons.append("tinhte_active_product_signal")
+        if firsthand or len(numbers) >= 3:
+            score += 0.55
+            reasons.append("tinhte_firsthand_or_numeric_depth")
+        if tinhte_promo_hits:
+            score -= 1.2
+            reasons.append("tinhte_promo_risk")
+
+    # A candidate must contain at least one core community signal. Numbers/links alone are not insight,
+    # except the guarded Tinhte active-product case above where fresh numeric ownership evidence is intentional.
+    if not firsthand and not reasoning and not current and score >= 3.0 and not (
+        tinhte_proxy and tinhte_product_hits and len(numbers) >= 2 and not tinhte_promo_hits
+    ):
         score = 2.85
         reasons.append("no_core_signal")
 
@@ -181,6 +211,8 @@ def score_row(row, max_age_hours):
         signal_type = "reasoning_theory"
     elif current:
         signal_type = "current_claim"
+    elif tinhte_proxy and len(numbers) >= 2:
+        signal_type = "consumer_product_signal"
     else:
         signal_type = "unusual_signal"
 
@@ -200,6 +232,8 @@ def score_row(row, max_age_hours):
         "needs_verification": needs_verification,
         "age_hours": round(age, 2) if age is not None else None,
         "fresh": age is None or age <= max_age_hours,
+        "freshness_proxy": bool(tinhte_proxy),
+        "freshness_basis": "active_thread_fetch" if tinhte_proxy else "post_timestamp",
         "url_count": len(urls),
         "link_ratio": round(link_ratio, 3),
     }
