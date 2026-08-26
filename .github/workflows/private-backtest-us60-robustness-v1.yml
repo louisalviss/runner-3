@@ -1,0 +1,31 @@
+name: Private Backtest US60 Robustness V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/private-backtest-us60-robustness-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-us60-robustness-v1
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run preregistered robustness battery
+        run: python tools/private_backtest_us60_robustness.py --config jobs/private-backtest-us60-robustness-v1.json
