@@ -11,8 +11,10 @@ on:
       - 'forum_signal_f91_expand.py'
       - 'forum_signal_timestamp.py'
       - 'forum_signal_score.py'
+      - 'forum_signal_f91_candidates.py'
       - 'forum_signal_diversify.py'
       - 'forum_signal_route.py'
+      - 'forum_signal_route_f91.py'
       - 'forum_signal_health.py'
       - 'public_feed_fallback.py'
       - '.github/workflows/forum-signal.yml'
@@ -128,7 +130,8 @@ jobs:
           python forum_signal_f91_expand.py "$JOB" --validate-only
           python forum_signal_timestamp.py --validate-only
           python forum_signal_score.py --input /tmp/nonexistent.jsonl --output /tmp/forum-candidates.jsonl --summary /tmp/forum-insights.md --min-score 3
-          python forum_signal_diversify.py --input /tmp/nonexistent.jsonl --audit /tmp/forum-f91-diversity.json
+          python forum_signal_f91_candidates.py --raw /tmp/nonexistent.jsonl --candidates /tmp/forum-candidates.jsonl --audit /tmp/forum-f91-boost.json
+          python forum_signal_diversify.py --input /tmp/forum-candidates.jsonl --audit /tmp/forum-f91-diversity.json
           python forum_signal_health.py --job "$JOB" --validate-only
           MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","http"))' "$JOB")"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
@@ -162,13 +165,17 @@ jobs:
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_score.py --input crawl_output/forum_signal.jsonl --output crawl_output/forum_insight_candidates.jsonl --summary crawl_output/forum_insights.md --min-score 3
 
+      - name: Boost VOZ F91 technical and career candidates
+        if: steps.crawl.outcome == 'success'
+        run: python forum_signal_f91_candidates.py --raw crawl_output/forum_signal.jsonl --candidates crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_candidate_boost.json --min-score 3 --max-age-hours 72
+
       - name: Diversify VOZ F91 candidates
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_diversify.py --input crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_diversity.json --source VOZ-F91 --per-thread 3 --source-cap 36
 
       - name: Route and final-filter candidates
         if: steps.crawl.outcome == 'success'
-        run: python forum_signal_route.py --input crawl_output/forum_insight_candidates.jsonl --output-dir crawl_output
+        run: python forum_signal_route_f91.py --input crawl_output/forum_insight_candidates.jsonl --output-dir crawl_output
 
       - name: Evaluate source health
         if: steps.crawl.outcome == 'success'
