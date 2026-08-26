@@ -31,8 +31,24 @@ jobs:
           python-version: '3.12'
       - run: python tools/private_backtest_shadow.py stage --config jobs/private-backtest-paper-sim.json
 
-  shard:
+  transport_repair:
     needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply META legacy Dukascopy alias
+        run: python tools/private_backtest_paper_meta_repair.py
+
+  shard:
+    needs: [stage, transport_repair]
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -53,8 +69,8 @@ jobs:
       - run: python tools/private_backtest_shadow.py shard --config jobs/private-backtest-paper-sim.json --shard ${{ matrix.shard }}
 
   evaluate:
-    if: ${{ always() && needs.stage.result == 'success' }}
-    needs: [stage, shard]
+    if: ${{ always() && needs.stage.result == 'success' && needs.transport_repair.result == 'success' }}
+    needs: [stage, transport_repair, shard]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
