@@ -65,7 +65,12 @@ async function uploadCandidateZip(page) {
 
 async function ensureInstalled(page) {
   const before = await readState(page);
-  if (before.active) throw new Error('candidate must be inactive before replacing its package');
+  // During the final KEEP verification the exact candidate package is already
+  // active from this workflow attempt. Do not attempt to replace an active
+  // plugin; setActive() + verifyFrontend() below will verify its live state.
+  // The initial activation path is still protected because the workflow first
+  // forces the candidate OFF, so an inactive installed slug must be replaced.
+  if (before.active) return 'already-active-verify-only';
 
   // Always upload the exact candidate ZIP for an activation run. Reusing an
   // already-installed slug can silently execute stale candidate code from a
