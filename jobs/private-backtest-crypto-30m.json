@@ -1,0 +1,37 @@
+{
+  "source_scope": "bt-20260825-0455z-v3c",
+  "warmup": "2021-12-01T00:00:00Z",
+  "report_start": "2022-01-01T00:00:00Z",
+  "holdout_start": "2025-01-01T00:00:00Z",
+  "end": "2026-08-25T00:00:00Z",
+  "gates": {
+    "trades_min": 300,
+    "actual_pf_min": 1.20,
+    "actual_mean_bps_min": 10.0,
+    "holdout_pf_min": 1.10,
+    "positive_symbol_fraction_min": 1.0,
+    "median_symbol_pf_min": 1.05,
+    "stress_extra_rt_bps": 10.0,
+    "stress_pf_min": 1.10
+  },
+  "venues": {
+    "spot": {
+      "scope": "bt-super-rsi-crypto30-binance-spot-v1",
+      "profile_name": "super-rsi-binance-spot-btc-eth-30m-v1",
+      "asset_class": "CRYPTO_SPOT",
+      "fee_bps_per_side": 10.0,
+      "half_spread_slippage_bps": 2.5,
+      "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_REQUIRED"
+    },
+    "perp": {
+      "scope": "bt-super-rsi-crypto30-binance-usdm-perp-v1",
+      "profile_name": "super-rsi-binance-usdm-perp-btc-eth-30m-v1",
+      "asset_class": "CRYPTO_PERPETUAL",
+      "fee_bps_per_side": 5.0,
+      "half_spread_slippage_bps": 2.5,
+      "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_AND_FUNDING_REQUIRED"
+    }
+  },
+  "fee_note": "Preregistered conservative fixed non-VIP assumptions for screening only; not claimed as universal/current account-specific fees.",
+  "trigger": "initial-2026-08-26"
+}
