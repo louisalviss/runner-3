@@ -61,6 +61,32 @@ async function handleScoresRecompute(request,env){ const e=requireDb(env)||requi
 async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,rows:result.results||[]}); }
 async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,rows:result.results||[]}); }
 
+async function handleSynthesis(request,env,url){
+  const e=requireDb(env)||requireAuth(request,env); if(e)return e;
+  if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
+  const profileLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("profile_limit")||"30",10)||30));
+  const scoreLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("score_limit")||"20",10)||20));
+  const [counts,eventTypes,profile,topScores,recentFeedback,recentEvents]=await Promise.all([
+    env.DB.prepare(`SELECT (SELECT COUNT(*) FROM content_items) AS items,(SELECT COUNT(*) FROM user_content_events) AS events,(SELECT COUNT(*) FROM content_scores WHERE score_type='personal_relevance') AS scored_items,(SELECT COUNT(*) FROM interest_profile) AS profile_features,(SELECT MAX(event_at) FROM user_content_events) AS last_event_at`).first(),
+    env.DB.prepare(`SELECT event_type,COUNT(*) AS count FROM user_content_events GROUP BY event_type ORDER BY count DESC`).all(),
+    env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(profileLimit).all(),
+    env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.source_key,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(scoreLimit).all(),
+    env.DB.prepare(`SELECT e.id,e.item_id,e.event_type,e.explicit_feedback,e.event_at,i.title,i.canonical_url,i.source_type,i.source_name FROM user_content_events e JOIN content_items i ON i.item_id=e.item_id WHERE e.explicit_feedback IS NOT NULL AND TRIM(e.explicit_feedback)<>'' ORDER BY e.event_at DESC LIMIT 20`).all(),
+    env.DB.prepare(`SELECT e.id,e.item_id,e.event_type,e.event_at,e.render_id,i.title,i.canonical_url,i.source_type,i.source_name FROM user_content_events e JOIN content_items i ON i.item_id=e.item_id WHERE e.event_type<>'shown' ORDER BY e.event_at DESC LIMIT 30`).all()
+  ]);
+  return Response.json({
+    ok:true,
+    generated_at:new Date().toISOString(),
+    model_version:"personal-v1",
+    counts:{items:Number(counts?.items||0),events:Number(counts?.events||0),scored_items:Number(counts?.scored_items||0),profile_features:Number(counts?.profile_features||0),last_event_at:counts?.last_event_at||null},
+    event_types:eventTypes.results||[],
+    profile:profile.results||[],
+    top_scores:topScores.results||[],
+    recent_feedback:recentFeedback.results||[],
+    recent_interest_events:recentEvents.results||[]
+  });
+}
+
 export async function handleContentIntelligence(request,env,url){
   if(url.pathname==="/content-intelligence/items")return handleItems(request,env);
   if(url.pathname==="/content-intelligence/features")return handleFeatures(request,env);
@@ -70,5 +96,6 @@ export async function handleContentIntelligence(request,env,url){
   if(url.pathname==="/content-intelligence/profile/recompute")return handleProfileRecompute(request,env);
   if(url.pathname==="/content-intelligence/scores/recompute")return handleScoresRecompute(request,env);
   if(url.pathname==="/content-intelligence/scores/top")return handleTopScores(request,env,url);
+  if(url.pathname==="/content-intelligence/synthesis")return handleSynthesis(request,env,url);
   return null;
 }
