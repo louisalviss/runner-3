@@ -27,8 +27,32 @@ function shouldPreserveImages(body) {
   ));
 }
 
+function stripMarkdownImages(value) {
+  let text = String(value ?? "");
+
+  // Extractors can leave a linked-image placeholder in the readable body even
+  // though images are already carried separately in artifact.images:
+  // [![Image 3](thumb.jpg)](full.jpg "caption")
+  // Remove both linked and standalone image markdown, including line breaks
+  // introduced by source formatting. Normal text links are intentionally kept.
+  text = text.replace(
+    /\[\s*!\[[^\]]{0,500}\]\(\s*https?:\/\/[\s\S]{1,2500}?\)\s*\]\(\s*https?:\/\/[\s\S]{1,3500}?\)/gi,
+    "\n"
+  );
+  text = text.replace(
+    /!\[[^\]]{0,500}\]\(\s*https?:\/\/[\s\S]{1,3000}?\)/gi,
+    "\n"
+  );
+
+  // Defensive cleanup for malformed extractor placeholders such as a bare
+  // "[Image 3]" marker. Do not remove ordinary prose containing the word image.
+  text = text.replace(/^\s*\[!?\s*(?:image|ảnh)\s*\d*\s*\]\s*$/gim, "");
+  return text;
+}
+
 function cleanReaderBody(value) {
-  const lines = String(value ?? "").replace(/\r/g, "").split("\n");
+  const withoutImageMarkdown = stripMarkdownImages(String(value ?? "").replace(/\r/g, ""));
+  const lines = withoutImageMarkdown.split("\n");
   const boilerplate = /^(?:advertisement|quảng cáo|nội dung tài trợ|sponsored(?: content)?|promoted content|tiếp tục sau quảng cáo|đăng ký nhận (?:tin|bản tin)|subscribe(?: now| to (?:our )?newsletter)?|newsletter|related articles?|bài viết liên quan|tin liên quan|xem thêm|đọc thêm|share|chia sẻ)\s*:?[\s.!-]*$/i;
   const trackingUrl = /^https?:\/\/(?:[^/]*\.)?(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|taboola\.com|outbrain\.com)\S*$/i;
   const out = [];
@@ -47,12 +71,12 @@ async function sanitizeReaderView(response, url) {
   const payload = await response.json().catch(() => null);
   if (!payload?.artifact) return Response.json(payload ?? { ok: false, error: "READER_PAYLOAD_INVALID" }, { status: response.status });
 
-  if (typeof payload.artifact.body === "string") {
-    payload.artifact.body = cleanReaderBody(payload.artifact.body);
-  }
   if (Array.isArray(payload.artifact.images)) {
     payload.artifact.images = selectContentImages(payload.artifact.images);
     payload.artifact.imageCount = payload.artifact.images.length;
+  }
+  if (typeof payload.artifact.body === "string") {
+    payload.artifact.body = cleanReaderBody(payload.artifact.body);
   }
 
   const headers = new Headers(response.headers);
