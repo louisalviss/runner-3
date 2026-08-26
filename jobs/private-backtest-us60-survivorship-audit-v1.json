@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "source_scope": "bt-20260825-0455z-v3c",
+  "scope": "bt-super-rsi-us60-survivorship-audit-v1",
+  "strategy": "FROZEN_SUPER_RSI_US_EQUITIES_60M_LONG_ONLY",
+  "strategy_changes": "NONE",
+  "purpose": "SURVIVORSHIP_AND_POINT_IN_TIME_UNIVERSE_AUDIT_ONLY",
+  "historical_index_proxy": {
+    "name": "S&P 500 historical constituents",
+    "repository": "chinobing/historical_sp500_constituents",
+    "commit": "df3f14894bce87cef916ba11dfa6cc8002ccac14",
+    "path": "sp_500_historical_components.csv",
+    "raw_url": "https://raw.githubusercontent.com/chinobing/historical_sp500_constituents/df3f14894bce87cef916ba11dfa6cc8002ccac14/sp_500_historical_components.csv"
+  },
+  "snapshot_start": "2022-01-03",
+  "snapshot_end": "2026-08-25",
+  "control_definition": "all S&P500 members present at snapshot_start but absent at snapshot_end, after preregistered ticker-alias normalization, excluding canonical primary symbols; no outcome filtering",
+  "ticker_aliases": {
+    "FB": "META",
+    "ANTM": "ELV",
+    "NLOK": "GEN",
+    "PKI": "RVTY",
+    "FISV": "FI",
+    "ABC": "COR",
+    "RE": "EG",
+    "FLT": "CPAY",
+    "CDAY": "DAY",
+    "PEAK": "DOC"
+  },
+  "timeframe_minutes": 60,
+  "source_minutes": 5,
+  "warmup": "2021-12-01T00:00:00Z",
+  "report_start": "2022-01-01T00:00:00Z",
+  "end": "2026-08-25T00:00:00Z",
+  "shards": 8,
+  "retries": 1,
+  "symbol_timeout_seconds": 5400,
+  "diagnostic_thresholds": {
+    "control_data_coverage_min_fraction": 0.50,
+    "high_risk_control_pf_max": 1.00,
+    "high_risk_combined_pf_drop_min": 0.15,
+    "moderate_risk_control_pf_max": 1.10,
+    "moderate_risk_combined_pf_min": 1.20,
+    "sp500_proxy_applicability_min_current_overlap_fraction": 0.50
+  },
+  "discipline": {
+    "no_retune": true,
+    "no_symbol_additions_after_outcome": true,
+    "no_failed_symbol_deletion": true,
+    "transport_failures_count_as_missing_data_not_strategy_losses": true,
+    "control_available_subset_metrics_must_be_labeled_conditioned_on_data_availability": true,
+    "true_delisted_names_missing_from_Dukascopy_leave_residual_survivorship_risk_unresolved": true,
+    "sp500_is_a_proxy_universe_not_claimed_as_original_selection_rule": true
+  }
+}
