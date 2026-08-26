@@ -1,0 +1,58 @@
+{
+  "source_scope": "bt-20260825-0455z-v3c",
+  "warmup": "2021-12-01T00:00:00Z",
+  "report_start": "2022-01-01T00:00:00Z",
+  "holdout_start": "2025-01-01T00:00:00Z",
+  "end": "2026-08-25T00:00:00Z",
+  "shards": 4,
+  "retries": 1,
+  "symbol_timeout_seconds": 5400,
+  "stress_extra_rt_bps": 10.0,
+  "symbol_gates": {
+    "trades_min": 80,
+    "pre_trades_min": 50,
+    "holdout_trades_min": 25,
+    "actual_pf_min": 1.20,
+    "actual_mean_bps_min": 10.0,
+    "pre_holdout_pf_min": 1.05,
+    "holdout_pf_min": 1.10,
+    "stress_pf_min": 1.10
+  },
+  "venues": {
+    "spot": {
+      "scope": "bt-super-rsi-crypto30-binance-spot-expanded-v2",
+      "profile_name": "super-rsi-binance-spot-liquid-majors-30m-v2",
+      "asset_class": "CRYPTO_SPOT_LIQUID_MAJORS",
+      "fee_bps_per_side": 10.0,
+      "half_spread_slippage_bps": 2.5,
+      "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_REQUIRED",
+      "symbols": [
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "LTCUSDT",
+        "BCHUSDT", "AVAXUSDT", "DOTUSDT", "UNIUSDT", "AAVEUSDT", "ETCUSDT", "XLMUSDT", "ATOMUSDT", "NEARUSDT", "FILUSDT",
+        "ICPUSDT", "HBARUSDT", "ALGOUSDT", "VETUSDT", "SHIBUSDT"
+      ]
+    },
+    "perp": {
+      "scope": "bt-super-rsi-crypto30-binance-usdm-perp-expanded-v2",
+      "profile_name": "super-rsi-binance-usdm-perp-liquid-majors-30m-v2",
+      "asset_class": "CRYPTO_USDM_PERP_LIQUID_MAJORS",
+      "fee_bps_per_side": 5.0,
+      "half_spread_slippage_bps": 2.5,
+      "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_AND_FUNDING_REQUIRED",
+      "symbols": [
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "LTCUSDT",
+        "BCHUSDT", "AVAXUSDT", "DOTUSDT", "UNIUSDT", "AAVEUSDT", "ETCUSDT", "XLMUSDT", "ATOMUSDT", "NEARUSDT", "FILUSDT",
+        "ICPUSDT", "HBARUSDT", "ALGOUSDT", "VETUSDT", "SHIBUSDT"
+      ]
+    }
+  },
+  "discipline": {
+    "strategy_parameters": "UNCHANGED_FROM_FROZEN_US_EQUITIES_CANONICAL",
+    "direction": "LONG_ONLY",
+    "selection_note": "broad long-history liquid-major USDT universe; no outcome-based inclusion",
+    "symbol_gate_preregistered_before_expanded_outcomes": true,
+    "lower_timeframe_rule": "ONLY_SYMBOLS_PASSING_SYMBOL_GATES_CAN_ENTER_15M_RESEARCH; 5M REQUIRES_15M_PASS"
+  },
+  "fee_note": "Preregistered conservative fixed non-VIP assumptions for screening only; top-of-book remains a promotion blocker and perp funding remains unmodeled at this stage.",
+  "trigger": "expanded-v2-2026-08-26"
+}
