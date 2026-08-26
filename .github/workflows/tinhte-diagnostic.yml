@@ -15,46 +15,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install requests beautifulsoup4
-      - name: Probe HTTP DOM
+        run: python -m pip install -r requirements.txt
+      - name: Verify current Tinhte parser over plain HTTP
         shell: bash
         run: |
           python - <<'PY'
-          import json, re, requests
-          from bs4 import BeautifulSoup
+          import requests
+          import forum_signal_delta as parser
+
           urls = [
             'https://tinhte.vn/thread/anh-em-cho-hoi-sao-tinhte-la-trang-cong-nghe-to-cung-co-the-noi-la-nhat-vn-ma-tai-sao-web-lan-app.4011664/',
             'https://tinhte.vn/thread/tesla-ra-mat-xe-tao-dien-theo-thoi-gian-thuc-ban-doggy.4091069/',
           ]
           h={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'}
+          total=0
+          timestamped=0
           for u in urls:
             r=requests.get(u,headers=h,timeout=30)
-            soup=BeautifulSoup(r.text,'html.parser')
-            text=soup.get_text('\n',strip=True)
-            print('URL',u)
-            print('status',r.status_code,'html_chars',len(r.text),'text_chars',len(text),'bao_xau',text.count('Báo xấu'),'login_prompt',text.count('Đăng nhập một phát'))
-            samples=[]
-            for s in soup.find_all(string=lambda x: x and 'Báo xấu' in x):
-              node=s.parent
-              chain=[]
-              for _ in range(7):
-                if not node: break
-                chain.append({'tag':node.name,'id':node.get('id'),'class':node.get('class'),'text':' '.join(node.get_text(' ',strip=True).split())[:220]})
-                node=node.parent
-              samples.append(chain)
-              if len(samples)>=4: break
-            print('CHAINS',json.dumps(samples,ensure_ascii=False))
-            # all likely comment-related classes/ids
-            likely=[]
-            for tag in soup.find_all(True):
-              ident=' '.join([str(tag.get('id') or ''),' '.join(tag.get('class') or [])])
-              if re.search(r'comment|reply|reaction|author|username|post',ident,re.I):
-                likely.append({'tag':tag.name,'id':tag.get('id'),'class':tag.get('class'),'text':' '.join(tag.get_text(' ',strip=True).split())[:160]})
-                if len(likely)>=40: break
-            print('LIKELY',json.dumps(likely,ensure_ascii=False))
+            r.raise_for_status()
+            title, rows = parser.enhanced_extract_posts(r.text, u, 100)
+            structured=[x for x in rows if x.get('extraction') == 'structured_post']
+            with_ts=[x for x in structured if x.get('timestamp')]
+            total += len(structured)
+            timestamped += len(with_ts)
+            print({'url':u,'title':title[:100],'structured':len(structured),'timestamped':len(with_ts),'sample':structured[:2]})
+          if total < 5:
+            raise SystemExit(f'Tinhte parser regression: only {total} structured rows')
+          if timestamped < 3:
+            raise SystemExit(f'Tinhte timestamp regression: only {timestamped} timestamped rows')
+          print({'tinhte_parser':'PASS','structured_total':total,'timestamped_total':timestamped,'browser_required':False})
           PY
