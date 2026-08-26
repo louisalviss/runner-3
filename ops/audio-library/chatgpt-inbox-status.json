@@ -1,12 +1,13 @@
 {
   "status": "ready",
   "discoveryMode": "runner3-core-scoped-audio-media",
-  "extractOutcome": "failure",
-  "extractExitCode": "1",
+  "extractOutcome": "success",
+  "extractExitCode": "0",
   "redditAcquisition": "scripts/reddit_common.py",
   "extractor": {
-    "parseError": "Expecting value: line 1 column 1 (char 0)"
+    "ok": true,
+    "results": []
   },
-  "extractStderr": "Traceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 104, in <module>\n    core.main()\n    ^^^^^^^^^\nAttributeError: module 'audio_library_extract_for_chatgpt' has no attribute 'main'\n",
-  "updatedAt": "2026-08-26T02:43:28.276085+00:00"
+  "extractStderr": "",
+  "updatedAt": "2026-08-26T02:45:43.614818+00:00"
 }
