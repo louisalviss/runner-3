@@ -30,11 +30,13 @@ function remoteSource(item) {
 }
 
 function normalizeCandidate(item, index) {
-  const url = remoteSource(item);
-  if (!/^https?:\/\//i.test(url)) return null;
+  const sourceUrl = remoteSource(item);
+  if (!/^https?:\/\//i.test(sourceUrl)) return null;
+  const currentUrl = text(item?.url, 6000);
+  const isCached = item?.cache_status === "cached" && /^https?:\/\//i.test(currentUrl);
   const alt = text(item?.alt, 1000);
   const caption = text(item?.caption, 2000);
-  if (looksLikeAdOrChrome(`${url} ${alt} ${caption}`)) return null;
+  if (looksLikeAdOrChrome(`${sourceUrl} ${alt} ${caption}`)) return null;
 
   const width = Math.max(0, Number.parseInt(item?.width || 0, 10) || 0);
   const height = Math.max(0, Number.parseInt(item?.height || 0, 10) || 0);
@@ -47,7 +49,7 @@ function normalizeCandidate(item, index) {
   const declaredKind = String(item?.kind || "").toLowerCase();
   const kind = ESSENTIAL_KINDS.has(declaredKind) || declaredKind === "photo"
     ? declaredKind
-    : classifyImage(`${url} ${alt} ${caption}`);
+    : classifyImage(`${sourceUrl} ${alt} ${caption}`);
   let score = Number(item?.score || 0);
   if (!Number.isFinite(score)) score = 0;
   if (ESSENTIAL_KINDS.has(kind)) score = Math.max(score, 8);
@@ -58,8 +60,8 @@ function normalizeCandidate(item, index) {
 
   return {
     index,
-    url,
-    source_url: url,
+    url: isCached ? currentUrl : sourceUrl,
+    source_url: sourceUrl,
     alt,
     caption,
     width,
@@ -67,7 +69,7 @@ function normalizeCandidate(item, index) {
     kind,
     score,
     inFigure: Boolean(item?.inFigure),
-    cache_status: item?.cache_status === "cached" ? "cached" : "remote",
+    cache_status: isCached ? "cached" : "remote",
     cache_token: text(item?.cache_token, 80) || null,
     cached_at: text(item?.cached_at, 80) || null,
   };
@@ -79,8 +81,8 @@ export function selectContentImages(value) {
   const candidates = [];
   for (let i = 0; i < value.length; i++) {
     const candidate = normalizeCandidate(value[i], i);
-    if (!candidate || seen.has(candidate.url)) continue;
-    seen.add(candidate.url);
+    if (!candidate || seen.has(candidate.source_url)) continue;
+    seen.add(candidate.source_url);
     candidates.push(candidate);
   }
 
@@ -208,7 +210,7 @@ async function cacheOneImage(env, article, item, reason) {
       return { ...item, cache_status: "remote", cache_error: `HTTP_${response.status}_${contentType || "unknown"}` };
     }
     const bytes = await readLimited(response);
-    if (!bytes) return { ...item, cache_status: "remote", cache_error: "IMAGE_TOO_LARGE_OR_EMPTY" };
+    if (!bytes || !bytes.byteLength) return { ...item, cache_status: "remote", cache_error: "IMAGE_TOO_LARGE_OR_EMPTY" };
     await env.ARTIFACTS.put(key, bytes, {
       httpMetadata: { contentType, cacheControl: "public, max-age=31536000, immutable" },
       customMetadata: {
@@ -329,8 +331,8 @@ async function fallbackSourceForMissingMedia(env, articleId, token) {
   if (!article?.original_object_key) return null;
   const object = await env.ARTIFACTS.get(article.original_object_key);
   if (!object) return null;
-  const artifact = JSON.parse(await object.text()).catch?.(() => null);
-  if (!artifact) return null;
+  let artifact;
+  try { artifact = JSON.parse(await object.text()); } catch { return null; }
   const image = (artifact.images || []).find((x) => x?.cache_token === token);
   const source = safePublicImageUrl(image?.source_url);
   return source || null;
