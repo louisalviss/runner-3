@@ -50,7 +50,21 @@ function normalizeImageUrl(value, baseUrl) {
   }
 }
 
-function imageFromTag(tag, baseUrl, caption = "") {
+function looksLikeAdOrChrome(value) {
+  const text = String(value || "").toLowerCase();
+  if (/(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|adnxs\.com|criteo\.|taboola\.|outbrain\.)/.test(text)) return true;
+  return /(?:^|[\s/_\-.])(ads?|advert|advertisement|banner|sponsor|sponsored|promo|promoted|tracking|pixel|beacon|spacer|favicon|logo|avatar|author-photo|sprite|badge|icon|emoji)(?:[\s/_\-.]|$)/i.test(text);
+}
+
+function classifyImage(text) {
+  const value = String(text || "").toLowerCase();
+  if (/\b(chart|graph|plot|histogram|candlestick|heatmap|scatter|timeseries|time series)\b/.test(value)) return "chart";
+  if (/\b(screenshot|screen shot|dashboard|interface|app screen|terminal output|console output)\b/.test(value)) return "screenshot";
+  if (/\b(diagram|architecture|schematic|flowchart|workflow|topology|infographic)\b/.test(value)) return "diagram";
+  return "photo";
+}
+
+function imageFromTag(tag, baseUrl, caption = "", inFigure = false) {
   const source = [
     attr(tag, "data-original"),
     attr(tag, "data-src"),
@@ -65,17 +79,40 @@ function imageFromTag(tag, baseUrl, caption = "") {
 
   const alt = textFromHtml(attr(tag, "alt"));
   const title = textFromHtml(attr(tag, "title"));
+  const cleanCaption = textFromHtml(caption);
+  const className = textFromHtml(attr(tag, "class"));
+  const id = textFromHtml(attr(tag, "id"));
+  const role = textFromHtml(attr(tag, "role"));
   const width = Number.parseInt(attr(tag, "width") || "0", 10) || 0;
   const height = Number.parseInt(attr(tag, "height") || "0", 10) || 0;
-  const haystack = `${url} ${alt} ${title}`.toLowerCase();
-  if ((width && width < 100) || (height && height < 100)) return null;
-  if (/(avatar|emoji|favicon|logo[-_.\/]|sprite|tracking|pixel|spacer|badge|icon[-_.\/]|ads?[-_.\/])/i.test(haystack)) return null;
+  const haystack = `${url} ${alt} ${title} ${cleanCaption} ${className} ${id} ${role}`;
+
+  if ((width && width < 120) || (height && height < 120)) return null;
+  if (width && height) {
+    const ratio = width / height;
+    if ((ratio > 4.5 && height < 500) || (ratio < 0.18 && width < 500)) return null;
+  }
+  if (looksLikeAdOrChrome(haystack)) return null;
   if (/\.(svg)(?:\?|$)/i.test(url)) return null;
+
+  const kind = classifyImage(`${url} ${alt} ${title} ${cleanCaption}`);
+  let score = 0;
+  if (kind !== "photo") score += 8;
+  if (inFigure) score += 4;
+  if (cleanCaption.length >= 12) score += 4;
+  if ((alt || title).length >= 12) score += 2;
+  if (width >= 500 || height >= 500) score += 2;
+  if (!width && !height && !inFigure && !cleanCaption && !alt && !title) score -= 3;
 
   return {
     url,
     alt: alt || title || "",
-    caption: textFromHtml(caption),
+    caption: cleanCaption,
+    width,
+    height,
+    kind,
+    score,
+    inFigure,
   };
 }
 
@@ -103,7 +140,7 @@ export function extractArticleImages(rawHtml, baseUrl, maxImages = 24) {
     const tag = block.match(/<img\b[^>]*>/i)?.[0];
     if (!tag) continue;
     const caption = block.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption\s*>/i)?.[1] || "";
-    add(imageFromTag(tag, baseUrl, caption));
+    add(imageFromTag(tag, baseUrl, caption, true));
   }
 
   for (const match of scope.matchAll(/<img\b[^>]*>/gi)) {
