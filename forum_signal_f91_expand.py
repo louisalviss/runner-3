@@ -24,8 +24,8 @@ F91_EXTRA_PRIORITY = [
     "fresher", "intern", "senior", "staff", "layoff", "sa thải", "thạc sĩ", "xuất ngoại",
 ]
 F91_EXTRA_DEPRIORITIZE = [
-    "leetcode mỗi ngày", "nội quy box cntt", "chuyện trò linh tinh", "xin code", "bài tập",
-    "nhờ vả", "có lộc cafe", "spam", "waifu", "meme",
+    "leetcode mỗi ngày", "kết nối sâu - cộng sinh cùng ai", "nội quy box cntt", "chuyện trò linh tinh",
+    "xin code", "bài tập", "nhờ vả", "có lộc cafe", "spam", "waifu", "meme",
 ]
 
 
@@ -122,8 +122,8 @@ def main():
 
     f91_job = copy.deepcopy(job)
     f91_job["name"] = f"{job.get('name', 'forum-signal-vn')}-f91-expanded"
-    f91_job["probe_threads_per_source"] = 30
-    f91_job["max_threads_per_source"] = 12
+    f91_job["probe_threads_per_source"] = 40
+    f91_job["max_threads_per_source"] = 20
     f91_job["max_posts_per_thread"] = 20
     f91_job["min_probe_score"] = min(float(job.get("min_probe_score", 1.2)), 1.0)
     f91_job["min_final_score"] = float(job.get("min_final_score", 1.8))
@@ -174,8 +174,8 @@ def main():
         main_manifest["f91_expanded"] = {
             "enabled": True,
             "discovery_urls": F91_DISCOVERY,
-            "probe_threads_per_source": 30,
-            "max_threads_per_source": 12,
+            "probe_threads_per_source": 40,
+            "max_threads_per_source": 20,
             "max_posts_per_thread": 20,
             "delta_rows": len(f91_delta),
             "snapshot_rows": len(f91_snapshot),
