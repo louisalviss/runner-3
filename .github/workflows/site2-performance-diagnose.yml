@@ -17,8 +17,8 @@ concurrency:
 
 env:
   SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app/
-  FIXTURE_ID: astra-woo-v1
-  BASELINE_RUN_ID: site2-baseline-32801765874-1
+  FIXTURE_ID: astra-starter-organic-store-gutenberg
+  BASELINE_RUN_ID: site2-baseline-32869634032-1
   WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
   WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -44,7 +44,7 @@ jobs:
             const fs=require("fs");
             const p=JSON.parse(fs.readFileSync("/tmp/site2-diag-scope.json","utf8"));
             const r=p.flatMap(x=>x.results||[])[0];
-            if(!r || r.status!=="realistic-fixture" || r.fixture!==process.env.FIXTURE_ID || r.baseline_status!=="completed") {
+            if(!r || r.status!=="official-demo-fixture" || r.fixture!==process.env.FIXTURE_ID || r.baseline_status!=="completed") {
               throw new Error(`diagnostic scope mismatch: ${JSON.stringify(r)}`);
             }
             console.log("SITE2_DIAG_SCOPE_OK", JSON.stringify(r));
@@ -67,7 +67,7 @@ jobs:
             "workflow_run_id":"$GITHUB_RUN_ID",
             "status":"running",
             "commit_sha":"$SOURCE_SHA",
-            "metadata":{"fixture":"$FIXTURE_ID","target":"$SITE2_URL","purpose":"identify LCP/resource bottleneck before candidate creation"}
+            "metadata":{"fixture":"$FIXTURE_ID","target":"$SITE2_URL","purpose":"identify current Organic Store LCP/resource bottleneck before candidate creation"}
           }
           JSON
           node scripts/wp-optimizer-state.mjs --event-file /tmp/run-start.json
@@ -115,7 +115,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## Site2 performance diagnosis'
+            echo '## Site2 performance diagnosis — official Organic Store fixture'
             echo
             echo "- target: \`$SITE2_URL\`"
             echo "- fixture: \`$FIXTURE_ID\`"
@@ -142,7 +142,7 @@ jobs:
           if [ -n "${OPTIMIZER_RUN_ID:-}" ]; then
             RUN_ID="$OPTIMIZER_RUN_ID" node -e '
               const fs=require("fs");
-              fs.writeFileSync("/tmp/diag-failed.json",JSON.stringify({type:"run.finish",run_id:process.env.RUN_ID,status:"failed",metadata:{reason:"Site2 diagnosis workflow failed"}}));
+              fs.writeFileSync("/tmp/diag-failed.json",JSON.stringify({type:"run.finish",run_id:process.env.RUN_ID,status:"failed",metadata:{reason:"Site2 official Organic Store diagnosis workflow failed"}}));
             '
             node scripts/wp-optimizer-state.mjs --event-file /tmp/diag-failed.json
           fi
