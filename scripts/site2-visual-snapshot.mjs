@@ -24,14 +24,28 @@ try {
   if(!bodyText.includes('Best Quality Products')||!bodyText.includes('Join The Organic Movement!')) {
     throw new Error('official Organic Store homepage identity missing');
   }
-  const heading=page.getByRole('heading',{name:/Best Quality Products/i}).first();
-  const headingRect=await heading.boundingBox();
-  if(!headingRect||headingRect.width<100||headingRect.height<20) throw new Error(`hero heading geometry invalid: ${JSON.stringify(headingRect)}`);
+
+  // Anchor the visual guard to the diagnosed Organic Store hero/LCP structure,
+  // not to ARIA heading semantics that can vary across imported block markup.
+  const hero=await page.evaluate(()=>{
+    const matches=[...document.querySelectorAll('div')].map((el)=>{
+      const style=getComputedStyle(el);
+      const rect=el.getBoundingClientRect();
+      return {
+        backgroundImage:style.backgroundImage||'',
+        rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height,top:rect.top,bottom:rect.bottom},
+      };
+    }).filter((x)=>x.backgroundImage.includes('leaves-bg.jpg')&&x.rect.width>=300&&x.rect.height>=300&&x.rect.top<window.innerHeight);
+    matches.sort((a,b)=>(b.rect.width*b.rect.height)-(a.rect.width*a.rect.height));
+    return matches[0]||null;
+  });
+  if(!hero||hero.rect.width<300||hero.rect.height<300) throw new Error(`Organic Store hero geometry invalid: ${JSON.stringify(hero)}`);
+
   const homeProductCards=await page.locator('li.product, .wc-block-product, .products .product').count();
   if(homeProductCards<8) throw new Error(`homepage product regression: ${homeProductCards}`);
 
   await page.screenshot({path:screenshotOut,fullPage:false,animations:'disabled'});
-  const result={status:'ready',target,checkedAt:new Date().toISOString(),viewport:{width:390,height:844},headingRect,headline:'Best Quality Products',homeProductCards,screenshotOut};
+  const result={status:'ready',target,checkedAt:new Date().toISOString(),viewport:{width:390,height:844},heroRect:hero.rect,heroBackground:hero.backgroundImage,headline:'Best Quality Products',homeProductCards,screenshotOut};
   fs.writeFileSync(jsonOut,`${JSON.stringify(result,null,2)}\n`);
   console.log(JSON.stringify(result,null,2));
 }catch(error){
