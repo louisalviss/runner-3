@@ -95,6 +95,8 @@ jobs:
                   if m.issym() or m.islnk() or m.isdev():
                       raise SystemExit('unsafe bundle member')
               tf.extractall(work)
+          if not (work / 'entry.py').is_file() or not (work / 'config.json').is_file():
+              raise SystemExit('sealed bundle contract failed')
           print('SEALED_FETCH=PASS')
           PY
 
@@ -121,6 +123,7 @@ jobs:
           env['PYTHONUNBUFFERED'] = '1'
           env['HOME'] = str(root / 'home')
           pathlib.Path(env['HOME']).mkdir(mode=0o700, parents=True, exist_ok=True)
+          (work / 'out').mkdir(mode=0o700, exist_ok=True)
 
           code = 0
           with log.open('wb') as out:
@@ -132,12 +135,11 @@ jobs:
                   )
                   code = int(p.returncode)
               if code == 0:
-                  cmd = job.get('command') or []
-                  if not isinstance(cmd, list) or not cmd:
-                      code = 64
-                  else:
-                      p = subprocess.run(cmd, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, check=False)
-                      code = int(p.returncode)
+                  p = subprocess.run(
+                      [sys.executable, 'entry.py', 'config.json', 'out/result.json'],
+                      cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, check=False,
+                  )
+                  code = int(p.returncode)
           execution.write_text(json.dumps({'exit_code': code}, separators=(',', ':')) + '\n', encoding='utf-8')
           print('SEALED_EXECUTE=DONE')
           PY
@@ -163,7 +165,7 @@ jobs:
               for name in ('execution.json', 'private.log'):
                   p = root / name
                   if p.exists(): tf.add(p, arcname=name, recursive=False)
-              for rel in job.get('result_paths') or []:
+              for rel in job.get('result_paths') or ['out']:
                   p = (work / rel).resolve()
                   if p.exists() and (work.resolve() in p.parents or p == work.resolve()):
                       tf.add(p, arcname=f'results/{rel}')
