@@ -1,6 +1,6 @@
 {
   "name": "runner3-core",
-  "main": "reader-media-entry.js",
+  "main": "audio-entry.js",
   "compatibility_date": "2026-08-22",
   "vars": {
     "RUNNER3_CORE_WRITE_AUTH": "required",
@@ -22,6 +22,10 @@
     {
       "binding": "ARTIFACTS",
       "bucket_name": "runner3-artifacts"
+    },
+    {
+      "binding": "AUDIO_MEDIA",
+      "bucket_name": "runner3-wp-media"
     }
   ],
   "services": [
