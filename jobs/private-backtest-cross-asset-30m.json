@@ -1,0 +1,73 @@
+{
+  "source_scope": "bt-20260825-0455z-v3c",
+  "timeframe_minutes": 30,
+  "source_minutes": 5,
+  "warmup": "2021-12-01T00:00:00Z",
+  "report_start": "2022-01-01T00:00:00Z",
+  "holdout_start": "2025-01-01T00:00:00Z",
+  "end": "2026-08-25T00:00:00Z",
+  "shards": 4,
+  "retries": 1,
+  "symbol_timeout_seconds": 5400,
+  "gates": {
+    "trades_min": 300,
+    "actual_pf_min": 1.20,
+    "actual_mean_bps_min": 10.0,
+    "mid_pf_min": 1.20,
+    "positive_symbol_fraction_min": 0.60,
+    "median_symbol_pf_min": 1.05,
+    "pre_holdout_pf_min": 1.05,
+    "recent_year_pf_threshold": 1.00,
+    "recent_years_min": 2,
+    "holdout_pf_min": 1.10,
+    "stress_extra_rt_bps": 10.0,
+    "stress_pf_min": 1.10
+  },
+  "families": {
+    "forex": {
+      "scope": "bt-super-rsi-xa30-forex-v1",
+      "profile_name": "super-rsi-forex-g10-majors-30m-v1",
+      "asset_class": "FOREX_G10_MAJORS",
+      "instrument_type": "spot-fx-cfd-executable-bid-ask",
+      "carry_model": "required_historical_rollover_swap_before_promotion",
+      "instruments": {
+        "EURUSD": "EUR/USD",
+        "GBPUSD": "GBP/USD",
+        "USDJPY": "USD/JPY",
+        "USDCHF": "USD/CHF",
+        "USDCAD": "USD/CAD",
+        "AUDUSD": "AUD/USD",
+        "NZDUSD": "NZD/USD"
+      }
+    },
+    "metals": {
+      "scope": "bt-super-rsi-xa30-metals-v1",
+      "profile_name": "super-rsi-metals-xau-xag-30m-v1",
+      "asset_class": "PRECIOUS_METALS",
+      "instrument_type": "dukascopy-metal-cfd-executable-bid-ask",
+      "carry_model": "required_historical_financing_before_promotion",
+      "instruments": {
+        "XAUUSD": "XAU/USD",
+        "XAGUSD": "XAG/USD"
+      }
+    },
+    "indices": {
+      "scope": "bt-super-rsi-xa30-indices-v1",
+      "profile_name": "super-rsi-major-index-cfd-30m-v1",
+      "asset_class": "MAJOR_INDEX_CFD",
+      "instrument_type": "dukascopy-cash-index-cfd-executable-bid-ask",
+      "carry_model": "required_cfd_financing_and_dividend_adjustment_before_promotion",
+      "instruments": {
+        "SPX500": "USA500.IDX/USD",
+        "NAS100": "USATECH.IDX/USD",
+        "US30": "USA30.IDX/USD",
+        "DAX40": "DEU.IDX/EUR",
+        "FTSE100": "GBR.IDX/GBP",
+        "EUROSTOXX50": "EUS.IDX/EUR",
+        "NIKKEI": "JPN.IDX/JPY",
+        "HANGSENG": "HKG.IDX/HKD"
+      }
+    }
+  },
+  "trigger": "initial-2026-08-26"
+}
