@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,9 @@ import forum_signal_rank as rank
 
 ORIGINAL_EXTRACT_POSTS = rank.base.extract_posts
 COMMENT_WORD_RE = re.compile(r"comment|reply|discussion|response", re.I)
+TINHTE_TZ = timezone(timedelta(hours=7))
+TINHTE_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?\b")
+TINHTE_REL_RE = re.compile(r"\b(\d+)\s*(phút|giờ|ngày)\s*(?:trước)?\b", re.I)
 
 
 def clean_text(value):
@@ -107,20 +111,64 @@ def extract_tinhte_json_comments(soup):
     return rows
 
 
+def parse_tinhte_timestamp(value):
+    raw = " ".join(str(value or "").split())
+    if not raw:
+        return ""
+
+    m = TINHTE_DATE_RE.search(raw)
+    if m:
+        day, month, year = map(int, m.group(1, 2, 3))
+        hour = int(m.group(4) or 0)
+        minute = int(m.group(5) or 0)
+        try:
+            return datetime(year, month, day, hour, minute, tzinfo=TINHTE_TZ).isoformat()
+        except ValueError:
+            return ""
+
+    lowered = raw.lower()
+    now = datetime.now(TINHTE_TZ)
+    if "vừa xong" in lowered or "vừa mới" in lowered:
+        return now.isoformat()
+    if "hôm qua" in lowered:
+        return (now - timedelta(days=1)).isoformat()
+
+    m = TINHTE_REL_RE.search(lowered)
+    if m:
+        amount = int(m.group(1))
+        unit = m.group(2).lower()
+        if unit == "phút":
+            dt = now - timedelta(minutes=amount)
+        elif unit == "giờ":
+            dt = now - timedelta(hours=amount)
+        else:
+            dt = now - timedelta(days=amount)
+        return dt.isoformat()
+    return ""
+
+
+def strip_tinhte_author_meta(value):
+    text = " ".join(str(value or "").split())
+    text = TINHTE_DATE_RE.sub("", text)
+    text = TINHTE_REL_RE.sub("", text)
+    text = re.sub(r"\b(?:hôm qua|vừa xong|vừa mới)\b", "", text, flags=re.I)
+    text = re.sub(r"\bĐề xuất ra trang chủ\b", "", text, flags=re.I)
+    return " ".join(text.split()).strip(" -·|")
+
+
 def extract_tinhte_dom_comments(soup):
+    # Tinhte currently server-renders comments. Stable semantic classes coexist with
+    # rotating styled-jsx hashes: post-item__container -> author-info -> post-body.
     selectors = [
+        "div.post-item__container",
         "[data-comment-id]",
         "[data-reply-id]",
         "[id^='comment-']",
         "[id^='reply-']",
         ".comment-item",
         ".commentItem",
-        ".comment-content",
-        ".commentContent",
         "article[class*='comment']",
         "li[class*='comment']",
-        "div[class*='comment-item']",
-        "div[class*='commentItem']",
     ]
     nodes = []
     seen_nodes = set()
@@ -140,10 +188,12 @@ def extract_tinhte_dom_comments(soup):
     seen_text = set()
     for node in nodes:
         body = node.select_one(
-            ".comment-content, .commentContent, .content, [class*='comment-content'], [class*='commentContent'], [class*='content']"
-        ) or node
+            ".post-body, .comment-content, .commentContent, [class*='comment-content'], [class*='commentContent']"
+        )
+        if body is None:
+            continue
         clone = BeautifulSoup(str(body), "html.parser")
-        for bad in clone.select("script, style, button, nav, footer, form, svg"):
+        for bad in clone.select("script, style, button, nav, footer, form, svg, blockquote, .quote, .post-quote"):
             bad.decompose()
         text = clean_text(clone.get_text("\n", strip=True))
         if not (20 <= len(text) <= 12000):
@@ -153,17 +203,30 @@ def extract_tinhte_dom_comments(soup):
             continue
         seen_text.add(fp)
 
-        post_id = node.get("data-comment-id") or node.get("data-reply-id") or node.get("id") or ""
-        author_node = node.select_one(
-            "[class*='author'], [class*='username'], [class*='user-name'], [class*='userName'], a[href*='/members/'], a[href*='/user/']"
+        post_id = (
+            node.get("data-comment-id")
+            or node.get("data-reply-id")
+            or node.get("data-post-id")
+            or node.get("data-id")
+            or node.get("id")
+            or ""
         )
-        time_node = node.select_one("time, [class*='time'], [class*='date']")
+        author_node = node.select_one(
+            ".author-info, .author, [class*='username'], [class*='user-name'], [class*='userName'], a[href*='/members/'], a[href*='/user/']"
+        )
+        author_raw = clean_text(author_node.get_text(" ", strip=True)) if author_node else ""
+        name_node = author_node.select_one("a[href]") if author_node else None
+        author = clean_text(name_node.get_text(" ", strip=True)) if name_node else strip_tinhte_author_meta(author_raw)
+
+        time_node = node.select_one("time")
         timestamp = ""
         if time_node:
             timestamp = time_node.get("datetime") or time_node.get("title") or clean_text(time_node.get_text(" ", strip=True))
+        timestamp = parse_tinhte_timestamp(timestamp or author_raw)
+
         rows.append({
             "post_id": clean_text(post_id),
-            "author": clean_text(author_node.get_text(" ", strip=True)) if author_node else "",
+            "author": author,
             "timestamp": clean_text(timestamp),
             "text": text,
             "text_chars": len(text),
@@ -183,16 +246,19 @@ def enhanced_extract_posts(html, url, max_posts):
     if not title and soup.title:
         title = clean_text(soup.title.get_text(" ", strip=True))
 
-    rows = extract_tinhte_json_comments(soup)
+    # Prefer the current server-rendered DOM. JSON remains a fallback for future frontend changes.
+    rows = extract_tinhte_dom_comments(soup)
     if not rows:
-        rows = extract_tinhte_dom_comments(soup)
+        rows = extract_tinhte_json_comments(soup)
 
     if rows:
         deduped = []
         seen = set()
         for row in rows:
             key = row.get("post_id") or hashlib.sha1(
-                rank.base.normalize_text(row.get("text", "")).encode("utf-8", errors="ignore")
+                (rank.base.normalize_text(row.get("author", "")) + "|" +
+                 rank.base.normalize_text(row.get("timestamp", "")) + "|" +
+                 rank.base.normalize_text(row.get("text", ""))).encode("utf-8", errors="ignore")
             ).hexdigest()
             if key in seen:
                 continue
