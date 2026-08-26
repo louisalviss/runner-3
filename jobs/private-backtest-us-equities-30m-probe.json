@@ -1,0 +1,44 @@
+{
+  "source_scope": "bt-20260825-0455z-v3c",
+  "scope": "bt-super-rsi-us-equities-30m-probe-v1",
+  "profile_name": "super-rsi-us-equities-primary63-30m-probe-v1",
+  "timeframe_minutes": 30,
+  "source_minutes": 5,
+  "warmup": "2021-12-01T00:00:00Z",
+  "report_start": "2022-01-01T00:00:00Z",
+  "holdout_start": "2025-01-01T00:00:00Z",
+  "end": "2026-08-25T00:00:00Z",
+  "shards": 8,
+  "retries": 1,
+  "symbol_timeout_seconds": 5400,
+  "stress_extra_rt_bps": 10.0,
+  "aggregate_gates": {
+    "trades_min": 300,
+    "actual_pf_min": 1.20,
+    "actual_mean_bps_min": 10.0,
+    "mid_pf_min": 1.25,
+    "positive_symbol_fraction_min": 0.60,
+    "median_symbol_pf_min": 1.05,
+    "pre_holdout_pf_min": 1.10,
+    "holdout_pf_min": 1.10,
+    "stress_pf_min": 1.10
+  },
+  "symbol_gates": {
+    "trades_min": 80,
+    "pre_trades_min": 50,
+    "holdout_trades_min": 25,
+    "actual_pf_min": 1.20,
+    "actual_mean_bps_min": 10.0,
+    "pre_holdout_pf_min": 1.05,
+    "holdout_pf_min": 1.10,
+    "stress_pf_min": 1.10
+  },
+  "discipline": {
+    "strategy_parameters": "UNCHANGED_FROM_FROZEN_US_EQUITIES_CANONICAL",
+    "direction": "LONG_ONLY",
+    "universe": "EXACT_CANONICAL_PRIMARY_63",
+    "session": "PRESERVE_CANONICAL_US_SESSION",
+    "purpose": "SEPARATE_ASSET_EFFECT_FROM_TIMEFRAME_EFFECT",
+    "gates_preregistered_before_outcome": true
+  }
+}
