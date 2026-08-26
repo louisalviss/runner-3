@@ -1,32 +1,21 @@
-name: Runner3 Core Reddit Ingest Deploy
+name: Runner3 Core Reddit Source Validation
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'ops/runner3-core-deploy.json'
       - 'cloudflare/runner3-core/reddit-entry.js'
-      - 'cloudflare/runner3-core/wrangler.jsonc'
       - 'cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql'
       - '.github/workflows/runner3-core-reddit-deploy.yml'
 
 permissions:
   contents: read
 
-concurrency:
-  group: runner3-core-reddit-ingest-deploy
-  cancel-in-progress: false
-
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
-
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,70 +26,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate deploy credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RUNNER3_CORE_TOKEN; do
-            test -n "${!name:-}" || { echo "Missing required secret: $name" >&2; exit 2; }
-          done
-
-      - name: Validate worker source
+      - name: Validate Reddit Core extension
         shell: bash
         run: |
           set -euo pipefail
           node --check cloudflare/runner3-core/reddit-entry.js
-          node --check cloudflare/runner3-core/rss-entry.js
-
-      - name: Ensure Reddit D1 schema
-        shell: bash
-        working-directory: cloudflare/runner3-core
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@4 d1 execute runner3-core \
-            --remote \
-            --file=migrations/0003_reddit_deep_sweep.sql
-
-      - name: Deploy Runner3 Core
-        shell: bash
-        working-directory: cloudflare/runner3-core
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@4 deploy
-
-      - name: Provision Core bearer secret
-        shell: bash
-        working-directory: cloudflare/runner3-core
-        run: |
-          set -euo pipefail
-          printf '%s' "$RUNNER3_CORE_TOKEN" | npx --yes wrangler@4 secret put RUNNER3_CORE_TOKEN
-
-      - name: Verify Reddit ingest endpoint auth and existing Core health
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, os, urllib.error, urllib.request
-          core='https://runner3-core.ducduy2411.workers.dev'
-          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
-
-          req=urllib.request.Request(core+'/state/reddit-deploy-smoke', headers={
-              'Authorization':'Bearer '+token,
-              'Accept':'application/json',
-              'User-Agent':'runner3-core-deploy-smoke/1.0',
-          })
-          with urllib.request.urlopen(req, timeout=20) as r:
-              if r.status != 200: raise SystemExit(f'core health status={r.status}')
-              json.load(r)
-
-          req=urllib.request.Request(core+'/reddit/deep-sweep/runs/deploy-smoke-nonexistent', headers={
-              'Authorization':'Bearer '+token,
-              'Accept':'application/json',
-              'User-Agent':'runner3-core-deploy-smoke/1.0',
-          })
-          with urllib.request.urlopen(req, timeout=20) as r:
-              body=json.load(r)
-          if body.get('ok') is not True or body.get('run') is not None:
-              raise SystemExit(f'unexpected reddit endpoint response: {body}')
-          print(json.dumps({'ok':True,'core_health':True,'reddit_ingest_endpoint':True}))
-          PY
+          test -s cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql
+          echo 'Validation only: no Cloudflare credential is exposed to this public workflow.'
+          echo 'Production deploy owner: private louisalviss/vps-control via deploy/runner3-core-request.json.'
