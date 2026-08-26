@@ -1,0 +1,11 @@
+name: Trigger Reddit Deep Sweep VPS Acceptance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-deep-sweep-vps-acceptance-trigger.yml'
+
+jobs:
+  trigger:
+    uses: ./.github/workflows/reddit-deep-sweep-vps-acceptance.yml
