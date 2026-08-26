@@ -1,13 +1,12 @@
 {
   "status": "ready",
   "discoveryMode": "runner3-core-scoped-audio-media",
-  "extractOutcome": "success",
-  "extractExitCode": "0",
+  "extractOutcome": "failure",
+  "extractExitCode": "1",
   "redditAcquisition": "scripts/reddit_common.py",
   "extractor": {
-    "ok": true,
-    "results": []
+    "parseError": "Expecting value: line 1 column 1 (char 0)"
   },
-  "extractStderr": "",
-  "updatedAt": "2026-08-26T03:01:12.369489+00:00"
+  "extractStderr": "Traceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 107, in pending_items_r2\n    return active_items_from_core()\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 40, in active_items_from_core\n    for row in media.list_objects(ITEM_PREFIX, limit=1000):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_media_core.py\", line 51, in list_objects\n    response.raise_for_status()\n  File \"/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/site-packages/requests/models.py\", line 1167, in raise_for_status\n    raise HTTPError(http_error_msg, response=self)\nrequests.exceptions.HTTPError: 404 Client Error: Not Found for url: [url-redacted]\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 116, in <module>\n    core.main()\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt.py\", line 248, in main\n    items = pending_items()\n            ^^^^^^^^^^^^^^^\n  File \"/home/runner/work/runner-3/runner-3/scripts/audio_library_extract_for_chatgpt_r2.py\", line 112, in pending_items_r2\n    raise RuntimeError(f'Library item discovery failed: {type(error).__name__}: {str(error)[:220]}')\nRuntimeError: Library item discovery failed: HTTPError: 404 Client Error: Not Found for url: [url-redacted]\n",
+  "updatedAt": "2026-08-26T04:05:54.664855+00:00"
 }
