@@ -1,10 +1,9 @@
-name: Site2 Woo Finalize
+name: Site2 Wasmer Config Probe
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'scripts/site2-woo-finalize.mjs'
       - '.github/workflows/site2-starter-ui-probe.yml'
   workflow_dispatch:
 
@@ -12,24 +11,61 @@ permissions:
   contents: read
 
 concurrency:
-  group: runner3-site2-woo-finalize
+  group: runner3-site2-wasmer-config-probe
   cancel-in-progress: true
 
 jobs:
-  finalize:
+  probe:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
+      SITE2_APP: runner3-wp-a94b8fd2
       WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Launch store and verify public demo
+      - name: Read sanitized Wasmer app configuration
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save playwright-core@1.61.0 >/dev/null
-          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
-          test -n "$C"
-          CHROME_PATH="$C" node scripts/site2-woo-finalize.mjs
+          test -n "${WASMER_TOKEN:-}"
+          curl https://get.wasmer.io -sSfL | sh >/dev/null
+          export PATH="$HOME/.wasmer/bin:$PATH"
+          wasmer --version
+          wasmer app get "$SITE2_APP" > /tmp/site2-app-get.yaml
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import yaml, json
+          from pathlib import Path
+          raw = yaml.safe_load(Path('/tmp/site2-app-get.yaml').read_text())
+          def find_config(x):
+              if isinstance(x, dict):
+                  for k,v in x.items():
+                      if str(k).lower() in {'config','app_config','app_yaml','yaml_config'} and isinstance(v, str) and ('kind:' in v or 'package:' in v):
+                          return v
+                  for v in x.values():
+                      r=find_config(v)
+                      if r: return r
+              elif isinstance(x, list):
+                  for v in x:
+                      r=find_config(v)
+                      if r: return r
+              return None
+          cfg_text=find_config(raw)
+          cfg=yaml.safe_load(cfg_text) if cfg_text else (raw if isinstance(raw,dict) and ('kind' in raw or 'package' in raw) else {})
+          if not isinstance(cfg,dict): cfg={}
+          safe={
+              'kind':cfg.get('kind'),
+              'owner':cfg.get('owner'),
+              'name':cfg.get('name'),
+              'package':cfg.get('package') or cfg.get('source'),
+              'capabilities':cfg.get('capabilities'),
+              'scaling':cfg.get('scaling'),
+              'locality':cfg.get('locality'),
+              'volumes':cfg.get('volumes'),
+              'debug':cfg.get('debug'),
+          }
+          # Never print env/secrets or unknown raw fields.
+          print('SITE2_WASMER_CONFIG_SAFE', json.dumps(safe, separators=(',',':')))
+          print('SITE2_WASMER_CONFIG_KEYS', sorted(map(str,cfg.keys())))
+          PY
