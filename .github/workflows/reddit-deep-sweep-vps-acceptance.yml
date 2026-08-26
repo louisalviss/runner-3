@@ -1,0 +1,29 @@
+name: Reddit Deep Sweep VPS Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reddit-deep-sweep-vps-acceptance.yml'
+
+jobs:
+  acceptance:
+    runs-on: [self-hosted, linux, linveo-vps1]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync Reddit source to VPS runtime
+        run: |
+          sudo mkdir -p /opt/chatgpt-vps/reddit
+          sudo cp scripts/reddit_common.py /opt/chatgpt-vps/reddit/
+          sudo cp scripts/reddit_deep_sweep.py /opt/chatgpt-vps/reddit/
+          if [ -f scripts/reddit_vps.py ]; then sudo cp scripts/reddit_vps.py /opt/chatgpt-vps/reddit/; fi
+      - name: Run small Deep Sweep
+        env:
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+          RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+        run: |
+          cd /opt/chatgpt-vps/reddit
+          python3 reddit_vps.py deep-sweep --subreddit test --max-threads 1 --acceptance
