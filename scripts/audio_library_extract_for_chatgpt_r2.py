@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+import importlib.util
 import json
 from pathlib import Path
 
-import audio_library_extract_for_chatgpt as core
 import audio_media_core as media
 
-ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
 ITEM_PREFIX = 'audio-library/items/'
 LEGACY_STATUS_FILES = [
     ROOT / 'ops/audio-library/chat-intake-status.json',
@@ -14,16 +15,27 @@ LEGACY_STATUS_FILES = [
 ACTIVE_STATUSES = {'pending', 'waiting_chatgpt', 'processing'}
 
 
+def load_core():
+    path = SCRIPT_DIR / 'audio_library_extract_for_chatgpt.py'
+    spec = importlib.util.spec_from_file_location('_runner3_audio_extract_core', path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError('unable to load audio extractor core')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not callable(getattr(module, 'main', None)):
+        raise RuntimeError(f'audio extractor main missing from {path}')
+    return module
+
+
+core = load_core()
+
+
 def already_staged(item_id: str) -> bool:
     return (core.INBOX_DIR / f'{item_id}.json').exists() or (core.OUTBOX_DIR / f'{item_id}.json').exists()
 
 
 def active_items_from_core():
-    """Read active Audio Library items through scoped Runner3 Core access.
-
-    The public workflow receives only RUNNER3_CORE_TOKEN. Core owns the
-    runner3-wp-media binding and restricts access to the audio-library/ prefix.
-    """
+    """Read active Audio Library items through scoped Runner3 Core access."""
     candidates = []
     for row in media.list_objects(ITEM_PREFIX, limit=1000):
         key = str(row.get('key') or '')
