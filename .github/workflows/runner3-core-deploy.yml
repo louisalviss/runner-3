@@ -2,6 +2,12 @@ name: Runner3 Core Shadow Deploy
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/runner3-core/**'
+      - '.github/scripts/runner3_core_deploy_smoke.py'
+      - '.github/workflows/runner3-core-deploy.yml'
 
 permissions:
   contents: write
