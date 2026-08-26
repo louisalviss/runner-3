@@ -26,11 +26,7 @@
       "fee_bps_per_side": 10.0,
       "half_spread_slippage_bps": 2.5,
       "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_REQUIRED",
-      "symbols": [
-        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "LTCUSDT",
-        "BCHUSDT", "AVAXUSDT", "DOTUSDT", "UNIUSDT", "AAVEUSDT", "ETCUSDT", "XLMUSDT", "ATOMUSDT", "NEARUSDT", "FILUSDT",
-        "ICPUSDT", "HBARUSDT", "ALGOUSDT", "VETUSDT", "SHIBUSDT"
-      ]
+      "symbols": ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","TRXUSDT","LINKUSDT","LTCUSDT","BCHUSDT","AVAXUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","ETCUSDT","XLMUSDT","ATOMUSDT","NEARUSDT","FILUSDT","ICPUSDT","HBARUSDT","ALGOUSDT","VETUSDT","SHIBUSDT"]
     },
     "perp": {
       "scope": "bt-super-rsi-crypto30-binance-usdm-perp-expanded-v2",
@@ -39,11 +35,7 @@
       "fee_bps_per_side": 5.0,
       "half_spread_slippage_bps": 2.5,
       "promotion_blocker": "HISTORICAL_TOP_OF_BOOK_AND_FUNDING_REQUIRED",
-      "symbols": [
-        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "LTCUSDT",
-        "BCHUSDT", "AVAXUSDT", "DOTUSDT", "UNIUSDT", "AAVEUSDT", "ETCUSDT", "XLMUSDT", "ATOMUSDT", "NEARUSDT", "FILUSDT",
-        "ICPUSDT", "HBARUSDT", "ALGOUSDT", "VETUSDT", "SHIBUSDT"
-      ]
+      "symbols": ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","TRXUSDT","LINKUSDT","LTCUSDT","BCHUSDT","AVAXUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","ETCUSDT","XLMUSDT","ATOMUSDT","NEARUSDT","FILUSDT","ICPUSDT","HBARUSDT","ALGOUSDT","VETUSDT","SHIBUSDT"]
     }
   },
   "discipline": {
@@ -54,5 +46,5 @@
     "lower_timeframe_rule": "ONLY_SYMBOLS_PASSING_SYMBOL_GATES_CAN_ENTER_15M_RESEARCH; 5M REQUIRES_15M_PASS"
   },
   "fee_note": "Preregistered conservative fixed non-VIP assumptions for screening only; top-of-book remains a promotion blocker and perp funding remains unmodeled at this stage.",
-  "trigger": "expanded-v2-2026-08-26"
+  "trigger": "run-expanded-v2-2026-08-26-0801"
 }
