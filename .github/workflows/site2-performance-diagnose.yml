@@ -1,13 +1,212 @@
 name: Site2 Performance Diagnose
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/site2-performance-diagnose.mjs'
+      - '.github/workflows/site2-performance-diagnose.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: site2-performance-diagnose-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app/
+  FIXTURE_ID: astra-starter-organic-store-gutenberg
+  BASELINE_RUN_ID: site2-baseline-32869634032-1
+  REJECTED_CANDIDATE_ID: site2-organic-store-hero-preload-v1
+  WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
+  WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
-  suspended:
+  diagnose:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - run: echo "Temporarily suspended while rejected Site2 candidate cleanup restores candidate OFF."
+      - uses: actions/checkout@v4
+
+      - name: Guard fixture, baseline, and rejected candidate OFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="SELECT s.status,json_extract(s.metadata_json,'$.fixture') AS fixture,(SELECT status FROM optimization_runs WHERE run_id='${BASELINE_RUN_ID}') AS baseline_status,(SELECT status FROM candidates WHERE candidate_id='${REJECTED_CANDIDATE_ID}') AS candidate_status FROM sites s WHERE s.site_id='site2';"
+          npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" > /tmp/site2-diag-scope.json
+          FIXTURE_ID="$FIXTURE_ID" node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync("/tmp/site2-diag-scope.json","utf8"));
+            const r=p.flatMap(x=>x.results||[])[0];
+            if(!r || r.status!=="official-demo-fixture" || r.fixture!==process.env.FIXTURE_ID || r.baseline_status!=="completed" || r.candidate_status!=="rejected") {
+              throw new Error(`diagnostic scope mismatch: ${JSON.stringify(r)}`);
+            }
+            console.log("SITE2_DIAG_SCOPE_OK", JSON.stringify(r));
+          '
+          curl -L -sS --max-time 60 "$SITE2_URL" -o /tmp/site2-home-before-diagnose.html
+          if grep -q 'runner3-site2-hero-preload' /tmp/site2-home-before-diagnose.html; then
+            echo 'Rejected preload candidate is still visible in public HTML' >&2
+            exit 13
+          fi
+          echo 'SITE2_CANDIDATE_OFF_HTML_OK'
+
+      - name: Open D1 diagnosis run
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID="site2-diagnose-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "OPTIMIZER_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          cat >/tmp/run-start.json <<JSON
+          {"type":"run.start","run_id":"$RUN_ID","site_id":"site2","phase":"diagnosis","baseline_run_id":"$BASELINE_RUN_ID","workflow_name":"$GITHUB_WORKFLOW","workflow_run_id":"$GITHUB_RUN_ID","status":"running","commit_sha":"$SOURCE_SHA","metadata":{"fixture":"$FIXTURE_ID","target":"$SITE2_URL","purpose":"clean candidate-off diagnosis separating dynamic WordPress origin latency from static delivery before candidate 2"}}
+          JSON
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/run-start.json
+
+      - name: Repeated origin TTFB diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${SITE2_URL%/}"
+          mkdir -p /tmp/site2-origin-probe
+
+          probe_series() {
+            local name="$1" url="$2" count="$3"
+            : > "/tmp/site2-origin-probe/${name}.tsv"
+            for i in $(seq 1 "$count"); do
+              curl -L -sS --max-time 60 \
+                -H 'Accept-Encoding: gzip, br' \
+                -o /dev/null \
+                -w "$i\t%{http_code}\t%{time_namelookup}\t%{time_connect}\t%{time_appconnect}\t%{time_starttransfer}\t%{time_total}\t%{size_download}\n" \
+                "$url" >> "/tmp/site2-origin-probe/${name}.tsv"
+              sleep 0.5
+            done
+          }
+
+          probe_series home "$ROOT/" 7
+          probe_series store_api "$ROOT/wp-json/wc/store/v1/products?per_page=1" 5
+          probe_series static_lcp "$ROOT/wp-content/uploads/2020/09/leaves-bg.jpg" 5
+
+          curl -L -sS --max-time 60 -D /tmp/site2-origin-probe/home.headers -o /dev/null "$ROOT/"
+          curl -L -sS --max-time 60 -D /tmp/site2-origin-probe/static.headers -o /dev/null "$ROOT/wp-content/uploads/2020/09/leaves-bg.jpg"
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const dir='/tmp/site2-origin-probe';
+          const parse=(name)=>fs.readFileSync(`${dir}/${name}.tsv`,'utf8').trim().split(/\n+/).filter(Boolean).map(line=>{
+            const [sample,status,dns,connect,tls,ttfb,total,bytes]=line.split('\t');
+            return {sample:Number(sample),status:Number(status),dnsMs:Number(dns)*1000,connectMs:Number(connect)*1000,tlsMs:Number(tls)*1000,ttfbMs:Number(ttfb)*1000,totalMs:Number(total)*1000,bytes:Number(bytes)};
+          });
+          const median=(xs)=>{const a=[...xs].sort((a,b)=>a-b);return a[Math.floor(a.length/2)];};
+          const summarize=(rows)=>({
+            samples:rows.length,
+            statuses:[...new Set(rows.map(r=>r.status))],
+            firstTtfbMs:rows[0]?.ttfbMs ?? null,
+            medianTtfbMs:median(rows.map(r=>r.ttfbMs)),
+            warmMedianTtfbMs:median(rows.slice(1).map(r=>r.ttfbMs)),
+            minTtfbMs:Math.min(...rows.map(r=>r.ttfbMs)),
+            maxTtfbMs:Math.max(...rows.map(r=>r.ttfbMs)),
+            medianTotalMs:median(rows.map(r=>r.totalMs)),
+            bytes:rows[0]?.bytes ?? null,
+            rows,
+          });
+          const home=summarize(parse('home'));
+          const storeApi=summarize(parse('store_api'));
+          const staticLcp=summarize(parse('static_lcp'));
+          const headers=(name)=>fs.readFileSync(`${dir}/${name}.headers`,'utf8').split(/\r?\n/).filter(Boolean).filter(x=>/^(HTTP\/|server:|cache-control:|age:|cf-|x-|via:|vary:)/i.test(x));
+          const dynamicVsStaticRatio=staticLcp.medianTtfbMs>0?home.medianTtfbMs/staticLcp.medianTtfbMs:null;
+          const firstVsWarmDeltaMs=home.firstTtfbMs-home.warmMedianTtfbMs;
+          const classification=home.medianTtfbMs>=1000&&staticLcp.medianTtfbMs<=500
+            ?'dynamic-origin-latency-dominant'
+            :home.medianTtfbMs>=800&&dynamicVsStaticRatio>=2
+              ?'dynamic-origin-latency-likely'
+              :'origin-latency-not-isolated';
+          const result={checkedAt:new Date().toISOString(),home,storeApi,staticLcp,dynamicVsStaticRatio,firstVsWarmDeltaMs,classification,headers:{home:headers('home'),staticLcp:headers('static')}};
+          fs.writeFileSync('/tmp/site2-origin-probe.json',JSON.stringify(result,null,2)+'\n');
+          console.log('SITE2_ORIGIN_PROBE',JSON.stringify(result));
+          if(home.statuses.some(s=>s>=400)||staticLcp.statuses.some(s=>s>=400)||storeApi.statuses.some(s=>s>=400)) process.exitCode=1;
+          NODE
+
+      - name: Browser LCP and resource diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          CHROME_PATH="$C" SITE2_DIAG_OUT=/tmp/site2-diagnose.json node scripts/site2-performance-diagnose.mjs
+          node -e '
+            const d=require("/tmp/site2-diagnose.json");
+            if(d.status!=="ready") throw new Error("browser diagnosis not ready");
+            if(d.hero?.resource?.initiatorType==="link" && Number(d.hero?.resource?.startTime)<Number(d.navigation?.responseEndMs)-100) {
+              throw new Error(`unexpected early link-initiation suggests preload contamination: ${JSON.stringify(d.hero?.resource)}`);
+            }
+            console.log("SITE2_BROWSER_DIAG_CLEAN",JSON.stringify({ttfbMs:d.navigation?.ttfbMs,lcpMs:d.lcp?.startTime,lcpUrl:d.lcp?.url,initiator:d.hero?.resource?.initiatorType}));
+          '
+
+      - name: Persist diagnostic evidence to D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const d=JSON.parse(fs.readFileSync('/tmp/site2-diagnose.json','utf8'));
+          const origin=JSON.parse(fs.readFileSync('/tmp/site2-origin-probe.json','utf8'));
+          const details={fixture:process.env.FIXTURE_ID,baseline_run_id:process.env.BASELINE_RUN_ID,candidate_state:'rejected-off',originProbe:origin,navigation:d.navigation,lcp:d.lcp,hero:d.hero,resourceSummary:d.resourceSummary,largestResources:d.largestResources?.slice(0,8),imageCount:d.imageCount,imagesAboveFold:d.imagesAboveFold?.slice(0,8)};
+          fs.writeFileSync('/tmp/diag-gate.json',JSON.stringify({type:'gate.upsert',run_id:process.env.OPTIMIZER_RUN_ID,gate_name:'diagnostic_snapshot',status:'PASS',details}));
+          fs.writeFileSync('/tmp/origin-gate.json',JSON.stringify({type:'gate.upsert',run_id:process.env.OPTIMIZER_RUN_ID,gate_name:'origin_delivery_snapshot',status:'PASS',details:origin}));
+          fs.writeFileSync('/tmp/run-finish.json',JSON.stringify({type:'run.finish',run_id:process.env.OPTIMIZER_RUN_ID,status:'completed',metadata:details}));
+          NODE
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/diag-gate.json
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/origin-gate.json
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/run-finish.json
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Site2 clean origin diagnosis — candidate OFF'
+            echo
+            echo "- target: \`$SITE2_URL\`"
+            echo "- fixture: \`$FIXTURE_ID\`"
+            echo "- baseline: \`$BASELINE_RUN_ID\`"
+            echo "- D1 diagnosis run: \`${OPTIMIZER_RUN_ID:-not-opened}\`"
+            if [ -f /tmp/site2-origin-probe.json ]; then
+              node -e '
+                const d=require("/tmp/site2-origin-probe.json");
+                console.log(`- origin classification: ${d.classification}`);
+                console.log(`- homepage TTFB first/median/warm-median: ${Math.round(d.home.firstTtfbMs)} / ${Math.round(d.home.medianTtfbMs)} / ${Math.round(d.home.warmMedianTtfbMs)} ms`);
+                console.log(`- Store API median TTFB: ${Math.round(d.storeApi.medianTtfbMs)} ms`);
+                console.log(`- static LCP median TTFB: ${Math.round(d.staticLcp.medianTtfbMs)} ms`);
+                console.log(`- dynamic/static TTFB ratio: ${d.dynamicVsStaticRatio?.toFixed?.(2) ?? "n/a"}`);
+              ' >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ -f /tmp/site2-diagnose.json ]; then
+              node -e '
+                const d=require("/tmp/site2-diagnose.json");
+                console.log(`- browser TTFB: ${Math.round(d.navigation?.ttfbMs ?? 0)} ms`);
+                console.log(`- browser LCP: ${Math.round(d.lcp?.startTime ?? 0)} ms`);
+                console.log(`- LCP resource: ${d.hero?.url ?? "n/a"}`);
+                console.log(`- LCP initiator: ${d.hero?.resource?.initiatorType ?? "n/a"}`);
+              ' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark failed diagnosis
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${OPTIMIZER_RUN_ID:-}" ]; then
+            RUN_ID="$OPTIMIZER_RUN_ID" node -e '
+              const fs=require("fs");
+              fs.writeFileSync("/tmp/diag-failed.json",JSON.stringify({type:"run.finish",run_id:process.env.RUN_ID,status:"failed",metadata:{reason:"Site2 clean origin diagnosis workflow failed"}}));
+            '
+            node scripts/wp-optimizer-state.mjs --event-file /tmp/diag-failed.json
+          fi
