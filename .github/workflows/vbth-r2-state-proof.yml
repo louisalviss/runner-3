@@ -1,0 +1,128 @@
+name: VBTH R2 Live State Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vbth-r2-state-proof.yml'
+
+permissions:
+  contents: write
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  R2_BUCKET: runner3-artifacts
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Read exact canonical object candidates from R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vbth-proof ops/ebook
+          : > /tmp/vbth-proof/r2.jsonl
+          expected='f09a40ed0dc3dc54593a1e8be3700607575056fb3cb8ad620add9d138bc72685'
+          for key in \
+            'core/ebook-editorial/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub' \
+            'ebooks/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub' \
+            'ebook-editorial/vbth/source/Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub'
+          do
+            safe="$(printf '%s' "$key" | tr '/ ' '__')"
+            out="/tmp/vbth-proof/${safe}"
+            set +e
+            npx --yes wrangler@4 r2 object get "${R2_BUCKET}/${key}" \
+              --file="$out" --remote --config=cloudflare/runner3-core/wrangler.jsonc >/tmp/vbth-proof/wrangler.log 2>&1
+            rc=$?
+            set -e
+            if [[ $rc -eq 0 && -s "$out" ]]; then
+              sha="$(sha256sum "$out" | awk '{print $1}')"
+              bytes="$(stat -c %s "$out")"
+              match=false
+              [[ "$sha" == "$expected" && "$bytes" == '21369197' ]] && match=true
+              printf '{"key":"%s","exists":true,"bytes":%s,"sha256":"%s","canonical_match":%s}\n' "$key" "$bytes" "$sha" "$match" >> /tmp/vbth-proof/r2.jsonl
+            else
+              printf '{"key":"%s","exists":false}\n' "$key" >> /tmp/vbth-proof/r2.jsonl
+            fi
+          done
+
+      - name: Read D1 checkpoint without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('.github/scripts').resolve()))
+          from runner3_core import get_checkpoint, get_state
+          out={}
+          try:
+              out['checkpoint']=get_checkpoint('ebook-editorial','book:vbth:seed',timeout=30)
+          except Exception as e:
+              out['checkpoint_error']=f'{type(e).__name__}: {e}'
+          try:
+              out['state']=get_state('ebook-editorial/vbth',timeout=30)
+          except Exception as e:
+              out['state_error']=f'{type(e).__name__}: {e}'
+          Path('/tmp/vbth-proof/d1.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+
+      - name: Build sanitized live proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('/tmp/vbth-proof/r2.jsonl').read_text().splitlines() if x.strip()]
+          d1=json.loads(Path('/tmp/vbth-proof/d1.json').read_text())
+          canonical=[x for x in rows if x.get('canonical_match')]
+          out={
+            'schema':'vbth-r2-live-state-v1',
+            'run_id':os.environ['GITHUB_RUN_ID'],
+            'git_sha':os.environ['GITHUB_SHA'],
+            'expected':{
+              'filename':'Vuong_Bai_Tien_Hoa_Quyen_Tho_FULL_clean.epub',
+              'bytes':21369197,
+              'sha256':'f09a40ed0dc3dc54593a1e8be3700607575056fb3cb8ad620add9d138bc72685'
+            },
+            'r2':rows,
+            'canonical_r2_verified':bool(canonical),
+            'canonical_r2_keys':[x['key'] for x in canonical],
+            'd1':d1,
+          }
+          Path('ops/ebook/vbth-r2-live-state.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'canonical_r2_verified':out['canonical_r2_verified'],'canonical_r2_keys':out['canonical_r2_keys'],'d1_status':(d1.get('checkpoint') or {}).get('status')},ensure_ascii=False))
+          PY
+
+      - name: Persist live proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/ebook/vbth-r2-live-state.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist VBTH R2 live state proof ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
