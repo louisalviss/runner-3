@@ -28,12 +28,13 @@ ECON = [
 ]
 TITLE_PROMO = [
     "official thread", "trọn bộ mmo", "khóa học", "khoá học", "tổng hợp khóa học", "tổng hợp khoá học",
-    "share khóa học", "share khoá học", "airdrop", "giveaway",
+    "share khóa học", "share khoá học", "airdrop", "giveaway", "tuyển dụng", "tuyển nhân sự", "cần tuyển",
 ]
 CTA_PROMO = [
     "ref link", "link ref", "mã giới thiệu", "đăng ký qua", "đăng kí qua", "đăng ký ngay", "đăng kí ngay",
     "liên hệ telegram", "liên hệ zalo", "ib mình", "inbox mình", "tham gia nhóm", "join group",
     "mua khóa học", "mua khoá học", "bán khóa học", "bán khoá học", "giá chỉ", "voucher", "khuyến mãi",
+    "referral", "giới thiệu 30%", "cộng ngay", "nhận bonus",
 ]
 
 
@@ -57,15 +58,18 @@ def write_jsonl(path, rows):
 
 
 def row_key(row):
+    # Delta rows carry a fingerprint while snapshot rows often do not. Prefer the
+    # stable forum post id so the same post cannot survive twice after snapshot boost.
+    post_id = str(row.get("post_id") or "").strip()
+    thread_key = str(row.get("thread_key") or "").strip()
+    source = str(row.get("source") or "").strip()
+    if post_id:
+        raw = f"{source}|{thread_key}|post|{post_id}"
+        return hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
     fp = str(row.get("fingerprint") or "").strip()
     if fp:
         return fp
-    raw = "|".join([
-        str(row.get("source") or ""),
-        str(row.get("thread_key") or ""),
-        str(row.get("post_id") or ""),
-        norm(row.get("text")),
-    ])
+    raw = "|".join([source, thread_key, norm(row.get("author")), norm(row.get("timestamp")), norm(row.get("text"))])
     return hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
 
 
@@ -78,13 +82,18 @@ def promo_reason(row, meta=None):
     text = norm(row.get("text"))
     title_hits = marker_hits(title, TITLE_PROMO)
     cta_hits = marker_hits(text, CTA_PROMO)
+    url_count = int((meta or {}).get("url_count") or 0)
     if title_hits:
-        return "promotional_thread"
+        return "promotional_or_listing_thread"
+    # A CTA plus an outbound URL is enough to classify a candidate as promotion,
+    # even if generic heuristics mistake marketing copy for "reasoning".
+    if cta_hits and url_count > 0:
+        return "promotional_cta_link"
     reasoning = (meta or {}).get("reasoning_hits") or []
     firsthand = (meta or {}).get("firsthand_hits") or []
     if len(cta_hits) >= 2 and not reasoning and not firsthand:
         return "promotional_cta"
-    if ("ref link" in text or "link ref" in text or "mã giới thiệu" in text) and int((meta or {}).get("url_count") or 0) > 0:
+    if ("ref link" in text or "link ref" in text or "mã giới thiệu" in text) and url_count > 0:
         return "referral_link"
     return None
 
@@ -164,7 +173,7 @@ def main():
         item["score"] = round(min(5.0, float(meta.get("score") or 0) + bonus), 2)
         if item["score"] < args.min_score:
             continue
-        item["scorer"] = "forum-signal-f93-operator-v1"
+        item["scorer"] = "forum-signal-f93-operator-v2"
         item["f93_domain_hits"] = domain[:18]
         item["f93_econ_hits"] = econ[:12]
         item["thread_delta_posts"] = thread_counts[str(row.get("thread_key") or "")]
@@ -187,7 +196,7 @@ def main():
 
     write_jsonl(args.candidates, rows)
     audit = {
-        "scorer": "forum-signal-f93-operator-v1",
+        "scorer": "forum-signal-f93-operator-v2",
         "raw_f93_rows": len(raw),
         "existing_candidates": len(existing),
         "existing_promo_rejected": existing_promo_rejected,
