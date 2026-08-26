@@ -1,5 +1,6 @@
 import app from "./reddit-entry.js";
 import { handleContentIntelligence } from "./src/content-intelligence.js";
+import { renderReaderArticlePage } from "./src/rss-reader-page-v2.js";
 import {
   preserveArticleImages,
   pruneExpiredReaderImages,
@@ -28,32 +29,132 @@ function shouldPreserveImages(body) {
   ));
 }
 
-function stripMarkdownImages(value) {
-  let text = String(value ?? "");
-  text = text.replace(
-    /\[\s*!\[[^\]]{0,500}\]\(\s*https?:\/\/[\s\S]{1,2500}?\)\s*\]\(\s*https?:\/\/[\s\S]{1,3500}?\)/gi,
-    "\n"
-  );
-  text = text.replace(
-    /!\[[^\]]{0,500}\]\(\s*https?:\/\/[\s\S]{1,3000}?\)/gi,
-    "\n"
-  );
-  text = text.replace(/^\s*\[!?\s*(?:image|ảnh)\s*\d*\s*\]\s*$/gim, "");
-  return text;
+const BOILERPLATE = /^(?:advertisement|quảng cáo|nội dung tài trợ|sponsored(?: content)?|promoted content|tiếp tục sau quảng cáo|đăng ký nhận (?:tin|bản tin)|subscribe(?: now| to (?:our )?newsletter)?|newsletter|related articles?|bài viết liên quan|tin liên quan|xem thêm|đọc thêm|share|chia sẻ)\s*:?[\s.!-]*$/i;
+const TRACKING_URL = /^https?:\/\/(?:[^/]*\.)?(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|taboola\.com|outbrain\.com)\S*$/i;
+const IMAGE_LABEL = /^\s*\[!?\s*(?:image|ảnh)\s*\d*\s*\]\s*$/i;
+const TAIL_ATTRIBUTION = /^(?:theo\s*:?[\s-]*)?(?:đời\s*sống\s*(?:&|và)?\s*pháp\s*luật|đspl)\s*[.!-]*$/i;
+
+function comparableText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[“”"'‘’]/g, "")
+    .replace(/[\s\u00a0]+/g, " ")
+    .replace(/[\s.!,:;\-–—]+$/g, "")
+    .trim();
 }
 
-function cleanReaderBody(value) {
-  const withoutImageMarkdown = stripMarkdownImages(String(value ?? "").replace(/\r/g, ""));
-  const lines = withoutImageMarkdown.split("\n");
-  const boilerplate = /^(?:advertisement|quảng cáo|nội dung tài trợ|sponsored(?: content)?|promoted content|tiếp tục sau quảng cáo|đăng ký nhận (?:tin|bản tin)|subscribe(?: now| to (?:our )?newsletter)?|newsletter|related articles?|bài viết liên quan|tin liên quan|xem thêm|đọc thêm|share|chia sẻ)\s*:?[\s.!-]*$/i;
-  const trackingUrl = /^https?:\/\/(?:[^/]*\.)?(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|taboola\.com|outbrain\.com)\S*$/i;
+function urlKeys(value) {
   const out = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (boilerplate.test(trimmed) || trackingUrl.test(trimmed)) continue;
-    out.push(line);
+  try {
+    const url = new URL(String(value || ""));
+    out.push(`${url.hostname.toLowerCase()}${url.pathname}`);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length) out.push(parts[parts.length - 1].toLowerCase());
+  } catch {}
+  return out;
+}
+
+function parseImageLine(value) {
+  const line = String(value || "").trim();
+  let match = line.match(/^\[!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"([^"]*)")?\)\]\((https?:\/\/[^)\s]+)(?:\s+"([^"]*)")?\)$/i);
+  if (match) {
+    return {
+      alt: match[1] || "",
+      urls: [match[2], match[4]].filter(Boolean),
+      title: match[5] || match[3] || "",
+    };
   }
-  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  match = line.match(/^!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"([^"]*)")?\)$/i);
+  if (match) {
+    return { alt: match[1] || "", urls: [match[2]], title: match[3] || "" };
+  }
+  return null;
+}
+
+function findImageIndex(ref, images, used) {
+  const exact = new Set(ref.urls.flatMap(urlKeys));
+  for (let i = 0; i < images.length; i++) {
+    if (used.has(i)) continue;
+    const itemKeys = [images[i]?.source_url, images[i]?.url].flatMap(urlKeys);
+    if (itemKeys.some((key) => exact.has(key))) return i;
+  }
+
+  const fileKeys = new Set([...exact].filter((key) => !key.includes("/")));
+  if (!fileKeys.size) return -1;
+  const matches = [];
+  for (let i = 0; i < images.length; i++) {
+    if (used.has(i)) continue;
+    const itemKeys = [images[i]?.source_url, images[i]?.url].flatMap(urlKeys);
+    if (itemKeys.some((key) => fileKeys.has(key))) matches.push(i);
+  }
+  return matches.length === 1 ? matches[0] : -1;
+}
+
+function captionCandidates(ref, image) {
+  const values = [ref?.alt, ref?.title, image?.alt, image?.caption]
+    .map(comparableText)
+    .filter(Boolean);
+  return new Set(values);
+}
+
+function buildReaderContent(value, images) {
+  const lines = String(value ?? "").replace(/\r/g, "").split("\n");
+  const blocks = [];
+  const used = new Set();
+  let textLines = [];
+  let pendingCaption = null;
+
+  const flushText = () => {
+    const text = textLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (text) blocks.push({ type: "text", text });
+    textLines = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (pendingCaption && trimmed) {
+      const normalized = comparableText(trimmed);
+      if (normalized && pendingCaption.has(normalized)) {
+        pendingCaption = null;
+        continue;
+      }
+      pendingCaption = null;
+    }
+
+    const ref = parseImageLine(trimmed);
+    if (ref) {
+      flushText();
+      const imageIndex = findImageIndex(ref, images, used);
+      const image = imageIndex >= 0 ? images[imageIndex] : null;
+      pendingCaption = captionCandidates(ref, image);
+      if (imageIndex >= 0) {
+        used.add(imageIndex);
+        blocks.push({ type: "image", imageIndex });
+      }
+      continue;
+    }
+
+    if (IMAGE_LABEL.test(trimmed)) continue;
+    if ((trimmed.startsWith("![") || trimmed.startsWith("[![")) && trimmed.includes("http")) continue;
+    if (BOILERPLATE.test(trimmed) || TRACKING_URL.test(trimmed)) continue;
+
+    const nearTail = i >= lines.length - 20 || i >= Math.floor(lines.length * 0.82);
+    if (nearTail && TAIL_ATTRIBUTION.test(comparableText(trimmed))) continue;
+
+    textLines.push(line);
+  }
+  flushText();
+
+  const body = blocks
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { body, blocks };
 }
 
 async function sanitizeReaderView(response, url) {
@@ -63,12 +164,16 @@ async function sanitizeReaderView(response, url) {
   const payload = await response.json().catch(() => null);
   if (!payload?.artifact) return Response.json(payload ?? { ok: false, error: "READER_PAYLOAD_INVALID" }, { status: response.status });
 
-  if (Array.isArray(payload.artifact.images)) {
-    payload.artifact.images = selectContentImages(payload.artifact.images);
-    payload.artifact.imageCount = payload.artifact.images.length;
-  }
+  const images = selectContentImages(Array.isArray(payload.artifact.images) ? payload.artifact.images : []);
+  payload.artifact.images = images;
+  payload.artifact.imageCount = images.length;
+
   if (typeof payload.artifact.body === "string") {
-    payload.artifact.body = cleanReaderBody(payload.artifact.body);
+    const rendered = buildReaderContent(payload.artifact.body, images);
+    payload.artifact.body = rendered.body;
+    payload.artifact.renderBlocks = rendered.blocks;
+  } else {
+    payload.artifact.renderBlocks = [];
   }
 
   const headers = new Headers(response.headers);
@@ -81,6 +186,9 @@ async function sanitizeReaderView(response, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const articlePage = renderReaderArticlePage(request, url);
+    if (articlePage) return articlePage;
 
     const ciResponse = await handleContentIntelligence(request, env, url);
     if (ciResponse) return ciResponse;
