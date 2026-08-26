@@ -8,8 +8,10 @@ on:
       - 'forum_signal_v2.py'
       - 'forum_signal_rank.py'
       - 'forum_signal_delta.py'
+      - 'forum_signal_f91_expand.py'
       - 'forum_signal_timestamp.py'
       - 'forum_signal_score.py'
+      - 'forum_signal_diversify.py'
       - 'forum_signal_route.py'
       - 'forum_signal_health.py'
       - 'public_feed_fallback.py'
@@ -123,8 +125,10 @@ jobs:
           set -euo pipefail
           JOB='${{ steps.job.outputs.job_file }}'
           python forum_signal_delta.py "$JOB" --validate-only
+          python forum_signal_f91_expand.py "$JOB" --validate-only
           python forum_signal_timestamp.py --validate-only
           python forum_signal_score.py --input /tmp/nonexistent.jsonl --output /tmp/forum-candidates.jsonl --summary /tmp/forum-insights.md --min-score 3
+          python forum_signal_diversify.py --input /tmp/nonexistent.jsonl --audit /tmp/forum-f91-diversity.json
           python forum_signal_health.py --job "$JOB" --validate-only
           MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","http"))' "$JOB")"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
@@ -144,7 +148,7 @@ jobs:
 
       - name: Crawl
         id: crawl
-        run: python forum_signal_delta.py '${{ steps.job.outputs.job_file }}' --output crawl_output --state-file .forum-state/state.json
+        run: python forum_signal_f91_expand.py '${{ steps.job.outputs.job_file }}' --output crawl_output --state-file .forum-state/state.json
 
       - name: Add public RSS fallback for blocked VOZ sections
         if: steps.crawl.outcome == 'success'
@@ -157,6 +161,10 @@ jobs:
       - name: Score insight candidates
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_score.py --input crawl_output/forum_signal.jsonl --output crawl_output/forum_insight_candidates.jsonl --summary crawl_output/forum_insights.md --min-score 3
+
+      - name: Diversify VOZ F91 candidates
+        if: steps.crawl.outcome == 'success'
+        run: python forum_signal_diversify.py --input crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_diversity.json --source VOZ-F91 --per-thread 3 --source-cap 36
 
       - name: Route and final-filter candidates
         if: steps.crawl.outcome == 'success'
@@ -218,7 +226,8 @@ jobs:
               status: health.overall_status || (process.env.CRAWL_OUTCOME === 'success' ? 'UNKNOWN' : 'FAILED'),
               crawl_outcome: process.env.CRAWL_OUTCOME || 'unknown',
               sources_total: manifest.sources_total ?? manifest.source_count ?? null,
-              posts_total: manifest.posts_total ?? manifest.items_total ?? null,
+              posts_total: manifest.posts_total ?? manifest.items_total ?? manifest.total_structured_posts ?? null,
+              f91_expanded: manifest.f91_expanded ?? null,
               candidates_file: 'forum_insight_candidates.jsonl',
               general_file: 'forum_candidates_general.jsonl',
               mmo_file: 'forum_candidates_mmo.jsonl',
