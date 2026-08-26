@@ -1,100 +1,17 @@
-name: Audio Library Reddit Cloudflare Egress
+name: Audio Library Reddit Cloudflare Egress (Retired)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/audio-chatgpt-bridge/**'
-      - 'scripts/audio_library_extract_reddit_via_cloudflare.py'
-      - '.github/workflows/audio-library-reddit-cloudflare.yml'
-  workflow_run:
-    workflows: ['Audio Library Chat Intake', 'Audio Library ChatGPT Bridge Deploy']
-    types: [completed]
 
 permissions:
-  contents: write
-
-concurrency:
-  group: runner3-audio-reddit-cloudflare-egress
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  extract:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      AUDIO_LIBRARY_BUCKET: runner3-wp-media
-      CHATGPT_INBOX_PUBLIC_KEY: sYGZHQp2jOgHK7mnuF+Yij8rZOxYbgxKNOP4okx0k3E=
-      AUDIO_LIBRARY_EXTRACT_MAX_ITEMS: '3'
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install transport dependencies
-        run: python -m pip install -q -U requests 'cryptography>=45,<47'
-
-      - name: Fetch Reddit raw source through Cloudflare egress
-        id: relay
-        continue-on-error: true
-        run: python scripts/audio_library_extract_reddit_via_cloudflare.py | tee /tmp/reddit-cloudflare-result.json
-
-      - name: Publish encrypted inbox and safe checkpoint
-        if: always()
-        env:
-          RELAY_OUTCOME: ${{ steps.relay.outcome }}
-        shell: bash
+      - name: Explain retirement
         run: |
-          set -euo pipefail
-          mkdir -p ops/audio-library
-          python - <<'PY'
-          import datetime,json,os
-          from pathlib import Path
-          p=Path('/tmp/reddit-cloudflare-result.json')
-          result=None
-          if p.exists():
-              raw=p.read_text(encoding='utf-8',errors='replace')
-              for line in reversed(raw.splitlines()):
-                  line=line.strip()
-                  if not line.startswith('{'):
-                      continue
-                  try:
-                      result=json.loads(line)
-                      break
-                  except Exception:
-                      pass
-              if result is None:
-                  result={'parseError':'no-json-object','tail':raw[-300:].replace('\n',' | ')}
-          out={
-            'status':'ready',
-            'workflowOutcome':os.environ.get('RELAY_OUTCOME','unknown'),
-            'result':result,
-            'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-          }
-          Path('ops/audio-library/reddit-cloudflare-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add ops/audio-library/chatgpt-inbox/*.json 2>/dev/null || true
-          git add ops/audio-library/reddit-cloudflare-status.json
-          git diff --cached --quiet && exit 0
-          git commit -m 'Publish Reddit Cloudflare egress status [skip ci]'
-          git pull --rebase origin main || true
-          git push origin HEAD:main
-
-      - name: Fail when relay stage crashed
-        if: steps.relay.outcome == 'failure'
-        run: exit 1
+          echo 'Retired: scripts/audio_library_extract_reddit_via_cloudflare.py no longer exists on main.'
+          echo 'Reddit acquisition is owned by the current shared Reddit/Core source layer.'
+          echo 'No Cloudflare account credential is exposed to this workflow.'
