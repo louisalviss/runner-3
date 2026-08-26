@@ -3,6 +3,7 @@ import json, statistics
 import numpy as np, pandas as pd
 
 URL='https://raw.githubusercontent.com/plotly/datasets/master/all_stocks_5yr.csv'
+HORIZONS=(1,3,5,7,10)
 
 def ema(a,n):return pd.Series(a).ewm(span=n,adjust=False).mean().to_numpy()
 def atr(g,n):
@@ -16,13 +17,14 @@ def summ(x):
 
 def main():
  df=pd.read_csv(URL,parse_dates=['date']);df.columns=[x.lower() for x in df.columns]
- modes={'gap_aware':[],'ideal_stop_fill':[],'five_day_no_stop':[]}; signals=0
+ modes={'gap_aware_5d':[],'ideal_stop_fill_5d':[],'no_stop_5d':[]}
+ horizon_gap={str(h):[] for h in HORIZONS};horizon_nostop={str(h):[] for h in HORIZONS};signals=0
  for sym,g in df.groupby('name'):
   g=g.dropna(subset=['open','high','low','close']).sort_values('date').reset_index(drop=True)
-  if len(g)<120:continue
+  if len(g)<130:continue
   o=g.open.to_numpy(float);h=g.high.to_numpy(float);l=g.low.to_numpy(float);c=g.close.to_numpy(float)
   e8,e20,e50=ema(c,8),ema(c,20),ema(c,50);a5,a20=atr(g,5),atr(g,20);last=-999
-  for i in range(80,len(g)-5):
+  for i in range(80,len(g)-max(HORIZONS)):
    if i-last<5:continue
    if not(e8[i]>e20[i]>e50[i] and e8[i]>e8[i-3] and e20[i]>e20[i-5] and e50[i]>e50[i-10]):continue
    if not(c[i]>max(h[i-7:i]) and c[i]>o[i]):continue
@@ -37,12 +39,23 @@ def main():
    if launch is None:continue
    base=e50[launch]+.5*a5[launch]
    if base<=0 or max(h[launch:i])/base-1<.05:continue
-   signals+=1;entry=c[i];stop=l[i];gap_exit=c[i+5];ideal_exit=c[i+5]
+   signals+=1;entry=c[i];stop=l[i]
+   for hz in HORIZONS:
+    no_stop=c[i+hz]
+    gap_exit=no_stop
+    for k in range(i+1,i+hz+1):
+     if l[k]<=stop:
+      gap_exit=o[k] if o[k]<=stop else stop
+      break
+    horizon_nostop[str(hz)].append(no_stop/entry-1)
+    horizon_gap[str(hz)].append(gap_exit/entry-1)
+   gap_exit=c[i+5];ideal_exit=c[i+5]
    for k in range(i+1,i+6):
     if l[k]<=stop:
      ideal_exit=stop
      gap_exit=o[k] if o[k]<=stop else stop
      break
-   modes['gap_aware'].append(gap_exit/entry-1);modes['ideal_stop_fill'].append(ideal_exit/entry-1);modes['five_day_no_stop'].append(c[i+5]/entry-1);last=i
- print(json.dumps({'signals':signals,'results':{k:summ(v) for k,v in modes.items()}},ensure_ascii=False))
+   modes['gap_aware_5d'].append(gap_exit/entry-1);modes['ideal_stop_fill_5d'].append(ideal_exit/entry-1);modes['no_stop_5d'].append(c[i+5]/entry-1);last=i
+ result={'signals':signals,'execution_robustness':{k:summ(v) for k,v in modes.items()},'exit_horizon_gap_aware':{k:summ(v) for k,v in horizon_gap.items()},'exit_horizon_no_stop':{k:summ(v) for k,v in horizon_nostop.items()}}
+ print(json.dumps(result,ensure_ascii=False))
 if __name__=='__main__':main()
