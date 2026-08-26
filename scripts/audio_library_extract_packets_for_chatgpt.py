@@ -1,37 +1,19 @@
 #!/usr/bin/env python3
-# trigger: packetize-v1
+# trigger: packetize-v2-core-scoped
 import json
 import os
-import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import audio_library_extract_for_chatgpt as core
+import audio_media_core as media
 
 ROOT = Path(__file__).resolve().parents[1]
-BUCKET = os.environ.get('AUDIO_LIBRARY_BUCKET', 'runner3-wp-media')
 ITEM_PREFIX = 'audio-library/items/'
 STATUS = ROOT / 'ops/audio-library/chatgpt-inbox-status.json'
 OUT_ROOT = ROOT / 'ops/audio-library/chatgpt-inbox-records'
 PACKET_CHARS = int(os.environ.get('AUDIO_LIBRARY_PACKET_CHARS', '3500'))
-
-
-def wrangler_get(key: str):
-    with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp:
-        path = Path(tmp.name)
-    try:
-        run = subprocess.run(
-            ['npx','-y','wrangler@4.123.0','r2','object','get',f'{BUCKET}/{key}',f'--file={path}','--remote'],
-            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
-        if run.returncode != 0 or not path.exists() or path.stat().st_size == 0:
-            return None
-        return json.loads(path.read_text(encoding='utf-8'))
-    except Exception:
-        return None
-    finally:
-        path.unlink(missing_ok=True)
 
 
 def ids_from_status():
@@ -76,7 +58,11 @@ def main():
         raise SystemExit('CHATGPT_INBOX_PUBLIC_KEY missing')
     results=[]
     for item_id in ids_from_status():
-        item=wrangler_get(f'{ITEM_PREFIX}{item_id}.json')
+        try:
+            item=media.get_json(f'{ITEM_PREFIX}{item_id}.json')
+        except Exception as error:
+            results.append({'id':item_id,'status':'error','error':f'core_read:{type(error).__name__}'})
+            continue
         if not item or item.get('audioUrl'):
             continue
         source_url=str(item.get('sourceUrl') or '')
