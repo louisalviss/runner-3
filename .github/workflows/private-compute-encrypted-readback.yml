@@ -20,54 +20,26 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Fetch sealed result and encrypt
+      - name: Fetch and encrypt
         shell: bash
         env:
           RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
           RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+          CERT_B64: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURNVENDQWhtZ0F3SUJBZ0lVVFRwM1NMSjNwU0g2VUQxTTZEcGt1YWRCcFNZd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0tERW1NQ1FHQTFVRUF3d2RSbVZzYVhCbElGQkpWQ0JGY0dobGJXVnlZV3dnVW1WaFpHSmhZMnN3SGhjTgpNall3T0RJMk1UUTBNakl5V2hjTk1qWXdPREkzTVRRME1qSXlXakFvTVNZd0pBWURWUVFEREIxR1pXeHBjR1VnClVFbFVJRVZ3YUdWdFpYSmhiQ0JTWldGa1ltRmphekNDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0MKQVFvQ2dnRUJBTmNFRlRYbU9xZFBzekR4ZVBCeTFWWDNHMWhlMEQ1UnhYdVV1Y1IzYlZIZ3l3WTd2bEc4VUdYTwp5bk5lR1NlUGtscG1ZUU5hb1RjVW1TNGVHNWVpSEFQRVB4M3RRbjRkdTk2QlRPZ1hVZkhLeVhQaThtNmYvTklSCktiSWxuM2xGVFFaUVRvVkNSWDlFSHYwOFIxSDJobGZJbUNYMkV3Yjh5Zlp3LzZiZ3A3K2ZmeUp6cmJkRGRZaTAKOGsrSWxUek1TVGtTVFFEUnA1WTBHdXJFZnRVV3NlUlh5VkZ3WGFuVitjYTl3cGdEVnIzaEVKWDI2UllXS2JVMApGNHozOUtjUGxRMUg1dFM2N0dPVmd3R25vWVVXY1g0ZmNqT1FsaG85aEQ3ak5PbG8xRk4wRWdEUE8yT3h2MmdLCnZXQ2kvTWhKSnNqcHVyeE12OGpwOUgxNnNJaWFMRE1DQXdFQUFhTlRNRkV3SFFZRFZSME9CQllFRlBpQ1dxYTIKK2trWkMwM2cxbmVIbTR2VUR3MlFNQjhHQTFVZEl3UVlNQmFBRlBpQ1dxYTIra2taQzAzZzFuZUhtNHZVRHcyUQpNQThHQTFVZEV3RUIvd1FGTUFNQkFmOHdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBSEdNYTQyTVQwT1lOVjNyCmFLYng3NkpING9tYmdUV2M0UThVSndYQVVyS1Y1OU93alUvZnNaQW9tZmxTejFZUUVhVHNzTk0xaFBNcWJMQ1QKYXhRNk9VeGdsMjF5R1NQRTRKQmFVdU92TkU4Vi8vVE5IR2dKMDZhVzFmUE90YUVGRCsvRDdjYUYzSDN4dG9xNQpsM2RibXhzZ3NYYXpORjhXYTJqTXhYYzQwSFptMGhxcjJuRVpQbWx6a2dYa295N1FnclRnd09rRlcwY2FwcU01CnFTZ3ZoUXdRRERVNm40Yi9GbkRscUZCeTZweXgyYnM1VW12OVY5R3ZvUDVLMkZjcmxSelczSGJ1c29GNFVpV0UKVlI0UGVENkNVZ3lnRDN0SXJYUGxsUnd6MFpHaklVTlJTWGxZdWlFanljbkxFK2pRZisxaVlrYnJsRnB6QlRlRApqUjdoK3hBPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
         run: |
           set -euo pipefail
           set +x
           umask 077
           test -n "${RUNNER3_CORE_TOKEN:-}"
-          scope="$(tr -d '\r\n[:space:]' < jobs/private-compute-trigger.txt)"
-          base="${RUNNER3_CORE_URL:-https://runner3-core.ducduy2411.workers.dev}"
           work="${RUNNER_TEMP}/encrypted-readback"
           mkdir -p "$work"
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${RUNNER3_CORE_TOKEN}" \
-            -H 'Cache-Control: no-cache' \
-            "${base%/}/artifacts/private-compute/${scope}/result.tar.gz" \
-            -o "$work/result.tar.gz"
-          cat > "$work/cert.pem" <<'CERT'
-          -----BEGIN CERTIFICATE-----
-          MIIDMTCCAhmgAwIBAgIUTTp3SLJ3pSH6UD1M6DpkuadBpSYwDQYJKoZIhvcNAQEL
-          BQAwKDEmMCQGA1UEAwwdRmVsaXBlIFBJVCBFcGhlbWVyYWwgUmVhZGJhY2swHhcN
-          MjYwODI2MTQ0MjIyWhcNMjYwODI3MTQ0MjIyWjAoMSYwJAYDVQQDDB1GZWxpcGUg
-          UElUIEVwaGVtZXJhbCBSZWFkYmFjazCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
-          AQoCggEBANcEFTXmOqdPszDxePBy1VX3G1he0D5RxXuUucR3bVHgywY7vlG8UGXO
-          ynNeGSePklpmYQNaoTcUmS4eG5eiHAPEPx3tQn4du96BTOgXUfHKyXPi8m6f/NIR
-          KbIln3lFTQZQToVCRX9EHv08R1H2hlfImCX2Ewb8yfZw/6bgp7+ffyJzrbdDdYi0
-          8k+IlTzMSTkSTQDRp5Y0GurEftUWseRXyVFwXanV+ca9wpgDVr3hEJX26RYWKbU0
-          F4z39KcPlQ1H5tS67GOVgwGnoYUWcX4fcjOQlho9hD7jNOlo1FN0EgDPO2Oxv2gK
-          vWCi/MhJJsjpurxMv8jp9H16sIiaLDMCAwEAAaNTMFEwHQYDVR0OBBYEFPiCWqa2
-          +kkZC03g1neHm4vUDw2QMB8GA1UdIwQYMBaAFPiCWqa2+kkZC03g1neHm4vUDw2Q
-          MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAHGMa42MT0OYNV3r
-          aKbx76JH4ombgTWc4Q8UJwXAUrKV59OwjU/fsZAomflSz1YQEaTssNM1hPMqbLCT
-          axQ6OUxgl21yGSPE4JBaUuOvNE8V//TNHGgJ06aW1fPOtaEFD+/D7caF3H3xtoq5
-          l3dbmxsgsXazNF8Wa2jMxXc40HZm0hqr2nEZPmlzkgXkoy7QgrTgwOkFW0capqM5
-          qSgvhQwQDDU6n4b/FnDlqFBy6pyx2bs5Umv9V9GvoP5K2FcrlRzW3HbusoF4UiWE
-          VR4PeD6CUgygD3tIrXPllRwz0ZGjIUNRSXlYuiEjycnLE+jQf+1iYkbrlFpzBTeD
-          jR7h+xA=
-          -----END CERTIFICATE-----
-          CERT
-          sed -i 's/^          //' "$work/cert.pem"
-          openssl cms -encrypt -binary -aes-256-cbc \
-            -in "$work/result.tar.gz" \
-            -out "$work/result.cms.der" \
-            -outform DER "$work/cert.pem"
+          scope="$(tr -d '\r\n[:space:]' < jobs/private-compute-trigger.txt)"
+          base="${RUNNER3_CORE_URL:-https://runner3-core.ducduy2411.workers.dev}"
+          curl --fail --silent --show-error -H "Authorization: Bearer ${RUNNER3_CORE_TOKEN}" -H 'Cache-Control: no-cache' "${base%/}/artifacts/private-compute/${scope}/result.tar.gz" -o "$work/result.tar.gz"
+          printf '%s' "$CERT_B64" | base64 -d > "$work/cert.pem"
+          openssl cms -encrypt -binary -aes-256-cbc -in "$work/result.tar.gz" -out "$work/result.cms.der" -outform DER "$work/cert.pem"
           rm -f "$work/result.tar.gz" "$work/cert.pem"
-          echo 'ENCRYPTED_READBACK=PASS'
+          echo ENCRYPTED_READBACK=PASS
 
       - name: Upload ciphertext
         uses: actions/upload-artifact@v4
