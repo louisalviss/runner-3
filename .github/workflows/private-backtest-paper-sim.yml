@@ -1,0 +1,71 @@
+name: Private Backtest Paper Sim
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-backtest-paper-sim.json'
+  workflow_dispatch:
+  schedule:
+    - cron: '30 22 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-paper-sim
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/private_backtest_shadow.py stage --config jobs/private-backtest-paper-sim.json
+
+  shard:
+    needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check 'dukascopy-python==4.0.1' 'numpy>=2,<3' 'pandas>=2,<3'
+      - run: python tools/private_backtest_shadow.py shard --config jobs/private-backtest-paper-sim.json --shard ${{ matrix.shard }}
+
+  evaluate:
+    if: ${{ always() && needs.stage.result == 'success' }}
+    needs: [stage, shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/private_backtest_shadow.py evaluate --config jobs/private-backtest-paper-sim.json
+      - name: Build 40-slot paper layer
+        run: python tools/private_backtest_paper_extract.py --scope bt-paper-sim-super-rsi-v1 --cutoff 2026-08-25T00:00:00Z --slots 40
