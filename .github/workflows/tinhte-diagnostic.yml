@@ -1,0 +1,60 @@
+name: Diagnose Tinhte DOM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tinhte-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install requests beautifulsoup4
+      - name: Probe HTTP DOM
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, re, requests
+          from bs4 import BeautifulSoup
+          urls = [
+            'https://tinhte.vn/thread/anh-em-cho-hoi-sao-tinhte-la-trang-cong-nghe-to-cung-co-the-noi-la-nhat-vn-ma-tai-sao-web-lan-app.4011664/',
+            'https://tinhte.vn/thread/tesla-ra-mat-xe-tao-dien-theo-thoi-gian-thuc-ban-doggy.4091069/',
+          ]
+          h={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'}
+          for u in urls:
+            r=requests.get(u,headers=h,timeout=30)
+            soup=BeautifulSoup(r.text,'html.parser')
+            text=soup.get_text('\n',strip=True)
+            print('URL',u)
+            print('status',r.status_code,'html_chars',len(r.text),'text_chars',len(text),'bao_xau',text.count('Báo xấu'),'login_prompt',text.count('Đăng nhập một phát'))
+            samples=[]
+            for s in soup.find_all(string=lambda x: x and 'Báo xấu' in x):
+              node=s.parent
+              chain=[]
+              for _ in range(7):
+                if not node: break
+                chain.append({'tag':node.name,'id':node.get('id'),'class':node.get('class'),'text':' '.join(node.get_text(' ',strip=True).split())[:220]})
+                node=node.parent
+              samples.append(chain)
+              if len(samples)>=4: break
+            print('CHAINS',json.dumps(samples,ensure_ascii=False))
+            # all likely comment-related classes/ids
+            likely=[]
+            for tag in soup.find_all(True):
+              ident=' '.join([str(tag.get('id') or ''),' '.join(tag.get('class') or [])])
+              if re.search(r'comment|reply|reaction|author|username|post',ident,re.I):
+                likely.append({'tag':tag.name,'id':tag.get('id'),'class':tag.get('class'),'text':' '.join(tag.get_text(' ',strip=True).split())[:160]})
+                if len(likely)>=40: break
+            print('LIKELY',json.dumps(likely,ensure_ascii=False))
+          PY
