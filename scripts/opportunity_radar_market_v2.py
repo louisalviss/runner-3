@@ -5,6 +5,12 @@ Runs on public Runner3 so the pricing lane does not depend on private Actions
 minutes. It scans the US listed-equity universe for price/relative anomalies and
 emits RAW Signals intake packets only. It never decides that an anomaly is a
 mispricing and never creates REVIEW/BUY/ACTIVE state.
+
+Discovery is intentionally higher-recall than the entry layer:
+- EARLY_WATCH keeps testable price anomalies for up to 3 completed sessions.
+- 2D_CONTINUATION flags delayed repricing as confirmation metadata only.
+- corporate-action guards use adjusted prices and suppress split/dividend artifacts.
+These labels never alter BUY/REVIEW gates or deploy capital.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ import math
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -51,10 +57,18 @@ CFG = {
     "five_day_trigger_pct": -15.0,
     "sector_underperformance_trigger_pct": -10.0,
     "preferred_volume_ratio": 1.5,
+    "early_watch_abs_1d_pct": 3.0,
+    "early_watch_volume_ratio": 2.0,
+    "early_watch_ttl_sessions": 3,
+    "continuation_abs_1d_pct": 3.0,
+    "continuation_window_sessions": 2,
+    "corporate_action_gap_pp": 5.0,
+    "corporate_action_unverified_raw_pct": 30.0,
     "min_market_cap_usd": 500_000_000,
     "min_snapshot_dollar_volume_usd": 5_000_000,
     "max_history_symbols": 4500,
     "max_candidates": 80,
+    "max_early_watch": 24,
     "batch_size": 150,
     "min_history_coverage": 0.80,
 }
@@ -87,6 +101,22 @@ def num(value: Any) -> float | None:
 
 def pct(new: float, old: float) -> float | None:
     return None if old == 0 else (new / old - 1.0) * 100.0
+
+
+def parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)[:10]).date()
+    except Exception:
+        return None
+
+
+def completed_session_age(start: Any, end: Any) -> int | None:
+    s, e = parse_date(start), parse_date(end)
+    if not s or not e or e < s:
+        return None
+    return max(0, len(pd.bdate_range(s, e)) - 1)
 
 
 def fetch_text(url: str) -> str:
@@ -204,6 +234,7 @@ def download_history(symbols: list[str]) -> dict[str, pd.DataFrame]:
                     interval="1d",
                     group_by="ticker",
                     auto_adjust=False,
+                    actions=False,
                     progress=False,
                     threads=True,
                     timeout=30,
@@ -223,24 +254,56 @@ def download_history(symbols: list[str]) -> dict[str, pd.DataFrame]:
 
 
 def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
-    close = pd.to_numeric(df["Close"], errors="coerce").dropna()
-    if len(close) < 2:
+    raw_close = pd.to_numeric(df["Close"], errors="coerce")
+    adj_available = "Adj Close" in df.columns
+    adj_close = pd.to_numeric(df["Adj Close"], errors="coerce") if adj_available else raw_close.copy()
+    aligned = pd.concat({"raw": raw_close, "adj": adj_close}, axis=1).dropna()
+    if len(aligned) < 2:
         return {}
-    last = float(close.iloc[-1])
+
+    raw = aligned["raw"]
+    adj = aligned["adj"]
+    last_raw = float(raw.iloc[-1])
+    last_adj = float(adj.iloc[-1])
+    raw_r1 = pct(last_raw, float(raw.iloc[-2]))
+    adj_r1 = pct(last_adj, float(adj.iloc[-2]))
+    gap = abs(raw_r1 - adj_r1) if raw_r1 is not None and adj_r1 is not None else None
+
+    corporate_action_suspected = bool(
+        adj_available
+        and raw_r1 is not None
+        and abs(raw_r1) >= abs(CFG["one_day_trigger_pct"])
+        and gap is not None
+        and gap >= CFG["corporate_action_gap_pp"]
+    )
+    corporate_action_unverified = bool(
+        not adj_available
+        and raw_r1 is not None
+        and abs(raw_r1) >= CFG["corporate_action_unverified_raw_pct"]
+    )
+
     volume = pd.to_numeric(df.get("Volume", pd.Series(index=df.index, dtype=float)), errors="coerce")
-    prior_vol = volume.loc[close.index[:-1]].dropna().tail(20)
-    latest_vol = num(volume.loc[close.index[-1]]) if close.index[-1] in volume.index else None
+    latest_idx = aligned.index[-1]
+    prior_vol = volume.loc[aligned.index[:-1]].dropna().tail(20)
+    latest_vol = num(volume.loc[latest_idx]) if latest_idx in volume.index else None
     avg_vol = float(prior_vol.mean()) if not prior_vol.empty else None
+
     return {
-        "price": last,
-        "last_date": str(close.index[-1].date()) if hasattr(close.index[-1], "date") else str(close.index[-1]),
-        "ret_1d_pct": pct(last, float(close.iloc[-2])),
-        "ret_5d_pct": pct(last, float(close.iloc[-6])) if len(close) >= 6 else None,
-        "ret_20d_pct": pct(last, float(close.iloc[-21])) if len(close) >= 21 else None,
+        "price": last_raw,
+        "adjusted_price": last_adj,
+        "last_date": str(latest_idx.date()) if hasattr(latest_idx, "date") else str(latest_idx),
+        "ret_1d_pct": adj_r1,
+        "ret_5d_pct": pct(last_adj, float(adj.iloc[-6])) if len(adj) >= 6 else None,
+        "ret_20d_pct": pct(last_adj, float(adj.iloc[-21])) if len(adj) >= 21 else None,
+        "raw_ret_1d_pct": raw_r1,
+        "adjustment_gap_1d_pp": gap,
+        "adjustment_verified": adj_available,
+        "corporate_action_suspected": corporate_action_suspected,
+        "corporate_action_unverified": corporate_action_unverified,
         "volume": latest_vol,
         "avg_volume_20d": avg_vol,
         "volume_ratio": (latest_vol / avg_vol) if latest_vol and avg_vol and avg_vol > 0 else None,
-        "avg_dollar_volume_20d": avg_vol * last if avg_vol else None,
+        "avg_dollar_volume_20d": avg_vol * last_raw if avg_vol else None,
     }
 
 
@@ -283,24 +346,95 @@ def raw_priority(rec: dict[str, Any]) -> float:
     s1 = min(30.0, max(0.0, -r1 / abs(CFG["one_day_trigger_pct"]) * 22.0))
     s5 = min(35.0, max(0.0, -r5 / abs(CFG["five_day_trigger_pct"]) * 25.0))
     sr = min(25.0, max(0.0, -rel / abs(CFG["sector_underperformance_trigger_pct"]) * 18.0))
+    early = min(18.0, abs(r1) / max(CFG["early_watch_abs_1d_pct"], 0.1) * 8.0)
     vol = min(12.0, vr / max(CFG["preferred_volume_ratio"], 0.1) * 8.0)
     liq = min(8.0, max(0.0, math.log10(max(adv, 1.0)) - 5.0) * 2.5)
-    return round(min(100.0, 25.0 + max(s1, s5, sr) + vol + liq), 1)
+    return round(min(100.0, 25.0 + max(s1, s5, sr, early) + vol + liq), 1)
 
 
-def find_shocks(listings: dict[str, dict[str, Any]], snapshot: dict[str, dict[str, Any]], history: dict[str, pd.DataFrame]) -> list[dict[str, Any]]:
+def load_previous_packet() -> dict[str, Any]:
+    if not SIGNALS_OUT.exists():
+        return {}
+    try:
+        payload = json.loads(SIGNALS_OUT.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception as exc:
+        print(f"previous packet unreadable: {exc}", file=sys.stderr)
+        return {}
+
+
+def previous_by_symbol(packet: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for sig in packet.get("signals") or []:
+        if not isinstance(sig, dict):
+            continue
+        source = sig.get("source") or {}
+        symbol = str(sig.get("affected_assets") or source.get("symbol") or "").strip().upper()
+        if symbol:
+            out[symbol] = sig
+    return out
+
+
+def prior_detection(sig: dict[str, Any] | None) -> tuple[str | None, float | None, str | None]:
+    if not sig:
+        return None, None, None
+    source = sig.get("source") or {}
+    detected_at = source.get("earliest_detected_at") or sig.get("last_checked")
+    detected_price = num(source.get("earliest_detected_price"))
+    if detected_price is None:
+        detected_price = num(source.get("price"))
+    intake_id = str(sig.get("intake_id") or "") or None
+    return str(detected_at) if detected_at else None, detected_price, intake_id
+
+
+def prior_direction(sig: dict[str, Any] | None) -> int:
+    if not sig:
+        return 0
+    r1 = num((sig.get("source") or {}).get("ret_1d_pct"))
+    if r1 is None:
+        return 0
+    return 1 if r1 > 0 else -1 if r1 < 0 else 0
+
+
+def build_anomalies(
+    listings: dict[str, dict[str, Any]],
+    snapshot: dict[str, dict[str, Any]],
+    history: dict[str, pd.DataFrame],
+    previous_packet: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     records: dict[str, dict[str, Any]] = {}
     for symbol, df in history.items():
         if symbol in listings:
             records[symbol] = enriched_record(listings[symbol], snapshot.get(symbol), price_metrics(df))
+
     med = sector_medians(records)
-    out: list[dict[str, Any]] = []
+    previous = previous_by_symbol(previous_packet)
+    normal: list[dict[str, Any]] = []
+    early: list[dict[str, Any]] = []
+    stats = {
+        "corporate_action_suppressed": 0,
+        "corporate_action_unverified_suppressed": 0,
+        "early_watch": 0,
+        "continuation": 0,
+        "early_watch_carried": 0,
+    }
+
     for rec in records.values():
+        symbol = rec["symbol"]
         r1, r5 = num(rec.get("ret_1d_pct")), num(rec.get("ret_5d_pct"))
+        vr = num(rec.get("volume_ratio")) or 0.0
         sector_med = med.get(rec.get("sector", ""))
         rel = r5 - sector_med if r5 is not None and sector_med is not None else None
         rec["sector_median_5d_pct"] = sector_med
         rec["sector_relative_5d_pct"] = rel
+
+        if rec.get("corporate_action_suspected"):
+            stats["corporate_action_suppressed"] += 1
+            continue
+        if rec.get("corporate_action_unverified"):
+            stats["corporate_action_unverified_suppressed"] += 1
+            continue
+
         triggers: list[str] = []
         if r1 is not None and r1 <= CFG["one_day_trigger_pct"]:
             triggers.append("1D_SHOCK")
@@ -308,26 +442,112 @@ def find_shocks(listings: dict[str, dict[str, Any]], snapshot: dict[str, dict[st
             triggers.append("5D_SHOCK")
         if rel is not None and rel <= CFG["sector_underperformance_trigger_pct"]:
             triggers.append("SECTOR_UNDERPERFORM")
-        if not triggers:
+
+        prior = previous.get(symbol)
+        prior_source = (prior or {}).get("source") or {}
+        prior_state = str(prior_source.get("discovery_state") or "").upper()
+        prior_date = prior_source.get("last_date")
+        age = completed_session_age(prior_date, rec.get("last_date"))
+        pdir = prior_direction(prior)
+        cdir = 1 if (r1 or 0) > 0 else -1 if (r1 or 0) < 0 else 0
+        is_continuation = bool(
+            prior
+            and prior_state == "EARLY_WATCH"
+            and age is not None
+            and 1 <= age <= CFG["continuation_window_sessions"]
+            and r1 is not None
+            and abs(r1) >= CFG["continuation_abs_1d_pct"]
+            and pdir != 0
+            and cdir == pdir
+        )
+
+        if triggers:
+            rec["discovery_state"] = "RAW_ANOMALY"
+            rec["raw_triggers"] = triggers
+            rec["continuation_candidate"] = is_continuation
+            if is_continuation:
+                rec["raw_triggers"].append("2D_CONTINUATION")
+                stats["continuation"] += 1
+            rec["raw_priority"] = raw_priority(rec)
+            rec["volume_confirmation"] = vr >= CFG["preferred_volume_ratio"]
+            normal.append(rec)
             continue
-        rec["raw_triggers"] = triggers
+
+        fresh_early = bool(
+            r1 is not None
+            and abs(r1) >= CFG["early_watch_abs_1d_pct"]
+            and vr >= CFG["early_watch_volume_ratio"]
+        )
+        carry_early = bool(
+            prior
+            and prior_state == "EARLY_WATCH"
+            and age is not None
+            and 0 <= age <= CFG["early_watch_ttl_sessions"]
+        )
+        if not fresh_early and not carry_early:
+            continue
+
+        ew_triggers: list[str] = []
+        if fresh_early:
+            ew_triggers.append("EARLY_WATCH_PRICE")
+        if carry_early and not fresh_early:
+            ew_triggers.append("EARLY_WATCH_CARRY")
+            stats["early_watch_carried"] += 1
+        if is_continuation:
+            ew_triggers.append("2D_CONTINUATION")
+            stats["continuation"] += 1
+
+        rec["discovery_state"] = "EARLY_WATCH"
+        rec["raw_triggers"] = ew_triggers
+        rec["continuation_candidate"] = is_continuation
         rec["raw_priority"] = raw_priority(rec)
-        rec["volume_confirmation"] = bool((num(rec.get("volume_ratio")) or 0) >= CFG["preferred_volume_ratio"])
-        out.append(rec)
-    out.sort(key=lambda x: (x["volume_confirmation"], x["raw_priority"]), reverse=True)
-    return out[: CFG["max_candidates"]]
+        rec["volume_confirmation"] = vr >= CFG["preferred_volume_ratio"]
+        stats["early_watch"] += 1
+        early.append(rec)
+
+    normal.sort(key=lambda x: (x["volume_confirmation"], x["raw_priority"]), reverse=True)
+    early.sort(key=lambda x: (x.get("continuation_candidate", False), x["raw_priority"]), reverse=True)
+    merged = normal + early[: CFG["max_early_watch"]]
+    merged.sort(
+        key=lambda x: (
+            x.get("discovery_state") != "EARLY_WATCH",
+            x.get("continuation_candidate", False),
+            x.get("volume_confirmation", False),
+            x.get("raw_priority", 0),
+        ),
+        reverse=True,
+    )
+    return merged[: CFG["max_candidates"]], stats
 
 
-def signal_from(rec: dict[str, Any], generated_at: str) -> dict[str, Any]:
+def signal_from(rec: dict[str, Any], generated_at: str, prior: dict[str, Any] | None = None) -> dict[str, Any]:
     symbol = str(rec.get("symbol") or "").strip().upper()
     last_date = str(rec.get("last_date") or "unknown-date")
     triggers = [str(x) for x in (rec.get("raw_triggers") or []) if x]
     trigger_key = "+".join(sorted(triggers)) or "ANOMALY"
+    discovery_state = str(rec.get("discovery_state") or "RAW_ANOMALY")
+
+    earliest_at, earliest_price, prior_intake_id = prior_detection(prior)
+    if not earliest_at:
+        earliest_at = generated_at
+    if earliest_price is None:
+        earliest_price = num(rec.get("price"))
+
+    continuing_same_price_watch = bool(
+        prior
+        and str(((prior.get("source") or {}).get("discovery_state") or "")).upper() == "EARLY_WATCH"
+        and discovery_state == "EARLY_WATCH"
+    )
+    intake_id = prior_intake_id if continuing_same_price_watch and prior_intake_id else f"PRICE|{symbol}|{last_date}|{trigger_key}"
+    event_key = f"PRICE|{symbol}|{str(earliest_at)[:10]}"
+
     reaction = []
     if rec.get("ret_1d_pct") is not None:
-        reaction.append(f"1D {rec['ret_1d_pct']:.2f}%")
+        reaction.append(f"adjusted 1D {rec['ret_1d_pct']:.2f}%")
+    if rec.get("raw_ret_1d_pct") is not None and rec.get("adjustment_gap_1d_pp") is not None:
+        reaction.append(f"raw 1D {rec['raw_ret_1d_pct']:.2f}%")
     if rec.get("ret_5d_pct") is not None:
-        reaction.append(f"5D {rec['ret_5d_pct']:.2f}%")
+        reaction.append(f"adjusted 5D {rec['ret_5d_pct']:.2f}%")
     if rec.get("sector_relative_5d_pct") is not None:
         reaction.append(f"sector-relative 5D {rec['sector_relative_5d_pct']:.2f}pp")
     if rec.get("volume_ratio") is not None:
@@ -336,7 +556,8 @@ def signal_from(rec: dict[str, Any], generated_at: str) -> dict[str, Any]:
         reaction.append(f"price {rec['price']:.2f}")
 
     return {
-        "intake_id": f"PRICE|{symbol}|{last_date}|{trigger_key}",
+        "intake_id": intake_id,
+        "event_key": event_key,
         "input_lane": "MARKET_PRICING",
         "discovery_channel": "Runner3 Opportunity Radar Market Scanner",
         "verification": "MARKET_DATA_VERIFIED",
@@ -351,15 +572,30 @@ def signal_from(rec: dict[str, Any], generated_at: str) -> dict[str, Any]:
         "lead_decision": "",
         "last_checked": generated_at,
         "source": {
+            "symbol": symbol,
             "name": rec.get("name"),
             "exchange": rec.get("exchange"),
             "sector": rec.get("sector"),
             "industry": rec.get("industry"),
             "market_cap": rec.get("market_cap"),
+            "price": rec.get("price"),
+            "adjusted_price": rec.get("adjusted_price"),
+            "ret_1d_pct": rec.get("ret_1d_pct"),
+            "raw_ret_1d_pct": rec.get("raw_ret_1d_pct"),
+            "adjustment_gap_1d_pp": rec.get("adjustment_gap_1d_pp"),
+            "adjustment_verified": rec.get("adjustment_verified"),
             "raw_priority": rec.get("raw_priority"),
             "raw_triggers": triggers,
             "volume_confirmation": rec.get("volume_confirmation"),
             "last_date": rec.get("last_date"),
+            "discovery_state": discovery_state,
+            "earliest_detected_at": earliest_at,
+            "earliest_detected_price": earliest_price,
+            "ttl_completed_sessions": CFG["early_watch_ttl_sessions"] if discovery_state == "EARLY_WATCH" else None,
+            "continuation_candidate": bool(rec.get("continuation_candidate")),
+            "continuation_requires_catalyst_match": bool(rec.get("continuation_candidate")),
+            "catalyst_key_status": "UNRESOLVED_PRICING_ONLY",
+            "buy_gate_eligible": False if discovery_state == "EARLY_WATCH" or rec.get("continuation_candidate") else None,
         },
     }
 
@@ -371,6 +607,8 @@ def write_health(**kwargs: Any) -> None:
 def main() -> None:
     generated_at = datetime.now(TZ).isoformat()
     try:
+        previous_packet = load_previous_packet()
+
         print("[1/4] Loading Nasdaq symbol directories")
         listings = load_symbol_directory()
         commons = {s: r for s, r in listings.items() if common_like(r)}
@@ -405,8 +643,9 @@ def main() -> None:
             raise RuntimeError(f"history coverage too low: {len(history)}/{len(eligible)} ({coverage:.1%})")
 
         print("[4/4] Building V2 raw pricing signals")
-        shocks = find_shocks(commons, snapshot, history)
-        signals = [signal_from(x, generated_at) for x in shocks]
+        anomalies, guard_stats = build_anomalies(commons, snapshot, history, previous_packet)
+        previous = previous_by_symbol(previous_packet)
+        signals = [signal_from(x, generated_at, previous.get(str(x.get("symbol") or "").upper())) for x in anomalies]
         source_dates = sorted({str(x.get("source", {}).get("last_date")) for x in signals if x.get("source", {}).get("last_date")})
         source_session_date = source_dates[-1] if source_dates else None
 
@@ -416,6 +655,13 @@ def main() -> None:
             "generated_at": generated_at,
             "source_session_date": source_session_date,
             "complete": True,
+            "discovery_policy": {
+                "early_watch_ttl_completed_sessions": CFG["early_watch_ttl_sessions"],
+                "continuation_window_completed_sessions": CFG["continuation_window_sessions"],
+                "continuation_is_confirmation_only": True,
+                "buy_gate_unchanged": True,
+                "returns_use_adjusted_close": True,
+            },
             "stats": {
                 "listed_securities": len(listings),
                 "common_like_universe": len(commons),
@@ -425,7 +671,8 @@ def main() -> None:
                 "history_returned": len(history),
                 "history_coverage": coverage,
                 "signal_count": len(signals),
-                "volume_confirmed": sum(1 for x in shocks if x.get("volume_confirmation")),
+                "volume_confirmed": sum(1 for x in anomalies if x.get("volume_confirmation")),
+                **guard_stats,
             },
             "signals": signals,
         }
@@ -442,6 +689,11 @@ def main() -> None:
             history_coverage=coverage,
             snapshot_ok=bool(snapshot),
             snapshot_error=snapshot_error,
+            early_watch=guard_stats["early_watch"],
+            continuation=guard_stats["continuation"],
+            corporate_action_suppressed=guard_stats["corporate_action_suppressed"],
+            corporate_action_unverified_suppressed=guard_stats["corporate_action_unverified_suppressed"],
+            buy_gate_unchanged=True,
         )
         print(f"Wrote {SIGNALS_OUT} ({len(signals)} signals)")
         print(f"Wrote {HEALTH_OUT}")
