@@ -1,0 +1,32 @@
+name: Private Backtest Crypto Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-backtest-crypto-inspect.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        scope:
+          - bt-super-rsi-crypto30-binance-spot-v1
+          - bt-super-rsi-crypto30-binance-usdm-perp-v1
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/private_backtest_crypto_inspect.py --scope ${{ matrix.scope }}
