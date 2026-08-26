@@ -34,18 +34,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node --check cloudflare/runner3-core/audio-entry.js
           node --check cloudflare/runner3-core/reader-media-entry.js
           node --check cloudflare/runner3-core/reddit-entry.js
           node --check cloudflare/runner3-core/rss-entry.js
+          node --check cloudflare/runner3-core/src/audio-media.js
           node --check cloudflare/runner3-core/src/index.js
           python3 - <<'PY'
           import json
           p='cloudflare/runner3-core/wrangler.jsonc'
           d=json.load(open(p,encoding='utf-8'))
           assert d.get('name') == 'runner3-core'
+          assert d.get('main') == 'audio-entry.js'
           assert d.get('d1_databases')
-          assert d.get('r2_buckets')
+          buckets={x.get('binding'):x.get('bucket_name') for x in d.get('r2_buckets',[])}
+          assert buckets.get('ARTIFACTS') == 'runner3-artifacts'
+          assert buckets.get('AUDIO_MEDIA') == 'runner3-wp-media'
           print('Runner3 Core source validation OK')
           print('Production deploy owner: private louisalviss/vps-control')
-          print('Trigger: deploy/runner3-core-request.json')
+          print('Audio media access: scoped bearer via Runner3 Core')
           PY
