@@ -1,0 +1,85 @@
+name: Sealed Summary Read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/sealed-summary-trigger.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Read and encrypt private summary
+        shell: bash
+        env:
+          RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          ulimit -c 0 || true
+          scope="$(tr -d '\r\n[:space:]' < jobs/sealed-summary-trigger.txt)"
+          base="${RUNNER3_CORE_URL:-https://runner3-core.ducduy2411.workers.dev}"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl --fail --silent --show-error \
+            -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36' \
+            -H "Authorization: Bearer ${RUNNER3_CORE_TOKEN}" \
+            "${base%/}/artifacts/private-compute/${scope}/result.tar.gz" \
+            -o "$tmp/result.tar.gz"
+          mkdir -p "$tmp/x"
+          tar -xzf "$tmp/result.tar.gz" -C "$tmp/x"
+          python3 - "$tmp/x/results/out/result.json" "$tmp/summary.json" <<'PY'
+          import json, pathlib, sys
+          d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          out={
+            'generated_at':d.get('generated_at'),
+            'period':d.get('period'),
+            'universe_requested':d.get('universe_requested'),
+            'universe_usable':d.get('universe_usable'),
+            'results':d.get('results'),
+            'first_leg_yearly':d.get('first_leg_yearly'),
+          }
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(out,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          PY
+          cat > "$tmp/recipient.crt" <<'CRT'
+-----BEGIN CERTIFICATE-----
+MIIEFTCCAn2gAwIBAgIUdkozzzrYLDSi97u2zq9CBjYVWu4wDQYJKoZIhvcNAQEL
+BQAwGjEYMBYGA1UEAwwPRmVsaXBlRXBoZW1lcmFsMB4XDTI2MDgyNjA5NDkxMFoX
+DTI2MDgyNzA5NDkxMFowGjEYMBYGA1UEAwwPRmVsaXBlRXBoZW1lcmFsMIIBojAN
+BgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA5CNgIytDcHr9U/IESxDywy1fG3P8
+YGDD/I4/1G/veGid1KI0ftdn6KPxeHdzArvna0yXbODLfbNdCAkwyFe3XNf/SAtP
+xfWPadYUCmM8drrLL3x+4tq9pynwh3Q11oyyWs3QZzHQqnCBB3YN5Sd33MbND6dE
+gLJjrn3PShWZvDqX4SqZOagLrOcp+nX2L93pN6X1lPpXexz49TLf3XS60uwYK5Wn
+SNRArpR//w/u4IZz/fBOVWc+++FIqnvPEIwCETZUGEatVnJJxrpjhpZznjqBIdcn
+Rf38jwHFlb1f32E3cD5YR1cI8Y5bCWIkpts8qv4Dch+NhujbrBTtUyxfH+qcKVKt
+3mLJw+CfISLjOpJaqcEVVlVS8BEzvi8sDc4QwO+cm4l5QWmlNn91I04CvfYkqLlY
+z5vdYvxEfDNhDBjz2a8e45fdTeSC4rxccgEStp9weLN7CrhgQn3NxMpZFAosqfho
+Z/PE/zZM7Ecu+6j5vTvmstTwiR0rqMCFlm1XAgMBAAGjUzBRMB0GA1UdDgQWBBR2
+w/jwzMYJvfI0+8c/JF5vcGkd9DAfBgNVHSMEGDAWgBR2w/jwzMYJvfI0+8c/JF5v
+cGkd9DAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBgQDiFYh9Z5Bl
+r+rSbGyBNzzmSqKPJl74sz3Nt1M4HagdJ+7pkTd+GX5MzJI4FQ2bMKQKI5C9WomO
+ucZuSA8w/5ECvBxb6TINr1EB9q2k7IjteEKgfx/fjy2I9r5K48K10TdllZ6oLOST
+G+9L6JQZjzaGwSIzYTRrC8RqUO7P1Xz9H9Y+WefAW4tcBMjOW0PHWtZ9q7izj8ZC
+qApFog3ktoxnZp+U2GJ5R2w6ToNPlSSL8ChmyFM6JJ5jT+A1TVzvUPdvCh8b2GB6
+ZvwtvPTPfs1X8Y5dTcMs9i3qpTP/Bz0zR7k9w0aL60l0C0YzL21Umgb0rb4H7+Fw
+FXka7BvLaRq3bSLRtxp5aD7fkpWtI77F6zXUmpt9vyvt6+Tf+25LIhjD/tff+71i
+9wv0si0C8+xMhqw5nGRd5zsNkuA76sSQVHzfpDk06IYJ0lTAnouNegOPEhR6ewQf
+Kw5MopCR00xBR+8Q++UXx6TVFJ8acDFqMHTba1ouMGXHW5u8LaWrtpg=
+-----END CERTIFICATE-----
+CRT
+          openssl cms -encrypt -binary -aes256 -in "$tmp/summary.json" -outform DER -out "$tmp/summary.p7m" "$tmp/recipient.crt"
+          printf 'SEALED_SUMMARY_B64='
+          base64 -w0 "$tmp/summary.p7m"
+          printf '\n'
