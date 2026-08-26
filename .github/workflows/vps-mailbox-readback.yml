@@ -13,12 +13,12 @@ permissions:
 
 concurrency:
   group: vps-mailbox-readback
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   relay:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,9 +33,12 @@ jobs:
           mapfile -t ids < <(python3 - <<'PY'
           import json
           d=json.load(open('mailbox/inbox.json',encoding='utf-8'))
+          vals=[]
           for x in d.get('requests',[]):
               s=str(x).strip()
-              if s: print(s)
+              if s: vals.append(s)
+          for s in reversed(vals):
+              print(s)
           PY
           )
           if [ "${#ids[@]}" -eq 0 ]; then
@@ -44,15 +47,18 @@ jobs:
           fi
 
           changed=0
+          checked=0
           for rid in "${ids[@]}"; do
             out="mailbox/outbox/${rid}.json"
             if [ -s "$out" ]; then
               continue
             fi
+            checked=$((checked+1))
+            [ "$checked" -le 8 ] || break
             echo "Polling encrypted result for ${rid}"
-            for attempt in $(seq 1 45); do
+            for attempt in $(seq 1 12); do
               tmp="$(mktemp)"
-              code="$(curl -sS --max-time 10 -o "$tmp" -w '%{http_code}' \
+              code="$(curl -sS --max-time 8 -o "$tmp" -w '%{http_code}' \
                 "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${attempt}" || true)"
               if [ "$code" = 200 ]; then
                 if python3 - "$tmp" "$out" <<'PY'
@@ -92,4 +98,5 @@ jobs:
           git config user.email 'vps-mailbox-relay[bot]@users.noreply.github.com'
           git add mailbox/outbox/*.json
           git commit -m "Relay encrypted VPS mailbox result [skip ci]"
+          git pull --rebase origin main
           git push
