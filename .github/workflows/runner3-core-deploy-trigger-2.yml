@@ -1,0 +1,27 @@
+name: Runner3 Core Deploy Trigger 2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-core-deploy-trigger-2.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Wrangler
+        run: npm install -g wrangler
+      - name: Deploy Runner3 Core
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd workers/runner3-core
+          wrangler deploy
