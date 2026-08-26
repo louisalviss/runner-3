@@ -1,18 +1,42 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
-from crawler import DEFAULT_UA
+from crawler import DEFAULT_UA, browser_fetch
 
 POST_DIGITS_RE = re.compile(r"(\d{5,})")
+TINHTE_TZ = timezone(timedelta(hours=7))
+TINHTE_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?\b")
+TINHTE_REL_RE = re.compile(r"\b(\d+)\s*(phút|giờ|ngày)\s*(?:trước)?\b", re.I)
+TINHTE_BODY_SELECTOR = (
+    ".post-body, [class*='post-body'], [class*='postBody'], "
+    ".comment-content, .commentContent, [class*='comment-content'], "
+    "[class*='commentContent'], [class*='reply-content'], [class*='replyContent']"
+)
+TINHTE_NODE_SELECTORS = [
+    "div.post-item__container",
+    "[class*='post-item__container']",
+    "[data-comment-id]",
+    "[data-reply-id]",
+    "[data-post-id]",
+    "[id^='comment-']",
+    "[id^='reply-']",
+    ".comment-item",
+    ".commentItem",
+    "[class*='comment-item']",
+    "[class*='reply-item']",
+    "article[class*='comment']",
+    "li[class*='comment']",
+]
 
 
 def read_jsonl(path):
@@ -32,6 +56,15 @@ def write_jsonl(path, rows):
     p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
 
 
+def normalize_space(value):
+    return " ".join(str(value or "").split())
+
+
+def text_key(value):
+    normalized = normalize_space(value).casefold()
+    return hashlib.sha1(normalized.encode("utf-8", errors="ignore")).hexdigest()
+
+
 def normalize_timestamp(value):
     raw = str(value or "").strip()
     if not raw:
@@ -45,6 +78,63 @@ def normalize_timestamp(value):
         except (OverflowError, OSError, ValueError):
             return raw
     return raw
+
+
+def parse_tinhte_timestamp(value):
+    raw = normalize_space(value)
+    if not raw:
+        return ""
+
+    if re.fullmatch(r"\d{9,13}", raw):
+        return normalize_timestamp(raw)
+
+    try:
+        iso = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if iso.tzinfo is None:
+            iso = iso.replace(tzinfo=TINHTE_TZ)
+        return iso.isoformat()
+    except ValueError:
+        pass
+
+    m = TINHTE_DATE_RE.search(raw)
+    if m:
+        day, month = map(int, m.group(1, 2))
+        year = int(m.group(3))
+        if year < 100:
+            year += 2000
+        hour = int(m.group(4) or 0)
+        minute = int(m.group(5) or 0)
+        try:
+            return datetime(year, month, day, hour, minute, tzinfo=TINHTE_TZ).isoformat()
+        except ValueError:
+            return ""
+
+    lowered = raw.lower()
+    now = datetime.now(TINHTE_TZ)
+    if "vừa xong" in lowered or "vừa mới" in lowered:
+        return now.isoformat()
+    if "hôm qua" in lowered:
+        clock = re.search(r"\b(\d{1,2}):(\d{2})\b", lowered)
+        dt = now - timedelta(days=1)
+        if clock:
+            dt = dt.replace(hour=int(clock.group(1)), minute=int(clock.group(2)), second=0, microsecond=0)
+        return dt.isoformat()
+    if "hôm nay" in lowered:
+        clock = re.search(r"\b(\d{1,2}):(\d{2})\b", lowered)
+        if clock:
+            return now.replace(hour=int(clock.group(1)), minute=int(clock.group(2)), second=0, microsecond=0).isoformat()
+    m = TINHTE_REL_RE.search(lowered)
+    if m:
+        amount = int(m.group(1))
+        unit = m.group(2).lower()
+        if unit == "phút":
+            dt = now - timedelta(minutes=amount)
+        elif unit == "giờ":
+            dt = now - timedelta(hours=amount)
+        else:
+            dt = now - timedelta(days=amount)
+        return dt.isoformat()
+    return ""
 
 
 def timestamp_from_node(node):
@@ -108,7 +198,7 @@ def recover_for_url(url, headers, timeout):
         return url, {}, type(exc).__name__
 
 
-def enrich(rows, cache):
+def enrich_otofun(rows, cache):
     recovered = 0
     unresolved = 0
     for row in rows:
@@ -135,15 +225,170 @@ def enrich(rows, cache):
     return recovered, unresolved
 
 
+def tinhte_timestamp_from_comment_node(node, body):
+    candidates = []
+    for selector in (
+        "time", "[data-time]", "[data-timestamp]", "[data-date]", "[data-date-string]",
+        "[data-created-at]", "[data-created]", "[class*='time']", "[class*='date']"
+    ):
+        try:
+            candidates.extend(node.select(selector))
+        except Exception:
+            continue
+
+    candidates.append(node)
+    for item in candidates:
+        for attr in (
+            "datetime", "data-time", "data-timestamp", "data-date", "data-date-string",
+            "data-created-at", "data-created", "title", "aria-label"
+        ):
+            value = item.get(attr) if hasattr(item, "get") else None
+            ts = parse_tinhte_timestamp(value)
+            if ts:
+                return ts
+
+    meta = BeautifulSoup(str(node), "html.parser")
+    for body_node in meta.select(TINHTE_BODY_SELECTOR):
+        body_node.decompose()
+    meta_text = meta.get_text(" ", strip=True)
+    return parse_tinhte_timestamp(meta_text)
+
+
+def build_tinhte_comment_timestamp_map(html):
+    soup = BeautifulSoup(html or "", "html.parser")
+    nodes = []
+    seen_nodes = set()
+    for selector in TINHTE_NODE_SELECTORS:
+        try:
+            matches = soup.select(selector)
+        except Exception:
+            continue
+        for node in matches:
+            marker = id(node)
+            if marker in seen_nodes:
+                continue
+            seen_nodes.add(marker)
+            nodes.append(node)
+
+    out = {}
+    for node in nodes:
+        body = node.select_one(TINHTE_BODY_SELECTOR)
+        if body is None:
+            continue
+        clone = BeautifulSoup(str(body), "html.parser")
+        for bad in clone.select("script, style, button, nav, footer, form, svg, blockquote, .quote, .post-quote"):
+            bad.decompose()
+        text = "\n".join(x.strip() for x in clone.get_text("\n", strip=True).splitlines() if x.strip())
+        if not (20 <= len(text) <= 12000):
+            continue
+        ts = tinhte_timestamp_from_comment_node(node, body)
+        if not ts:
+            continue
+        out[text_key(text)] = ts
+    return out
+
+
+def recover_tinhte_for_url(url, timeout):
+    result, errors = browser_fetch(url, timeout, 3000, {}, DEFAULT_UA)
+    if result is None or not result.get("ok"):
+        return url, {}, ";".join(str(x) for x in (errors or [])) or "browser_failed"
+    mapping = build_tinhte_comment_timestamp_map(result.get("html", ""))
+    return url, mapping, "" if mapping else "no_comment_timestamps"
+
+
+def enrich_tinhte(rows, cache):
+    recovered = 0
+    unresolved = 0
+    for row in rows:
+        if str(row.get("source") or "") != "Tinhte":
+            continue
+        if str(row.get("extraction") or "") != "structured_post":
+            continue
+        if str(row.get("timestamp") or "").strip():
+            continue
+        url = str(row.get("fetched_url") or row.get("thread_url") or "")
+        mapping = cache.get(url) or {}
+        ts = mapping.get(text_key(row.get("text", "")), "")
+        if ts:
+            row["timestamp"] = ts
+            row["timestamp_recovered"] = True
+            row["timestamp_recovery_source"] = "tinhte_browser_metadata"
+            recovered += 1
+        else:
+            unresolved += 1
+    return recovered, unresolved
+
+
+def parsed_dt(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=TINHTE_TZ)
+        return dt
+    except ValueError:
+        return None
+
+
+def promote_tinhte_snapshot(delta_rows, snapshot_rows, max_age_hours=72):
+    now = datetime.now(timezone.utc)
+    cleaned_delta = [
+        r for r in delta_rows
+        if not (str(r.get("source") or "") == "Tinhte" and str(r.get("extraction") or "") != "structured_post")
+    ]
+    cleaned_snapshot = [
+        r for r in snapshot_rows
+        if not (str(r.get("source") or "") == "Tinhte" and str(r.get("extraction") or "") != "structured_post")
+    ]
+
+    seen = {
+        (
+            str(r.get("source") or ""),
+            str(r.get("thread_key") or r.get("thread_url") or ""),
+            text_key(r.get("text", "")),
+        )
+        for r in cleaned_delta
+    }
+    promoted = 0
+    for row in cleaned_snapshot:
+        if str(row.get("source") or "") != "Tinhte":
+            continue
+        if str(row.get("extraction") or "") != "structured_post":
+            continue
+        dt = parsed_dt(row.get("timestamp"))
+        if dt is None:
+            continue
+        age_hours = (now - dt.astimezone(timezone.utc)).total_seconds() / 3600
+        if age_hours < -2 or age_hours > max_age_hours:
+            continue
+        key = (
+            "Tinhte",
+            str(row.get("thread_key") or row.get("thread_url") or ""),
+            text_key(row.get("text", "")),
+        )
+        if key in seen:
+            continue
+        copy = dict(row)
+        copy["snapshot_promoted"] = True
+        copy["is_new"] = bool(copy.get("is_new"))
+        cleaned_delta.append(copy)
+        seen.add(key)
+        promoted += 1
+    return cleaned_delta, cleaned_snapshot, promoted
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Recover missing Otofun/XenForo post timestamps")
+    ap = argparse.ArgumentParser(description="Recover Otofun and Tinhte post timestamps; keep Tinhte current snapshot usable")
     ap.add_argument("--output-dir", default="crawl_output")
-    ap.add_argument("--timeout", type=int, default=10)
+    ap.add_argument("--timeout", type=int, default=12)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--tinhte-max-age-hours", type=int, default=72)
     ap.add_argument("--validate-only", action="store_true")
     args = ap.parse_args()
     if args.validate_only:
-        print(json.dumps({"timestamp_recovery": "forum-signal-timestamp-v2", "validated": True}))
+        print(json.dumps({"timestamp_recovery": "forum-signal-timestamp-v3", "validated": True}))
         return
 
     root = Path(args.output_dir)
@@ -152,9 +397,7 @@ def main():
     delta_rows = read_jsonl(delta_path)
     snapshot_rows = read_jsonl(snapshot_path)
 
-    # Only delta rows can reach the scorer. Refetching every selected Otofun thread
-    # would add latency without improving the current decision.
-    urls = sorted({
+    otofun_urls = sorted({
         str(r.get("fetched_url") or r.get("thread_url") or "")
         for r in delta_rows
         if str(r.get("source") or "").startswith("OF-")
@@ -162,30 +405,60 @@ def main():
         and str(r.get("fetched_url") or r.get("thread_url") or "")
     })
     headers = {"User-Agent": DEFAULT_UA, "Accept": "text/html,application/xhtml+xml"}
-    cache = {}
-    errors = {}
-    if urls:
+    otofun_cache = {}
+    otofun_errors = {}
+    if otofun_urls:
         with ThreadPoolExecutor(max_workers=max(1, min(args.workers, 12))) as pool:
-            futures = [pool.submit(recover_for_url, url, headers, args.timeout) for url in urls]
+            futures = [pool.submit(recover_for_url, url, headers, args.timeout) for url in otofun_urls]
             for fut in as_completed(futures):
                 url, mapping, err = fut.result()
-                cache[url] = mapping
+                otofun_cache[url] = mapping
                 if err:
-                    errors[url] = err
+                    otofun_errors[url] = err
 
-    delta_recovered, delta_unresolved = enrich(delta_rows, cache)
-    snapshot_recovered, snapshot_unresolved = enrich(snapshot_rows, cache)
+    delta_recovered, delta_unresolved = enrich_otofun(delta_rows, otofun_cache)
+    snapshot_recovered, snapshot_unresolved = enrich_otofun(snapshot_rows, otofun_cache)
+
+    tinhte_urls = sorted({
+        str(r.get("fetched_url") or r.get("thread_url") or "")
+        for r in snapshot_rows
+        if str(r.get("source") or "") == "Tinhte"
+        and str(r.get("extraction") or "") == "structured_post"
+        and not str(r.get("timestamp") or "").strip()
+        and str(r.get("fetched_url") or r.get("thread_url") or "")
+    })
+    tinhte_cache = {}
+    tinhte_errors = {}
+    for url in tinhte_urls:
+        url, mapping, err = recover_tinhte_for_url(url, args.timeout)
+        tinhte_cache[url] = mapping
+        if err:
+            tinhte_errors[url] = err
+
+    tinhte_delta_recovered, tinhte_delta_unresolved = enrich_tinhte(delta_rows, tinhte_cache)
+    tinhte_snapshot_recovered, tinhte_snapshot_unresolved = enrich_tinhte(snapshot_rows, tinhte_cache)
+
+    delta_rows, snapshot_rows, tinhte_snapshot_promoted = promote_tinhte_snapshot(
+        delta_rows, snapshot_rows, max_age_hours=args.tinhte_max_age_hours
+    )
     write_jsonl(delta_path, delta_rows)
     write_jsonl(snapshot_path, snapshot_rows)
 
     print(json.dumps({
-        "timestamp_recovery": "forum-signal-timestamp-v2",
-        "delta_urls_refetched": len(urls),
-        "url_errors": len(errors),
-        "delta_recovered": delta_recovered,
-        "delta_unresolved": delta_unresolved,
-        "snapshot_recovered_for_same_threads": snapshot_recovered,
-        "snapshot_unresolved_for_same_threads": snapshot_unresolved,
+        "timestamp_recovery": "forum-signal-timestamp-v3",
+        "otofun_urls_refetched": len(otofun_urls),
+        "otofun_url_errors": len(otofun_errors),
+        "otofun_delta_recovered": delta_recovered,
+        "otofun_delta_unresolved": delta_unresolved,
+        "otofun_snapshot_recovered_for_same_threads": snapshot_recovered,
+        "otofun_snapshot_unresolved_for_same_threads": snapshot_unresolved,
+        "tinhte_urls_rendered": len(tinhte_urls),
+        "tinhte_url_errors": len(tinhte_errors),
+        "tinhte_delta_recovered": tinhte_delta_recovered,
+        "tinhte_delta_unresolved": tinhte_delta_unresolved,
+        "tinhte_snapshot_recovered": tinhte_snapshot_recovered,
+        "tinhte_snapshot_unresolved": tinhte_snapshot_unresolved,
+        "tinhte_snapshot_promoted": tinhte_snapshot_promoted,
     }, ensure_ascii=False))
 
 
