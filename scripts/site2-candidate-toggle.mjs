@@ -54,26 +54,49 @@ async function readState(page) {
   };
 }
 
-async function ensureInstalled(page) {
-  let state = await readState(page);
-  if (state.installed) return 'reused';
-
+async function uploadCandidateZip(page) {
   await page.goto(`${target}/wp-admin/plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   const input = page.locator('input[type="file"][name="pluginzip"]');
   await input.waitFor({ state: 'visible', timeout: 30_000 });
   await input.setInputFiles(pluginZip);
   await page.locator('#install-plugin-submit').click();
   await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
+}
 
-  const body = await page.locator('body').innerText();
-  if (!/Destination folder already exists/i.test(body)) {
-    const activateNow = page.locator('a.button.activate-now, a.button[href*="action=activate"]');
-    if (await activateNow.count()) await gotoAdminHref(page, activateNow.first());
+async function ensureInstalled(page) {
+  const before = await readState(page);
+  if (before.active) throw new Error('candidate must be inactive before replacing its package');
+
+  // Always upload the exact candidate ZIP for an activation run. Reusing an
+  // already-installed slug can silently execute stale candidate code from a
+  // previous A/B attempt, invalidating the experiment.
+  await uploadCandidateZip(page);
+
+  let body = await page.locator('body').innerText();
+  let installAction = before.installed ? 'replaced' : 'installed';
+
+  if (/Destination folder already exists|already installed/i.test(body)) {
+    const replace = page.locator(
+      'a.update-from-upload-overwrite, a.button[href*="overwrite=update-plugin"], a.button:has-text("Replace current with uploaded")'
+    ).first();
+    if (!(await replace.count())) {
+      throw new Error('candidate package already exists but WordPress replace-upload action is unavailable');
+    }
+    await gotoAdminHref(page, replace);
+    await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
+    body = await page.locator('body').innerText();
+    if (/Plugin update failed|Installation failed/i.test(body)) {
+      throw new Error(`candidate package replacement failed: ${body.slice(0, 500)}`);
+    }
+  } else if (before.installed) {
+    // If an installed candidate was present, WordPress must explicitly take
+    // the overwrite path. Otherwise we cannot prove the new ZIP was deployed.
+    throw new Error('installed candidate did not enter WordPress replace-upload flow');
   }
 
-  state = await readState(page);
+  const state = await readState(page);
   if (!state.installed) throw new Error(`candidate plugin ${pluginSlug} was not installed`);
-  return 'installed';
+  return installAction;
 }
 
 async function setActive(page, shouldBeActive) {
