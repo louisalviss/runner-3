@@ -32,6 +32,7 @@ jobs:
           curl https://get.wasmer.io -sSfL | sh >/dev/null
           export PATH="$HOME/.wasmer/bin:$PATH"
           wasmer --version
+          wasmer login "$WASMER_TOKEN" >/dev/null
           wasmer app get "$SITE2_APP" > /tmp/site2-app-get.yaml
           python3 -m pip install --quiet pyyaml
           python3 - <<'PY'
@@ -65,7 +66,6 @@ jobs:
               'volumes':cfg.get('volumes'),
               'debug':cfg.get('debug'),
           }
-          # Never print env/secrets or unknown raw fields.
           print('SITE2_WASMER_CONFIG_SAFE', json.dumps(safe, separators=(',',':')))
           print('SITE2_WASMER_CONFIG_KEYS', sorted(map(str,cfg.keys())))
           PY
