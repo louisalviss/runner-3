@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Read and encrypt private summary
+      - name: Read and encrypt private mini-summary
         shell: bash
         env:
           RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
@@ -40,21 +40,22 @@ jobs:
             -o "$tmp/result.tar.gz"
           mkdir -p "$tmp/x"
           tar -xzf "$tmp/result.tar.gz" -C "$tmp/x"
-          python3 - "$tmp/x/results/out/result.json" "$tmp/summary.json" <<'PY'
+          python3 - "$tmp/x/results/out/result.json" "$tmp/mini.json" <<'PY'
           import json, pathlib, sys
           d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
-          out={
-            'generated_at':d.get('generated_at'),
-            'period':d.get('period'),
-            'universe_requested':d.get('universe_requested'),
-            'universe_usable':d.get('universe_usable'),
-            'results':d.get('results'),
-            'first_leg_yearly':d.get('first_leg_yearly'),
-          }
-          pathlib.Path(sys.argv[2]).write_text(json.dumps(out,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          def row(k):
+              x=(d.get('results') or {}).get(k) or {}
+              return [x.get('trades'),x.get('win_rate_pct'),x.get('avg_return_pct'),x.get('profit_factor_return'),x.get('avg_R'),x.get('stop_rate_pct')]
+          out={'p':d.get('period'),'q':d.get('universe_requested'),'u':d.get('universe_usable'),'b':row('base'),'v':row('vcp'),'f':row('first_leg_vcp')}
+          s=json.dumps(out,separators=(',',':'))
+          if len(s.encode())>300: raise SystemExit('mini summary too large')
+          pathlib.Path(sys.argv[2]).write_text(s,encoding='utf-8')
           PY
           printf '%s' 'LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUVGVENDQW4yZ0F3SUJBZ0lVZGtvenp6cllMRFNpOTd1MnpxOUNCallWV3U0d0RRWUpLb1pJaHZjTkFRRUwKQlFBd0dqRVlNQllHQTFVRUF3d1BSbVZzYVhCbFJYQm9aVzFsY21Gc01CNFhEVEkyTURneU5qQTVORGt4TUZvWApEVEkyTURneU56QTVORGt4TUZvd0dqRVlNQllHQTFVRUF3d1BSbVZzYVhCbFJYQm9aVzFsY21Gc01JSUJvakFOCkJna3Foa2lHOXcwQkFRRUZBQU9DQVk4QU1JSUJpZ0tDQVlFQTVDTmdJeXREY0hyOVUvSUVTeER5d3kxZkczUDgKWUdERC9JNC8xRy92ZUdpZDFLSTBmdGRuNktQeGVIZHpBcnZuYTB5WGJPRExmYk5kQ0Frd3lGZTNYTmYvU0F0UAp4ZldQYWRZVUNtTThkcnJMTDN4KzR0cTlweW53aDNRMTFveXlXczNRWnpIUXFuQ0JCM1lONVNkMzNNYk5ENmRFCmdMSmpybjNQU2hXWnZEcVg0U3FaT2FnTHJPY3ArblgyTDkzcE42WDFsUHBYZXh6NDlUTGYzWFM2MHV3WUs1V24KU05SQXJwUi8vdy91NElaei9mQk9WV2MrKytGSXFudlBFSXdDRVRaVUdFYXRWbkpKeHJwamhwWnpuanFCSWRjbgpSZjM4andIRmxiMWYzMkUzY0Q1WVIxY0k4WTViQ1dJa3B0czhxdjREY2grTmh1amJyQlR0VXl4ZkgrcWNLVkt0CjNtTEp3K0NmSVNMak9wSmFxY0VWVmxWUzhCRXp2aThzRGM0UXdPK2NtNGw1UVdtbE5uOTFJMDRDdmZZa3FMbFkKejV2ZFl2eEVmRE5oREJqejJhOGU0NWZkVGVTQzRyeGNjZ0VTdHA5d2VMTjdDcmhnUW4zTnhNcFpGQW9zcWZobwpaL1BFL3paTTdFY3UrNmo1dlR2bXN0VHdpUjBycU1DRmxtMVhBZ01CQUFHalV6QlJNQjBHQTFVZERnUVdCQlIyCncvand6TVlKdmZJMCs4Yy9KRjV2Y0drZDlEQWZCZ05WSFNNRUdEQVdnQlIydy9qd3pNWUp2ZkkwKzhjL0pGNXYKY0drZDlEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01BMEdDU3FHU0liM0RRRUJDd1VBQTRJQmdRRGlGWWg5WjVCbApyK3JTYkd5Qk56em1TcUtQSmw3NHN6M050MU00SGFnZEorN3BrVGQrR1g1TXpKSTRGUTJiTUtRS0k1QzlXb21PCnVjWnVTQTh3LzVFQ3ZCeGI2VElOcjFFQjlxMms3SWp0ZUVLZ2Z4L2ZqeTJJOXI1SzQ4SzEwVGRsbFo2b0xPU1QKRys5TDZKUVpqemFHd1NJellUUnJDOFJxVU83UDFYejlIOVkrV2VmQVc0dGNCTWpPVzBQSFd0WjlxN2l6ajhaQwpxQXBGb2cza3RveG5acCtVMkdKNVIydzZUb05QbFNTTDhDaG15Rk02Sko1alQrQTFUVnp2VVBkdkNoOGIyR0I2Clp2d3R2UFRQZnMxWDhZNWRUY01zOWkzcXBUUC9CejB6UjdrOXcwYUw2MGwwQzBZekwyMVVtZ2IwcmI0SDcrRncKRlhrYTdCdkxhUnEzYlNMUnR4cDVhRDdma3BXdEk3N0Y2elhVbXB0OXZ5dnQ2K1RmKzI1TEloakQvdGZmKzcxaQo5d3Ywc2kwQzgreE1ocXc1bkdSZDV6c05rdUE3NnNTUVZIemZwRGswNklZSjBsVEFub3VOZWdPUEVoUjZld1FmCkt3NU1vcENSMDB4QlIrOFErK1VYeDZUVkZKOGFjREZxTUhUYmExb3VNR1hIVzV1OExhV3J0cGc9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K' | base64 -d > "$tmp/recipient.crt"
-          openssl cms -encrypt -binary -aes256 -in "$tmp/summary.json" -outform DER -out "$tmp/summary.p7m" "$tmp/recipient.crt"
-          printf 'SEALED_SUMMARY_B64='
-          base64 -w0 "$tmp/summary.p7m"
+          openssl x509 -pubkey -noout -in "$tmp/recipient.crt" > "$tmp/pub.pem"
+          openssl pkeyutl -encrypt -pubin -inkey "$tmp/pub.pem" \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+            -in "$tmp/mini.json" -out "$tmp/mini.bin"
+          printf 'SEALED_MINI_B64='
+          base64 -w0 "$tmp/mini.bin"
           printf '\n'
