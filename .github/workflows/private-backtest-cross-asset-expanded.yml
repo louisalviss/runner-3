@@ -1,0 +1,100 @@
+name: Private Backtest Cross Asset Expanded
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-backtest-cross-asset-30m-expanded.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-cross-asset-expanded
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [forex, metals, indices]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stage expanded family
+        run: python tools/private_backtest_cross_asset.py stage --config jobs/private-backtest-cross-asset-30m-expanded.json --family ${{ matrix.family }}
+
+  shard:
+    needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        family: [forex, metals, indices]
+        shard: [0,1,2,3,4,5,6,7]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check 'dukascopy-python==4.0.1' 'numpy>=2,<3' 'pandas>=2,<3'
+      - name: Run expanded family shard
+        run: python tools/private_backtest_cross_asset.py shard --config jobs/private-backtest-cross-asset-30m-expanded.json --family ${{ matrix.family }} --shard ${{ matrix.shard }}
+
+  evaluate:
+    if: ${{ always() && needs.stage.result == 'success' }}
+    needs: [stage, shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [forex, metals, indices]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Evaluate expanded family
+        run: python tools/private_backtest_cross_asset.py evaluate --config jobs/private-backtest-cross-asset-30m-expanded.json --family ${{ matrix.family }}
+
+  symbol_promote:
+    needs: evaluate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [forex, metals, indices]
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_SOURCE: runner-3-github-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply preregistered per-symbol gates
+        run: python tools/private_backtest_symbol_promoter.py --config jobs/private-backtest-cross-asset-30m-expanded.json --family ${{ matrix.family }}
