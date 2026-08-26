@@ -1,0 +1,196 @@
+name: Private Compute
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/private-compute-trigger.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-compute
+  cancel-in-progress: false
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout public harness
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch sealed job
+        shell: bash
+        env:
+          RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          ulimit -c 0 || true
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tarfile, time, urllib.error, urllib.parse, urllib.request
+
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sealed-job'
+          work = root / 'work'
+          root.mkdir(mode=0o700, parents=True, exist_ok=True)
+          work.mkdir(mode=0o700, parents=True, exist_ok=True)
+          scope = pathlib.Path('jobs/private-compute-trigger.txt').read_text(encoding='utf-8').strip().lower()
+          if len(scope) < 32 or any(c not in '0123456789abcdef' for c in scope):
+              raise SystemExit('invalid opaque job id')
+
+          base = (os.environ.get('RUNNER3_CORE_URL') or 'https://runner3-core.ducduy2411.workers.dev').rstrip('/')
+          token = os.environ['RUNNER3_CORE_TOKEN'].strip()
+          headers = {'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache'}
+
+          def get(name, dest, retries=40):
+              url = f"{base}/artifacts/private-compute/{urllib.parse.quote(scope, safe='')}/{urllib.parse.quote(name, safe='')}"
+              last = None
+              for _ in range(retries):
+                  try:
+                      req = urllib.request.Request(url, headers=headers)
+                      with urllib.request.urlopen(req, timeout=60) as r, open(dest, 'wb') as f:
+                          while True:
+                              chunk = r.read(1024 * 1024)
+                              if not chunk:
+                                  break
+                              f.write(chunk)
+                      return
+                  except urllib.error.HTTPError as e:
+                      last = e
+                      if e.code != 404:
+                          raise
+                  time.sleep(3)
+              raise last or RuntimeError('sealed job unavailable')
+
+          job_path = root / 'job.json'
+          bundle_path = root / 'bundle.tar.gz'
+          get('job.json', job_path)
+          job = json.loads(job_path.read_text(encoding='utf-8'))
+          if job.get('schema') != 1 or job.get('scope') != scope:
+              raise SystemExit('sealed job validation failed')
+          get(str(job['bundle']['name']), bundle_path)
+          got = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+          if got.lower() != str(job['bundle']['sha256']).lower():
+              raise SystemExit('sealed bundle hash mismatch')
+
+          with tarfile.open(bundle_path, 'r:gz') as tf:
+              members = tf.getmembers()
+              for m in members:
+                  target = (work / m.name).resolve()
+                  if work.resolve() not in target.parents and target != work.resolve():
+                      raise SystemExit('unsafe bundle path')
+                  if m.issym() or m.islnk() or m.isdev():
+                      raise SystemExit('unsafe bundle member')
+              tf.extractall(work)
+          print('SEALED_FETCH=PASS')
+          PY
+
+      - name: Execute sealed job
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          ulimit -c 0 || true
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, sys
+
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sealed-job'
+          work = root / 'work'
+          job = json.loads((root / 'job.json').read_text(encoding='utf-8'))
+          log = root / 'private.log'
+          execution = root / 'execution.json'
+
+          env = dict(os.environ)
+          for key in list(env):
+              if key.startswith('RUNNER3_CORE') or key.startswith('ACTIONS_') or key in {'GITHUB_TOKEN'}:
+                  env.pop(key, None)
+          env['PYTHONUNBUFFERED'] = '1'
+          env['HOME'] = str(root / 'home')
+          pathlib.Path(env['HOME']).mkdir(mode=0o700, parents=True, exist_ok=True)
+
+          code = 0
+          with log.open('wb') as out:
+              packages = job.get('pip') or []
+              if packages:
+                  p = subprocess.run(
+                      [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input', *packages],
+                      cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, check=False,
+                  )
+                  code = int(p.returncode)
+              if code == 0:
+                  cmd = job.get('command') or []
+                  if not isinstance(cmd, list) or not cmd:
+                      code = 64
+                  else:
+                      p = subprocess.run(cmd, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, check=False)
+                      code = int(p.returncode)
+          execution.write_text(json.dumps({'exit_code': code}, separators=(',', ':')) + '\n', encoding='utf-8')
+          print('SEALED_EXECUTE=DONE')
+          PY
+
+      - name: Store sealed result
+        if: always()
+        shell: bash
+        env:
+          RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          python3 - <<'PY'
+          import json, os, pathlib, tarfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sealed-job'
+          work = root / 'work'
+          job = json.loads((root / 'job.json').read_text(encoding='utf-8')) if (root / 'job.json').exists() else {}
+          archive = root / 'result.tar.gz'
+          with tarfile.open(archive, 'w:gz') as tf:
+              for name in ('execution.json', 'private.log'):
+                  p = root / name
+                  if p.exists(): tf.add(p, arcname=name, recursive=False)
+              for rel in job.get('result_paths') or []:
+                  p = (work / rel).resolve()
+                  if p.exists() and (work.resolve() in p.parents or p == work.resolve()):
+                      tf.add(p, arcname=f'results/{rel}')
+          PY
+          scope="$(tr -d '\r\n[:space:]' < jobs/private-compute-trigger.txt)"
+          base="${RUNNER3_CORE_URL:-https://runner3-core.ducduy2411.workers.dev}"
+          curl --fail --silent --show-error -X PUT \
+            -H "Authorization: Bearer ${RUNNER3_CORE_TOKEN}" \
+            -H 'Content-Type: application/gzip' \
+            -H 'X-Runner3-Source: public-private-compute' \
+            --data-binary "@${RUNNER_TEMP}/sealed-job/result.tar.gz" \
+            "${base%/}/artifacts/private-compute/${scope}/result.tar.gz" >/dev/null
+          echo 'SEALED_STORE=PASS'
+
+      - name: Enforce execution status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sealed-job' / 'execution.json'
+          if not p.exists():
+              raise SystemExit(70)
+          code = int(json.loads(p.read_text(encoding='utf-8')).get('exit_code', 70))
+          raise SystemExit(0 if code == 0 else 1)
+          PY
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -rf "${RUNNER_TEMP}/sealed-job"
