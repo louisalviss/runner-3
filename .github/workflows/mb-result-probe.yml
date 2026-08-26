@@ -1,0 +1,30 @@
+name: Mailbox Result Probe
+on:
+  push:
+    paths:
+      - '.github/workflows/mb-result-probe.yml'
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Poll encrypted mailbox result
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://runner3-core.ducduy2411.workers.dev/mailbox/results/mb-20260827-vypr-live-proof-08c5b38f'
+          for i in $(seq 1 60); do
+            code="$(curl -sS --connect-timeout 5 --max-time 10 -o /tmp/mb-result.json -w '%{http_code}' "$url" || true)"
+            if [ "$code" = '200' ]; then
+              echo 'MAILBOX_RESULT_BEGIN'
+              cat /tmp/mb-result.json
+              echo
+              echo 'MAILBOX_RESULT_END'
+              exit 0
+            fi
+            echo "attempt=$i http=$code"
+            sleep 2
+          done
+          echo 'mailbox result not available'
+          exit 1
