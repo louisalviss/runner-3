@@ -8,10 +8,11 @@ on:
       - 'forum_signal_v2.py'
       - 'forum_signal_rank.py'
       - 'forum_signal_delta.py'
-      - 'forum_signal_f91_expand.py'
+      - 'forum_signal_voz_expand.py'
       - 'forum_signal_timestamp.py'
       - 'forum_signal_score.py'
       - 'forum_signal_f91_candidates.py'
+      - 'forum_signal_f93_candidates.py'
       - 'forum_signal_diversify.py'
       - 'forum_signal_route.py'
       - 'forum_signal_route_f91.py'
@@ -35,7 +36,7 @@ permissions:
 
 concurrency:
   group: forum-signal-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   crawl:
@@ -127,11 +128,12 @@ jobs:
           set -euo pipefail
           JOB='${{ steps.job.outputs.job_file }}'
           python forum_signal_delta.py "$JOB" --validate-only
-          python forum_signal_f91_expand.py "$JOB" --validate-only
+          python forum_signal_voz_expand.py "$JOB" --validate-only
           python forum_signal_timestamp.py --validate-only
           python forum_signal_score.py --input /tmp/nonexistent.jsonl --output /tmp/forum-candidates.jsonl --summary /tmp/forum-insights.md --min-score 3
           python forum_signal_f91_candidates.py --raw /tmp/nonexistent.jsonl --candidates /tmp/forum-candidates.jsonl --audit /tmp/forum-f91-boost.json
-          python forum_signal_diversify.py --input /tmp/forum-candidates.jsonl --audit /tmp/forum-f91-diversity.json
+          python forum_signal_f93_candidates.py --raw /tmp/nonexistent.jsonl --candidates /tmp/forum-candidates.jsonl --audit /tmp/forum-f93-boost.json
+          python forum_signal_diversify.py --input /tmp/forum-candidates.jsonl --audit /tmp/forum-diversity.json --source VOZ-F91 --per-thread 3 --source-cap 36
           python forum_signal_health.py --job "$JOB" --validate-only
           MODE="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","http"))' "$JOB")"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
@@ -151,7 +153,7 @@ jobs:
 
       - name: Crawl
         id: crawl
-        run: python forum_signal_f91_expand.py '${{ steps.job.outputs.job_file }}' --output crawl_output --state-file .forum-state/state.json
+        run: python forum_signal_voz_expand.py '${{ steps.job.outputs.job_file }}' --output crawl_output --state-file .forum-state/state.json
 
       - name: Add public RSS fallback for blocked VOZ sections
         if: steps.crawl.outcome == 'success'
@@ -169,9 +171,17 @@ jobs:
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_f91_candidates.py --raw crawl_output/forum_signal_snapshot.jsonl --candidates crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_candidate_boost.json --min-score 3 --max-age-hours 72
 
+      - name: Boost VOZ F93 operator and economics candidates
+        if: steps.crawl.outcome == 'success'
+        run: python forum_signal_f93_candidates.py --raw crawl_output/forum_signal_snapshot.jsonl --candidates crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f93_candidate_boost.json --min-score 3 --max-age-hours 72
+
       - name: Diversify VOZ F91 candidates
         if: steps.crawl.outcome == 'success'
         run: python forum_signal_diversify.py --input crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_diversity.json --source VOZ-F91 --per-thread 3 --source-cap 36
+
+      - name: Diversify VOZ F93 candidates
+        if: steps.crawl.outcome == 'success'
+        run: python forum_signal_diversify.py --input crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f93_diversity.json --source VOZ-F93-MMO --per-thread 3 --source-cap 30
 
       - name: Route and final-filter candidates
         if: steps.crawl.outcome == 'success'
@@ -235,8 +245,11 @@ jobs:
               sources_total: manifest.sources_total ?? manifest.source_count ?? null,
               posts_total: manifest.posts_total ?? manifest.items_total ?? manifest.total_structured_posts ?? null,
               f91_expanded: manifest.f91_expanded ?? null,
+              f93_expanded: manifest.f93_expanded ?? null,
               f91_boost_file: 'forum_f91_candidate_boost.json',
               f91_diversity_file: 'forum_f91_diversity.json',
+              f93_boost_file: 'forum_f93_candidate_boost.json',
+              f93_diversity_file: 'forum_f93_diversity.json',
               candidates_file: 'forum_insight_candidates.jsonl',
               general_file: 'forum_candidates_general.jsonl',
               mmo_file: 'forum_candidates_mmo.jsonl',
