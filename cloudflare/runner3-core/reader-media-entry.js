@@ -1,4 +1,5 @@
 import app from "./reddit-entry.js";
+import { handleContentIntelligence } from "./src/content-intelligence.js";
 import {
   preserveArticleImages,
   pruneExpiredReaderImages,
@@ -29,12 +30,6 @@ function shouldPreserveImages(body) {
 
 function stripMarkdownImages(value) {
   let text = String(value ?? "");
-
-  // Extractors can leave a linked-image placeholder in the readable body even
-  // though images are already carried separately in artifact.images:
-  // [![Image 3](thumb.jpg)](full.jpg "caption")
-  // Remove both linked and standalone image markdown, including line breaks
-  // introduced by source formatting. Normal text links are intentionally kept.
   text = text.replace(
     /\[\s*!\[[^\]]{0,500}\]\(\s*https?:\/\/[\s\S]{1,2500}?\)\s*\]\(\s*https?:\/\/[\s\S]{1,3500}?\)/gi,
     "\n"
@@ -43,9 +38,6 @@ function stripMarkdownImages(value) {
     /!\[[^\]]{0,500}\]\(\s*https?:\/\/[\s\S]{1,3000}?\)/gi,
     "\n"
   );
-
-  // Defensive cleanup for malformed extractor placeholders such as a bare
-  // "[Image 3]" marker. Do not remove ordinary prose containing the word image.
   text = text.replace(/^\s*\[!?\s*(?:image|ảnh)\s*\d*\s*\]\s*$/gim, "");
   return text;
 }
@@ -89,6 +81,10 @@ async function sanitizeReaderView(response, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const ciResponse = await handleContentIntelligence(request, env, url);
+    if (ciResponse) return ciResponse;
+
     const mediaResponse = await serveCachedReaderImage(request, env, url);
     if (mediaResponse) return mediaResponse;
 
