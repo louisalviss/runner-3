@@ -27,11 +27,19 @@
     "rolling_four_quarter": true,
     "market_regime": {
       "benchmark": "SPY",
-      "source": "Stooq daily CSV",
+      "source_primary": "Stooq daily CSV",
+      "source_transport_fallback": "Yahoo Finance chart API daily closes",
       "assignment": "previous_trading_day_only",
       "bull_bear": "previous_close_vs_previous_SMA200",
       "high_low_vol": "previous_20d_realized_vol_annualized_vs_fixed_20pct"
     }
+  },
+  "transport_amendment": {
+    "reason": "initial Stooq request returned a non-history 796-byte payload",
+    "scope": "benchmark acquisition only",
+    "diagnostic_threshold_changes": "NONE",
+    "strategy_changes": "NONE",
+    "new_robustness_outcomes_observed_before_amendment": "NONE_EXPORTED_OR_UPLOADED"
   },
   "diagnostic_thresholds": {
     "leave_one_symbol_no_reversal_pf_min_exclusive": 1.0,
