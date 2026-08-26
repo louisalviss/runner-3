@@ -167,7 +167,7 @@ jobs:
 
       - name: Boost VOZ F91 technical and career candidates
         if: steps.crawl.outcome == 'success'
-        run: python forum_signal_f91_candidates.py --raw crawl_output/forum_signal.jsonl --candidates crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_candidate_boost.json --min-score 3 --max-age-hours 72
+        run: python forum_signal_f91_candidates.py --raw crawl_output/forum_signal_snapshot.jsonl --candidates crawl_output/forum_insight_candidates.jsonl --audit crawl_output/forum_f91_candidate_boost.json --min-score 3 --max-age-hours 72
 
       - name: Diversify VOZ F91 candidates
         if: steps.crawl.outcome == 'success'
@@ -235,6 +235,8 @@ jobs:
               sources_total: manifest.sources_total ?? manifest.source_count ?? null,
               posts_total: manifest.posts_total ?? manifest.items_total ?? manifest.total_structured_posts ?? null,
               f91_expanded: manifest.f91_expanded ?? null,
+              f91_boost_file: 'forum_f91_candidate_boost.json',
+              f91_diversity_file: 'forum_f91_diversity.json',
               candidates_file: 'forum_insight_candidates.jsonl',
               general_file: 'forum_candidates_general.jsonl',
               mmo_file: 'forum_candidates_mmo.jsonl',
