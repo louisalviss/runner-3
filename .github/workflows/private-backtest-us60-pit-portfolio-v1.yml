@@ -1,0 +1,33 @@
+name: Private Backtest US60 PIT Portfolio V1
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/private_backtest_us60_pit_portfolio.py'
+      - '.github/workflows/private-backtest-us60-pit-portfolio-v1.yml'
+      - 'jobs/private-backtest-us60-survivorship-audit-v1.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-us60-pit-portfolio-v1
+  cancel-in-progress: false
+
+env:
+  RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+  RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+  RUNNER3_SOURCE: runner-3-github-hosted
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Evaluate PIT proxy portfolio
+        run: python tools/private_backtest_us60_pit_portfolio.py --config jobs/private-backtest-us60-survivorship-audit-v1.json --slots 40,50,56
