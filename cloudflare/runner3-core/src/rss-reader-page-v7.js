@@ -27,9 +27,9 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
     try{return typeof activeKind!=='undefined'&&activeKind==='original'?'original':'vi'}catch(e){return 'vi'}
   }
   function articleId(){
-    var match=location.pathname.match(/^\/rss\/article\/([^/]+)/);
-    if(!match)return '';
-    try{return decodeURIComponent(match[1])}catch(e){return ''}
+    var parts=String(location.pathname||'').split('/');
+    var value=parts.length>3?parts[3]:'';
+    try{return decodeURIComponent(value)}catch(e){return ''}
   }
   function readerToken(){return localStorage.getItem('rssReaderToken')||''}
   function endpoint(suffix,view){
