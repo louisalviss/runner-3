@@ -2,6 +2,7 @@
 import argparse
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 DIRECT_KEYS = {"hoquoctuan", "vnhacker"}
@@ -37,13 +38,16 @@ GAMEK_LOW_SIGNAL = [
     r"hot girl", r"cosplay", r"streamer", r"livestream", r"triệu view", r"fan nam", r"nữ diễn viên",
     r"người phụ nữ", r"nữ tài xế", r"mỹ nhân", r"hoa hậu", r"body", r"gia thế", r"hải sapa",
     r"fandom", r"blackpink", r"miễn phí", r"giftcode", r"top \d+", r"sale", r"khuyến mãi",
-    r"tip hẳn", r"ảnh nghìn like", r"nhung nhớ", r"em gái", r"hồng hài nhi", r"phim hàn"
+    r"tip hẳn", r"ảnh nghìn like", r"nhung nhớ", r"em gái", r"hồng hài nhi", r"phim hàn",
+    r"\bdrama\b", r"bạn gái", r"bạn trai", r"người yêu", r"đời tư", r"hẹn hò", r"réo tên",
+    r"lo sốt vó", r"tình ái", r"chia tay", r"kết hôn", r"lấy chồng", r"lấy vợ", r"quỳnh alee",
+    r"lai bâng", r"fan .* lo", r"fan .* nhớ", r"fan .* réo"
 ]
 GAMEK_SIGNAL = [
     r"black myth", r"game science", r"steam", r"playstation", r"xbox", r"nintendo", r"epic games", r"unity",
     r"unreal engine", r"phát hành", r"ra mắt", r"trì hoãn", r"doanh thu", r"studio", r"nhà phát triển",
     r"nhà phát hành", r"thâu tóm", r"acquisition", r"layoff", r"sa thải", r"công nghệ", r"engine", r"gpu",
-    r"ai\b", r"bom tấn", r"where winds meet", r"gta", r"elden ring", r"wukong", r"zhong kui"
+    r"\bai\b", r"bom tấn", r"where winds meet", r"gta", r"elden ring", r"wukong", r"zhong kui"
 ]
 VHH_SIGNAL = [
     "đầu tư", "chứng khoán", "cổ phiếu", "vic", "vnindex", "vn-index", "yield", "trái phiếu",
@@ -58,14 +62,58 @@ ATLANTIC_KEEP_URL = [
 ATLANTIC_SIGNAL = [
     r"trump", r"iran", r"khamenei", r"qatar", r"israel", r"china", r"russia", r"ukraine", r"war\b",
     r"politic", r"policy", r"government", r"econom", r"business", r"market", r"college", r"university",
-    r"education", r"technology", r"password", r"login", r"ai\b", r"science", r"health", r"climate",
+    r"education", r"technology", r"password", r"login", r"\bai\b", r"science", r"health", r"climate",
     r"data center", r"immigration", r"democracy", r"social", r"middle class", r"downwardly mobile",
     r"hitler", r"antisemit", r"jews?"
 ]
 
+# Higher value wins when two items are confidently the same event/story.
+SOURCE_PRIORITY = {
+    "economist": 100,
+    "quanta": 98,
+    "scientificamerican": 96,
+    "projectsyndicate": 94,
+    "fulcrum": 92,
+    "noema": 90,
+    "nghiencuuquocte": 88,
+    "theatlantic": 86,
+    "grimlogs": 82,
+    "vohoanghac": 80,
+    "tinhte": 65,
+    "genk": 60,
+    "gamek": 45,
+}
+
+# Only high-confidence same-event clusters live here. Distinct theses should remain separate.
+TOPIC_RULES = [
+    ("spacex-louisiana-spaceport", [r"spacex", r"(?:spaceport|starbase|louisiana)"]),
+    ("meta-youth-social-harms-settlement", [r"meta", r"(?:under.?18|children|trẻ em|youth)", r"(?:settle|lawsuit|harm|giới hạn|18 billion|\$18)"]),
+    ("dolly-parton-remembrance", [r"dolly parton"]),
+    ("apple-mac-mini-m6-launch", [r"apple|mac mini", r"mac mini", r"\bm6\b"]),
+    ("apple-mac-studio-m5-launch", [r"mac studio", r"m5 (?:max|ultra)|m5 max|m5 ultra"]),
+    ("apple-iphone18-sept9-launch", [r"iphone", r"(?:9/9|september 9|9 september|iphone 18|iphone gập|foldable)"]),
+    ("hasselblad-mirrorless-10y", [r"hasselblad", r"mirrorless"]),
+    ("bhxh-national-id-sept1", [r"(?:bhxh|bảo hiểm xã hội)", r"(?:1/9|1-9|september 1|định danh|cccd)"]),
+    ("xiaomi-xring-o3", [r"xiaomi", r"xring o3"]),
+    ("gta6-113gb-malware", [r"gta ?6", r"113 ?gb|mã độc|malware"]),
+    ("rog-20th-anniversary", [r"(?:rog|asus)", r"20 năm|20th|edition 20"]),
+]
+
+STOP_TOKENS = {
+    "the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with", "from", "is", "are", "new",
+    "và", "của", "cho", "với", "từ", "trong", "là", "một", "có", "đã", "đang", "mới", "này", "những",
+    "ra", "mắt", "vừa", "sẽ", "được", "tại", "trên", "khi", "về", "sau", "trước", "như", "thế"
+}
+
 
 def norm(value):
     return re.sub(r"\s+", " ", (value or "").strip()).lower()
+
+
+def ascii_norm(value):
+    value = unicodedata.normalize("NFKD", value or "")
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return norm(value)
 
 
 def match_any(text, patterns):
@@ -131,7 +179,7 @@ def decide(source, item):
         return False, "no strong GenK canonical-lane signal"
     if source == "gamek":
         if match_any(text, PROMO_PATTERNS) or match_any(title, GAMEK_LOW_SIGNAL):
-            return False, "fandom/streamer/drama/listicle/promo/minor-esports noise"
+            return False, "fandom/relationship/streamer/drama/listicle/promo/minor-esports noise"
         if match_any(text, GAMEK_SIGNAL):
             return True, "substantive game/business/technology signal"
         return False, "no strong GameK canonical-lane signal"
@@ -153,18 +201,101 @@ def stable_id(item):
     return item.get("key") or item.get("canonicalUrl")
 
 
+def title_tokens(item):
+    text = ascii_norm(item.get("title"))
+    tokens = re.findall(r"[a-z0-9]+", text)
+    return {token for token in tokens if len(token) >= 3 and token not in STOP_TOKENS}
+
+
+def explicit_topic_key(item):
+    text = ascii_norm(f"{item.get('title') or ''} {item.get('summaryEvidence') or ''}")
+    for key, required_patterns in TOPIC_RULES:
+        if all(re.search(pattern, text, flags=re.I) for pattern in required_patterns):
+            return key
+    return None
+
+
+def similarity_duplicate(a, b):
+    ta = title_tokens(a)
+    tb = title_tokens(b)
+    if min(len(ta), len(tb)) < 5:
+        return False
+    overlap = ta & tb
+    if len(overlap) < 5:
+        return False
+    union = ta | tb
+    return len(overlap) / max(1, len(union)) >= 0.80
+
+
+def representative_score(item):
+    evidence_len = len(item.get("summaryEvidence") or "")
+    return (
+        SOURCE_PRIORITY.get(item.get("sourceKey"), 50),
+        min(evidence_len, 1600),
+        item.get("publishedAt") or "",
+    )
+
+
+def topic_dedupe(items):
+    """High-confidence same-event dedupe; preserve distinct theses when uncertain."""
+    if not items:
+        return [], []
+
+    explicit_groups = {}
+    unmatched = []
+    for item in items:
+        key = explicit_topic_key(item)
+        if key:
+            explicit_groups.setdefault(key, []).append(item)
+        else:
+            unmatched.append(item)
+
+    kept = []
+    dropped = []
+    for key, group in explicit_groups.items():
+        winner = max(group, key=representative_score)
+        kept.append(winner)
+        for item in group:
+            if item is winner:
+                continue
+            dropped.append((item, winner, f"topic duplicate [{key}] of {winner.get('canonicalUrl')}"))
+
+    # Generic title-similarity pass only for very close headlines.
+    clusters = []
+    for item in sorted(unmatched, key=representative_score, reverse=True):
+        matched_cluster = None
+        for cluster in clusters:
+            if similarity_duplicate(item, cluster[0]):
+                matched_cluster = cluster
+                break
+        if matched_cluster is None:
+            clusters.append([item])
+        else:
+            matched_cluster.append(item)
+
+    for cluster in clusters:
+        winner = max(cluster, key=representative_score)
+        kept.append(winner)
+        for item in cluster:
+            if item is winner:
+                continue
+            dropped.append((item, winner, f"high-confidence title duplicate of {winner.get('canonicalUrl')}"))
+
+    return kept, dropped
+
+
 def build(root, inventory_path):
     inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
     problems = list(inventory.get("problems") or [])
     rows = []
+    rows_by_source = {}
     all_kept = []
     runner_raw = 0
-    runner_kept = 0
 
     for row in inventory.get("sourceRows") or []:
         source = row.get("sourceKey")
         if source in DIRECT_KEYS:
-            rows.append({
+            direct_row = {
                 "sourceKey": source,
                 "mode": row.get("mode"),
                 "status": "requires-direct-verification",
@@ -174,7 +305,9 @@ def build(root, inventory_path):
                 "filterReasonSummary": "direct source must be verified and appended before final 15/15 render",
                 "keptItems": [],
                 "filteredItems": []
-            })
+            }
+            rows.append(direct_row)
+            rows_by_source[source] = direct_row
             continue
 
         raw_items = row.get("items") or []
@@ -202,9 +335,8 @@ def build(root, inventory_path):
         if raw_items and not kept and not reasons:
             problems.append(f"{source}: raw>0 kept=0 without filter reason")
 
-        runner_kept += len(kept)
         all_kept.extend({**item, "sourceKey": source} for item in kept)
-        rows.append({
+        output_row = {
             "sourceKey": source,
             "mode": row.get("mode"),
             "status": row.get("status"),
@@ -214,23 +346,59 @@ def build(root, inventory_path):
             "filterReasonSummary": reasons,
             "keptItems": kept,
             "filteredItems": filtered
-        })
+        }
+        rows.append(output_row)
+        rows_by_source[source] = output_row
+
+    deduped_kept, topic_drops = topic_dedupe(all_kept)
+
+    # Reclassify duplicate items as filtered so raw = kept + filtered remains exact per source.
+    for dropped_item, winner, reason in topic_drops:
+        source = dropped_item.get("sourceKey")
+        row = rows_by_source.get(source)
+        if not row:
+            problems.append(f"dedupe: missing source row for {source}")
+            continue
+        identity = stable_id(dropped_item)
+        before = len(row["keptItems"])
+        row["keptItems"] = [item for item in row["keptItems"] if stable_id(item) != identity]
+        if len(row["keptItems"]) == before:
+            problems.append(f"dedupe: could not remove kept item {identity} from {source}")
+            continue
+        filtered_copy = dict(dropped_item)
+        filtered_copy.pop("sourceKey", None)
+        filtered_copy["filterReason"] = reason
+        row["filteredItems"].append(filtered_copy)
+        row["filterReasonSummary"][reason] = row["filterReasonSummary"].get(reason, 0) + 1
+        row["keptCount"] = len(row["keptItems"])
+        row["filteredCount"] = len(row["filteredItems"])
+
+    for row in rows:
+        if row.get("rawCount") is None:
+            continue
+        if row["rawCount"] != row["keptCount"] + row["filteredCount"]:
+            problems.append(f"{row['sourceKey']}: post-dedupe raw != kept + filtered")
 
     seen = set()
     manifest = []
-    for item in sorted(all_kept, key=lambda value: value.get("publishedAt") or "", reverse=True):
+    for item in sorted(deduped_kept, key=lambda value: value.get("publishedAt") or "", reverse=True):
         identity = stable_id(item)
         if not identity:
             problems.append(f"{item.get('sourceKey')}: kept item missing stable identity")
             continue
         if identity in seen:
-            problems.append(f"duplicate stable identity: {identity}")
+            problems.append(f"duplicate stable identity after topic dedupe: {identity}")
             continue
         seen.add(identity)
         manifest.append(item)
 
+    runner_kept = sum(row.get("keptCount") or 0 for row in rows if row.get("sourceKey") not in DIRECT_KEYS)
+    runner_filtered = sum(row.get("filteredCount") or 0 for row in rows if row.get("sourceKey") not in DIRECT_KEYS)
+
     if runner_raw != inventory.get("runnerRawItemCount"):
         problems.append(f"runner raw total {runner_raw} != inventory {inventory.get('runnerRawItemCount')}")
+    if runner_raw != runner_kept + runner_filtered:
+        problems.append(f"runner raw total {runner_raw} != kept {runner_kept} + filtered {runner_filtered}")
     if runner_kept != len(manifest):
         problems.append(f"runner kept total {runner_kept} != unique manifest {len(manifest)}")
 
@@ -239,7 +407,7 @@ def build(root, inventory_path):
 
     missing_evidence = sum(1 for item in manifest if item.get("summaryEvidenceStatus") != "rss-description")
     render_contract = {
-        "version": 1,
+        "version": 2,
         "itemFormat": "N. [Source] [Title](canonicalUrl) — concise Vietnamese summary",
         "titleClickableRequired": True,
         "summaryRequired": True,
@@ -248,23 +416,27 @@ def build(root, inventory_path):
         "missingEvidenceAction": "direct-verify canonical URL before writing summary; never silently omit summary and never invent facts",
         "exactManifestNumberingRequired": True,
         "allKeptItemsMustRender": True,
-        "sourceAccountingMustReconcileBeforeRender": True
+        "sourceAccountingMustReconcileBeforeRender": True,
+        "fandomRelationshipDramaForbidden": True,
+        "sameEventTopicDedupeRequired": True,
+        "sameEventRule": "keep one strongest representative for high-confidence same-event duplicates; preserve distinct thesis when uncertain"
     }
 
     return {
-        "version": 4,
+        "version": 5,
         "scope": "rss-kept-manifest-runner13",
         "date": inventory.get("date"),
         "timezone": inventory.get("timezone"),
         "windowUtc": inventory.get("windowUtc"),
-        "filterPolicyVersion": "2026-08-25-canonical-source-policy-v4-summary-contract",
+        "filterPolicyVersion": "2026-08-27-canonical-source-policy-v5-drama-topic-dedupe",
         "logicalSourceCount": 15,
         "runnerSourceCount": 13,
         "directSourceCount": 2,
         "runnerRawCount": runner_raw,
         "runnerKeptCount": runner_kept,
-        "runnerFilteredCount": runner_raw - runner_kept,
+        "runnerFilteredCount": runner_filtered,
         "runnerManifestCount": len(manifest),
+        "topicDuplicateFilteredCount": len(topic_drops),
         "summaryEvidenceMissingCount": missing_evidence,
         "sourceRows": rows,
         "manifest": manifest,
@@ -278,7 +450,9 @@ def build(root, inventory_path):
             "runnerManifestEqualsSumKept": True,
             "uniqueStableIdentityRequired": True,
             "finalRenderRequiresDirectVerification": True,
-            "clickableTitleAndSummaryRequired": True
+            "clickableTitleAndSummaryRequired": True,
+            "fandomRelationshipDramaForbidden": True,
+            "highConfidenceSameEventDedupRequired": True
         }
     }
 
@@ -300,6 +474,7 @@ def main():
         "runnerKeptCount": obj["runnerKeptCount"],
         "runnerFilteredCount": obj["runnerFilteredCount"],
         "runnerManifestCount": obj["runnerManifestCount"],
+        "topicDuplicateFilteredCount": obj["topicDuplicateFilteredCount"],
         "summaryEvidenceMissingCount": obj["summaryEvidenceMissingCount"],
         "runnerAccountingOk": obj["runnerAccountingOk"]
     }, ensure_ascii=False))
