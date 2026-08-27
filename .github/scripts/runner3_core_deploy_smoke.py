@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+import hashlib
 import json
 import os
 import pathlib
@@ -51,6 +52,24 @@ def request_json(base, token, path, method='GET', payload=None, authenticated=Tr
         return {'http': exc.code, 'json': parsed, 'body': raw[:1000], 'error': str(exc)}
     except Exception as exc:
         return {'http': 0, 'json': None, 'body': '', 'error': str(exc)[:1000]}
+
+
+def request_bytes(url, method='GET'):
+    req = urllib.request.Request(url, headers={'User-Agent': BROWSER_UA, 'Cache-Control': 'no-cache'}, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            raw = response.read()
+            return {
+                'http': response.status,
+                'bytes': raw,
+                'content_type': response.headers.get('Content-Type'),
+                'content_disposition': response.headers.get('Content-Disposition'),
+            }
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        return {'http': exc.code, 'bytes': raw, 'error': str(exc)}
+    except Exception as exc:
+        return {'http': 0, 'bytes': b'', 'error': str(exc)[:1000]}
 
 
 def wait_for_required_auth(base, token, run_id, attempts=20):
@@ -121,11 +140,37 @@ def main():
     checkpoint_put = request_json(base, token, checkpoint_path, 'PUT', checkpoint_payload)
     checkpoint_get = request_json(base, token, checkpoint_path, authenticated=False)
 
-    artifact_path = '/artifacts/runner3-core-smoke/' + urllib.parse.quote(run_id, safe='') + '/proof.json'
+    artifact_project = 'runner3-core-smoke'
+    artifact_scope = run_id
+    artifact_name = 'proof.json'
+    artifact_path = '/artifacts/' + urllib.parse.quote(artifact_project, safe='') + '/' + urllib.parse.quote(artifact_scope, safe='') + '/' + artifact_name
     artifact_payload = {'kind': 'runner3-core-auth-proof', 'run_id': run_id, 'checkedAt': checked}
+    artifact_raw = json.dumps(artifact_payload, separators=(',', ':')).encode()
     artifact_unauth = request_json(base, token, artifact_path, 'HEAD', authenticated=False)
     artifact_put = request_json(base, token, artifact_path, 'PUT', artifact_payload)
     artifact_get = request_json(base, token, artifact_path, 'GET')
+
+    delivery_unauth_create = request_json(base, token, '/delivery-links', 'POST', {
+        'project': artifact_project, 'scope': artifact_scope, 'name': artifact_name, 'ttl_seconds': 120,
+    }, authenticated=False)
+    delivery_create = request_json(base, token, '/delivery-links', 'POST', {
+        'project': artifact_project, 'scope': artifact_scope, 'name': artifact_name, 'ttl_seconds': 120,
+    })
+    delivery_json = delivery_create.get('json') if isinstance(delivery_create.get('json'), dict) else {}
+    delivery_record = delivery_json.get('delivery') if isinstance(delivery_json.get('delivery'), dict) else {}
+    signed_url = str(delivery_record.get('url') or '')
+    delivery_get = request_bytes(signed_url) if signed_url.startswith(base + '/delivery/') else {'http': 0, 'bytes': b'', 'error': 'signed-url-invalid'}
+    unsigned_path = '/delivery/' + '/'.join(urllib.parse.quote(x, safe='') for x in [artifact_project, artifact_scope, artifact_name])
+    delivery_unsigned = request_json(base, token, unsigned_path, authenticated=False)
+    tampered_url = ''
+    if signed_url:
+        parsed = urllib.parse.urlsplit(signed_url)
+        params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        sig = (params.get('sig') or [''])[0]
+        if sig:
+            params['sig'] = [('A' if sig[0] != 'A' else 'B') + sig[1:]]
+        tampered_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(params, doseq=True), parsed.fragment))
+    delivery_tampered = request_bytes(tampered_url) if tampered_url else {'http': 0, 'bytes': b'', 'error': 'no-tampered-url'}
 
     latest_json = latest.get('json')
     status_json = status.get('json') if isinstance(status.get('json'), dict) else {}
@@ -169,6 +214,17 @@ def main():
         and artifact_get.get('http') == 200
         and artifact_get_json == artifact_payload
     )
+    delivery_ok = bool(
+        delivery_unauth_create.get('http') == 401
+        and delivery_create.get('http') == 200
+        and delivery_json.get('ok') is True
+        and signed_url.startswith(base + '/delivery/')
+        and delivery_get.get('http') == 200
+        and delivery_get.get('bytes') == artifact_raw
+        and delivery_unsigned.get('http') == 401
+        and delivery_tampered.get('http') == 401
+        and 'attachment' in str(delivery_get.get('content_disposition') or '').lower()
+    )
     status_ok = bool(status.get('http') == 200 and status_json.get('ok') is True and isinstance(status_json.get('sources'), dict))
     post_ok = bool(posted.get('http') == 200 and isinstance(posted.get('json'), dict) and posted['json'].get('ok') is True)
     latest_ok = bool(latest.get('http') == 200 and isinstance(latest_json, list) and len(latest_json) >= 1)
@@ -191,11 +247,24 @@ def main():
         'state': {'put': state_put, 'get': state_get, 'ok': state_ok},
         'checkpoint': {'put': checkpoint_put, 'get': checkpoint_get, 'ok': checkpoint_ok},
         'artifact': {'put': artifact_put, 'get': artifact_get, 'ok': artifact_ok},
+        'delivery': {
+            'ok': delivery_ok,
+            'unauthenticatedCreateHttp': delivery_unauth_create.get('http'),
+            'createHttp': delivery_create.get('http'),
+            'unsignedGetHttp': delivery_unsigned.get('http'),
+            'tamperedGetHttp': delivery_tampered.get('http'),
+            'signedGetHttp': delivery_get.get('http'),
+            'signedBytes': len(delivery_get.get('bytes') or b''),
+            'signedSha256': hashlib.sha256(delivery_get.get('bytes') or b'').hexdigest(),
+            'expectedSha256': hashlib.sha256(artifact_raw).hexdigest(),
+            'contentDisposition': delivery_get.get('content_disposition'),
+            'ttlSeconds': delivery_record.get('ttl_seconds'),
+        },
         'ok': bool(
             health_json.get('ok') is True
             and health_json.get('d1') is True
             and health_json.get('r2') is True
-            and auth_ok and post_ok and latest_ok and status_ok and state_ok and checkpoint_ok and artifact_ok
+            and auth_ok and post_ok and latest_ok and status_ok and state_ok and checkpoint_ok and artifact_ok and delivery_ok
         ),
     }
 
