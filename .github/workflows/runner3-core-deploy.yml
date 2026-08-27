@@ -48,6 +48,7 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-page-v4.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v5.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v6.js
+          node --check cloudflare/runner3-core/src/rss-reader-page-v7.js
           node --check cloudflare/runner3-core/src/index.js
           grep -q 'vi-VN-NamMinhNeural' cloudflare/runner3-core/src/rss-reader-audio.js
           grep -q 'rss-reader-audio-v2' cloudflare/runner3-core/src/rss-reader-audio.js
@@ -55,7 +56,7 @@ jobs:
           node --input-type=module - <<'NODE'
           import { handleRssReaderPlus } from './cloudflare/runner3-core/src/rss-reader-plus.js';
           import { polishRssLibraryResponse } from './cloudflare/runner3-core/src/rss-library-page-v2.js';
-          import { renderReaderArticlePageV6 } from './cloudflare/runner3-core/src/rss-reader-page-v6.js';
+          import { renderReaderArticlePageV7 } from './cloudflare/runner3-core/src/rss-reader-page-v7.js';
 
           function validateBrowserScripts(html, label) {
             let cursor = 0;
@@ -83,17 +84,18 @@ jobs:
           const libraryScripts = validateBrowserScripts(await libraryResponse.text(), 'RSS Library');
 
           const articleUrl = new URL('https://example.test/rss/article/validation-article');
-          const articleResponse = await renderReaderArticlePageV6(new Request(articleUrl), articleUrl);
+          const articleResponse = await renderReaderArticlePageV7(new Request(articleUrl), articleUrl);
           if (!articleResponse) throw new Error('Article renderer returned null');
           const articleHtml = await articleResponse.text();
           const articleScripts = validateBrowserScripts(articleHtml, 'RSS Reader');
 
           if (libraryScripts < 2) throw new Error('RSS Library UX polish script missing');
-          if (articleScripts < 4) throw new Error('RSS Reader timing script missing');
+          if (articleScripts < 5) throw new Error('RSS Reader reliable playback script missing');
           if (!articleHtml.includes('rss-reader-nam-minh-v1')) throw new Error('RSS Reader Nam Minh marker missing');
           if (!articleHtml.includes('rss-reader-nam-minh-timing-v2')) throw new Error('RSS Reader timing marker missing');
+          if (!articleHtml.includes('rss-reader-nam-minh-ready-v3')) throw new Error('RSS Reader reliable playback marker missing');
           console.log('Generated polished RSS Library/Reader browser scripts parse OK');
-          console.log('RSS Reader Nam Minh MP3 + Edge word timing client path present');
+          console.log('RSS Reader Nam Minh MP3 + timing + reliable iOS playback path present');
           NODE
           python3 - <<'PY'
           import json
