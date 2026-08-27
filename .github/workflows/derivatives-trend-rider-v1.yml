@@ -1,0 +1,44 @@
+name: Derivatives Trend Rider v1
+on:
+  pull_request:
+    paths:
+      - 'research/derivatives_trend_rider_v1.py'
+      - 'research/derivatives_trend_rider_v1_oiqty.py'
+      - 'research/merge_derivatives_trend_rider.py'
+      - '.github/workflows/derivatives-trend-rider-v1.yml'
+  workflow_dispatch:
+jobs:
+  yearly:
+    strategy:
+      fail-fast: false
+      matrix:
+        year: [2022, 2023, 2024, 2025, 2026]
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m py_compile research/derivatives_trend_rider_v1.py research/derivatives_trend_rider_v1_oiqty.py research/merge_derivatives_trend_rider.py
+      - run: pip install pandas numpy
+      - run: python research/derivatives_trend_rider_v1_oiqty.py --year ${{ matrix.year }} --out out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: derivatives-trend-${{ matrix.year }}
+          path: out/
+          retention-days: 14
+  merge:
+    needs: yearly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: derivatives-trend-*
+          path: artifacts
+      - run: pip install pandas numpy
+      - run: python research/merge_derivatives_trend_rider.py derivatives-trend-final.csv | tee REPORT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: derivatives-trend-final
+          path: |
+            derivatives-trend-final.csv
+            REPORT.txt
