@@ -1,4 +1,4 @@
-import app from "./mailbox-entry.js";
+import app from "./delivery-entry.js";
 
 const OPAQUE_REQUEST_ID_RE = /^m_[0-9a-f]{32}$/;
 
