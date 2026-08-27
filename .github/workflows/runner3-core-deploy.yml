@@ -42,31 +42,48 @@ jobs:
           node --check cloudflare/runner3-core/rss-entry.js
           node --check cloudflare/runner3-core/src/audio-media.js
           node --check cloudflare/runner3-core/src/rss-reader-plus.js
+          node --check cloudflare/runner3-core/src/rss-library-page-v2.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v3.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v4.js
           node --check cloudflare/runner3-core/src/index.js
           node --input-type=module - <<'NODE'
           import { handleRssReaderPlus } from './cloudflare/runner3-core/src/rss-reader-plus.js';
+          import { polishRssLibraryResponse } from './cloudflare/runner3-core/src/rss-library-page-v2.js';
           import { renderReaderArticlePageV4 } from './cloudflare/runner3-core/src/rss-reader-page-v4.js';
 
-          function browserScript(html, label) {
-            const open = html.indexOf('<script>');
-            const close = html.indexOf('</script>', open + 8);
-            if (open < 0 || close < 0) throw new Error(label + ': inline script missing');
-            return html.slice(open + 8, close);
+          function validateBrowserScripts(html, label) {
+            let cursor = 0;
+            let count = 0;
+            while (true) {
+              const open = html.indexOf('<script', cursor);
+              if (open < 0) break;
+              const bodyStart = html.indexOf('>', open);
+              const close = bodyStart < 0 ? -1 : html.indexOf('</script>', bodyStart + 1);
+              if (bodyStart < 0 || close < 0) throw new Error(label + ': malformed inline script');
+              const source = html.slice(bodyStart + 1, close);
+              new Function(source);
+              count += 1;
+              cursor = close + 9;
+            }
+            if (!count) throw new Error(label + ': inline script missing');
+            return count;
           }
 
           const libraryUrl = new URL('https://example.test/rss/library');
-          const libraryResponse = await handleRssReaderPlus(new Request(libraryUrl), {}, libraryUrl);
-          if (!libraryResponse) throw new Error('Library renderer returned null');
-          new Function(browserScript(await libraryResponse.text(), 'RSS Library'));
+          const libraryRequest = new Request(libraryUrl);
+          const libraryBase = await handleRssReaderPlus(libraryRequest, {}, libraryUrl);
+          if (!libraryBase) throw new Error('Library renderer returned null');
+          const libraryResponse = await polishRssLibraryResponse(libraryBase, libraryRequest, libraryUrl);
+          const libraryScripts = validateBrowserScripts(await libraryResponse.text(), 'RSS Library');
 
           const articleUrl = new URL('https://example.test/rss/article/validation-article');
           const articleResponse = await renderReaderArticlePageV4(new Request(articleUrl), articleUrl);
           if (!articleResponse) throw new Error('Article renderer returned null');
-          new Function(browserScript(await articleResponse.text(), 'RSS Reader'));
+          const articleScripts = validateBrowserScripts(await articleResponse.text(), 'RSS Reader');
 
-          console.log('Generated RSS Library/Reader browser scripts parse OK');
+          if (libraryScripts < 2) throw new Error('RSS Library UX polish script missing');
+          if (articleScripts < 2) throw new Error('RSS Reader UX polish script missing');
+          console.log('Generated polished RSS Library/Reader browser scripts parse OK');
           NODE
           python3 - <<'PY'
           import json
