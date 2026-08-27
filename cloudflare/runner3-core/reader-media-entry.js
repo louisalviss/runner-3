@@ -1,6 +1,7 @@
 import app from "./reddit-entry.js";
 import { handleContentIntelligence } from "./src/content-intelligence.js";
 import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
+import { polishRssLibraryResponse } from "./src/rss-library-page-v2.js";
 import { renderReaderArticlePageV4 } from "./src/rss-reader-page-v4.js";
 import {
   preserveArticleImages,
@@ -166,7 +167,7 @@ export default {
     const url = new URL(request.url);
 
     const plusResponse = await handleRssReaderPlus(request, env, url);
-    if (plusResponse) return plusResponse;
+    if (plusResponse) return polishRssLibraryResponse(plusResponse, request, url);
 
     const articlePage = await renderReaderArticlePageV4(request, url);
     if (articlePage) return articlePage;
