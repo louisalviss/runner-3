@@ -1,0 +1,176 @@
+name: SABA Official Demo Outright Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/saba-demo-outright-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -q playwright
+          google-chrome --version
+          mkdir -p evidence
+
+      - name: Open official SABA demos and inspect Outright
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,pathlib,time
+          from playwright.sync_api import sync_playwright
+
+          OUT=pathlib.Path('evidence')
+          KW=re.compile(r'outright|future|top\s*4|top\s*6|relegat|goal.?scorer|golden boot|winner|champion',re.I)
+          DROP=re.compile(r'google-analytics|googletagmanager|facebook|livechat|clarity',re.I)
+          net=[]; hits=[]; page_summary=[]
+
+          def capture_page(pg, label):
+              rec={'label':label,'url':pg.url}
+              try:
+                  pg.wait_for_timeout(4000)
+                  rec['title']=pg.title()
+                  text=pg.locator('body').inner_text(timeout=7000)
+                  rec['text']=text[:30000]
+                  rec['keyword_lines']=[x[:1000] for x in text.splitlines() if KW.search(x)][:100]
+                  controls=pg.locator('a,button,[role=button]').evaluate_all("els=>els.map(e=>({text:(e.innerText||e.textContent||'').trim(),href:e.href||''})).filter(x=>x.text||x.href)")
+                  rec['controls']=[x for x in controls if re.search(r'Try Now|Play Now|Outright|Future|Top 4|Relegat|Scorer|Winner', (x.get('text') or '')+' '+(x.get('href') or ''), re.I)][:100]
+                  rec['frames']=[{'name':f.name,'url':f.url} for f in pg.frames]
+                  pg.screenshot(path=str(OUT/f'{label}.png'),full_page=False)
+              except Exception as e:
+                  rec['error']=repr(e)
+              page_summary.append(rec)
+              return rec
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(channel='chrome',headless=True)
+              ctx=browser.new_context(locale='en-US',viewport={'width':1280,'height':800})
+
+              def req(r):
+                  if r.resource_type not in ('document','xhr','fetch'): return
+                  if DROP.search(r.url): return
+                  net.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:16000]})
+              def resp(r):
+                  q=r.request
+                  if q.resource_type not in ('document','xhr','fetch'): return
+                  if DROP.search(r.url): return
+                  net.append({'kind':'response','status':r.status,'type':q.resource_type,'url':r.url})
+                  try:
+                      ct=(r.headers.get('content-type') or '').lower()
+                      if 'json' in ct:
+                          txt=r.text()
+                          if len(txt)<3_000_000 and KW.search(txt):
+                              for m in list(KW.finditer(txt))[:10]:
+                                  hits.append({'url':r.url,'status':r.status,'snippet':txt[max(0,m.start()-700):min(len(txt),m.end()+3500)]})
+                  except Exception: pass
+              ctx.on('request',req);ctx.on('response',resp)
+
+              root=ctx.new_page()
+              r=root.goto('https://www.sabasportsb2b.com/en-US/freetrial',wait_until='domcontentloaded',timeout=35000)
+              root.wait_for_timeout(5000)
+              capture_page(root,'root')
+
+              # Click each public Try Now / Play Now control. Track same-tab and pop-up launches.
+              buttons=root.get_by_text(re.compile(r'Try Now|Play Now',re.I),exact=True)
+              count=min(buttons.count(),8)
+              launches=[]
+              for i in range(count):
+                  try:
+                      # Re-resolve after each navigation / DOM mutation.
+                      if root.is_closed(): break
+                      btn=root.get_by_text(re.compile(r'Try Now|Play Now',re.I),exact=True).nth(i)
+                      if not btn.is_visible(): continue
+                      before=set(ctx.pages)
+                      before_url=root.url
+                      try:
+                          btn.click(timeout=6000)
+                      except Exception as e:
+                          launches.append({'index':i,'error':'click '+repr(e)}); continue
+                      root.wait_for_timeout(5000)
+                      new_pages=[x for x in ctx.pages if x not in before]
+                      targets=new_pages or [root]
+                      launches.append({'index':i,'before':before_url,'after':[x.url for x in targets]})
+                      for j,pg in enumerate(targets):
+                          try: pg.wait_for_load_state('domcontentloaded',timeout=20000)
+                          except Exception: pass
+                          rec=capture_page(pg,f'demo-{i}-{j}')
+
+                          # Ordinary UI interaction only: click visible Outright/Futures if present.
+                          cand=pg.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*(Outright|Outrights|Futures?)\s*$',re.I))
+                          for k in range(min(cand.count(),20)):
+                              el=cand.nth(k)
+                              try:
+                                  if el.is_visible():
+                                      txt=el.inner_text()[:200]
+                                      el.click(timeout=5000)
+                                      pg.wait_for_timeout(7000)
+                                      rec['clicked_out-right']=txt
+                                      rec['after_out-right_url']=pg.url
+                                      rec2=capture_page(pg,f'outright-{i}-{j}')
+                                      body=rec2.get('text','')
+                                      for line in body.splitlines():
+                                          if KW.search(line): hits.append({'url':pg.url,'status':'visible','snippet':line[:1500]})
+                                      break
+                              except Exception as e:
+                                  rec.setdefault('outright_click_errors',[]).append(repr(e)[:500])
+                      # Return to freetrial if same tab navigated away.
+                      if not root.is_closed() and 'sabasportsb2b.com' not in root.url:
+                          root.goto('https://www.sabasportsb2b.com/en-US/freetrial',wait_until='domcontentloaded',timeout=30000)
+                          root.wait_for_timeout(3000)
+                  except Exception as e:
+                      launches.append({'index':i,'error':repr(e)})
+
+              # Inspect every open demo page/frame text for keywords, including cross-page navigation.
+              allframes=[]
+              for pi,pg in enumerate(ctx.pages):
+                  for fi,f in enumerate(pg.frames):
+                      item={'page':pi,'frame':fi,'url':f.url,'name':f.name}
+                      try:
+                          t=f.locator('body').inner_text(timeout=3000)
+                          item['keyword_lines']=[x[:1200] for x in t.splitlines() if KW.search(x)][:100]
+                          for line in item['keyword_lines']:
+                              hits.append({'url':f.url,'status':'frame-visible','snippet':line})
+                      except Exception as e:
+                          item['error']=repr(e)[:300]
+                      allframes.append(item)
+
+              browser.close()
+
+          # de-dupe hits
+          seen=set(); clean=[]
+          for h in hits:
+              key=(h.get('url'),h.get('snippet'))
+              if key in seen: continue
+              seen.add(key); clean.append(h)
+          OUT.joinpath('pages.json').write_text(json.dumps(page_summary,ensure_ascii=False,indent=2))
+          OUT.joinpath('launches.json').write_text(json.dumps(launches,ensure_ascii=False,indent=2))
+          OUT.joinpath('frames.json').write_text(json.dumps(allframes,ensure_ascii=False,indent=2))
+          OUT.joinpath('network.json').write_text(json.dumps(net,ensure_ascii=False,indent=2))
+          OUT.joinpath('hits.json').write_text(json.dumps(clean,ensure_ascii=False,indent=2))
+          print('TRY_BUTTONS',count)
+          print('LAUNCHES',json.dumps(launches,ensure_ascii=False)[:12000])
+          print('HITS',len(clean))
+          for h in clean[:50]: print('HIT',json.dumps(h,ensure_ascii=False)[:4000])
+          print('PAGES')
+          for r in page_summary:
+              print(json.dumps({k:r.get(k) for k in ('label','url','title','keyword_lines','controls','frames','error')},ensure_ascii=False)[:5000])
+          print('NETWORK_URLS')
+          for x in net[:200]: print(x.get('kind'),x.get('status',''),x.get('method',''),x.get('url'))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: saba-demo-outright-${{ github.run_id }}
+          path: evidence/
+          retention-days: 7

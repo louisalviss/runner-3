@@ -1,0 +1,139 @@
+name: M88 Vietnamese Final
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/m88-vietnamese-final.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl
+          python3 -m pip install -q 'playwright>=1.46,<2'
+          mkdir -p evidence
+      - name: VPN Thailand
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 https://www.vpngate.net/api/iphone/ -o /tmp/v.csv
+          python3 - <<'PY'
+          import base64,csv,io,pathlib
+          raw=pathlib.Path('/tmp/v.csv').read_text(encoding='utf-8-sig',errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          rs=[r for r in rows if (r.get('CountryShort') or '').upper()=='TH' and r.get('OpenVPN_ConfigData_Base64')]
+          rs.sort(key=lambda r:int(r.get('Speed') or 0),reverse=True)
+          pathlib.Path('/tmp/auth').write_text('vpn\nvpn\n')
+          for i,r in enumerate(rs[:8]):
+            cfg=base64.b64decode(r['OpenVPN_ConfigData_Base64']).decode(errors='replace')
+            cfg='\n'.join('auth-user-pass /tmp/auth' if x.strip().startswith('auth-user-pass') else x for x in cfg.splitlines())+'\n'
+            pathlib.Path(f'/tmp/vpn{i}.ovpn').write_text(cfg)
+          PY
+          IFACE=$(ip route show default|awk '{print $5;exit}')
+          sudo ip netns add vpnns
+          sudo ip link add vh type veth peer name vn; sudo ip link set vn netns vpnns
+          sudo ip addr add 10.241.0.1/24 dev vh; sudo ip link set vh up
+          sudo ip netns exec vpnns ip addr add 10.241.0.2/24 dev vn; sudo ip netns exec vpnns ip link set lo up; sudo ip netns exec vpnns ip link set vn up
+          sudo ip netns exec vpnns ip route add default via 10.241.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.241.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i vh -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o vh -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns; printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n'|sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+          connected=0
+          for cfg in /tmp/vpn*.ovpn; do
+            sudo ip netns exec vpnns pkill openvpn 2>/dev/null||true; sleep 1
+            sudo rm -f /tmp/o.log; sudo touch /tmp/o.log; sudo chmod 644 /tmp/o.log
+            sudo ip netns exec vpnns openvpn --config "$cfg" --daemon --log /tmp/o.log || true
+            ok=0; for i in {1..15}; do sleep 1; grep -q 'Initialization Sequence Completed' /tmp/o.log 2>/dev/null && { ok=1; break; }; done
+            if [ "$ok" = 1 ]; then
+              t=$(sudo ip netns exec vpnns curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace|grep -E '^(ip|loc)='||true)
+              if echo "$t"|grep -q '^loc=TH$'; then echo "$t"|tee evidence/egress.txt; connected=1; break; fi
+            fi
+          done
+          test "$connected" = 1
+      - name: Sports then Vietnamese
+        shell: bash
+        run: |
+          sudo ip netns exec vpnns runuser -u runner -- env HOME=/home/runner WORKSPACE="$GITHUB_WORKSPACE" python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          out=Path(os.environ['WORKSPACE'])/'evidence'; result={}
+          with sync_playwright() as p:
+            b=p.chromium.launch(channel='chrome',headless=True,args=['--no-sandbox'])
+            c=b.new_context(viewport={'width':390,'height':844},screen={'width':390,'height':844},device_scale_factor=3,is_mobile=True,has_touch=True,user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1',locale='en-US')
+            page=c.new_page(); page.goto('https://www.m88.com/',wait_until='domcontentloaded',timeout=45000); page.wait_for_timeout(10000)
+            # real click on visible SPORTS link
+            sports=page.locator("a:has-text('SPORTS')")
+            for i in range(sports.count()):
+              try:
+                if sports.nth(i).is_visible(): sports.nth(i).click(timeout=5000); result['sports_clicked']=True; break
+              except: pass
+            page.wait_for_timeout(10000)
+            result['sports_url']=page.url
+            page.screenshot(path=str(out/'01_mobile_sports_english.png'),full_page=False)
+
+            # Click each language selector until Angular menu options appear.
+            buttons=page.locator("button[data-qa-context='language-selector']")
+            result['language_button_count']=buttons.count(); options=[]
+            for i in range(buttons.count()):
+              btn=buttons.nth(i)
+              try:
+                result.setdefault('language_buttons',[]).append({'i':i,'visible':btn.is_visible(),'text':' '.join(btn.inner_text(timeout=500).split())})
+                btn.evaluate('(e)=>e.click()')
+                page.wait_for_timeout(1000)
+                nodes=page.locator("[role='menuitem'], .mat-mdc-menu-item, [data-qa-context*='language'], .language-item")
+                vals=[]
+                for j in range(min(nodes.count(),100)):
+                  try:
+                    t=' '.join(nodes.nth(j).inner_text(timeout=300).split())
+                    if t: vals.append({'j':j,'text':t,'outer':nodes.nth(j).evaluate('(e)=>e.outerHTML')[:1000]})
+                  except: pass
+                if vals:
+                  options=vals; result['opened_with_button']=i; break
+              except Exception as e: result.setdefault('button_errors',[]).append(str(e)[:200])
+            result['options']=options
+            page.screenshot(path=str(out/'02_language_options.png'),full_page=False)
+
+            chosen=False
+            # strict language option text only, never match event/team Vietnam.
+            candidates=['Tiếng Việt','Vietnamese','VIETNAMESE','Tiếng việt']
+            for label in candidates:
+              loc=page.get_by_text(label,exact=True)
+              for i in range(loc.count()):
+                try:
+                  if loc.nth(i).is_visible():
+                    result['chosen_label']=label; loc.nth(i).click(timeout=5000); chosen=True; break
+                except: pass
+              if chosen: break
+            if chosen:
+              page.wait_for_timeout(12000)
+            else:
+              # M88 exposes its VN-country site in its own navigation; use only if no Vietnamese locale exists.
+              result['no_vietnamese_locale']=True
+              vn=page.locator("a[href*='m88no1vn.com']")
+              if vn.count():
+                href=vn.first.get_attribute('href'); result['vn_country_url']=href
+                page.goto(href,wait_until='domcontentloaded',timeout=45000); page.wait_for_timeout(12000)
+                result['used_country_site']=True
+            result['final_url']=page.url; result['title']=page.title()
+            text=page.locator('body').inner_text(timeout=5000)
+            result['vietnamese_detected']=bool(re.search(r'ĐĂNG|Đăng|THỂ THAO|Thể thao|KHUYẾN MÃI|Khuyến mãi|TRANG CHỦ|Trang chủ|CƯỢC|Cược',text))
+            result['excerpt']=text[:3000]
+            page.screenshot(path=str(out/'03_mobile_sports_vietnamese.png'),full_page=False)
+            c.close(); b.close()
+          (out/'result.json').write_text(json.dumps(result,indent=2,ensure_ascii=False)); print(json.dumps(result,indent=2,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m88-vietnamese-final-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3

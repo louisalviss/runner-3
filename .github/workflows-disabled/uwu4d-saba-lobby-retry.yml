@@ -1,0 +1,118 @@
+name: UWU4D SABA Lobby Retry
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/uwu4d-saba-lobby-retry.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 -m pip install --user -q playwright
+          mkdir -p evidence
+      - name: Open and click public SABA card normally
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,pathlib
+          from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+          out=pathlib.Path('evidence'); result={}; net=[]
+          with sync_playwright() as p:
+            b=p.chromium.launch(channel='chrome',headless=True)
+            c=b.new_context(locale='en-US',viewport={'width':1440,'height':900})
+            c.on('request',lambda r: net.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:12000]}) if r.resource_type in ('document','xhr','fetch') else None)
+            c.on('response',lambda r: net.append({'kind':'response','status':r.status,'type':r.request.resource_type,'url':r.url}) if r.request.resource_type in ('document','xhr','fetch') else None)
+            pg=c.new_page()
+            try:
+              r=pg.goto('https://uwu4d.com/',wait_until='commit',timeout=25000)
+              result['goto_status']=r.status if r else None
+            except PWTimeout as e:
+              result['goto_timeout']=str(e)[:500]
+            pg.wait_for_timeout(10000)
+            result['home_url']=pg.url
+            try: result['home_title']=pg.title()
+            except Exception: pass
+            # normal user dismissals only
+            pg.keyboard.press('Escape'); pg.wait_for_timeout(1000)
+            for sel in ['button[aria-label="Close"]','[data-bs-dismiss="modal"]','.btn-close','.modal .close']:
+              try:
+                loc=pg.locator(sel)
+                for i in range(min(loc.count(),10)):
+                  if loc.nth(i).is_visible(): loc.nth(i).click(timeout=1500)
+              except Exception: pass
+            pg.keyboard.press('Escape'); pg.wait_for_timeout(800)
+            labels=pg.locator('.game-name').filter(has_text=re.compile(r'^\s*SABA\s+Sports\s*$',re.I))
+            result['saba_labels']=labels.count()
+            if labels.count():
+              label=labels.first
+              result['visible']=label.is_visible()
+              if label.is_visible():
+                chain=label.evaluate('''e=>{let a=[],n=e;for(let i=0;i<8&&n;i++,n=n.parentElement)a.push({tag:n.tagName,cls:n.className||'',href:n.href||'',role:n.getAttribute('role')||'',onclick:n.getAttribute('onclick')||'',cursor:getComputedStyle(n).cursor,html:n.outerHTML.slice(0,5000)});return a}''')
+                result['chain']=chain
+                target=label
+                for up in range(1,8):
+                  par=label.locator('xpath='+'/..'*up)
+                  try:
+                    m=par.evaluate('e=>({tag:e.tagName,href:e.href||e.closest("a")?.href||"",role:e.getAttribute("role")||"",onclick:e.getAttribute("onclick")||"",cursor:getComputedStyle(e).cursor,cls:e.className||""})')
+                    if m['tag']=='A' or m['href'] or m['onclick'] or m['role']=='button' or m['cursor']=='pointer':
+                      target=par; result['chosen']=m; break
+                  except Exception: pass
+                before=set(c.pages)
+                try:
+                  target.scroll_into_view_if_needed(); target.click(timeout=8000); result['clicked']=True
+                except Exception as e: result['click_error']=repr(e)
+                pg.wait_for_timeout(10000)
+                new=[x for x in c.pages if x not in before]; sp=new[-1] if new else pg
+                try: sp.wait_for_load_state('domcontentloaded',timeout=12000)
+                except Exception: pass
+                sp.wait_for_timeout(4000)
+                try: text=sp.locator('body').inner_text(timeout=6000)
+                except Exception as e: text=''; result['launch_body_error']=repr(e)
+                result['launch_url']=sp.url; result['launch_title']=sp.title(); result['launch_text']=text[:60000]
+                result['frames']=[{'name':f.name,'url':f.url} for f in sp.frames]
+                # Stop on login/captcha/challenge. Otherwise click visible Outright only.
+                blocked=bool(re.search(r'captcha|verify you are human|security verification|access denied|just a moment',text[:10000],re.I))
+                login=bool(re.search(r'\b(Login|Log In|Username|Password|Sign In)\b',text[:15000],re.I))
+                result['blocked']=blocked; result['login_gate']=login
+                if not blocked and not login:
+                  cand=sp.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*(Outright|Outrights|Futures?)\s*$',re.I))
+                  result['outright_count']=cand.count()
+                  for i in range(min(cand.count(),50)):
+                    el=cand.nth(i)
+                    try:
+                      if not el.is_visible(): continue
+                      result['outright_control']={'tag':el.evaluate('e=>e.tagName'),'text':el.inner_text()[:200]}
+                      el.click(timeout=6000); sp.wait_for_timeout(8000)
+                      result['outright_url']=sp.url; result['outright_text']=sp.locator('body').inner_text(timeout=6000)[:100000]
+                      break
+                    except Exception as e: result.setdefault('outright_errors',[]).append(repr(e)[:500])
+                sp.screenshot(path=str(out/'launch.png'),full_page=False)
+            pg.screenshot(path=str(out/'home.png'),full_page=False)
+            b.close()
+          out.joinpath('result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)); out.joinpath('network.json').write_text(json.dumps(net,ensure_ascii=False,indent=2))
+          print(json.dumps({k:result.get(k) for k in ['goto_status','goto_timeout','home_url','home_title','saba_labels','visible','chosen','clicked','click_error','launch_url','launch_title','blocked','login_gate','outright_count','outright_control','outright_url']},ensure_ascii=False,indent=2))
+          if result.get('launch_text'): print('LAUNCH_TEXT\n'+result['launch_text'][:12000])
+          if result.get('outright_text'): print('OUTRIGHT_TEXT\n'+result['outright_text'][:25000])
+          print('NETWORK_HINTS')
+          seen=set()
+          for x in net:
+            u=x.get('url','')
+            if u in seen: continue
+            seen.add(u)
+            if re.search(r'saba|sport|odds|market|event|launch|api|game',u,re.I): print(x.get('kind'),x.get('status',''),x.get('method',''),u)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uwu4d-saba-retry-${{ github.run_id }}
+          path: evidence/
+          retention-days: 7

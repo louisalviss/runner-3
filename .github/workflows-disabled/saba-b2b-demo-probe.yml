@@ -1,0 +1,102 @@
+name: SABA B2B Demo Probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/saba-b2b-demo-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tooling
+        run: python3 -m pip install --user -q playwright
+      - name: Inspect official SABA B2B public demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re
+          from urllib.parse import urlparse
+          from playwright.sync_api import sync_playwright
+
+          url='https://www.sabab2b.com/en-US/freetrial/demo?platform=Desktop&site=liteDemo&skin=3'
+          out={'source':url}
+          with sync_playwright() as p:
+              b=p.chromium.launch(channel='chrome',headless=True)
+              c=b.new_context(locale='en-US',viewport={'width':1440,'height':1000})
+              pg=c.new_page(); pg.goto(url,wait_until='domcontentloaded',timeout=45000); pg.wait_for_timeout(2500)
+              def btext():
+                  try:return pg.locator('body').inner_text(timeout=8000)
+                  except:return ''
+              out['before']=btext()[:5000]
+
+              # Record iframe origins only (enough to identify verification provider without interacting with it).
+              frames=[]
+              for f in pg.frames:
+                  if f is pg.main_frame: continue
+                  u=f.url or ''
+                  try:
+                      x=urlparse(u); frames.append({'origin':f'{x.scheme}://{x.netloc}' if x.netloc else u[:200]})
+                  except: frames.append({'origin':u[:200]})
+              out['iframe_origins']=frames
+
+              # Open language selector, then select the menu option English (normally the second visible exact match).
+              engels=pg.get_by_text(re.compile(r'^\s*English\s*$',re.I))
+              out['english_exact_count_before']=engels.count()
+              try:
+                  if engels.count():
+                      engels.first.click(timeout=5000); pg.wait_for_timeout(700)
+                      out['selector_opened']=True
+              except: out['selector_opened']=False
+              engels2=pg.get_by_text(re.compile(r'^\s*English\s*$',re.I))
+              out['english_exact_count_open']=engels2.count()
+              try:
+                  visible=[i for i in range(engels2.count()) if engels2.nth(i).is_visible()]
+                  out['english_visible_indices']=visible
+                  if len(visible)>=2:
+                      engels2.nth(visible[-1]).click(timeout=5000); pg.wait_for_timeout(700); out['language_option_selected']=True
+              except: out['language_option_selected']=False
+
+              # Diagnose Continue without forcing disabled/challenge controls.
+              conts=pg.get_by_text(re.compile(r'^\s*Continue\s*$',re.I))
+              info=[]
+              for i in range(conts.count()):
+                  e=conts.nth(i)
+                  try:
+                      info.append({
+                        'i':i,'visible':e.is_visible(),'tag':e.evaluate('x=>x.tagName'),
+                        'disabled':e.is_disabled() if e.evaluate('x=>["BUTTON","INPUT"].includes(x.tagName)') else None,
+                        'aria_disabled':e.get_attribute('aria-disabled'),'class':(e.get_attribute('class') or '')[:500]
+                      })
+                  except: pass
+              out['continue_controls']=info
+
+              # Detect well-known verification widgets from DOM/iframes; do not solve/click them.
+              html=pg.content()
+              combo=(html+' '+btext()+' '+json.dumps(frames)).lower()
+              providers=[]
+              for pat,name in [('turnstile','Cloudflare Turnstile'),('recaptcha','Google reCAPTCHA'),('hcaptcha','hCaptcha'),('geetest','GeeTest'),('arkoselabs','Arkose Labs'),('funcaptcha','Arkose FunCaptcha')]:
+                  if pat in combo: providers.append(name)
+              out['verification_providers']=providers
+
+              # Only click Continue if it is a normal enabled control and no known challenge widget is present.
+              out['continue_clicked']=False
+              if not providers:
+                  try:
+                      candidates=pg.locator('button').filter(has_text=re.compile(r'^\s*Continue\s*$',re.I))
+                      if candidates.count() and candidates.first.is_visible() and not candidates.first.is_disabled():
+                          candidates.first.click(timeout=5000); pg.wait_for_timeout(6000); out['continue_clicked']=True
+                  except: pass
+
+              t=btext(); out['after_url']=pg.url; out['after']=t[:10000]
+              out['has_sportsbook']=bool(re.search(r'\b(live|soccer|football|premier league|odds|sports)\b',t,re.I))
+              out['has_outright']=bool(re.search(r'outright|futures|winner|champion|relegat|top\s*4|top\s*scorer|goalscorer',t,re.I))
+              b.close()
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY

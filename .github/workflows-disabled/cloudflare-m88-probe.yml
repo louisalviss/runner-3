@@ -1,0 +1,57 @@
+name: Cloudflare M88 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-m88-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Probe BTI through Cloudflare Browser Run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          python - <<'PY'
+          import json, os, re, subprocess
+          from html import unescape
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          endpoint=f'https://api.cloudflare.com/client/v4/accounts/{account}/browser-rendering/content'
+          targets=[
+            ('bti_sports','https://prod322.bti-sports.io/en/sports?oddsStyleId=1'),
+            ('bti_asian','https://prod322.bti-sports.io/en/asian-view?oddsStyleId=1'),
+            ('msports_v3','https://msports.m88.com/app/v3/public/sports.html'),
+          ]
+          for label,url in targets:
+            body=json.dumps({'url':url,'gotoOptions':{'waitUntil':'networkidle2','timeout':30000}})
+            out=f'/tmp/{label}.out'
+            p=subprocess.run(['curl','-sS','-X','POST',endpoint,'-H','Content-Type: application/json','-H',f'Authorization: Bearer {token}','--data',body,'-o',out,'-w','%{http_code}'],capture_output=True,text=True,check=True)
+            raw=open(out,'rb').read().decode('utf-8','replace')
+            html=raw
+            ok=False
+            try:
+              d=json.loads(raw); ok=bool(d.get('success')); r=d.get('result')
+              if isinstance(r,str): html=r
+              elif isinstance(r,dict): html=str(r.get('content') or r.get('html') or r)
+            except Exception: pass
+            visible=re.sub(r'<script\b[^>]*>.*?</script>',' ',html,flags=re.I|re.S)
+            visible=re.sub(r'<style\b[^>]*>.*?</style>',' ',visible,flags=re.I|re.S)
+            visible=unescape(re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',visible))).strip()
+            low=visible.lower()
+            nums=re.findall(r'(?<!\d)(?:[1-9]\d?\.\d{2})(?!\d)',visible)
+            print(f'[{label}] CF_HTTP={p.stdout.strip()} API_SUCCESS={ok} CHARS={len(visible)} BLOCKED={"blocked" in low or "access is denied" in low or "attention required" in low} ODDS={len(nums)} SAMPLE={",".join(nums[:12])}')
+            print(f'[{label}] TEXT=' + visible[:500])
+          PY
