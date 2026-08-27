@@ -1,0 +1,168 @@
+name: Site 3 PRE baseline
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/site3-pre-baseline.yml
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      APP: runner3wp0b90f6b4ab/runner3-speed-site3-realistic
+      RAW_WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+    steps:
+      - name: Normalize Wasmer token
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="${RAW_WASMER_TOKEN:-}"
+          test -n "$token" || { echo "WASMER_TOKEN missing"; exit 2; }
+          token="$(printf '%s' "$token" | tr -d '\r\n')"
+          if [[ "$token" != wap_* ]]; then token="wap_${token}"; fi
+          echo "WASMER_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Install Wasmer and login
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl https://get.wasmer.io -sSfL | sh
+          echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+          "$HOME/.wasmer/bin/wasmer" login --no-browser
+
+      - name: Read-only Wasmer inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline
+          wasmer --version | tee baseline/wasmer-version.txt
+          wasmer whoami | tee baseline/whoami.txt
+          wasmer app info "$APP" | tee baseline/app-info.txt
+
+          APP_URL="$(awk '/→ URL:/ {print $NF; exit}' baseline/app-info.txt)"
+          if [[ -z "$APP_URL" ]]; then
+            APP_URL="$(grep -Eo 'https://[^ ]+\.wasmer\.app' baseline/app-info.txt | head -1)"
+          fi
+          test -n "$APP_URL" || { echo "Could not determine app URL"; exit 3; }
+          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
+          echo "$APP_URL" > baseline/app-url.txt
+
+          echo "--- volume inventory ---"
+          if wasmer app volumes list "$APP" > baseline/volumes.txt 2>&1; then
+            cat baseline/volumes.txt
+          else
+            echo "volume_inventory=unavailable"
+          fi
+
+          echo "--- database inventory (credentials never requested) ---"
+          if wasmer app database list "$APP" > /tmp/db-list.txt 2>&1; then
+            echo "database_inventory=ok"
+            echo "database_inventory_lines=$(wc -l < /tmp/db-list.txt)"
+          else
+            echo "database_inventory=unavailable"
+            wasmer app database list --help | head -80 || true
+          fi
+          rm -f /tmp/db-list.txt
+
+          echo "--- recent log health only; raw log content is not printed or uploaded ---"
+          if wasmer app logs "$APP" --max 200 > /tmp/site3-logs.txt 2>&1; then
+            printf 'log_lines=%s\n' "$(wc -l < /tmp/site3-logs.txt)"
+            printf 'error_like_lines=%s\n' "$(grep -Eic 'fatal|error|exception|panic' /tmp/site3-logs.txt || true)"
+            printf 'warning_like_lines=%s\n' "$(grep -Eic 'warning|deprecated' /tmp/site3-logs.txt || true)"
+          else
+            echo "log_health=unavailable"
+          fi
+          rm -f /tmp/site3-logs.txt
+
+      - name: WordPress smoke and HTTP baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline/http
+          : > baseline/smoke.txt
+          for path in / /blog/ /wp-json/ /wp-login.php; do
+            url="${APP_URL%/}${path}"
+            metrics="$(curl -L --max-time 45 -sS -o /tmp/body.html -w 'status=%{http_code} ttfb=%{time_starttransfer} total=%{time_total} bytes=%{size_download} final=%{url_effective}' "$url")"
+            echo "$path $metrics" | tee -a baseline/smoke.txt
+            if [[ "$path" == "/" ]]; then
+              cp /tmp/body.html baseline/http/home.html
+              grep -Eoi 'wp-content|elementor|astra' /tmp/body.html | sort -u | tr '\n' ' ' | sed 's/^/home_markers=/' | tee -a baseline/smoke.txt || true
+            fi
+          done
+
+          curl -L -sS -D baseline/http/home-headers.txt -o /dev/null "$APP_URL"
+          echo "--- cache/compression headers ---"
+          grep -Ei '^(HTTP/|cache-control:|age:|cf-cache-status:|content-encoding:|server:|x-cache:|vary:)' baseline/http/home-headers.txt || true
+
+      - name: Capture visual PRE snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline/screenshots
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$CHROME"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --window-size=1440,1200 --screenshot=baseline/screenshots/home-desktop.png "$APP_URL"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --window-size=390,844 --screenshot=baseline/screenshots/home-mobile.png "$APP_URL"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --window-size=1440,1200 --screenshot=baseline/screenshots/blog-desktop.png "${APP_URL%/}/blog/"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --window-size=390,844 --screenshot=baseline/screenshots/blog-mobile.png "${APP_URL%/}/blog/"
+
+      - name: Lighthouse PRE 3x mobile + 3x desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline/lighthouse
+          npm view lighthouse version | tee baseline/lighthouse/lighthouse-version.txt
+          for mode in mobile desktop; do
+            for i in 1 2 3; do
+              extra=()
+              if [[ "$mode" == "desktop" ]]; then extra+=(--preset=desktop); fi
+              npx --yes lighthouse "$APP_URL" \
+                --only-categories=performance \
+                --output=json \
+                --output-path="baseline/lighthouse/${mode}-${i}.json" \
+                --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+                "${extra[@]}" >/dev/null
+            done
+          done
+
+          python3 - <<'PY'
+          import json, statistics, pathlib
+          out=[]
+          for mode in ('mobile','desktop'):
+              rows=[]
+              for i in range(1,4):
+                  d=json.load(open(f'baseline/lighthouse/{mode}-{i}.json'))
+                  a=d['audits']
+                  reqs=a.get('network-requests',{}).get('details',{}).get('items',[]) or []
+                  row={
+                      'run':i,
+                      'performance':round(d['categories']['performance']['score']*100),
+                      'FCP_ms':round(a['first-contentful-paint']['numericValue']),
+                      'LCP_ms':round(a['largest-contentful-paint']['numericValue']),
+                      'CLS':round(a['cumulative-layout-shift']['numericValue'],3),
+                      'TBT_ms':round(a['total-blocking-time']['numericValue']),
+                      'SpeedIndex_ms':round(a['speed-index']['numericValue']),
+                      'TTFB_ms':round(a['server-response-time']['numericValue']),
+                      'requests':len(reqs),
+                      'transfer_kb':round(sum((x.get('transferSize') or 0) for x in reqs)/1024,1),
+                  }
+                  rows.append(row)
+              med={k:statistics.median([r[k] for r in rows]) for k in rows[0] if k!='run'}
+              out.append({'mode':mode,'runs':rows,'median':med})
+          pathlib.Path('baseline/lighthouse-summary.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Upload immutable PRE evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: site3-pre-baseline-${{ github.run_id }}
+          path: baseline/
+          if-no-files-found: error
+          retention-days: 30
