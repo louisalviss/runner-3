@@ -1,4 +1,5 @@
 import app from "./delivery-entry.js";
+import { renderReaderArticlePageV7 } from "./src/rss-reader-page-v7.js";
 
 const OPAQUE_REQUEST_ID_RE = /^m_[0-9a-f]{32}$/;
 
@@ -24,6 +25,9 @@ function requestIdFromRequestPath(pathname) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const rssArticle = await renderReaderArticlePageV7(request, url);
+    if (rssArticle) return rssArticle;
 
     // Migration policy: every NEW mailbox submit must use an opaque ID.
     // Existing jobs/results/status/fail routes remain readable/writable so
