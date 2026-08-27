@@ -1,8 +1,9 @@
 import app from "./reddit-entry.js";
 import { handleContentIntelligence } from "./src/content-intelligence.js";
 import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
+import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { polishRssLibraryResponse } from "./src/rss-library-page-v2.js";
-import { renderReaderArticlePageV4 } from "./src/rss-reader-page-v4.js";
+import { renderReaderArticlePageV5 } from "./src/rss-reader-page-v5.js";
 import {
   preserveArticleImages,
   pruneExpiredReaderImages,
@@ -162,6 +163,36 @@ async function sanitizeReaderView(response, url) {
   return new Response(JSON.stringify(payload), { status: response.status, statusText: response.statusText, headers });
 }
 
+function internalReaderRequest(request, articleId, suffix = "") {
+  const target = new URL(request.url);
+  target.pathname = `/reader/rss/articles/${encodeURIComponent(articleId)}${suffix}`;
+  target.search = "";
+  const headers = new Headers();
+  const authorization = request.headers.get("authorization");
+  if (authorization) headers.set("authorization", authorization);
+  return { target, request: new Request(target.toString(), { method: "GET", headers }) };
+}
+
+async function authorizeReaderArticle(request, env, ctx, articleId) {
+  const internal = internalReaderRequest(request, articleId);
+  const response = await app.fetch(internal.request, env, ctx);
+  if (!response?.ok) return { ok: false, response };
+  const payload = await response.json().catch(() => null);
+  if (!payload?.article) return { ok: false, response: Response.json({ ok: false, error: "ARTICLE_NOT_FOUND" }, { status: 404 }) };
+  return { ok: true, payload };
+}
+
+async function cleanReaderArticleView(request, env, ctx, articleId, view) {
+  const internal = internalReaderRequest(request, articleId, `/${view === "original" ? "original" : "vi"}`);
+  const raw = await app.fetch(internal.request, env, ctx);
+  if (!raw?.ok) return { ok: false, response: raw };
+  const response = await sanitizeReaderView(raw, internal.target);
+  if (!response?.ok) return { ok: false, response };
+  const payload = await response.json().catch(() => null);
+  if (!payload?.artifact) return { ok: false, response: Response.json({ ok: false, error: "READER_PAYLOAD_INVALID" }, { status: 500 }) };
+  return { ok: true, payload };
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -169,7 +200,13 @@ export default {
     const plusResponse = await handleRssReaderPlus(request, env, url);
     if (plusResponse) return polishRssLibraryResponse(plusResponse, request, url);
 
-    const articlePage = await renderReaderArticlePageV4(request, url);
+    const audioResponse = await handleRssReaderAudio(request, env, url, {
+      authorize: (articleId) => authorizeReaderArticle(request, env, ctx, articleId),
+      cleanView: (articleId, view) => cleanReaderArticleView(request, env, ctx, articleId, view),
+    });
+    if (audioResponse) return audioResponse;
+
+    const articlePage = await renderReaderArticlePageV5(request, url);
     if (articlePage) return articlePage;
 
     const ciResponse = await handleContentIntelligence(request, env, url);
