@@ -1,6 +1,7 @@
 import app from "./reddit-entry.js";
 import { handleContentIntelligence } from "./src/content-intelligence.js";
-import { renderReaderArticlePage } from "./src/rss-reader-page-v2.js";
+import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
+import { renderReaderArticlePageV3 } from "./src/rss-reader-page-v3.js";
 import {
   preserveArticleImages,
   pruneExpiredReaderImages,
@@ -65,9 +66,7 @@ function parseImageLine(value) {
     };
   }
   match = line.match(/^!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"([^"]*)")?\)$/i);
-  if (match) {
-    return { alt: match[1] || "", urls: [match[2]], title: match[3] || "" };
-  }
+  if (match) return { alt: match[1] || "", urls: [match[2]], title: match[3] || "" };
   return null;
 }
 
@@ -78,7 +77,6 @@ function findImageIndex(ref, images, used) {
     const itemKeys = [images[i]?.source_url, images[i]?.url].flatMap(urlKeys);
     if (itemKeys.some((key) => exact.has(key))) return i;
   }
-
   const fileKeys = new Set([...exact].filter((key) => !key.includes("/")));
   if (!fileKeys.size) return -1;
   const matches = [];
@@ -91,10 +89,7 @@ function findImageIndex(ref, images, used) {
 }
 
 function captionCandidates(ref, image) {
-  const values = [ref?.alt, ref?.title, image?.alt, image?.caption]
-    .map(comparableText)
-    .filter(Boolean);
-  return new Set(values);
+  return new Set([ref?.alt, ref?.title, image?.alt, image?.caption].map(comparableText).filter(Boolean));
 }
 
 function buildReaderContent(value, images) {
@@ -103,17 +98,14 @@ function buildReaderContent(value, images) {
   const used = new Set();
   let textLines = [];
   let pendingCaption = null;
-
   const flushText = () => {
     const text = textLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
     if (text) blocks.push({ type: "text", text });
     textLines = [];
   };
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-
     if (pendingCaption && trimmed) {
       const normalized = comparableText(trimmed);
       if (normalized && pendingCaption.has(normalized)) {
@@ -122,7 +114,6 @@ function buildReaderContent(value, images) {
       }
       pendingCaption = null;
     }
-
     const ref = parseImageLine(trimmed);
     if (ref) {
       flushText();
@@ -135,25 +126,15 @@ function buildReaderContent(value, images) {
       }
       continue;
     }
-
     if (IMAGE_LABEL.test(trimmed)) continue;
     if ((trimmed.startsWith("![") || trimmed.startsWith("[![")) && trimmed.includes("http")) continue;
     if (BOILERPLATE.test(trimmed) || TRACKING_URL.test(trimmed)) continue;
-
     const nearTail = i >= lines.length - 20 || i >= Math.floor(lines.length * 0.82);
     if (nearTail && TAIL_ATTRIBUTION.test(comparableText(trimmed))) continue;
-
     textLines.push(line);
   }
   flushText();
-
-  const body = blocks
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
+  const body = blocks.filter((block) => block.type === "text").map((block) => block.text).join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
   return { body, blocks };
 }
 
@@ -163,11 +144,9 @@ async function sanitizeReaderView(response, url) {
   if (!contentType.includes("application/json")) return response;
   const payload = await response.json().catch(() => null);
   if (!payload?.artifact) return Response.json(payload ?? { ok: false, error: "READER_PAYLOAD_INVALID" }, { status: response.status });
-
   const images = selectContentImages(Array.isArray(payload.artifact.images) ? payload.artifact.images : []);
   payload.artifact.images = images;
   payload.artifact.imageCount = images.length;
-
   if (typeof payload.artifact.body === "string") {
     const rendered = buildReaderContent(payload.artifact.body, images);
     payload.artifact.body = rendered.body;
@@ -175,7 +154,6 @@ async function sanitizeReaderView(response, url) {
   } else {
     payload.artifact.renderBlocks = [];
   }
-
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.set("cache-control", "private, no-store");
@@ -187,7 +165,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    const articlePage = renderReaderArticlePage(request, url);
+    const plusResponse = await handleRssReaderPlus(request, env, url);
+    if (plusResponse) return plusResponse;
+
+    const articlePage = renderReaderArticlePageV3(request, url);
     if (articlePage) return articlePage;
 
     const ciResponse = await handleContentIntelligence(request, env, url);
