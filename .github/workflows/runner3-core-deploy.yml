@@ -43,7 +43,31 @@ jobs:
           node --check cloudflare/runner3-core/src/audio-media.js
           node --check cloudflare/runner3-core/src/rss-reader-plus.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v3.js
+          node --check cloudflare/runner3-core/src/rss-reader-page-v4.js
           node --check cloudflare/runner3-core/src/index.js
+          node --input-type=module - <<'NODE'
+          import { handleRssReaderPlus } from './cloudflare/runner3-core/src/rss-reader-plus.js';
+          import { renderReaderArticlePageV4 } from './cloudflare/runner3-core/src/rss-reader-page-v4.js';
+
+          function browserScript(html, label) {
+            const open = html.indexOf('<script>');
+            const close = html.indexOf('</script>', open + 8);
+            if (open < 0 || close < 0) throw new Error(label + ': inline script missing');
+            return html.slice(open + 8, close);
+          }
+
+          const libraryUrl = new URL('https://example.test/rss/library');
+          const libraryResponse = await handleRssReaderPlus(new Request(libraryUrl), {}, libraryUrl);
+          if (!libraryResponse) throw new Error('Library renderer returned null');
+          new Function(browserScript(await libraryResponse.text(), 'RSS Library'));
+
+          const articleUrl = new URL('https://example.test/rss/article/validation-article');
+          const articleResponse = await renderReaderArticlePageV4(new Request(articleUrl), articleUrl);
+          if (!articleResponse) throw new Error('Article renderer returned null');
+          new Function(browserScript(await articleResponse.text(), 'RSS Reader'));
+
+          console.log('Generated RSS Library/Reader browser scripts parse OK');
+          NODE
           python3 - <<'PY'
           import json
           p='cloudflare/runner3-core/wrangler.jsonc'
