@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-26T19:02:18.454377+00:00",
-  "runId": "33002773842",
+  "checkedAt": "2026-08-27T00:32:08.653893+00:00",
+  "runId": "33027068296",
   "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
   "health": {
     "http": 200,
@@ -24,11 +24,11 @@
   },
   "fetch": {
     "genk-165260824141950644": {
-      "http": 200,
-      "ok": true,
-      "error": null,
-      "chars": 11864,
-      "checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec"
+      "http": 502,
+      "ok": false,
+      "error": "direct=Error: timeout; jina=Error: jina HTTP 429",
+      "chars": null,
+      "checksum": null
     },
     "fulcrum-url-a87e54dbda2e37fe40a7": {
       "http": 200,
@@ -48,8 +48,8 @@
       "http": 200,
       "ok": true,
       "error": null,
-      "chars": 70993,
-      "checksum": "f666b9887a07676495f9824416b47bbe04b0910d909f8e7723d483215bf71c27"
+      "chars": 71048,
+      "checksum": "27387eb532efc72af1adcc23d4911d05213758d64b33180148ee3727472cbf79"
     },
     "rasa-url-71191f21386ea1a88a22": {
       "http": 200,
@@ -67,15 +67,6 @@
     }
   },
   "details": {
-    "genk-165260824141950644": {
-      "http": 200,
-      "fetch_status": "fetched",
-      "translation_status": "native_vi",
-      "source_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
-      "translation_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
-      "qa_state": "native_vi",
-      "last_error": null
-    },
     "fulcrum-url-a87e54dbda2e37fe40a7": {
       "http": 200,
       "fetch_status": "fetched",
@@ -98,8 +89,8 @@
       "http": 200,
       "fetch_status": "fetched",
       "translation_status": "native_vi",
-      "source_checksum": "f666b9887a07676495f9824416b47bbe04b0910d909f8e7723d483215bf71c27",
-      "translation_checksum": "f666b9887a07676495f9824416b47bbe04b0910d909f8e7723d483215bf71c27",
+      "source_checksum": "27387eb532efc72af1adcc23d4911d05213758d64b33180148ee3727472cbf79",
+      "translation_checksum": "27387eb532efc72af1adcc23d4911d05213758d64b33180148ee3727472cbf79",
       "qa_state": "native_vi",
       "last_error": null
     },
@@ -123,12 +114,6 @@
     }
   },
   "nativeViViews": {
-    "genk-165260824141950644": {
-      "http": 200,
-      "nativeVi": true,
-      "bodyChars": 11864,
-      "imageCount": 2
-    },
     "tinhte-4171630": {
       "http": 200,
       "nativeVi": true,
@@ -138,7 +123,7 @@
     "nghiencuuquocte-url-6cd04807aefc80d9be93": {
       "http": 200,
       "nativeVi": true,
-      "bodyChars": 70993,
+      "bodyChars": 71048,
       "imageCount": 1
     }
   },
@@ -162,6 +147,8 @@
       "sourceChecksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
-  "errors": [],
-  "ok": true
+  "errors": [
+    "fetch:genk-165260824141950644:502"
+  ],
+  "ok": false
 }
