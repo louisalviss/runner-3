@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-27T00:32:08.653893+00:00",
-  "runId": "33027068296",
+  "checkedAt": "2026-08-27T00:33:50.115290+00:00",
+  "runId": "33027094620",
   "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
   "health": {
     "http": 200,
@@ -24,11 +24,11 @@
   },
   "fetch": {
     "genk-165260824141950644": {
-      "http": 502,
-      "ok": false,
-      "error": "direct=Error: timeout; jina=Error: jina HTTP 429",
-      "chars": null,
-      "checksum": null
+      "http": 200,
+      "ok": true,
+      "error": null,
+      "chars": 11864,
+      "checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec"
     },
     "fulcrum-url-a87e54dbda2e37fe40a7": {
       "http": 200,
@@ -67,6 +67,15 @@
     }
   },
   "details": {
+    "genk-165260824141950644": {
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "native_vi",
+      "source_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
+      "translation_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
+      "qa_state": "native_vi",
+      "last_error": null
+    },
     "fulcrum-url-a87e54dbda2e37fe40a7": {
       "http": 200,
       "fetch_status": "fetched",
@@ -114,6 +123,12 @@
     }
   },
   "nativeViViews": {
+    "genk-165260824141950644": {
+      "http": 200,
+      "nativeVi": true,
+      "bodyChars": 11864,
+      "imageCount": 2
+    },
     "tinhte-4171630": {
       "http": 200,
       "nativeVi": true,
@@ -147,8 +162,6 @@
       "sourceChecksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
-  "errors": [
-    "fetch:genk-165260824141950644:502"
-  ],
-  "ok": false
+  "errors": [],
+  "ok": true
 }
