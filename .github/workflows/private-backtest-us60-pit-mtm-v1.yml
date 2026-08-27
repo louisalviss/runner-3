@@ -1,0 +1,64 @@
+name: Private Backtest US60 PIT MTM V1
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/private_backtest_us60_mtm_replay.py'
+      - '.github/workflows/private-backtest-us60-pit-mtm-v1.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-backtest-us60-pit-mtm-v1
+  cancel-in-progress: false
+
+env:
+  RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+  RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+  RUNNER3_SOURCE: runner-3-github-hosted
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stage PIT proxy MTM replay
+        run: python tools/private_backtest_us60_mtm_replay.py stage --config jobs/private-backtest-us60-survivorship-audit-v1.json
+
+  shard:
+    needs: stage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check 'dukascopy-python==4.0.1' 'numpy>=2,<3' 'pandas>=2,<3'
+      - name: Replay BID M5 price paths
+        run: python tools/private_backtest_us60_mtm_replay.py shard --config jobs/private-backtest-us60-survivorship-audit-v1.json --shard ${{ matrix.shard }}
+
+  evaluate:
+    needs: shard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install evaluator dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=2,<3' 'pandas>=2,<3'
+      - name: Evaluate MTM equity and drawdown
+        run: python tools/private_backtest_us60_mtm_replay.py evaluate --config jobs/private-backtest-us60-survivorship-audit-v1.json
