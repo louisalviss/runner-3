@@ -3,6 +3,7 @@ const QUEUE_PREFIX = "audio-library/rss-reader-queue/";
 const MEDIA_PREFIX = "audio-library/media/";
 const VOICE = "vi-VN-NamMinhNeural";
 const VOICE_RATE = "+3%";
+const AUDIO_VERSION = "rss-reader-audio-v2";
 const MAX_SCRIPT_CHARS = 180000;
 
 function json(value, status = 200) {
@@ -17,13 +18,14 @@ function json(value, status = 200) {
 }
 
 function parseRoute(url) {
+  const timing = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/audio\/timing$/);
   const media = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/audio\/media$/);
   const status = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/audio$/);
-  const match = media || status;
+  const match = timing || media || status;
   if (!match) return null;
   let articleId;
   try { articleId = decodeURIComponent(match[1]); } catch { return null; }
-  return { articleId, media: Boolean(media) };
+  return { articleId, kind: timing ? "timing" : media ? "media" : "status" };
 }
 
 function normalizeView(value) {
@@ -37,7 +39,7 @@ async function sha256Hex(value) {
 }
 
 async function audioId(articleId, view) {
-  const hash = await sha256Hex(`${articleId}\u0000${view}\u0000${VOICE}\u0000${VOICE_RATE}`);
+  const hash = await sha256Hex(`${AUDIO_VERSION}\u0000${articleId}\u0000${view}\u0000${VOICE}\u0000${VOICE_RATE}`);
   return `rss-${hash.slice(0, 32)}`;
 }
 
@@ -64,9 +66,11 @@ function publicState(item, view) {
       ok: true,
       status: "missing",
       view,
+      audioVersion: AUDIO_VERSION,
       voice: VOICE,
       voiceRate: VOICE_RATE,
       durationSeconds: null,
+      timingAvailable: false,
       error: null,
     };
   }
@@ -74,9 +78,11 @@ function publicState(item, view) {
     ok: true,
     status: String(item.status || "missing"),
     view,
+    audioVersion: AUDIO_VERSION,
     voice: VOICE,
     voiceRate: VOICE_RATE,
     durationSeconds: Number.isFinite(Number(item.durationSeconds)) ? Number(item.durationSeconds) : null,
+    timingAvailable: Boolean(item.timingUrl),
     updatedAt: item.updatedAt || null,
     error: item.status === "error" ? String(item.error || "Không thể tạo audio").slice(0, 180) : null,
   };
@@ -88,12 +94,37 @@ async function readPostView(request, fallback) {
   return normalizeView(body?.view || fallback);
 }
 
-function safeText(value) {
-  return String(value || "")
+function normalizeSpeechText(value) {
+  let source = String(value || "").normalize("NFC")
     .replace(/\r/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u200b-\u200d\u2060\ufeff]/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\((?:https?:\/\/|\/)[^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/^\s{0,3}#{1,6}\s+(.+)$/gm, "$1.")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "• ")
+    .replace(/^\s*(\d+)[.)]\s+/gm, "$1. ")
+    .replace(/`{1,3}([^`]+)`{1,3}/g, "$1")
+    .replace(/[~*_]{1,3}/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  if (!source) return "";
+  const paragraphs = source.split(/\n\s*\n+/).map((part) => {
+    let text = String(part || "")
+      .replace(/\n+/g, " ")
+      .replace(/\s*•\s*/g, "; ")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\s+([,.;:!?…])/g, "$1")
+      .replace(/([,.;:!?…])(?=[^\s”’')\]}])/g, "$1 ")
+      .trim();
+    if (text && !/[.!?…:;”’')\]}]$/.test(text)) text += ".";
+    return text;
+  }).filter(Boolean);
+  return paragraphs.join("\n\n");
 }
 
 export async function handleRssReaderAudio(request, env, url, helpers) {
@@ -114,7 +145,7 @@ export async function handleRssReaderAudio(request, env, url, helpers) {
   const prefix = mediaPrefix(id);
   const existing = await getJson(env.AUDIO_MEDIA, key);
 
-  if (route.media) {
+  if (route.kind === "media") {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
     if (!existing || existing.status !== "ready") return json({ ok: false, error: "AUDIO_NOT_READY" }, 409);
     const object = request.method === "HEAD"
@@ -131,6 +162,14 @@ export async function handleRssReaderAudio(request, env, url, helpers) {
     return new Response(object.body, { status: 200, headers });
   }
 
+  if (route.kind === "timing") {
+    if (request.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+    if (!existing || existing.status !== "ready") return json({ ok: false, error: "AUDIO_NOT_READY" }, 409);
+    const timing = await getJson(env.AUDIO_MEDIA, `${prefix}timing.json`);
+    if (!timing) return json({ ok: false, error: "AUDIO_TIMING_MISSING" }, 404);
+    return json(timing);
+  }
+
   if (request.method === "GET") return json(publicState(existing, view));
   if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
 
@@ -139,20 +178,25 @@ export async function handleRssReaderAudio(request, env, url, helpers) {
 
   const payload = clean.payload || {};
   const article = payload.article || auth.payload?.article || {};
-  const script = safeText(payload.artifact?.body || "");
+  const script = normalizeSpeechText(payload.artifact?.body || "");
   if (script.length < 80) return json({ ok: false, error: "ARTICLE_AUDIO_TEXT_TOO_SHORT" }, 422);
   if (script.length > MAX_SCRIPT_CHARS) return json({ ok: false, error: "ARTICLE_AUDIO_TEXT_TOO_LONG" }, 413);
 
   const textSha256 = await sha256Hex(script);
-  if (existing && existing.textSha256 === textSha256 && existing.voice === VOICE && existing.voiceRate === VOICE_RATE) {
+  if (existing && existing.textSha256 === textSha256 && existing.voice === VOICE && existing.voiceRate === VOICE_RATE && existing.audioVersion === AUDIO_VERSION) {
     if (["pending", "processing", "ready"].includes(existing.status)) return json(publicState(existing, view));
   }
 
   const now = new Date().toISOString();
-  if (existing?.status === "ready") await env.AUDIO_MEDIA.delete(`${prefix}episode.mp3`);
+  if (existing?.status === "ready") {
+    await Promise.all([
+      env.AUDIO_MEDIA.delete(`${prefix}episode.mp3`),
+      env.AUDIO_MEDIA.delete(`${prefix}timing.json`),
+    ]);
+  }
   await env.AUDIO_MEDIA.put(`${prefix}script.txt`, script, {
     httpMetadata: { contentType: "text/plain; charset=utf-8" },
-    customMetadata: { scope: "rss-reader-audio", voice: VOICE },
+    customMetadata: { scope: "rss-reader-audio", voice: VOICE, version: AUDIO_VERSION },
   });
 
   const item = {
@@ -172,7 +216,9 @@ export async function handleRssReaderAudio(request, env, url, helpers) {
     progressSeconds: 0,
     audioUrl: null,
     transcriptUrl: null,
+    timingUrl: null,
     mediaPrefix: prefix,
+    audioVersion: AUDIO_VERSION,
     voice: VOICE,
     voiceRate: VOICE_RATE,
     textSha256,
@@ -186,6 +232,7 @@ export async function handleRssReaderAudio(request, env, url, helpers) {
     itemKey: key,
     scriptKey: `${prefix}script.txt`,
     mediaPrefix: prefix,
+    audioVersion: AUDIO_VERSION,
     voice: VOICE,
     voiceRate: VOICE_RATE,
     textSha256,
