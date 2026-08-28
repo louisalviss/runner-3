@@ -3,7 +3,7 @@ import { handleContentIntelligence } from "./src/content-intelligence.js";
 import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { polishRssLibraryResponse } from "./src/rss-library-page-v2.js";
-import { renderReaderArticlePageV7 } from "./src/rss-reader-page-v7.js";
+import { renderReaderArticlePageV8 } from "./src/rss-reader-page-v8.js";
 import {
   preserveArticleImages,
   pruneExpiredReaderImages,
@@ -206,7 +206,7 @@ export default {
     });
     if (audioResponse) return audioResponse;
 
-    const articlePage = await renderReaderArticlePageV7(request, url);
+    const articlePage = await renderReaderArticlePageV8(request, url);
     if (articlePage) return articlePage;
 
     const ciResponse = await handleContentIntelligence(request, env, url);
