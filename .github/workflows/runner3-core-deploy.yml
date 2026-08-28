@@ -50,6 +50,8 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-page-v6.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v7.js
           node --check cloudflare/runner3-core/src/index.js
+          grep -q 'renderReaderArticlePageV7' cloudflare/runner3-core/reader-media-entry.js
+          ! grep -q 'renderReaderArticlePageV6(request, url)' cloudflare/runner3-core/reader-media-entry.js
           grep -q 'vi-VN-NamMinhNeural' cloudflare/runner3-core/src/rss-reader-audio.js
           grep -q 'rss-reader-audio-v2' cloudflare/runner3-core/src/rss-reader-audio.js
           grep -q 'AUDIO_TIMING_MISSING' cloudflare/runner3-core/src/rss-reader-audio.js
