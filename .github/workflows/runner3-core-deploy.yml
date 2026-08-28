@@ -55,8 +55,12 @@ jobs:
           grep -q 'vi-VN-NamMinhNeural' cloudflare/runner3-core/src/rss-reader-audio.js
           grep -q 'rss-reader-audio-v2' cloudflare/runner3-core/src/rss-reader-audio.js
           grep -q 'AUDIO_TIMING_MISSING' cloudflare/runner3-core/src/rss-reader-audio.js
+          grep -q 'accept-ranges.*bytes' cloudflare/runner3-core/src/rss-reader-audio.js
+          grep -q 'mediaUrl' cloudflare/runner3-core/src/rss-reader-audio.js
+          grep -q 'nam-minh-stream' cloudflare/runner3-core/src/rss-reader-page-v7.js
           node --input-type=module - <<'NODE'
           import { handleRssReaderPlus } from './cloudflare/runner3-core/src/rss-reader-plus.js';
+          import { handleRssReaderAudio } from './cloudflare/runner3-core/src/rss-reader-audio.js';
           import { polishRssLibraryResponse } from './cloudflare/runner3-core/src/rss-library-page-v2.js';
           import { renderReaderArticlePageV7 } from './cloudflare/runner3-core/src/rss-reader-page-v7.js';
 
@@ -78,6 +82,39 @@ jobs:
             return count;
           }
 
+          class MockR2 {
+            constructor() { this.map = new Map(); }
+            async put(key, value) {
+              let bytes;
+              if (typeof value === 'string') bytes = new TextEncoder().encode(value);
+              else if (value instanceof Uint8Array) bytes = value;
+              else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+              else bytes = new Uint8Array(await new Response(value).arrayBuffer());
+              this.map.set(key, bytes);
+            }
+            async head(key) {
+              const bytes = this.map.get(key);
+              return bytes ? { size: bytes.byteLength, etag: 'mock-etag' } : null;
+            }
+            async get(key, options = {}) {
+              const bytes = this.map.get(key);
+              if (!bytes) return null;
+              let body = bytes;
+              if (options.range) {
+                const offset = Number(options.range.offset || 0);
+                const length = Number(options.range.length || 0);
+                body = bytes.slice(offset, offset + length);
+              }
+              return {
+                size: body.byteLength,
+                etag: 'mock-etag',
+                body,
+                text: async () => new TextDecoder().decode(body),
+              };
+            }
+            async delete(key) { this.map.delete(key); }
+          }
+
           const libraryUrl = new URL('https://example.test/rss/library');
           const libraryRequest = new Request(libraryUrl);
           const libraryBase = await handleRssReaderPlus(libraryRequest, {}, libraryUrl);
@@ -96,8 +133,55 @@ jobs:
           if (!articleHtml.includes('rss-reader-nam-minh-v1')) throw new Error('RSS Reader Nam Minh marker missing');
           if (!articleHtml.includes('rss-reader-nam-minh-timing-v2')) throw new Error('RSS Reader timing marker missing');
           if (!articleHtml.includes('rss-reader-nam-minh-ready-v3')) throw new Error('RSS Reader reliable playback marker missing');
+          if (!articleHtml.includes('nam-minh-stream')) throw new Error('RSS Reader native stream marker missing');
+
+          const bucket = new MockR2();
+          const env = { AUDIO_MEDIA: bucket, RUNNER3_CORE_TOKEN: 'ci-core-secret' };
+          const helpers = {
+            authorize: async () => ({ ok: true, payload: { article: { title: 'CI article', canonical_url: 'https://example.test/a' } } }),
+            cleanView: async () => ({ ok: true, payload: { article: { title: 'CI article' }, artifact: { body: 'Đây là nội dung kiểm tra đủ dài để tạo một RSS audio job trong CI. '.repeat(4) } } }),
+          };
+          const audioBase = 'https://example.test/reader/rss/articles/ci-article/audio?view=vi';
+          const createResponse = await handleRssReaderAudio(
+            new Request(audioBase, { method: 'POST', headers: { Authorization: 'Bearer reader' }, body: JSON.stringify({ view: 'vi' }), headers: { Authorization: 'Bearer reader', 'Content-Type': 'application/json' } }),
+            env,
+            new URL(audioBase),
+            helpers,
+          );
+          if (createResponse.status !== 202) throw new Error('RSS audio create did not queue');
+          const itemKey = [...bucket.map.keys()].find((key) => key.startsWith('audio-library/items/'));
+          if (!itemKey) throw new Error('RSS audio item missing in mock R2');
+          const item = JSON.parse(new TextDecoder().decode(bucket.map.get(itemKey)));
+          item.status = 'ready';
+          item.audioUrl = item.mediaPrefix + 'episode.mp3';
+          await bucket.put(itemKey, JSON.stringify(item));
+          const sample = new Uint8Array([0,1,2,3,4,5,6,7,8,9]);
+          await bucket.put(item.mediaPrefix + 'episode.mp3', sample);
+
+          const stateResponse = await handleRssReaderAudio(
+            new Request(audioBase, { headers: { Authorization: 'Bearer reader' } }),
+            env,
+            new URL(audioBase),
+            helpers,
+          );
+          const state = await stateResponse.json();
+          if (state.status !== 'ready' || !state.mediaUrl) throw new Error('RSS audio media ticket URL missing');
+          const mediaUrl = new URL(state.mediaUrl, 'https://example.test');
+          const rangeResponse = await handleRssReaderAudio(
+            new Request(mediaUrl, { headers: { Range: 'bytes=2-5' } }),
+            env,
+            mediaUrl,
+            helpers,
+          );
+          if (rangeResponse.status !== 206) throw new Error('RSS audio Range did not return 206');
+          if (rangeResponse.headers.get('accept-ranges') !== 'bytes') throw new Error('RSS audio byte range header missing');
+          if (rangeResponse.headers.get('content-range') !== 'bytes 2-5/10') throw new Error('RSS audio content-range incorrect');
+          const ranged = new Uint8Array(await rangeResponse.arrayBuffer());
+          if (ranged.join(',') !== '2,3,4,5') throw new Error('RSS audio ranged bytes incorrect');
+
           console.log('Generated polished RSS Library/Reader browser scripts parse OK');
-          console.log('RSS Reader Nam Minh MP3 + timing + reliable iOS playback path present');
+          console.log('RSS Reader Nam Minh direct stream marker present');
+          console.log('RSS audio scoped media ticket + HTTP Range 206 E2E PASS');
           NODE
           python3 - <<'PY'
           import json
@@ -112,5 +196,5 @@ jobs:
           print('Runner3 Core source validation OK')
           print('Entry chain: opaque-mailbox-v2 -> mailbox -> audio -> reader-media')
           print('Production deploy owner: private louisalviss/vps-control')
-          print('RSS audio: normalized Reader text -> Nam Minh -> MP3 + paragraph timing')
+          print('RSS audio: normalized Reader text -> Nam Minh -> ticketed byte-range stream')
           PY
