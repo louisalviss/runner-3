@@ -1,0 +1,203 @@
+name: AI Writer public build bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "ai-writer commit SHA or branch/tag (default: main)"
+        required: false
+        default: "main"
+      full_runtime_smoke:
+        description: "Download Writing Brain V2.3 and run retrieval smoke test"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-writer-bridge
+  cancel-in-progress: false
+
+env:
+  AI_WRITER_REPO: louisalviss/ai-writer
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AI_WRITER_PAT: ${{ secrets.AI_WRITER_PAT }}
+      TARGET_REF: ${{ inputs.commit_sha }}
+      FULL_RUNTIME_SMOKE: ${{ inputs.full_runtime_smoke }}
+
+    steps:
+      - name: Validate private-repo credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${AI_WRITER_PAT:-}" ]]; then
+            echo "Missing runner-3 Actions secret AI_WRITER_PAT." >&2
+            echo "Create a fine-grained PAT scoped only to louisalviss/ai-writer with Contents: Read and write." >&2
+            exit 2
+          fi
+          echo "::add-mask::$AI_WRITER_PAT"
+
+      - name: Clone private ai-writer and resolve target
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/tmp/ai-writer
+          rm -rf "$repo"
+          git -c credential.helper= clone -q "https://x-access-token:${AI_WRITER_PAT}@github.com/${AI_WRITER_REPO}.git" "$repo"
+          cd "$repo"
+          git fetch -q --tags origin
+          ref="${TARGET_REF:-main}"
+          git checkout -q --detach "$ref"
+          target_sha="$(git rev-parse HEAD)"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          git submodule update --init --recursive
+          echo "Testing ai-writer commit $target_sha"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: /tmp/ai-writer/upstream/ainovel-cli/go.mod
+          cache: false
+
+      - name: Compile and test overlay
+        id: build
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/ai-writer
+          mkdir -p /tmp/ai-writer-verify
+          ./scripts/build-ai-writer.sh > /tmp/ai-writer-verify/build.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [[ $code -eq 0 ]]; then
+            echo "build_status=pass" >> "$GITHUB_OUTPUT"
+            echo "Build/test PASS"
+          else
+            echo "build_status=fail" >> "$GITHUB_OUTPUT"
+            echo "Build/test FAIL (exit $code)"
+            tail -n 120 /tmp/ai-writer-verify/build.log || true
+          fi
+          exit 0
+
+      - name: Writing Brain V2.3 runtime smoke
+        id: runtime
+        if: ${{ inputs.full_runtime_smoke && steps.build.outputs.exit_code == '0' }}
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/ai-writer
+          ./scripts/setup-writing-brain-v2.3.sh > /tmp/ai-writer-verify/runtime.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [[ $code -eq 0 ]]; then
+            echo "runtime_status=pass" >> "$GITHUB_OUTPUT"
+            echo "Writing Brain runtime smoke PASS"
+          else
+            echo "runtime_status=fail" >> "$GITHUB_OUTPUT"
+            echo "Writing Brain runtime smoke FAIL (exit $code)"
+            tail -n 120 /tmp/ai-writer-verify/runtime.log || true
+          fi
+          exit 0
+
+      - name: Create verification report
+        id: report
+        if: always() && steps.source.outputs.target_sha != ''
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.source.outputs.target_sha }}
+          BUILD_CODE: ${{ steps.build.outputs.exit_code }}
+          RUNTIME_CODE: ${{ steps.runtime.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          build_code="${BUILD_CODE:-99}"
+          runtime_requested="${FULL_RUNTIME_SMOKE:-false}"
+          runtime_code="${RUNTIME_CODE:-}"
+
+          status=fail
+          if [[ "$build_code" == "0" ]]; then
+            if [[ "$runtime_requested" != "true" || "$runtime_code" == "0" ]]; then
+              status=pass
+            fi
+          fi
+
+          upstream_sha="$(git -C /tmp/ai-writer/upstream/ainovel-cli rev-parse HEAD 2>/dev/null || true)"
+          report=/tmp/ai-writer-verify/report.json
+          python3 - <<'PY' > "$report"
+          import json, os
+          from datetime import datetime, timezone
+          build_code = os.environ.get("BUILD_CODE") or "99"
+          runtime_requested = os.environ.get("FULL_RUNTIME_SMOKE", "false").lower() == "true"
+          runtime_code = os.environ.get("RUNTIME_CODE") or None
+          ok = build_code == "0" and (not runtime_requested or runtime_code == "0")
+          print(json.dumps({
+              "schema": "ai-writer-public-runner-verification-v1",
+              "status": "pass" if ok else "fail",
+              "verified_at_utc": datetime.now(timezone.utc).isoformat(),
+              "ai_writer_repo": os.environ["AI_WRITER_REPO"],
+              "ai_writer_commit": os.environ["TARGET_SHA"],
+              "runner_repo": os.environ["GITHUB_REPOSITORY"],
+              "runner_run_id": os.environ["GITHUB_RUN_ID"],
+              "runner_run_number": os.environ["GITHUB_RUN_NUMBER"],
+              "build": {
+                  "exit_code": int(build_code),
+                  "passed": build_code == "0"
+              },
+              "writing_brain_runtime_smoke": {
+                  "requested": runtime_requested,
+                  "exit_code": int(runtime_code) if runtime_code is not None else None,
+                  "passed": (runtime_code == "0") if runtime_requested else None
+              },
+              "writing_brain_version": "V2.3"
+          }, ensure_ascii=False, indent=2))
+          PY
+          cat "$report"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Write verification back to private ai-writer
+        if: always() && steps.source.outputs.target_sha != ''
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.source.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          repo=/tmp/ai-writer
+          cd "$repo"
+          git reset --hard -q
+          git clean -fdx -q
+          git checkout -q main
+          git pull -q --ff-only origin main
+
+          mkdir -p verification/runs
+          cp /tmp/ai-writer-verify/report.json "verification/runs/${TARGET_SHA}.json"
+          cp /tmp/ai-writer-verify/report.json verification/latest.json
+
+          git config user.name "runner-3 verifier"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification
+          if git diff --cached --quiet; then
+            echo "Verification report already current."
+            exit 0
+          fi
+          git commit -q -m "verify: runner-3 result for ${TARGET_SHA} [skip ci]"
+          git push -q origin HEAD:main
+          echo "Verification report pushed back to ai-writer/main."
+
+      - name: Enforce verification result
+        if: always() && steps.source.outputs.target_sha != ''
+        shell: bash
+        env:
+          RESULT: ${{ steps.report.outputs.status }}
+        run: |
+          if [[ "$RESULT" != "pass" ]]; then
+            echo "AI Writer verification failed." >&2
+            exit 1
+          fi
+          echo "AI Writer verification PASS."
