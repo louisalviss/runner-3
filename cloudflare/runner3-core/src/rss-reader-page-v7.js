@@ -1,9 +1,9 @@
 import { renderReaderArticlePageV6 } from "./rss-reader-page-v6.js";
 
 const READY_CSS = `<style id="rss-reader-nam-minh-ready-v3">
-#audioDock[data-engine="nam-minh-ready"] .audio-state{max-width:180px}
-#audioDock[data-engine="nam-minh-ready"].fixed .audio-state{max-width:128px}
-@media(max-width:430px){#audioDock[data-engine="nam-minh-ready"] .audio-state{max-width:112px}#audioDock[data-engine="nam-minh-ready"].fixed .audio-state{max-width:94px}}
+#audioDock[data-engine="nam-minh-stream"] .audio-state{max-width:180px}
+#audioDock[data-engine="nam-minh-stream"].fixed .audio-state{max-width:128px}
+@media(max-width:430px){#audioDock[data-engine="nam-minh-stream"] .audio-state{max-width:112px}#audioDock[data-engine="nam-minh-stream"].fixed .audio-state{max-width:94px}}
 </style>`;
 
 const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
@@ -16,10 +16,9 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
   var originalButton=document.querySelector('#original');
   if(!dock||!audio||!playButton)return;
 
-  dock.setAttribute('data-engine','nam-minh-ready');
-  var mediaObjectUrl='';
+  dock.setAttribute('data-engine','nam-minh-stream');
   var loadedView='';
-  var preloadPromise=null;
+  var loadedMediaUrl='';
   var preparePromise=null;
   var stopped=false;
 
@@ -32,8 +31,8 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
     try{return decodeURIComponent(value)}catch(e){return ''}
   }
   function readerToken(){return localStorage.getItem('rssReaderToken')||''}
-  function endpoint(suffix,view){
-    return '/reader/rss/articles/'+encodeURIComponent(articleId())+'/audio'+(suffix||'')+'?view='+encodeURIComponent(view||currentView());
+  function endpoint(view){
+    return '/reader/rss/articles/'+encodeURIComponent(articleId())+'/audio?view='+encodeURIComponent(view||currentView());
   }
   function state(label){
     var el=document.querySelector('#audioState');
@@ -56,58 +55,32 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
       opt.headers={'Content-Type':'application/json'};
       opt.body=JSON.stringify({view:view||currentView()});
     }
-    var response=await request(endpoint('',view),opt);
+    var response=await request(endpoint(view),opt);
     var data=await response.json().catch(function(){return {}});
     if(!response.ok)throw new Error(data.error||String(response.status));
     return data;
   }
   function clearMedia(){
     audio.pause();
-    if(mediaObjectUrl){URL.revokeObjectURL(mediaObjectUrl);mediaObjectUrl=''}
     loadedView='';
+    loadedMediaUrl='';
     try{audio.removeAttribute('src');audio.load()}catch(e){}
     icon(false);
   }
-  async function preload(view){
+  function assignMedia(info,view){
     view=view||currentView();
-    if(audio.src&&loadedView===view)return true;
-    if(preloadPromise)return preloadPromise;
-    preloadPromise=(async function(){
-      state('Nam Minh · đang tải…');
-      var response=await request(endpoint('/media',view),{method:'GET'});
-      if(!response.ok){
-        var data=await response.json().catch(function(){return {}});
-        throw new Error(data.error||String(response.status));
-      }
-      var blob=await response.blob();
-      if(stopped)return false;
-      clearMedia();
-      mediaObjectUrl=URL.createObjectURL(blob);
-      loadedView=view;
-      audio.src=mediaObjectUrl;
-      audio.preload='auto';
-      audio.playbackRate=rateValue();
-      await new Promise(function(resolve,reject){
-        var done=false;
-        function finish(ok){
-          if(done)return;done=true;
-          audio.removeEventListener('loadedmetadata',onMeta);
-          audio.removeEventListener('canplay',onMeta);
-          audio.removeEventListener('error',onError);
-          ok?resolve():reject(new Error('MP3 không phát được'));
-        }
-        function onMeta(){finish(true)}
-        function onError(){finish(false)}
-        audio.addEventListener('loadedmetadata',onMeta);
-        audio.addEventListener('canplay',onMeta);
-        audio.addEventListener('error',onError);
-        audio.load();
-        setTimeout(function(){if(!done&&audio.readyState>=1)finish(true)},2500);
-      });
-      state('Nam Minh · sẵn sàng');
-      return true;
-    })();
-    try{return await preloadPromise}finally{preloadPromise=null}
+    var url=String(info&&info.mediaUrl||'');
+    if(!url)throw new Error('AUDIO_MEDIA_URL_MISSING');
+    if(audio.src&&loadedView===view&&loadedMediaUrl===url)return true;
+    clearMedia();
+    loadedView=view;
+    loadedMediaUrl=url;
+    audio.preload='metadata';
+    audio.playbackRate=rateValue();
+    audio.src=url;
+    audio.load();
+    state('Nam Minh · sẵn sàng');
+    return true;
   }
   async function waitUntilReady(view){
     view=view||currentView();
@@ -116,7 +89,7 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
       var info=await readState('GET',view);
       var status=String(info.status||'missing');
       if(status==='ready'){
-        await preload(view);
+        assignMedia(info,view);
         state('Nam Minh · sẵn sàng · bấm ▶');
         return true;
       }
@@ -142,7 +115,7 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
       var info=await readState('GET',view);
       var status=String(info.status||'missing');
       if(status==='ready'){
-        await preload(view);
+        assignMedia(info,view);
         state('Nam Minh · sẵn sàng');
       }else if(status==='processing'||status==='pending'){
         state(status==='processing'?'Nam Minh · đang tạo…':'Nam Minh · đang chờ…');
@@ -156,25 +129,17 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
       if(audio.src&&loadedView===view){
         if(!audio.paused){audio.pause();icon(false);return}
         audio.playbackRate=rateValue();
+        state('Nam Minh · bắt đầu…');
         var result=audio.play();
         if(result&&typeof result.then==='function')await result;
-        icon(true);
         return;
       }
 
       var info=await readState('GET',view);
       var status=String(info.status||'missing');
       if(status==='ready'){
-        await preload(view);
-        try{
-          audio.playbackRate=rateValue();
-          var playResult=audio.play();
-          if(playResult&&typeof playResult.then==='function')await playResult;
-          icon(true);
-        }catch(playError){
-          icon(false);
-          state('Nam Minh · sẵn sàng · bấm ▶');
-        }
+        assignMedia(info,view);
+        state('Nam Minh · sẵn sàng · bấm ▶');
         return;
       }
 
@@ -195,14 +160,21 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
   playButton.onclick=startOrPlay;
   try{togglePlay=startOrPlay;speakCurrent=startOrPlay}catch(e){}
 
+  audio.addEventListener('loadstart',function(){if(loadedMediaUrl&&audio.paused)state('Nam Minh · kết nối…')});
+  audio.addEventListener('loadedmetadata',function(){if(audio.paused)state('Nam Minh · sẵn sàng')});
+  audio.addEventListener('canplay',function(){if(audio.paused)state('Nam Minh · sẵn sàng')});
+  audio.addEventListener('playing',function(){icon(true);state('Nam Minh · đang đọc')});
   audio.addEventListener('play',function(){icon(true)});
-  audio.addEventListener('pause',function(){icon(false)});
+  audio.addEventListener('pause',function(){icon(false);if(!audio.ended&&loadedMediaUrl)state('Nam Minh · tạm dừng')});
+  audio.addEventListener('waiting',function(){if(!audio.paused)state('Nam Minh · đang đệm…')});
+  audio.addEventListener('stalled',function(){if(!audio.paused)state('Nam Minh · mạng chậm…')});
   audio.addEventListener('ended',function(){icon(false);state('Nam Minh · đã đọc xong')});
+  audio.addEventListener('error',function(){if(audio.src){icon(false);state('Audio lỗi')}});
+  if(rateSelect)rateSelect.addEventListener('change',function(){audio.playbackRate=rateValue()});
 
   function viewChanged(){
     setTimeout(function(){
       clearMedia();
-      preloadPromise=null;
       preparePromise=null;
       refresh();
     },120);
