@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: true
+  push:
+    branches: [main]
+    paths:
+      - .github/ai-writer-trigger.json
 
 permissions:
   contents: read
@@ -29,10 +33,31 @@ jobs:
     timeout-minutes: 45
     env:
       AI_WRITER_PAT: ${{ secrets.AI_WRITER_PAT }}
-      TARGET_REF: ${{ inputs.commit_sha }}
-      FULL_RUNTIME_SMOKE: ${{ inputs.full_runtime_smoke }}
+      TARGET_REF_INPUT: ${{ inputs.commit_sha }}
+      FULL_RUNTIME_SMOKE_INPUT: ${{ inputs.full_runtime_smoke }}
 
     steps:
+      - name: Checkout runner-3 trigger config
+        uses: actions/checkout@v4
+
+      - name: Resolve verification request
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            ref="$(python3 -c 'import json; print(json.load(open(".github/ai-writer-trigger.json"))["commit_sha"])')"
+            smoke="$(python3 -c 'import json; print(str(json.load(open(".github/ai-writer-trigger.json")).get("full_runtime_smoke", True)).lower())')"
+          else
+            ref="${TARGET_REF_INPUT:-main}"
+            smoke="${FULL_RUNTIME_SMOKE_INPUT:-true}"
+          fi
+          [[ -n "$ref" ]] || ref=main
+          [[ "$smoke" == "true" || "$smoke" == "false" ]] || smoke=true
+          echo "target_ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "full_runtime_smoke=$smoke" >> "$GITHUB_OUTPUT"
+          echo "Requested ai-writer ref: $ref; full runtime smoke: $smoke"
+
       - name: Validate private-repo credential
         shell: bash
         run: |
@@ -47,6 +72,8 @@ jobs:
       - name: Clone private ai-writer and resolve target
         id: source
         shell: bash
+        env:
+          TARGET_REF: ${{ steps.config.outputs.target_ref }}
         run: |
           set -euo pipefail
           repo=/tmp/ai-writer
@@ -54,8 +81,7 @@ jobs:
           git -c credential.helper= clone -q "https://x-access-token:${AI_WRITER_PAT}@github.com/${AI_WRITER_REPO}.git" "$repo"
           cd "$repo"
           git fetch -q --tags origin
-          ref="${TARGET_REF:-main}"
-          git checkout -q --detach "$ref"
+          git checkout -q --detach "$TARGET_REF"
           target_sha="$(git rev-parse HEAD)"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           git submodule update --init --recursive
@@ -78,10 +104,8 @@ jobs:
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [[ $code -eq 0 ]]; then
-            echo "build_status=pass" >> "$GITHUB_OUTPUT"
             echo "Build/test PASS"
           else
-            echo "build_status=fail" >> "$GITHUB_OUTPUT"
             echo "Build/test FAIL (exit $code)"
             tail -n 120 /tmp/ai-writer-verify/build.log || true
           fi
@@ -89,7 +113,7 @@ jobs:
 
       - name: Writing Brain V2.3 runtime smoke
         id: runtime
-        if: ${{ inputs.full_runtime_smoke && steps.build.outputs.exit_code == '0' }}
+        if: ${{ steps.config.outputs.full_runtime_smoke == 'true' && steps.build.outputs.exit_code == '0' }}
         shell: bash
         run: |
           set +e
@@ -98,10 +122,8 @@ jobs:
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [[ $code -eq 0 ]]; then
-            echo "runtime_status=pass" >> "$GITHUB_OUTPUT"
             echo "Writing Brain runtime smoke PASS"
           else
-            echo "runtime_status=fail" >> "$GITHUB_OUTPUT"
             echo "Writing Brain runtime smoke FAIL (exit $code)"
             tail -n 120 /tmp/ai-writer-verify/runtime.log || true
           fi
@@ -115,20 +137,15 @@ jobs:
           TARGET_SHA: ${{ steps.source.outputs.target_sha }}
           BUILD_CODE: ${{ steps.build.outputs.exit_code }}
           RUNTIME_CODE: ${{ steps.runtime.outputs.exit_code }}
+          FULL_RUNTIME_SMOKE: ${{ steps.config.outputs.full_runtime_smoke }}
         run: |
           set -euo pipefail
           build_code="${BUILD_CODE:-99}"
           runtime_requested="${FULL_RUNTIME_SMOKE:-false}"
           runtime_code="${RUNTIME_CODE:-}"
-
-          status=fail
-          if [[ "$build_code" == "0" ]]; then
-            if [[ "$runtime_requested" != "true" || "$runtime_code" == "0" ]]; then
-              status=pass
-            fi
-          fi
-
           upstream_sha="$(git -C /tmp/ai-writer/upstream/ainovel-cli rev-parse HEAD 2>/dev/null || true)"
+          export UPSTREAM_SHA="$upstream_sha"
+
           report=/tmp/ai-writer-verify/report.json
           python3 - <<'PY' > "$report"
           import json, os
@@ -143,6 +160,7 @@ jobs:
               "verified_at_utc": datetime.now(timezone.utc).isoformat(),
               "ai_writer_repo": os.environ["AI_WRITER_REPO"],
               "ai_writer_commit": os.environ["TARGET_SHA"],
+              "ainovel_upstream_commit": os.environ.get("UPSTREAM_SHA") or None,
               "runner_repo": os.environ["GITHUB_REPOSITORY"],
               "runner_run_id": os.environ["GITHUB_RUN_ID"],
               "runner_run_number": os.environ["GITHUB_RUN_NUMBER"],
@@ -159,6 +177,7 @@ jobs:
           }, ensure_ascii=False, indent=2))
           PY
           cat "$report"
+          status="$(python3 -c 'import json; print(json.load(open("/tmp/ai-writer-verify/report.json"))["status"])')"
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Write verification back to private ai-writer
