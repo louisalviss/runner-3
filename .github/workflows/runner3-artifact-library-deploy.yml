@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner3-artifact-library-deploy.yml'
+      - 'cloudflare/runner3-core/artifact-library-pin-v2-entry.js'
       - 'cloudflare/runner3-core/artifact-library-hardening-entry.js'
       - 'cloudflare/runner3-core/artifact-list-entry.js'
       - 'cloudflare/runner3-core/migrations/0010_artifact_library_magic_links.sql'
@@ -59,7 +60,7 @@ jobs:
 
       - name: Deploy Core
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 deploy artifact-library-hardening-entry.js --config wrangler.jsonc
+        run: npx --yes wrangler@4 deploy artifact-library-pin-v2-entry.js --config wrangler.jsonc
 
       - name: Verify PIN auth noindex session and magic link
         shell: bash
