@@ -9,6 +9,7 @@ on:
       - 'cloudflare/runner3-core/artifact-library-hardening-entry.js'
       - 'cloudflare/runner3-core/artifact-list-entry.js'
       - 'cloudflare/runner3-core/migrations/0010_artifact_library_magic_links.sql'
+      - 'cloudflare/runner3-core/migrations/0011_artifact_library_pin_auth.sql'
       - 'cloudflare/runner3-core/wrangler.jsonc'
 
 permissions:
@@ -34,13 +35,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Apply magic-link D1 schema
+
+      - name: Apply artifact-library D1 schemas
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0010_artifact_library_magic_links.sql
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0010_artifact_library_magic_links.sql
+          npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0011_artifact_library_pin_auth.sql
+
+      - name: Detect existing Library PIN
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(npx --yes wrangler@4 d1 execute runner3-core --remote --command="SELECT CASE WHEN EXISTS(SELECT 1 FROM artifact_library_auth WHERE id=1) THEN 'PIN_PRESENT' ELSE 'PIN_EMPTY' END AS pin_state;")"
+          if grep -q 'PIN_PRESENT' <<<"$OUT"; then
+            echo 'PIN_AUTH_WAS_EMPTY=0' >> "$GITHUB_ENV"
+            echo 'Existing Library PIN detected; verifier will preserve it.'
+          else
+            echo 'PIN_AUTH_WAS_EMPTY=1' >> "$GITHUB_ENV"
+            echo 'No Library PIN exists; verifier may use a temporary random PIN and will remove it afterward.'
+          fi
+
       - name: Deploy Core
         working-directory: cloudflare/runner3-core
         run: npx --yes wrangler@4 deploy artifact-library-hardening-entry.js --config wrangler.jsonc
-      - name: Verify noindex remembered session and one-time magic login
+
+      - name: Verify PIN auth noindex session and magic link
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +69,7 @@ jobs:
           import http.cookiejar
           import json
           import os
+          import secrets
           import time
           import urllib.error
           import urllib.parse
@@ -55,11 +77,12 @@ jobs:
 
           base=os.environ['BASE_URL'].rstrip('/')
           token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          pin_was_empty=os.environ.get('PIN_AUTH_WAS_EMPTY')=='1'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None, opener=None):
             url=path if path.startswith('http') else base+path
-            r=urllib.request.Request(url, method=method, data=data, headers={'User-Agent':'runner3-artifact-library-hardening-proof/2.0', **(headers or {})})
+            r=urllib.request.Request(url, method=method, data=data, headers={'User-Agent':'runner3-artifact-library-pin-proof/1.0', **(headers or {})})
             try:
               response=(opener.open(r,timeout=30) if opener else urllib.request.urlopen(r,timeout=30))
               with response: return response.status, response.headers, response.read()
@@ -71,63 +94,124 @@ jobs:
           assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
           text=body.decode('utf-8','replace')
           assert 'name="robots"' in text and 'noindex' in text
+          if pin_was_empty:
+            assert 'Create Library PIN' in text
+            assert 'Core access token' in text
+          else:
+            assert '6-digit Library PIN' in text
+            assert 'Core access token' not in text
 
           status,h,_=req('/artifact-list?limit=1')
           assert status==401, status
           assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
 
-          jar=http.cookiejar.CookieJar()
-          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          data=urllib.parse.urlencode({'token':token}).encode()
-          status,h,_=req('/artifact-library/login','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
-          assert status==200, status
-          cookie=next((c for c in jar if c.name=='r3_artifact_library'),None)
-          assert cookie is not None and cookie.expires is not None
-          remaining=cookie.expires-int(time.time())
-          assert remaining > 29*24*60*60, remaining
-
-          status,h,body=req('/artifact-library',opener=opener)
+          status,h,body=req('/artifact-library/reset-pin')
           assert status==200, status
           assert h.get('X-Robots-Tag')==robots
-          text=body.decode('utf-8','replace')
-          assert 'id="magic-link-button"' in text
+          reset_text=body.decode('utf-8','replace')
+          assert 'Reset Library PIN' in reset_text and 'Core access token' in reset_text
 
-          status,h,body=req('/artifact-library/api/magic-link','POST',headers={'Accept':'application/json'},opener=opener)
-          assert status==200, status
-          assert h.get('X-Robots-Tag')==robots
-          magic=json.loads(body.decode('utf-8'))
-          assert magic.get('ok') is True
-          assert magic.get('one_time') is True
-          assert magic.get('ttl_seconds')==600
-          magic_url=str(magic.get('url') or '')
-          assert magic_url.startswith(base+'/artifact-library/magic?t=')
-          assert token not in magic_url
-
-          fresh_jar=http.cookiejar.CookieJar()
-          fresh=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(fresh_jar))
-          status,h,body=req(magic_url,opener=fresh)
-          assert status==200, status
-          assert h.get('X-Robots-Tag')==robots
-          fresh_cookie=next((c for c in fresh_jar if c.name=='r3_artifact_library'),None)
-          assert fresh_cookie is not None and fresh_cookie.expires is not None
-          fresh_remaining=fresh_cookie.expires-int(time.time())
-          assert fresh_remaining > 29*24*60*60, fresh_remaining
-          assert 'R2 Artifact Library' in body.decode('utf-8','replace')
-
-          replay_jar=http.cookiejar.CookieJar()
-          replay=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(replay_jar))
-          status,h,body=req(magic_url,opener=replay)
-          assert status==410, status
-          assert h.get('X-Robots-Tag')==robots
-          replay_body=json.loads(body.decode('utf-8'))
-          assert replay_body.get('error')=='MAGIC_LINK_INVALID_OR_EXPIRED'
-
-          print({
+          result={
             'ok':True,
-            'remember_seconds_remaining':remaining,
-            'magic_ttl_seconds':600,
-            'magic_fresh_session_seconds_remaining':fresh_remaining,
-            'magic_replay_http':410,
+            'pin_was_empty':pin_was_empty,
             'x_robots_tag':robots,
-          })
+          }
+
+          if pin_was_empty:
+            pin=f'{secrets.randbelow(1000000):06d}'
+            jar=http.cookiejar.CookieJar()
+            opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+            data=urllib.parse.urlencode({'core_token':token,'pin':pin,'pin_confirm':pin}).encode()
+            status,h,body=req('/artifact-library/setup-pin','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
+            assert status==200, status
+            cookie=next((c for c in jar if c.name=='r3_artifact_library'),None)
+            assert cookie is not None and cookie.expires is not None
+            remaining=cookie.expires-int(time.time())
+            assert remaining > 29*24*60*60, remaining
+            library_text=body.decode('utf-8','replace')
+            assert 'R2 Artifact Library' in library_text
+            assert 'id="magic-link-button"' in library_text
+            assert 'id="change-pin-button"' in library_text
+
+            status,h,body=req('/artifact-library/logout','POST',opener=opener)
+            assert status==200, status
+            assert next((c for c in jar if c.name=='r3_artifact_library'),None) is None
+            login_text=body.decode('utf-8','replace')
+            assert '6-digit Library PIN' in login_text
+            assert 'Core access token' not in login_text
+
+            bad_data=urllib.parse.urlencode({'pin':'000000' if pin!='000000' else '999999'}).encode()
+            status,h,body=req('/artifact-library/login','POST',bad_data,{'Content-Type':'application/x-www-form-urlencoded'})
+            assert status==401, status
+            assert 'Incorrect PIN' in body.decode('utf-8','replace')
+
+            fresh_jar=http.cookiejar.CookieJar()
+            fresh=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(fresh_jar))
+            good_data=urllib.parse.urlencode({'pin':pin}).encode()
+            status,h,body=req('/artifact-library/login','POST',good_data,{'Content-Type':'application/x-www-form-urlencoded'},fresh)
+            assert status==200, status
+            fresh_cookie=next((c for c in fresh_jar if c.name=='r3_artifact_library'),None)
+            assert fresh_cookie is not None and fresh_cookie.expires is not None
+            fresh_remaining=fresh_cookie.expires-int(time.time())
+            assert fresh_remaining > 29*24*60*60, fresh_remaining
+
+            status,h,body=req('/artifact-library/api/magic-link','POST',headers={'Accept':'application/json'},opener=fresh)
+            assert status==200, status
+            magic=json.loads(body.decode('utf-8'))
+            assert magic.get('ok') is True
+            assert magic.get('one_time') is True
+            assert magic.get('ttl_seconds')==600
+            magic_url=str(magic.get('url') or '')
+            assert magic_url.startswith(base+'/artifact-library/magic?t=')
+            assert token not in magic_url and pin not in magic_url
+
+            magic_jar=http.cookiejar.CookieJar()
+            magic_opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(magic_jar))
+            status,h,body=req(magic_url,opener=magic_opener)
+            assert status==200, status
+            magic_cookie=next((c for c in magic_jar if c.name=='r3_artifact_library'),None)
+            assert magic_cookie is not None and magic_cookie.expires is not None
+            assert magic_cookie.expires-int(time.time()) > 29*24*60*60
+
+            replay_jar=http.cookiejar.CookieJar()
+            replay=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(replay_jar))
+            status,h,body=req(magic_url,opener=replay)
+            assert status==410, status
+            replay_body=json.loads(body.decode('utf-8'))
+            assert replay_body.get('error')=='MAGIC_LINK_INVALID_OR_EXPIRED'
+
+            result.update({
+              'pin_setup_login':True,
+              'wrong_pin_rejected':True,
+              'logout_clears_session':True,
+              'remember_seconds_remaining':fresh_remaining,
+              'magic_ttl_seconds':600,
+              'magic_replay_http':410,
+            })
+
+          print(result)
+          PY
+
+      - name: Remove temporary verifier PIN
+        if: always() && env.PIN_AUTH_WAS_EMPTY == '1'
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute runner3-core --remote --command="DELETE FROM artifact_library_auth WHERE id=1; DELETE FROM artifact_library_pin_attempts;"
+
+      - name: Verify clean first-run state
+        if: env.PIN_AUTH_WAS_EMPTY == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, urllib.request
+          url=os.environ['BASE_URL'].rstrip('/')+'/artifact-library'
+          with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'runner3-artifact-library-pin-clean-proof/1.0'}),timeout=30) as r:
+            body=r.read().decode('utf-8','replace')
+            assert r.status==200
+            assert r.headers.get('X-Robots-Tag')=='noindex, nofollow, noarchive, nosnippet, noimageindex'
+            assert 'Create Library PIN' in body
+          print({'ok':True,'clean_first_run_state':True})
           PY
