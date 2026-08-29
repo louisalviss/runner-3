@@ -6,6 +6,7 @@ on:
     paths:
       - 'mailbox/inbox.json'
       - 'mailbox/requests/**'
+      - '.github/workflows/vps-mailbox-readback.yml'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
