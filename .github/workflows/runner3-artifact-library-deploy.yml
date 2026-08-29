@@ -51,7 +51,7 @@ jobs:
           from urllib.parse import urlencode
 
           base=os.environ['BASE_URL'].rstrip('/')
-          ua='runner3-artifact-reader-v3-proof/1.0'
+          ua='runner3-artifact-reader-v3-proof/1.1'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None):
@@ -87,22 +87,25 @@ jobs:
                   html=r.read().decode('utf-8','replace')
                   status=r.status
                   tag=r.headers.get('X-Robots-Tag')
-              if status==200 and tag==robots and 'data-r3-touch-layer-v3="1"' in html:
+              if status==200 and tag==robots and 'data-r3-touch-layer-v3="1"' in html and 'setTimeout(hideControls,2000)' in html:
                   break
               time.sleep(2)
           else:
               raise AssertionError('Reader v3 did not propagate; prefix='+html[:240])
 
           required=[
-              'id="r3GestureLayer"','touch-action:none','passive:false',
+              'id="r3GestureLayer"','z-index:19','touch-action:none','passive:false',
               "Math.abs(dx)>=34","ratio<.33","ratio>.67",
-              "KeyboardEvent('keydown'","setTimeout(hideControls,3000)",
+              "KeyboardEvent('keydown'","setTimeout(hideControls,2000)",
+              "document.body.classList.contains('settings')){hideControls();return;}",
+              "sheet.addEventListener('touchstart',keepAlive",'body.settings #settingsSheet{z-index:30}',
               'id="settingsButton"','id="settingsSheet"','Cài đặt đọc',
               'data-nav="swipe"','data-nav="tap"','Chạm trái / phải',
               'r3-reader-margin','r3-reader-line-height','r3-reader-position:'
           ]
           missing=[x for x in required if x not in html]
           assert not missing, missing
+          assert 'body.settings #r3GestureLayer{pointer-events:none}' not in html
 
           payload=json.dumps({'key':key,'ttl_seconds':900}).encode()
           with req('/artifact-library/api/delivery','POST',payload,{'Content-Type':'application/json','X-Runner3-Library':'1'}) as r:
@@ -117,12 +120,12 @@ jobs:
           print(json.dumps({
               'ok':True,
               'reader_v3_touch_overlay':True,
-              'navigation_modes':['swipe','tap-zones'],
-              'touch_overlay_above_epub_iframe':True,
               'center_tap_controls':True,
-              'controls_auto_hide_seconds':3,
-              'settings_gear':True,
-              'margin_and_line_height':True,
+              'settings_auto_hide_seconds':2,
+              'outside_tap_closes_settings':True,
+              'gesture_layer_above_epub':True,
+              'settings_panel_above_gesture_layer':True,
+              'navigation_modes':['swipe','tap-zones'],
               'settings_and_position_remembered':True,
               'signed_epub_verified':True,
               'book_count':len(objects),
