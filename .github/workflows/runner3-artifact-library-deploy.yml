@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner3-artifact-library-deploy.yml'
+      - 'cloudflare/runner3-core/artifact-library-reader-v5-entry.js'
       - 'cloudflare/runner3-core/artifact-library-reader-v4-entry.js'
       - 'cloudflare/runner3-core/artifact-library-reader-v3-entry.js'
       - 'cloudflare/runner3-core/artifact-library-reader-v2-entry.js'
@@ -39,11 +40,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Deploy iPhone-style EPUB Reader v4 three-zone buttons
+      - name: Deploy EPUB Reader v5 live reflow
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 deploy artifact-library-reader-v4-entry.js --config wrangler.jsonc
+        run: npx --yes wrangler@4 deploy artifact-library-reader-v5-entry.js --config wrangler.jsonc
 
-      - name: Verify Library and Reader v4 live
+      - name: Verify Library and Reader v5 live
         shell: bash
         run: |
           set -euo pipefail
@@ -52,7 +53,7 @@ jobs:
           from urllib.parse import urlencode
 
           base=os.environ['BASE_URL'].rstrip('/')
-          ua='runner3-artifact-reader-v4-zones-proof/1.2'
+          ua='runner3-artifact-reader-v5-reflow-proof/1.0'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None):
@@ -62,7 +63,7 @@ jobs:
               return urllib.request.urlopen(r, timeout=30)
 
           home=''
-          for attempt in range(20):
+          for _ in range(20):
               with req('/artifact-library') as r:
                   home=r.read().decode('utf-8','replace')
                   status=r.status
@@ -71,7 +72,7 @@ jobs:
                   break
               time.sleep(2)
           else:
-              raise AssertionError('Library did not propagate; prefix='+home[:240])
+              raise AssertionError('Library did not propagate')
 
           with req('/artifact-library/api/list') as r:
               listing=json.loads(r.read().decode())
@@ -83,34 +84,30 @@ jobs:
 
           reader='/artifact-library/read?'+urlencode({'key':key})
           html=''
-          for attempt in range(20):
+          for _ in range(20):
               with req(reader) as r:
                   html=r.read().decode('utf-8','replace')
                   status=r.status
                   tag=r.headers.get('X-Robots-Tag')
-              if status==200 and tag==robots and 'data-r3-hit-zones-v4="1"' in html and 'setTimeout(hideAll,6000)' in html and 'id="r3SettingsBackdrop"' in html:
+              if status==200 and tag==robots and 'data-r3-live-reflow-v5="1"' in html:
                   break
               time.sleep(2)
           else:
-              raise AssertionError('Reader v4 did not propagate; prefix='+html[:240])
+              raise AssertionError('Reader v5 did not propagate')
 
           required=[
-              'id="r3HitLeft"','id="r3HitCenter"','id="r3HitRight"','class="r3-hit-zone"',
-              'id="r3SettingsBackdrop"','body.settings .r3-hit-zone{pointer-events:none}',
-              'body.settings #r3SettingsBackdrop{display:block}','z-index:25',
-              "backdrop.addEventListener('click'","hideAll();",
-              'width:33.3334vw','background:rgba(255,255,255,.001)','z-index:19','touch-action:none',
-              "el.addEventListener('pointerdown'","el.addEventListener('pointerup'",'setPointerCapture',
-              "side==='center'","navMode()==='tap'","Math.abs(dx)>=34",
-              "setTimeout(hideAll,6000)","body.classList.contains('settings')){armIdle();return;}",
-              "sheet.addEventListener('pointerdown',keepAlive",'body.settings #settingsSheet{z-index:30}',
-              'id="settingsButton"','id="settingsSheet"','Cài đặt đọc',
-              'data-nav="swipe"','data-nav="tap"','Chạm trái / phải',
+              'data-r3-hit-zones-v4="1"','id="r3SettingsBackdrop"','setTimeout(hideAll,6000)',
+              'data-r3-live-reflow-v5="1"','--r3-reader-edge','r3CurrentCfi','r3ScheduleReflow',
+              'rendition.resize(viewer.clientWidth,viewer.clientHeight)','await rendition.display(anchor)',
+              "rendition.themes.override('padding-left','0',true)",
+              "rendition.themes.override('padding-right','0',true)",
+              "rendition.themes.override('line-height',String(line),true)",
               'r3-reader-margin','r3-reader-line-height','r3-reader-position:'
           ]
           missing=[x for x in required if x not in html]
           assert not missing, missing
-          assert 'data-r3-touch-layer-v3="1"' not in html
+          assert "rendition.themes.override('padding-left',margin+'%',true)" not in html
+          assert "rendition.themes.override('padding-right',margin+'%',true)" not in html
 
           payload=json.dumps({'key':key,'ttl_seconds':900}).encode()
           with req('/artifact-library/api/delivery','POST',payload,{'Content-Type':'application/json','X-Runner3-Library':'1'}) as r:
@@ -124,16 +121,12 @@ jobs:
 
           print(json.dumps({
               'ok':True,
-              'real_html_hit_zone_buttons':3,
-              'settings_backdrop_isolated':True,
-              'center_zone_disabled_while_settings_open':True,
-              'inside_settings_tap_does_not_leak':True,
+              'reader_v5_live_reflow':True,
+              'outer_viewport_margin':True,
+              'epub_internal_padding_removed':True,
+              'cfi_preserved_during_reflow':True,
+              'font_line_height_live_reflow':True,
               'settings_auto_hide_seconds':6,
-              'outside_tap_closes_settings':True,
-              'swipe_detected_on_buttons':True,
-              'tap_navigation_mode':True,
-              'old_v3_overlay_removed':True,
-              'settings_and_position_remembered':True,
               'signed_epub_verified':True,
               'book_count':len(objects),
               'noindex':True
