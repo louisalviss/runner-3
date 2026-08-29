@@ -75,11 +75,14 @@ function hardenedJson(data, status = 200, extraHeaders = {}) {
 }
 
 function injectMagicLinkUi(body) {
-  if (!body.includes('action="/artifact-library/logout"') || body.includes('id="magic-link-button"')) return body;
+  if (body.includes('id="magic-link-button"')) return body;
+  const logoutPattern = /(<form\b[^>]*\baction=["']\/artifact-library\/logout["'][^>]*>[\s\S]*?<\/form>)/i;
+  if (!logoutPattern.test(body)) return body;
 
-  const logoutForm = '<form method="post" action="/artifact-library/logout"><button class="logout" type="submit">Log out</button></form>';
-  const controls = `<div style="display:flex;gap:8px;align-items:center"><button class="logout" id="magic-link-button" type="button">Magic link</button>${logoutForm}</div>`;
-  body = body.replace(logoutForm, controls);
+  body = body.replace(
+    logoutPattern,
+    '<div style="display:flex;gap:8px;align-items:center"><button class="logout" id="magic-link-button" type="button">Magic link</button>$1</div>',
+  );
 
   const script = `<script>
 (()=>{const button=document.getElementById('magic-link-button');if(!button)return;button.addEventListener('click',async()=>{const label=button.textContent;button.disabled=true;button.textContent='Creating…';try{const response=await fetch('/artifact-library/api/magic-link',{method:'POST',headers:{Accept:'application/json'}});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||('HTTP '+response.status));if(navigator.clipboard&&navigator.clipboard.writeText){try{await navigator.clipboard.writeText(data.url)}catch(_){}}window.prompt('One-time magic link — valid 10 minutes',data.url)}catch(error){window.alert('Could not create magic link: '+error.message)}finally{button.disabled=false;button.textContent=label}})})();
@@ -99,7 +102,7 @@ async function hardenArtifactResponse(request, response) {
   if (!body.toLowerCase().includes('name="robots"')) {
     body = body.replace(/<head>/i, `<head>\n${meta}`);
   }
-  if (new URL(request.url).pathname === "/artifact-library") body = injectMagicLinkUi(body);
+  if (new URL(request.url).pathname.startsWith("/artifact-library")) body = injectMagicLinkUi(body);
   return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
 
