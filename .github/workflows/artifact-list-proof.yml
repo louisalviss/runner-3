@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import datetime
-          import http.cookiejar
+          import http.cookiejar as cookiejar
           import json
           import os
           import time
@@ -140,7 +140,7 @@ jobs:
           if bad_http != 401:
               raise SystemExit(f'bad library login expected 401, got {bad_http}')
 
-          jar = http.cookiejar.CookieJar()
+          jar = cookiejar.CookieJar()
           opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
           good_data = urllib.parse.urlencode({'token': token}).encode()
           auth_http, _, auth_raw = raw_request(
