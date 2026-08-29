@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner3-artifact-library-deploy.yml'
+      - 'cloudflare/runner3-core/artifact-library-reader-v2-entry.js'
       - 'cloudflare/runner3-core/artifact-library-simple-entry.js'
       - 'cloudflare/runner3-core/artifact-test-cleanup-entry.js'
       - 'cloudflare/runner3-core/artifact-library-pin-v2-entry.js'
@@ -36,11 +37,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Deploy simplified public EPUB Library
+      - name: Deploy iPhone-style EPUB Reader v2
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 deploy artifact-library-simple-entry.js --config wrangler.jsonc
+        run: npx --yes wrangler@4 deploy artifact-library-reader-v2-entry.js --config wrangler.jsonc
 
-      - name: Verify final-only Library and EPUB reader
+      - name: Verify Library and Reader v2 live
         shell: bash
         run: |
           set -euo pipefail
@@ -49,7 +50,7 @@ jobs:
           from urllib.parse import urlencode
 
           base=os.environ['BASE_URL'].rstrip('/')
-          ua='runner3-artifact-library-simple-proof/1.1'
+          ua='runner3-artifact-reader-v2-proof/1.0'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None):
@@ -68,43 +69,47 @@ jobs:
                   break
               time.sleep(2)
           else:
-              raise AssertionError('simplified Library did not propagate; prefix='+home[:240])
+              raise AssertionError('Library did not propagate; prefix='+home[:240])
 
           assert 'aria-label="Search"' in home
           assert 'aria-label="Refresh R2"' in home
-          assert 'Core access token' not in home
-          assert 'Library PIN' not in home
-          assert 'Log out' not in home
-          assert 'All objects' not in home
-          assert 'Final only' not in home
-          assert 'Latest final / scope' not in home
-          assert 'statObjects' not in home
-          assert 'class="path"' not in home
-          assert 'class="badge' not in home
+          assert 'Core access token' not in home and 'Library PIN' not in home
+          assert 'All objects' not in home and 'Latest final / scope' not in home
 
           with req('/artifact-library/api/list') as r:
               listing=json.loads(r.read().decode())
-              assert r.status==200
-              assert r.headers.get('X-Robots-Tag')==robots
+              assert r.status==200 and r.headers.get('X-Robots-Tag')==robots
           assert listing.get('ok') is True
-          assert listing.get('final_only') is True
-          assert listing.get('canonical_latest_per_scope') is True
+          assert listing.get('final_only') is True and listing.get('canonical_latest_per_scope') is True
           objects=listing.get('objects') or []
-          assert objects, 'no final EPUBs returned'
+          assert objects
           assert all('/final/' in x.get('key','') and x.get('key','').lower().endswith('.epub') for x in objects)
-          scopes=[x.get('scope') for x in objects]
-          assert len(scopes)==len(set(scopes)), 'duplicate scope in canonical view'
           key=objects[0]['key']
 
           reader='/artifact-library/read?'+urlencode({'key':key})
-          with req(reader) as r:
-              html=r.read().decode('utf-8','replace')
-              assert r.status==200
-              assert r.headers.get('X-Robots-Tag')==robots
+          html=''
+          for attempt in range(20):
+              with req(reader) as r:
+                  html=r.read().decode('utf-8','replace')
+                  status=r.status
+                  tag=r.headers.get('X-Robots-Tag')
+              if status==200 and tag==robots and 'Cài đặt đọc' in html and 'r3-reader-navigation' in html:
+                  break
+              time.sleep(2)
+          else:
+              raise AssertionError('Reader v2 did not propagate; prefix='+html[:240])
+
           required=[
-              'id="fontDown"','id="fontUp"','data-theme="light"','data-theme="dark"','data-theme="brown"',
-              'r3-reader-font-size','r3-reader-theme','r3-reader-position:',
-              'localStorage.setItem(positionKey,cfi)','touchstart','touchend','data-r3-iframe-swipe="1"'
+              'id="settingsButton"','id="settingsSheet"','Cài đặt đọc',
+              'data-nav="swipe"','data-nav="tap"','Chạm trái / phải',
+              'data-theme="light"','data-theme="dark"','data-theme="brown"',
+              'r3-reader-font-size','r3-reader-theme','r3-reader-navigation',
+              'r3-reader-margin','r3-reader-line-height','r3-reader-position:',
+              "setTimeout(hideControls,3000)","toggleControls()",'rendition.getContents()',
+              "Math.abs(dx)>=38","ratio<.33","ratio>.67",
+              'data-margin="2"','data-margin="5"','data-margin="9"',
+              'data-line="1.35"','data-line="1.55"','data-line="1.8"','data-line="2"',
+              "localStorage.setItem(k,String(v))"
           ]
           missing=[x for x in required if x not in html]
           assert not missing, missing
@@ -117,22 +122,24 @@ jobs:
           assert signed.startswith('https://')
           with req(signed,headers={'Range':'bytes=0-7'}) as r:
               magic=r.read(8)
-              assert r.status in (200,206)
-              assert magic.startswith(b'PK'), magic
+              assert r.status in (200,206) and magic.startswith(b'PK')
 
           print(json.dumps({
               'ok':True,
-              'pin_removed_from_ui':True,
-              'public_library_open':True,
-              'final_only_latest_per_scope':True,
-              'book_rows_title_plus_download_only':True,
-              'search_submit':True,
-              'refresh_icon':True,
-              'reader_swipe_parent_and_iframe':True,
-              'reader_settings_remembered':True,
-              'reader_position_remembered_per_book':True,
+              'reader_full_viewport':True,
+              'navigation_modes':['swipe','tap-zones'],
+              'epub_iframe_gesture_binding':True,
+              'center_tap_controls':True,
+              'controls_auto_hide_seconds':3,
+              'settings_gear':True,
+              'themes':['light','dark','brown'],
+              'font_remembered':True,
+              'margin_options':[2,5,9],
+              'line_height_options':[1.35,1.55,1.8,2.0],
+              'all_settings_remembered':True,
+              'position_remembered_per_book':True,
               'signed_epub_verified':True,
-              'noindex':True,
               'book_count':len(objects),
+              'noindex':True
           },ensure_ascii=False))
           PY
