@@ -35,7 +35,7 @@ jobs:
           node-version: '22'
       - name: Deploy Core
         working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 deploy
+        run: npx --yes wrangler@4 deploy artifact-library-hardening-entry.js --config wrangler.jsonc
       - name: Verify noindex and remembered session
         shell: bash
         run: |
