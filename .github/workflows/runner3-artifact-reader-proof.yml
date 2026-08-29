@@ -42,7 +42,9 @@ jobs:
 
           def req(url, *, method='GET', headers=None, data=None, opener=None, timeout=30):
               r=urllib.request.Request(url, method=method, headers=headers or {}, data=data)
-              return (opener or urllib.request).open(r, timeout=timeout)
+              if opener is not None:
+                  return opener.open(r, timeout=timeout)
+              return urllib.request.urlopen(r, timeout=timeout)
 
           # Wait for Cloudflare propagation of the deployed reader wrapper.
           last=''
