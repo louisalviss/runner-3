@@ -17,10 +17,13 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
   if(!dock||!audio||!playButton)return;
 
   dock.setAttribute('data-engine','nam-minh-stream');
+  dock.setAttribute('data-audio-poll','adaptive-v4');
   var loadedView='';
   var loadedMediaUrl='';
   var preparePromise=null;
   var stopped=false;
+  var pollGeneration=0;
+  var POLL_DELAYS=[2000,3000,5000,8000,13000,21000,30000];
 
   function currentView(){
     try{return typeof activeKind!=='undefined'&&activeKind==='original'?'original':'vi'}catch(e){return 'vi'}
@@ -44,6 +47,16 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
   function rateValue(){
     var value=rateSelect?Number(rateSelect.value||1):1;
     return Math.max(.5,Math.min(2.5,Number.isFinite(value)?value:1));
+  }
+  function nextPollDelay(step){
+    var index=Math.min(Math.max(0,step||0),POLL_DELAYS.length-1);
+    var delay=POLL_DELAYS[index];
+    if(document.hidden)delay=Math.max(delay,30000);
+    return delay;
+  }
+  function cancelPolling(){
+    pollGeneration+=1;
+    preparePromise=null;
   }
   async function request(path,opt){
     var headers=Object.assign({Authorization:'Bearer '+readerToken()},opt&&opt.headers||{});
@@ -82,11 +95,13 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
     state('Nam Minh · sẵn sàng');
     return true;
   }
-  async function waitUntilReady(view){
+  async function waitUntilReady(view,generation){
     view=view||currentView();
     var started=Date.now();
-    while(!stopped&&Date.now()-started<20*60*1000){
+    var pollStep=0;
+    while(!stopped&&generation===pollGeneration&&Date.now()-started<20*60*1000){
       var info=await readState('GET',view);
+      if(stopped||generation!==pollGeneration)return false;
       var status=String(info.status||'missing');
       if(status==='ready'){
         assignMedia(info,view);
@@ -95,19 +110,25 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
       }
       if(status==='error')throw new Error(info.error||'Không thể tạo audio');
       state(status==='processing'?'Nam Minh · đang tạo…':'Nam Minh · đang chờ…');
-      await new Promise(function(resolve){setTimeout(resolve,1800)});
+      var delayMs=nextPollDelay(pollStep);
+      pollStep+=1;
+      await new Promise(function(resolve){setTimeout(resolve,delayMs)});
     }
-    if(!stopped)state('Nam Minh · vẫn đang tạo…');
+    if(!stopped&&generation===pollGeneration)state('Nam Minh · vẫn đang tạo…');
     return false;
   }
   function prepare(view){
     if(preparePromise)return preparePromise;
-    preparePromise=waitUntilReady(view).catch(function(error){
-      state('Audio lỗi');
-      try{if(typeof showToast==='function')showToast(error&&error.message?error.message:'Không tạo được audio')}catch(e){}
+    var generation=++pollGeneration;
+    var promise=waitUntilReady(view,generation).catch(function(error){
+      if(generation===pollGeneration){
+        state('Audio lỗi');
+        try{if(typeof showToast==='function')showToast(error&&error.message?error.message:'Không tạo được audio')}catch(e){}
+      }
       return false;
-    }).finally(function(){preparePromise=null});
-    return preparePromise;
+    }).finally(function(){if(preparePromise===promise)preparePromise=null});
+    preparePromise=promise;
+    return promise;
   }
   async function refresh(){
     var view=currentView();
@@ -173,16 +194,16 @@ const READY_SCRIPT = `<script id="rss-reader-nam-minh-ready-v3-script">
   if(rateSelect)rateSelect.addEventListener('change',function(){audio.playbackRate=rateValue()});
 
   function viewChanged(){
+    cancelPolling();
     setTimeout(function(){
       clearMedia();
-      preparePromise=null;
       refresh();
     },120);
   }
   if(viButton)viButton.addEventListener('click',viewChanged);
   if(originalButton)originalButton.addEventListener('click',viewChanged);
 
-  window.addEventListener('pagehide',function(){stopped=true;clearMedia()});
+  window.addEventListener('pagehide',function(){stopped=true;cancelPolling();clearMedia()});
 
   var waitCount=0;
   var wait=setInterval(function(){
@@ -218,6 +239,7 @@ export async function renderReaderArticlePageV7(request, url) {
   headers.delete("content-length");
   headers.set("cache-control", "no-store");
   headers.set("content-type", "text/html; charset=utf-8");
+  headers.set("x-rss-reader-audio-poll", "adaptive-v4");
   return new Response(html, {
     status: response.status,
     statusText: response.statusText,
