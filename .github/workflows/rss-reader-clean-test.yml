@@ -1,0 +1,68 @@
+name: RSS Reader Boilerplate Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/runner3-core/src/rss-reader-clean.mjs'
+      - 'cloudflare/runner3-core/reader-media-entry.js'
+      - '.github/workflows/rss-reader-clean-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify semantic Reader cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { cleanReaderBoilerplate, READER_CLEAN_VERSION } from './cloudflare/runner3-core/src/rss-reader-clean.mjs';
+
+          const title='Tiêu chuẩn 45 phút: Giúp các khu công nghiệp Đông Nam Á hiệu quả và đáng sống';
+          const caption='Các khu dân cư nằm trong Khu công nghiệp Morowali Indonesia, còn được gọi là PT IMIP, tại tỉnh Trung Sulawesi, Indonesia. (Ảnh: Mohamad Hamzah / NurPhoto / NurPhoto qua AFP)';
+          const fixture=[
+            'TRANG CHỦ BÀI VIẾT '+title,
+            '',
+            caption,
+            '',
+            'A+',
+            'A-',
+            '',
+            'Marco Kamiya | Wang Xingping | Dong Mingjuan',
+            '',
+            'Các khu công nghiệp vẫn là động lực chủ lực của mô hình phát triển dựa vào sản xuất, nhưng đây là nội dung thật phải được giữ lại.',
+          ].join('\n');
+
+          const cleaned=cleanReaderBoilerplate(fixture, {
+            title,
+            images:[{caption}],
+          });
+          for (const junk of ['TRANG CHỦ','BÀI VIẾT','A+','A-','Marco Kamiya','NurPhoto']) {
+            if (cleaned.includes(junk)) throw new Error('junk survived: '+junk+'\n'+cleaned);
+          }
+          if (!cleaned.includes('Các khu công nghiệp vẫn là động lực chủ lực')) throw new Error('real body removed');
+
+          const split=[
+            'TRANG CHỦ BÀI VIẾT Tiêu chuẩn 45 phút:',
+            'Giúp các khu công nghiệp Đông Nam Á hiệu quả và đáng sống',
+            'Nội dung thật bắt đầu ở đây.',
+          ].join('\n');
+          const splitClean=cleanReaderBoilerplate(split,{title});
+          if (splitClean.includes('TRANG CHỦ') || splitClean.includes('Tiêu chuẩn 45 phút') || splitClean.includes('Giúp các khu công nghiệp')) throw new Error('split title chrome survived: '+splitClean);
+          if (!splitClean.includes('Nội dung thật bắt đầu ở đây.')) throw new Error('split fixture body removed');
+
+          console.log(READER_CLEAN_VERSION+' PASS');
+          NODE
