@@ -1,0 +1,27 @@
+name: Tin VN · F33 Late Close Trigger
+
+on:
+  schedule:
+    # 22:45 Asia/Ho_Chi_Minh. Backup close snapshot for deterministic historical Radar.
+    - cron: '45 15 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch canonical F33 full crawl
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'voz-f33-daily.yml',
+              ref: context.ref.replace('refs/heads/', '') || 'main'
+            });
+            core.info('Dispatched voz-f33-daily.yml late-close backup');
