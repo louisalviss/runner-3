@@ -8,6 +8,7 @@ on:
       - '.github/workflows/runner3-artifact-library-deploy.yml'
       - 'cloudflare/runner3-core/artifact-library-hardening-entry.js'
       - 'cloudflare/runner3-core/artifact-list-entry.js'
+      - 'cloudflare/runner3-core/migrations/0010_artifact_library_magic_links.sql'
       - 'cloudflare/runner3-core/wrangler.jsonc'
 
 permissions:
@@ -33,21 +34,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Apply magic-link D1 schema
+        working-directory: cloudflare/runner3-core
+        run: npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0010_artifact_library_magic_links.sql
       - name: Deploy Core
         working-directory: cloudflare/runner3-core
         run: npx --yes wrangler@4 deploy artifact-library-hardening-entry.js --config wrangler.jsonc
-      - name: Verify noindex and remembered session
+      - name: Verify noindex remembered session and one-time magic login
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import http.cookiejar, os, urllib.error, urllib.parse, urllib.request
+          import http.cookiejar
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
           base=os.environ['BASE_URL'].rstrip('/')
           token=os.environ['RUNNER3_CORE_TOKEN'].strip()
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None, opener=None):
-            r=urllib.request.Request(base+path, method=method, data=data, headers={'User-Agent':'runner3-artifact-library-hardening-proof/1.0', **(headers or {})})
+            url=path if path.startswith('http') else base+path
+            r=urllib.request.Request(url, method=method, data=data, headers={'User-Agent':'runner3-artifact-library-hardening-proof/2.0', **(headers or {})})
             try:
               response=(opener.open(r,timeout=30) if opener else urllib.request.urlopen(r,timeout=30))
               with response: return response.status, response.headers, response.read()
@@ -67,16 +79,55 @@ jobs:
           jar=http.cookiejar.CookieJar()
           opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
           data=urllib.parse.urlencode({'token':token}).encode()
-          status,h,body=req('/artifact-library/login','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
+          status,h,_=req('/artifact-library/login','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
           assert status==200, status
           cookie=next((c for c in jar if c.name=='r3_artifact_library'),None)
-          assert cookie is not None
-          assert cookie.expires is not None
-          import time
+          assert cookie is not None and cookie.expires is not None
           remaining=cookie.expires-int(time.time())
           assert remaining > 29*24*60*60, remaining
-          assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
+
+          status,h,body=req('/artifact-library',opener=opener)
+          assert status==200, status
+          assert h.get('X-Robots-Tag')==robots
           text=body.decode('utf-8','replace')
-          assert 'name="robots"' in text and 'noindex' in text
-          print({'ok':True,'remember_seconds_remaining':remaining,'x_robots_tag':h.get('X-Robots-Tag')})
+          assert 'id="magic-link-button"' in text
+
+          status,h,body=req('/artifact-library/api/magic-link','POST',headers={'Accept':'application/json'},opener=opener)
+          assert status==200, status
+          assert h.get('X-Robots-Tag')==robots
+          magic=json.loads(body.decode('utf-8'))
+          assert magic.get('ok') is True
+          assert magic.get('one_time') is True
+          assert magic.get('ttl_seconds')==600
+          magic_url=str(magic.get('url') or '')
+          assert magic_url.startswith(base+'/artifact-library/magic?t=')
+          assert token not in magic_url
+
+          fresh_jar=http.cookiejar.CookieJar()
+          fresh=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(fresh_jar))
+          status,h,body=req(magic_url,opener=fresh)
+          assert status==200, status
+          assert h.get('X-Robots-Tag')==robots
+          fresh_cookie=next((c for c in fresh_jar if c.name=='r3_artifact_library'),None)
+          assert fresh_cookie is not None and fresh_cookie.expires is not None
+          fresh_remaining=fresh_cookie.expires-int(time.time())
+          assert fresh_remaining > 29*24*60*60, fresh_remaining
+          assert 'R2 Artifact Library' in body.decode('utf-8','replace')
+
+          replay_jar=http.cookiejar.CookieJar()
+          replay=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(replay_jar))
+          status,h,body=req(magic_url,opener=replay)
+          assert status==410, status
+          assert h.get('X-Robots-Tag')==robots
+          replay_body=json.loads(body.decode('utf-8'))
+          assert replay_body.get('error')=='MAGIC_LINK_INVALID_OR_EXPIRED'
+
+          print({
+            'ok':True,
+            'remember_seconds_remaining':remaining,
+            'magic_ttl_seconds':600,
+            'magic_fresh_session_seconds_remaining':fresh_remaining,
+            'magic_replay_http':410,
+            'x_robots_tag':robots,
+          })
           PY
