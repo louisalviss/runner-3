@@ -54,9 +54,12 @@ jobs:
                   data=data,
                   method=method,
               )
-              client = opener or urllib.request
               try:
-                  with client.open(req, timeout=30) as response:
+                  if opener is not None:
+                      response = opener.open(req, timeout=30)
+                  else:
+                      response = urllib.request.urlopen(req, timeout=30)
+                  with response:
                       return response.status, response.headers, response.read()
               except urllib.error.HTTPError as exc:
                   return exc.code, exc.headers, exc.read()
