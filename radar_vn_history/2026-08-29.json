@@ -8,15 +8,11 @@
   "full_quality": true,
   "close_quality": false,
   "blocking_reasons": [],
-  "notes": [
-    "This manifest pins the exact inputs used by the 2026-08-29 Radar run.",
-    "F33 input is structurally complete but was captured early in the Vietnam day; late-close backup is enabled for future dates."
-  ],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-08-29.json",
-      "git_blob_sha": "c96f90ff1e96b00e8464e5ec08e4692d1717d396",
-      "source_commit_sha": "2e6ccd050e571447000e36232395eb53e779a174",
+      "present": true,
+      "sha256": "da8ae56c112ebf832917460cb1c1052fb11f431003cc619a22ed587db39e87b1",
       "status": "HEALTHY",
       "vietnam_date": "2026-08-29",
       "captured_at": "2026-08-29T15:20:27.027265+00:00",
@@ -24,7 +20,8 @@
     },
     "f33": {
       "path": "voz_f33_history/2026-08-29.json",
-      "git_blob_sha": "f247b1102c2d58b08ca0a5c5f5630b6dd78a4f61",
+      "present": true,
+      "sha256": "8d10c1dcb54ea188ca900d5900eb0ea576c8fdbf30aa25ea913d9e29536d4f19",
       "status": "HEALTHY",
       "vietnam_date": "2026-08-29",
       "generated_at": "2026-08-28T23:05:48.385Z",
@@ -38,8 +35,8 @@
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-08-29.json",
-      "git_blob_sha": "6a27a0fa3bc00ff05a1d41e7d8aa39a8b4e352c9",
-      "source_pointer_commit_sha": "2e7c5d751d74b403bd9eb13acac29d2f03461542",
+      "present": true,
+      "sha256": "fe8fd837c6c0de5a20f9448596c9be3a38554c5058cb9bb12a526dbedf9c5a76",
       "status": "HEALTHY",
       "vietnam_date": "2026-08-29",
       "generated_at": "2026-08-29T15:20:51.528Z",
@@ -48,12 +45,5 @@
       "posts_total": 926,
       "crawl_outcome": "success"
     }
-  },
-  "render_contract": {
-    "f33_discussion_source": "F33 artifact only",
-    "cross_source_signals": "Attach only after F33 section during cluster synthesis; never mix into VOZ discussion.",
-    "dedup": "One narrative equals one non-F33 reader slot across Top/Breakout/AI-Tech/Money/MXH/Forum.",
-    "historical_default": "Replay archived report when present; otherwise render only from this pinned manifest.",
-    "rerun_behavior": "Recompute only when the user explicitly asks to rerun/recompute."
   }
 }
