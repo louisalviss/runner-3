@@ -1,3 +1,4 @@
+// Audio cache generation paired with this cleaner: rss-reader-audio-v3.
 export const READER_CLEAN_VERSION = "rss-reader-clean-v3";
 
 const FONT_CONTROL_RE = /^(?:c(?:ỡ|o)\s*ch(?:ữ|u)\s*)?a\s*\+\s*(?:a\s*[-−–—])?$|^a\s*[-−–—]$/iu;
