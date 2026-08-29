@@ -6,6 +6,8 @@ on:
     paths:
       - 'mailbox/inbox.json'
       - 'mailbox/requests/**'
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -18,42 +20,54 @@ concurrency:
 jobs:
   relay:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Poll newest Core result and persist ciphertext only
+      - name: Drain ready Core results and persist ciphertext only
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p mailbox/outbox
           core='https://runner3-core.ducduy2411.workers.dev'
-          rid="$(python3 - <<'PY'
+
+          mapfile -t pending < <(python3 - <<'PY'
           import json, pathlib
           d=json.load(open('mailbox/inbox.json',encoding='utf-8'))
           vals=[str(x).strip() for x in d.get('requests',[]) if str(x).strip()]
+          seen=set()
           for rid in reversed(vals):
+              if rid in seen:
+                  continue
+              seen.add(rid)
               if not pathlib.Path(f'mailbox/outbox/{rid}.json').exists():
                   print(rid)
-                  break
           PY
-          )"
-          if [ -z "$rid" ]; then
-            echo 'No pending mailbox request'
+          )
+
+          if [ "${#pending[@]}" -eq 0 ]; then
+            echo 'No pending mailbox requests'
             exit 0
           fi
 
-          out="mailbox/outbox/${rid}.json"
-          echo "Polling newest encrypted result for ${rid}"
-          ready=0
-          for attempt in $(seq 1 20); do
-            tmp="$(mktemp)"
-            code="$(curl -sS --max-time 8 -o "$tmp" -w '%{http_code}' \
-              "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${attempt}" || true)"
-            if [ "$code" = 200 ]; then
-              if python3 - "$tmp" "$out" <<'PY'
+          # Push/manual runs briefly wait for freshly-submitted work. Scheduled
+          # runs only probe once; the 5-minute schedule guarantees eventual
+          # readback for jobs that finish after this workflow exits.
+          attempts=1
+          if [ "${GITHUB_EVENT_NAME}" != 'schedule' ]; then attempts=20; fi
+
+          relayed=0
+          for rid in "${pending[@]}"; do
+            out="mailbox/outbox/${rid}.json"
+            ready=0
+            for attempt in $(seq 1 "$attempts"); do
+              tmp="$(mktemp)"
+              code="$(curl -sS --max-time 8 -o "$tmp" -w '%{http_code}' \
+                "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${attempt}" || true)"
+              if [ "$code" = 200 ]; then
+                if python3 - "$tmp" "$out" <<'PY'
           import json,sys,os
           src,out=sys.argv[1:]
           try: d=json.load(open(src,encoding='utf-8'))
@@ -71,23 +85,29 @@ jobs:
               json.dump(detail,f,ensure_ascii=False,separators=(',',':')); f.write('\n')
           print(f"relayed {detail['request_id']} status={state.get('status')}")
           PY
-              then
-                ready=1
-                rm -f "$tmp"
-                break
+                then
+                  ready=1
+                  relayed=$((relayed + 1))
+                  rm -f "$tmp"
+                  break
+                fi
               fi
+              rm -f "$tmp"
+              if [ "$attempt" -lt "$attempts" ]; then sleep 2; fi
+            done
+            if [ "$ready" != 1 ]; then
+              echo "Result not ready: ${rid}"
             fi
-            rm -f "$tmp"
-            sleep 2
           done
 
-          if [ "$ready" != 1 ]; then
-            echo "Newest result not ready: ${rid}"
+          if [ "$relayed" -eq 0 ]; then
+            echo 'No ready mailbox results'
             exit 0
           fi
+
           git config user.name 'vps-mailbox-relay[bot]'
           git config user.email 'vps-mailbox-relay[bot]@users.noreply.github.com'
-          git add "$out"
-          git commit -m "Relay encrypted VPS mailbox result [skip ci]"
+          git add mailbox/outbox/*.json
+          git commit -m "Relay encrypted VPS mailbox results [skip ci]"
           git pull --rebase origin main
           git push
