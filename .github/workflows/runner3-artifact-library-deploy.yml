@@ -45,11 +45,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request
+          import json, os, time, urllib.request
           from urllib.parse import urlencode
 
           base=os.environ['BASE_URL'].rstrip('/')
-          ua='runner3-artifact-library-simple-proof/1.0'
+          ua='runner3-artifact-library-simple-proof/1.1'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None):
@@ -58,11 +58,18 @@ jobs:
               r=urllib.request.Request(url, method=method, headers=h, data=data)
               return urllib.request.urlopen(r, timeout=30)
 
-          with req('/artifact-library') as r:
-              home=r.read().decode('utf-8','replace')
-              assert r.status==200
-              assert r.headers.get('X-Robots-Tag')==robots
-          assert 'Search books' in home
+          home=''
+          for attempt in range(20):
+              with req('/artifact-library') as r:
+                  home=r.read().decode('utf-8','replace')
+                  status=r.status
+                  tag=r.headers.get('X-Robots-Tag')
+              if status==200 and tag==robots and 'Search books' in home:
+                  break
+              time.sleep(2)
+          else:
+              raise AssertionError('simplified Library did not propagate; prefix='+home[:240])
+
           assert 'aria-label="Search"' in home
           assert 'aria-label="Refresh R2"' in home
           assert 'Core access token' not in home
