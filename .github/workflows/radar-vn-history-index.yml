@@ -1,0 +1,58 @@
+name: Tin VN · Radar History Index
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'trends_vn_latest.json'
+      - 'forum_signal_latest.json'
+      - 'voz_f33_latest.json'
+      - 'trends_vn_history/**'
+      - 'forum_signal_history/**'
+      - 'voz_f33_history/**'
+      - 'radar_vn_history_index.py'
+      - '.github/workflows/radar-vn-history-index.yml'
+  schedule:
+    # 23:30 Asia/Ho_Chi_Minh: freeze same-day historical inputs.
+    - cron: '30 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: radar-vn-history-index-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build per-day input history and manifests
+        run: python radar_vn_history_index.py
+
+      - name: Commit deterministic history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trends_vn_history forum_signal_history voz_f33_history radar_vn_history
+          if git diff --cached --quiet; then
+            echo 'No Radar history changes'
+            exit 0
+          fi
+          git commit -m 'chore: freeze Vietnam Radar daily inputs [skip ci]'
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
