@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "series_id": "dungeon-crawler-carl-vi",
+  "title": "Dungeon Crawler Carl",
+  "language": "vi",
+  "release_version": "v3",
+  "mode": "qa-repair-only",
+  "artifact_store": {
+    "kind": "r2",
+    "bucket_env": "EBOOK_R2_BUCKET",
+    "default_bucket": "runner3-artifacts",
+    "source_prefixes": [
+      "core/ebook/",
+      "core/ebook-editorial/",
+      "ebooks/",
+      "ebook/"
+    ],
+    "final_prefix": "core/ebook/dcc"
+  },
+  "policy": {
+    "translation": false,
+    "editorial_rewrite": false,
+    "conservative_package_repair": true,
+    "normalize_vietnamese_language_metadata": true,
+    "visible_version_increment_required": true,
+    "exact_final_readback_required": true,
+    "durable_checkpoint_required": true
+  },
+  "books": [
+    {"book": 1, "source_key": null, "source_match": ["dungeon crawler carl", "book 1", "vi-v2"], "special_repairs": []},
+    {"book": 2, "source_key": null, "source_match": ["carl's doomsday scenario", "carls doomsday scenario", "book 2", "vi-v2"], "special_repairs": []},
+    {"book": 3, "source_key": null, "source_match": ["the dungeon anarchist's cookbook", "the dungeon anarchists cookbook", "book 3", "vi-v2"], "special_repairs": []},
+    {"book": 4, "source_key": null, "source_match": ["the gate of the feral gods", "book 4", "vi-v2"], "special_repairs": []},
+    {"book": 5, "source_key": null, "source_match": ["the butcher's masquerade", "the butchers masquerade", "book 5", "vi-v2"], "special_repairs": []},
+    {"book": 6, "source_key": null, "source_match": ["the eye of the bedlam bride", "book 6", "vi-v2"], "special_repairs": []},
+    {"book": 7, "source_key": null, "source_match": ["this inevitable ruin", "book 7", "vi-v2"], "special_repairs": [{"kind": "exact_text_replace", "from": "anh ấy ấy", "to": "anh ấy", "required_if_present": true}]},
+    {"book": 8, "source_key": null, "source_match": ["a parade of horribles", "book 8", "vi-v2"], "special_repairs": []}
+  ]
+}
