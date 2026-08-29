@@ -5,6 +5,11 @@ import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { polishRssLibraryResponse } from "./src/rss-library-page-v2.js";
 import { renderReaderArticlePageV8 } from "./src/rss-reader-page-v8.js";
 import {
+  handleRssReaderLearning,
+  reconcileLibraryLearning,
+  recordReaderStateLearning,
+} from "./src/rss-reader-learning.js";
+import {
   preserveArticleImages,
   pruneExpiredReaderImages,
   selectContentImages,
@@ -37,6 +42,17 @@ const BOILERPLATE = /^(?:advertisement|quảng cáo|nội dung tài trợ|sponso
 const TRACKING_URL = /^https?:\/\/(?:[^/]*\.)?(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|taboola\.com|outbrain\.com)\S*$/i;
 const IMAGE_LABEL = /^\s*\[!?\s*(?:image|ảnh)\s*\d*\s*\]\s*$/i;
 const TAIL_ATTRIBUTION = /^(?:theo\s*:?[\s-]*)?(?:đời\s*sống\s*(?:&|và)?\s*pháp\s*luật|đspl)\s*[.!-]*$/i;
+
+const READER_LEARNING_SCRIPT = '<script>(function(){' +
+  'var m=String(location.pathname||"").match(/^\\/rss\\/article\\/([^/]+)$/);if(!m)return;' +
+  'var id="";try{id=decodeURIComponent(m[1])}catch(e){return}' +
+  'var storeKey="rssDeepRead:v1:"+id;var sent=localStorage.getItem(storeKey)==="1";' +
+  'var activeMs=0,last=Date.now(),maxDepth=0;' +
+  'function measure(){var d=document.documentElement,b=document.body;var h=Math.max(d?d.scrollHeight:0,b?b.scrollHeight:0,1);var y=(window.scrollY||window.pageYOffset||0)+(window.innerHeight||0);maxDepth=Math.max(maxDepth,Math.min(1,y/h));}' +
+  'async function mark(){if(sent)return;var audio=document.querySelector("audio");var listened=!!(audio&&Number(audio.currentTime||0)>=45);if(activeMs<45000||(maxDepth<0.55&&!listened))return;var token=localStorage.getItem("rssReaderToken")||"";if(!token)return;sent=true;try{var r=await fetch("/reader/rss/articles/"+encodeURIComponent(id)+"/deep-read",{method:"POST",headers:{Authorization:"Bearer "+token}});if(r.ok)localStorage.setItem(storeKey,"1");else sent=false}catch(e){sent=false}}' +
+  'function tick(){var now=Date.now();if(!document.hidden&&document.hasFocus())activeMs+=Math.min(5000,Math.max(0,now-last));last=now;measure();mark()}' +
+  'addEventListener("scroll",measure,{passive:true});addEventListener("focus",function(){last=Date.now()});document.addEventListener("visibilitychange",function(){last=Date.now()});measure();setInterval(tick,5000);' +
+  '})();</script>';
 
 function comparableText(value) {
   return String(value ?? "")
@@ -170,6 +186,18 @@ async function sanitizeReaderView(response, url) {
   return new Response(JSON.stringify(payload), { status: response.status, statusText: response.statusText, headers });
 }
 
+async function injectReaderLearning(response) {
+  if (!response?.ok) return response;
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/html")) return response;
+  const html = await response.text();
+  const body = html.includes("</body>") ? html.replace("</body>", READER_LEARNING_SCRIPT + "</body>") : html + READER_LEARNING_SCRIPT;
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("cache-control", "private, no-store");
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+}
+
 function internalReaderRequest(request, articleId, suffix = "") {
   const target = new URL(request.url);
   target.pathname = `/reader/rss/articles/${encodeURIComponent(articleId)}${suffix}`;
@@ -205,7 +233,19 @@ export default {
     const url = new URL(request.url);
 
     const plusResponse = await handleRssReaderPlus(request, env, url);
-    if (plusResponse) return polishRssLibraryResponse(plusResponse, request, url);
+    if (plusResponse) {
+      if (request.method === "GET" && url.pathname === "/reader/rss/library/v2" && plusResponse.ok) {
+        const task = reconcileLibraryLearning(plusResponse.clone(), env).catch((error) => {
+          console.warn("rss learning library reconcile failed", String(error?.message || error));
+        });
+        if (ctx?.waitUntil) ctx.waitUntil(task);
+        else await task;
+      }
+      return polishRssLibraryResponse(plusResponse, request, url);
+    }
+
+    const learningResponse = await handleRssReaderLearning(request, env, url, (articleId) => authorizeReaderArticle(request, env, ctx, articleId));
+    if (learningResponse) return learningResponse;
 
     const audioResponse = await handleRssReaderAudio(request, env, url, {
       authorize: (articleId) => authorizeReaderArticle(request, env, ctx, articleId),
@@ -214,7 +254,7 @@ export default {
     if (audioResponse) return audioResponse;
 
     const articlePage = await renderReaderArticlePageV8(request, url);
-    if (articlePage) return articlePage;
+    if (articlePage) return injectReaderLearning(articlePage);
 
     const ciResponse = await handleContentIntelligence(request, env, url);
     if (ciResponse) return ciResponse;
@@ -228,13 +268,18 @@ export default {
 
     if (stateArticleId && response?.ok && stateClone) {
       const body = await stateClone.json().catch(() => null);
+      const tasks = [];
       if (shouldPreserveImages(body)) {
-        const task = preserveArticleImages(env, stateArticleId).catch((error) => {
+        tasks.push(preserveArticleImages(env, stateArticleId).catch((error) => {
           console.warn("rss image preserve failed", stateArticleId, String(error?.message || error));
-        });
-        if (ctx?.waitUntil) ctx.waitUntil(task);
-        else await task;
+        }));
       }
+      tasks.push(recordReaderStateLearning(env, stateArticleId, body).catch((error) => {
+        console.warn("rss reader learning state failed", stateArticleId, String(error?.message || error));
+      }));
+      const task = Promise.all(tasks);
+      if (ctx?.waitUntil) ctx.waitUntil(task);
+      else await task;
     }
 
     return sanitizeReaderView(response, url);
