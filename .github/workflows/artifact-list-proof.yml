@@ -1,0 +1,135 @@
+name: Runner3 R2 Artifact Inventory Proof
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/artifact-list-proof.yml'
+      - 'cloudflare/runner3-core/artifact-list-entry.js'
+      - 'cloudflare/runner3-core/wrangler.jsonc'
+
+permissions:
+  contents: write
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify live authenticated inventory and DCC finals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          base = os.environ['BASE_URL'].rstrip('/')
+          token = os.environ['RUNNER3_CORE_TOKEN'].strip()
+          if not token:
+              raise SystemExit('RUNNER3_CORE_TOKEN missing')
+
+          def request(path, *, auth=True):
+              headers = {
+                  'Accept': 'application/json',
+                  'User-Agent': 'runner3-artifact-list-proof/1.0',
+                  'Cache-Control': 'no-cache',
+              }
+              if auth:
+                  headers['Authorization'] = 'Bearer ' + token
+              req = urllib.request.Request(base + path, headers=headers, method='GET')
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return response.status, json.load(response)
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode('utf-8', 'replace')
+                  try:
+                      body = json.loads(raw) if raw else None
+                  except Exception:
+                      body = {'rawPrefix': raw[:300]}
+                  return exc.code, body
+
+          unauth_http, unauth_body = request('/artifact-list?limit=1', auth=False)
+          if unauth_http != 401:
+              raise SystemExit(f'unauthenticated artifact-list expected 401, got {unauth_http}: {unauth_body}')
+
+          prefix = 'core/ebook/dcc-'
+          expected = [f'dcc-{i:02d}' for i in range(1, 9)]
+          cursor = None
+          objects = []
+          page_count = 0
+          while True:
+              params = {'prefix': prefix, 'limit': '1000'}
+              if cursor:
+                  params['cursor'] = cursor
+              path = '/artifact-list?' + urllib.parse.urlencode(params)
+              http, body = request(path)
+              page_count += 1
+              if http != 200 or not isinstance(body, dict) or body.get('ok') is not True:
+                  raise SystemExit(f'artifact-list failed: http={http} body={body}')
+              objects.extend(body.get('objects') or [])
+              if not body.get('truncated'):
+                  break
+              cursor = body.get('cursor')
+              if not cursor:
+                  raise SystemExit('truncated artifact-list response missing cursor')
+
+          final_by_scope = {scope: [] for scope in expected}
+          for item in objects:
+              key = str(item.get('key') or '')
+              for scope in expected:
+                  marker = f'core/ebook/{scope}/final/'
+                  if key.startswith(marker):
+                      final_by_scope[scope].append(item)
+
+          found = [scope for scope in expected if final_by_scope[scope]]
+          missing = [scope for scope in expected if not final_by_scope[scope]]
+          final_artifacts = [item for scope in expected for item in final_by_scope[scope]]
+          proof = {
+              'ok': not missing,
+              'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'run_id': os.environ.get('GITHUB_RUN_ID'),
+              'endpoint': '/artifact-list',
+              'auth_guard': {'unauthenticated_http': unauth_http, 'expected': 401, 'ok': unauth_http == 401},
+              'prefix': prefix,
+              'page_count': page_count,
+              'object_count_under_prefix': len(objects),
+              'expected_scopes': expected,
+              'found_scopes': found,
+              'missing_scopes': missing,
+              'all_expected_scopes_found': not missing,
+              'final_artifact_count': len(final_artifacts),
+              'final_artifacts': final_artifacts,
+          }
+          Path('proof').mkdir(exist_ok=True)
+          Path('proof/r2-artifact-inventory.json').write_text(
+              json.dumps(proof, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(proof, ensure_ascii=False, indent=2))
+          if missing:
+              raise SystemExit('missing final DCC scopes: ' + ','.join(missing))
+          PY
+
+      - name: Persist proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add proof/r2-artifact-inventory.json
+          git diff --cached --quiet && exit 0
+          git commit -m "proof(core): record R2 artifact inventory ${GITHUB_RUN_ID} [skip ci]"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
