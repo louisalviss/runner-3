@@ -148,7 +148,8 @@ async function fail(env, state) {
     failures = Number(state.row.failures || 0) + 1;
   }
   const blockedUntil = failures >= PIN_MAX_FAILURES ? state.now + PIN_LOCK_SECONDS : 0;
-  await env.DB.prepare(`INSERT INTO artifact_library_pin_attempts (client_hash,window_started_at,failures,blocked_until,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(client_hash) DO UPDATE SET window_started_at=excluded.window_started_at,failures=excluded.failures,blocked_until=excluded.blocked_until,updated_at=excluded.updated_at`).bind(state.key, start, failures, blockedUntil, state.now).run();
+  await env.DB.prepare("DELETE FROM artifact_library_pin_attempts WHERE client_hash=?").bind(state.key).run();
+  await env.DB.prepare("INSERT INTO artifact_library_pin_attempts (client_hash,window_started_at,failures,blocked_until,updated_at) VALUES (?,?,?,?,?)").bind(state.key, start, failures, blockedUntil, state.now).run();
   return blockedUntil;
 }
 
@@ -169,12 +170,22 @@ async function login(request, env) {
   const row = await record(env);
   if (!row) return html(setupPage("Create a Library PIN first."), 409);
   if (Number(row.iterations) !== HMAC_MARKER) return html(setupPage("PIN storage needs a one-time reset with the Core token.", true), 409);
-  const state = await rateState(request, env);
+  let state;
+  try {
+    state = await rateState(request, env);
+  } catch (error) {
+    return json({ ok: false, error: "PIN_RATE_STATE_FAILED", detail: String(error?.message || error) }, 503);
+  }
   if (state.blocked) return html(loginPage("", state.remaining), 429);
   const form = await request.formData();
   const pin = String(form.get("pin") || "").trim();
   if (!/^\d{6}$/.test(pin) || !(await verifyPin(env, pin, row))) {
-    const blockedUntil = await fail(env, state);
+    let blockedUntil;
+    try {
+      blockedUntil = await fail(env, state);
+    } catch (error) {
+      return json({ ok: false, error: "PIN_RATE_WRITE_FAILED", detail: String(error?.message || error) }, 503);
+    }
     const remaining = Math.max(0, blockedUntil - state.now);
     return html(loginPage(remaining ? "" : "Incorrect PIN.", remaining), remaining ? 429 : 401);
   }
