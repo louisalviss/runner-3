@@ -7,7 +7,7 @@ const PIN_LOCK_SECONDS = 15 * 60;
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 const HMAC_MARKER = -1;
 
-function expectedToken(env) {
+function serverSecret(env) {
   return typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
 }
 
@@ -26,8 +26,8 @@ async function sha256Hex(value) {
 }
 
 async function sessionValue(env) {
-  const token = expectedToken(env);
-  return token ? sha256Hex(`runner3-artifact-library-v1:${token}`) : "";
+  const secret = serverSecret(env);
+  return secret ? sha256Hex(`runner3-artifact-library-v1:${secret}`) : "";
 }
 
 async function hasSession(request, env) {
@@ -56,19 +56,20 @@ function json(data, status = 200) {
   });
 }
 
-function html(body, status = 200) {
+function html(body, status = 200, extra = {}) {
   return new Response(body, {
     status,
     headers: headers({
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      ...extra,
     }),
   });
 }
 
 function page({ title, subtitle, form, note, error = "" }) {
   const err = error ? `<div class="error">${error}</div>` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive,nosnippet,noimageindex"><title>Runner3 R2 Library</title><style>:root{color-scheme:dark;background:#0a0b0d;color:#f5f7fa;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 20% 0%,#18202c 0,transparent 35%),#0a0b0d;padding:24px}.card{width:min(440px,100%);background:#111419;border:1px solid #252b33;border-radius:20px;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.38)}.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8f9bac;font-weight:700}h1{font-size:28px;margin:8px 0}.sub{color:#9da7b5;line-height:1.5;margin:0 0 24px}.field{display:grid;gap:8px;margin-top:12px}label{font-size:13px;color:#cbd2dc}.input{width:100%;border:1px solid #303844;background:#0b0e12;color:#fff;border-radius:12px;padding:13px 14px;font-size:18px;outline:none}.pin{letter-spacing:.3em;text-align:center;font-variant-numeric:tabular-nums}.button{width:100%;margin-top:14px;border:0;border-radius:12px;padding:13px 16px;background:#f2f5f8;color:#0a0b0d;font-weight:800;font-size:15px}.error{background:#35191c;color:#ffb4bd;border:1px solid #673039;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px}.note{font-size:12px;color:#6f7987;margin-top:14px;line-height:1.5}.link{display:inline-block;margin-top:12px;color:#aeb9c8;font-size:12px;text-decoration:none}</style></head><body><main class="card"><div class="eyebrow">Runner3 Core</div><h1>${title}</h1><p class="sub">${subtitle}</p>${err}${form}<div class="note">${note}</div></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive,nosnippet,noimageindex"><title>Runner3 R2 Library</title><style>:root{color-scheme:dark;background:#0a0b0d;color:#f5f7fa;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 20% 0%,#18202c 0,transparent 35%),#0a0b0d;padding:24px}.card{width:min(440px,100%);background:#111419;border:1px solid #252b33;border-radius:20px;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.38)}.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8f9bac;font-weight:700}h1{font-size:28px;margin:8px 0}.sub{color:#9da7b5;line-height:1.5;margin:0 0 24px}.field{display:grid;gap:8px;margin-top:12px}label{font-size:13px;color:#cbd2dc}.input{width:100%;border:1px solid #303844;background:#0b0e12;color:#fff;border-radius:12px;padding:13px 14px;font-size:18px;outline:none}.pin{letter-spacing:.3em;text-align:center;font-variant-numeric:tabular-nums}.button{width:100%;margin-top:14px;border:0;border-radius:12px;padding:13px 16px;background:#f2f5f8;color:#0a0b0d;font-weight:800;font-size:15px}.error{background:#35191c;color:#ffb4bd;border:1px solid #673039;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px}.note{font-size:12px;color:#6f7987;margin-top:14px;line-height:1.5}</style></head><body><main class="card"><div class="eyebrow">Runner3 Core</div><h1>${title}</h1><p class="sub">${subtitle}</p>${err}${form}<div class="note">${note}</div></main></body></html>`;
 }
 
 function loginPage(error = "", remaining = 0) {
@@ -76,18 +77,18 @@ function loginPage(error = "", remaining = 0) {
   return page({
     title: "R2 Artifact Library",
     subtitle: "Private browser for objects stored in the Runner3 R2 artifacts bucket.",
-    form: `<form method="post" action="/artifact-library/login"><div class="field"><label for="pin">6-digit Library PIN</label><input class="input pin" id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="current-password" required autofocus></div><button class="button" type="submit">Open Library</button></form><a class="link" href="/artifact-library/reset-pin">Forgot PIN? Reset with Core token</a>`,
-    note: "The PIN is separate from the Core token. This device keeps an HttpOnly session for 30 days after a successful login.",
+    form: `<form method="post" action="/artifact-library/login"><div class="field"><label for="pin">6-digit Library PIN</label><input class="input pin" id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="current-password" required autofocus></div><button class="button" type="submit">Open Library</button></form>`,
+    note: "Enter only your 6-digit PIN. This device keeps an HttpOnly session for 30 days after a successful login. If the PIN is lost, recovery is done from the private backend rather than from a public reset form.",
     error: message,
   });
 }
 
-function setupPage(error = "", reset = false) {
+function setupPage(error = "") {
   return page({
-    title: reset ? "Reset Library PIN" : "Create Library PIN",
-    subtitle: reset ? "Use the Core token once to replace the Library PIN." : "Set a separate 6-digit PIN for quick access.",
-    form: `<form method="post" action="/artifact-library/setup-pin"><div class="field"><label for="core_token">Core access token</label><input class="input" id="core_token" name="core_token" type="password" autocomplete="current-password" required autofocus></div><div class="field"><label for="pin">New 6-digit PIN</label><input class="input pin" id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required></div><div class="field"><label for="pin_confirm">Confirm PIN</label><input class="input pin" id="pin_confirm" name="pin_confirm" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required></div><button class="button" type="submit">${reset ? "Reset PIN" : "Create PIN"}</button></form>`,
-    note: "The Core token is used only to authorize PIN setup/reset. D1 stores a salted HMAC-SHA256 digest keyed by the Core secret, never the PIN itself. Five failed attempts lock that client for 15 minutes.",
+    title: "Create Library PIN",
+    subtitle: "Choose the 6-digit PIN you want to use for this private Library.",
+    form: `<form method="post" action="/artifact-library/setup-pin"><div class="field"><label for="pin">New 6-digit PIN</label><input class="input pin" id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required autofocus></div><div class="field"><label for="pin_confirm">Confirm PIN</label><input class="input pin" id="pin_confirm" name="pin_confirm" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required></div><button class="button" type="submit">Create PIN</button></form>`,
+    note: "No access token is required. The PIN itself is never stored in plaintext. Five failed login attempts lock that client for 15 minutes.",
     error,
   });
 }
@@ -98,8 +99,8 @@ async function record(env) {
 }
 
 async function hmacDigest(env, pin, salt) {
-  const token = expectedToken(env);
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const secret = serverSecret(env);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${salt}:${pin}`));
   return btoa(String.fromCharCode(...new Uint8Array(signed)));
 }
@@ -129,7 +130,7 @@ async function verifyPin(env, pin, row) {
 
 async function clientKey(request, env) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  return sha256Hex(`runner3-artifact-library-pin:${expectedToken(env)}:${ip}`);
+  return sha256Hex(`runner3-artifact-library-pin:${serverSecret(env)}:${ip}`);
 }
 
 async function rateState(request, env) {
@@ -160,7 +161,7 @@ async function issueSession(env) {
 
 async function home(request, env, ctx) {
   if (request.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
-  if (!expectedToken(env) || !env.DB) return html(loginPage("Library authentication is unavailable."), 503);
+  if (!serverSecret(env) || !env.DB) return html(loginPage("Library authentication is unavailable."), 503);
   if (await hasSession(request, env)) return app.fetch(request, env, ctx);
   return html((await record(env)) ? loginPage() : setupPage());
 }
@@ -169,7 +170,7 @@ async function login(request, env) {
   if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
   const row = await record(env);
   if (!row) return html(setupPage("Create a Library PIN first."), 409);
-  if (Number(row.iterations) !== HMAC_MARKER) return html(setupPage("PIN storage needs a one-time reset with the Core token.", true), 409);
+  if (Number(row.iterations) !== HMAC_MARKER) return html(loginPage("PIN storage needs a private backend reset before login can continue."), 409);
   let state;
   try {
     state = await rateState(request, env);
@@ -195,15 +196,13 @@ async function login(request, env) {
 
 async function setup(request, env) {
   if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
-  if (!env.DB || !expectedToken(env)) return html(setupPage("Library authentication is unavailable."), 503);
+  if (!env.DB || !serverSecret(env)) return html(setupPage("Library authentication is unavailable."), 503);
+  if (await record(env)) return html(loginPage("A Library PIN already exists. Enter that PIN to continue."), 409);
   const form = await request.formData();
-  const core = String(form.get("core_token") || "").trim();
   const pin = String(form.get("pin") || "").trim();
   const confirm = String(form.get("pin_confirm") || "").trim();
-  const resetting = Boolean(await record(env));
-  if (core !== expectedToken(env)) return html(setupPage("Core token is incorrect.", resetting), 401);
-  if (!/^\d{6}$/.test(pin)) return html(setupPage("PIN must contain exactly 6 digits.", resetting), 400);
-  if (pin !== confirm) return html(setupPage("PIN confirmation does not match.", resetting), 400);
+  if (!/^\d{6}$/.test(pin)) return html(setupPage("PIN must contain exactly 6 digits."), 400);
+  if (pin !== confirm) return html(setupPage("PIN confirmation does not match."), 400);
   try {
     await savePin(env, pin);
   } catch (error) {
@@ -229,7 +228,7 @@ export default {
     if (url.pathname === "/artifact-library") return home(request, env, ctx);
     if (url.pathname === "/artifact-library/login") return login(request, env);
     if (url.pathname === "/artifact-library/setup-pin") return setup(request, env);
-    if (url.pathname === "/artifact-library/reset-pin" && request.method === "GET") return html(setupPage("", true));
+    if (url.pathname === "/artifact-library/reset-pin") return json({ ok: false, error: "RESET_REQUIRES_PRIVATE_BACKEND" }, 404);
     if (url.pathname === "/artifact-library/api/pin") return changePin(request, env);
     return app.fetch(request, env, ctx);
   },
