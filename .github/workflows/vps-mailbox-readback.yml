@@ -54,19 +54,20 @@ jobs:
           fi
 
           # Push/manual runs briefly wait for freshly-submitted work. Scheduled
-          # runs only probe once; the 5-minute schedule guarantees eventual
-          # readback for jobs that finish after this workflow exits.
-          attempts=1
-          if [ "${GITHUB_EVENT_NAME}" != 'schedule' ]; then attempts=20; fi
+          # runs probe once; the 5-minute schedule guarantees eventual readback.
+          rounds=1
+          if [ "${GITHUB_EVENT_NAME}" != 'schedule' ]; then rounds=20; fi
 
           relayed=0
-          for rid in "${pending[@]}"; do
-            out="mailbox/outbox/${rid}.json"
-            ready=0
-            for attempt in $(seq 1 "$attempts"); do
+          for round in $(seq 1 "$rounds"); do
+            unresolved=0
+            for rid in "${pending[@]}"; do
+              out="mailbox/outbox/${rid}.json"
+              if [ -f "$out" ]; then continue; fi
+              unresolved=$((unresolved + 1))
               tmp="$(mktemp)"
               code="$(curl -sS --max-time 8 -o "$tmp" -w '%{http_code}' \
-                "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${attempt}" || true)"
+                "${core}/state/vps-mailbox-result-${rid}?relay=${GITHUB_RUN_ID}-${round}" || true)"
               if [ "$code" = 200 ]; then
                 if python3 - "$tmp" "$out" <<'PY'
           import json,sys,os
@@ -87,16 +88,18 @@ jobs:
           print(f"relayed {detail['request_id']} status={state.get('status')}")
           PY
                 then
-                  ready=1
                   relayed=$((relayed + 1))
-                  rm -f "$tmp"
-                  break
                 fi
               fi
               rm -f "$tmp"
-              if [ "$attempt" -lt "$attempts" ]; then sleep 2; fi
             done
-            if [ "$ready" != 1 ]; then
+
+            if [ "$unresolved" -eq 0 ]; then break; fi
+            if [ "$round" -lt "$rounds" ]; then sleep 2; fi
+          done
+
+          for rid in "${pending[@]}"; do
+            if [ ! -f "mailbox/outbox/${rid}.json" ]; then
               echo "Result not ready: ${rid}"
             fi
           done
