@@ -1,0 +1,114 @@
+name: Runner3 Artifact Reader Proof v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-artifact-reader-proof-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove-reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Prove reader live end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNNER3_CORE_TOKEN"
+          python3 - <<'PY'
+          import hashlib, json, os, urllib.error, urllib.parse, urllib.request
+
+          core=os.environ['CORE_URL'].rstrip('/')
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          marker=hashlib.sha256(f'runner3-artifact-library-v1:{token}'.encode()).hexdigest()
+          cookie=f'r3_artifact_library={marker}'
+          key='core/ebook/consider-phlebas/final/Consider-Phlebas-Iain-M-Banks-VI-v2.epub'
+          robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
+          ua='runner3-artifact-reader-proof/3.0'
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          no_redirect=urllib.request.build_opener(NoRedirect)
+
+          def req(url, *, method='GET', headers=None, data=None, opener=None, timeout=30):
+              h={'User-Agent':ua, **(headers or {})}
+              r=urllib.request.Request(url, method=method, headers=h, data=data)
+              return opener.open(r,timeout=timeout) if opener is not None else urllib.request.urlopen(r,timeout=timeout)
+
+          with req(core+'/artifact-library', headers={'Cookie':cookie}) as r:
+              library_html=r.read().decode('utf-8','replace')
+              assert r.status==200
+              assert r.headers.get('X-Robots-Tag')==robots
+              assert 'data-r3-reader-ui="1"' in library_html
+              assert 'r3-read' in library_html
+
+          reader_url=core+'/artifact-library/read?'+urllib.parse.urlencode({'key':key})
+          try:
+              req(reader_url, opener=no_redirect)
+              raise AssertionError('unauthenticated reader unexpectedly succeeded')
+          except urllib.error.HTTPError as e:
+              assert e.code==303, e.code
+              assert e.headers.get('Location')=='/artifact-library'
+
+          with req(reader_url, headers={'Cookie':cookie}) as r:
+              html=r.read().decode('utf-8','replace')
+              assert r.status==200
+              assert r.headers.get('X-Robots-Tag')==robots
+
+          required=[
+              'id="fontDown"','id="fontUp"',
+              'data-theme="light"','data-theme="dark"','data-theme="brown"',
+              'r3-reader-font-size','r3-reader-theme','r3-reader-position:',
+              'localStorage.setItem(positionKey,cfi)',
+              'rendition.prev()','rendition.next()',
+              "touchstart","touchend",
+              '/artifact-library/vendor/jszip.min.js','/artifact-library/vendor/epub.min.js'
+          ]
+          missing=[x for x in required if x not in html]
+          assert not missing, missing
+
+          vendor_sizes={}
+          for path in ('/artifact-library/vendor/jszip.min.js','/artifact-library/vendor/epub.min.js'):
+              with req(core+path) as r:
+                  body=r.read()
+                  assert r.status==200
+                  assert 'javascript' in (r.headers.get('Content-Type') or '').lower()
+                  assert len(body)>1000
+                  vendor_sizes[path]=len(body)
+
+          payload=json.dumps({'key':key,'ttl_seconds':3600}).encode()
+          with req(core+'/artifact-library/api/delivery', method='POST', headers={
+              'Cookie':cookie,'Content-Type':'application/json','X-Runner3-Library':'1'
+          }, data=payload) as r:
+              delivery=json.loads(r.read().decode())
+              assert r.status==200 and delivery.get('ok') is True
+          signed=((delivery.get('delivery') or {}).get('url') or '')
+          assert signed.startswith('https://')
+          with req(signed, headers={'Range':'bytes=0-7'}) as r:
+              magic=r.read(8)
+              assert r.status in (200,206)
+              assert magic.startswith(b'PK'), magic
+
+          print(json.dumps({
+              'ok':True,
+              'read_button':True,
+              'reader_private':True,
+              'font_size':{'min':70,'max':180,'step':10,'remembered':True},
+              'themes':['light','dark','brown'],
+              'theme_remembered':True,
+              'position_remembered_per_book':True,
+              'navigation':['buttons','swipe','keyboard'],
+              'vendor_engines_live':True,
+              'signed_epub_zip_verified':True,
+              'noindex':True
+          },ensure_ascii=False))
+          PY
