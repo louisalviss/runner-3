@@ -10,12 +10,16 @@ function injectHitZones(html) {
 #r3HitLeft{left:0;width:33.3334vw}
 #r3HitCenter{left:33.3333vw;width:33.3334vw}
 #r3HitRight{right:0;width:33.3334vw}
+#r3SettingsBackdrop{position:fixed;inset:0;z-index:25;border:0;margin:0;padding:0;background:rgba(0,0,0,.001);display:none;touch-action:manipulation;-webkit-appearance:none;appearance:none}
+body.settings .r3-hit-zone{pointer-events:none}
+body.settings #r3SettingsBackdrop{display:block}
 body.controls .chrome{z-index:20}
 body.settings #settingsSheet{z-index:30}
 </style>
 <button id="r3HitLeft" class="r3-hit-zone" type="button" aria-label="Vùng trang trước" tabindex="-1"></button>
 <button id="r3HitCenter" class="r3-hit-zone" type="button" aria-label="Vùng điều khiển" tabindex="-1"></button>
 <button id="r3HitRight" class="r3-hit-zone" type="button" aria-label="Vùng trang sau" tabindex="-1"></button>
+<button id="r3SettingsBackdrop" type="button" aria-label="Đóng cài đặt" tabindex="-1"></button>
 <script data-r3-hit-zones-v4="1">
 (()=>{
   const body=document.body;
@@ -24,6 +28,7 @@ body.settings #settingsSheet{z-index:30}
     {el:document.getElementById('r3HitCenter'),side:'center'},
     {el:document.getElementById('r3HitRight'),side:'right'}
   ];
+  const backdrop=document.getElementById('r3SettingsBackdrop');
   const sheet=document.getElementById('settingsSheet');
   const topbar=document.querySelector('.topbar');
   let idleTimer=0;
@@ -42,12 +47,12 @@ body.settings #settingsSheet{z-index:30}
   }
   function showChrome(){body.classList.add('controls');armIdle();}
   function toggleChrome(){
-    if(body.classList.contains('settings')){hideAll();return;}
+    if(body.classList.contains('settings')){armIdle();return;}
     if(body.classList.contains('controls')) hideAll(); else showChrome();
   }
 
   function simpleTap(side){
-    if(body.classList.contains('settings')){hideAll();return;}
+    if(body.classList.contains('settings')){armIdle();return;}
     if(side==='center'){toggleChrome();return;}
     if(navMode()==='tap'){
       side==='left'?prev():next();
@@ -63,7 +68,7 @@ body.settings #settingsSheet{z-index:30}
       if(e.pointerType==='mouse'&&e.button!==0)return;
       sx=e.clientX;sy=e.clientY;st=Date.now();pid=e.pointerId;
       try{el.setPointerCapture(e.pointerId);}catch{}
-      if(body.classList.contains('controls')||body.classList.contains('settings'))armIdle();
+      if(body.classList.contains('controls'))armIdle();
     });
 
     el.addEventListener('pointerup',e=>{
@@ -71,11 +76,6 @@ body.settings #settingsSheet{z-index:30}
       const dx=e.clientX-sx,dy=e.clientY-sy,dt=Date.now()-st;
       try{el.releasePointerCapture(e.pointerId);}catch{}
       pid=null;
-      if(body.classList.contains('settings')){
-        suppressClickUntil=Date.now()+500;
-        hideAll();
-        return;
-      }
       if(navMode()==='swipe'&&Math.abs(dx)>=34&&Math.abs(dx)>Math.abs(dy)*1.05){
         suppressClickUntil=Date.now()+500;
         dx<0?next():prev();
@@ -90,14 +90,12 @@ body.settings #settingsSheet{z-index:30}
 
     el.addEventListener('pointercancel',e=>{try{el.releasePointerCapture(e.pointerId);}catch{}pid=null;});
 
-    // Click is the reliability fallback: these are real HTML buttons above the EPUB iframe.
     el.addEventListener('click',e=>{
       e.preventDefault();
       if(Date.now()<suppressClickUntil)return;
       simpleTap(side);
     });
 
-    // iOS fallback for WebKit builds where Pointer Events are delayed or coalesced oddly.
     let tx=0,ty=0,tt=0;
     el.addEventListener('touchstart',e=>{
       if(typeof PointerEvent==='function')return;
@@ -108,7 +106,6 @@ body.settings #settingsSheet{z-index:30}
       if(typeof PointerEvent==='function')return;
       const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
       const dx=t.clientX-tx,dy=t.clientY-ty,dt=Date.now()-tt;
-      if(body.classList.contains('settings')){hideAll();return;}
       if(navMode()==='swipe'&&Math.abs(dx)>=34&&Math.abs(dx)>Math.abs(dy)*1.05){dx<0?next():prev();hideAll();return;}
       if(Math.abs(dx)<18&&Math.abs(dy)<18&&dt<700)simpleTap(side);
     },{passive:true});
@@ -116,12 +113,17 @@ body.settings #settingsSheet{z-index:30}
 
   zones.forEach(z=>bindZone(z.el,z.side));
 
-  // Any interaction inside the visible UI keeps it alive for six seconds.
+  // Dedicated backdrop owns all outside-panel dismissal while settings are open.
+  // Hit zones are disabled in CSS in this state, so taps inside the sheet cannot leak through.
+  if(backdrop){
+    backdrop.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();});
+    backdrop.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();hideAll();});
+  }
+
   const keepAlive=e=>{e.stopPropagation();armIdle();};
   if(sheet){sheet.addEventListener('pointerdown',keepAlive);sheet.addEventListener('click',keepAlive);}
   if(topbar){topbar.addEventListener('pointerdown',keepAlive);topbar.addEventListener('click',keepAlive);}
 
-  // Authoritative idle timer, including the settings sheet itself.
   const observer=new MutationObserver(()=>{
     if(body.classList.contains('controls')||body.classList.contains('settings'))armIdle();
     else clearIdle();
