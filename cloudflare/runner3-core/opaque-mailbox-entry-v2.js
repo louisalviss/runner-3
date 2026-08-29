@@ -1,5 +1,4 @@
 import app from "./delivery-entry.js";
-import { renderReaderArticlePageV7 } from "./src/rss-reader-page-v7.js";
 import { handleOpportunityRegime } from "./src/opportunity-regime.js";
 import { guardOpportunityRegimeWrite } from "./src/opportunity-regime-write-guard.js";
 
@@ -34,8 +33,9 @@ export default {
     const regimeResponse = await handleOpportunityRegime(request, env, url);
     if (regimeResponse) return regimeResponse;
 
-    const rssArticle = await renderReaderArticlePageV7(request, url);
-    if (rssArticle) return rssArticle;
+    // RSS article pages intentionally fall through to the Reader media stack.
+    // Rendering them here used to bypass adaptive audio, semantic cleaning and
+    // Content Intelligence learning hooks owned downstream.
 
     // Migration policy: every NEW mailbox submit must use an opaque ID.
     // Existing jobs/results/status/fail routes remain readable/writable so
