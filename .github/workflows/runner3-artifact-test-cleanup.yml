@@ -1,0 +1,114 @@
+name: Runner3 R2 Test Artifact Cleanup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-artifact-test-cleanup.yml'
+  schedule:
+    - cron: '23 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-r2-test-artifact-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - name: Dry-run, delete strict test artifacts, verify DCC safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+
+          base=os.environ['BASE_URL'].rstrip('/')
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          auth={'Authorization':'Bearer '+token,'Content-Type':'application/json','User-Agent':'runner3-r2-test-cleanup/1.0'}
+
+          def request(path, method='GET'):
+            req=urllib.request.Request(base+path,method=method,headers=auth)
+            try:
+              with urllib.request.urlopen(req,timeout=60) as r:
+                return r.status,json.loads(r.read().decode('utf-8'))
+            except urllib.error.HTTPError as e:
+              body=e.read().decode('utf-8','replace')
+              raise RuntimeError(f'{method} {path} -> {e.code}: {body[:500]}')
+
+          status,dry=request('/artifact-cleanup-tests','POST')
+          assert status==200 and dry.get('ok') is True
+          candidates=dry.get('candidates') or []
+          assert not any(str(x.get('key','')).startswith('core/ebook/dcc-') for x in candidates), 'DCC candidate safety violation'
+          print(json.dumps({
+            'phase':'dry-run',
+            'scanned_count':dry.get('scanned_count'),
+            'candidate_count':dry.get('candidate_count'),
+            'protected_dcc_object_count':dry.get('protected_dcc_object_count'),
+            'candidates':candidates,
+          },ensure_ascii=False))
+
+          status,applied=request('/artifact-cleanup-tests?apply=1','POST')
+          assert status==200 and applied.get('ok') is True
+          assert applied.get('deleted_count')==dry.get('candidate_count'), (applied.get('deleted_count'),dry.get('candidate_count'))
+          assert not any(str(k).startswith('core/ebook/dcc-') for k in (applied.get('deleted') or []))
+          print(json.dumps({
+            'phase':'apply',
+            'deleted_count':applied.get('deleted_count'),
+            'deleted':applied.get('deleted') or [],
+          },ensure_ascii=False))
+
+          remaining=None
+          for attempt in range(10):
+            _,check=request('/artifact-cleanup-tests','POST')
+            remaining=int(check.get('candidate_count') or 0)
+            if remaining==0:
+              break
+            time.sleep(2)
+          assert remaining==0, f'test artifacts remain: {remaining}'
+
+          _,inventory=request('/artifact-list?prefix=core%2Febook%2Fdcc-&limit=1000')
+          objects=inventory.get('objects') or []
+          keys=[str(o.get('key') or '') for o in objects]
+          scopes=sorted({k.split('/')[2] for k in keys if k.startswith('core/ebook/dcc-') and len(k.split('/'))>2})
+          expected=[f'dcc-{i:02d}' for i in range(1,9)]
+          missing=[x for x in expected if x not in scopes]
+          assert not missing, f'DCC scopes missing after cleanup: {missing}'
+
+          expected_finals={
+            'dcc-01':'Dungeon-Crawler-Carl-01-VI-v5.epub',
+            'dcc-02':'Dungeon-Crawler-Carl-02-Kich-ban-Ngay-Tan-the-cua-Carl-VI-v4.epub',
+            'dcc-03':'Dungeon-Crawler-Carl-03-Cam-nang-Ke-Vo-chinh-phu-Ham-nguc-VI-v4.epub',
+            'dcc-04':'Dungeon-Crawler-Carl-04-Canh-cong-cua-cac-Da-than-VI-v4.epub',
+            'dcc-05':'Dungeon-Crawler-Carl-05-Vu-hoi-Hoa-trang-cua-Do-te-VI-v4.epub',
+            'dcc-06':'Dungeon-Crawler-Carl-06-Con-mat-cua-Co-dau-Loan-tri-VI-v4.epub',
+            'dcc-07':'Dungeon-Crawler-Carl-07-Su-Diet-vong-Khong-the-Tranh-khoi-VI-v3.epub',
+            'dcc-08':'Dungeon-Crawler-Carl-08-Cuoc-Dieu-hanh-Kinh-hoang-VI-v5.epub',
+          }
+          missing_finals=[]
+          for scope,name in expected_finals.items():
+            key=f'core/ebook/{scope}/final/{name}'
+            if key not in keys:
+              missing_finals.append(key)
+          assert not missing_finals, f'canonical finals missing after cleanup: {missing_finals}'
+
+          print(json.dumps({
+            'ok':True,
+            'remaining_test_candidates':0,
+            'dcc_scopes':scopes,
+            'dcc_8_of_8':True,
+            'canonical_finals_8_of_8':True,
+          },ensure_ascii=False))
+          PY
