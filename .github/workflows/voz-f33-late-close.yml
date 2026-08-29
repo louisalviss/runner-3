@@ -1,6 +1,10 @@
 name: Tin VN · F33 Late Close Trigger
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/voz-f33-late-close.yml'
   schedule:
     # 22:45 Asia/Ho_Chi_Minh. Backup close snapshot for deterministic historical Radar.
     - cron: '45 15 * * *'
