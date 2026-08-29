@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "standard": "docs/FLOW_STORAGE_STANDARD.md",
   "control_center": {
     "kind": "google_sheet",
@@ -12,12 +12,47 @@
   },
   "flows": [
     {
-      "flow_id": "ebook-editorial",
+      "flow_id": "ebook-auto",
       "pattern": "full",
-      "d1": {"project": "ebook-editorial", "scope": "book:<book_id>:*"},
-      "r2": {"bucket": "runner3-artifacts", "prefix": "ebooks/<book_id>"},
-      "sheet": {"mode": "projection", "row_key": "ebook-editorial-<book_id>"},
-      "dropbox": {"mode": "human-library-only", "publish": ["overview", "long-context", "sample", "final-deliverable"]}
+      "entrypoint": "louisalviss/vps-control:stack/ebook_auto.py",
+      "workflow": "louisalviss/vps-control:.github/workflows/ebook-codex-job.yml",
+      "ingress": {
+        "default_for_chatgpt_file_uploads": ["application/pdf", "application/epub+zip", ".pdf", ".epub"],
+        "accepted": ["chatgpt-library-file", "r2", "public-https-url"],
+        "explicit_intent_override": ["translate", "editorial", "qa-only", "repair"],
+        "auto_when_intent_missing": true
+      },
+      "routing": {
+        "pdf": "pdf-extract-or-ocr -> reconstructed-epub -> auto-classify",
+        "foreign_epub": "bookforge-canonical-literary",
+        "vietnamese_needs_edit": "ebook-editorial",
+        "vietnamese_good": "qa-only",
+        "repair": "repair -> unified-final-qa",
+        "final_gate": "unified-final-file-qa"
+      },
+      "specialists": {
+        "translation": "bookforge+codex canonical-literary-v1",
+        "editorial": "ebook-editorial resumable chapters",
+        "pdf": "ocr-pdf/MinerU extraction plus EPUB reconstruction",
+        "legacy_translation": "ebook_runtime.py compatibility only",
+        "web_novel": "AI-WEB-NOVEL-EPUB-001 when source is a web-novel URL rather than an uploaded file"
+      },
+      "d1": {"project": "ebook", "scope": "<book_id_or_job_id>"},
+      "r2": {
+        "bucket": "runner3-artifacts",
+        "prefix": "core/ebook/<book_id_or_job_id>",
+        "layout": ["source/", "work/", "control/", "qa/", "final/"]
+      },
+      "delivery": {
+        "final": "R2 final/<visible-version>.epub",
+        "readback_sha256_required": true,
+        "signed_delivery_link": true,
+        "max_ttl_seconds": 3600
+      },
+      "sheet": {"mode": "projection", "row_key": "ebook-auto"},
+      "dropbox": {"mode": "canonical-docs-and-optional-human-final-only"},
+      "legacy_aliases": ["ebook-editorial", "ebook-translate", "ebook-bookforge", "pdf-to-epub", "epub-repair"],
+      "completion": ["FINAL_FILE_QA_PASS", "FINAL_BYTES_FROZEN", "DURABLE_COMPLETE", "SIGNED_URL_READY"]
     },
     {
       "flow_id": "audio-library-tts",
