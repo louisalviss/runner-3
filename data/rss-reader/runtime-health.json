@@ -2,20 +2,25 @@
   "version": 1,
   "collector": "runner-3",
   "scope": "ai-rss-reader-ingestion",
-  "runStartedAt": "2026-08-29T04:12:40Z",
-  "runFinishedAt": "2026-08-29T04:12:55Z",
+  "runStartedAt": "2026-08-29T11:13:32Z",
+  "runFinishedAt": "2026-08-29T11:14:05Z",
   "logicalSourceCount": 15,
   "runner3LogicalSources": 13,
   "chatgptDirectSources": [
     "hoquoctuan",
     "vnhacker"
   ],
-  "status": "healthy",
-  "ingestionOk": true,
+  "status": "failed",
+  "ingestionOk": false,
   "gate": {
     "core12": {
-      "ok": true,
-      "problems": []
+      "ok": false,
+      "problems": [
+        "grimlogs: not healthy",
+        "okCount=11 expected=12",
+        "failedCount=1 expected=0",
+        "status=degraded expected=healthy"
+      ]
     },
     "vohoanghacHybrid": {
       "ok": true,
@@ -29,8 +34,8 @@
   "collectorRuns": {
     "core": {
       "script": "rss_reader_collect_v2.py",
-      "exitCode": 0,
-      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"12-runner3-rss-sources\", \"status\": \"healthy\", \"ok\": 12, \"failed\": 0, \"health\": \"data/rss-reader/health.json\"}",
+      "exitCode": 2,
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"12-runner3-rss-sources\", \"status\": \"degraded\", \"ok\": 11, \"failed\": 1, \"health\": \"data/rss-reader/health.json\"}",
       "stderr": ""
     },
     "vohoanghac": {
