@@ -1,0 +1,82 @@
+name: Runner3 Artifact Library Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-artifact-library-deploy.yml'
+      - 'cloudflare/runner3-core/artifact-library-hardening-entry.js'
+      - 'cloudflare/runner3-core/artifact-list-entry.js'
+      - 'cloudflare/runner3-core/wrangler.jsonc'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-artifact-library-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy Core
+        working-directory: cloudflare/runner3-core
+        run: npx --yes wrangler@4 deploy
+      - name: Verify noindex and remembered session
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import http.cookiejar, os, urllib.error, urllib.parse, urllib.request
+          base=os.environ['BASE_URL'].rstrip('/')
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
+
+          def req(path, method='GET', data=None, headers=None, opener=None):
+            r=urllib.request.Request(base+path, method=method, data=data, headers={'User-Agent':'runner3-artifact-library-hardening-proof/1.0', **(headers or {})})
+            try:
+              response=(opener.open(r,timeout=30) if opener else urllib.request.urlopen(r,timeout=30))
+              with response: return response.status, response.headers, response.read()
+            except urllib.error.HTTPError as e:
+              return e.code,e.headers,e.read()
+
+          status,h,body=req('/artifact-library')
+          assert status==200, status
+          assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
+          text=body.decode('utf-8','replace')
+          assert 'name="robots"' in text and 'noindex' in text
+
+          status,h,_=req('/artifact-list?limit=1')
+          assert status==401, status
+          assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
+
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          data=urllib.parse.urlencode({'token':token}).encode()
+          status,h,body=req('/artifact-library/login','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
+          assert status==200, status
+          cookie=next((c for c in jar if c.name=='r3_artifact_library'),None)
+          assert cookie is not None
+          assert cookie.expires is not None
+          import time
+          remaining=cookie.expires-int(time.time())
+          assert remaining > 29*24*60*60, remaining
+          assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
+          text=body.decode('utf-8','replace')
+          assert 'name="robots"' in text and 'noindex' in text
+          print({'ok':True,'remember_seconds_remaining':remaining,'x_robots_tag':h.get('X-Robots-Tag')})
+          PY
