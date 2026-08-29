@@ -1,4 +1,4 @@
-import app from "./reader-media-entry.js";
+import app from "./reader-media-adaptive-entry.js";
 import { handleAudioMedia } from "./src/audio-media.js";
 
 export default {
