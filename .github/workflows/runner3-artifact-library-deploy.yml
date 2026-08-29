@@ -52,7 +52,7 @@ jobs:
           from urllib.parse import urlencode
 
           base=os.environ['BASE_URL'].rstrip('/')
-          ua='runner3-artifact-reader-v4-zones-proof/1.1'
+          ua='runner3-artifact-reader-v4-zones-proof/1.2'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
           def req(path, method='GET', data=None, headers=None):
@@ -88,7 +88,7 @@ jobs:
                   html=r.read().decode('utf-8','replace')
                   status=r.status
                   tag=r.headers.get('X-Robots-Tag')
-              if status==200 and tag==robots and 'data-r3-hit-zones-v4="1"' in html and 'setTimeout(hideAll,6000)' in html:
+              if status==200 and tag==robots and 'data-r3-hit-zones-v4="1"' in html and 'setTimeout(hideAll,6000)' in html and 'id="r3SettingsBackdrop"' in html:
                   break
               time.sleep(2)
           else:
@@ -96,10 +96,13 @@ jobs:
 
           required=[
               'id="r3HitLeft"','id="r3HitCenter"','id="r3HitRight"','class="r3-hit-zone"',
+              'id="r3SettingsBackdrop"','body.settings .r3-hit-zone{pointer-events:none}',
+              'body.settings #r3SettingsBackdrop{display:block}','z-index:25',
+              "backdrop.addEventListener('click'","hideAll();",
               'width:33.3334vw','background:rgba(255,255,255,.001)','z-index:19','touch-action:none',
               "el.addEventListener('pointerdown'","el.addEventListener('pointerup'",'setPointerCapture',
               "side==='center'","navMode()==='tap'","Math.abs(dx)>=34",
-              "setTimeout(hideAll,6000)","body.classList.contains('settings')){hideAll();return;}",
+              "setTimeout(hideAll,6000)","body.classList.contains('settings')){armIdle();return;}",
               "sheet.addEventListener('pointerdown',keepAlive",'body.settings #settingsSheet{z-index:30}',
               'id="settingsButton"','id="settingsSheet"','Cài đặt đọc',
               'data-nav="swipe"','data-nav="tap"','Chạm trái / phải',
@@ -122,11 +125,13 @@ jobs:
           print(json.dumps({
               'ok':True,
               'real_html_hit_zone_buttons':3,
-              'center_button_toggles_controls':True,
-              'swipe_detected_on_buttons':True,
-              'tap_navigation_mode':True,
+              'settings_backdrop_isolated':True,
+              'center_zone_disabled_while_settings_open':True,
+              'inside_settings_tap_does_not_leak':True,
               'settings_auto_hide_seconds':6,
               'outside_tap_closes_settings':True,
+              'swipe_detected_on_buttons':True,
+              'tap_navigation_mode':True,
               'old_v3_overlay_removed':True,
               'settings_and_position_remembered':True,
               'signed_epub_verified':True,
