@@ -1,0 +1,45 @@
+name: RSS Audio Cache Version Bump
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rss-audio-cache-version-bump.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Bump semantic audio cache generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          edits = {
+            Path('cloudflare/runner3-core/src/rss-reader-audio.js'): ('rss-reader-audio-v2', 'rss-reader-audio-v3'),
+            Path('.github/workflows/runner3-core-deploy.yml'): ("grep -q 'rss-reader-audio-v2'", "grep -q 'rss-reader-audio-v3'"),
+          }
+          for path, (old, new) in edits.items():
+            text = path.read_text(encoding='utf-8')
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'{path}: expected exactly one {old!r}, got {count}')
+            path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/src/rss-reader-audio.js .github/workflows/runner3-core-deploy.yml
+          git diff --cached --check
+          git commit -m 'Invalidate RSS audio cache after semantic cleanup'
+          git pull --rebase origin main
+          git push origin HEAD:main
