@@ -1,0 +1,100 @@
+name: Ebook DCC VI-v3 Canonical QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: "Book number 1-8, or all (Book 1 gates fan-out)"
+        required: true
+        default: "all"
+  push:
+    paths:
+      - ".runner-dcc-v3-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ebook-dcc-v3-${{ github.event.inputs.book || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  canonical-qa:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    env:
+      EBOOK_R2_BUCKET: ${{ vars.EBOOK_R2_BUCKET || 'runner3-artifacts' }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+      RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL || vars.RUNNER3_CORE_URL || secrets.CORE_API_URL }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN || secrets.CORE_API_TOKEN }}
+      DCC_BOOK_1_SOURCE_KEY: ${{ vars.DCC_BOOK_1_SOURCE_KEY }}
+      DCC_BOOK_2_SOURCE_KEY: ${{ vars.DCC_BOOK_2_SOURCE_KEY }}
+      DCC_BOOK_3_SOURCE_KEY: ${{ vars.DCC_BOOK_3_SOURCE_KEY }}
+      DCC_BOOK_4_SOURCE_KEY: ${{ vars.DCC_BOOK_4_SOURCE_KEY }}
+      DCC_BOOK_5_SOURCE_KEY: ${{ vars.DCC_BOOK_5_SOURCE_KEY }}
+      DCC_BOOK_6_SOURCE_KEY: ${{ vars.DCC_BOOK_6_SOURCE_KEY }}
+      DCC_BOOK_7_SOURCE_KEY: ${{ vars.DCC_BOOK_7_SOURCE_KEY }}
+      DCC_BOOK_8_SOURCE_KEY: ${{ vars.DCC_BOOK_8_SOURCE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python dependencies
+        run: |
+          python3 -m pip install --user --disable-pip-version-check boto3
+
+      - name: Validate worker syntax
+        run: |
+          python3 -m py_compile story_pipeline/dcc_v3_finalize.py
+          python3 -m json.tool story_pipeline/books/dcc-v3.json >/dev/null
+
+      - name: Resolve requested books
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ github.event.inputs.book }}'
+          if [[ -z "$requested" ]]; then requested=all; fi
+          if [[ "$requested" == all ]]; then
+            echo 'books=1 2 3 4 5 6 7 8' >> "$GITHUB_OUTPUT"
+          elif [[ "$requested" =~ ^[1-8]$ ]]; then
+            echo "books=$requested" >> "$GITHUB_OUTPUT"
+          else
+            echo "Invalid book selector: $requested" >&2
+            exit 2
+          fi
+
+      - name: Book 1 proof gate
+        if: ${{ github.event.inputs.book == 'all' || github.event.inputs.book == '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/dcc-v3
+          python3 story_pipeline/dcc_v3_finalize.py --book 1 --result artifacts/dcc-v3/book-01.json
+
+      - name: Remaining books after Book 1 PASS
+        if: ${{ github.event.inputs.book == 'all' || github.event.inputs.book == '' }}
+        run: |
+          set -euo pipefail
+          for book in 2 3 4 5 6 7 8; do
+            printf '\n=== DCC Book %s ===\n' "$book"
+            python3 story_pipeline/dcc_v3_finalize.py --book "$book" --result "artifacts/dcc-v3/book-$(printf '%02d' "$book").json"
+          done
+
+      - name: Single book
+        if: ${{ github.event.inputs.book != 'all' && github.event.inputs.book != '' }}
+        run: |
+          set -euo pipefail
+          book='${{ github.event.inputs.book }}'
+          mkdir -p artifacts/dcc-v3
+          python3 story_pipeline/dcc_v3_finalize.py --book "$book" --result "artifacts/dcc-v3/book-$(printf '%02d' "$book").json"
+
+      - name: Upload machine proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dcc-v3-proof-${{ github.run_id }}
+          path: artifacts/dcc-v3/
+          if-no-files-found: warn
+          retention-days: 30
