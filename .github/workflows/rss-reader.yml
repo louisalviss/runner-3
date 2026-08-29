@@ -12,6 +12,8 @@ on:
       - "scripts/rss_substack_collect_v2.py"
       - "scripts/rss_render_inventory.py"
       - "scripts/rss_kept_manifest.py"
+      - "scripts/rss_manifest_finalize.py"
+      - "scripts/rss_render_snapshot.py"
       - "scripts/rss_selected_fetch.py"
       - "scripts/rss_d1_shadow.py"
       - "scripts/content_intelligence_client.py"
@@ -76,9 +78,28 @@ jobs:
           python scripts/rss_kept_manifest.py --inventory data/rss-reader/render-inventory-today.json --out data/rss-reader/kept-manifest-today.json
           python scripts/rss_kept_manifest.py --inventory data/rss-reader/render-inventory-yesterday.json --out data/rss-reader/kept-manifest-yesterday.json
 
+      - name: Finalize replay-safe manifests and archive day snapshots
+        id: replay_manifest
+        if: always() && steps.kept_manifest.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/rss_manifest_finalize.py --self-test
+          python scripts/rss_render_snapshot.py --self-test
+          python scripts/rss_manifest_finalize.py \
+            --manifest data/rss-reader/kept-manifest-today.json \
+            --out data/rss-reader/kept-manifest-today.json \
+            --archive-root data/rss-reader/manifests \
+            --archive-mode latest
+          python scripts/rss_manifest_finalize.py \
+            --manifest data/rss-reader/kept-manifest-yesterday.json \
+            --out data/rss-reader/kept-manifest-yesterday.json \
+            --archive-root data/rss-reader/manifests \
+            --archive-mode immutable
+
       - name: Ingest kept manifests into Content Intelligence D1
         id: content_intelligence
-        if: always() && steps.kept_manifest.outcome == 'success'
+        if: always() && steps.replay_manifest.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -99,10 +120,11 @@ jobs:
             data/rss-reader/render-inventory-yesterday.json
             data/rss-reader/kept-manifest-today.json
             data/rss-reader/kept-manifest-yesterday.json
+            data/rss-reader/manifests/
           if-no-files-found: warn
           retention-days: 1
 
-      - name: Persist source mirrors, health, inventories and kept manifests
+      - name: Persist source mirrors, health, inventories and replay-safe manifests
         if: always() && steps.checkout.outcome == 'success'
         shell: bash
         run: |
@@ -111,16 +133,17 @@ jobs:
           git config user.email "runner3-rss-bot@users.noreply.github.com"
 
           git add data/rss-reader/sources/
+          [[ -d data/rss-reader/manifests ]] && git add data/rss-reader/manifests/
           for f in health.json substack-health.json runtime-health.json render-inventory-today.json render-inventory-yesterday.json kept-manifest-today.json kept-manifest-yesterday.json; do
             [[ -f "data/rss-reader/$f" ]] && git add "data/rss-reader/$f"
           done
 
           if git diff --cached --quiet; then
-            echo "No RSS mirror, health, inventory or kept-manifest changes"
+            echo "No RSS mirror, health, inventory or replay-safe manifest changes"
             exit 0
           fi
 
-          git commit -m "Update Runner3 RSS mirrors and reconciled render manifests [skip ci]"
+          git commit -m "Update Runner3 RSS mirrors and replay-safe render manifests [skip ci]"
           for attempt in 1 2 3 4 5; do
             echo "persist attempt=$attempt"
             git fetch origin main
@@ -140,7 +163,7 @@ jobs:
         shell: bash
         run: python scripts/rss_d1_shadow.py operational --run-id "${{ github.run_id }}"
 
-      - name: Enforce canonical ingestion, inventory and kept-manifest health
+      - name: Enforce canonical ingestion, inventory and replay-safe manifest health
         if: always()
         shell: bash
         run: |
@@ -148,10 +171,12 @@ jobs:
           rss_outcome='${{ steps.rss.outcome }}'
           inventory_outcome='${{ steps.render_inventory.outcome }}'
           manifest_outcome='${{ steps.kept_manifest.outcome }}'
-          echo "rss=$rss_outcome inventory=$inventory_outcome kept_manifest=$manifest_outcome content_intelligence=${{ steps.content_intelligence.outcome }}"
+          replay_outcome='${{ steps.replay_manifest.outcome }}'
+          echo "rss=$rss_outcome inventory=$inventory_outcome kept_manifest=$manifest_outcome replay_manifest=$replay_outcome content_intelligence=${{ steps.content_intelligence.outcome }}"
           [[ "$rss_outcome" == "success" ]]
           [[ "$inventory_outcome" == "success" ]]
           [[ "$manifest_outcome" == "success" ]]
+          [[ "$replay_outcome" == "success" ]]
 
   selected-analysis:
     if: github.event_name == 'push'
