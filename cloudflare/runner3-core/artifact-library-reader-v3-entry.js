@@ -13,21 +13,21 @@ function headers(base = {}) {
 }
 
 function injectReliableTouchLayer(html) {
-  if (!html.includes('id="viewer"') || html.includes('data-r3-touch-layer-v3="1"')) return html;
+  if (!html.includes('id="viewer"') || html.includes('data-r3-touch-layer-v4="1"')) return html;
 
-  const patch = `<style data-r3-touch-layer-v3="1">
-#r3GestureLayer{position:fixed;inset:0;z-index:19;background:transparent;pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-body.controls .topbar,body.controls .bottom-status{z-index:21}
-body.settings #settingsSheet{z-index:30}
+  const patch = `<style data-r3-touch-layer-v4="1">
+#r3GestureLayer{position:fixed;left:0;top:0;width:100vw;height:100dvh;z-index:1000;background:rgba(0,0,0,.001);pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;transform:translateZ(0)}
+.chrome{z-index:1100!important}
+body.settings #settingsSheet{z-index:1200!important}
 </style>
 <div id="r3GestureLayer" aria-hidden="true"></div>
-<script data-r3-touch-layer-v3="1">
+<script data-r3-touch-layer-v4="1">
 (()=>{
   const layer=document.getElementById('r3GestureLayer');
   const sheet=document.getElementById('settingsSheet');
   if(!layer)return;
-  let sx=0,sy=0,st=0,lastTouch=0,hideTimer=0;
 
+  let sx=0,sy=0,st=0,active=false,pointerId=null,lastPointerUp=0,hideTimer=0;
   const navMode=()=>document.body.dataset.nav==='tap'?'tap':'swipe';
   const fireKey=key=>document.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
   const prev=()=>fireKey('ArrowLeft');
@@ -48,56 +48,81 @@ body.settings #settingsSheet{z-index:30}
   }
 
   function actTap(x){
-    // When settings are open, any tap outside the panel closes everything immediately.
     if(document.body.classList.contains('settings')){hideControls();return;}
     const ratio=x/Math.max(1,window.innerWidth);
     if(navMode()==='tap'){
       if(ratio<.33){prev();hideControls();return;}
       if(ratio>.67){next();hideControls();return;}
     }
-    // Middle third always controls the reader chrome, independent of EPUB iframe content.
+    // The middle third always reveals/hides the reader chrome and gear button.
     if(ratio>=.33&&ratio<=.67)toggleControls();
   }
 
-  layer.addEventListener('touchstart',e=>{
-    const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
-    sx=t.clientX;sy=t.clientY;st=Date.now();
+  function begin(x,y,id){
+    sx=x;sy=y;st=Date.now();active=true;pointerId=id??null;
     if(document.body.classList.contains('controls')||document.body.classList.contains('settings'))scheduleHide();
-  },{passive:true});
-
-  layer.addEventListener('touchmove',e=>{
-    if(e.cancelable)e.preventDefault();
-  },{passive:false});
-
-  layer.addEventListener('touchend',e=>{
-    const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
-    lastTouch=Date.now();
-    const dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;
-    if(document.body.classList.contains('settings')){
-      if(e.cancelable)e.preventDefault();
-      hideControls();
-      return;
-    }
+  }
+  function finish(x,y){
+    if(!active)return;
+    active=false;lastPointerUp=Date.now();
+    const dx=x-sx,dy=y-sy,dt=Date.now()-st;
+    if(document.body.classList.contains('settings')){hideControls();return;}
     if(navMode()==='swipe'&&Math.abs(dx)>=34&&Math.abs(dx)>Math.abs(dy)*1.05){
-      if(e.cancelable)e.preventDefault();
       dx<0?next():prev();hideControls();return;
     }
-    if(Math.abs(dx)<20&&Math.abs(dy)<20&&dt<700)actTap(t.clientX);
-  },{passive:false});
+    if(Math.abs(dx)<20&&Math.abs(dy)<20&&dt<700)actTap(x);
+  }
 
+  // Pointer Events are the primary path on modern iPhone WebKit/Chrome/Safari.
+  if('PointerEvent' in window){
+    layer.addEventListener('pointerdown',e=>{
+      if(e.pointerType==='mouse'&&e.button!==0)return;
+      begin(e.clientX,e.clientY,e.pointerId);
+      try{layer.setPointerCapture(e.pointerId);}catch{}
+      if(e.cancelable)e.preventDefault();
+    },{passive:false});
+    layer.addEventListener('pointermove',e=>{
+      if(!active||pointerId!==e.pointerId)return;
+      if(e.cancelable)e.preventDefault();
+    },{passive:false});
+    layer.addEventListener('pointerup',e=>{
+      if(!active||pointerId!==e.pointerId)return;
+      if(e.cancelable)e.preventDefault();
+      finish(e.clientX,e.clientY);
+      try{layer.releasePointerCapture(e.pointerId);}catch{}
+      pointerId=null;
+    },{passive:false});
+    layer.addEventListener('pointercancel',()=>{active=false;pointerId=null;});
+  }else{
+    // Fallback for older WebKit.
+    layer.addEventListener('touchstart',e=>{
+      const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
+      begin(t.clientX,t.clientY,null);
+      if(e.cancelable)e.preventDefault();
+    },{passive:false});
+    layer.addEventListener('touchmove',e=>{if(e.cancelable)e.preventDefault();},{passive:false});
+    layer.addEventListener('touchend',e=>{
+      const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
+      if(e.cancelable)e.preventDefault();
+      finish(t.clientX,t.clientY);
+    },{passive:false});
+  }
+
+  // Desktop/click fallback; suppressed after a pointer/touch release.
   layer.addEventListener('click',e=>{
-    if(Date.now()-lastTouch<800)return;
+    if(Date.now()-lastPointerUp<800)return;
     actTap(e.clientX);
   });
 
-  // Settings panel is above the gesture layer. Any interaction inside it keeps it alive for 2s.
+  // The panel lives above the gesture layer; interaction inside keeps it open briefly.
   if(sheet){
     const keepAlive=e=>{e.stopPropagation();scheduleHide();};
+    sheet.addEventListener('pointerdown',keepAlive);
     sheet.addEventListener('touchstart',keepAlive,{passive:true});
     sheet.addEventListener('click',keepAlive);
   }
 
-  // Authoritative timer: controls and the settings panel both auto-hide after 2s idle.
+  // Settings and chrome both disappear after 2 seconds of no interaction.
   const observer=new MutationObserver(()=>{
     if(document.body.classList.contains('controls')||document.body.classList.contains('settings'))scheduleHide();
     else clearHide();
