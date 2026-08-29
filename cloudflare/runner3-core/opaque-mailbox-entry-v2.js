@@ -1,5 +1,6 @@
 import app from "./delivery-entry.js";
 import { renderReaderArticlePageV7 } from "./src/rss-reader-page-v7.js";
+import { handleOpportunityRegime } from "./src/opportunity-regime.js";
 
 const OPAQUE_REQUEST_ID_RE = /^m_[0-9a-f]{32}$/;
 
@@ -25,6 +26,9 @@ function requestIdFromRequestPath(pathname) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const regimeResponse = await handleOpportunityRegime(request, env, url);
+    if (regimeResponse) return regimeResponse;
 
     const rssArticle = await renderReaderArticlePageV7(request, url);
     if (rssArticle) return rssArticle;
