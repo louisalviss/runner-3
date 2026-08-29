@@ -23,14 +23,16 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Verify live authenticated inventory and DCC finals
+      - name: Verify live inventory, private library session, and signed delivery
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import datetime
+          import http.cookiejar
           import json
           import os
+          import time
           import urllib.error
           import urllib.parse
           import urllib.request
@@ -41,29 +43,45 @@ jobs:
           if not token:
               raise SystemExit('RUNNER3_CORE_TOKEN missing')
 
-          def request(path, *, auth=True):
-              headers = {
-                  'Accept': 'application/json',
-                  'User-Agent': 'runner3-artifact-list-proof/1.0',
-                  'Cache-Control': 'no-cache',
-              }
-              if auth:
-                  headers['Authorization'] = 'Bearer ' + token
-              req = urllib.request.Request(base + path, headers=headers, method='GET')
+          def raw_request(path, *, method='GET', headers=None, data=None, opener=None):
+              req = urllib.request.Request(
+                  base + path,
+                  headers={
+                      'User-Agent': 'runner3-artifact-library-proof/2.0',
+                      'Cache-Control': 'no-cache',
+                      **(headers or {}),
+                  },
+                  data=data,
+                  method=method,
+              )
+              client = opener or urllib.request
               try:
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      return response.status, json.load(response)
+                  with client.open(req, timeout=30) as response:
+                      return response.status, response.headers, response.read()
               except urllib.error.HTTPError as exc:
-                  raw = exc.read().decode('utf-8', 'replace')
-                  try:
-                      body = json.loads(raw) if raw else None
-                  except Exception:
-                      body = {'rawPrefix': raw[:300]}
-                  return exc.code, body
+                  return exc.code, exc.headers, exc.read()
 
-          unauth_http, unauth_body = request('/artifact-list?limit=1', auth=False)
+          # The proof workflow can race a parallel Core deploy. Wait until the
+          # authenticated inventory wrapper is live instead of recording a false failure.
+          unauth_http = None
+          for _ in range(30):
+              unauth_http, _, _ = raw_request('/artifact-list?limit=1')
+              if unauth_http == 401:
+                  break
+              time.sleep(2)
           if unauth_http != 401:
-              raise SystemExit(f'unauthenticated artifact-list expected 401, got {unauth_http}: {unauth_body}')
+              raise SystemExit(f'unauthenticated artifact-list expected 401, got {unauth_http}')
+
+          def bearer_json(path):
+              http, _, raw = raw_request(
+                  path,
+                  headers={'Accept': 'application/json', 'Authorization': 'Bearer ' + token},
+              )
+              try:
+                  body = json.loads(raw.decode('utf-8')) if raw else None
+              except Exception:
+                  body = {'rawPrefix': raw[:300].decode('utf-8', 'replace')}
+              return http, body
 
           prefix = 'core/ebook/dcc-'
           expected = [f'dcc-{i:02d}' for i in range(1, 9)]
@@ -74,8 +92,7 @@ jobs:
               params = {'prefix': prefix, 'limit': '1000'}
               if cursor:
                   params['cursor'] = cursor
-              path = '/artifact-list?' + urllib.parse.urlencode(params)
-              http, body = request(path)
+              http, body = bearer_json('/artifact-list?' + urllib.parse.urlencode(params))
               page_count += 1
               if http != 200 or not isinstance(body, dict) or body.get('ok') is not True:
                   raise SystemExit(f'artifact-list failed: http={http} body={body}')
@@ -90,36 +107,115 @@ jobs:
           for item in objects:
               key = str(item.get('key') or '')
               for scope in expected:
-                  marker = f'core/ebook/{scope}/final/'
-                  if key.startswith(marker):
+                  if key.startswith(f'core/ebook/{scope}/final/'):
                       final_by_scope[scope].append(item)
-
           found = [scope for scope in expected if final_by_scope[scope]]
           missing = [scope for scope in expected if not final_by_scope[scope]]
           final_artifacts = [item for scope in expected for item in final_by_scope[scope]]
-          proof = {
-              'ok': not missing,
-              'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          if missing:
+              raise SystemExit('missing final DCC scopes: ' + ','.join(missing))
+
+          # Public GET must render only the login screen, never object names.
+          login_http, _, login_raw = raw_request('/artifact-library')
+          login_text = login_raw.decode('utf-8', 'replace')
+          login_page_ok = (
+              login_http == 200
+              and 'R2 Artifact Library' in login_text
+              and 'Core access token' in login_text
+              and 'core/ebook/dcc-' not in login_text
+          )
+          if not login_page_ok:
+              raise SystemExit(f'library login page privacy check failed: http={login_http}')
+
+          bad_data = urllib.parse.urlencode({'token': 'definitely-wrong-token'}).encode()
+          bad_http, _, _ = raw_request(
+              '/artifact-library/login',
+              method='POST',
+              headers={'Content-Type': 'application/x-www-form-urlencoded'},
+              data=bad_data,
+          )
+          if bad_http != 401:
+              raise SystemExit(f'bad library login expected 401, got {bad_http}')
+
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          good_data = urllib.parse.urlencode({'token': token}).encode()
+          auth_http, _, auth_raw = raw_request(
+              '/artifact-library/login',
+              method='POST',
+              headers={'Content-Type': 'application/x-www-form-urlencoded'},
+              data=good_data,
+              opener=opener,
+          )
+          auth_text = auth_raw.decode('utf-8', 'replace')
+          session_cookie_ok = any(cookie.name == 'r3_artifact_library' for cookie in jar)
+          library_page_ok = auth_http == 200 and 'Latest final / scope' in auth_text and session_cookie_ok
+          if not library_page_ok:
+              raise SystemExit(f'authenticated library page failed: http={auth_http} cookie={session_cookie_ok}')
+
+          lib_path = '/artifact-library/api/list?' + urllib.parse.urlencode({'prefix': prefix, 'limit': '1000'})
+          lib_http, _, lib_raw = raw_request(lib_path, headers={'Accept': 'application/json'}, opener=opener)
+          lib_body = json.loads(lib_raw.decode('utf-8')) if lib_raw else {}
+          lib_objects = lib_body.get('objects') or []
+          library_api_ok = lib_http == 200 and lib_body.get('ok') is True and len(lib_objects) == len(objects)
+          if not library_api_ok:
+              raise SystemExit(f'library session list failed: http={lib_http} count={len(lib_objects)} expected={len(objects)}')
+
+          latest = max(final_artifacts, key=lambda item: str(item.get('uploaded') or ''))
+          delivery_payload = json.dumps({'key': latest['key'], 'ttl_seconds': 900}).encode()
+          delivery_http, _, delivery_raw = raw_request(
+              '/artifact-library/api/delivery',
+              method='POST',
+              headers={
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json',
+                  'X-Runner3-Library': '1',
+              },
+              data=delivery_payload,
+              opener=opener,
+          )
+          delivery_body = json.loads(delivery_raw.decode('utf-8')) if delivery_raw else {}
+          delivery_url = str((delivery_body.get('delivery') or {}).get('url') or '')
+          delivery_ok = delivery_http == 200 and delivery_body.get('ok') is True and delivery_url.startswith(base + '/delivery/')
+          if not delivery_ok:
+              raise SystemExit(f'library signed delivery failed: http={delivery_http} body={delivery_body}')
+
+          checked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          inventory_proof = {
+              'ok': True,
+              'checked_at': checked_at,
               'run_id': os.environ.get('GITHUB_RUN_ID'),
               'endpoint': '/artifact-list',
-              'auth_guard': {'unauthenticated_http': unauth_http, 'expected': 401, 'ok': unauth_http == 401},
+              'auth_guard': {'unauthenticated_http': unauth_http, 'expected': 401, 'ok': True},
               'prefix': prefix,
               'page_count': page_count,
               'object_count_under_prefix': len(objects),
               'expected_scopes': expected,
               'found_scopes': found,
-              'missing_scopes': missing,
-              'all_expected_scopes_found': not missing,
+              'missing_scopes': [],
+              'all_expected_scopes_found': True,
               'final_artifact_count': len(final_artifacts),
               'final_artifacts': final_artifacts,
           }
+          library_proof = {
+              'ok': True,
+              'checked_at': checked_at,
+              'run_id': os.environ.get('GITHUB_RUN_ID'),
+              'url': base + '/artifact-library',
+              'public_login_page_private': login_page_ok,
+              'bad_login_http': bad_http,
+              'session_cookie_issued': session_cookie_ok,
+              'authenticated_ui_rendered': library_page_ok,
+              'session_inventory_api_ok': library_api_ok,
+              'session_inventory_object_count': len(lib_objects),
+              'signed_delivery_ok': delivery_ok,
+              'signed_delivery_test_key': latest['key'],
+              'signed_delivery_ttl_seconds': 900,
+          }
           Path('proof').mkdir(exist_ok=True)
-          Path('proof/r2-artifact-inventory.json').write_text(
-              json.dumps(proof, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
-          )
-          print(json.dumps(proof, ensure_ascii=False, indent=2))
-          if missing:
-              raise SystemExit('missing final DCC scopes: ' + ','.join(missing))
+          Path('proof/r2-artifact-inventory.json').write_text(json.dumps(inventory_proof, ensure_ascii=False, indent=2) + '\n')
+          Path('proof/r2-artifact-library.json').write_text(json.dumps(library_proof, ensure_ascii=False, indent=2) + '\n')
+          print(json.dumps({'inventory': inventory_proof, 'library': library_proof}, ensure_ascii=False, indent=2))
           PY
 
       - name: Persist proof
@@ -128,10 +224,8 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add proof/r2-artifact-inventory.json
+          git add proof/r2-artifact-inventory.json proof/r2-artifact-library.json
           git diff --cached --quiet && exit 0
-          git commit -m "proof(core): record R2 artifact inventory ${GITHUB_RUN_ID} [skip ci]"
+          git commit -m "proof(core): record R2 library verification ${GITHUB_RUN_ID} [skip ci]"
           git pull --rebase origin main || true
           git push origin HEAD:main
-
-# manual live retest 2026-08-29
