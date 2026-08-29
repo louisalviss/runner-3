@@ -38,7 +38,7 @@ body.settings #settingsSheet{z-index:30}
   function hideAll(){clearIdle();body.classList.remove('controls','settings');}
   function armIdle(){
     clearIdle();
-    if(body.classList.contains('controls')||body.classList.contains('settings')) idleTimer=setTimeout(hideAll,2000);
+    if(body.classList.contains('controls')||body.classList.contains('settings')) idleTimer=setTimeout(hideAll,6000);
   }
   function showChrome(){body.classList.add('controls');armIdle();}
   function toggleChrome(){
@@ -116,7 +116,7 @@ body.settings #settingsSheet{z-index:30}
 
   zones.forEach(z=>bindZone(z.el,z.side));
 
-  // Any interaction inside the visible UI keeps it alive for two seconds.
+  // Any interaction inside the visible UI keeps it alive for six seconds.
   const keepAlive=e=>{e.stopPropagation();armIdle();};
   if(sheet){sheet.addEventListener('pointerdown',keepAlive);sheet.addEventListener('click',keepAlive);}
   if(topbar){topbar.addEventListener('pointerdown',keepAlive);topbar.addEventListener('click',keepAlive);}
