@@ -1,6 +1,7 @@
 import app from "./reader-media-entry.js";
 
 const POLL_HARDEN_VERSION = "rss-audio-poll-adaptive-v1";
+const LEARNING_THRESHOLD_VERSION = "rss-deep-read-adaptive-v2";
 
 const ADAPTIVE_POLL = `  function pollSleep(ms){return new Promise(function(resolve){setTimeout(resolve,ms)})}
   async function poll(view){
@@ -55,23 +56,38 @@ function hardenNamMinhPolling(html) {
 
   const refreshMarker = "  async function refresh(){\n    var view=currentView();\n";
   if (source.includes(refreshMarker)) {
-    source = source.replace(
-      refreshMarker,
-      "  async function refresh(){\n    pollSerial+=1;\n    var view=currentView();\n",
-    );
+    source = source.replace(refreshMarker, "  async function refresh(){\n    pollSerial+=1;\n    var view=currentView();\n");
     changed += 1;
   }
 
   const pagehide = "window.addEventListener('pagehide',function(){stopped=true;resetMedia()});";
   if (source.includes(pagehide)) {
-    source = source.replace(
-      pagehide,
-      "window.addEventListener('pagehide',function(){stopped=true;pollSerial+=1;resetMedia()});",
-    );
+    source = source.replace(pagehide, "window.addEventListener('pagehide',function(){stopped=true;pollSerial+=1;resetMedia()});");
     changed += 1;
   }
 
   return { html: source, applied: changed === 4, changed };
+}
+
+function adaptDeepReadThreshold(html) {
+  let source = String(html || "");
+  let changed = 0;
+  if (source.includes('rssDeepRead:v1:')) {
+    source = source.replace('rssDeepRead:v1:', 'rssDeepRead:v2:');
+    changed += 1;
+  }
+  const activity = 'var activeMs=0,last=Date.now(),maxDepth=0;';
+  if (source.includes(activity)) {
+    source = source.replace(activity,
+      'var activeMs=0,last=Date.now(),maxDepth=0;var words=Math.max(1,String((document.querySelector("main")||document.body||{}).innerText||"").trim().split(/\\s+/).length);var estimatedMs=words/220*60000;var needMs=Math.max(25000,Math.min(90000,estimatedMs*0.35));var depthNeed=words<600?0.70:(words>1800?0.45:0.55);var audioNeed=Math.max(30000,Math.min(90000,estimatedMs*0.25));');
+    changed += 1;
+  }
+  const mark = 'var listened=!!(audio&&Number(audio.currentTime||0)>=45);if(activeMs<45000||(maxDepth<0.55&&!listened))return;';
+  if (source.includes(mark)) {
+    source = source.replace(mark, 'var listened=!!(audio&&Number(audio.currentTime||0)*1000>=audioNeed);if(activeMs<needMs||(maxDepth<depthNeed&&!listened))return;');
+    changed += 1;
+  }
+  return { html: source, applied: changed === 3, changed };
 }
 
 function isReaderArticleHtml(request, url, response) {
@@ -86,15 +102,18 @@ export default {
     const response = await app.fetch(request, env, ctx);
     if (!response || !isReaderArticleHtml(request, url, response)) return response;
 
-    const result = hardenNamMinhPolling(await response.text());
+    const poll = hardenNamMinhPolling(await response.text());
+    const learning = adaptDeepReadThreshold(poll.html);
     const headers = new Headers(response.headers);
     headers.delete("content-length");
     headers.set("cache-control", "no-store");
     headers.set("content-type", "text/html; charset=utf-8");
-    headers.set("x-rss-audio-poll", result.applied ? POLL_HARDEN_VERSION : `legacy-markers-${result.changed}`);
-    if (!result.applied) console.warn("rss audio adaptive poll markers incomplete", result.changed);
+    headers.set("x-rss-audio-poll", poll.applied ? POLL_HARDEN_VERSION : `legacy-markers-${poll.changed}`);
+    headers.set("x-rss-learning-threshold", learning.applied ? LEARNING_THRESHOLD_VERSION : `legacy-markers-${learning.changed}`);
+    if (!poll.applied) console.warn("rss audio adaptive poll markers incomplete", poll.changed);
+    if (!learning.applied) console.warn("rss learning adaptive threshold markers incomplete", learning.changed);
 
-    return new Response(result.html, {
+    return new Response(learning.html, {
       status: response.status,
       statusText: response.statusText,
       headers,
