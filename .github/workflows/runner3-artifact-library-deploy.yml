@@ -62,7 +62,7 @@ jobs:
         working-directory: cloudflare/runner3-core
         run: npx --yes wrangler@4 deploy artifact-library-pin-v2-entry.js --config wrangler.jsonc
 
-      - name: Verify PIN auth noindex session and magic link
+      - name: Verify tokenless PIN auth noindex session and magic link
         shell: bash
         run: |
           set -euo pipefail
@@ -95,34 +95,34 @@ jobs:
           assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
           text=body.decode('utf-8','replace')
           assert 'name="robots"' in text and 'noindex' in text
+          assert 'Core access token' not in text
           if pin_was_empty:
             assert 'Create Library PIN' in text
-            assert 'Core access token' in text
+            assert 'Confirm PIN' in text
           else:
             assert '6-digit Library PIN' in text
-            assert 'Core access token' not in text
 
           status,h,_=req('/artifact-list?limit=1')
           assert status==401, status
           assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
 
           status,h,body=req('/artifact-library/reset-pin')
-          assert status==200, status
-          assert h.get('X-Robots-Tag')==robots
-          reset_text=body.decode('utf-8','replace')
-          assert 'Reset Library PIN' in reset_text and 'Core access token' in reset_text
+          assert status==404, status
+          reset=json.loads(body.decode('utf-8'))
+          assert reset.get('error')=='RESET_REQUIRES_PRIVATE_BACKEND'
 
           result={
             'ok':True,
             'pin_was_empty':pin_was_empty,
             'x_robots_tag':robots,
+            'public_reset_closed':True,
           }
 
           if pin_was_empty:
             pin=f'{secrets.randbelow(1000000):06d}'
             jar=http.cookiejar.CookieJar()
             opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-            data=urllib.parse.urlencode({'core_token':token,'pin':pin,'pin_confirm':pin}).encode()
+            data=urllib.parse.urlencode({'pin':pin,'pin_confirm':pin}).encode()
             status,h,body=req('/artifact-library/setup-pin','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
             assert status==200, status
             cookie=next((c for c in jar if c.name=='r3_artifact_library'),None)
@@ -133,6 +133,12 @@ jobs:
             assert 'R2 Artifact Library' in library_text
             assert 'id="magic-link-button"' in library_text
             assert 'id="change-pin-button"' in library_text
+            assert 'Core access token' not in library_text
+
+            duplicate_data=urllib.parse.urlencode({'pin':'123456','pin_confirm':'123456'}).encode()
+            status,h,body=req('/artifact-library/setup-pin','POST',duplicate_data,{'Content-Type':'application/x-www-form-urlencoded'})
+            assert status==409, status
+            assert 'already exists' in body.decode('utf-8','replace')
 
             status,h,body=req('/artifact-library/logout','POST',opener=opener)
             assert status==200, status
@@ -182,7 +188,8 @@ jobs:
             assert replay_body.get('error')=='MAGIC_LINK_INVALID_OR_EXPIRED'
 
             result.update({
-              'pin_setup_login':True,
+              'tokenless_pin_setup':True,
+              'duplicate_setup_rejected':True,
               'wrong_pin_rejected':True,
               'logout_clears_session':True,
               'remember_seconds_remaining':fresh_remaining,
@@ -214,5 +221,6 @@ jobs:
             assert r.status==200
             assert r.headers.get('X-Robots-Tag')=='noindex, nofollow, noarchive, nosnippet, noimageindex'
             assert 'Create Library PIN' in body
-          print({'ok':True,'clean_first_run_state':True})
+            assert 'Core access token' not in body
+          print({'ok':True,'clean_tokenless_first_run_state':True})
           PY
