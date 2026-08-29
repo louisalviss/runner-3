@@ -1,4 +1,4 @@
-export const READER_CLEAN_VERSION = "rss-reader-clean-v2";
+export const READER_CLEAN_VERSION = "rss-reader-clean-v3";
 
 const FONT_CONTROL_RE = /^(?:c(?:ỡ|o)\s*ch(?:ữ|u)\s*)?a\s*\+\s*(?:a\s*[-−–—])?$|^a\s*[-−–—]$/iu;
 const PHOTO_CREDIT_RE = /(?:^|[\s(])(?:(?:ảnh|hình|photo|image|picture|nguồn ảnh|photo credit|image credit|credit)\s*:|photo\s+by\b)/iu;
@@ -61,17 +61,52 @@ function looksLikeByline(line, author, early) {
   return parts.length >= 2 && parts.length <= 6 && parts.every(looksLikeNamePart);
 }
 
+function navPrefixBeforeTitle(candidate, title) {
+  const candidateFolded = fold(candidate);
+  const titleFolded = fold(title);
+  if (!candidateFolded || !titleFolded) return false;
+  if (candidateFolded === titleFolded) return true;
+  if (!candidateFolded.endsWith(titleFolded)) return false;
+  const prefix = candidateFolded.slice(0, -titleFolded.length).trim();
+  return Boolean(prefix && NAV_SEQUENCE_RE.test(`${prefix} `));
+}
+
 function looksLikeTitleChrome(line, title, early) {
   if (!early) return false;
   const lineFolded = fold(line);
-  const titleFolded = fold(title);
   if (!lineFolded) return false;
-  if (titleFolded && lineFolded === titleFolded) return true;
-  if (titleFolded && lineFolded.endsWith(titleFolded)) {
-    const prefix = lineFolded.slice(0, -titleFolded.length).trim();
-    if (prefix && NAV_SEQUENCE_RE.test(`${prefix} `)) return true;
-  }
+  if (navPrefixBeforeTitle(line, title)) return true;
   return NAV_SEQUENCE_RE.test(`${lineFolded} `);
+}
+
+function titleChromeLineIndexes(lines, title) {
+  const target = fold(title);
+  const skip = new Set();
+  if (!target) return skip;
+
+  let nonEmpty = 0;
+  for (let start = 0; start < lines.length && nonEmpty < 20; start++) {
+    if (!String(lines[start] || "").trim()) continue;
+    nonEmpty += 1;
+    let candidate = "";
+    const indexes = [];
+    for (let end = start; end < lines.length && indexes.length < 4; end++) {
+      const text = String(lines[end] || "").trim();
+      if (!text) {
+        if (indexes.length) break;
+        continue;
+      }
+      candidate = candidate ? `${candidate} ${text}` : text;
+      indexes.push(end);
+      if (navPrefixBeforeTitle(candidate, title)) {
+        for (const index of indexes) skip.add(index);
+        break;
+      }
+      const folded = fold(candidate);
+      if (folded.length > target.length + 100) break;
+    }
+  }
+  return skip;
 }
 
 function nextNonEmpty(lines, start) {
@@ -90,6 +125,7 @@ function isExplicitPhotoCaption(line) {
 export function cleanReaderBoilerplate(value, meta = {}) {
   const lines = String(value ?? "").replace(/\r/g, "").split("\n");
   const captionKeys = imageCaptionKeys(meta.images);
+  const titleChrome = titleChromeLineIndexes(lines, meta.title);
   const out = [];
   let nonEmptySeen = 0;
 
@@ -105,6 +141,7 @@ export function cleanReaderBoilerplate(value, meta = {}) {
     const early = nonEmptySeen <= 30 || i < Math.max(12, Math.floor(lines.length * 0.22));
     const key = comparable(trimmed);
 
+    if (titleChrome.has(i)) continue;
     if (FONT_CONTROL_RE.test(trimmed)) continue;
     if (looksLikeTitleChrome(trimmed, meta.title, early)) continue;
     if (looksLikeByline(trimmed, meta.author, early)) continue;
