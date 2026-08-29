@@ -6,12 +6,11 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner3-artifact-library-deploy.yml'
+      - 'cloudflare/runner3-core/artifact-library-simple-entry.js'
       - 'cloudflare/runner3-core/artifact-test-cleanup-entry.js'
       - 'cloudflare/runner3-core/artifact-library-pin-v2-entry.js'
       - 'cloudflare/runner3-core/artifact-library-hardening-entry.js'
       - 'cloudflare/runner3-core/artifact-list-entry.js'
-      - 'cloudflare/runner3-core/migrations/0010_artifact_library_magic_links.sql'
-      - 'cloudflare/runner3-core/migrations/0011_artifact_library_pin_auth.sql'
       - 'cloudflare/runner3-core/wrangler.jsonc'
 
 permissions:
@@ -28,7 +27,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
       BASE_URL: https://runner3-core.ducduy2411.workers.dev
     steps:
       - uses: actions/checkout@v4
@@ -38,202 +36,96 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Apply artifact-library D1 schemas
+      - name: Deploy simplified public EPUB Library
         working-directory: cloudflare/runner3-core
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0010_artifact_library_magic_links.sql
-          npx --yes wrangler@4 d1 execute runner3-core --remote --file=migrations/0011_artifact_library_pin_auth.sql
+        run: npx --yes wrangler@4 deploy artifact-library-simple-entry.js --config wrangler.jsonc
 
-      - name: Detect existing Library PIN
-        working-directory: cloudflare/runner3-core
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT="$(npx --yes wrangler@4 d1 execute runner3-core --remote --command="SELECT CASE WHEN EXISTS(SELECT 1 FROM artifact_library_auth WHERE id=1) THEN 'PIN_PRESENT' ELSE 'PIN_EMPTY' END AS pin_state;")"
-          if grep -q 'PIN_PRESENT' <<<"$OUT"; then
-            echo 'PIN_AUTH_WAS_EMPTY=0' >> "$GITHUB_ENV"
-            echo 'Existing Library PIN detected; verifier will preserve it.'
-          else
-            echo 'PIN_AUTH_WAS_EMPTY=1' >> "$GITHUB_ENV"
-            echo 'No Library PIN exists; verifier may use a temporary random PIN and will remove it afterward.'
-          fi
-
-      - name: Deploy Core
-        working-directory: cloudflare/runner3-core
-        run: npx --yes wrangler@4 deploy artifact-test-cleanup-entry.js --config wrangler.jsonc
-
-      - name: Verify tokenless PIN auth noindex session magic link and cleanup guard
+      - name: Verify final-only Library and EPUB reader
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import http.cookiejar
-          import json
-          import os
-          import secrets
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
+          import json, os, urllib.request
+          from urllib.parse import urlencode
 
           base=os.environ['BASE_URL'].rstrip('/')
-          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
-          pin_was_empty=os.environ.get('PIN_AUTH_WAS_EMPTY')=='1'
+          ua='runner3-artifact-library-simple-proof/1.0'
           robots='noindex, nofollow, noarchive, nosnippet, noimageindex'
 
-          def req(path, method='GET', data=None, headers=None, opener=None):
-            url=path if path.startswith('http') else base+path
-            r=urllib.request.Request(url, method=method, data=data, headers={'User-Agent':'runner3-artifact-library-pin-proof/1.0', **(headers or {})})
-            try:
-              response=(opener.open(r,timeout=30) if opener else urllib.request.urlopen(r,timeout=30))
-              with response: return response.status, response.headers, response.read()
-            except urllib.error.HTTPError as e:
-              return e.code,e.headers,e.read()
+          def req(path, method='GET', data=None, headers=None):
+              url=path if path.startswith('http') else base+path
+              h={'User-Agent':ua, **(headers or {})}
+              r=urllib.request.Request(url, method=method, headers=h, data=data)
+              return urllib.request.urlopen(r, timeout=30)
 
-          status,h,body=req('/artifact-library')
-          assert status==200, status
-          assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
-          text=body.decode('utf-8','replace')
-          assert 'name="robots"' in text and 'noindex' in text
-          assert 'Core access token' not in text
-          if pin_was_empty:
-            assert 'Create Library PIN' in text
-            assert 'Confirm PIN' in text
-          else:
-            assert '6-digit Library PIN' in text
+          with req('/artifact-library') as r:
+              home=r.read().decode('utf-8','replace')
+              assert r.status==200
+              assert r.headers.get('X-Robots-Tag')==robots
+          assert 'Search books' in home
+          assert 'aria-label="Search"' in home
+          assert 'aria-label="Refresh R2"' in home
+          assert 'Core access token' not in home
+          assert 'Library PIN' not in home
+          assert 'Log out' not in home
+          assert 'All objects' not in home
+          assert 'Final only' not in home
+          assert 'Latest final / scope' not in home
+          assert 'statObjects' not in home
+          assert 'class="path"' not in home
+          assert 'class="badge' not in home
 
-          status,h,_=req('/artifact-list?limit=1')
-          assert status==401, status
-          assert h.get('X-Robots-Tag')==robots, h.get('X-Robots-Tag')
+          with req('/artifact-library/api/list') as r:
+              listing=json.loads(r.read().decode())
+              assert r.status==200
+              assert r.headers.get('X-Robots-Tag')==robots
+          assert listing.get('ok') is True
+          assert listing.get('final_only') is True
+          assert listing.get('canonical_latest_per_scope') is True
+          objects=listing.get('objects') or []
+          assert objects, 'no final EPUBs returned'
+          assert all('/final/' in x.get('key','') and x.get('key','').lower().endswith('.epub') for x in objects)
+          scopes=[x.get('scope') for x in objects]
+          assert len(scopes)==len(set(scopes)), 'duplicate scope in canonical view'
+          key=objects[0]['key']
 
-          status,h,body=req('/artifact-library/reset-pin')
-          assert status==404, status
-          reset=json.loads(body.decode('utf-8'))
-          assert reset.get('error')=='RESET_REQUIRES_PRIVATE_BACKEND'
+          reader='/artifact-library/read?'+urlencode({'key':key})
+          with req(reader) as r:
+              html=r.read().decode('utf-8','replace')
+              assert r.status==200
+              assert r.headers.get('X-Robots-Tag')==robots
+          required=[
+              'id="fontDown"','id="fontUp"','data-theme="light"','data-theme="dark"','data-theme="brown"',
+              'r3-reader-font-size','r3-reader-theme','r3-reader-position:',
+              'localStorage.setItem(positionKey,cfi)','touchstart','touchend','data-r3-iframe-swipe="1"'
+          ]
+          missing=[x for x in required if x not in html]
+          assert not missing, missing
 
-          status,h,body=req('/artifact-cleanup-tests','POST')
-          assert status==401, status
-          assert h.get('X-Robots-Tag')==robots
+          payload=json.dumps({'key':key,'ttl_seconds':900}).encode()
+          with req('/artifact-library/api/delivery','POST',payload,{'Content-Type':'application/json','X-Runner3-Library':'1'}) as r:
+              delivery=json.loads(r.read().decode())
+              assert r.status==200 and delivery.get('ok') is True
+          signed=((delivery.get('delivery') or {}).get('url') or '')
+          assert signed.startswith('https://')
+          with req(signed,headers={'Range':'bytes=0-7'}) as r:
+              magic=r.read(8)
+              assert r.status in (200,206)
+              assert magic.startswith(b'PK'), magic
 
-          result={
-            'ok':True,
-            'pin_was_empty':pin_was_empty,
-            'x_robots_tag':robots,
-            'public_reset_closed':True,
-            'cleanup_requires_auth':True,
-          }
-
-          if pin_was_empty:
-            pin=f'{secrets.randbelow(1000000):06d}'
-            jar=http.cookiejar.CookieJar()
-            opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-            data=urllib.parse.urlencode({'pin':pin,'pin_confirm':pin}).encode()
-            status,h,body=req('/artifact-library/setup-pin','POST',data,{'Content-Type':'application/x-www-form-urlencoded'},opener)
-            assert status==200, status
-            cookie=next((c for c in jar if c.name=='r3_artifact_library'),None)
-            assert cookie is not None and cookie.expires is not None
-            remaining=cookie.expires-int(time.time())
-            assert remaining > 29*24*60*60, remaining
-            library_text=body.decode('utf-8','replace')
-            assert 'R2 Artifact Library' in library_text
-            assert 'id="magic-link-button"' in library_text
-            assert 'id="change-pin-button"' in library_text
-            assert 'Core access token' not in library_text
-
-            duplicate_data=urllib.parse.urlencode({'pin':'123456','pin_confirm':'123456'}).encode()
-            status,h,body=req('/artifact-library/setup-pin','POST',duplicate_data,{'Content-Type':'application/x-www-form-urlencoded'})
-            assert status==409, status
-            assert 'already exists' in body.decode('utf-8','replace')
-
-            status,h,body=req('/artifact-library/logout','POST',opener=opener)
-            assert status==200, status
-            assert next((c for c in jar if c.name=='r3_artifact_library'),None) is None
-            login_text=body.decode('utf-8','replace')
-            assert '6-digit Library PIN' in login_text
-            assert 'Core access token' not in login_text
-
-            bad_data=urllib.parse.urlencode({'pin':'000000' if pin!='000000' else '999999'}).encode()
-            status,h,body=req('/artifact-library/login','POST',bad_data,{'Content-Type':'application/x-www-form-urlencoded'})
-            assert status==401, status
-            assert 'Incorrect PIN' in body.decode('utf-8','replace')
-
-            fresh_jar=http.cookiejar.CookieJar()
-            fresh=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(fresh_jar))
-            good_data=urllib.parse.urlencode({'pin':pin}).encode()
-            status,h,body=req('/artifact-library/login','POST',good_data,{'Content-Type':'application/x-www-form-urlencoded'},fresh)
-            assert status==200, status
-            fresh_cookie=next((c for c in fresh_jar if c.name=='r3_artifact_library'),None)
-            assert fresh_cookie is not None and fresh_cookie.expires is not None
-            fresh_remaining=fresh_cookie.expires-int(time.time())
-            assert fresh_remaining > 29*24*60*60, fresh_remaining
-
-            status,h,body=req('/artifact-library/api/magic-link','POST',headers={'Accept':'application/json'},opener=fresh)
-            assert status==200, status
-            magic=json.loads(body.decode('utf-8'))
-            assert magic.get('ok') is True
-            assert magic.get('one_time') is True
-            assert magic.get('ttl_seconds')==600
-            magic_url=str(magic.get('url') or '')
-            assert magic_url.startswith(base+'/artifact-library/magic?t=')
-            assert token not in magic_url and pin not in magic_url
-
-            magic_jar=http.cookiejar.CookieJar()
-            magic_opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(magic_jar))
-            status,h,body=req(magic_url,opener=magic_opener)
-            assert status==200, status
-            magic_cookie=next((c for c in magic_jar if c.name=='r3_artifact_library'),None)
-            assert magic_cookie is not None and magic_cookie.expires is not None
-            assert magic_cookie.expires-int(time.time()) > 29*24*60*60
-
-            replay_jar=http.cookiejar.CookieJar()
-            replay=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(replay_jar))
-            status,h,body=req(magic_url,opener=replay)
-            assert status==410, status
-            replay_body=json.loads(body.decode('utf-8'))
-            assert replay_body.get('error')=='MAGIC_LINK_INVALID_OR_EXPIRED'
-
-            result.update({
-              'tokenless_pin_setup':True,
-              'duplicate_setup_rejected':True,
-              'wrong_pin_rejected':True,
-              'logout_clears_session':True,
-              'remember_seconds_remaining':fresh_remaining,
-              'magic_ttl_seconds':600,
-              'magic_replay_http':410,
-            })
-
-          print(result)
-          PY
-
-      - name: Remove temporary verifier PIN
-        if: always() && env.PIN_AUTH_WAS_EMPTY == '1'
-        working-directory: cloudflare/runner3-core
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@4 d1 execute runner3-core --remote --command="DELETE FROM artifact_library_auth WHERE id=1; DELETE FROM artifact_library_pin_attempts;"
-
-      - name: Verify clean first-run state
-        if: env.PIN_AUTH_WAS_EMPTY == '1'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, time, urllib.request
-          url=os.environ['BASE_URL'].rstrip('/')+'/artifact-library'
-          last=''
-          for attempt in range(10):
-            with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'runner3-artifact-library-pin-clean-proof/1.0'}),timeout=30) as r:
-              body=r.read().decode('utf-8','replace')
-              last=body
-              if (r.status==200 and
-                  r.headers.get('X-Robots-Tag')=='noindex, nofollow, noarchive, nosnippet, noimageindex' and
-                  'Create Library PIN' in body and
-                  'Core access token' not in body):
-                print({'ok':True,'clean_tokenless_first_run_state':True,'attempt':attempt+1})
-                break
-            time.sleep(2)
-          else:
-            raise AssertionError('clean tokenless first-run page did not propagate; body prefix='+last[:240])
+          print(json.dumps({
+              'ok':True,
+              'pin_removed_from_ui':True,
+              'public_library_open':True,
+              'final_only_latest_per_scope':True,
+              'book_rows_title_plus_download_only':True,
+              'search_submit':True,
+              'refresh_icon':True,
+              'reader_swipe_parent_and_iframe':True,
+              'reader_settings_remembered':True,
+              'reader_position_remembered_per_book':True,
+              'signed_epub_verified':True,
+              'noindex':True,
+              'book_count':len(objects),
+          },ensure_ascii=False))
           PY
