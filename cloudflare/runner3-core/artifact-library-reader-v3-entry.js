@@ -16,16 +16,17 @@ function injectReliableTouchLayer(html) {
   if (!html.includes('id="viewer"') || html.includes('data-r3-touch-layer-v3="1"')) return html;
 
   const patch = `<style data-r3-touch-layer-v3="1">
-#r3GestureLayer{position:fixed;inset:0;z-index:8;background:transparent;pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-body.settings #r3GestureLayer{pointer-events:none}
+#r3GestureLayer{position:fixed;inset:0;z-index:19;background:transparent;pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 body.controls .topbar,body.controls .bottom-status{z-index:21}
+body.settings #settingsSheet{z-index:30}
 </style>
 <div id="r3GestureLayer" aria-hidden="true"></div>
 <script data-r3-touch-layer-v3="1">
 (()=>{
   const layer=document.getElementById('r3GestureLayer');
+  const sheet=document.getElementById('settingsSheet');
   if(!layer)return;
-  let sx=0,sy=0,st=0,moved=false,lastTouch=0,hideTimer=0;
+  let sx=0,sy=0,st=0,lastTouch=0,hideTimer=0;
 
   const navMode=()=>document.body.dataset.nav==='tap'?'tap':'swipe';
   const fireKey=key=>document.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
@@ -34,30 +35,37 @@ body.controls .topbar,body.controls .bottom-status{z-index:21}
 
   function clearHide(){if(hideTimer){clearTimeout(hideTimer);hideTimer=0;}}
   function hideControls(){clearHide();document.body.classList.remove('controls','settings');}
-  function scheduleHide(){clearHide();if(document.body.classList.contains('controls')&&!document.body.classList.contains('settings'))hideTimer=setTimeout(hideControls,3000);}
+  function scheduleHide(){
+    clearHide();
+    if(document.body.classList.contains('controls')||document.body.classList.contains('settings')){
+      hideTimer=setTimeout(hideControls,2000);
+    }
+  }
   function showControls(){document.body.classList.add('controls');scheduleHide();}
   function toggleControls(){
-    if(document.body.classList.contains('settings'))return;
+    if(document.body.classList.contains('settings')){hideControls();return;}
     if(document.body.classList.contains('controls'))hideControls();else showControls();
   }
 
   function actTap(x){
+    // When settings are open, any tap outside the panel closes everything immediately.
+    if(document.body.classList.contains('settings')){hideControls();return;}
     const ratio=x/Math.max(1,window.innerWidth);
     if(navMode()==='tap'){
       if(ratio<.33){prev();hideControls();return;}
       if(ratio>.67){next();hideControls();return;}
     }
+    // Middle third always controls the reader chrome, independent of EPUB iframe content.
     if(ratio>=.33&&ratio<=.67)toggleControls();
   }
 
   layer.addEventListener('touchstart',e=>{
     const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
-    sx=t.clientX;sy=t.clientY;st=Date.now();moved=false;
+    sx=t.clientX;sy=t.clientY;st=Date.now();
+    if(document.body.classList.contains('controls')||document.body.classList.contains('settings'))scheduleHide();
   },{passive:true});
 
   layer.addEventListener('touchmove',e=>{
-    const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
-    if(Math.abs(t.clientX-sx)>8||Math.abs(t.clientY-sy)>8)moved=true;
     if(e.cancelable)e.preventDefault();
   },{passive:false});
 
@@ -65,6 +73,11 @@ body.controls .topbar,body.controls .bottom-status{z-index:21}
     const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
     lastTouch=Date.now();
     const dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;
+    if(document.body.classList.contains('settings')){
+      if(e.cancelable)e.preventDefault();
+      hideControls();
+      return;
+    }
     if(navMode()==='swipe'&&Math.abs(dx)>=34&&Math.abs(dx)>Math.abs(dy)*1.05){
       if(e.cancelable)e.preventDefault();
       dx<0?next():prev();hideControls();return;
@@ -77,10 +90,16 @@ body.controls .topbar,body.controls .bottom-status{z-index:21}
     actTap(e.clientX);
   });
 
-  // Keep this fallback timer authoritative even when v2 controls are shown by other handlers.
+  // Settings panel is above the gesture layer. Any interaction inside it keeps it alive for 2s.
+  if(sheet){
+    const keepAlive=e=>{e.stopPropagation();scheduleHide();};
+    sheet.addEventListener('touchstart',keepAlive,{passive:true});
+    sheet.addEventListener('click',keepAlive);
+  }
+
+  // Authoritative timer: controls and the settings panel both auto-hide after 2s idle.
   const observer=new MutationObserver(()=>{
-    if(document.body.classList.contains('settings'))clearHide();
-    else if(document.body.classList.contains('controls'))scheduleHide();
+    if(document.body.classList.contains('controls')||document.body.classList.contains('settings'))scheduleHide();
     else clearHide();
   });
   observer.observe(document.body,{attributes:true,attributeFilter:['class']});
