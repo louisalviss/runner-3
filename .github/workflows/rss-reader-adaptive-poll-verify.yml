@@ -1,0 +1,58 @@
+name: RSS Reader Adaptive Poll Verify
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rss-reader-adaptive-poll-verify.yml'
+      - 'cloudflare/runner3-core/src/rss-reader-page-v7.js'
+      - 'cloudflare/runner3-core/opaque-mailbox-entry-v2.js'
+      - 'cloudflare/runner3-core/wrangler.jsonc'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      FIXTURE_ID: genk-165260824141950644
+    steps:
+      - name: Verify live Reader adaptive polling
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNNER3_CORE_TOKEN"
+          url="$BASE_URL/rss/article/$FIXTURE_ID"
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          trap 'rm -f "$headers" "$body"' EXIT
+
+          ok=0
+          for attempt in $(seq 1 18); do
+            : >"$headers"
+            : >"$body"
+            if curl --fail --silent --show-error \
+              --connect-timeout 10 --max-time 45 \
+              -D "$headers" -o "$body" \
+              -H "Authorization: Bearer $RUNNER3_CORE_TOKEN" \
+              -H 'Cache-Control: no-cache' \
+              "$url"; then
+              if grep -Eiq '^x-rss-reader-audio-poll:[[:space:]]*adaptive-v4[[:space:]]*$' "$headers" \
+                && grep -Fq "data-audio-poll','adaptive-v4" "$body" \
+                && grep -Fq 'POLL_DELAYS=[2000,3000,5000,8000,13000,21000,30000]' "$body" \
+                && ! grep -Fq 'setTimeout(resolve,1800)' "$body"; then
+                ok=1
+                break
+              fi
+            fi
+            echo "production marker not ready yet (attempt $attempt/18)"
+            sleep 10
+          done
+
+          test "$ok" -eq 1
+          echo 'reader_adaptive_poll_production_ok=true'
