@@ -10,6 +10,7 @@ import {
   selectContentImages,
   serveCachedReaderImage,
 } from "./src/rss-image-enrich.js";
+import { cleanReaderBoilerplate, READER_CLEAN_VERSION } from "./src/rss-reader-clean.mjs";
 
 function readerViewArticleId(url) {
   const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/(?:original|vi)$/);
@@ -94,8 +95,9 @@ function captionCandidates(ref, image) {
   return new Set([ref?.alt, ref?.title, image?.alt, image?.caption].map(comparableText).filter(Boolean));
 }
 
-function buildReaderContent(value, images) {
-  const lines = String(value ?? "").replace(/\r/g, "").split("\n");
+function buildReaderContent(value, images, meta = {}) {
+  const cleaned = cleanReaderBoilerplate(value, { ...meta, images });
+  const lines = String(cleaned ?? "").replace(/\r/g, "").split("\n");
   const blocks = [];
   const used = new Set();
   let textLines = [];
@@ -150,11 +152,16 @@ async function sanitizeReaderView(response, url) {
   payload.artifact.images = images;
   payload.artifact.imageCount = images.length;
   if (typeof payload.artifact.body === "string") {
-    const rendered = buildReaderContent(payload.artifact.body, images);
+    const rendered = buildReaderContent(payload.artifact.body, images, {
+      title: payload.article?.title,
+      author: payload.artifact?.author || payload.article?.author,
+    });
     payload.artifact.body = rendered.body;
     payload.artifact.renderBlocks = rendered.blocks;
+    payload.artifact.readerCleanVersion = READER_CLEAN_VERSION;
   } else {
     payload.artifact.renderBlocks = [];
+    payload.artifact.readerCleanVersion = READER_CLEAN_VERSION;
   }
   const headers = new Headers(response.headers);
   headers.delete("content-length");
