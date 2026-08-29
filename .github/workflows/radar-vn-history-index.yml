@@ -56,3 +56,5 @@ jobs:
           git commit -m 'chore: freeze Vietnam Radar daily inputs [skip ci]'
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+# Historical readers must use radar_vn_history/YYYY-MM-DD.json rather than re-selecting live pointers.
