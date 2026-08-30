@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Repeatable R2 E2E harness for the known test job produced by v1 smoke.
+"""Repeatable real-R2 Ebook Reader audio E2E + production player smoke.
 
 This removes only the deterministic Skeleton Crew smoke artifacts created by
-scripts/ebook_reader_audio_r2_e2e.py, then executes that real-R2 test again.
+scripts/ebook_reader_audio_r2_e2e.py, runs the real R2/TTS/media test again,
+and verifies that the live Reader HTML contains the standard audiobook player.
 It never touches arbitrary/user audio jobs.
 """
 
+import json
 from urllib.parse import urljoin
 
 import requests
@@ -19,6 +21,15 @@ TEST_KEYS = [
     f"audio-library/media/{TEST_JOB_ID}/episode.mp3",
     f"audio-library/media/{TEST_JOB_ID}/timing.json",
 ]
+PLAYER_MARKERS = [
+    'data-r3-ebook-audio-v6="2"',
+    'id="r3AudioDock"',
+    'id="r3AudioMain"',
+    'id="r3AudioSeek"',
+    'id="r3AudioBack"',
+    'id="r3AudioForward"',
+    'id="r3AudioSpeed"',
+]
 
 
 def reset_known_smoke_artifacts():
@@ -31,13 +42,42 @@ def reset_known_smoke_artifacts():
         if response.status_code not in (200, 204, 404):
             detail = response.text[:400].replace("\n", " ")
             raise RuntimeError(f"Failed to reset known smoke key {key}: HTTP {response.status_code}: {detail}")
-    print(f'{{"phase":"reset","jobId":"{TEST_JOB_ID}","ok":true}}', flush=True)
+    print(json.dumps({"phase": "reset", "jobId": TEST_JOB_ID, "ok": True}), flush=True)
+
+
+def verify_live_reader_player(book_key):
+    response = requests.get(
+        base.CORE_URL + "/artifact-library/read",
+        params={"key": book_key},
+        headers={"Cache-Control": "no-cache"},
+        timeout=base.HTTP_TIMEOUT,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"Live Reader failed HTTP {response.status_code}")
+    html = response.text
+    missing = [marker for marker in PLAYER_MARKERS if marker not in html]
+    if missing:
+        raise RuntimeError("Live Reader is missing audio player markers: " + ", ".join(missing))
+    if "noindex" not in (response.headers.get("x-robots-tag") or "").lower():
+        raise RuntimeError("Live Reader lost X-Robots-Tag noindex")
+    proof = {
+        "phase": "reader-ui",
+        "status": response.status_code,
+        "playerVersion": "v6.2",
+        "seek": True,
+        "skip15": True,
+        "speed": True,
+        "playPause": True,
+        "noindex": True,
+    }
+    print(json.dumps(proof, ensure_ascii=False), flush=True)
+    return proof
 
 
 _original_verify = base.verify_outputs
 
 
-def verify_outputs_with_diagnostics(job_id, book_key, state):
+def verify_outputs_with_production_ui(job_id, book_key, state):
     media_url = state.get("mediaUrl")
     if media_url:
         absolute = urljoin(base.CORE_URL + "/", media_url)
@@ -45,23 +85,26 @@ def verify_outputs_with_diagnostics(job_id, book_key, state):
         ranged = requests.get(absolute, headers={"Range": "bytes=0-511"}, timeout=base.HTTP_TIMEOUT)
         full = requests.get(absolute, timeout=base.HTTP_TIMEOUT)
         print(
-            {
-                "phase": "media-diagnostic",
-                "headStatus": head.status_code,
-                "headType": head.headers.get("content-type"),
-                "rangeStatus": ranged.status_code,
-                "rangeType": ranged.headers.get("content-type"),
-                "rangeBody": ranged.text[:300] if "json" in (ranged.headers.get("content-type") or "") else "<binary-or-empty>",
-                "fullStatus": full.status_code,
-                "fullType": full.headers.get("content-type"),
-                "fullBody": full.text[:300] if "json" in (full.headers.get("content-type") or "") else "<binary-or-empty>",
-            },
+            json.dumps(
+                {
+                    "phase": "media-diagnostic",
+                    "headStatus": head.status_code,
+                    "headType": head.headers.get("content-type"),
+                    "rangeStatus": ranged.status_code,
+                    "rangeType": ranged.headers.get("content-type"),
+                    "fullStatus": full.status_code,
+                    "fullType": full.headers.get("content-type"),
+                },
+                ensure_ascii=False,
+            ),
             flush=True,
         )
-    return _original_verify(job_id, book_key, state)
+    proof = _original_verify(job_id, book_key, state)
+    verify_live_reader_player(book_key)
+    return proof
 
 
-base.verify_outputs = verify_outputs_with_diagnostics
+base.verify_outputs = verify_outputs_with_production_ui
 
 
 if __name__ == "__main__":
