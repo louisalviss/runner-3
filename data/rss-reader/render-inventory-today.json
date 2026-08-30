@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "scope": "rss-render-source-accounting",
+  "version": 2,
+  "scope": "rss-render-source-accounting-runner15",
   "timezone": "Asia/Ho_Chi_Minh",
   "date": "2026-08-31",
   "windowUtc": {
@@ -8,9 +8,9 @@
     "end": "2026-08-31T17:00:00Z"
   },
   "logicalSourceCount": 15,
-  "runnerSourceCount": 13,
-  "directSourceCount": 2,
-  "runnerRawItemCount": 2,
+  "runnerSourceCount": 15,
+  "directSourceCount": 0,
+  "runnerRawItemCount": 3,
   "sourceRows": [
     {
       "sourceKey": "tinhte",
@@ -62,10 +62,20 @@
       "sourceKey": "nghiencuuquocte",
       "mode": "runner3",
       "status": "ok",
-      "mirrorCount": 57,
-      "newestPublishedAt": "2026-08-30T07:00:33Z",
-      "rawCount": 0,
-      "items": []
+      "mirrorCount": 58,
+      "newestPublishedAt": "2026-08-30T22:45:04Z",
+      "rawCount": 1,
+      "items": [
+        {
+          "key": "url:b63aa619f9b113bf5385",
+          "articleId": null,
+          "noteId": null,
+          "itemType": null,
+          "title": "Ai sở hữu ý tưởng? Chuyển giao công nghệ và khoảng cách thương mại hóa",
+          "canonicalUrl": "https://nghiencuuquocte.org/2026/08/31/ai-so-huu-y-tuong-chuyen-giao-cong-nghe-va-khoang-cach-thuong-mai-hoa/",
+          "publishedAt": "2026-08-30T22:45:04Z"
+        }
+      ]
     },
     {
       "sourceKey": "noema",
@@ -151,26 +161,33 @@
     },
     {
       "sourceKey": "hoquoctuan",
-      "mode": "chatgpt-direct",
-      "status": "requires-direct-verification",
+      "mode": "runner3",
+      "status": "missing",
       "rawCount": null,
       "items": []
     },
     {
       "sourceKey": "vnhacker",
-      "mode": "chatgpt-direct",
-      "status": "requires-direct-verification",
+      "mode": "runner3",
+      "status": "missing",
       "rawCount": null,
       "items": []
     }
   ],
-  "problems": [],
-  "ok": true,
+  "problems": [
+    "missing mirror: hoquoctuan",
+    "missing mirror: vnhacker"
+  ],
+  "ok": false,
   "renderContract": {
     "mustAccountAll15Sources": true,
     "mustRecordRawKeptFilteredPerSource": true,
     "manifestCountMustEqualSumKept": true,
     "rawPositiveKeptZeroRequiresFilterReason": true,
-    "mismatchFailsClosed": true
-  }
+    "mismatchFailsClosed": true,
+    "all15BackedByRunnerMirrors": true,
+    "directVerificationRequired": false,
+    "missingSourceFailsClosed": true
+  },
+  "directVerificationPending": []
 }
