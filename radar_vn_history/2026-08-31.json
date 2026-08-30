@@ -1,9 +1,9 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "target_date": "2026-08-31",
   "timezone": "Asia/Ho_Chi_Minh",
-  "selection_policy": "latest_completed_snapshot_whose_local_date_equals_target_date",
-  "recovery_policy": "current_pointer_plus_git_history",
+  "selection_policy": "latest_valid_snapshot_semantically_belonging_to_target_date",
+  "recovery_policy": "current_pointer_plus_pointer_and_dated_git_history",
   "close_policy": {
     "trends_min_local_hour": 20,
     "f33_min_local_hour": 19,
