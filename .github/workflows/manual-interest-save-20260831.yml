@@ -1,0 +1,74 @@
+name: Manual explicit interest save 2026-08-31
+
+on:
+  push:
+    paths:
+      - '.github/workflows/manual-interest-save-20260831.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  save-interests:
+    runs-on: ubuntu-latest
+    env:
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Require write token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN is not configured in GitHub Actions'; exit 2; }
+
+      - name: Persist five explicit interests
+        shell: bash
+        run: |
+          set -euo pipefail
+          save_interest() {
+            local payload="$1"
+            curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer ${CORE_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data "$payload" \
+              "${CORE_URL}/content-intelligence/interests/save"
+            echo
+          }
+
+          save_interest '{"item":{"item_id":"explicit-interest:2026-08-31:submarine-cable-internet-resilience","canonical_url":"interest://news/submarine-cable-internet-resilience","source_type":"explicit_interest","source_name":"ChatGPT explicit interest","source_key":"manual-interest","title":"Submarine cable outages, Internet routing and network resilience, with preference for operator and international evidence beyond Vietnamese local coverage","language":"en","metadata":{"intent":"explicit_positive_interest","saved_at":"2026-08-31","cluster":"internet-infrastructure"}},"features":[{"feature_type":"topic","feature_key":"submarine-cable","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"internet-infrastructure","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"network-resilience","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"method","feature_key":"operator-international-evidence","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"}],"context":{"origin":"chatgpt","scope":"news-interest","note":"operator/international evidence preferred"}}'
+
+          save_interest '{"item":{"item_id":"explicit-interest:2026-08-31:ai-economic-agri-aqua-forecasting","canonical_url":"interest://news/ai-economic-agri-aqua-forecasting","source_type":"explicit_interest","source_name":"ChatGPT explicit interest","source_key":"manual-interest","title":"AI forecasting for economic, agriculture and aquaculture data: time-series feasibility, real papers, empirical validation and the gap between headlines and deployability","language":"en","metadata":{"intent":"explicit_positive_interest","saved_at":"2026-08-31","cluster":"ai-forecasting"}},"features":[{"feature_type":"topic","feature_key":"ai-forecasting","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"time-series","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"agriculture-aquaculture-economics","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"method","feature_key":"empirical-validation","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"method","feature_key":"headline-vs-deployability","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"}],"context":{"origin":"chatgpt","scope":"news-interest","note":"real papers and validation preferred"}}'
+
+          save_interest '{"item":{"item_id":"explicit-interest:2026-08-31:national-resilience-safe-haven","canonical_url":"interest://news/national-resilience-safe-haven","source_type":"explicit_interest","source_name":"ChatGPT explicit interest","source_key":"manual-interest","title":"National resilience and safe-haven countries under nuclear war, pandemics, supply-chain collapse, disasters and geopolitical catastrophe, including food and energy security","language":"en","metadata":{"intent":"explicit_positive_interest","saved_at":"2026-08-31","cluster":"national-resilience"}},"features":[{"feature_type":"topic","feature_key":"national-resilience","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"safe-haven-countries","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"food-energy-security","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"catastrophic-risk","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"supply-chain-resilience","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"}],"context":{"origin":"chatgpt","scope":"news-interest"}}'
+
+          save_interest '{"item":{"item_id":"explicit-interest:2026-08-31:real-estate-rent-own-cost-capital","canonical_url":"interest://news/real-estate-rent-own-cost-capital","source_type":"explicit_interest","source_name":"ChatGPT explicit interest","source_key":"manual-interest","title":"Real estate rent-versus-own and cost-of-capital analysis: rental yield, interest rates, leverage, liquidity, clearing price and when holding cash can beat ownership","language":"en","metadata":{"intent":"explicit_positive_interest","saved_at":"2026-08-31","cluster":"real-estate-capital"}},"features":[{"feature_type":"topic","feature_key":"real-estate","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"rent-vs-own","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"cost-of-capital","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"rental-yield-leverage-liquidity","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"clearing-price","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"}],"context":{"origin":"chatgpt","scope":"news-interest"}}'
+
+          save_interest '{"item":{"item_id":"explicit-interest:2026-08-31:rail-infrastructure-capex","canonical_url":"interest://news/rail-infrastructure-capex","source_type":"explicit_interest","source_name":"ChatGPT explicit interest","source_key":"manual-interest","title":"Rail infrastructure CAPEX: high-speed rail versus legacy networks, investment efficiency, asset lifecycle, stranded-asset risk and procurement logic before mega-projects","language":"en","metadata":{"intent":"explicit_positive_interest","saved_at":"2026-08-31","cluster":"rail-infrastructure"}},"features":[{"feature_type":"topic","feature_key":"rail-infrastructure","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"high-speed-vs-legacy-rail","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"infrastructure-capex","weight":1,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"asset-lifecycle-stranded-risk","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"},{"feature_type":"topic","feature_key":"procurement-megaprojects","weight":0.9,"confidence":1,"model_version":"manual-interest-v1"}],"context":{"origin":"chatgpt","scope":"news-interest"}}'
+
+      - name: Verify synthesis contains saved events
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${CORE_TOKEN}" \
+            "${CORE_URL}/content-intelligence/synthesis?profile_limit=100&score_limit=5")"
+          printf '%s' "$body" > synthesis.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('synthesis.json'))
+          ids={e.get('item_id') for e in x.get('recent_interest_events',[])}
+          expected={
+            'explicit-interest:2026-08-31:submarine-cable-internet-resilience',
+            'explicit-interest:2026-08-31:ai-economic-agri-aqua-forecasting',
+            'explicit-interest:2026-08-31:national-resilience-safe-haven',
+            'explicit-interest:2026-08-31:real-estate-rent-own-cost-capital',
+            'explicit-interest:2026-08-31:rail-infrastructure-capex',
+          }
+          missing=expected-ids
+          if missing:
+              raise SystemExit(f'missing expected interest events: {sorted(missing)}')
+          print('VERIFIED_INTEREST_EVENTS=5')
+          print('LAST_EVENT_AT='+str(x.get('counts',{}).get('last_event_at')))
+          print('PROFILE_FEATURES='+str(x.get('counts',{}).get('profile_features')))
+          PY
