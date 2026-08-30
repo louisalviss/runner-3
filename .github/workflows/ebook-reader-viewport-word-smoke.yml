@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v17:
+  deploy-v18:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,13 +29,13 @@ jobs:
           done
       - uses: actions/checkout@v4
         with:
-          ref: 559db48e821b1c0d845841fbb021885167f0af42
+          ref: e215cce1f46844e1d996547524c8f9d4c5a68617
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v17
+      - name: Compose canonical mailbox with Reader v18
         shell: bash
         run: |
           set -euo pipefail
@@ -54,33 +54,36 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v17-frozen-viewport-anchor-entry.js
-          grep -q 'artifact-library-reader-v17-frozen-viewport-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioFrozenViewportV17=true' cloudflare/runner3-core/artifact-library-reader-v17-frozen-viewport-anchor-entry.js
-      - name: Deploy Reader v17 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
+          grep -q 'artifact-library-reader-v18-verified-outer-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
+          grep -q 'READER_V18_PATCH_MISSING' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
+      - name: Deploy Reader v18 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v17 live before browser proof
+      - name: Verify v18 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
-          curl -fsS -D /tmp/h -o /tmp/reader "$core/artifact-library/read?key=$encoded"
+          code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
           tr -d '\r' </tmp/h >/tmp/h.clean
-          grep -qi '^x-r3-reader-runtime: v17-frozen-viewport-anchor$' /tmp/h.clean
-          grep -q 'window.__r3AudioFrozenViewportV17=true' /tmp/reader
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v17.csv")"
+          test "$code" = 200
+          grep -qi '^x-r3-reader-runtime: v18-verified-outer-frozen-anchor$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: block+range+prepare+target+save+finally$' /tmp/h.clean
+          grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' /tmp/reader
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v18.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V17_LIVE=PASS'
+          echo 'READER_V18_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v17
+    needs: deploy-v18
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -91,24 +94,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt exact browser proof to v17
+      - name: Adapt exact browser proof to v18
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v17';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v17')")
-          s=s.replace('live Reader is not v16:','live Reader is not v17:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v18';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v18')")
+          s=s.replace('live Reader is not v16:','live Reader is not v18:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new=old+' && window.__r3AudioFrozenViewportV17 === true'
-          if old not in s: raise SystemExit('v16 smoke marker missing')
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioVerifiedOuterAnchorV18 === true'
+          if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
+          old_return="return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), saved, active, cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null };"
+          new_return="return { debug: window.__r3AudioV18Debug || null, time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), saved, active, cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null };"
+          if old_return not in s: raise SystemExit('started return marker missing')
+          s=s.replace(old_return,new_return,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v17" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioFrozenViewportV17" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "seek-smoke-v18" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioVerifiedOuterAnchorV18" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioV18Debug" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
           npm install --no-save playwright
@@ -116,4 +124,4 @@ jobs:
       - name: Prove viewport-word seek, page follow and refresh resume
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v17 deploy + exact frozen viewport anchor + refresh resume production proof
+# v18 fail-closed outer geometry + frozen viewport anchor + refresh resume production proof
