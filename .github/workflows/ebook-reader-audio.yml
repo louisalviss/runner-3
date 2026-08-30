@@ -3,6 +3,11 @@ name: Ebook Reader Audio
 on:
   repository_dispatch:
     types: [ebook_reader_audio]
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/ebook_reader_audio_tts.py'
+      - '.github/workflows/ebook-reader-audio.yml'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
