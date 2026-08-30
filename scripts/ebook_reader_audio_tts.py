@@ -264,7 +264,7 @@ def media_duration(path):
 
 async def synthesize_part(text, path):
     boundaries = []
-    communicate = edge_tts.Communicate(text, VOICE, rate=VOICE_RATE)
+    communicate = edge_tts.Communicate(text, VOICE, rate=VOICE_RATE, boundary="WordBoundary")
     with path.open("wb") as handle:
         async for chunk in communicate.stream():
             kind = chunk.get("type")
@@ -281,6 +281,8 @@ async def synthesize_part(text, path):
                 )
     if not path.exists() or path.stat().st_size < 1500:
         raise RuntimeError("Edge TTS produced an invalid audio part")
+    if not boundaries:
+        raise RuntimeError("Edge TTS produced audio without WordBoundary timing")
     return boundaries
 
 
