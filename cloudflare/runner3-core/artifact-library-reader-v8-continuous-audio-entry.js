@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v7-github-audio-entry.js";
+import app from "./artifact-library-reader-v6-entry.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
