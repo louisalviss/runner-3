@@ -7,7 +7,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/ebook_reader_audio_tts.py'
+      - 'scripts/ebook_reader_audio_r2_e2e.py'
       - '.github/workflows/ebook-reader-audio.yml'
+      - '.github/workflows/ebook-reader-audio-r2-e2e.yml'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
