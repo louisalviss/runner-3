@@ -16,6 +16,11 @@ on:
     # 23:30 Asia/Ho_Chi_Minh: freeze same-day historical inputs.
     - cron: '30 16 * * *'
   workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Optional Vietnam date to backfill (YYYY-MM-DD)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -40,6 +45,8 @@ jobs:
           python-version: '3.12'
 
       - name: Build per-day input history and manifests
+        env:
+          RADAR_VN_BACKFILL_DATE: ${{ inputs.target_date || '' }}
         run: python radar_vn_history_index.py
 
       - name: Commit deterministic history
