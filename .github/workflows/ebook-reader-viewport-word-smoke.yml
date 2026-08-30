@@ -1,0 +1,30 @@
+name: Ebook Reader Viewport Word Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/ebook_reader_viewport_word_smoke.mjs'
+      - '.github/workflows/ebook-reader-viewport-word-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  viewport-word:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      EBOOK_BROWSER_SMOKE_BOOK_KEY: core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser runtime dependency
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Prove viewport-word seek, page follow and refresh resume
+        run: node scripts/ebook_reader_viewport_word_smoke.mjs
