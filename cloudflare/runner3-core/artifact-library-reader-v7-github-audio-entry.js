@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v11-text-cfi-sync-entry.js";
+import app from "./artifact-library-reader-v12-unlock-sync-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
