@@ -2,13 +2,12 @@
 """Client for Runner3 Content Intelligence API.
 
 Generic structured path for RSS/X/Facebook/Reddit/web/YouTube items, features,
-user events, interest-profile recomputation and personal relevance scoring.
+user events, explicit interest saves, interest-profile recomputation and personal relevance scoring.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -17,6 +16,7 @@ import urllib.request
 from typing import Any
 
 DEFAULT_CORE_URL = "https://runner3-core.ducduy2411.workers.dev"
+DEFAULT_PERSONAL_MODEL = "personal-v2"
 
 FEATURE_RULES: dict[str, tuple[str, ...]] = {
     "macro_finance": ("bond", "yield", "treasury", "fed", "deficit", "debt", "recession", "capital market", "thị trường vốn", "lợi suất", "trái phiếu"),
@@ -39,7 +39,7 @@ MECHANISM_RULES: dict[str, tuple[str, ...]] = {
 
 def request_json(method: str, path: str, payload: dict[str, Any] | None = None, *, core_url: str | None = None) -> dict[str, Any]:
     base = (core_url or os.environ.get("RUNNER3_CORE_URL") or DEFAULT_CORE_URL).rstrip("/")
-    headers = {"Accept": "application/json", "User-Agent": "runner3-content-intelligence/1.1"}
+    headers = {"Accept": "application/json", "User-Agent": "runner3-content-intelligence/1.2"}
     token = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -155,6 +155,15 @@ def cmd_event_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_interest_save(args: argparse.Namespace) -> int:
+    payload = load_json(args.file)
+    if not isinstance(payload, dict):
+        raise SystemExit("interest save payload must be an object")
+    result = request_json("POST", "/content-intelligence/interests/save", payload, core_url=args.core_url)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def cmd_recompute(args: argparse.Namespace) -> int:
     profile = request_json("POST", "/content-intelligence/profile/recompute", {"model_version": args.model_version}, core_url=args.core_url)
     scores = request_json("POST", "/content-intelligence/scores/recompute", {"model_version": args.model_version}, core_url=args.core_url)
@@ -179,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.set_defaults(func=cmd_ingest_manifest)
     e = sub.add_parser("event")
     e.add_argument("--item-id", required=True)
-    e.add_argument("--event-type", required=True, choices=["shown", "selected", "deep_read", "liked", "disliked", "saved"])
+    e.add_argument("--event-type", required=True, choices=["shown", "selected", "deep_read", "liked", "disliked", "saved", "interest_saved"])
     e.add_argument("--render-id")
     e.add_argument("--assistant-recommended", action="store_true")
     e.add_argument("--assistant-rank", type=int)
@@ -189,8 +198,11 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("event-batch")
     b.add_argument("--file", required=True)
     b.set_defaults(func=cmd_event_batch)
+    i = sub.add_parser("interest-save")
+    i.add_argument("--file", required=True, help="JSON payload accepted by /content-intelligence/interests/save")
+    i.set_defaults(func=cmd_interest_save)
     r = sub.add_parser("recompute")
-    r.add_argument("--model-version", default="personal-v1")
+    r.add_argument("--model-version", default=DEFAULT_PERSONAL_MODEL)
     r.set_defaults(func=cmd_recompute)
     g = sub.add_parser("profile")
     g.add_argument("--limit", type=int, default=100)
