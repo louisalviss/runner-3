@@ -105,7 +105,7 @@ jobs:
               "rendition.themes.override('padding-right','0',true)",
               "rendition.themes.override('line-height',String(line),true)",
               'r3-reader-margin','r3-reader-line-height','r3-reader-position:',
-              'data-r3-ebook-audio-v6="1"','id="r3AudioDock"','/artifact-library/audio',
+              'data-r3-ebook-audio-v6="1"',"dock.id='r3AudioDock'",'/artifact-library/audio',
               'vi-VN-NamMinhNeural' if 'vi-VN-NamMinhNeural' in html else 'Nam Minh'
           ]
           missing=[x for x in required if x not in html]
