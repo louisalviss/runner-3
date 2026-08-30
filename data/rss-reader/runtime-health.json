@@ -1,14 +1,14 @@
 {
-  "version": 2,
+  "version": 3,
   "collector": "runner-3",
   "scope": "ai-rss-reader-ingestion-runner15",
-  "runStartedAt": "2026-08-30T23:07:22Z",
-  "runFinishedAt": "2026-08-30T23:07:36Z",
+  "runStartedAt": "2026-08-30T23:09:43Z",
+  "runFinishedAt": "2026-08-30T23:09:58Z",
   "logicalSourceCount": 15,
   "runner3LogicalSources": 15,
   "chatgptDirectSources": [],
-  "status": "failed",
-  "ingestionOk": false,
+  "status": "healthy",
+  "ingestionOk": true,
   "gate": {
     "core12": {
       "ok": true,
@@ -18,19 +18,9 @@
       "ok": true,
       "problems": []
     },
-    "substackRss2": {
-      "ok": false,
-      "problems": [
-        "hoquoctuan: RSS collector not healthy",
-        "hoquoctuan: mirror missing or sourceKey mismatch",
-        "hoquoctuan: mirror transport=None expected='rss'",
-        "hoquoctuan: mirror has no items",
-        "vnhacker: RSS collector not healthy",
-        "vnhacker: mirror missing or sourceKey mismatch",
-        "vnhacker: mirror transport=None expected='rss'",
-        "vnhacker: mirror has no items",
-        "HQT/vnhacker RSS health counters/status invalid"
-      ]
+    "substackArchive2": {
+      "ok": true,
+      "problems": []
     },
     "readerStateShape": {
       "ok": true,
@@ -50,10 +40,10 @@
       "stdout": "{\"collector\": \"runner-3\", \"scope\": \"1-substack-hybrid\", \"status\": \"healthy\", \"articles_ok\": true, \"notes_ok\": true, \"fresh_articles\": 20, \"fresh_notes\": 32, \"notes_error\": null}",
       "stderr": ""
     },
-    "substackRss2": {
+    "substackArchive2": {
       "script": "rss_direct_substack_collect.py",
-      "exitCode": 2,
-      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"2-substack-archive-api-sources\", \"status\": \"failed\", \"ok\": 0, \"failed\": 2, \"health\": \"data/rss-reader/direct-substack-health.json\"}",
+      "exitCode": 0,
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"2-substack-archive-api-sources\", \"status\": \"healthy\", \"ok\": 2, \"failed\": 0, \"health\": \"data/rss-reader/direct-substack-health.json\"}",
       "stderr": ""
     }
   },

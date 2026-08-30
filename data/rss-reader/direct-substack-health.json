@@ -1,27 +1,71 @@
 {
-  "version": 2,
+  "version": 3,
   "collector": "runner-3",
   "scope": "2-substack-archive-api-sources",
-  "runStartedAt": "2026-08-30T23:07:36Z",
+  "runStartedAt": "2026-08-30T23:09:57Z",
   "sourceCount": 2,
   "sources": {
     "hoquoctuan": {
-      "ok": false,
-      "checkedAt": "2026-08-30T23:07:36Z",
-      "preservedExistingMirror": false,
-      "newestPublishedAt": null,
-      "error": "RuntimeError: [{\"transport\": \"substack-archive-api\", \"url\": \"https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=50\", \"status\": 403}, {\"transport\": \"substack-archive-api\", \"url\": \"https://hoquoctuan.substack.com/api/v1/archive\", \"limit\": 50, \"error\": \"HTTPError: 403 Client Error: Forbidden for url: https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=50\"}, {\"transport\": \"substack-archive-api\", \"url\": \"https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=25\", \"status\": 403}, {\"transport\": \"substack-archive-api\", \"url\": \"https://hoquoctuan.substack.com/api/v1/archive\", \"limit\": 25, \"error\": \"HTTPError: 403 Client Error: Forbidden for url: https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=25\"}, {\"transport\": \"substack-archive-api\", \"url\": \"https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=10\", \"status\": 403}, {\"transport\": \"substack-archive-api\", \"url\": \"https://hoquoctuan.substack.com/api/v1/archive\", \"limit\": 10, \"error\": \"HTTPError: 403 Client Error: Forbidden for url: https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=10\"}]"
+      "ok": true,
+      "transport": "substack-archive-api",
+      "fetchTransport": "jina-live-relay",
+      "checkedAt": "2026-08-30T23:09:57Z",
+      "contentChanged": true,
+      "newestPublishedAt": "2026-08-29T22:12:51Z",
+      "freshItemCount": 23,
+      "totalStored": 23,
+      "attempts": [
+        {
+          "transport": "substack-archive-api-direct",
+          "url": "https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=50",
+          "status": 403
+        },
+        {
+          "transport": "substack-archive-api-direct",
+          "url": "https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=50",
+          "error": "HTTPError: 403 Client Error: Forbidden for url: https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=50"
+        },
+        {
+          "transport": "jina-live-relay",
+          "targetUrl": "https://hoquoctuan.substack.com/api/v1/archive?sort=new&limit=50",
+          "status": 200,
+          "relayNoCache": true,
+          "relayDNT": true
+        }
+      ]
     },
     "vnhacker": {
-      "ok": false,
-      "checkedAt": "2026-08-30T23:07:36Z",
-      "preservedExistingMirror": false,
-      "newestPublishedAt": null,
-      "error": "RuntimeError: [{\"transport\": \"substack-archive-api\", \"url\": \"https://vnhacker.substack.com/api/v1/archive?sort=new&limit=50\", \"status\": 403}, {\"transport\": \"substack-archive-api\", \"url\": \"https://vnhacker.substack.com/api/v1/archive\", \"limit\": 50, \"error\": \"HTTPError: 403 Client Error: Forbidden for url: https://vnhacker.substack.com/api/v1/archive?sort=new&limit=50\"}, {\"transport\": \"substack-archive-api\", \"url\": \"https://vnhacker.substack.com/api/v1/archive?sort=new&limit=25\", \"status\": 403}, {\"transport\": \"substack-archive-api\", \"url\": \"https://vnhacker.substack.com/api/v1/archive\", \"limit\": 25, \"error\": \"HTTPError: 403 Client Error: Forbidden for url: https://vnhacker.substack.com/api/v1/archive?sort=new&limit=25\"}, {\"transport\": \"substack-archive-api\", \"url\": \"https://vnhacker.substack.com/api/v1/archive?sort=new&limit=10\", \"status\": 403}, {\"transport\": \"substack-archive-api\", \"url\": \"https://vnhacker.substack.com/api/v1/archive\", \"limit\": 10, \"error\": \"HTTPError: 403 Client Error: Forbidden for url: https://vnhacker.substack.com/api/v1/archive?sort=new&limit=10\"}]"
+      "ok": true,
+      "transport": "substack-archive-api",
+      "fetchTransport": "jina-live-relay",
+      "checkedAt": "2026-08-30T23:09:58Z",
+      "contentChanged": true,
+      "newestPublishedAt": "2026-08-25T03:59:29Z",
+      "freshItemCount": 23,
+      "totalStored": 23,
+      "attempts": [
+        {
+          "transport": "substack-archive-api-direct",
+          "url": "https://vnhacker.substack.com/api/v1/archive?sort=new&limit=50",
+          "status": 403
+        },
+        {
+          "transport": "substack-archive-api-direct",
+          "url": "https://vnhacker.substack.com/api/v1/archive?sort=new&limit=50",
+          "error": "HTTPError: 403 Client Error: Forbidden for url: https://vnhacker.substack.com/api/v1/archive?sort=new&limit=50"
+        },
+        {
+          "transport": "jina-live-relay",
+          "targetUrl": "https://vnhacker.substack.com/api/v1/archive?sort=new&limit=50",
+          "status": 200,
+          "relayNoCache": true,
+          "relayDNT": true
+        }
+      ]
     }
   },
-  "runFinishedAt": "2026-08-30T23:07:36Z",
-  "okCount": 0,
-  "failedCount": 2,
-  "status": "failed"
+  "runFinishedAt": "2026-08-30T23:09:58Z",
+  "okCount": 2,
+  "failedCount": 0,
+  "status": "healthy"
 }

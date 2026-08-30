@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "scope": "rss-render-source-accounting",
+  "version": 2,
+  "scope": "rss-render-source-accounting-runner15",
   "timezone": "Asia/Ho_Chi_Minh",
   "date": "2026-08-30",
   "windowUtc": {
@@ -8,9 +8,9 @@
     "end": "2026-08-30T17:00:00Z"
   },
   "logicalSourceCount": 15,
-  "runnerSourceCount": 13,
-  "directSourceCount": 2,
-  "runnerRawItemCount": 77,
+  "runnerSourceCount": 15,
+  "directSourceCount": 0,
+  "runnerRawItemCount": 78,
   "sourceRows": [
     {
       "sourceKey": "tinhte",
@@ -333,8 +333,8 @@
       "sourceKey": "nghiencuuquocte",
       "mode": "runner3",
       "status": "ok",
-      "mirrorCount": 57,
-      "newestPublishedAt": "2026-08-30T07:00:33Z",
+      "mirrorCount": 58,
+      "newestPublishedAt": "2026-08-30T22:45:04Z",
       "rawCount": 3,
       "items": [
         {
@@ -831,16 +831,30 @@
     },
     {
       "sourceKey": "hoquoctuan",
-      "mode": "chatgpt-direct",
-      "status": "requires-direct-verification",
-      "rawCount": null,
-      "items": []
+      "mode": "runner3",
+      "status": "ok",
+      "mirrorCount": 23,
+      "newestPublishedAt": "2026-08-29T22:12:51Z",
+      "rawCount": 1,
+      "items": [
+        {
+          "key": "substack-post:212606190",
+          "articleId": "212606190",
+          "noteId": null,
+          "itemType": "article",
+          "title": "Đọc Chậm 30/8: Cú “giật mình” của thị trường ở Jackson Hole: Fed có thật sự sắp tăng lãi suất trong tháng 9?",
+          "canonicalUrl": "https://hoquoctuan.substack.com/p/oc-cham-308-cu-giat-minh-cua-thi",
+          "publishedAt": "2026-08-29T22:12:51Z"
+        }
+      ]
     },
     {
       "sourceKey": "vnhacker",
-      "mode": "chatgpt-direct",
-      "status": "requires-direct-verification",
-      "rawCount": null,
+      "mode": "runner3",
+      "status": "ok",
+      "mirrorCount": 23,
+      "newestPublishedAt": "2026-08-25T03:59:29Z",
+      "rawCount": 0,
       "items": []
     }
   ],
@@ -851,6 +865,10 @@
     "mustRecordRawKeptFilteredPerSource": true,
     "manifestCountMustEqualSumKept": true,
     "rawPositiveKeptZeroRequiresFilterReason": true,
-    "mismatchFailsClosed": true
-  }
+    "mismatchFailsClosed": true,
+    "all15BackedByRunnerMirrors": true,
+    "directVerificationRequired": false,
+    "missingSourceFailsClosed": true
+  },
+  "directVerificationPending": []
 }
