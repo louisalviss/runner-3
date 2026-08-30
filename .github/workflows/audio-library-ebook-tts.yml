@@ -1,0 +1,33 @@
+name: Audio Library Ebook TTS
+
+on:
+  repository_dispatch:
+    types: [ebook_reader_audio]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audio-library-ebook-tts
+  cancel-in-progress: false
+
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install TTS dependencies
+        run: python -m pip install --upgrade pip edge-tts mutagen
+      - name: Render pending ebook audio
+        env:
+          EBOOK_AUDIO_CORE_BASE: https://runner3-core.ducduy2411.workers.dev
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+          AUDIO_TTS_VOICE: vi-VN-NamMinhNeural
+          AUDIO_TTS_RATE: '+3%'
+          EBOOK_AUDIO_MAX_JOBS: '8'
+        run: python scripts/ebook_reader_tts.py
