@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Canonical Runner15 ingestion gate.
 
-Runs core12 RSS, Võ Hoàng Hạc hybrid, and the two Substack RSS sources that used
-to be ChatGPT-direct. The gate fails closed unless all 15 logical sources are
-healthy. It never advances reader-state.json.
+Runs core12 RSS, Võ Hoàng Hạc hybrid, and Hồ Quốc Tuấn + vnhacker through their
+public Substack archive APIs. The gate fails closed unless all 15 logical
+sources are healthy. It never advances reader-state.json.
 """
 
 import json
@@ -24,6 +24,7 @@ STATE = DATA / "reader-state.json"
 SOURCES_ROOT = DATA / "sources"
 LOGICAL_SOURCE_COUNT = 15
 RSS_EXTRA_KEYS = ["hoquoctuan", "vnhacker"]
+ALLOWED_EXTRA_TRANSPORTS = {"rss", "substack-archive-api"}
 
 
 def now_iso():
@@ -61,20 +62,23 @@ def validate_extra_rss(health):
     problems = []
     sources = health.get("sources") if isinstance(health, dict) else None
     if not isinstance(sources, dict):
-        return False, ["substack RSS health missing sources object"]
+        return False, ["Substack source health missing sources object"]
     for key in RSS_EXTRA_KEYS:
         row = sources.get(key) or {}
         mirror = read_json(SOURCES_ROOT / f"{key}.json")
         if row.get("ok") is not True:
-            problems.append(f"{key}: RSS collector not healthy")
+            problems.append(f"{key}: collector not healthy")
         if mirror.get("sourceKey") != key:
             problems.append(f"{key}: mirror missing or sourceKey mismatch")
-        if mirror.get("transport") != "rss":
-            problems.append(f"{key}: mirror transport={mirror.get('transport')!r} expected='rss'")
+        if mirror.get("transport") not in ALLOWED_EXTRA_TRANSPORTS:
+            problems.append(
+                f"{key}: mirror transport={mirror.get('transport')!r} "
+                f"expected one of {sorted(ALLOWED_EXTRA_TRANSPORTS)}"
+            )
         if not isinstance(mirror.get("items"), list) or not mirror.get("items"):
             problems.append(f"{key}: mirror has no items")
     if health.get("okCount") != 2 or health.get("failedCount") != 0 or health.get("status") != "healthy":
-        problems.append("HQT/vnhacker RSS health counters/status invalid")
+        problems.append("HQT/vnhacker health counters/status invalid")
     return not problems, problems
 
 
@@ -103,7 +107,7 @@ def main():
     )
 
     result = {
-        "version": 2,
+        "version": 3,
         "collector": "runner-3",
         "scope": "ai-rss-reader-ingestion-runner15",
         "runStartedAt": started,
@@ -116,13 +120,13 @@ def main():
         "gate": {
             "core12": {"ok": core_ok, "problems": core_problems},
             "vohoanghacHybrid": {"ok": vhh_ok, "problems": vhh_problems},
-            "substackRss2": {"ok": extra_ok, "problems": extra_problems},
+            "substackArchive2": {"ok": extra_ok, "problems": extra_problems},
             "readerStateShape": {"ok": state_ok, "problems": state_problems},
         },
         "collectorRuns": {
             "core": core_run,
             "vohoanghac": vhh_run,
-            "substackRss2": direct_rss_run,
+            "substackArchive2": direct_rss_run,
         },
         "readerStateAdvanced": False,
     }
