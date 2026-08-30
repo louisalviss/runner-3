@@ -1,0 +1,30 @@
+name: Ebook Reader Player Live Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ebook-reader-player-live-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify production Reader audio player
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://runner3-core.ducduy2411.workers.dev/artifact-library/read?key=core%2Febook%2Fskeleton-crew%2Ffinal%2FSkeleton-Crew-Stephen-King-VI-v2.epub'
+          code="$(curl -sS -L -o /tmp/reader.html -w '%{http_code}' "$url")"
+          test "$code" = 200
+          grep -q 'data-r3-ebook-audio-v6="2"' /tmp/reader.html
+          grep -q 'r3AudioSeek' /tmp/reader.html
+          grep -q 'r3AudioBack' /tmp/reader.html
+          grep -q 'r3AudioForward' /tmp/reader.html
+          grep -q 'MediaMetadata' /tmp/reader.html
+          echo "EBOOK_READER_STANDARD_AUDIO_PLAYER_LIVE=PASS http=$code"
