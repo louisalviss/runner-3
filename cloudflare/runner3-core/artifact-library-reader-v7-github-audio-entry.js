@@ -1,91 +1,95 @@
 import app from "./artifact-library-reader-v6-entry.js";
+import ebookAudio from "./src/ebook-reader-audio.js";
 
-const DISPATCH_EVENT = "ebook_reader_audio";
-const DISPATCH_URL = "https://api.github.com/repos/louisalviss/runner-3/dispatches";
-const AUDIO_POST_PATH = "/artifact-library/audio";
-const LEGACY_QUEUE_PREFIX = "audio-library/rss-reader-queue/";
-const EBOOK_QUEUE_PREFIX = "audio-library/ebook-reader-queue/";
-const ID_RE = /^ebook-[a-f0-9]{32}$/;
+const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
+const ALLOWED_EVENT = "ebook_reader_audio";
+const GITHUB_API = "https://api.github.com";
+const GITHUB_REPO = "louisalviss/runner-3";
+const GITHUB_WORKFLOW = "audio-library-ebook-tts.yml";
 
-async function migrateQueue(env, id) {
-  if (!env.AUDIO_MEDIA || !ID_RE.test(id)) return false;
-  const nextKey = `${EBOOK_QUEUE_PREFIX}${id}.json`;
-  if (await env.AUDIO_MEDIA.head(nextKey)) return true;
-
-  const legacyKey = `${LEGACY_QUEUE_PREFIX}${id}.json`;
-  const legacy = await env.AUDIO_MEDIA.get(legacyKey);
-  if (!legacy) return false;
-  const queue = await legacy.text();
-  await env.AUDIO_MEDIA.put(nextKey, queue, {
-    httpMetadata: { contentType: "application/json; charset=utf-8" },
-    customMetadata: { scope: "ebook-reader-audio" },
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Robots-Tag": ROBOTS,
+      "Cache-Control": "private, no-store, max-age=0",
+      Pragma: "no-cache",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+    },
   });
-  await env.AUDIO_MEDIA.delete(legacyKey);
-  return true;
 }
 
-async function dispatchAudioJob(env, id) {
-  const token = String(env.EBOOK_AUDIO_GITHUB_TOKEN || "").trim();
-  if (!token) {
-    console.warn("EBOOK_AUDIO_GITHUB_TOKEN missing; scheduled GitHub queue sweep will recover the job");
-    return { ok: false, skipped: "missing-token" };
-  }
+function safeEqual(a, b) {
+  const left = String(a || "");
+  const right = String(b || "");
+  if (!left || left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return diff === 0;
+}
 
-  const response = await fetch(DISPATCH_URL, {
+function internalAuthorized(request, env) {
+  const expected = String(env.RUNNER3_CORE_TOKEN || "");
+  const header = String(request.headers.get("authorization") || "");
+  return Boolean(expected) && header.startsWith("Bearer ") && safeEqual(header.slice(7), expected);
+}
+
+function triggerRoute(pathname) {
+  return pathname === "/api/internal/ebook-reader-audio/dispatch" || pathname === "/artifact-library/api/audio/internal/dispatch";
+}
+
+async function dispatchWorkflow(env) {
+  const secret = String(env.RUNNER3_GITHUB_PAT || "");
+  if (!secret) throw new Error("GITHUB_PAT_NOT_CONFIGURED");
+  const repoApi = String(env.RUNNER3_GITHUB_REPO_API || `${GITHUB_API}/repos/${GITHUB_REPO}`).replace(/\/+$/, "");
+  const workflow = String(env.RUNNER3_EBOOK_AUDIO_WORKFLOW || GITHUB_WORKFLOW);
+  const response = await fetch(`${repoApi}/dispatches`, {
     method: "POST",
     headers: {
-      "Accept": "application/vnd.github+json",
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8",
-      "User-Agent": "runner3-core-ebook-reader-audio",
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+      "User-Agent": "runner3-core/ebook-audio",
       "X-GitHub-Api-Version": "2022-11-28",
     },
     body: JSON.stringify({
-      event_type: DISPATCH_EVENT,
-      client_payload: {
-        schema_version: 1,
-        job_id: id,
-      },
+      event_type: ALLOWED_EVENT,
+      client_payload: { source: "ebook-reader", at: new Date().toISOString(), workflow },
     }),
   });
-
   if (!response.ok) {
-    const detail = (await response.text()).slice(0, 300);
-    throw new Error(`GitHub repository_dispatch failed HTTP ${response.status}: ${detail}`);
+    const detail = (await response.text()).slice(0, 500);
+    throw new Error(`GITHUB_DISPATCH_FAILED:${response.status}:${detail}`);
   }
-  return { ok: true };
+  return { ok: true, dispatched: true, eventType: ALLOWED_EVENT, workflow };
+}
+
+async function manualDispatch(request, env) {
+  if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+  if (!internalAuthorized(request, env)) return json({ ok: false, error: "UNAUTHORIZED" }, 401);
+  try {
+    return json(await dispatchWorkflow(env), 202);
+  } catch (error) {
+    const message = String(error?.message || error || "dispatch failed");
+    const status = message === "GITHUB_PAT_NOT_CONFIGURED" ? 503 : 502;
+    return json({ ok: false, error: message.slice(0, 600) }, status);
+  }
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const isAudioPost = request.method === "POST" && url.pathname === AUDIO_POST_PATH;
-    const response = await app.fetch(request, env, ctx);
-    if (!isAudioPost || !response.ok) return response;
+    if (triggerRoute(url.pathname)) return manualDispatch(request, env);
 
-    let state;
-    try {
-      state = await response.clone().json();
-    } catch {
-      return response;
+    const shouldDispatch = url.pathname === "/artifact-library/audio" && request.method === "POST";
+    const response = await ebookAudio.fetch(request, env, ctx, app);
+    if (shouldDispatch && response?.status === 202) {
+      const task = dispatchWorkflow(env).catch((error) => console.error("ebook audio dispatch failed", String(error?.message || error)));
+      if (ctx?.waitUntil) ctx.waitUntil(task);
+      else await task;
     }
-    const id = String(state?.id || "");
-    if (state?.status !== "pending" || !ID_RE.test(id)) return response;
-
-    const wake = (async () => {
-      const migrated = await migrateQueue(env, id);
-      if (!migrated) throw new Error(`Ebook audio queue object missing for ${id}`);
-      await dispatchAudioJob(env, id);
-    })().catch((error) => {
-      console.error("Ebook Reader GitHub dispatch warning", error?.message || String(error));
-    });
-
-    if (ctx?.waitUntil) ctx.waitUntil(wake);
-    else await wake;
     return response;
-  },
-
-  async scheduled(controller, env, ctx) {
-    if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },
 };
