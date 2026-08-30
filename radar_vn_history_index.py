@@ -60,6 +60,26 @@ def usable_snapshot(kind: str, obj) -> bool:
     return source_ts(kind, obj) is not None
 
 
+def snapshot_belongs_to_day(kind: str, obj, day: str) -> bool:
+    if not usable_snapshot(kind, obj) or local_date(kind, obj) != day:
+        return False
+    if kind != "f33":
+        return True
+
+    ts = source_ts(kind, obj)
+    local_ts = ts.astimezone(VN_TZ) if ts else None
+    if not local_ts:
+        return False
+    target = date.fromisoformat(day)
+    if local_ts.date() == target:
+        return True
+    # F33 may finish shortly after midnight if GitHub delays a close crawl,
+    # but never let an arbitrarily late next-day run rewrite yesterday.
+    if local_ts.date() == target + timedelta(days=1):
+        return local_ts.hour < F33_AFTER_MIDNIGHT_GRACE_HOURS
+    return False
+
+
 def git_versions_for_day(path: str, day: str):
     """Yield historical versions of a pointer near a Vietnam calendar day.
 
@@ -108,7 +128,7 @@ def archive_latest(kind: str, latest_name: str, history_dir: str):
         return None
     day = local_date(kind, obj)
     ts = source_ts(kind, obj)
-    if not day or not ts:
+    if not day or not ts or not snapshot_belongs_to_day(kind, obj, day):
         return None
 
     out = dict(obj)
@@ -132,10 +152,10 @@ def recover_best_for_day(kind: str, latest_name: str, history_dir: str, day: str
     """
     candidates = []
     current = load(ROOT / latest_name)
-    if usable_snapshot(kind, current) and local_date(kind, current) == day:
+    if snapshot_belongs_to_day(kind, current, day):
         candidates.append(current)
     for obj in git_versions_for_day(latest_name, day):
-        if usable_snapshot(kind, obj) and local_date(kind, obj) == day:
+        if snapshot_belongs_to_day(kind, obj, day):
             candidates.append(obj)
 
     if not candidates:
@@ -146,7 +166,7 @@ def recover_best_for_day(kind: str, latest_name: str, history_dir: str, day: str
     previous = load(dest)
     prev_ts = source_ts(kind, previous) if isinstance(previous, dict) else None
     best_ts = source_ts(kind, best)
-    if prev_ts and best_ts and prev_ts > best_ts:
+    if prev_ts and best_ts and prev_ts > best_ts and snapshot_belongs_to_day(kind, previous, day):
         return False
 
     out = dict(best)
@@ -208,7 +228,7 @@ def local_time(kind: str, obj):
 
 
 def f33_close_time_ok(day: str, obj, local_ts) -> bool:
-    if not isinstance(obj, dict) or not local_ts or local_date("f33", obj) != day:
+    if not isinstance(obj, dict) or not local_ts or not snapshot_belongs_to_day("f33", obj, day):
         return False
     target = date.fromisoformat(day)
     if local_ts.date() == target:
@@ -232,6 +252,9 @@ def build_manifest(day: str):
     trends_ok, tr = valid_trends(trends)
     f33_ok, fr = valid_f33(f33)
     forum_ok, rr = valid_forum(forum)
+    if isinstance(f33, dict) and not snapshot_belongs_to_day("f33", f33, day):
+        f33_ok = False
+        fr.append("f33_target_date_outside_grace")
     reasons = tr + fr + rr
 
     t_local = local_time("trends", trends)
