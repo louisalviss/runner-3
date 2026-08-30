@@ -3,7 +3,8 @@
 
 This removes only the deterministic Skeleton Crew smoke artifacts created by
 scripts/ebook_reader_audio_r2_e2e.py, runs the real R2/TTS/media test again,
-and verifies that the live Reader HTML contains the standard audiobook player.
+and verifies that the live Reader HTML contains the standard audiobook player
+plus continuous reading follow/resume behavior markers.
 It never touches arbitrary/user audio jobs.
 """
 
@@ -23,12 +24,17 @@ TEST_KEYS = [
 ]
 PLAYER_MARKERS = [
     'data-r3-ebook-audio-v6="2"',
+    'data-r3-audio-follow-v8="1"',
     "dock.id='r3AudioDock'",
     'id="r3AudioMain"',
     'id="r3AudioSeek"',
     'id="r3AudioBack"',
     'id="r3AudioForward"',
     'id="r3AudioSpeed"',
+    'window.r3ReaderBridge',
+    "r3-reader-audio-state:",
+    "data-r3-audio-reading",
+    "continueToNextChapter",
 ]
 
 
@@ -63,11 +69,16 @@ def verify_live_reader_player(book_key):
     proof = {
         "phase": "reader-ui",
         "status": response.status_code,
-        "playerVersion": "v6.2",
+        "playerVersion": "v6.2+follow-v8",
         "seek": True,
         "skip15": True,
         "speed": True,
         "playPause": True,
+        "activeParagraphBold": True,
+        "pageFollow": True,
+        "continuousChapter": True,
+        "readerBridge": True,
+        "audioResumePersistence": True,
         "noindex": True,
     }
     print(json.dumps(proof, ensure_ascii=False), flush=True)
