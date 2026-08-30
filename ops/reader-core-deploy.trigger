@@ -1,4 +1,4 @@
-reader-v17-frozen-viewport-anchor
-source=559db48e821b1c0d845841fbb021885167f0af42
-requested_at=2026-08-31T05:57:30+07:00
-attempt=registered-workflow
+reader-v18-verified-outer-frozen-anchor
+source=e215cce1f46844e1d996547524c8f9d4c5a68617
+requested_at=2026-08-31T06:00:30+07:00
+attempt=fail-closed-patch-proof
