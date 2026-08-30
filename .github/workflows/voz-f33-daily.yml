@@ -12,6 +12,11 @@ on:
     # 20:15 Asia/Ho_Chi_Minh, before the 21:00 Vietnam news radar.
     - cron: '15 13 * * *'
   workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Optional intended Vietnam date (YYYY-MM-DD), used by delayed/late-close dispatches'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -33,6 +38,8 @@ jobs:
 
       - name: Publish run-start pointer
         uses: actions/github-script@v7
+        env:
+          REQUESTED_TARGET_DATE: ${{ inputs.target_date || '' }}
         with:
           script: |
             const path = 'voz_f33_latest.json';
@@ -44,6 +51,7 @@ jobs:
               artifact_name: `voz-f33-daily-${context.runId}`,
               commit_sha: context.sha,
               generated_at: new Date().toISOString(),
+              requested_target_date: process.env.REQUESTED_TARGET_DATE || '',
               status: 'RUNNING'
             };
             let sha;
@@ -110,6 +118,7 @@ jobs:
         env:
           ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          REQUESTED_TARGET_DATE: ${{ inputs.target_date || '' }}
         with:
           script: |
             const fs = require('fs');
@@ -119,11 +128,44 @@ jobs:
             } catch (e) {
               manifest = {status: 'FAILED', manifest_error: String(e)};
             }
-            const parts = new Intl.DateTimeFormat('en-US', {
-              timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
-            }).formatToParts(new Date());
-            const dateParts = Object.fromEntries(parts.map(p => [p.type, p.value]));
-            const dateKey = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+
+            function vnParts(d) {
+              const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Ho_Chi_Minh',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+              }).formatToParts(d);
+              return Object.fromEntries(parts.map(p => [p.type, p.value]));
+            }
+            function vnDateKey(d) {
+              const p = vnParts(d);
+              return `${p.year}-${p.month}-${p.day}`;
+            }
+            function previousVnDateKey(d) {
+              return vnDateKey(new Date(d.getTime() - 24 * 60 * 60 * 1000));
+            }
+
+            const now = new Date();
+            const requested = (process.env.REQUESTED_TARGET_DATE || '').trim();
+            let dateKey;
+            let targetDateSource;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(requested)) {
+              dateKey = requested;
+              targetDateSource = 'workflow_dispatch_input';
+            } else if (context.eventName === 'schedule') {
+              // The canonical schedule is 20:15 VN. GitHub may start a scheduled
+              // run hours late; if it starts after midnight but before 20:15,
+              // the intended occurrence belongs to the previous Vietnam date.
+              const p = vnParts(now);
+              const minutes = Number(p.hour) * 60 + Number(p.minute);
+              const scheduledMinutes = 20 * 60 + 15;
+              dateKey = minutes < scheduledMinutes ? previousVnDateKey(now) : vnDateKey(now);
+              targetDateSource = 'scheduled_occurrence_20_15_vn';
+            } else {
+              dateKey = vnDateKey(now);
+              targetDateSource = 'completion_local_date';
+            }
+
             const pointer = {
               workflow: 'VOZ F33 Daily Full Crawl',
               run_id: context.runId,
@@ -132,8 +174,9 @@ jobs:
               artifact_name: `voz-f33-daily-${context.runId}`,
               artifact_url: process.env.ARTIFACT_URL || '',
               commit_sha: context.sha,
-              generated_at: new Date().toISOString(),
+              generated_at: now.toISOString(),
               vietnam_date: dateKey,
+              target_date_source: targetDateSource,
               status: manifest.status || 'UNKNOWN',
               threads_discovered: manifest.threads_discovered ?? null,
               threads_healthy: manifest.threads_healthy ?? null,
