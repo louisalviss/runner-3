@@ -81,16 +81,9 @@ def snapshot_belongs_to_day(kind: str, obj, day: str) -> bool:
 
 
 def git_versions_for_day(path: str, day: str):
-    """Yield historical versions of a pointer near a Vietnam calendar day.
-
-    History freezing must not depend on a workflow running before midnight.
-    GitHub scheduled jobs can be delayed by hours, so recover the latest valid
-    pointer version whose semantic Vietnam date matches the requested day.
-    """
+    """Yield historical versions of a pointer/history file near a VN day."""
     target = date.fromisoformat(day)
     start_local = datetime.combine(target, datetime.min.time(), tzinfo=VN_TZ)
-    # Include the following day because a delayed scheduled F33 close may finish
-    # shortly after midnight while still carrying target_date=day.
     since = (start_local - timedelta(hours=6)).astimezone(UTC).isoformat()
     until = (start_local + timedelta(days=2, hours=6)).astimezone(UTC).isoformat()
     proc = subprocess.run(
@@ -137,7 +130,7 @@ def archive_latest(kind: str, latest_name: str, history_dir: str):
     previous = load(dest)
     if isinstance(previous, dict):
         prev_ts = source_ts(kind, previous)
-        if prev_ts and prev_ts > ts:
+        if prev_ts and prev_ts > ts and snapshot_belongs_to_day(kind, previous, day):
             return day
     dump(dest, out)
     return day
@@ -146,15 +139,21 @@ def archive_latest(kind: str, latest_name: str, history_dir: str):
 def recover_best_for_day(kind: str, latest_name: str, history_dir: str, day: str):
     """Freeze the newest usable snapshot semantically belonging to `day`.
 
-    Sources are recovered from both the checked-out current pointer and its git
-    history. This is the actual implementation of the manifest selection policy
-    `latest_completed_snapshot_whose_local_date_equals_target_date`.
+    Recovery checks the current pointer, git history of that pointer, and git
+    history of the dated history file itself. The latter preserves explicit
+    legacy retags/backfills while stale cross-day F33 runs are rejected by the
+    bounded grace rule.
     """
     candidates = []
     current = load(ROOT / latest_name)
     if snapshot_belongs_to_day(kind, current, day):
         candidates.append(current)
     for obj in git_versions_for_day(latest_name, day):
+        if snapshot_belongs_to_day(kind, obj, day):
+            candidates.append(obj)
+
+    dated_path = str(Path(history_dir) / f"{day}.json")
+    for obj in git_versions_for_day(dated_path, day):
         if snapshot_belongs_to_day(kind, obj, day):
             candidates.append(obj)
 
@@ -233,8 +232,6 @@ def f33_close_time_ok(day: str, obj, local_ts) -> bool:
     target = date.fromisoformat(day)
     if local_ts.date() == target:
         return local_ts.hour >= 19
-    # A GitHub schedule delayed past midnight can still be the intended close
-    # crawl for the previous date. Keep the grace bounded to avoid day bleed.
     if local_ts.date() == target + timedelta(days=1):
         return local_ts.hour < F33_AFTER_MIDNIGHT_GRACE_HOURS
     return False
@@ -302,11 +299,11 @@ def build_manifest(day: str):
         return rec
 
     manifest = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "target_date": day,
         "timezone": "Asia/Ho_Chi_Minh",
-        "selection_policy": "latest_completed_snapshot_whose_local_date_equals_target_date",
-        "recovery_policy": "current_pointer_plus_git_history",
+        "selection_policy": "latest_valid_snapshot_semantically_belonging_to_target_date",
+        "recovery_policy": "current_pointer_plus_pointer_and_dated_git_history",
         "close_policy": {
             "trends_min_local_hour": 20,
             "f33_min_local_hour": 19,
@@ -345,7 +342,6 @@ def main():
     }
     requested = (os.environ.get("RADAR_VN_BACKFILL_DATE") or "").strip()
     if requested:
-        # Fail fast on malformed manual backfill input.
         date.fromisoformat(requested)
         recovery_days.add(requested)
 
