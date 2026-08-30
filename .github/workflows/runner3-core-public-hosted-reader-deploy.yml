@@ -1,0 +1,98 @@
+name: Runner3 Core Public Hosted Reader Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-core-public-hosted-reader-deploy.yml'
+      - 'ops/reader-core-deploy.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-core-public-hosted-reader-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PINNED_SOURCE: 559db48e821b1c0d845841fbb021885167f0af42
+    steps:
+      - name: Validate Cloudflare deploy credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
+            echo "PRESENT:$name"
+          done
+
+      - name: Checkout exact Reader v17 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PINNED_SOURCE }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Compose canonical mailbox with Reader v17 fall-through
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,re
+          root=pathlib.Path('cloudflare/runner3-core')
+          mailbox=root/'mailbox-entry.js'
+          text=mailbox.read_text(encoding='utf-8')
+          old='import app from "./audio-entry.js";'
+          new='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if old not in text:
+              raise SystemExit('canonical mailbox import marker missing')
+          text=text.replace(old,new,1)
+          mailbox.write_text(text,encoding='utf-8')
+          cfg_path=root/'wrangler.jsonc'
+          cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
+          cfg['main']='mailbox-entry.js'
+          cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
+          print('MAILBOX_READER_COMPOSITION=READY')
+          PY
+          node --check cloudflare/runner3-core/mailbox-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v17-frozen-viewport-anchor-entry.js
+          grep -q 'artifact-library-reader-v17-frozen-viewport-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioFrozenViewportV17=true' cloudflare/runner3-core/artifact-library-reader-v17-frozen-viewport-anchor-entry.js
+          grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
+
+      - name: Deploy pinned Reader v17 Core
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          export NO_COLOR=1
+          npx --yes wrangler@4 deploy
+
+      - name: Verify live Reader v17 and preserved mailbox surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          core='https://runner3-core.ducduy2411.workers.dev'
+          encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
+          curl -fsS -D /tmp/reader-h.txt -o /tmp/reader.html "$core/artifact-library/read?key=$encoded"
+          tr -d '\r' < /tmp/reader-h.txt > /tmp/reader-h.clean
+          grep -qi '^x-r3-reader-runtime: v17-frozen-viewport-anchor$' /tmp/reader-h.clean
+          grep -q 'window.__r3AudioFrozenViewportV17=true' /tmp/reader.html
+          code="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
+          test "$code" = 400
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v17.csv")"
+          test "$mcode" = 200
+          grep -q 'pending' /tmp/mailbox.csv
+          echo 'PUBLIC_HOSTED_READER_V17_DEPLOY=PASS'
