@@ -1,10 +1,6 @@
 name: Tin VN · F33 Late Close Trigger
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/voz-f33-late-close.yml'
   schedule:
     # 22:45 Asia/Ho_Chi_Minh. Backup close snapshot for deterministic historical Radar.
     - cron: '45 15 * * *'
@@ -37,13 +33,15 @@ jobs:
 
             const now = new Date();
             const p = vnParts(now);
-            const minutes = Number(p.hour) * 60 + Number(p.minute);
-            const scheduledMinutes = 22 * 60 + 45;
-            // If GitHub starts this scheduled trigger after midnight but before
-            // the next 22:45 occurrence, it still belongs to yesterday's close.
-            const targetDate = minutes < scheduledMinutes
-              ? vnDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000))
-              : vnDateKey(now);
+            const hour = Number(p.hour);
+            const currentDate = vnDateKey(now);
+            const previousDate = vnDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+
+            // Only a genuinely delayed scheduled occurrence may claim yesterday,
+            // and only inside the bounded 00:00-02:59 VN grace window.
+            const targetDate = context.eventName === 'schedule' && hour < 3
+              ? previousDate
+              : currentDate;
 
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
