@@ -22,7 +22,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: e215cce1f46844e1d996547524c8f9d4c5a68617
+      PINNED_SOURCE: 4502c8a8d16751cebbe89650ffb874cfa9a14d00
     steps:
       - name: Validate Cloudflare deploy credentials
         shell: bash
@@ -68,7 +68,7 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
           grep -q 'artifact-library-reader-v18-verified-outer-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
           grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
-          grep -q 'READER_V18_PATCH_MISSING' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
+          grep -q 'saveGuardCount:2' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
 
       - name: Deploy pinned Reader v18 Core
@@ -87,9 +87,9 @@ jobs:
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
           code="$(curl -sS -D /tmp/reader-h.txt -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
           tr -d '\r' < /tmp/reader-h.txt > /tmp/reader-h.clean
-          test "$code" = 200
+          if [ "$code" != 200 ]; then cat /tmp/reader-h.clean; head -c 700 /tmp/reader.html; exit 1; fi
           grep -qi '^x-r3-reader-runtime: v18-verified-outer-frozen-anchor$' /tmp/reader-h.clean
-          grep -qi '^x-r3-reader-patch-proof: block+range+prepare+target+save+finally$' /tmp/reader-h.clean
+          grep -qi '^x-r3-reader-patch-proof: block+range+prepare+target+save2+finally$' /tmp/reader-h.clean
           grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' /tmp/reader.html
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
           test "$acode" = 400
