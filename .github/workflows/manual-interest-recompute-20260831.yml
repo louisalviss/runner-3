@@ -1,0 +1,56 @@
+name: Manual explicit interest recompute 2026-08-31
+
+on:
+  push:
+    paths:
+      - '.github/workflows/manual-interest-recompute-20260831.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recompute-profile:
+    runs-on: ubuntu-latest
+    env:
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Force profile recompute
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CORE_TOKEN:-}"
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${CORE_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '{}' \
+            "${CORE_URL}/content-intelligence/profile/recompute"
+          echo
+
+      - name: Verify representative interest features in profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${CORE_TOKEN}" \
+            "${CORE_URL}/content-intelligence/profile?limit=500" > profile.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('profile.json'))
+          keys={(r.get('feature_type'),r.get('feature_key')):r for r in x.get('rows',[])}
+          expected=[
+            ('topic','submarine-cable'),
+            ('topic','ai-forecasting'),
+            ('topic','national-resilience'),
+            ('topic','rent-vs-own'),
+            ('topic','rail-infrastructure'),
+          ]
+          missing=[k for k in expected if k not in keys]
+          if missing:
+              raise SystemExit(f'missing representative profile features: {missing}')
+          print('VERIFIED_PROFILE_FEATURES=5')
+          for k in expected:
+              r=keys[k]
+              print(f"{k[1]} weight={r.get('weight')} positive={r.get('positive_count')} evidence={r.get('evidence_count')} confidence={r.get('confidence')}")
+          PY
