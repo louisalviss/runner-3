@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 
 const CORE_URL = process.env.RUNNER3_CORE_URL || 'https://runner3-core.ducduy2411.workers.dev';
 const BOOK_KEY = process.env.EBOOK_BROWSER_SMOKE_BOOK_KEY || 'core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub';
-const TEST_ID = 'seek-smoke-v15';
+const TEST_ID = 'seek-smoke-v16';
 const STEP_MS = 50;
 const readerUrl = `${CORE_URL}/artifact-library/read?key=${encodeURIComponent(BOOK_KEY)}`;
 
@@ -59,7 +59,7 @@ async function snapshot() {
       try {
         const doc = frame.contentDocument;
         const len = String(doc?.body?.innerText || '').trim().length;
-        if (!best || len > best.len) best = { doc, len };
+        if (!best || len > best.len) best = { frame, doc, len };
       } catch {}
     }
     if (!best?.doc?.body || best.len < 80) return { textLength: best?.len || 0, visibleTokenOrdinal: -1, allTokens: [] };
@@ -68,9 +68,9 @@ async function snapshot() {
     blocks = blocks.filter(el => String(el.tagName || '').toUpperCase() !== 'BLOCKQUOTE' || !el.querySelector('p,li,h1,h2,h3,h4,h5,h6'));
     if (!blocks.length) blocks = [...doc.body.children].filter(el => String(el.innerText || el.textContent || '').trim());
     if (!blocks.length) blocks = [doc.body];
-    const win = doc.defaultView;
-    const w = win?.innerWidth || doc.documentElement.clientWidth || 1;
-    const h = win?.innerHeight || doc.documentElement.clientHeight || 1;
+    const viewer = document.getElementById('viewer');
+    const frameRect = best.frame.getBoundingClientRect();
+    const viewerRect = viewer?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
     const re = /[\p{L}\p{M}\p{N}]+/gu;
     const allTokens = [];
     let visibleTokenOrdinal = -1;
@@ -90,7 +90,11 @@ async function snapshot() {
           if (visibleTokenOrdinal < 0) {
             const range = doc.createRange();
             range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
-            const visible = [...range.getClientRects()].some(r => r.right > 2 && r.left < w - 2 && r.bottom > 2 && r.top < h - 2);
+            const visible = [...range.getClientRects()].some(r => {
+              const left = frameRect.left + r.left, right = frameRect.left + r.right;
+              const top = frameRect.top + r.top, bottom = frameRect.top + r.bottom;
+              return right > viewerRect.left + 2 && left < viewerRect.right - 2 && bottom > viewerRect.top + 2 && top < viewerRect.bottom - 2;
+            });
             if (visible) { visibleTokenOrdinal = ordinal; visibleToken = token; visibleBlockIndex = bi; }
           }
         }
@@ -102,6 +106,10 @@ async function snapshot() {
       visibleTokenOrdinal,
       visibleToken,
       visibleBlockIndex,
+      frameLeft: Math.round(frameRect.left),
+      frameWidth: Math.round(frameRect.width),
+      viewerLeft: Math.round(viewerRect.left),
+      viewerWidth: Math.round(viewerRect.right - viewerRect.left),
       href: window.r3ReaderBridge?.current?.()?.start?.href || null,
       cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null,
     };
@@ -112,12 +120,13 @@ try {
   const nav = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await boot();
   const runtime = nav?.headers()?.['x-r3-reader-runtime'] || '';
-  if (!runtime.includes('v15')) throw new Error(`live Reader is not v15: ${runtime || 'missing header'}`);
-  await page.waitForFunction(() => window.__r3AudioViewportWordV15 === true, null, { timeout: 10000 });
+  if (!runtime.includes('v16')) throw new Error(`live Reader is not v16: ${runtime || 'missing header'}`);
+  await page.waitForFunction(() => window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true, null, { timeout: 10000 });
 
   let candidate = null;
   for (let n = 0; n < 180; n++) {
     const s = await snapshot();
+    if (n < 8 || n % 25 === 0) console.log(JSON.stringify({ phase: 'scan', n, href: s.href, cfi: s.cfi, visibleTokenOrdinal: s.visibleTokenOrdinal, visibleToken: s.visibleToken, frameLeft: s.frameLeft, frameWidth: s.frameWidth, viewerLeft: s.viewerLeft, viewerWidth: s.viewerWidth, tokenCount: s.allTokens.length }));
     if (s.allTokens.length > 120 && s.visibleTokenOrdinal >= 30) { candidate = s; break; }
     await page.evaluate(async () => { if (window.r3ReaderBridge?.next) await window.r3ReaderBridge.next(); });
     await page.waitForTimeout(160);
