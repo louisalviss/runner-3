@@ -8,26 +8,69 @@ const readerUrl = `${CORE_URL}/artifact-library/read?key=${encodeURIComponent(BO
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const consoleErrors = [];
+const failedRequests = [];
+const badResponses = [];
 page.on('pageerror', err => consoleErrors.push(String(err?.stack || err)));
 page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+page.on('requestfailed', req => failedRequests.push({ url: req.url(), error: req.failure()?.errorText || 'failed' }));
+page.on('response', res => { if (res.status() >= 400) badResponses.push({ status: res.status(), url: res.url() }); });
+
+function print(label, value) {
+  console.log(JSON.stringify({ phase: label, ...value }));
+}
 
 try {
   await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForSelector('#r3AudioMain', { timeout: 30000 });
   await page.waitForSelector('#viewer iframe', { timeout: 30000 });
-  await page.waitForFunction(() => {
+
+  let frameReady = false;
+  for (let i = 0; i < 100; i++) {
+    frameReady = await page.evaluate(() => {
+      const f = document.querySelector('#viewer iframe');
+      try { return Boolean(f?.contentDocument?.body?.innerText?.trim()?.length > 80); } catch { return false; }
+    });
+    if (frameReady) break;
+    await page.waitForTimeout(250);
+  }
+
+  const diagnostics = await page.evaluate(() => {
     const f = document.querySelector('#viewer iframe');
-    try { return Boolean(f?.contentDocument?.body?.innerText?.trim()?.length > 80); } catch { return false; }
-  }, null, { timeout: 30000 });
+    let frame = {};
+    try {
+      frame = {
+        src: f?.getAttribute('src') || null,
+        contentDocument: Boolean(f?.contentDocument),
+        readyState: f?.contentDocument?.readyState || null,
+        body: Boolean(f?.contentDocument?.body),
+        textLength: String(f?.contentDocument?.body?.innerText || '').trim().length,
+        bodyHtmlLength: String(f?.contentDocument?.body?.innerHTML || '').length,
+      };
+    } catch (error) {
+      frame = { src: f?.getAttribute('src') || null, accessError: String(error) };
+    }
+    return {
+      frameReady: Boolean(frame && frame.textLength > 80),
+      loadingText: document.getElementById('loading')?.textContent || null,
+      loadingClass: document.getElementById('loading')?.className || null,
+      audio: Boolean(document.getElementById('r3AudioElement')),
+      main: Boolean(document.getElementById('r3AudioMain')),
+      bridge: Boolean(window.r3ReaderBridge),
+      v8Script: Boolean(document.querySelector('script[data-r3-audio-follow-v8="1"]')),
+      runtimeDataset: document.documentElement.dataset.r3AudioFollowRuntime || null,
+      frame,
+    };
+  });
+  print('reader-diagnostics', {
+    diagnostics,
+    consoleErrors: consoleErrors.slice(0, 20),
+    failedRequests: failedRequests.slice(0, 20),
+    badResponses: badResponses.slice(0, 20),
+  });
 
-  const boot = await page.evaluate(() => ({
-    audio: Boolean(document.getElementById('r3AudioElement')),
-    main: Boolean(document.getElementById('r3AudioMain')),
-    bridge: Boolean(window.r3ReaderBridge),
-    v8Script: Boolean(document.querySelector('script[data-r3-audio-follow-v8="1"]')),
-    runtimeDataset: document.documentElement.dataset.r3AudioFollowRuntime || null,
-  }));
+  if (!frameReady) throw new Error('EPUB frame content never became readable in live Chromium');
 
+  const boot = diagnostics;
   const state = await page.evaluate(async ({ id, bookKey }) => {
     const response = await fetch(`/artifact-library/audio?id=${encodeURIComponent(id)}&bookKey=${encodeURIComponent(bookKey)}`, { cache: 'no-store' });
     return { status: response.status, data: await response.json() };
@@ -74,8 +117,8 @@ try {
     };
   });
 
-  const proof = { readerUrl, boot, feature, consoleErrors: consoleErrors.slice(0, 20) };
-  console.log(JSON.stringify(proof));
+  const proof = { readerUrl, boot, feature, consoleErrors: consoleErrors.slice(0, 20), failedRequests: failedRequests.slice(0, 20), badResponses: badResponses.slice(0, 20) };
+  print('runtime-proof', proof);
 
   if (!boot.audio || !boot.main || !boot.v8Script) throw new Error('audio/v8 DOM boot missing');
   if (!boot.bridge) throw new Error('reader bridge missing at runtime');
