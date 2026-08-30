@@ -1,0 +1,56 @@
+name: VPS Runner Emergency Recovery Hosted
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vps-runner-emergency-recovery-hosted.yml'
+      - 'scripts/vps_mailbox_runner_recovery_hosted.py'
+      - 'ops/vps-runner-emergency-recovery.trigger'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vps-runner-emergency-recovery-hosted
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Checkout public recovery client
+        uses: actions/checkout@v4
+
+      - name: Install crypto dependency
+        shell: bash
+        run: python3 -m pip install --disable-pip-version-check --quiet cryptography
+
+      - name: Recover self-hosted runner through encrypted VPS mailbox
+        shell: bash
+        run: python3 scripts/vps_mailbox_runner_recovery_hosted.py
+
+      - name: Enforce sanitized recovery proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f results/vps-mailbox-runner-recovery-public-hosted.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('results/vps-mailbox-runner-recovery-public-hosted.json', encoding='utf-8'))
+          allowed={
+            'observed_at_utc','hosted_producer','source_repo','purpose',
+            'opaque_submit_ok','encrypted_result_roundtrip_ok','codex_task_ok',
+            'transport_ok','worker_exit_zero','error_class'
+          }
+          assert set(p).issubset(allowed), set(p)-allowed
+          assert p.get('opaque_submit_ok') is True, p
+          assert p.get('encrypted_result_roundtrip_ok') is True, p
+          assert p.get('codex_task_ok') is True, p
+          print('PUBLIC_HOSTED_VPS_RUNNER_RECOVERY=PASS')
+          PY
