@@ -22,7 +22,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: 4502c8a8d16751cebbe89650ffb874cfa9a14d00
+      PINNED_SOURCE: 9f56a8c0924ffec26db4c2476ece08875683f36f
     steps:
       - name: Validate Cloudflare deploy credentials
         shell: bash
@@ -32,19 +32,16 @@ jobs:
             test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
             echo "PRESENT:$name"
           done
-
-      - name: Checkout exact Reader v18 source
+      - name: Checkout exact Reader v19 source
         uses: actions/checkout@v4
         with:
           ref: ${{ env.PINNED_SOURCE }}
           fetch-depth: 1
           persist-credentials: false
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Compose canonical mailbox with Reader v18 fall-through
+      - name: Compose canonical mailbox with Reader v19 fall-through
         shell: bash
         run: |
           set -euo pipefail
@@ -61,39 +58,34 @@ jobs:
           cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
           cfg['main']='mailbox-entry.js'
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
-          print('MAILBOX_READER_COMPOSITION=READY')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
-          grep -q 'artifact-library-reader-v18-verified-outer-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
-          grep -q 'saveGuardCount:2' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v19-stable-final-seek-entry.js
+          grep -q 'artifact-library-reader-v19-stable-final-seek-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioStableFinalSeekV19=true' cloudflare/runner3-core/artifact-library-reader-v19-stable-final-seek-entry.js
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
-
-      - name: Deploy pinned Reader v18 Core
+      - name: Deploy pinned Reader v19 Core
         shell: bash
         working-directory: cloudflare/runner3-core
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-
-      - name: Verify live Reader v18 and preserved mailbox surface
+      - name: Verify live Reader v19 and preserved mailbox surface
         shell: bash
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
-          code="$(curl -sS -D /tmp/reader-h.txt -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
-          tr -d '\r' < /tmp/reader-h.txt > /tmp/reader-h.clean
-          if [ "$code" != 200 ]; then cat /tmp/reader-h.clean; head -c 700 /tmp/reader.html; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v18-verified-outer-frozen-anchor$' /tmp/reader-h.clean
-          grep -qi '^x-r3-reader-patch-proof: block+range+prepare+target+save2+finally$' /tmp/reader-h.clean
-          grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' /tmp/reader.html
+          code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+          tr -d '\r' </tmp/h >/tmp/h.clean
+          if [ "$code" != 200 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
+          grep -qi '^x-r3-reader-runtime: v19-stable-final-seek$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v18:block+range+prepare+target+save2+finally;v19:syncguard+finalseek$' /tmp/h.clean
+          grep -q 'window.__r3AudioStableFinalSeekV19=true' /tmp/reader
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
           test "$acode" = 400
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v18.csv")"
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v19.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'PUBLIC_HOSTED_READER_V18_DEPLOY=PASS'
+          echo 'PUBLIC_HOSTED_READER_V19_DEPLOY=PASS'
