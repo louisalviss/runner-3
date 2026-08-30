@@ -146,23 +146,36 @@ jobs:
             }
 
             const now = new Date();
+            const p = vnParts(now);
+            const hour = Number(p.hour);
+            const currentDate = vnDateKey(now);
+            const previousDate = previousVnDateKey(now);
             const requested = (process.env.REQUESTED_TARGET_DATE || '').trim();
             let dateKey;
             let targetDateSource;
+
             if (/^\d{4}-\d{2}-\d{2}$/.test(requested)) {
-              dateKey = requested;
-              targetDateSource = 'workflow_dispatch_input';
+              if (requested === currentDate) {
+                dateKey = requested;
+                targetDateSource = 'workflow_dispatch_input';
+              } else if (requested === previousDate && hour < 3) {
+                dateKey = requested;
+                targetDateSource = 'workflow_dispatch_input_after_midnight_grace';
+              } else {
+                dateKey = currentDate;
+                targetDateSource = 'rejected_stale_workflow_dispatch_input';
+                core.warning(`Rejected stale target_date=${requested}; using ${currentDate}`);
+              }
             } else if (context.eventName === 'schedule') {
-              // The canonical schedule is 20:15 VN. GitHub may start a scheduled
-              // run hours late; if it starts after midnight but before 20:15,
-              // the intended occurrence belongs to the previous Vietnam date.
-              const p = vnParts(now);
-              const minutes = Number(p.hour) * 60 + Number(p.minute);
-              const scheduledMinutes = 20 * 60 + 15;
-              dateKey = minutes < scheduledMinutes ? previousVnDateKey(now) : vnDateKey(now);
-              targetDateSource = 'scheduled_occurrence_20_15_vn';
+              // A delayed scheduled occurrence may claim yesterday only inside
+              // the bounded 00:00-02:59 VN grace window. Later delays become an
+              // early snapshot of the current day rather than rewriting history.
+              dateKey = hour < 3 ? previousDate : currentDate;
+              targetDateSource = hour < 3
+                ? 'scheduled_occurrence_after_midnight_grace'
+                : 'scheduled_occurrence_local_date';
             } else {
-              dateKey = vnDateKey(now);
+              dateKey = currentDate;
               targetDateSource = 'completion_local_date';
             }
 
