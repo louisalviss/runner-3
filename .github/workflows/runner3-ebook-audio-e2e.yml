@@ -1,0 +1,182 @@
+name: Runner3 Ebook Nam Minh E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-ebook-audio-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-ebook-audio-e2e
+  cancel-in-progress: true
+
+jobs:
+  real-epub-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BASE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install browser driver only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.55.0
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME"
+          echo "CHROME_BIN=$CHROME" >> "$GITHUB_ENV"
+          "$CHROME" --version
+
+      - name: Real EPUB chapter to Nam Minh daemon E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { chromium } from 'playwright-core';
+
+          const base = process.env.BASE_URL.replace(/\/$/, '');
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function jsonFetch(url, options = {}) {
+            const response = await fetch(url, { cache: 'no-store', ...options });
+            const text = await response.text();
+            let body;
+            try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 500) }; }
+            if (!response.ok) throw new Error(`${options.method || 'GET'} ${url} -> ${response.status}: ${JSON.stringify(body).slice(0, 600)}`);
+            return { response, body };
+          }
+
+          const listing = (await jsonFetch(`${base}/artifact-library/api/list`)).body;
+          if (listing.ok !== true || !(listing.objects || []).length) throw new Error('Artifact Library has no production EPUB');
+          const book = listing.objects[0];
+          const bookKey = String(book.key || '');
+          if (!bookKey) throw new Error('Production book key missing');
+
+          const browser = await chromium.launch({
+            headless: true,
+            executablePath: process.env.CHROME_BIN,
+            args: ['--no-sandbox', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required'],
+          });
+          const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+          const consoleErrors = [];
+          page.on('pageerror', (error) => consoleErrors.push(String(error)));
+
+          const readerUrl = `${base}/artifact-library/read?key=${encodeURIComponent(bookKey)}`;
+          await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+          await page.waitForSelector('#r3AudioDock', { timeout: 30000 });
+          await page.waitForFunction(() => {
+            const frames = [...document.querySelectorAll('#viewer iframe')];
+            return frames.some((frame) => {
+              try { return String(frame.contentDocument?.body?.innerText || '').trim().length >= 80; }
+              catch { return false; }
+            });
+          }, null, { timeout: 45000 });
+
+          const chapter = await page.evaluate(() => {
+            const frames = [...document.querySelectorAll('#viewer iframe')];
+            let best = null;
+            for (const frame of frames) {
+              try {
+                const doc = frame.contentDocument;
+                const text = String(doc?.body?.innerText || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+                if (text.length < 80) continue;
+                if (!best || text.length > best.text.length) {
+                  const heading = doc.querySelector('h1,h2,h3');
+                  best = { text, title: String(heading?.textContent || doc.title || '').trim(), href: String(frame.getAttribute('src') || '') };
+                }
+              } catch {}
+            }
+            return best;
+          });
+          if (!chapter || chapter.text.length < 80) throw new Error('Could not read a real EPUB chapter from Reader iframe');
+
+          const postPromise = page.waitForResponse(
+            (response) => response.url() === `${base}/artifact-library/audio` && response.request().method() === 'POST',
+            { timeout: 30000 },
+          );
+          await page.click('#r3AudioMain');
+          const postResponse = await postPromise;
+          const created = await postResponse.json();
+          if (![200, 202].includes(postResponse.status())) throw new Error(`Audio create failed ${postResponse.status()}: ${JSON.stringify(created)}`);
+          const id = String(created.id || '');
+          if (!/^ebook-[a-f0-9]{32}$/.test(id)) throw new Error(`Unexpected ebook audio id: ${id}`);
+
+          let state = created;
+          const deadline = Date.now() + 9 * 60 * 1000;
+          while (state.status !== 'ready') {
+            if (state.status === 'error') throw new Error(`Nam Minh daemon returned error: ${state.error || 'unknown'}`);
+            if (Date.now() > deadline) throw new Error(`Timed out waiting for Nam Minh audio; last status=${state.status}`);
+            await sleep(2000);
+            state = (await jsonFetch(`${base}/artifact-library/audio?id=${encodeURIComponent(id)}&bookKey=${encodeURIComponent(bookKey)}`)).body;
+          }
+          if (!state.mediaUrl || !state.timingUrl) throw new Error(`Ready state missing media/timing URL: ${JSON.stringify(state)}`);
+
+          const mediaResponse = await fetch(new URL(state.mediaUrl, base), { headers: { Range: 'bytes=0-7' }, cache: 'no-store' });
+          const mediaBytes = new Uint8Array(await mediaResponse.arrayBuffer());
+          if (mediaResponse.status !== 206) throw new Error(`Audio Range expected 206, got ${mediaResponse.status}`);
+          if (mediaResponse.headers.get('accept-ranges') !== 'bytes') throw new Error('Audio Range header missing');
+          if (mediaBytes.length !== 8) throw new Error(`Audio Range expected 8 bytes, got ${mediaBytes.length}`);
+
+          const timing = (await jsonFetch(new URL(state.timingUrl, base))).body;
+          if (timing.version !== 'edge-word-boundary-v1') throw new Error(`Unexpected timing version: ${timing.version}`);
+          if (!(Number(timing.boundaryCount) > 0) || !(Number(timing.paragraphCount) > 0)) throw new Error(`Timing metadata incomplete: ${JSON.stringify(timing).slice(0, 600)}`);
+
+          await page.waitForFunction(() => {
+            const audio = document.querySelector('#r3AudioElement');
+            return Boolean(audio && audio.src);
+          }, null, { timeout: 30000 });
+          const ui = await page.evaluate(async () => {
+            const audio = document.querySelector('#r3AudioElement');
+            const status = document.querySelector('#r3AudioStatus');
+            try { await audio.play(); } catch {}
+            return {
+              src: audio?.src || '',
+              playbackRate: audio?.playbackRate,
+              paused: audio?.paused,
+              readyState: audio?.readyState,
+              statusText: status?.textContent || '',
+              dockPresent: Boolean(document.querySelector('#r3AudioDock')),
+            };
+          });
+          if (!ui.dockPresent || !ui.src.includes('/artifact-library/audio/media')) throw new Error(`Reader audio UI did not bind media: ${JSON.stringify(ui)}`);
+          if (Number(ui.playbackRate) !== 1) throw new Error(`Unexpected initial playback rate: ${ui.playbackRate}`);
+          if (consoleErrors.length) throw new Error(`Reader browser JS errors: ${consoleErrors.join(' | ').slice(0, 1200)}`);
+
+          console.log(JSON.stringify({
+            ok: true,
+            proof: 'REAL_EPUB_TO_NAM_MINH_READY',
+            bookKey,
+            bookTitle: book.title || null,
+            chapterTitle: chapter.title || null,
+            chapterChars: chapter.text.length,
+            audioId: id,
+            status: state.status,
+            voice: state.voice,
+            voiceRate: state.voiceRate,
+            durationSeconds: state.durationSeconds,
+            rangeStatus: mediaResponse.status,
+            rangeBytes: mediaBytes.length,
+            timingVersion: timing.version,
+            boundaryCount: timing.boundaryCount,
+            paragraphCount: timing.paragraphCount,
+            readerDock: ui.dockPresent,
+            readerMediaBound: true,
+            playbackRate: ui.playbackRate,
+            readyState: ui.readyState,
+            pausedAfterPlayAttempt: ui.paused,
+            statusText: ui.statusText,
+          }, null, 2));
+          await browser.close();
+          NODE
