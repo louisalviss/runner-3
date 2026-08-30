@@ -1,0 +1,114 @@
+name: Ebook Reader Audio Rearm Current
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ebook-reader-audio-rearm-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-ebook-reader-audio
+  cancel-in-progress: false
+
+jobs:
+  rearm-and-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      EBOOK_AUDIO_BUCKET: runner3-wp-media
+      EBOOK_AUDIO_VOICE: vi-VN-NamMinhNeural
+      EBOOK_AUDIO_VOICE_RATE: +3%
+      EBOOK_AUDIO_JOB_ID: ebook-e8ffbf008a491c2c0657cd811530f80d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Inspect and re-arm exact failed job
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests
+          python - <<'PY'
+          import json, os
+          from urllib.parse import quote
+          import requests
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          bucket=os.environ['EBOOK_AUDIO_BUCKET']
+          job=os.environ['EBOOK_AUDIO_JOB_ID']
+          base=f"https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets/{quote(bucket,safe='')}/objects"
+          headers={'Authorization':f'Bearer {token}'}
+          def url(key): return base+'/'+quote(key,safe='/')
+          def get(key):
+              r=requests.get(url(key),headers=headers,timeout=90)
+              if r.status_code==404: return None
+              r.raise_for_status(); return r
+          def put_json(key,value):
+              r=requests.put(url(key),headers={**headers,'Content-Type':'application/json'},data=json.dumps(value,separators=(',',':')).encode(),timeout=90)
+              r.raise_for_status()
+          item_key=f'audio-library/items/{job}.json'
+          queue_key=f'audio-library/ebook-reader-queue/{job}.json'
+          item_response=get(item_key)
+          if item_response is None: raise SystemExit('ITEM_NOT_FOUND')
+          item=item_response.json()
+          script_key=str(item.get('mediaPrefix') or f'audio-library/media/{job}/')+'script.txt'
+          script=get(script_key)
+          queue_response=get(queue_key)
+          print(json.dumps({'phase':'before-rearm','jobId':job,'status':item.get('status'),'queueExists':queue_response is not None,'scriptExists':script is not None,'bookKey':item.get('bookKey'),'error':str(item.get('error') or '')[:180]},ensure_ascii=False))
+          if script is None: raise SystemExit('SCRIPT_NOT_FOUND')
+          queue={
+              'id':job,'kind':'ebook-reader','bookKey':item.get('bookKey'),'itemKey':item_key,'scriptKey':script_key,
+              'mediaPrefix':item.get('mediaPrefix') or f'audio-library/media/{job}/','audioVersion':item.get('audioVersion'),
+              'voice':item.get('voice'),'voiceRate':item.get('voiceRate'),'textSha256':item.get('textSha256'),
+              'createdAt':item.get('createdAt'),'workerStatus':'pending','attempts':0,'leaseUntil':None,'lastError':None,
+          }
+          item['status']='pending'; item['error']=None
+          put_json(item_key,item); put_json(queue_key,queue)
+          print(json.dumps({'phase':'rearmed','jobId':job,'status':'pending','attempts':0},ensure_ascii=False))
+          PY
+
+      - name: Install current Edge TTS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests edge-tts==7.2.8
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          python -m pip show edge-tts | grep '^Version:'
+
+      - name: Render exact job
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ebook_reader_audio_tts_v2.py
+
+      - name: Verify exact job ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from urllib.parse import quote
+          import requests
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; bucket=os.environ['EBOOK_AUDIO_BUCKET']; job=os.environ['EBOOK_AUDIO_JOB_ID']
+          key=f'audio-library/items/{job}.json'
+          url=f"https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets/{quote(bucket,safe='')}/objects/{quote(key,safe='/')}"
+          r=requests.get(url,headers={'Authorization':f'Bearer {token}'},timeout=90); r.raise_for_status(); item=r.json()
+          proof={'jobId':job,'status':item.get('status'),'durationSeconds':item.get('durationSeconds'),'timingUrl':bool(item.get('timingUrl')),'audioUrl':bool(item.get('audioUrl')),'error':item.get('error')}
+          print(json.dumps(proof,ensure_ascii=False))
+          if item.get('status')!='ready' or not item.get('audioUrl') or not item.get('timingUrl'): raise SystemExit(1)
+          PY
