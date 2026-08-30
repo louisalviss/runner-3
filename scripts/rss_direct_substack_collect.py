@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Collect Hồ Quốc Tuấn and vnhacker as first-class Runner sources.
 
-GitHub-hosted runners receive 403 from the public `/feed` endpoint for these
-Substacks. The publication archive API remains public and exposes canonical post
-metadata, so this collector uses that API as the primary transport and persists
-normal Runner mirrors. This removes the old manual direct-verification gap.
+GitHub-hosted runners are blocked (403) by these Substack publication endpoints.
+We therefore try the canonical publication archive API directly first, then use
+Jina Reader only as a live no-cache egress relay for the exact API URL. Relay
+text is accepted only when it parses back into the expected non-empty JSON list.
+The resulting canonical post metadata is persisted as normal Runner mirrors.
 """
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 import requests
 import rss_reader_collect_v2 as hardened
@@ -34,16 +34,8 @@ SESSION.headers.update({
 })
 
 SOURCES = [
-    {
-        "key": "hoquoctuan",
-        "name": "Hồ Quốc Tuấn",
-        "publication": "https://hoquoctuan.substack.com",
-    },
-    {
-        "key": "vnhacker",
-        "name": "vnhacker",
-        "publication": "https://vnhacker.substack.com",
-    },
+    {"key": "hoquoctuan", "name": "Hồ Quốc Tuấn", "publication": "https://hoquoctuan.substack.com"},
+    {"key": "vnhacker", "name": "vnhacker", "publication": "https://vnhacker.substack.com"},
 ]
 
 
@@ -56,6 +48,81 @@ def load_json(path, default):
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def _validate_archive_payload(payload):
+    if not isinstance(payload, list) or not payload:
+        raise RuntimeError("archive payload is not a non-empty list")
+    return payload
+
+
+def _extract_relay_json(text):
+    raw = (text or "").strip()
+    candidates = [raw]
+    first = raw.find("[")
+    last = raw.rfind("]")
+    if first >= 0 and last > first:
+        candidates.append(raw[first:last + 1])
+    errors = []
+    for candidate in candidates:
+        try:
+            return _validate_archive_payload(json.loads(candidate))
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+    raise RuntimeError("live relay did not return parseable archive JSON; " + " | ".join(errors))
+
+
+def _fetch_archive_payload(archive_url, limit, attempts):
+    params = {"sort": "new", "limit": limit}
+    target_url = requests.Request("GET", archive_url, params=params).prepare().url
+
+    try:
+        response = SESSION.get(archive_url, params=params, timeout=TIMEOUT, allow_redirects=True)
+        attempts.append({
+            "transport": "substack-archive-api-direct",
+            "url": response.url,
+            "status": response.status_code,
+        })
+        response.raise_for_status()
+        return _validate_archive_payload(response.json()), response.url, "substack-archive-api-direct"
+    except Exception as exc:
+        attempts.append({
+            "transport": "substack-archive-api-direct",
+            "url": target_url,
+            "error": f"{type(exc).__name__}: {exc}",
+        })
+
+    relay_url = "https://r.jina.ai/" + target_url
+    try:
+        response = SESSION.get(
+            relay_url,
+            timeout=TIMEOUT,
+            allow_redirects=True,
+            headers={
+                "Accept": "text/plain, */*",
+                "X-No-Cache": "true",
+                "DNT": "1",
+                "X-Respond-With": "text",
+            },
+        )
+        attempts.append({
+            "transport": "jina-live-relay",
+            "targetUrl": target_url,
+            "status": response.status_code,
+            "relayNoCache": True,
+            "relayDNT": True,
+        })
+        response.raise_for_status()
+        return _extract_relay_json(response.text), target_url, "jina-live-relay"
+    except Exception as exc:
+        attempts.append({
+            "transport": "jina-live-relay",
+            "targetUrl": target_url,
+            "relayNoCache": True,
+            "relayDNT": True,
+            "error": f"{type(exc).__name__}: {exc}",
+        })
+        raise
 
 
 def _post_url(source, post):
@@ -96,19 +163,10 @@ def _description(post):
 def fetch_archive(source):
     archive_url = source["publication"].rstrip("/") + "/api/v1/archive"
     attempts = []
+    errors = []
     for limit in (50, 25, 10):
         try:
-            response = SESSION.get(
-                archive_url,
-                params={"sort": "new", "limit": limit},
-                timeout=TIMEOUT,
-                allow_redirects=True,
-            )
-            attempts.append({"transport": "substack-archive-api", "url": response.url, "status": response.status_code})
-            response.raise_for_status()
-            payload = response.json()
-            if not isinstance(payload, list) or not payload:
-                raise RuntimeError("archive payload is not a non-empty list")
+            payload, final_url, transport = _fetch_archive_payload(archive_url, limit, attempts)
             items = []
             for post in payload:
                 if not isinstance(post, dict):
@@ -136,10 +194,10 @@ def fetch_archive(source):
             items = base.dedupe_fresh_items(items)
             if not items:
                 raise RuntimeError("archive returned no parseable posts")
-            return items, response.url, attempts
+            return items, final_url, attempts, transport
         except Exception as exc:
-            attempts.append({"transport": "substack-archive-api", "url": archive_url, "limit": limit, "error": f"{type(exc).__name__}: {exc}"})
-    raise RuntimeError(json.dumps(attempts, ensure_ascii=False))
+            errors.append(f"limit={limit}: {type(exc).__name__}: {exc}")
+    raise RuntimeError("archive collection failed; " + " | ".join(errors) + "; attempts=" + json.dumps(attempts, ensure_ascii=False))
 
 
 def collect_one(source):
@@ -147,14 +205,14 @@ def collect_one(source):
     path = SOURCES_ROOT / f"{key}.json"
     old = load_json(path, {})
     old_items = old.get("items") or []
-    fresh_items, final_url, attempts = fetch_archive(source)
+    fresh_items, final_url, attempts, transport = fetch_archive(source)
     merged = base.merge_items(old_items, fresh_items)
     newest = merged[0].get("publishedAt") if merged else None
-    transport = "substack-archive-api"
+    mirror_transport = "substack-archive-api"
     content_changed = (
         not old
         or old.get("items") != merged
-        or old.get("transport") != transport
+        or old.get("transport") != mirror_transport
         or old.get("finalFeedUrl") != final_url
     )
     if content_changed:
@@ -162,7 +220,8 @@ def collect_one(source):
             "source": source["name"],
             "sourceKey": key,
             "collector": "runner-3",
-            "transport": transport,
+            "transport": mirror_transport,
+            "fetchTransport": transport,
             "feedUrl": source["publication"].rstrip("/") + "/api/v1/archive",
             "finalFeedUrl": final_url,
             "lastContentChangeAt": now_iso(),
@@ -175,7 +234,8 @@ def collect_one(source):
         base.write_json(path, mirror)
     return {
         "ok": True,
-        "transport": transport,
+        "transport": mirror_transport,
+        "fetchTransport": transport,
         "checkedAt": now_iso(),
         "contentChanged": content_changed,
         "newestPublishedAt": newest,
@@ -188,7 +248,7 @@ def collect_one(source):
 def main():
     SOURCES_ROOT.mkdir(parents=True, exist_ok=True)
     health = {
-        "version": 2,
+        "version": 3,
         "collector": "runner-3",
         "scope": "2-substack-archive-api-sources",
         "runStartedAt": now_iso(),
