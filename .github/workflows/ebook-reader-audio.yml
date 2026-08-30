@@ -58,7 +58,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -q requests edge-tts==7.2.1
+          python -m pip install -q requests edge-tts==7.2.8
+          python - <<'PY'
+          import edge_tts
+          print('EDGE_TTS_VERSION=' + str(getattr(edge_tts, '__version__', '7.2.8')))
+          PY
           if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
             sudo apt-get update -qq
             sudo apt-get install -y -qq ffmpeg
