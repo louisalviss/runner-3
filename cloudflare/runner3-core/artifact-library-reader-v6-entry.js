@@ -45,7 +45,7 @@ function patchEbookAudio(html) {
       try{
         const doc=frame.contentDocument;
         const body=doc&&doc.body;
-        const text=(body&&body.innerText||'').replace(/\r/g,'').replace(/\n{3,}/g,'\n\n').trim();
+        const text=String(body&&body.innerText||'').trim();
         if(text.length<80)continue;
         if(!best||text.length>best.text.length){
           const heading=doc.querySelector('h1,h2,h3');
