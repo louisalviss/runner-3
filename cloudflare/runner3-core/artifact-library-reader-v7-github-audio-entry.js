@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v15-viewport-word-sync-entry.js";
+import app from "./artifact-library-reader-v16-outer-viewport-geometry-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
