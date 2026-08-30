@@ -33,7 +33,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: runner3-ai-rss-reader-${{ github.event_name == 'push' && github.sha || 'scheduled' }}
+  group: runner3-ai-rss-reader
   cancel-in-progress: true
 
 jobs:
@@ -154,11 +154,11 @@ jobs:
           for attempt in 1 2 3 4 5; do
             echo "persist attempt=$attempt"
             git fetch origin main
-            git rebase origin/main
-            if git push origin HEAD:main; then
+            if git rebase origin/main && git push origin HEAD:main; then
               echo "RSS persistence succeeded on attempt=$attempt"
               exit 0
             fi
+            git rebase --abort >/dev/null 2>&1 || true
             sleep $((attempt * 2))
           done
           echo "RSS persistence failed after 5 attempts" >&2
@@ -268,10 +268,10 @@ jobs:
           for attempt in 1 2 3 4 5; do
             echo "analysis persistence attempt=$attempt"
             git fetch origin main
-            git rebase origin/main
-            if git push origin HEAD:main; then
+            if git rebase origin/main && git push origin HEAD:main; then
               exit 0
             fi
+            git rebase --abort >/dev/null 2>&1 || true
             sleep $((attempt * 2))
           done
           exit 1
