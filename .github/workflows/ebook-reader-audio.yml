@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/ebook_reader_audio_tts.py'
+      - 'scripts/ebook_reader_audio_tts_v2.py'
       - 'scripts/ebook_reader_audio_r2_e2e.py'
       - '.github/workflows/ebook-reader-audio.yml'
       - '.github/workflows/ebook-reader-audio-r2-e2e.yml'
@@ -60,4 +61,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/ebook_reader_audio_tts.py
+          python scripts/ebook_reader_audio_tts_v2.py
