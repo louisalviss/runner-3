@@ -59,7 +59,7 @@ const MARKER_OLD = `  window.__r3AudioViewportWordV15=true;
 `;
 const MARKER_NEW = `  window.__r3AudioViewportWordV15=true;
   window.__r3AudioVerifiedOuterAnchorV18=true;
-  window.__r3AudioV18Debug={patches:{blockVisible:true,rangeVisible:true,prepareStart:true,prepareTarget:true,saveGuard:true,finallyGuard:true},captured:null,target:null};
+  window.__r3AudioV18Debug={patches:{blockVisible:true,rangeVisible:true,prepareStart:true,prepareTarget:true,saveGuardCount:2,finallyGuard:true},captured:null,target:null};
   function captureViewportAnchorV18(){
     const payload=framePayload();
     if(!payload)return null;
@@ -137,11 +137,17 @@ const FINALLY_OLD = `    }finally{if(seq===requestSeq)busy=false;}
 const FINALLY_NEW = `    }finally{window.__r3AudioAnchorApplyingV18=false;if(seq===requestSeq)busy=false;}
   }`;
 
+function countOccurrences(source, needle) {
+  let count=0,offset=0;
+  while(true){const at=source.indexOf(needle,offset);if(at<0)return count;count++;offset=at+needle.length;}
+}
+function replaceExactlyCount(source, needle, replacement, expected, label) {
+  const count=countOccurrences(source,needle);
+  if(count!==expected)throw new Error(`READER_V18_PATCH_COUNT:${label}:expected=${expected}:actual=${count}`);
+  return source.split(needle).join(replacement);
+}
 function replaceExactlyOnce(source, needle, replacement, label) {
-  const first = source.indexOf(needle);
-  if (first < 0) throw new Error(`READER_V18_PATCH_MISSING:${label}`);
-  if (source.indexOf(needle, first + needle.length) >= 0) throw new Error(`READER_V18_PATCH_AMBIGUOUS:${label}`);
-  return source.slice(0, first) + replacement + source.slice(first + needle.length);
+  return replaceExactlyCount(source,needle,replacement,1,label);
 }
 
 function patchVerifiedOuterAnchor(html) {
@@ -152,7 +158,7 @@ function patchVerifiedOuterAnchor(html) {
   out=replaceExactlyOnce(out,MARKER_OLD,MARKER_NEW,'markerHelpers');
   out=replaceExactlyOnce(out,PREPARE_START_OLD,PREPARE_START_NEW,'prepareStart');
   out=replaceExactlyOnce(out,PREPARE_TARGET_OLD,PREPARE_TARGET_NEW,'prepareTarget');
-  out=replaceExactlyOnce(out,SAVE_OLD,SAVE_NEW,'saveGuard');
+  out=replaceExactlyCount(out,SAVE_OLD,SAVE_NEW,2,'saveGuard');
   out=replaceExactlyOnce(out,FINALLY_OLD,FINALLY_NEW,'finallyGuard');
   return out;
 }
@@ -170,7 +176,7 @@ export default {
       headers.delete("Content-Length");
       headers.set("X-Robots-Tag",ROBOTS);
       headers.set("X-R3-Reader-Runtime","v18-verified-outer-frozen-anchor");
-      headers.set("X-R3-Reader-Patch-Proof","block+range+prepare+target+save+finally");
+      headers.set("X-R3-Reader-Patch-Proof","block+range+prepare+target+save2+finally");
       return new Response(updated,{status:response.status,headers});
     }catch(error){
       console.error('Reader v18 patch failed',String(error&&error.message||error));
