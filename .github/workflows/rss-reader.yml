@@ -6,14 +6,20 @@ on:
     paths:
       - ".github/workflows/rss-reader.yml"
       - "scripts/rss_reader_run.py"
+      - "scripts/rss_reader_run_v2.py"
       - "scripts/rss_reader_collect.py"
       - "scripts/rss_reader_collect_v2.py"
+      - "scripts/rss_direct_substack_collect.py"
       - "scripts/rss_substack_collect.py"
       - "scripts/rss_substack_collect_v2.py"
       - "scripts/rss_render_inventory.py"
+      - "scripts/rss_render_inventory_v2.py"
       - "scripts/rss_kept_manifest.py"
+      - "scripts/rss_kept_manifest_v2.py"
       - "scripts/rss_manifest_finalize.py"
+      - "scripts/rss_manifest_finalize_v2.py"
       - "scripts/rss_render_snapshot.py"
+      - "scripts/rss_render_snapshot_v2.py"
       - "scripts/rss_selected_fetch.py"
       - "scripts/rss_d1_shadow.py"
       - "scripts/content_intelligence_client.py"
@@ -52,12 +58,12 @@ jobs:
       - name: Install collector dependencies
         run: python -m pip install --disable-pip-version-check -q "requests>=2.32,<3" "beautifulsoup4>=4.12,<5"
 
-      - name: Run canonical RSS ingestion gate
+      - name: Run canonical Runner15 RSS ingestion gate
         id: rss
         continue-on-error: true
-        run: python scripts/rss_reader_run.py
+        run: python scripts/rss_reader_run_v2.py
 
-      - name: Build render source-accounting inventories
+      - name: Build Runner15 render source-accounting inventories
         id: render_inventory
         if: always() && steps.checkout.outcome == 'success'
         shell: bash
@@ -66,32 +72,32 @@ jobs:
           export TZ=Asia/Ho_Chi_Minh
           today="$(date +%F)"
           yesterday="$(date -d 'yesterday' +%F)"
-          python scripts/rss_render_inventory.py --date "$today" --out data/rss-reader/render-inventory-today.json
-          python scripts/rss_render_inventory.py --date "$yesterday" --out data/rss-reader/render-inventory-yesterday.json
+          python scripts/rss_render_inventory_v2.py --date "$today" --out data/rss-reader/render-inventory-today.json
+          python scripts/rss_render_inventory_v2.py --date "$yesterday" --out data/rss-reader/render-inventory-yesterday.json
 
-      - name: Build reconciled Runner13 kept manifests
+      - name: Build reconciled Runner15 kept manifests
         id: kept_manifest
         if: always() && steps.render_inventory.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/rss_kept_manifest.py --inventory data/rss-reader/render-inventory-today.json --out data/rss-reader/kept-manifest-today.json
-          python scripts/rss_kept_manifest.py --inventory data/rss-reader/render-inventory-yesterday.json --out data/rss-reader/kept-manifest-yesterday.json
+          python scripts/rss_kept_manifest_v2.py --inventory data/rss-reader/render-inventory-today.json --out data/rss-reader/kept-manifest-today.json
+          python scripts/rss_kept_manifest_v2.py --inventory data/rss-reader/render-inventory-yesterday.json --out data/rss-reader/kept-manifest-yesterday.json
 
-      - name: Finalize replay-safe manifests and archive day snapshots
+      - name: Finalize replay-safe Runner15 manifests and archive day snapshots
         id: replay_manifest
         if: always() && steps.kept_manifest.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/rss_manifest_finalize.py --self-test
-          python scripts/rss_render_snapshot.py --self-test
-          python scripts/rss_manifest_finalize.py \
+          python scripts/rss_manifest_finalize_v2.py --self-test
+          python scripts/rss_render_snapshot_v2.py --self-test
+          python scripts/rss_manifest_finalize_v2.py \
             --manifest data/rss-reader/kept-manifest-today.json \
             --out data/rss-reader/kept-manifest-today.json \
             --archive-root data/rss-reader/manifests \
             --archive-mode latest
-          python scripts/rss_manifest_finalize.py \
+          python scripts/rss_manifest_finalize_v2.py \
             --manifest data/rss-reader/kept-manifest-yesterday.json \
             --out data/rss-reader/kept-manifest-yesterday.json \
             --archive-root data/rss-reader/manifests \
@@ -115,6 +121,7 @@ jobs:
           path: |
             data/rss-reader/health.json
             data/rss-reader/substack-health.json
+            data/rss-reader/direct-substack-health.json
             data/rss-reader/runtime-health.json
             data/rss-reader/render-inventory-today.json
             data/rss-reader/render-inventory-yesterday.json
@@ -134,7 +141,7 @@ jobs:
 
           git add data/rss-reader/sources/
           [[ -d data/rss-reader/manifests ]] && git add data/rss-reader/manifests/
-          for f in health.json substack-health.json runtime-health.json render-inventory-today.json render-inventory-yesterday.json kept-manifest-today.json kept-manifest-yesterday.json; do
+          for f in health.json substack-health.json direct-substack-health.json runtime-health.json render-inventory-today.json render-inventory-yesterday.json kept-manifest-today.json kept-manifest-yesterday.json; do
             [[ -f "data/rss-reader/$f" ]] && git add "data/rss-reader/$f"
           done
 
