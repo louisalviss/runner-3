@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v18:
+  deploy-v19:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,13 +29,13 @@ jobs:
           done
       - uses: actions/checkout@v4
         with:
-          ref: 4502c8a8d16751cebbe89650ffb874cfa9a14d00
+          ref: 9f56a8c0924ffec26db4c2476ece08875683f36f
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v18
+      - name: Compose canonical mailbox with Reader v19
         shell: bash
         run: |
           set -euo pipefail
@@ -54,18 +54,17 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
-          grep -q 'artifact-library-reader-v18-verified-outer-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
-          grep -q 'saveGuardCount:2' cloudflare/runner3-core/artifact-library-reader-v18-verified-outer-anchor-entry.js
-      - name: Deploy Reader v18 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v19-stable-final-seek-entry.js
+          grep -q 'artifact-library-reader-v19-stable-final-seek-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioStableFinalSeekV19=true' cloudflare/runner3-core/artifact-library-reader-v19-stable-final-seek-entry.js
+      - name: Deploy Reader v19 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v18 live before browser proof
+      - name: Verify v19 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
@@ -75,20 +74,17 @@ jobs:
           tr -d '\r' </tmp/h >/tmp/h.clean
           echo "READER_HTTP=$code"
           cat /tmp/h.clean
-          echo '--- reader body prefix ---'
-          head -c 700 /tmp/reader || true
-          echo
-          test "$code" = 200
-          grep -qi '^x-r3-reader-runtime: v18-verified-outer-frozen-anchor$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: block+range+prepare+target+save2+finally$' /tmp/h.clean
-          grep -q 'window.__r3AudioVerifiedOuterAnchorV18=true' /tmp/reader
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v18.csv")"
+          if [ "$code" != 200 ]; then head -c 700 /tmp/reader; exit 1; fi
+          grep -qi '^x-r3-reader-runtime: v19-stable-final-seek$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v18:block+range+prepare+target+save2+finally;v19:syncguard+finalseek$' /tmp/h.clean
+          grep -q 'window.__r3AudioStableFinalSeekV19=true' /tmp/reader
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v19.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V18_LIVE=PASS'
+          echo 'READER_V19_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v18
+    needs: deploy-v19
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -99,18 +95,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt exact browser proof to v18
+      - name: Adapt exact browser proof to v19
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v18';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v18')")
-          s=s.replace('live Reader is not v16:','live Reader is not v18:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v19';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v19')")
+          s=s.replace('live Reader is not v16:','live Reader is not v19:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioVerifiedOuterAnchorV18 === true'
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioStableFinalSeekV19 === true'
           if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
           old_return="return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), saved, active, cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null };"
@@ -119,8 +115,8 @@ jobs:
           s=s.replace(old_return,new_return,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v18" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioVerifiedOuterAnchorV18" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "seek-smoke-v19" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioStableFinalSeekV19" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "__r3AudioV18Debug" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
@@ -129,4 +125,4 @@ jobs:
       - name: Prove viewport-word seek, page follow and refresh resume
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v18 fail-closed outer geometry + dual save guard + frozen viewport anchor + refresh resume production proof
+# v19 stable final seek + outer geometry + frozen viewport anchor + refresh resume production proof
