@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/runner3-core/**'
+      - 'scripts/ebook_reader_audio_tts.py'
+      - '.github/workflows/ebook-reader-audio.yml'
       - '.github/scripts/runner3_core_deploy_smoke.py'
       - '.github/workflows/runner3-core-deploy.yml'
 
@@ -40,9 +42,12 @@ jobs:
           node --check cloudflare/runner3-core/reader-media-entry.js
           node --check cloudflare/runner3-core/reddit-entry.js
           node --check cloudflare/runner3-core/rss-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v6-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
           node --check cloudflare/runner3-core/src/audio-media.js
           node --check cloudflare/runner3-core/src/rss-reader-plus.js
           node --check cloudflare/runner3-core/src/rss-reader-audio.js
+          node --check cloudflare/runner3-core/src/ebook-reader-audio.js
           node --check cloudflare/runner3-core/src/rss-library-page-v2.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v3.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v4.js
@@ -51,6 +56,7 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-page-v7.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v8.js
           node --check cloudflare/runner3-core/src/index.js
+          python3 -m py_compile scripts/ebook_reader_audio_tts.py
           grep -q 'renderReaderArticlePageV8' cloudflare/runner3-core/reader-media-entry.js
           ! grep -q 'renderReaderArticlePageV7(request, url)' cloudflare/runner3-core/reader-media-entry.js
           grep -q 'vi-VN-NamMinhNeural' cloudflare/runner3-core/src/rss-reader-audio.js
@@ -60,6 +66,9 @@ jobs:
           grep -q 'mediaUrl' cloudflare/runner3-core/src/rss-reader-audio.js
           grep -q 'nam-minh-v8' cloudflare/runner3-core/src/rss-reader-page-v8.js
           grep -q 'cloneNode(true)' cloudflare/runner3-core/src/rss-reader-page-v8.js
+          grep -q 'audio-library/ebook-reader-queue/' cloudflare/runner3-core/src/ebook-reader-audio.js
+          grep -q 'repository_dispatch' .github/workflows/ebook-reader-audio.yml
+          grep -q 'WordBoundary' scripts/ebook_reader_audio_tts.py
           node --input-type=module - <<'NODE'
           import { handleRssReaderPlus } from './cloudflare/runner3-core/src/rss-reader-plus.js';
           import { handleRssReaderAudio } from './cloudflare/runner3-core/src/rss-reader-audio.js';
@@ -190,13 +199,13 @@ jobs:
           p='cloudflare/runner3-core/wrangler.jsonc'
           d=json.load(open(p,encoding='utf-8'))
           assert d.get('name') == 'runner3-core'
-          assert d.get('main') == 'opaque-mailbox-entry-v2.js'
+          assert d.get('main') == 'artifact-library-reader-v7-github-audio-entry.js'
           assert d.get('d1_databases')
           buckets={x.get('binding'):x.get('bucket_name') for x in d.get('r2_buckets',[])}
           assert buckets.get('ARTIFACTS') == 'runner3-artifacts'
           assert buckets.get('AUDIO_MEDIA') == 'runner3-wp-media'
           print('Runner3 Core source validation OK')
-          print('Entry chain: opaque-mailbox-v2 -> mailbox -> audio -> reader-media')
+          print('Entry chain: reader-v7-github-audio -> reader-v6 -> reader-v5')
           print('Production deploy owner: private louisalviss/vps-control')
-          print('RSS audio: Nam Minh -> isolated v8 player -> ticketed byte-range stream')
+          print('Ebook audio: Core queue -> repository_dispatch -> GitHub-hosted Nam Minh TTS -> R2')
           PY
