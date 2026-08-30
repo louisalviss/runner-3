@@ -1,4 +1,4 @@
-reader-v18-verified-outer-frozen-anchor
-source=4502c8a8d16751cebbe89650ffb874cfa9a14d00
-requested_at=2026-08-31T06:06:00+07:00
-attempt=dual-save-guard
+reader-v19-stable-final-seek
+source=9f56a8c0924ffec26db4c2476ece08875683f36f
+requested_at=2026-08-31T06:11:00+07:00
+attempt=sync-guard-final-seek
