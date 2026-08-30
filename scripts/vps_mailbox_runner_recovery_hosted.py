@@ -70,9 +70,7 @@ def main() -> int:
         if not TOKEN:
             raise RuntimeError("token_missing")
         request_id = "m_" + secrets.token_hex(16)
-        vps_pub, fingerprint = mailbox_public_key()
-        proof["request_id"] = request_id
-        proof["mailbox_public_key_fingerprint"] = fingerprint
+        vps_pub, _fingerprint = mailbox_public_key()
 
         reply_priv = rsa.generate_private_key(public_exponent=65537, key_size=3072)
         reply_der = reply_priv.public_key().public_bytes(
@@ -168,21 +166,19 @@ def main() -> int:
                 and transport.get("flow") == "codex-task"
             )
             proof["codex_task_ok"] = transport.get("ok") is True and worker.get("ok") is True
-            proof["transport_ok"] = transport.get("ok")
-            proof["worker_exit_code"] = transport.get("exit_code")
-            proof["worker_result"] = worker
-            proof["transport_stderr_tail"] = str(transport.get("stderr_tail") or "")[-2000:]
+            proof["transport_ok"] = transport.get("ok") is True
+            proof["worker_exit_zero"] = transport.get("exit_code") in (None, 0)
             break
         else:
             raise TimeoutError("mailbox runner recovery result timeout")
     except Exception as exc:
-        proof["error"] = f"{type(exc).__name__}: {str(exc)[:1000]}"
+        proof["error_class"] = type(exc).__name__
 
     out = pathlib.Path("results/vps-mailbox-runner-recovery-public-hosted.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(proof, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(proof, ensure_ascii=False, indent=2))
-    return 0 if proof.get("encrypted_result_roundtrip_ok") is True else 1
+    print(json.dumps(proof, ensure_ascii=False, separators=(",", ":")))
+    return 0 if proof.get("encrypted_result_roundtrip_ok") is True and proof.get("codex_task_ok") is True else 1
 
 
 if __name__ == "__main__":
