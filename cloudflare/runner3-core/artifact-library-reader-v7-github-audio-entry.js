@@ -1,10 +1,30 @@
-import app from "./artifact-library-reader-v6-audio-entry.js";
+import app from "./artifact-library-reader-v6-entry.js";
 
 const DISPATCH_EVENT = "ebook_reader_audio";
 const DISPATCH_URL = "https://api.github.com/repos/louisalviss/runner-3/dispatches";
-const AUDIO_POST_RE = /^\/artifact-library\/api\/audio\/([a-f0-9]{32})$/;
+const AUDIO_POST_PATH = "/artifact-library/audio";
+const LEGACY_QUEUE_PREFIX = "audio-library/rss-reader-queue/";
+const EBOOK_QUEUE_PREFIX = "audio-library/ebook-reader-queue/";
+const ID_RE = /^ebook-[a-f0-9]{32}$/;
 
-async function dispatchAudioJob(env, shortId) {
+async function migrateQueue(env, id) {
+  if (!env.AUDIO_MEDIA || !ID_RE.test(id)) return false;
+  const nextKey = `${EBOOK_QUEUE_PREFIX}${id}.json`;
+  if (await env.AUDIO_MEDIA.head(nextKey)) return true;
+
+  const legacyKey = `${LEGACY_QUEUE_PREFIX}${id}.json`;
+  const legacy = await env.AUDIO_MEDIA.get(legacyKey);
+  if (!legacy) return false;
+  const queue = await legacy.text();
+  await env.AUDIO_MEDIA.put(nextKey, queue, {
+    httpMetadata: { contentType: "application/json; charset=utf-8" },
+    customMetadata: { scope: "ebook-reader-audio" },
+  });
+  await env.AUDIO_MEDIA.delete(legacyKey);
+  return true;
+}
+
+async function dispatchAudioJob(env, id) {
   const token = String(env.EBOOK_AUDIO_GITHUB_TOKEN || "").trim();
   if (!token) {
     console.warn("EBOOK_AUDIO_GITHUB_TOKEN missing; scheduled GitHub queue sweep will recover the job");
@@ -24,7 +44,7 @@ async function dispatchAudioJob(env, shortId) {
       event_type: DISPATCH_EVENT,
       client_payload: {
         schema_version: 1,
-        job_id: `ebook-${shortId}`,
+        job_id: id,
       },
     }),
   });
@@ -39,21 +59,27 @@ async function dispatchAudioJob(env, shortId) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const match = request.method === "POST" ? url.pathname.match(AUDIO_POST_RE) : null;
+    const isAudioPost = request.method === "POST" && url.pathname === AUDIO_POST_PATH;
     const response = await app.fetch(request, env, ctx);
+    if (!isAudioPost || !response.ok) return response;
 
-    if (!match || !response.ok) return response;
-
+    let state;
     try {
-      const state = await response.clone().json();
-      if (state?.status !== "pending") return response;
+      state = await response.clone().json();
     } catch {
       return response;
     }
+    const id = String(state?.id || "");
+    if (state?.status !== "pending" || !ID_RE.test(id)) return response;
 
-    const wake = dispatchAudioJob(env, match[1]).catch((error) => {
+    const wake = (async () => {
+      const migrated = await migrateQueue(env, id);
+      if (!migrated) throw new Error(`Ebook audio queue object missing for ${id}`);
+      await dispatchAudioJob(env, id);
+    })().catch((error) => {
       console.error("Ebook Reader GitHub dispatch warning", error?.message || String(error));
     });
+
     if (ctx?.waitUntil) ctx.waitUntil(wake);
     else await wake;
     return response;
