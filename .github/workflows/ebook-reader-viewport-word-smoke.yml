@@ -73,6 +73,11 @@ jobs:
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
           code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
           tr -d '\r' </tmp/h >/tmp/h.clean
+          echo "READER_HTTP=$code"
+          cat /tmp/h.clean
+          echo '--- reader body prefix ---'
+          head -c 700 /tmp/reader || true
+          echo
           test "$code" = 200
           grep -qi '^x-r3-reader-runtime: v18-verified-outer-frozen-anchor$' /tmp/h.clean
           grep -qi '^x-r3-reader-patch-proof: block+range+prepare+target+save+finally$' /tmp/h.clean
