@@ -1,0 +1,56 @@
+name: Ebook Reader Audio
+
+on:
+  repository_dispatch:
+    types: [ebook_reader_audio]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Optional ebook-<32hex> job id; blank scans queue
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-ebook-reader-audio
+  cancel-in-progress: false
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      EBOOK_AUDIO_BUCKET: runner3-wp-media
+      EBOOK_AUDIO_VOICE: vi-VN-NamMinhNeural
+      EBOOK_AUDIO_VOICE_RATE: +3%
+      EBOOK_AUDIO_JOB_ID: ${{ github.event.client_payload.job_id || inputs.job_id || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install TTS dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q requests edge-tts
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - name: Process Ebook Reader audio queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ebook_reader_audio_tts.py
