@@ -19,48 +19,57 @@ function print(label, value) {
   console.log(JSON.stringify({ phase: label, ...value }));
 }
 
-try {
-  await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForSelector('#r3AudioMain', { timeout: 30000 });
-  await page.waitForSelector('#viewer iframe', { timeout: 30000 });
-
-  let frameReady = false;
-  for (let i = 0; i < 100; i++) {
-    frameReady = await page.evaluate(() => {
-      const f = document.querySelector('#viewer iframe');
-      try { return Boolean(f?.contentDocument?.body?.innerText?.trim()?.length > 80); } catch { return false; }
-    });
-    if (frameReady) break;
-    await page.waitForTimeout(250);
-  }
-
-  const diagnostics = await page.evaluate(() => {
+async function frameInfo() {
+  return page.evaluate(() => {
     const f = document.querySelector('#viewer iframe');
-    let frame = {};
     try {
-      frame = {
+      return {
         src: f?.getAttribute('src') || null,
         contentDocument: Boolean(f?.contentDocument),
         readyState: f?.contentDocument?.readyState || null,
         body: Boolean(f?.contentDocument?.body),
         textLength: String(f?.contentDocument?.body?.innerText || '').trim().length,
+        textSample: String(f?.contentDocument?.body?.innerText || '').trim().slice(0, 160),
         bodyHtmlLength: String(f?.contentDocument?.body?.innerHTML || '').length,
       };
     } catch (error) {
-      frame = { src: f?.getAttribute('src') || null, accessError: String(error) };
+      return { src: f?.getAttribute('src') || null, accessError: String(error), textLength: 0 };
     }
-    return {
-      frameReady: Boolean(frame && frame.textLength > 80),
-      loadingText: document.getElementById('loading')?.textContent || null,
-      loadingClass: document.getElementById('loading')?.className || null,
-      audio: Boolean(document.getElementById('r3AudioElement')),
-      main: Boolean(document.getElementById('r3AudioMain')),
-      bridge: Boolean(window.r3ReaderBridge),
-      v8Script: Boolean(document.querySelector('script[data-r3-audio-follow-v8="1"]')),
-      runtimeDataset: document.documentElement.dataset.r3AudioFollowRuntime || null,
-      frame,
-    };
   });
+}
+
+try {
+  const navResponse = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForSelector('#r3AudioMain', { timeout: 30000 });
+  await page.waitForSelector('#viewer iframe', { timeout: 30000 });
+  await page.waitForFunction(() => Boolean(window.r3ReaderBridge), null, { timeout: 30000 });
+
+  let frame = await frameInfo();
+  for (let n = 0; n < 24 && Number(frame.textLength || 0) <= 80; n++) {
+    await page.evaluate(async () => {
+      const bridge = window.r3ReaderBridge;
+      if (bridge?.next) await bridge.next();
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    await page.waitForTimeout(220);
+    frame = await frameInfo();
+  }
+
+  const diagnostics = await page.evaluate(() => ({
+    loadingText: document.getElementById('loading')?.textContent || null,
+    loadingClass: document.getElementById('loading')?.className || null,
+    audio: Boolean(document.getElementById('r3AudioElement')),
+    main: Boolean(document.getElementById('r3AudioMain')),
+    bridge: Boolean(window.r3ReaderBridge),
+    v8Script: Boolean(document.querySelector('script[data-r3-audio-follow-v8="1"]')),
+    runtimeDataset: document.documentElement.dataset.r3AudioFollowRuntime || null,
+    baseURI: document.baseURI,
+  }));
+  diagnostics.frameReady = Number(frame.textLength || 0) > 80;
+  diagnostics.frame = frame;
+  diagnostics.readerRuntimeHeader = navResponse?.headers()?.['x-r3-reader-runtime'] || null;
+  diagnostics.csp = navResponse?.headers()?.['content-security-policy'] || null;
+
   print('reader-diagnostics', {
     diagnostics,
     consoleErrors: consoleErrors.slice(0, 20),
@@ -68,7 +77,8 @@ try {
     badResponses: badResponses.slice(0, 20),
   });
 
-  if (!frameReady) throw new Error('EPUB frame content never became readable in live Chromium');
+  if (!diagnostics.frameReady) throw new Error('EPUB real chapter content never became readable in live Chromium');
+  if (!String(diagnostics.csp || '').includes("base-uri 'self'")) throw new Error('live Reader CSP base-uri self fix missing');
 
   const boot = diagnostics;
   const state = await page.evaluate(async ({ id, bookKey }) => {
