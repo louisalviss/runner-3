@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v9-runtime-entry.js";
+import app from "./artifact-library-reader-v10-runtime-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
