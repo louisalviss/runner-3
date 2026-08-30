@@ -23,7 +23,7 @@ TEST_KEYS = [
 ]
 PLAYER_MARKERS = [
     'data-r3-ebook-audio-v6="2"',
-    'id="r3AudioDock"',
+    "dock.id='r3AudioDock'",
     'id="r3AudioMain"',
     'id="r3AudioSeek"',
     'id="r3AudioBack"',
