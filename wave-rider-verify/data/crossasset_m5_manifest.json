@@ -1,0 +1,6186 @@
+{
+  "schema_version": 1,
+  "dataset_id": "market-data-crossasset-m5-20260821",
+  "source": "Dukascopy public historical data",
+  "offer_side": "BID",
+  "timeframe": "5m",
+  "timezone": "UTC",
+  "requested_coverage": "2021-12-01T00:00:00Z through 2026-08-21T00:00:00Z exclusive",
+  "assets": [
+    {
+      "schema_version": 1,
+      "symbol": "AAPL",
+      "group": "US_STOCK_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "AAPL.US/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T14:30:00+00:00",
+      "last_timestamp_utc": "2026-08-20T19:55:00+00:00",
+      "rows": 91938,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "AAPL_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 1544788,
+      "sha256": "6154d2582d49d785dda02a589a854cb25a88118262e7f4b5d0dec18fb869dbfd",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 1538,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 1790,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 1633,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 1602,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 1524,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 1588,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 1707,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 1523,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 1582,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 1557,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 1636,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 1446,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 1706,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 1092,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "AMZN",
+      "group": "US_STOCK_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "AMZN.US/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T14:30:00+00:00",
+      "last_timestamp_utc": "2026-08-20T19:55:00+00:00",
+      "rows": 92068,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "AMZN_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 1737619,
+      "sha256": "0b24e2694493cfd9b0c591f916dff8a7994a509fa6586a0ab30549c1a6765c16",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 1790,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 1634,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 1632,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 1602,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 1553,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 1588,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 1707,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 1714,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 1557,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 1617,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 1538,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 1636,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 1446,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 1706,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 1092,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "AUDUSD",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "AUD/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 353206,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "AUDUSD_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4214423,
+      "sha256": "557945de57c5f461c9a039b363cc6854396ee2b3d4d6df6fd91761bfe1701260",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6598,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6066,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6636,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6372,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6295,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6079,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6325,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6295,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6343,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5758,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6599,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5796,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6372,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5830,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6361,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6047,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6059,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5795,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6621,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6090,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6403,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "EURGBP",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "EUR/GBP",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 353191,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "EURGBP_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 3876991,
+      "sha256": "ff4ab5ad4c28da416d315a74949051fea8adb5feec94558cebfbd9fb09c969fd",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6594,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6069,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5755,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6628,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6010,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6359,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6325,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6037,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6619,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6295,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6079,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6301,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6338,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6598,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5796,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6372,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6321,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5831,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6360,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6061,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5795,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6127,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6334,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6334,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6622,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6045,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6423,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "EURJPY",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "EUR/JPY",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 352807,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "EURJPY_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4653689,
+      "sha256": "790348bddf996f683c6dbcf864b4ec612c3389462d973a67830a5dd5e917a223",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6583,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6065,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5758,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6631,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6007,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6355,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6324,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6036,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6616,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6293,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6070,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6320,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6295,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6324,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6594,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5789,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6619,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6296,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6069,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6613,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6005,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6360,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6314,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5805,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6353,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6047,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6057,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6330,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6573,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6609,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6283,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6063,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6610,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 5998,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6107,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6320,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5755,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6313,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6080,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6619,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6047,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6326,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6586,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5782,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6414,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6040,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5756,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6372,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6331,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6045,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6585,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "EURUSD",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "EUR/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 353294,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "EURUSD_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4536472,
+      "sha256": "3b6311bd733595beed43f66f8fc88f9a3d7b9ab8629e94384b8cad356b7baa91",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6598,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6073,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6637,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6324,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6309,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6356,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5758,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6596,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5793,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6616,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6294,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5833,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6361,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6061,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5795,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6146,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6396,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "GBPJPY",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "GBP/JPY",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 352772,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "GBPJPY_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4704521,
+      "sha256": "1c1d2ed830bbc6c4cbc700543ddf543377d957ece94a09545797dc2ae80d09bd",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6568,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6055,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5742,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6622,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6003,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6362,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6325,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6038,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6613,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6293,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6065,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6319,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6285,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6314,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6593,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6622,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6295,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6076,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6621,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6006,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6370,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6319,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5810,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6356,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6046,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6056,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6332,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6582,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6621,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6290,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6069,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6622,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6007,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6128,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6326,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5749,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6080,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6307,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6289,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6071,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6611,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6039,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6324,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6580,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5777,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6418,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6044,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5747,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6367,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6323,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6040,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6327,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6580,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "GBPUSD",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "GBP/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 353210,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "GBPUSD_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4588919,
+      "sha256": "1122c9144ab2fb6d51c29588bd8e3268508d0815f4a640ee0d23f28cdee69aa2",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6595,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6070,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6633,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6371,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6045,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6618,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6297,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6081,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6324,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6305,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6347,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6600,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5797,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5813,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6360,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6061,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6586,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5797,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6298,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6116,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6331,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6297,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6398,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "META",
+      "group": "US_STOCK_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "FB.US/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T14:30:00+00:00",
+      "last_timestamp_utc": "2026-08-20T19:55:00+00:00",
+      "rows": 91925,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "META_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 1909838,
+      "sha256": "baef3915cd4b1382401f1059693eb761a63b9954ab856a000b70813b0a49a768",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 1790,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 1609,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 1626,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 1602,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 1524,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 1588,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 1707,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 1523,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 1582,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 1558,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 1636,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 1446,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 1706,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 1092,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints.",
+        "META maps to Dukascopy legacy FB.US/USD history."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "MSFT",
+      "group": "US_STOCK_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "MSFT.US/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T14:30:00+00:00",
+      "last_timestamp_utc": "2026-08-20T19:55:00+00:00",
+      "rows": 91955,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "MSFT_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 1706997,
+      "sha256": "c1a810fe048cf494e8328cf40b6f1f0cb8b99e102c7684c3999108d0d742425e",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 1790,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 1627,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 1602,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 1524,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 1588,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 1707,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 1523,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 1582,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 1558,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 1636,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 1446,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 1706,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 1092,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "NAS100",
+      "group": "INDEX_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "E_NQ-100",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T20:10:00+00:00",
+      "rows": 322897,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "NAS100_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 7004076,
+      "sha256": "0eb28c4d1e55ca5f33a203e565330894763f6b1b651e1e7b6c58d34dfab12895",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 5853,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 5569,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5302,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6154,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 5316,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 5860,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 5836,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 5569,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6142,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 5811,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 5632,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 5788,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 5595,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 5581,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5303,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6129,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5282,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6103,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 5809,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 5329,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6142,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 5544,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 5899,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5328,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 5848,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 5569,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 5346,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 5849,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6056,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5306,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6005,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 5829,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 5569,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6109,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 5506,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 5550,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 5740,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5301,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 5619,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 5595,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 5781,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 5575,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6044,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 5591,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 5836,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6117,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5150,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 5826,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 5568,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5301,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 5897,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 5608,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 5557,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 5832,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6078,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 3738,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "NVDA",
+      "group": "US_STOCK_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "NVDA.US/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T14:30:00+00:00",
+      "last_timestamp_utc": "2026-08-20T19:55:00+00:00",
+      "rows": 91954,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "NVDA_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 2024862,
+      "sha256": "e6d199ce1e5db2380e3c63160263c466f0194b8e316f4a2ad54b9c3a5cc5eb37",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 1790,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 1626,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 1602,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 1524,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 1589,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 1707,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 1523,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 1582,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 1557,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 1636,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 1446,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 1706,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 1092,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "NZDUSD",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "NZD/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 352911,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "NZDUSD_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4182188,
+      "sha256": "3b3d0a494d234c87f478bcdb7f0500786934cb4a9a8526e486b130b1f72fcfe0",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6596,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6062,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6633,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6002,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6368,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6330,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6044,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6615,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6296,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6073,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6320,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6259,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6263,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5756,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6596,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5792,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6298,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5770,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6361,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6058,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6586,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5796,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6622,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6087,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6334,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6350,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "TSLA",
+      "group": "US_STOCK_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "TSLA.US/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T14:30:00+00:00",
+      "last_timestamp_utc": "2026-08-20T19:55:00+00:00",
+      "rows": 91960,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "TSLA_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 1957154,
+      "sha256": "a0a4541476d77c1b5055332a22ab89951031c8fefc2058ba172a4c29792dd972",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 1790,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 1633,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 1602,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 1524,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 1588,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 1707,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 1523,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 1582,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 1557,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 1636,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 1794,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 1446,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 1680,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 1482,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 1706,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 1560,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 1638,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 1716,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 1092,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "US500",
+      "group": "INDEX_CFD",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "E_SandP-500",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T20:10:00+00:00",
+      "rows": 323099,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "US500_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 6734631,
+      "sha256": "768bd843470c7fc8e50d9b5b0183096c804c5b112764c6a0223eba92a497f81f",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 5853,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 5581,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5302,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6154,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 5316,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 5860,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 5836,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 5569,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6142,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 5811,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 5627,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 5786,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 5595,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 5581,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5302,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6129,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5276,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6103,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 5806,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 5328,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6141,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 5542,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 5898,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 5757,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5324,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 5840,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 5565,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 5352,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 5872,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6074,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5322,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6039,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 5850,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 5593,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6127,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 5507,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 5551,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 5754,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5301,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 5628,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 5608,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 5800,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 5593,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6064,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 5608,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 5829,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6098,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5154,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 5824,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 5568,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5301,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 5898,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 5604,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 5557,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 5827,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6070,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 3738,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "USDCAD",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "USD/CAD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 353116,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "USDCAD_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4377276,
+      "sha256": "c398621f4025358e4d1133b07fab62c475fa5f0d8dfaf0c53024b39eea2fa291",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6592,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6070,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6631,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6366,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6334,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6044,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6297,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6067,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6315,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6291,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6323,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5756,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6596,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5795,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6296,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6012,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5801,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6361,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6058,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5797,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6300,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6098,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6403,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "USDCHF",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "USD/CHF",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 352822,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "USDCHF_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4454259,
+      "sha256": "7354dabe2b991e92f6036e1c6ceaed86b32d4ed3aae9f026fc20c38fa2d23b62",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6572,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6063,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5755,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6627,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6002,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6318,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6028,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6610,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6281,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6029,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6310,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6290,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6330,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5793,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6621,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6297,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6076,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6621,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5752,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6360,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6058,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6587,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5794,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6295,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6006,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6093,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6334,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6085,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6330,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6294,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6084,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6410,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6371,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6334,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6043,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "USDJPY",
+      "group": "FX",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "USD/JPY",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T21:20:00+00:00",
+      "rows": 353277,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "USDJPY_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 4475035,
+      "sha256": "df016f997a2f70faa826e32bb40bddc1854f64b442dbe5454dac42486ffafc82",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6597,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 6073,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6637,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 6008,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6372,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6331,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 6047,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6623,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 6076,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 6323,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 6309,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 6357,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6600,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5793,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6298,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 6080,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6624,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 6011,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 6322,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5834,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6360,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 6061,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5797,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 6080,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6621,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 6008,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 6137,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5759,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 6082,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 6328,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6299,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 6083,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6625,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 6047,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6335,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5785,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6424,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5760,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6373,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 6049,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6588,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 4037,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    },
+    {
+      "schema_version": 1,
+      "symbol": "XAUUSD",
+      "group": "METAL",
+      "source": "Dukascopy public historical data",
+      "offer_side": "BID",
+      "source_instrument": "XAU/USD",
+      "timeframe": "5m",
+      "timezone": "UTC",
+      "warmup_start_requested": "2021-12-01T00:00:00+00:00",
+      "end_exclusive_requested": "2026-08-21T00:00:00+00:00",
+      "first_timestamp_utc": "2021-12-01T00:00:00+00:00",
+      "last_timestamp_utc": "2026-08-20T20:55:00+00:00",
+      "rows": 334794,
+      "columns": [
+        "timestamp_utc",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "dtypes": {
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64"
+      },
+      "file": "XAUUSD_M5_DUKASCOPY_20211201_20260821.parquet",
+      "bytes": 6141756,
+      "sha256": "15abb3ba759619f2611144905bc3d6a0f0f543bc7726261588b654037a6c3547",
+      "month_manifest": [
+        {
+          "month": "2021-12",
+          "rows": 6060,
+          "status": "ok"
+        },
+        {
+          "month": "2022-01",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2022-02",
+          "rows": 5491,
+          "status": "ok"
+        },
+        {
+          "month": "2022-03",
+          "rows": 6361,
+          "status": "ok"
+        },
+        {
+          "month": "2022-04",
+          "rows": 5496,
+          "status": "ok"
+        },
+        {
+          "month": "2022-05",
+          "rows": 6067,
+          "status": "ok"
+        },
+        {
+          "month": "2022-06",
+          "rows": 6043,
+          "status": "ok"
+        },
+        {
+          "month": "2022-07",
+          "rows": 5767,
+          "status": "ok"
+        },
+        {
+          "month": "2022-08",
+          "rows": 6349,
+          "status": "ok"
+        },
+        {
+          "month": "2022-09",
+          "rows": 6018,
+          "status": "ok"
+        },
+        {
+          "month": "2022-10",
+          "rows": 5821,
+          "status": "ok"
+        },
+        {
+          "month": "2022-11",
+          "rows": 5992,
+          "status": "ok"
+        },
+        {
+          "month": "2022-12",
+          "rows": 5784,
+          "status": "ok"
+        },
+        {
+          "month": "2023-01",
+          "rows": 5761,
+          "status": "ok"
+        },
+        {
+          "month": "2023-02",
+          "rows": 5491,
+          "status": "ok"
+        },
+        {
+          "month": "2023-03",
+          "rows": 6336,
+          "status": "ok"
+        },
+        {
+          "month": "2023-04",
+          "rows": 5269,
+          "status": "ok"
+        },
+        {
+          "month": "2023-05",
+          "rows": 6319,
+          "status": "ok"
+        },
+        {
+          "month": "2023-06",
+          "rows": 6018,
+          "status": "ok"
+        },
+        {
+          "month": "2023-07",
+          "rows": 5791,
+          "status": "ok"
+        },
+        {
+          "month": "2023-08",
+          "rows": 6349,
+          "status": "ok"
+        },
+        {
+          "month": "2023-09",
+          "rows": 5742,
+          "status": "ok"
+        },
+        {
+          "month": "2023-10",
+          "rows": 6097,
+          "status": "ok"
+        },
+        {
+          "month": "2023-11",
+          "rows": 5965,
+          "status": "ok"
+        },
+        {
+          "month": "2023-12",
+          "rows": 5508,
+          "status": "ok"
+        },
+        {
+          "month": "2024-01",
+          "rows": 6055,
+          "status": "ok"
+        },
+        {
+          "month": "2024-02",
+          "rows": 5765,
+          "status": "ok"
+        },
+        {
+          "month": "2024-03",
+          "rows": 5533,
+          "status": "ok"
+        },
+        {
+          "month": "2024-04",
+          "rows": 6073,
+          "status": "ok"
+        },
+        {
+          "month": "2024-05",
+          "rows": 6294,
+          "status": "ok"
+        },
+        {
+          "month": "2024-06",
+          "rows": 5515,
+          "status": "ok"
+        },
+        {
+          "month": "2024-07",
+          "rows": 6319,
+          "status": "ok"
+        },
+        {
+          "month": "2024-08",
+          "rows": 6048,
+          "status": "ok"
+        },
+        {
+          "month": "2024-09",
+          "rows": 5791,
+          "status": "ok"
+        },
+        {
+          "month": "2024-10",
+          "rows": 6337,
+          "status": "ok"
+        },
+        {
+          "month": "2024-11",
+          "rows": 5714,
+          "status": "ok"
+        },
+        {
+          "month": "2024-12",
+          "rows": 5736,
+          "status": "ok"
+        },
+        {
+          "month": "2025-01",
+          "rows": 6041,
+          "status": "ok"
+        },
+        {
+          "month": "2025-02",
+          "rows": 5490,
+          "status": "ok"
+        },
+        {
+          "month": "2025-03",
+          "rows": 5821,
+          "status": "ok"
+        },
+        {
+          "month": "2025-04",
+          "rows": 5795,
+          "status": "ok"
+        },
+        {
+          "month": "2025-05",
+          "rows": 6018,
+          "status": "ok"
+        },
+        {
+          "month": "2025-06",
+          "rows": 5791,
+          "status": "ok"
+        },
+        {
+          "month": "2025-07",
+          "rows": 6301,
+          "status": "ok"
+        },
+        {
+          "month": "2025-08",
+          "rows": 5796,
+          "status": "ok"
+        },
+        {
+          "month": "2025-09",
+          "rows": 6043,
+          "status": "ok"
+        },
+        {
+          "month": "2025-10",
+          "rows": 6324,
+          "status": "ok"
+        },
+        {
+          "month": "2025-11",
+          "rows": 5475,
+          "status": "ok"
+        },
+        {
+          "month": "2025-12",
+          "rows": 6018,
+          "status": "ok"
+        },
+        {
+          "month": "2026-01",
+          "rows": 5766,
+          "status": "ok"
+        },
+        {
+          "month": "2026-02",
+          "rows": 5489,
+          "status": "ok"
+        },
+        {
+          "month": "2026-03",
+          "rows": 6097,
+          "status": "ok"
+        },
+        {
+          "month": "2026-04",
+          "rows": 5797,
+          "status": "ok"
+        },
+        {
+          "month": "2026-05",
+          "rows": 5767,
+          "status": "ok"
+        },
+        {
+          "month": "2026-06",
+          "rows": 6025,
+          "status": "ok"
+        },
+        {
+          "month": "2026-07",
+          "rows": 6276,
+          "status": "ok"
+        },
+        {
+          "month": "2026-08",
+          "rows": 3864,
+          "status": "ok"
+        }
+      ],
+      "notes": [
+        "Raw canonical cache for strategy research; no Wave Rider filters or labels are embedded.",
+        "Build 10m only from exactly two contiguous 5m children at t and t+5m; reject incomplete buckets.",
+        "US500/NAS100 are Dukascopy index CFDs; US equities are Dukascopy stock CFDs, not exchange prints."
+      ]
+    }
+  ],
+  "asset_count": 19,
+  "groups": {
+    "FX": [
+      "AUDUSD",
+      "EURGBP",
+      "EURJPY",
+      "EURUSD",
+      "GBPJPY",
+      "GBPUSD",
+      "NZDUSD",
+      "USDCAD",
+      "USDCHF",
+      "USDJPY"
+    ],
+    "METAL": [
+      "XAUUSD"
+    ],
+    "INDEX_CFD": [
+      "NAS100",
+      "US500"
+    ],
+    "US_STOCK_CFD": [
+      "AAPL",
+      "AMZN",
+      "META",
+      "MSFT",
+      "NVDA",
+      "TSLA"
+    ]
+  },
+  "usage_rules": [
+    "Use these raw M5 BID OHLC files as the common immutable price cache for future strategy tests.",
+    "Do not refetch or silently substitute another vendor when comparing strategies unless a new dataset version is explicitly created.",
+    "For 10m, aggregate only exactly two contiguous M5 children at bucket t and t+5m; reject incomplete buckets.",
+    "Record strategy-specific spread/commission/slippage separately; cached OHLC contains no execution-cost model.",
+    "US500/NAS100 are Dukascopy index CFDs; US stocks are Dukascopy stock CFDs."
+  ]
+}
