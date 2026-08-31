@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: reader-audio-core-smoke
+  cancel-in-progress: true
+
 jobs:
   core-smoke:
     runs-on: ubuntu-latest
@@ -25,5 +29,10 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/position-mapper.js
           node --check cloudflare/runner3-core/reader-audio-core/reader-follower.js
           node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
+          node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
+          node --check cloudflare/runner3-core/reader-audio-core/core-smoke.mjs
+          node --check cloudflare/runner3-core/reader-audio-core/adapter-smoke.mjs
       - name: Run isolated core smoke
         run: node cloudflare/runner3-core/reader-audio-core/core-smoke.mjs
+      - name: Run isolated adapter smoke
+        run: node cloudflare/runner3-core/reader-audio-core/adapter-smoke.mjs
