@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-31T03:04:56.323782+00:00",
-  "runId": "33352563427",
+  "checkedAt": "2026-08-31T03:06:45.416379+00:00",
+  "runId": "33352577375",
   "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
   "health": {
     "http": 200,
@@ -38,18 +38,18 @@
       "checksum": "0ff90ee23b9af7175f62e409966314b5532db4e45b142ab923f98b287bd721f4"
     },
     "tinhte-4171630": {
-      "http": 503,
-      "ok": false,
+      "http": 200,
+      "ok": true,
       "error": null,
-      "chars": null,
-      "checksum": null
+      "chars": 2668,
+      "checksum": "8255a512f2ce1e47a4cea87ab965f6d790158ebf8cc26639d91f07e6b97100d6"
     },
     "nghiencuuquocte-url-6cd04807aefc80d9be93": {
-      "http": 503,
-      "ok": false,
+      "http": 200,
+      "ok": true,
       "error": null,
-      "chars": null,
-      "checksum": null
+      "chars": 71010,
+      "checksum": "bc9b5098d1cb3b13c372f6e24e5c4cdcbe34dd2a9019ecb15a4da67f3f950ca7"
     },
     "rasa-url-71191f21386ea1a88a22": {
       "http": 200,
@@ -59,37 +59,64 @@
       "checksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192"
     },
     "cloudflare-url-781ba125e818919ba95e": {
-      "http": 503,
-      "ok": false,
+      "http": 200,
+      "ok": true,
       "error": null,
-      "chars": null,
-      "checksum": null
+      "chars": 11019,
+      "checksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
   "details": {
     "genk-165260824141950644": {
-      "http": 503,
-      "fetch_status": null,
-      "translation_status": null,
-      "source_checksum": null,
-      "translation_checksum": null,
-      "qa_state": null,
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "native_vi",
+      "source_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
+      "translation_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
+      "qa_state": "native_vi",
       "last_error": null
     },
     "fulcrum-url-a87e54dbda2e37fe40a7": {
-      "http": 503,
-      "fetch_status": null,
-      "translation_status": null,
-      "source_checksum": null,
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "published",
+      "source_checksum": "0ff90ee23b9af7175f62e409966314b5532db4e45b142ab923f98b287bd721f4",
+      "translation_checksum": "44f23b12228f99aba5995644406017c58884f69c93a9fdcd353c076410ede0d5",
+      "qa_state": "pass",
+      "last_error": null
+    },
+    "tinhte-4171630": {
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "native_vi",
+      "source_checksum": "8255a512f2ce1e47a4cea87ab965f6d790158ebf8cc26639d91f07e6b97100d6",
+      "translation_checksum": "8255a512f2ce1e47a4cea87ab965f6d790158ebf8cc26639d91f07e6b97100d6",
+      "qa_state": "native_vi",
+      "last_error": null
+    },
+    "nghiencuuquocte-url-6cd04807aefc80d9be93": {
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "native_vi",
+      "source_checksum": "bc9b5098d1cb3b13c372f6e24e5c4cdcbe34dd2a9019ecb15a4da67f3f950ca7",
+      "translation_checksum": "bc9b5098d1cb3b13c372f6e24e5c4cdcbe34dd2a9019ecb15a4da67f3f950ca7",
+      "qa_state": "native_vi",
+      "last_error": null
+    },
+    "rasa-url-71191f21386ea1a88a22": {
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "pending",
+      "source_checksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192",
       "translation_checksum": null,
       "qa_state": null,
       "last_error": null
     },
-    "rasa-url-71191f21386ea1a88a22": {
-      "http": 503,
-      "fetch_status": null,
-      "translation_status": null,
-      "source_checksum": null,
+    "cloudflare-url-781ba125e818919ba95e": {
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "pending",
+      "source_checksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e",
       "translation_checksum": null,
       "qa_state": null,
       "last_error": null
@@ -97,34 +124,44 @@
   },
   "nativeViViews": {
     "genk-165260824141950644": {
-      "http": 503,
-      "nativeVi": null,
-      "bodyChars": 0,
-      "imageCount": 0
+      "http": 200,
+      "nativeVi": true,
+      "bodyChars": 11864,
+      "imageCount": 2
+    },
+    "tinhte-4171630": {
+      "http": 200,
+      "nativeVi": true,
+      "bodyChars": 2668,
+      "imageCount": 1
+    },
+    "nghiencuuquocte-url-6cd04807aefc80d9be93": {
+      "http": 200,
+      "nativeVi": true,
+      "bodyChars": 71010,
+      "imageCount": 1
     }
   },
   "translationPackets": {
     "fulcrum-url-a87e54dbda2e37fe40a7": {
-      "http": 503,
-      "ok": false,
-      "sectionCount": null,
-      "sourceChecksum": null
+      "http": 200,
+      "ok": true,
+      "sectionCount": 45,
+      "sourceChecksum": "0ff90ee23b9af7175f62e409966314b5532db4e45b142ab923f98b287bd721f4"
     },
     "rasa-url-71191f21386ea1a88a22": {
-      "http": 503,
-      "ok": false,
-      "sectionCount": null,
-      "sourceChecksum": null
+      "http": 200,
+      "ok": true,
+      "sectionCount": 125,
+      "sourceChecksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192"
+    },
+    "cloudflare-url-781ba125e818919ba95e": {
+      "http": 200,
+      "ok": true,
+      "sectionCount": 62,
+      "sourceChecksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
-  "errors": [
-    "native_vi:genk-165260824141950644:503",
-    "images:genk:missing",
-    "packet:fulcrum-url-a87e54dbda2e37fe40a7:503",
-    "fetch:tinhte-4171630:503",
-    "fetch:nghiencuuquocte-url-6cd04807aefc80d9be93:503",
-    "packet:rasa-url-71191f21386ea1a88a22:503",
-    "fetch:cloudflare-url-781ba125e818919ba95e:503"
-  ],
-  "ok": false
+  "errors": [],
+  "ok": true
 }
