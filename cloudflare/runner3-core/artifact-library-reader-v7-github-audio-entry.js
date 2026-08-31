@@ -1,5 +1,6 @@
 import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
+import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
 const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
 const ALLOWED_EVENT = "ebook_reader_audio";
@@ -75,6 +76,8 @@ async function manualDispatch(request, env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const rssSaveResponse = await handleRssLibrarySave(request, env, url);
+    if (rssSaveResponse) return rssSaveResponse;
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
     const shouldDispatch = url.pathname === "/artifact-library/audio" && request.method === "POST";
     const response = await ebookAudio.fetch(request, env, ctx, app);
