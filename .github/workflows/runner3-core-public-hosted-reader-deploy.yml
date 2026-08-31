@@ -22,7 +22,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: 9b699de9392718997ab08d2c06e05995eef3f403
+      PINNED_SOURCE: e5e863491c934ac33a2f34467fc169e90c97de81
     steps:
       - name: Validate Cloudflare deploy credentials
         shell: bash
@@ -32,7 +32,7 @@ jobs:
             test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
             echo "PRESENT:$name"
           done
-      - name: Checkout exact Reader v25 source
+      - name: Checkout exact Reader v26 source
         uses: actions/checkout@v4
         with:
           ref: ${{ env.PINNED_SOURCE }}
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v25 fall-through
+      - name: Compose canonical mailbox with Reader v26 fall-through
         shell: bash
         run: |
           set -euo pipefail
@@ -60,32 +60,38 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v25-reuse-restored-media-entry.js
-          grep -q 'artifact-library-reader-v25-reuse-restored-media-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioReuseRestoredMediaV25=true' cloudflare/runner3-core/artifact-library-reader-v25-reuse-restored-media-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v26-persist-follow-cfi-entry.js
+          grep -q 'artifact-library-reader-v26-persist-follow-cfi-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioPersistFollowCfiV26=true' cloudflare/runner3-core/artifact-library-reader-v26-persist-follow-cfi-entry.js
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
-      - name: Deploy pinned Reader v25 Core
+      - name: Deploy pinned Reader v26 Core
         shell: bash
         working-directory: cloudflare/runner3-core
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify live Reader v25 and preserved mailbox surface
+      - name: Verify live Reader v26 and preserved mailbox surface
         shell: bash
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
-          code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
-          tr -d '\r' </tmp/h >/tmp/h.clean
-          if [ "$code" != 200 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v25-reuse-restored-media$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: v24+v25:saved-signature-media-reuse-before-hydration$' /tmp/h.clean
-          grep -q 'window.__r3AudioReuseRestoredMediaV25=true' /tmp/reader
+          ok=0
+          for attempt in $(seq 1 15); do
+            code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+            tr -d '\r' </tmp/h >/tmp/h.clean
+            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v26-persist-follow-cfi$' /tmp/h.clean && grep -qi '^x-r3-reader-patch-proof: v25+v26:persist-reader-cfi-after-audio-follow$' /tmp/h.clean && grep -q 'window.__r3AudioPersistFollowCfiV26=true' /tmp/reader; then
+              ok=1
+              break
+            fi
+            echo "WAIT_V26 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true)"
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
           test "$acode" = 400
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v25.csv")"
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v26.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'PUBLIC_HOSTED_READER_V25_DEPLOY=PASS'
+          echo 'PUBLIC_HOSTED_READER_V26_DEPLOY=PASS'
