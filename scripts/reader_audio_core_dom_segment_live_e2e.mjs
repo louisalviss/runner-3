@@ -10,35 +10,81 @@ const bundle = fs.readFileSync(BUNDLE_PATH, 'utf8');
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-try {
-  const response = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  const runtime = response?.headers()?.['x-r3-reader-runtime'] || '';
-  await page.waitForSelector('#viewer iframe', { timeout: 30000 });
-  await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.cfiFromNode && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 30000 });
-  await page.waitForFunction(() => window.__r3AudioHighSpeedFollowV31 === true, null, { timeout: 10000 });
-  await page.waitForFunction(() => {
+async function hasContentPayload() {
+  return page.evaluate(() => {
+    const docs = [];
+    try {
+      for (const content of window.r3ReaderBridge?.contents?.() || []) {
+        if (content?.document) docs.push(content.document);
+      }
+    } catch {}
     for (const frame of document.querySelectorAll('#viewer iframe')) {
-      try {
-        if (String(frame.contentDocument?.body?.innerText || '').trim().length >= 100) return true;
-      } catch {}
+      try { if (frame.contentDocument) docs.push(frame.contentDocument); } catch {}
     }
-    return false;
-  }, null, { timeout: 30000 });
-  if (runtime && runtime !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_RUNTIME_NOT_V31:${runtime}`);
+    return docs.some((doc) => String(doc?.body?.innerText || '').trim().length >= 100);
+  });
+}
+
+try {
+  let response = null;
+  let runtime = '';
+  let booted = false;
+  for (let bootAttempt = 1; bootAttempt <= 3 && !booted; bootAttempt++) {
+    response = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    runtime = response?.headers()?.['x-r3-reader-runtime'] || '';
+    if (runtime && runtime !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_RUNTIME_NOT_V31:${runtime}`);
+    try {
+      await page.waitForSelector('#viewer iframe', { state: 'attached', timeout: 20000 });
+      await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.cfiFromNode && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 20000 });
+      await page.waitForFunction(() => window.__r3AudioHighSpeedFollowV31 === true, null, { timeout: 10000 });
+      booted = true;
+    } catch (error) {
+      console.log(JSON.stringify({ phase: 'dom-live-boot-retry', bootAttempt, error: String(error?.message || error) }));
+      if (bootAttempt < 3) {
+        await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
+        await page.waitForTimeout(700 * bootAttempt);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  let contentReady = false;
+  for (let scan = 0; scan < 16; scan++) {
+    if (await hasContentPayload()) {
+      contentReady = true;
+      break;
+    }
+    const before = await page.evaluate(() => String(window.r3ReaderBridge?.current?.()?.start?.cfi || ''));
+    await page.evaluate(async () => { if (window.r3ReaderBridge?.next) await window.r3ReaderBridge.next(); });
+    await page.waitForTimeout(220);
+    const after = await page.evaluate(() => String(window.r3ReaderBridge?.current?.()?.start?.cfi || ''));
+    console.log(JSON.stringify({ phase: 'dom-content-scan', scan, before, after }));
+    if (after && after === before && scan >= 4) break;
+  }
+  if (!contentReady) throw new Error('NO_READER_FRAME_PAYLOAD_AFTER_SCAN');
 
   await page.addScriptTag({ content: bundle });
   const result = await page.evaluate(async () => {
     const { DomSegmentBuilder, PositionMapper, ReaderFollower, tokenizeReaderText } = window.R3AudioCoreE2E || {};
     if (!DomSegmentBuilder || !PositionMapper || !ReaderFollower || !tokenizeReaderText) throw new Error('DOM_SEGMENT_EXPORTS_MISSING');
 
-    const frames = [...document.querySelectorAll('#viewer iframe')];
+    const docs = [];
+    try {
+      for (const content of window.r3ReaderBridge?.contents?.() || []) {
+        if (content?.document) docs.push(content.document);
+      }
+    } catch {}
+    for (const frame of document.querySelectorAll('#viewer iframe')) {
+      try { if (frame.contentDocument && !docs.includes(frame.contentDocument)) docs.push(frame.contentDocument); } catch {}
+    }
+
     let payload = null;
-    for (const frame of frames) {
+    for (const doc of docs) {
       try {
-        const doc = frame.contentDocument;
         const text = String(doc?.body?.innerText || '').trim();
         if (text.length < 100) continue;
-        if (!payload || text.length > payload.text.length) payload = { frame, doc, text };
+        if (!payload || text.length > payload.text.length) payload = { doc, text };
       } catch {}
     }
     if (!payload) throw new Error('NO_READER_FRAME_PAYLOAD');
