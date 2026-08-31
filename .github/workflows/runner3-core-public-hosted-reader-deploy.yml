@@ -22,7 +22,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: de8e4038d3cd10c50e18558b95c94d2628041e1c
+      PINNED_SOURCE: 01d254a9d908d7fa584f0e974a989e330dee86c3
     steps:
       - name: Validate Cloudflare deploy credentials
         shell: bash
@@ -32,7 +32,7 @@ jobs:
             test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
             echo "PRESENT:$name"
           done
-      - name: Checkout exact Reader v21 source
+      - name: Checkout exact Reader v22 source
         uses: actions/checkout@v4
         with:
           ref: ${{ env.PINNED_SOURCE }}
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v21 fall-through
+      - name: Compose canonical mailbox with Reader v22 fall-through
         shell: bash
         run: |
           set -euo pipefail
@@ -60,18 +60,18 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v21-page-step-follow-entry.js
-          grep -q 'artifact-library-reader-v21-page-step-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioPageStepFollowV21=true' cloudflare/runner3-core/artifact-library-reader-v21-page-step-follow-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v22-word-index-follow-entry.js
+          grep -q 'artifact-library-reader-v22-word-index-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioWordIndexFollowV22=true' cloudflare/runner3-core/artifact-library-reader-v22-word-index-follow-entry.js
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
-      - name: Deploy pinned Reader v21 Core
+      - name: Deploy pinned Reader v22 Core
         shell: bash
         working-directory: cloudflare/runner3-core
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify live Reader v21 and preserved mailbox surface
+      - name: Verify live Reader v22 and preserved mailbox surface
         shell: bash
         run: |
           set -euo pipefail
@@ -80,12 +80,12 @@ jobs:
           code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
           tr -d '\r' </tmp/h >/tmp/h.clean
           if [ "$code" != 200 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v21-page-step-follow$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: v20+v21:point-cfi+page-step-follow$' /tmp/h.clean
-          grep -q 'window.__r3AudioPageStepFollowV21=true' /tmp/reader
+          grep -qi '^x-r3-reader-runtime: v22-word-index-page-follow$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v21+v22:visible-word-direction+page-step$' /tmp/h.clean
+          grep -q 'window.__r3AudioWordIndexFollowV22=true' /tmp/reader
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
           test "$acode" = 400
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v21.csv")"
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v22.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'PUBLIC_HOSTED_READER_V21_DEPLOY=PASS'
+          echo 'PUBLIC_HOSTED_READER_V22_DEPLOY=PASS'
