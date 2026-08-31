@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v32-auto-next-chapter-entry.js";
+import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
