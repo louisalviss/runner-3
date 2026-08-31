@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v22:
+  deploy-v23:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,13 +29,13 @@ jobs:
           done
       - uses: actions/checkout@v4
         with:
-          ref: 01d254a9d908d7fa584f0e974a989e330dee86c3
+          ref: 32f9e5e9ec679ed5ba139fa09ef44283a26e1524
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v22
+      - name: Compose canonical mailbox with Reader v23
         shell: bash
         run: |
           set -euo pipefail
@@ -54,17 +54,17 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v22-word-index-follow-entry.js
-          grep -q 'artifact-library-reader-v22-word-index-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioWordIndexFollowV22=true' cloudflare/runner3-core/artifact-library-reader-v22-word-index-follow-entry.js
-      - name: Deploy Reader v22 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v23-resume-cfi-id-entry.js
+          grep -q 'artifact-library-reader-v23-resume-cfi-id-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioResumeCfiIdV23=true' cloudflare/runner3-core/artifact-library-reader-v23-resume-cfi-id-entry.js
+      - name: Deploy Reader v23 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v22 live before browser proof
+      - name: Verify v23 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
@@ -75,16 +75,16 @@ jobs:
           echo "READER_HTTP=$code"
           cat /tmp/h.clean
           if [ "$code" != 200 ]; then head -c 700 /tmp/reader; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v22-word-index-page-follow$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: v21+v22:visible-word-direction+page-step$' /tmp/h.clean
-          grep -q 'window.__r3AudioWordIndexFollowV22=true' /tmp/reader
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v22.csv")"
+          grep -qi '^x-r3-reader-runtime: v23-resume-cfi-media-id$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v22+v23:current-id-fallback+saved-cfi+dataset-id$' /tmp/h.clean
+          grep -q 'window.__r3AudioResumeCfiIdV23=true' /tmp/reader
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v23.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V22_LIVE=PASS'
+          echo 'READER_V23_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v22
+    needs: deploy-v23
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -95,36 +95,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt canonical proof to v22 runtime
+      - name: Adapt canonical proof to v23 runtime
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v22';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v22')")
-          s=s.replace('live Reader is not v16:','live Reader is not v22:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v23';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v23')")
+          s=s.replace('live Reader is not v16:','live Reader is not v23:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioWordIndexFollowV22 === true'
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioResumeCfiIdV23 === true'
           if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
           anchor='  const beforeFollowCfi = started.cfi;'
           pause="  const beforeFollowCfi = started.cfi;\n  await page.evaluate(() => document.getElementById('r3AudioElement')?.pause());\n  await page.waitForTimeout(120);"
           if anchor not in s: raise SystemExit('follow pause anchor missing')
           s=s.replace(anchor,pause,1)
+          oldrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null }; });"
+          newrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { debug: window.__r3AudioResumeV23Debug || null, time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, mediaId: a?.dataset?.r3AudioId || '' }; });"
+          if oldrest not in s: raise SystemExit('restore log marker missing')
+          s=s.replace(oldrest,newrest,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v22" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioWordIndexFollowV22" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "seek-smoke-v23" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioResumeCfiIdV23" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioResumeV23Debug" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "next-page-target" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "r3AudioElement.*pause" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "mediaRangeCount" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
           npm install --no-save playwright
           npx playwright install --with-deps chromium
-      - name: Prove exact start, real page follow and refresh resume
+      - name: Prove exact start, page follow, CFI resume and no duplicate audio POST
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v22: exact start + paused real-next-page probe + forced audio-follow + refresh resume proof
+# v23: exact start + real page follow + saved CFI/time + same media/no duplicate POST after refresh
