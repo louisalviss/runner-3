@@ -6,7 +6,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner3-rss-rollout-20260825.yml'
-      - 'cloudflare/runner3-core/**'
       - 'cloudflare/rss-fastlane/**'
 
 permissions:
@@ -40,16 +39,6 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@4 deploy
 
-      - name: Apply RSS D1 migrations and deploy Core
-        working-directory: cloudflare/runner3-core
-        run: |
-          set -euo pipefail
-          for migration in migrations/*.sql; do
-            echo "Applying ${migration}"
-            npx --yes wrangler@4 d1 execute runner3-core --remote --file="${migration}"
-          done
-          npx --yes wrangler@4 deploy
-
       - name: Fetch canonical six and prove source coverage
         run: |
           set -euo pipefail
@@ -80,7 +69,7 @@ jobs:
           }
 
           def call(path,method='GET',auth=True):
-            headers={'Accept':'application/json','User-Agent':'runner3-rss-rollout/2.1','Cache-Control':'no-cache'}
+            headers={'Accept':'application/json','User-Agent':'runner3-rss-rollout/2.2','Cache-Control':'no-cache'}
             if auth: headers['Authorization']='Bearer '+token
             req=urllib.request.Request(base+path,headers=headers,method=method)
             try:
