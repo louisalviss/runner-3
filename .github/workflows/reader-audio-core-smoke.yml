@@ -30,9 +30,13 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/reader-follower.js
           node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
           node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
+          node --check cloudflare/runner3-core/reader-audio-core/dom-segment-builder.js
           node --check cloudflare/runner3-core/reader-audio-core/core-smoke.mjs
           node --check cloudflare/runner3-core/reader-audio-core/adapter-smoke.mjs
+          node --check cloudflare/runner3-core/reader-audio-core/dom-segment-builder-smoke.mjs
       - name: Run isolated core smoke
         run: node cloudflare/runner3-core/reader-audio-core/core-smoke.mjs
       - name: Run isolated adapter smoke
         run: node cloudflare/runner3-core/reader-audio-core/adapter-smoke.mjs
+      - name: Run deterministic DOM segment builder smoke
+        run: node cloudflare/runner3-core/reader-audio-core/dom-segment-builder-smoke.mjs
