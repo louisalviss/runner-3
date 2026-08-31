@@ -1,0 +1,29 @@
+name: Reader Audio Core Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'cloudflare/runner3-core/reader-audio-core/**'
+      - '.github/workflows/reader-audio-core-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  core-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check modules
+        run: |
+          node --check cloudflare/runner3-core/reader-audio-core/state-contract.js
+          node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
+          node --check cloudflare/runner3-core/reader-audio-core/position-mapper.js
+          node --check cloudflare/runner3-core/reader-audio-core/reader-follower.js
+          node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
+      - name: Run isolated core smoke
+        run: node cloudflare/runner3-core/reader-audio-core/core-smoke.mjs
