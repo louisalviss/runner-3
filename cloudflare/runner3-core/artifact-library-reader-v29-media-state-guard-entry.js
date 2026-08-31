@@ -21,23 +21,24 @@ const NO_PAYLOAD_NEW = `    if(!payload){
       return;
     }`;
 
-const EVENTS_OLD = `  audio.addEventListener('loadedmetadata',()=>{enablePlaybackSession();syncReading(false);});
-  audio.addEventListener('timeupdate',()=>{syncReading(false);saveState(false);});
-  audio.addEventListener('seeked',()=>{syncReading(true);saveState(true);});
-  audio.addEventListener('play',()=>{enablePlaybackSession();setMain('pause');syncReading(false);});
-  audio.addEventListener('pause',()=>{if(!audio.ended)setMain('play');saveState(true);});
-  audio.addEventListener('ended',()=>{saveState(true);clearHighlight();});`;
-
-const EVENTS_NEW = `  audio.addEventListener('loadedmetadata',()=>{enablePlaybackSession();if(audio.getAttribute('src')&&!audio.ended)setStatus('Nam Minh · sẵn sàng');syncReading(false);});
-  audio.addEventListener('timeupdate',()=>{syncReading(false);saveState(false);});
-  audio.addEventListener('seeked',()=>{syncReading(true);saveState(true);});
-  audio.addEventListener('play',()=>{enablePlaybackSession();setMain('pause');setStatus('Nam Minh · đang phát');syncReading(false);});
-  audio.addEventListener('pause',()=>{if(!audio.ended){setMain('play');setStatus('Nam Minh · tạm dừng');}saveState(true);});
-  audio.addEventListener('ended',()=>{setMain('play');setStatus('Nam Minh · đã hết đoạn');saveState(true);clearHighlight();});`;
-
-const MARKER_OLD = `  window.__r3AudioPrimeBasePositionV28=true;`;
-const MARKER_NEW = `  window.__r3AudioPrimeBasePositionV28=true;
-  window.__r3AudioMediaStateGuardV29=true;`;
+const STATUS_GUARD = `<script data-r3-audio-media-state-guard-v29="1">
+(()=>{
+  if(window.__r3AudioMediaStateGuardV29)return;
+  window.__r3AudioMediaStateGuardV29=true;
+  const audio=document.getElementById('r3AudioElement');
+  const main=document.getElementById('r3AudioMain');
+  const status=document.getElementById('r3AudioStatus');
+  if(!audio||!main||!status)return;
+  const set=text=>{status.textContent=String(text||'Nam Minh').slice(0,120);};
+  const playUi=()=>{main.textContent='Ⅱ';main.disabled=false;main.setAttribute('aria-label','Tạm dừng audio');};
+  const pauseUi=()=>{main.textContent='▶';main.disabled=false;main.setAttribute('aria-label','Phát audio');};
+  audio.addEventListener('loadedmetadata',()=>{if(audio.getAttribute('src')&&!audio.ended)set('Nam Minh · sẵn sàng');});
+  audio.addEventListener('playing',()=>{playUi();set('Nam Minh · đang phát');});
+  audio.addEventListener('play',()=>{playUi();set('Nam Minh · đang phát');});
+  audio.addEventListener('pause',()=>{if(!audio.ended){pauseUi();set('Nam Minh · tạm dừng');}});
+  audio.addEventListener('ended',()=>{pauseUi();set('Nam Minh · đã hết đoạn');});
+})();
+</script>`;
 
 function replaceOnce(source, needle, replacement, label) {
   const first = source.indexOf(needle);
@@ -48,10 +49,10 @@ function replaceOnce(source, needle, replacement, label) {
 
 function patchMediaStateGuard(html) {
   let out = String(html || '');
-  if (out.includes('window.__r3AudioMediaStateGuardV29=true')) return out;
+  if (out.includes('data-r3-audio-media-state-guard-v29="1"')) return out;
   out = replaceOnce(out, NO_PAYLOAD_OLD, NO_PAYLOAD_NEW, 'noPayloadMediaGuard');
-  out = replaceOnce(out, EVENTS_OLD, EVENTS_NEW, 'mediaStatusEvents');
-  out = replaceOnce(out, MARKER_OLD, MARKER_NEW, 'marker');
+  if (!out.includes('</body>')) throw new Error('READER_V29_BODY_MARKER_MISSING');
+  out = out.replace('</body>', STATUS_GUARD + '</body>');
   return out;
 }
 
