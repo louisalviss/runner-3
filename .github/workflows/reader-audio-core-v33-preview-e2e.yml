@@ -59,6 +59,7 @@ jobs:
           python3 - <<'PY'
           import json,pathlib,re,os
           root=pathlib.Path('cloudflare/runner3-core')
+
           wrapper=root/'artifact-library-reader-v7-github-audio-entry.js'
           text=wrapper.read_text(encoding='utf-8')
           text,count=re.subn(
@@ -69,6 +70,17 @@ jobs:
           )
           if count != 1: raise SystemExit('reader wrapper import marker missing')
           wrapper.write_text(text,encoding='utf-8')
+
+          # Canary only: read the complete v31 baseline/backend through the production
+          # Worker service binding. This keeps production secrets out of the preview
+          # Worker while still exercising the real v33 HTML patch/runtime.
+          entry=root/'artifact-library-reader-v33-audio-core-entry.js'
+          text=entry.read_text(encoding='utf-8')
+          needle='const response = await app.fetch(request, env, ctx);'
+          replacement='const response = env.READER_V31_BASELINE ? await env.READER_V31_BASELINE.fetch(request) : await app.fetch(request, env, ctx);'
+          if text.count(needle) != 1: raise SystemExit('v33 baseline fetch marker missing or ambiguous')
+          entry.write_text(text.replace(needle,replacement,1),encoding='utf-8')
+
           mailbox=root/'mailbox-entry.js'
           text=mailbox.read_text(encoding='utf-8')
           old='import app from "./audio-entry.js";'
@@ -76,10 +88,15 @@ jobs:
           if old in text: text=text.replace(old,new,1)
           elif new not in text: raise SystemExit('canonical mailbox import marker missing')
           mailbox.write_text(text,encoding='utf-8')
+
           cfg_path=root/'wrangler.jsonc'
           cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
           cfg['name']=os.environ['PREVIEW_NAME']
           cfg['main']='mailbox-entry.js'
+          cfg.pop('triggers',None)
+          services=[s for s in cfg.get('services',[]) if s.get('binding')!='READER_V31_BASELINE']
+          services.append({'binding':'READER_V31_BASELINE','service':'runner3-core'})
+          cfg['services']=services
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
@@ -89,6 +106,9 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
           node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           grep -q 'artifact-library-reader-v33-audio-core-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'READER_V31_BASELINE' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
+          grep -q 'READER_V31_BASELINE' cloudflare/runner3-core/wrangler.jsonc
+          ! grep -q '"triggers"' cloudflare/runner3-core/wrangler.jsonc
 
       - name: Deploy isolated preview Worker
         working-directory: cloudflare/runner3-core
