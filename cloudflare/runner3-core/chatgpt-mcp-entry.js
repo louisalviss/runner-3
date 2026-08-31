@@ -1,5 +1,5 @@
 import app from "./artifact-library-reader-v7-github-audio-entry.js";
-import { handleChatGptMcp } from "./src/chatgpt-mcp.js";
+import { handleChatGptMcp } from "./src/chatgpt-mcp-oauth.js";
 
 export default {
   ...app,
