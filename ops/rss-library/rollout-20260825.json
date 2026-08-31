@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-31T03:45:03.300866+00:00",
-  "runId": "33354656914",
+  "checkedAt": "2026-08-31T03:46:54.976243+00:00",
+  "runId": "33354802116",
   "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
   "health": {
     "http": 200,
@@ -9,10 +9,17 @@
     "r2": true
   },
   "catalog": {
-    "http": 503,
-    "count": null,
-    "ids": [],
-    "exactSix": false,
+    "http": 200,
+    "count": 6,
+    "ids": [
+      "cloudflare-url-781ba125e818919ba95e",
+      "fulcrum-url-a87e54dbda2e37fe40a7",
+      "genk-165260824141950644",
+      "nghiencuuquocte-url-6cd04807aefc80d9be93",
+      "rasa-url-71191f21386ea1a88a22",
+      "tinhte-4171630"
+    ],
+    "exactSix": true,
     "retiredAbsent": true
   },
   "fetch": {
@@ -106,10 +113,10 @@
       "last_error": null
     },
     "cloudflare-url-781ba125e818919ba95e": {
-      "http": 503,
-      "fetch_status": null,
-      "translation_status": null,
-      "source_checksum": null,
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "pending",
+      "source_checksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e",
       "translation_checksum": null,
       "qa_state": null,
       "last_error": null
@@ -149,15 +156,12 @@
       "sourceChecksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192"
     },
     "cloudflare-url-781ba125e818919ba95e": {
-      "http": 503,
-      "ok": false,
-      "sectionCount": null,
-      "sourceChecksum": null
+      "http": 200,
+      "ok": true,
+      "sectionCount": 62,
+      "sourceChecksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
-  "errors": [
-    "packet:cloudflare-url-781ba125e818919ba95e:503",
-    "catalog_not_exact_six"
-  ],
-  "ok": false
+  "errors": [],
+  "ok": true
 }
