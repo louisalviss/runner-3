@@ -53,11 +53,19 @@ export class AudioController {
     return this;
   }
 
+  applyPlaybackRate() {
+    const playbackRate = normalizePlaybackState({ playbackRate: this.state.playbackRate }).playbackRate;
+    try { this.audio.defaultPlaybackRate = playbackRate; } catch {}
+    try { this.audio.playbackRate = playbackRate; } catch {}
+    this.state.playbackRate = playbackRate;
+    return playbackRate;
+  }
+
   restore(context = {}) {
     const saved = normalizePlaybackState(this.loadState?.() || {});
     const definedContext = Object.fromEntries(Object.entries(context).filter(([, value]) => value !== undefined));
     this.state = normalizePlaybackState({ ...saved, ...definedContext });
-    if (this.state.playbackRate) this.audio.playbackRate = this.state.playbackRate;
+    this.applyPlaybackRate();
     if (this.state.time > 0) {
       const apply = () => {
         try { this.audio.currentTime = this.state.time; } catch {}
@@ -76,6 +84,9 @@ export class AudioController {
     if (cfi !== undefined) next.cfi = cfi;
     if (time !== undefined) next.time = time;
     this.state = normalizePlaybackState(next);
+    // Browsers may reset playbackRate to defaultPlaybackRate when a new media
+    // resource is selected. Re-apply the canonical state after every src swap.
+    this.applyPlaybackRate();
     this.persist();
     return this.snapshot();
   }
@@ -117,6 +128,7 @@ export class AudioController {
     this.persist();
     try {
       await this.waitUntilReady();
+      this.applyPlaybackRate();
       await this.audio.play();
     } catch (error) {
       this.state.playingIntent = false;
@@ -138,8 +150,8 @@ export class AudioController {
 
   setRate(rate) {
     const playbackRate = normalizePlaybackState({ playbackRate: rate }).playbackRate;
-    this.audio.playbackRate = playbackRate;
     this.state.playbackRate = playbackRate;
+    this.applyPlaybackRate();
     this.persist();
     return this.snapshot();
   }
