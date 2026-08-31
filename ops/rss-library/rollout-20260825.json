@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-31T04:27:26.043802+00:00",
-  "runId": "33357038666",
+  "checkedAt": "2026-08-31T04:34:54.670833+00:00",
+  "runId": "33357460798",
   "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
   "health": {
     "http": 200,
@@ -9,17 +9,10 @@
     "r2": true
   },
   "catalog": {
-    "http": 200,
-    "count": 6,
-    "ids": [
-      "cloudflare-url-781ba125e818919ba95e",
-      "fulcrum-url-a87e54dbda2e37fe40a7",
-      "genk-165260824141950644",
-      "nghiencuuquocte-url-6cd04807aefc80d9be93",
-      "rasa-url-71191f21386ea1a88a22",
-      "tinhte-4171630"
-    ],
-    "exactSix": true,
+    "http": 503,
+    "count": null,
+    "ids": [],
+    "exactSix": false,
     "retiredAbsent": true
   },
   "fetch": {
@@ -52,18 +45,18 @@
       "checksum": "bc9b5098d1cb3b13c372f6e24e5c4cdcbe34dd2a9019ecb15a4da67f3f950ca7"
     },
     "rasa-url-71191f21386ea1a88a22": {
-      "http": 200,
-      "ok": true,
+      "http": 503,
+      "ok": false,
       "error": null,
-      "chars": 22623,
-      "checksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192"
+      "chars": null,
+      "checksum": null
     },
     "cloudflare-url-781ba125e818919ba95e": {
-      "http": 200,
-      "ok": true,
+      "http": 503,
+      "ok": false,
       "error": null,
-      "chars": 11019,
-      "checksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
+      "chars": null,
+      "checksum": null
     }
   },
   "details": {
@@ -95,28 +88,10 @@
       "last_error": null
     },
     "nghiencuuquocte-url-6cd04807aefc80d9be93": {
-      "http": 200,
-      "fetch_status": "fetched",
-      "translation_status": "native_vi",
-      "source_checksum": "bc9b5098d1cb3b13c372f6e24e5c4cdcbe34dd2a9019ecb15a4da67f3f950ca7",
-      "translation_checksum": "bc9b5098d1cb3b13c372f6e24e5c4cdcbe34dd2a9019ecb15a4da67f3f950ca7",
-      "qa_state": "native_vi",
-      "last_error": null
-    },
-    "rasa-url-71191f21386ea1a88a22": {
-      "http": 200,
-      "fetch_status": "fetched",
-      "translation_status": "pending",
-      "source_checksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192",
-      "translation_checksum": null,
-      "qa_state": null,
-      "last_error": null
-    },
-    "cloudflare-url-781ba125e818919ba95e": {
-      "http": 200,
-      "fetch_status": "fetched",
-      "translation_status": "pending",
-      "source_checksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e",
+      "http": 503,
+      "fetch_status": null,
+      "translation_status": null,
+      "source_checksum": null,
       "translation_checksum": null,
       "qa_state": null,
       "last_error": null
@@ -136,10 +111,10 @@
       "imageCount": 1
     },
     "nghiencuuquocte-url-6cd04807aefc80d9be93": {
-      "http": 200,
-      "nativeVi": true,
-      "bodyChars": 71010,
-      "imageCount": 1
+      "http": 503,
+      "nativeVi": null,
+      "bodyChars": 0,
+      "imageCount": 0
     }
   },
   "translationPackets": {
@@ -148,20 +123,13 @@
       "ok": true,
       "sectionCount": 45,
       "sourceChecksum": "0ff90ee23b9af7175f62e409966314b5532db4e45b142ab923f98b287bd721f4"
-    },
-    "rasa-url-71191f21386ea1a88a22": {
-      "http": 200,
-      "ok": true,
-      "sectionCount": 125,
-      "sourceChecksum": "aa10d8ce17b9b80c4189e3d54abb22b1602d4b1aee463a2293f68150e5641192"
-    },
-    "cloudflare-url-781ba125e818919ba95e": {
-      "http": 200,
-      "ok": true,
-      "sectionCount": 62,
-      "sourceChecksum": "00f44790fe84474a3d4863a4521c9f215c103dfde1dead14d7435a9e4508277e"
     }
   },
-  "errors": [],
-  "ok": true
+  "errors": [
+    "native_vi:nghiencuuquocte-url-6cd04807aefc80d9be93:503",
+    "fetch:rasa-url-71191f21386ea1a88a22:503",
+    "fetch:cloudflare-url-781ba125e818919ba95e:503",
+    "catalog_not_exact_six"
+  ],
+  "ok": false
 }
