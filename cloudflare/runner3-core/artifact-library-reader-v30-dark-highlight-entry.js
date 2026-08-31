@@ -1,5 +1,6 @@
 import app from "./artifact-library-reader-v29-media-state-guard-entry.js";
 
+// v30 browser-proof trigger; no runtime behavior.
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
 const HIGHLIGHT_SCRIPT = `<script data-r3-audio-dark-highlight-v30="1">
