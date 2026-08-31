@@ -1,3 +1,4 @@
+// v31 high-speed smoke trigger: 2x page-boundary serialized follow proof.
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
