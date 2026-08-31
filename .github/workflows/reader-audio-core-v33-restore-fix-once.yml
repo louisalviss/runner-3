@@ -1,0 +1,106 @@
+name: Reader Audio Core v33 Restore Fix Once
+
+on:
+  push:
+    branches:
+      - reader-audio-core-integration-v33-rebased
+    paths:
+      - '.github/workflows/reader-audio-core-v33-restore-fix-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reader-audio-core-v33-restore-fix-once
+  cancel-in-progress: false
+
+jobs:
+  patch-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: reader-audio-core-integration-v33-rebased
+          fetch-depth: 1
+
+      - name: Patch canonical restore readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('cloudflare/runner3-core/reader-audio-core/browser-production-integration.js')
+          s=p.read_text(encoding='utf-8')
+          old="""  async function initialRestore() {
+    try {
+      for (let n = 0; n < 100 && !bridge()?.current; n++) await sleep(100);
+      const saved = loadState();
+      if (saved.cfi && bridge()?.display) {
+        try { await bridge().display(saved.cfi); await sleep(220); } catch {}
+      }
+      if (saved.mediaId) await prepareCurrent({ autoplay: false, allowSaved: true });
+      else syncUi(saved);
+    } catch (error) {
+      debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
+    }
+  }
+"""
+          new="""  async function waitForReadableRestore(saved, attempts = 100) {
+    for (let n = 0; n < attempts; n++) {
+      const b = bridge();
+      const loc = b?.current?.();
+      const payload = framePayload();
+      const chapterMatches = !saved?.chapter || payload?.chapter === saved.chapter;
+      if (loc?.start?.cfi && payload && chapterMatches) return payload;
+      await sleep(100);
+    }
+    return null;
+  }
+
+  async function initialRestore() {
+    try {
+      const saved = loadState();
+      for (let n = 0; n < 100; n++) {
+        const b = bridge();
+        const loc = b?.current?.();
+        if (b?.display && loc?.start?.cfi) break;
+        await sleep(100);
+      }
+      if (saved.cfi && bridge()?.display) {
+        try { await bridge().display(saved.cfi); } catch {}
+      }
+      const payload = await waitForReadableRestore(saved, 100);
+      if (saved.mediaId) {
+        if (!payload) throw new Error('READER_RESTORE_CHAPTER_NOT_READY');
+        await prepareCurrent({ autoplay: false, allowSaved: true });
+      } else syncUi(saved);
+    } catch (error) {
+      debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
+    }
+  }
+"""
+          if old not in s:
+            if 'async function waitForReadableRestore' in s:
+              print('RESTORE_FIX_ALREADY_PRESENT')
+              raise SystemExit(0)
+            raise SystemExit('RESTORE_FIX_MARKER_MISSING')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          print('RESTORE_FIX_PATCHED')
+          PY
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'waitForReadableRestore' cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'READER_RESTORE_CHAPTER_NOT_READY' cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+
+      - name: Commit source fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- cloudflare/runner3-core/reader-audio-core/browser-production-integration.js; then
+            echo 'NO_SOURCE_CHANGE'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          git commit -m 'fix(reader-core): wait for readable chapter before resume'
+          git push origin HEAD:reader-audio-core-integration-v33-rebased
