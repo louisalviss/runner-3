@@ -17,6 +17,37 @@ function makeSilentWav(seconds) {
   return out;
 }
 
+function audioRangeResponse(req, body) {
+  const total = body.length;
+  const range = String(req.headers()['range'] || '');
+  const baseHeaders = { 'content-type': 'audio/wav', 'accept-ranges': 'bytes', 'cache-control': 'no-store' };
+  if (!range) return { status: 200, headers: { ...baseHeaders, 'content-length': String(total) }, body };
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+  if (!match) return { status: 416, headers: { ...baseHeaders, 'content-range': `bytes */${total}` }, body: Buffer.alloc(0) };
+  let start = match[1] ? Number(match[1]) : NaN;
+  let end = match[2] ? Number(match[2]) : NaN;
+  if (!Number.isFinite(start) && Number.isFinite(end)) {
+    const suffix = Math.max(0, Math.min(total, end));
+    start = total - suffix;
+    end = total - 1;
+  } else {
+    if (!Number.isFinite(start)) start = 0;
+    if (!Number.isFinite(end)) end = total - 1;
+  }
+  start = Math.max(0, Math.min(total - 1, start));
+  end = Math.max(start, Math.min(total - 1, end));
+  const chunk = body.subarray(start, end + 1);
+  return {
+    status: 206,
+    headers: {
+      ...baseHeaders,
+      'content-range': `bytes ${start}-${end}/${total}`,
+      'content-length': String(chunk.length),
+    },
+    body: chunk,
+  };
+}
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const errors = [];
@@ -27,9 +58,11 @@ let words = [];
 let wav = makeSilentWav(60);
 let syntheticReady = false;
 let postCount = 0;
+let mediaGetCount = 0;
+let mediaRangeCount = 0;
 const mediaUrl = `${CORE_URL}/artifact-library/api/audio/${TEST_ID}/media`;
 const timingUrl = `${CORE_URL}/artifact-library/api/audio/${TEST_ID}/timing`;
-const state = () => ({ ok: true, id: TEST_ID, status: 'ready', mediaUrl, timingUrl, durationSeconds: wav.length / 8000, error: null });
+const state = () => ({ ok: true, id: TEST_ID, status: 'ready', mediaUrl, timingUrl, durationSeconds: Math.max(0, (wav.length - 44) / 8000), error: null });
 
 await page.route('**/*', async route => {
   if (!syntheticReady) return route.continue();
@@ -41,7 +74,11 @@ await page.route('**/*', async route => {
     if (req.method() === 'GET' && u.searchParams.get('id') === TEST_ID) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state()) });
   }
   if (u.href === timingUrl) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ words }) });
-  if (u.href === mediaUrl) return route.fulfill({ status: 200, contentType: 'audio/wav', body: wav });
+  if (u.href === mediaUrl) {
+    mediaGetCount++;
+    if (req.headers()['range']) mediaRangeCount++;
+    return route.fulfill(audioRangeResponse(req, wav));
+  }
   return route.continue();
 });
 
@@ -150,10 +187,11 @@ try {
     const f = document.querySelector('#viewer iframe');
     let active = null;
     try { active = f?.contentDocument?.querySelector('[data-r3-audio-reading-v11="1"]')?.textContent?.trim()?.slice(0, 180) || null; } catch {}
-    return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), saved, active, cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null };
+    return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), saved, active, cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, seekable: a?.seekable?.length ? Number(a.seekable.end(a.seekable.length - 1)) : 0 };
   }, BOOK_KEY);
-  console.log(JSON.stringify({ phase: 'started', postCount, expectedStart, ...started }));
+  console.log(JSON.stringify({ phase: 'started', postCount, mediaGetCount, mediaRangeCount, expectedStart, ...started }));
   if (postCount !== 1) throw new Error(`expected one audio POST, got ${postCount}`);
+  if (mediaRangeCount < 1) throw new Error(`browser did not issue an audio Range request: mediaGets=${mediaGetCount}`);
   if (expectedStart < 1 || started.time < expectedStart - 1 || started.time > expectedStart + 3) throw new Error(`viewport start mismatch expected=${expectedStart} actual=${started.time}`);
   if (!started.active) throw new Error('bold active paragraph missing after viewport-word start');
   if (started.saved?.id !== TEST_ID) throw new Error(`saved media id mismatch: ${JSON.stringify(started.saved)}`);
@@ -200,7 +238,7 @@ try {
   if (!resumed.src.includes(TEST_ID)) throw new Error('resume did not reuse same audio media');
   if (errors.length) throw new Error('browser runtime errors: ' + errors.join(' | ').slice(0, 1500));
 
-  console.log(JSON.stringify({ phase: 'viewport-word-proof', ok: true, runtime, exactVisibleWordStart: true, expectedStart, actualStart: started.time, exactWordPageFollow: true, refreshResume: true, duplicatePostAfterRefresh: false, postCount }));
+  console.log(JSON.stringify({ phase: 'viewport-word-proof', ok: true, runtime, exactVisibleWordStart: true, expectedStart, actualStart: started.time, exactWordPageFollow: true, refreshResume: true, duplicatePostAfterRefresh: false, postCount, mediaGetCount, mediaRangeCount }));
 } finally {
   await browser.close();
 }
