@@ -1,6 +1,5 @@
 import app from "./artifact-library-reader-v29-media-state-guard-entry.js";
 
-// v30 browser-proof trigger; no runtime behavior.
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
 const HIGHLIGHT_SCRIPT = `<script data-r3-audio-dark-highlight-v30="1">
@@ -8,7 +7,7 @@ const HIGHLIGHT_SCRIPT = `<script data-r3-audio-dark-highlight-v30="1">
   if(window.__r3AudioDarkHighlightV30)return;
   window.__r3AudioDarkHighlightV30=true;
   const STYLE_ID='r3AudioDarkHighlightV30Style';
-  const css='[data-r3-audio-reading-v11="1"]{font-weight:900!important;border-radius:5px!important;box-shadow:inset 3px 0 0 rgba(132,92,10,.72)!important;background:rgba(226,176,55,.13)!important;padding-left:.18em!important;padding-right:.12em!important}[data-r3-audio-reading-v11="1"] *{font-weight:900!important}:root[data-r3-outer-theme="dark"] [data-r3-audio-reading-v11="1"]{background:rgba(255,211,92,.22)!important;box-shadow:inset 3px 0 0 rgba(255,226,138,.96)!important;outline:1px solid rgba(255,226,138,.16)!important}:root[data-r3-outer-theme="brown"] [data-r3-audio-reading-v11="1"]{background:rgba(123,76,28,.12)!important;box-shadow:inset 3px 0 0 rgba(123,76,28,.75)!important}';
+  const css='[data-r3-audio-reading-v11="1"]{font-weight:900!important;border-radius:5px!important;box-shadow:inset 3px 0 0 rgba(132,92,10,.72)!important;background:rgba(226,176,55,.13)!important}[data-r3-audio-reading-v11="1"] *{font-weight:900!important}:root[data-r3-outer-theme="dark"] [data-r3-audio-reading-v11="1"]{background:rgba(255,211,92,.22)!important;box-shadow:inset 3px 0 0 rgba(255,226,138,.96)!important;outline:1px solid rgba(255,226,138,.16)!important}:root[data-r3-outer-theme="brown"] [data-r3-audio-reading-v11="1"]{background:rgba(123,76,28,.12)!important;box-shadow:inset 3px 0 0 rgba(123,76,28,.75)!important}';
   const theme=()=>String(document.body&&document.body.dataset&&document.body.dataset.theme||'light');
   function install(doc){
     if(!doc||!doc.documentElement)return;
@@ -53,7 +52,7 @@ export default {
       headers.delete("Content-Length");
       headers.set("X-Robots-Tag", ROBOTS);
       headers.set("X-R3-Reader-Runtime", "v30-dark-highlight");
-      headers.set("X-R3-Reader-Patch-Proof", "v29+v30:dark-active-passage-contrast");
+      headers.set("X-R3-Reader-Patch-Proof", "v29+v30:dark-active-passage-contrast-no-layout");
       return new Response(updated, { status: 200, headers });
     } catch (error) {
       return new Response('Reader runtime v30 patch failed', {
