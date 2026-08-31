@@ -1,4 +1,4 @@
-// rerun-marker: restored-v31-baseline-2026-09-01T05:12+07:00
+// rerun-marker: cfi-spine-aware-navigation-2026-09-01T05:27+07:00
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -12,6 +12,12 @@ function patchOnce(needle, replacement, label) {
   if (source.indexOf(needle, first + needle.length) >= 0) throw new Error(`V3_PATCH_AMBIGUOUS:${label}`);
   source = source.slice(0, first) + replacement + source.slice(first + needle.length);
 }
+
+patchOnce(
+  "          const hereIndex = order.indexOf(here);\n          const targetIndex = order.indexOf(targetCfi);\n          if (targetIndex < 0) throw new Error(`UNKNOWN_TARGET_CFI:${targetCfi}`);\n          if (hereIndex < 0 || hereIndex < targetIndex) await window.r3ReaderBridge.next();\n          else await window.r3ReaderBridge.prev();",
+  "          const hereIndex = order.indexOf(here);\n          const targetIndex = order.indexOf(targetCfi);\n          if (targetIndex < 0) throw new Error(`UNKNOWN_TARGET_CFI:${targetCfi}`);\n          const spineIndex = (value) => { const m = /^epubcfi\\(\\/\\d+\\/(\\d+)/.exec(String(value || '')); return m ? Number(m[1]) : null; };\n          const hereSpine = spineIndex(here);\n          const targetSpine = spineIndex(targetCfi);\n          if (hereIndex >= 0) {\n            if (hereIndex < targetIndex) await window.r3ReaderBridge.next();\n            else await window.r3ReaderBridge.prev();\n          } else if (Number.isFinite(hereSpine) && Number.isFinite(targetSpine) && hereSpine !== targetSpine) {\n            if (hereSpine < targetSpine) await window.r3ReaderBridge.next();\n            else await window.r3ReaderBridge.prev();\n          } else {\n            await window.r3ReaderBridge.prev();\n          }",
+  'spine-aware-display-cfi',
+);
 
 patchOnce(
   "  await page.evaluate(async ({ first, last }) => {\n    const { adapter } = window.__r3CoreE2EV2;",
