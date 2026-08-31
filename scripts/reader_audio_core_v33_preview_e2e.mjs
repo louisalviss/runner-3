@@ -117,10 +117,26 @@ async function bestFrame() {
 }
 
 try {
-  const response = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  const runtime = response?.headers()?.['x-r3-reader-runtime'] || '';
-  const proof = response?.headers()?.['x-r3-reader-patch-proof'] || '';
-  if (runtime !== 'v33-audio-core-owner') throw new Error(`PREVIEW_RUNTIME_BAD:${runtime}`);
+  let runtime = '';
+  let proof = '';
+  let navStatus = 0;
+  let navError = '';
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    try {
+      const response = await page.goto(`${readerUrl}${readerUrl.includes('?') ? '&' : '?'}r3v33_attempt=${attempt}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      navStatus = Number(response?.status?.() || 0);
+      runtime = response?.headers()?.['x-r3-reader-runtime'] || '';
+      proof = response?.headers()?.['x-r3-reader-patch-proof'] || '';
+      navError = '';
+      console.log(JSON.stringify({ phase: 'preview-nav', attempt, navStatus, runtime, proof }));
+      if (navStatus === 200 && runtime === 'v33-audio-core-owner' && proof.includes('core-single-owner')) break;
+    } catch (error) {
+      navError = String(error?.message || error || 'navigation error').slice(0, 240);
+      console.log(JSON.stringify({ phase: 'preview-nav', attempt, navStatus, runtime, proof, navError }));
+    }
+    await page.waitForTimeout(1000);
+  }
+  if (navStatus !== 200 || runtime !== 'v33-audio-core-owner') throw new Error(`PREVIEW_RUNTIME_BAD:status=${navStatus}:runtime=${runtime}:error=${navError}`);
   if (!proof.includes('core-single-owner')) throw new Error(`PREVIEW_PROOF_BAD:${proof}`);
   await page.waitForSelector('#r3AudioMain', { timeout: 30000 });
   await page.waitForSelector('#viewer iframe', { timeout: 30000 });
