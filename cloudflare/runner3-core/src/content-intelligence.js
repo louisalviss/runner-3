@@ -83,8 +83,8 @@ async function handleEvent(request,env){
   try{
     const body=await request.json(); const result=await eventStatement(env,body).run();
     if((result.meta?.changes??0)<1)return Response.json({ok:false,error:"CONTENT_ITEM_NOT_FOUND_OR_DUPLICATE"},{status:404});
-    await markProfileDirty(env,`event_${text(body.event_type,100)}`); const recompute=await maybeRecomputePersonal(env);
-    return Response.json({ok:true,id:result.meta?.last_row_id??null,profile_recomputed:Boolean(recompute.recomputed)});
+    await markProfileDirty(env,`event_${text(body.event_type,100)}`);
+    return Response.json({ok:true,durable:true,id:result.meta?.last_row_id??null,event_applied:1,materialization_status:"dirty"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 async function handleEventBatch(request,env){
@@ -92,11 +92,41 @@ async function handleEventBatch(request,env){
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
     const list=rows(await request.json()); const results=await env.DB.batch(list.map(r=>eventStatement(env,r))); const applied=results.reduce((n,r)=>n+(r.meta?.changes??0),0);
-    if(applied) await markProfileDirty(env,"event_batch"); const recompute=applied?await maybeRecomputePersonal(env):{recomputed:false};
-    return Response.json({ok:true,applied,requested:list.length,missing_or_duplicate:list.length-applied,profile_recomputed:Boolean(recompute.recomputed)});
+    if(applied) await markProfileDirty(env,"event_batch");
+    return Response.json({ok:true,durable:true,applied,requested:list.length,missing_or_duplicate:list.length-applied,materialization_status:applied?"dirty":"unchanged"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
+async function handleInterestIngest(request,env){
+  const e=requireDb(env)||requireAuth(request,env); if(e)return e;
+  if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
+  try{
+    const body=await request.json(); const item=normalizedItem(body.item||body);
+    await itemStatement(env,item).run();
+    if(Array.isArray(body.features)&&body.features.length){
+      if(body.features.length>MAX_ROWS)throw new Error(`features_must_contain_at_most_${MAX_ROWS}`);
+      await env.DB.batch(body.features.map(f=>featureStatement(env,{...f,item_id:item.item_id})));
+    }
+    const renderId=text(body.render_id,300)?.trim()||`interest-save:${item.item_id}`;
+    const event={item_id:item.item_id,event_type:"interest_saved",render_id:renderId,explicit_feedback:"interest_saved",context:{source:"explicit_interest_ingest",...(body.context||{})}};
+    const result=await eventStatement(env,event).run();
+    await markProfileDirty(env,"explicit_interest_ingested");
+    return Response.json({
+      ok:true,
+      durable:true,
+      item_id:item.item_id,
+      event_applied:Number(result.meta?.changes||0),
+      event_id:result.meta?.last_row_id??null,
+      feature_model:FEATURE_MODEL_VERSION,
+      model_version:PERSONAL_MODEL_VERSION,
+      semantic_enrichment:"deferred",
+      materialization_status:"dirty"
+    });
+  }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
+}
+
+// Compatibility endpoint. New callers should use /interests/ingest; this route
+// retains the historical eager enrichment/recompute behavior until consumers migrate.
 async function handleInterestSave(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
@@ -155,6 +185,7 @@ export async function handleContentIntelligence(request,env,url){
   if(url.pathname==="/content-intelligence/features")return handleFeatures(request,env);
   if(url.pathname==="/content-intelligence/events")return handleEvent(request,env);
   if(url.pathname==="/content-intelligence/events/batch")return handleEventBatch(request,env);
+  if(url.pathname==="/content-intelligence/interests/ingest")return handleInterestIngest(request,env);
   if(url.pathname==="/content-intelligence/interests/save")return handleInterestSave(request,env);
   if(url.pathname==="/content-intelligence/profile")return handleProfile(request,env,url);
   if(url.pathname==="/content-intelligence/profile/recompute")return handleProfileRecompute(request,env);
