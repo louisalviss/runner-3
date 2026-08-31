@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v21:
+  deploy-v22:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,13 +29,13 @@ jobs:
           done
       - uses: actions/checkout@v4
         with:
-          ref: de8e4038d3cd10c50e18558b95c94d2628041e1c
+          ref: 01d254a9d908d7fa584f0e974a989e330dee86c3
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v21
+      - name: Compose canonical mailbox with Reader v22
         shell: bash
         run: |
           set -euo pipefail
@@ -54,17 +54,17 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v21-page-step-follow-entry.js
-          grep -q 'artifact-library-reader-v21-page-step-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioPageStepFollowV21=true' cloudflare/runner3-core/artifact-library-reader-v21-page-step-follow-entry.js
-      - name: Deploy Reader v21 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v22-word-index-follow-entry.js
+          grep -q 'artifact-library-reader-v22-word-index-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioWordIndexFollowV22=true' cloudflare/runner3-core/artifact-library-reader-v22-word-index-follow-entry.js
+      - name: Deploy Reader v22 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v21 live before browser proof
+      - name: Verify v22 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
@@ -75,16 +75,16 @@ jobs:
           echo "READER_HTTP=$code"
           cat /tmp/h.clean
           if [ "$code" != 200 ]; then head -c 700 /tmp/reader; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v21-page-step-follow$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: v20+v21:point-cfi+page-step-follow$' /tmp/h.clean
-          grep -q 'window.__r3AudioPageStepFollowV21=true' /tmp/reader
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v21.csv")"
+          grep -qi '^x-r3-reader-runtime: v22-word-index-page-follow$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v21+v22:visible-word-direction+page-step$' /tmp/h.clean
+          grep -q 'window.__r3AudioWordIndexFollowV22=true' /tmp/reader
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v22.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V21_LIVE=PASS'
+          echo 'READER_V22_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v21
+    needs: deploy-v22
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -95,29 +95,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt exact browser proof to v21
+      - name: Adapt exact browser proof to v22
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v21';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v21')")
-          s=s.replace('live Reader is not v16:','live Reader is not v21:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v22';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v22')")
+          s=s.replace('live Reader is not v16:','live Reader is not v22:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioPageStepFollowV21 === true'
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioWordIndexFollowV22 === true'
           if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
           oldlog="console.log(JSON.stringify({ phase: 'word-follow', beforeFollowCfi, followIndex, followTime, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));"
-          newlog="console.log(JSON.stringify({ phase: 'word-follow', debug: await page.evaluate(() => window.__r3AudioFollowV21Debug || null), beforeFollowCfi, followIndex, followTime, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));"
+          newlog="console.log(JSON.stringify({ phase: 'word-follow', debug: await page.evaluate(() => window.__r3AudioFollowV22Debug || window.__r3AudioFollowV21Debug || null), beforeFollowCfi, followIndex, followTime, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));"
           if oldlog not in s: raise SystemExit('word-follow log marker missing')
           s=s.replace(oldlog,newlog,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v21" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioPageStepFollowV21" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioFollowV21Debug" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "seek-smoke-v22" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioWordIndexFollowV22" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioFollowV22Debug" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "mediaRangeCount" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
@@ -126,4 +126,4 @@ jobs:
       - name: Prove viewport-word seek, page follow and refresh resume
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v21 production-like Range media + exact start + page-step follow + refresh resume proof
+# v22 production-like Range media + exact start + word-index page follow + refresh resume proof
