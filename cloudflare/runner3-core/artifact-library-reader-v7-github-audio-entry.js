@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v29-media-state-guard-entry.js";
+import app from "./artifact-library-reader-v30-dark-highlight-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
