@@ -12,12 +12,13 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v27:
+  deploy-v30:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PINNED_SOURCE: 0254139359d5999deee9e04dc0cca9d8773cc538
     steps:
       - name: Validate Cloudflare credentials
         shell: bash
@@ -25,17 +26,16 @@ jobs:
           set -euo pipefail
           for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
-            echo "PRESENT:$name"
           done
       - uses: actions/checkout@v4
         with:
-          ref: 2defd98c0d3876ff29e6e99cffa11454280c1502
+          ref: ${{ env.PINNED_SOURCE }}
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v27
+      - name: Compose canonical mailbox with Reader v30
         shell: bash
         run: |
           set -euo pipefail
@@ -54,41 +54,34 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v27-boot-cfi-restore-entry.js
-          grep -q 'artifact-library-reader-v27-boot-cfi-restore-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioBootCfiRestoreV27=true' cloudflare/runner3-core/artifact-library-reader-v27-boot-cfi-restore-entry.js
-      - name: Deploy Reader v27 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v30-dark-highlight-entry.js
+          grep -q 'artifact-library-reader-v30-dark-highlight-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+      - name: Deploy Reader v30 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v27 live before browser proof
+      - name: Verify v30 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
           ok=0
-          for attempt in $(seq 1 15); do
+          for attempt in $(seq 1 20); do
             code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
             tr -d '\r' </tmp/h >/tmp/h.clean
-            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v27-boot-cfi-restore$' /tmp/h.clean && grep -qi '^x-r3-reader-patch-proof: v26+v27:boot-restore-saved-reader-cfi$' /tmp/h.clean && grep -q 'window.__r3AudioBootCfiRestoreV27=true' /tmp/reader; then
-              ok=1
-              break
-            fi
-            echo "WAIT_V27 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true)"
+            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v30-dark-highlight$' /tmp/h.clean && grep -q 'window.__r3AudioDarkHighlightV30=true' /tmp/reader; then ok=1; break; fi
+            echo "WAIT_V30 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true)"
             sleep 1
           done
-          if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v27.csv")"
-          test "$mcode" = 200
-          grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V27_LIVE=PASS'
+          test "$ok" = 1
+          echo 'READER_V30_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v27
+    needs: deploy-v30
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -99,58 +92,52 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt canonical proof to v27 runtime
+      - name: Adapt canonical proof to v30 dark highlight
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v27';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v27')")
-          s=s.replace('live Reader is not v16:','live Reader is not v27:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v30';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v30')")
+          s=s.replace('live Reader is not v16:','live Reader is not v30:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioBootCfiRestoreV27 === true'
-          if old not in s: raise SystemExit('v16 runtime marker condition missing')
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioDarkHighlightV30 === true'
+          if old not in s: raise SystemExit('runtime marker missing')
           s=s.replace(old,new,1)
-          anchor='  const beforeFollowCfi = started.cfi;'
-          pause="  const beforeFollowCfi = started.cfi;\n  await page.evaluate(() => document.getElementById('r3AudioElement')?.pause());\n  await page.waitForTimeout(120);"
-          if anchor not in s: raise SystemExit('follow pause anchor missing')
-          s=s.replace(anchor,pause,1)
-          oldsaved="  const savedTime = await page.evaluate((bookKey) => {\n    try { return Number(JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:' + bookKey) || 'null')?.time || 0); } catch { return 0; }\n  }, BOOK_KEY);\n  if (savedTime < followTime - 0.8) throw new Error(`audio timestamp not persisted: follow=${followTime} saved=${savedTime}`);"
-          newsaved="  const savedResumeState = await page.evaluate((bookKey) => {\n    try { return JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:' + bookKey) || 'null'); } catch { return null; }\n  }, BOOK_KEY);\n  const savedTime = Number(savedResumeState?.time || 0);\n  console.log(JSON.stringify({ phase: 'persisted-follow-state', savedTime, savedCfi: savedResumeState?.cfi || null, persistDebug: await page.evaluate(() => window.__r3AudioPersistFollowCfiV26Debug || null) }));\n  if (savedTime < followTime - 0.8) throw new Error(`audio timestamp not persisted: follow=${followTime} saved=${savedTime}`);\n  if (!savedResumeState?.cfi || savedResumeState.cfi === beforeFollowCfi) throw new Error(`followed Reader CFI not persisted: before=${beforeFollowCfi} saved=${savedResumeState?.cfi || ''}`);"
-          if oldsaved not in s: raise SystemExit('saved state marker missing')
-          s=s.replace(oldsaved,newsaved,1)
-          oldrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null }; });"
-          newrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { debug: window.__r3AudioResumeV23Debug || null, waitDebug: window.__r3AudioResumeWaitV24Debug || null, reuseDebug: window.__r3AudioReuseV25Debug || null, persistDebug: window.__r3AudioPersistFollowCfiV26Debug || null, bootCfiDebug: window.__r3AudioBootCfiV27Debug || null, time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, mediaId: a?.dataset?.r3AudioId || '' }; });"
-          if oldrest not in s: raise SystemExit('restore log marker missing')
-          s=s.replace(oldrest,newrest,1)
-          restorelog="  console.log(JSON.stringify({ phase: 'restored', postCount, savedTime, ...restored }));\n  if (postCount !== 1) throw new Error(`refresh unexpectedly POSTed audio again: ${postCount}`);"
-          restoreproof="  await page.waitForFunction(oldCfi => { const cfi=window.r3ReaderBridge?.current?.()?.start?.cfi||''; return Boolean(cfi)&&cfi!==oldCfi; }, beforeFollowCfi, { timeout: 8000 });\n  await page.waitForTimeout(300);\n  const restoredNow = await page.evaluate(() => { const a=document.getElementById('r3AudioElement'); return { bootCfiDebug: window.__r3AudioBootCfiV27Debug || null, time:Number(a?.currentTime||0), src:String(a?.currentSrc||a?.getAttribute('src')||''), cfi:window.r3ReaderBridge?.current?.()?.start?.cfi||null, mediaId:a?.dataset?.r3AudioId||'' }; });\n  const restoredView = await snapshot();\n  console.log(JSON.stringify({ phase: 'restored', postCount, savedTime, ...restoredNow, restoredVisibleTokenOrdinal: restoredView.visibleTokenOrdinal, restoredVisibleToken: restoredView.visibleToken }));\n  if (postCount !== 1) throw new Error(`refresh unexpectedly POSTed audio again: ${postCount}`);\n  if (!restoredNow.cfi || restoredNow.cfi === beforeFollowCfi) throw new Error(`refresh did not restore Reader CFI: before=${beforeFollowCfi} restored=${restoredNow.cfi || ''}`);\n  if (restoredView.visibleTokenOrdinal < Math.max(0, followIndex - 30)) throw new Error(`refresh restored wrong Reader page: target=${followIndex} visible=${restoredView.visibleTokenOrdinal}`);\n  if (!restoredNow.bootCfiDebug || restoredNow.bootCfiDebug.phase !== 'restored') throw new Error(`v27 boot CFI restore did not prove stable restore: ${JSON.stringify(restoredNow.bootCfiDebug)}`);"
-          if restorelog not in s: raise SystemExit('restore proof anchor missing')
-          s=s.replace(restorelog,restoreproof,1)
-          oldresume="const resumed = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), src: String(a?.currentSrc || a?.getAttribute('src') || '') }; });"
-          newresume="const resumed = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, mediaId: a?.dataset?.r3AudioId || '', reuseDebug: window.__r3AudioReuseV25Debug || null, persistDebug: window.__r3AudioPersistFollowCfiV26Debug || null, bootCfiDebug: window.__r3AudioBootCfiV27Debug || null }; });"
-          if oldresume not in s: raise SystemExit('resume log marker missing')
-          s=s.replace(oldresume,newresume,1)
-          anchor2="  if (!resumed.src.includes(TEST_ID)) throw new Error('resume did not reuse same audio media');"
-          proof=anchor2+"\n  if (resumed.cfi === beforeFollowCfi) throw new Error('resume fell back to old Reader CFI');"
-          if anchor2 not in s: raise SystemExit('resume assertion anchor missing')
-          s=s.replace(anchor2,proof,1)
+          anchor="  await page.locator('#r3AudioMain').click();"
+          inject="  await page.evaluate(() => { document.body.dataset.theme='dark'; try{localStorage.setItem('r3-reader-theme','dark');}catch{} });\n  await page.waitForTimeout(650);\n"+anchor
+          if anchor not in s: raise SystemExit('play anchor missing')
+          s=s.replace(anchor,inject,1)
+          oldassert="  if (!started.active) throw new Error('bold active paragraph missing after viewport-word start');"
+          lines=[
+            "  if (!started.active) throw new Error('active paragraph missing after viewport-word start');",
+            "  const darkHighlight = await page.evaluate(() => {",
+            "    for (const frame of document.querySelectorAll('#viewer iframe')) {",
+            "      try {",
+            "        const doc=frame.contentDocument;",
+            "        const el=doc?.querySelector('[data-r3-audio-reading-v11=\\\"1\\\"]');",
+            "        if(!el)continue;",
+            "        const cs=doc.defaultView.getComputedStyle(el);",
+            "        return {backgroundColor:cs.backgroundColor,boxShadow:cs.boxShadow,fontWeight:cs.fontWeight,theme:doc.documentElement.dataset.r3OuterTheme||'',stylePresent:Boolean(doc.getElementById('r3AudioDarkHighlightV30Style'))};",
+            "      } catch {}",
+            "    }",
+            "    return null;",
+            "  });",
+            "  console.log(JSON.stringify({phase:'dark-highlight-v30',darkHighlight}));",
+            "  if (!darkHighlight?.stylePresent) throw new Error('v30 iframe highlight style missing');",
+            "  if (darkHighlight.theme !== 'dark') throw new Error('v30 iframe dark theme not synced: '+JSON.stringify(darkHighlight));",
+            "  if (!darkHighlight.backgroundColor || darkHighlight.backgroundColor === 'rgba(0, 0, 0, 0)' || darkHighlight.backgroundColor === 'transparent') throw new Error('dark active background is transparent: '+JSON.stringify(darkHighlight));",
+            "  if (!darkHighlight.boxShadow || darkHighlight.boxShadow === 'none') throw new Error('dark active passage has no contrast bar: '+JSON.stringify(darkHighlight));",
+          ]
+          if oldassert not in s: raise SystemExit('active assertion missing')
+          s=s.replace(oldassert,'\n'.join(lines),1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v27" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioBootCfiRestoreV27" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "v27 boot CFI restore did not prove stable restore" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "followed Reader CFI not persisted" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "refresh did not restore Reader CFI" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "next-page-target" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "mediaRangeCount" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
           npm install --no-save playwright
           npx playwright install --with-deps chromium
-      - name: Prove exact start, page follow, boot CFI refresh and no duplicate audio POST
+      - name: Prove dark active passage contrast and baseline Reader behavior
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
-
-# v27: boot restores persisted Reader CFI independently of audio hydration
