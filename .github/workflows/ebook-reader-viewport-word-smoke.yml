@@ -18,7 +18,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: 0254139359d5999deee9e04dc0cca9d8773cc538
+      PINNED_SOURCE: 5fbbcff36c06762fcc2e164cfe8284aa6ede2c2d
     steps:
       - name: Validate Cloudflare credentials
         shell: bash
@@ -73,7 +73,7 @@ jobs:
           for attempt in $(seq 1 20); do
             code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
             tr -d '\r' </tmp/h >/tmp/h.clean
-            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v30-dark-highlight$' /tmp/h.clean && grep -q 'window.__r3AudioDarkHighlightV30=true' /tmp/reader; then ok=1; break; fi
+            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v30-dark-highlight$' /tmp/h.clean && grep -qi '^x-r3-reader-patch-proof: v29+v30:dark-active-passage-contrast-no-layout$' /tmp/h.clean && grep -q 'window.__r3AudioDarkHighlightV30=true' /tmp/reader; then ok=1; break; fi
             echo "WAIT_V30 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true)"
             sleep 1
           done
