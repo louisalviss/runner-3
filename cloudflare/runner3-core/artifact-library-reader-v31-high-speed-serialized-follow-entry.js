@@ -2,19 +2,18 @@ import app from "./artifact-library-reader-v30-dark-highlight-entry.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
-const FOLLOW_HEAD_OLD = `  async function followToken(target,force=false){`;
-const FOLLOW_HEAD_NEW = `  let r3FollowInFlightV31=false;
-  let r3FollowPendingV31=null;
-  async function followToken(target,force=false){`;
+const FOLLOW_HEAD = `  async function followToken(target,force=false){`;
+const FOLLOW_MARKER = `  window.__r3AudioPageStepFollowV21=true;`;
 
-const FOLLOW_LOCK_OLD = `    if(rangeVisibleExact(target.range)){debug.phase='already-visible';debug.ok=true;debug.visibleAtEnd=true;return true;}
-    const now=Date.now();`;
-const FOLLOW_LOCK_NEW = `    if(rangeVisibleExact(target.range)){debug.phase='already-visible';debug.ok=true;debug.visibleAtEnd=true;return true;}
+const FOLLOW_WRAPPER = `  let r3FollowInFlightV31=false;
+  let r3FollowPendingV31=false;
+  let r3FollowPendingForceV31=false;
+  async function followToken(target,force=false){
     const v31debug=window.__r3AudioHighSpeedV31Debug||(window.__r3AudioHighSpeedV31Debug={ticks:0,followRuns:0,queued:0,currentConcurrent:0,maxConcurrent:0,lastTickAt:0,lastRate:1});
     if(r3FollowInFlightV31){
-      r3FollowPendingV31={target,force};
+      r3FollowPendingV31=true;
+      r3FollowPendingForceV31=r3FollowPendingForceV31||Boolean(force);
       v31debug.queued++;
-      debug.phase='queued-v31';
       return false;
     }
     r3FollowInFlightV31=true;
@@ -22,29 +21,20 @@ const FOLLOW_LOCK_NEW = `    if(rangeVisibleExact(target.range)){debug.phase='al
     v31debug.currentConcurrent++;
     v31debug.maxConcurrent=Math.max(v31debug.maxConcurrent,v31debug.currentConcurrent);
     try{
-    const now=Date.now();`;
-
-const FOLLOW_TAIL_OLD = `    debug.phase='not-landed';
-    const after=typeof b.current==='function'?b.current():null;
-    debug.afterCfi=after&&after.start&&after.start.cfi||'';
-    return false;
-  }
-  window.__r3AudioPageStepFollowV21=true;`;
-const FOLLOW_TAIL_NEW = `    debug.phase='not-landed';
-    const after=typeof b.current==='function'?b.current():null;
-    debug.afterCfi=after&&after.start&&after.start.cfi||'';
-    return false;
+      return await r3FollowTokenOriginalV31(target,force);
     }finally{
       r3FollowInFlightV31=false;
       v31debug.currentConcurrent=Math.max(0,v31debug.currentConcurrent-1);
       const pending=r3FollowPendingV31;
-      r3FollowPendingV31=null;
+      const pendingForce=r3FollowPendingForceV31;
+      r3FollowPendingV31=false;
+      r3FollowPendingForceV31=false;
       if(pending&&!audio.paused&&!audio.ended){
-        queueMicrotask(()=>followToken(pending.target,pending.force));
+        queueMicrotask(()=>{try{syncReading(pendingForce);}catch{}});
       }
     }
   }
-  window.__r3AudioPageStepFollowV21=true;`;
+`;
 
 const CLOCK_SCRIPT = `<script data-r3-audio-high-speed-v31="1">
 (()=>{
@@ -70,19 +60,21 @@ const CLOCK_SCRIPT = `<script data-r3-audio-high-speed-v31="1">
 })();
 </script>`;
 
-function replaceOnce(source,needle,replacement,label){
-  const first=source.indexOf(needle);
-  if(first<0)throw new Error(`READER_V31_PATCH_MISSING:${label}`);
-  if(source.indexOf(needle,first+needle.length)>=0)throw new Error(`READER_V31_PATCH_AMBIGUOUS:${label}`);
-  return source.slice(0,first)+replacement+source.slice(first+needle.length);
-}
-
 function patchHighSpeedFollow(html){
   let out=String(html||'');
   if(out.includes('data-r3-audio-high-speed-v31="1"'))return out;
-  out=replaceOnce(out,FOLLOW_HEAD_OLD,FOLLOW_HEAD_NEW,'followHead');
-  out=replaceOnce(out,FOLLOW_LOCK_OLD,FOLLOW_LOCK_NEW,'followLock');
-  out=replaceOnce(out,FOLLOW_TAIL_OLD,FOLLOW_TAIL_NEW,'followTail');
+
+  const start=out.indexOf(FOLLOW_HEAD);
+  if(start<0)throw new Error('READER_V31_PATCH_MISSING:followHead');
+  if(out.indexOf(FOLLOW_HEAD,start+FOLLOW_HEAD.length)>=0)throw new Error('READER_V31_PATCH_AMBIGUOUS:followHead');
+  const marker=out.indexOf(FOLLOW_MARKER,start+FOLLOW_HEAD.length);
+  if(marker<0)throw new Error('READER_V31_PATCH_MISSING:followMarker');
+
+  const original=out.slice(start,marker);
+  const renamed=original.replace(FOLLOW_HEAD,`  async function r3FollowTokenOriginalV31(target,force=false){`);
+  if(renamed===original)throw new Error('READER_V31_PATCH_RENAME_FAILED');
+  out=out.slice(0,start)+renamed+FOLLOW_WRAPPER+out.slice(marker);
+
   if(!out.includes('</body>'))throw new Error('READER_V31_BODY_MARKER_MISSING');
   return out.replace('</body>',CLOCK_SCRIPT+'</body>');
 }
