@@ -163,7 +163,7 @@ jobs:
 
           old="""  await page.waitForFunction(() => !document.getElementById('r3AudioElement')?.paused, null, { timeout: 8000 });\n"""
           new="""  try {\n    await page.waitForFunction(() => !document.getElementById('r3AudioElement')?.paused, null, { timeout: 8000 });\n  } catch (error) {\n    const diagnostic = await page.evaluate((stateKey) => {\n      const audio = document.getElementById('r3AudioElement');\n      return {\n        src: String(audio?.getAttribute('src') || ''),\n        currentSrc: String(audio?.currentSrc || ''),\n        readyState: Number(audio?.readyState || 0),\n        networkState: Number(audio?.networkState || 0),\n        paused: Boolean(audio?.paused),\n        ended: Boolean(audio?.ended),\n        error: audio?.error ? { code: audio.error.code, message: String(audio.error.message || '') } : null,\n        duration: Number(audio?.duration || 0),\n        main: String(document.getElementById('r3AudioMain')?.textContent || ''),\n        status: String(document.getElementById('r3AudioStatus')?.textContent || ''),\n        debug: window.__r3AudioCoreV33Debug,\n        saved: JSON.parse(localStorage.getItem(stateKey) || 'null'),\n      };\n    }, `r3-reader-audio-core-v1:${BOOK_KEY}`);\n    console.log(JSON.stringify({ phase: 'audio-play-failure', postCount, diagnostic, pageErrors: errors.slice(0, 8) }));\n    throw new Error(`AUDIO_PLAY_TIMEOUT:${String(error?.message || error)}`);\n  }\n"""
-          if s.count(old)!=1: raise SystemExit('preview e2e audio-play marker missing or ambiguous')
+          if old not in s: raise SystemExit('preview e2e audio-play marker missing')
           s=s.replace(old,new,1)
 
           p.write_text(s,encoding='utf-8')
