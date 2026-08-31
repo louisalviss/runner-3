@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v20:
+  deploy-v21:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,13 +29,13 @@ jobs:
           done
       - uses: actions/checkout@v4
         with:
-          ref: 5dd7768c72205ba96cdbf7d2ed7e9e23ad853fa9
+          ref: de8e4038d3cd10c50e18558b95c94d2628041e1c
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v20
+      - name: Compose canonical mailbox with Reader v21
         shell: bash
         run: |
           set -euo pipefail
@@ -54,17 +54,17 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v20-seekable-anchor-entry.js
-          grep -q 'artifact-library-reader-v20-seekable-anchor-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioSeekableAnchorV20=true' cloudflare/runner3-core/artifact-library-reader-v20-seekable-anchor-entry.js
-      - name: Deploy Reader v20 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v21-page-step-follow-entry.js
+          grep -q 'artifact-library-reader-v21-page-step-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioPageStepFollowV21=true' cloudflare/runner3-core/artifact-library-reader-v21-page-step-follow-entry.js
+      - name: Deploy Reader v21 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v20 live before browser proof
+      - name: Verify v21 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
@@ -75,16 +75,16 @@ jobs:
           echo "READER_HTTP=$code"
           cat /tmp/h.clean
           if [ "$code" != 200 ]; then head -c 700 /tmp/reader; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v20-seekable-anchor$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: v18+v19+v20:seekable+landing+postplay$' /tmp/h.clean
-          grep -q 'window.__r3AudioSeekableAnchorV20=true' /tmp/reader
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v20.csv")"
+          grep -qi '^x-r3-reader-runtime: v21-page-step-follow$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v20+v21:point-cfi+page-step-follow$' /tmp/h.clean
+          grep -q 'window.__r3AudioPageStepFollowV21=true' /tmp/reader
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v21.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V20_LIVE=PASS'
+          echo 'READER_V21_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v20
+    needs: deploy-v21
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -95,24 +95,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt exact browser proof to v20
+      - name: Adapt exact browser proof to v21
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v20';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v20')")
-          s=s.replace('live Reader is not v16:','live Reader is not v20:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v21';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v21')")
+          s=s.replace('live Reader is not v16:','live Reader is not v21:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioSeekableAnchorV20 === true'
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioPageStepFollowV21 === true'
           if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
+          oldlog="console.log(JSON.stringify({ phase: 'word-follow', beforeFollowCfi, followIndex, followTime, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));"
+          newlog="console.log(JSON.stringify({ phase: 'word-follow', debug: await page.evaluate(() => window.__r3AudioFollowV21Debug || null), beforeFollowCfi, followIndex, followTime, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));"
+          if oldlog not in s: raise SystemExit('word-follow log marker missing')
+          s=s.replace(oldlog,newlog,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v20" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioSeekableAnchorV20" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "seek-smoke-v21" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioPageStepFollowV21" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioFollowV21Debug" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "mediaRangeCount" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
@@ -121,4 +126,4 @@ jobs:
       - name: Prove viewport-word seek, page follow and refresh resume
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v20 production-like Range media + confirmed seek landing + outer CFI anchor + refresh resume proof
+# v21 production-like Range media + exact start + page-step follow + refresh resume proof
