@@ -1,0 +1,24 @@
+name: Runner3 Core Deploy Owner Guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/verify_runner3_core_single_deploy_owner.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  single-writer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enforce one Runner3 Core production writer
+        run: node scripts/verify_runner3_core_single_deploy_owner.mjs
