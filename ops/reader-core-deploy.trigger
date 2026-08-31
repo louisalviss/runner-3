@@ -1,4 +1,4 @@
-reader-v22-word-index-page-follow
-source=01d254a9d908d7fa584f0e974a989e330dee86c3
-requested_at=2026-08-31T07:28:00+07:00
-attempt=visible-word-direction-page-step
+reader-v24-resume-wait-match
+source=19fd5ee26adb53c9d2b58738adb5e87cc810a019
+requested_at=2026-08-31T09:48:00+07:00
+attempt=wait-matching-signature-resume-no-repost
