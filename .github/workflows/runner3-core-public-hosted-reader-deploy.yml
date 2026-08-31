@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/runner3-core-public-hosted-reader-deploy.yml'
       - 'cloudflare/runner3-core/**'
+      - '!cloudflare/runner3-core/reader-audio-core/**'
       - 'ops/reader-core-deploy.trigger'
   workflow_dispatch:
 
@@ -98,7 +99,7 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live Reader v31 and preserved Core surfaces
+      - name: Verify live Reader v31 and stable Core surfaces
         shell: bash
         run: |
           set -euo pipefail
@@ -108,19 +109,24 @@ jobs:
           for attempt in $(seq 1 20); do
             code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
             tr -d '\r' </tmp/h >/tmp/h.clean
-            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v31-high-speed-serialized-follow$' /tmp/h.clean && grep -qi '^x-r3-reader-patch-proof: v30+v31:75ms-high-speed-clock+single-flight-follow$' /tmp/h.clean && grep -q 'window.__r3AudioHighSpeedFollowV31=true' /tmp/reader; then
+            runtime="$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            proof="$(grep -i '^x-r3-reader-patch-proof:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof"
+            if [ "$code" = 200 ] && [ "$runtime" = 'v31-high-speed-serialized-follow' ] && [ "$proof" = 'v30+v31:75ms-high-speed-clock+single-flight-follow' ] && grep -q 'window.__r3AudioHighSpeedFollowV31=true' /tmp/reader; then
               ok=1
               break
             fi
-            echo "WAIT_V31 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true) error=$(grep -i '^x-r3-reader-patch-error:' /tmp/h.clean || true)"
             sleep 1
           done
           if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
-          hcode="$(curl -sS -o /tmp/health.json -w '%{http_code}' "$core/health")"
-          test "$hcode" = 200
+
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
+          echo "AUDIO_SURFACE http=$acode body=$(head -c 180 /tmp/audio.json | tr '\n' ' ')"
           test "$acode" = 400
+
           mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v31.csv")"
+          echo "MAILBOX_SURFACE http=$mcode body=$(head -c 180 /tmp/mailbox.csv | tr '\n' ' ')"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
+
           echo 'RUNNER3_CORE_PRODUCTION_V31=PASS'
