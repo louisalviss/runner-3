@@ -22,6 +22,7 @@ concurrency:
 env:
   PREVIEW_NAME: runner3-core-reader-v33-preview
   PREVIEW_URL: https://runner3-core-reader-v33-preview.ducduy2411.workers.dev
+  BASELINE_URL: https://runner3-core.ducduy2411.workers.dev
 
 jobs:
   preview-e2e:
@@ -71,16 +72,6 @@ jobs:
           if count != 1: raise SystemExit('reader wrapper import marker missing')
           wrapper.write_text(text,encoding='utf-8')
 
-          # Canary only: read the complete v31 baseline/backend through the production
-          # Worker service binding. This keeps production secrets out of the preview
-          # Worker while still exercising the real v33 HTML patch/runtime.
-          entry=root/'artifact-library-reader-v33-audio-core-entry.js'
-          text=entry.read_text(encoding='utf-8')
-          needle='const response = await app.fetch(request, env, ctx);'
-          replacement='const response = env.READER_V31_BASELINE ? await env.READER_V31_BASELINE.fetch(request) : await app.fetch(request, env, ctx);'
-          if text.count(needle) != 1: raise SystemExit('v33 baseline fetch marker missing or ambiguous')
-          entry.write_text(text.replace(needle,replacement,1),encoding='utf-8')
-
           mailbox=root/'mailbox-entry.js'
           text=mailbox.read_text(encoding='utf-8')
           old='import app from "./audio-entry.js";'
@@ -93,10 +84,8 @@ jobs:
           cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
           cfg['name']=os.environ['PREVIEW_NAME']
           cfg['main']='mailbox-entry.js'
+          # Canary must never inherit the production scheduled trigger.
           cfg.pop('triggers',None)
-          services=[s for s in cfg.get('services',[]) if s.get('binding')!='READER_V31_BASELINE']
-          services.append({'binding':'READER_V31_BASELINE','service':'runner3-core'})
-          cfg['services']=services
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
@@ -106,8 +95,6 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
           node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           grep -q 'artifact-library-reader-v33-audio-core-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'READER_V31_BASELINE' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
-          grep -q 'READER_V31_BASELINE' cloudflare/runner3-core/wrangler.jsonc
           ! grep -q '"triggers"' cloudflare/runner3-core/wrangler.jsonc
 
       - name: Deploy isolated preview Worker
@@ -136,8 +123,37 @@ jobs:
           if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 1200 /tmp/reader; exit 1; fi
           echo 'READER_AUDIO_CORE_V33_PREVIEW_DEPLOY=PASS'
 
+      - name: Prepare real EPUB relay for preview browser E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/reader_audio_core_v33_preview_e2e.mjs')
+          s=p.read_text(encoding='utf-8')
+
+          needle="const CORE_URL = process.env.RUNNER3_CORE_URL;\n"
+          replacement=needle+"const BASELINE_URL = process.env.RUNNER3_BASELINE_URL || 'https://runner3-core.ducduy2411.workers.dev';\n"
+          if s.count(needle)!=1: raise SystemExit('preview e2e CORE_URL marker missing or ambiguous')
+          s=s.replace(needle,replacement,1)
+
+          needle="let postCount = 0;\n"
+          replacement=needle+"let previewEpubSourceUrl = '';\n"
+          if s.count(needle)!=1: raise SystemExit('preview e2e postCount marker missing or ambiguous')
+          s=s.replace(needle,replacement,1)
+
+          old="""await page.route('**/*', async (route) => {\n  if (!ready) return route.continue();\n  const req = route.request();\n  let url;\n  try { url = new URL(req.url()); } catch { return route.continue(); }\n  if (url.origin !== origin) return route.continue();\n"""
+          new="""await page.route('**/*', async (route) => {\n  const req = route.request();\n  let url;\n  try { url = new URL(req.url()); } catch { return route.continue(); }\n  if (url.origin !== origin) return route.continue();\n\n  // Test-only relay: obtain the real signed EPUB from the public production\n  // delivery surface, then expose its bytes under the preview origin. No\n  // production secret is copied to the canary and no production mutation occurs.\n  if (url.pathname === '/artifact-library/api/delivery' && req.method() === 'POST') {\n    const upstream = await fetch(`${BASELINE_URL}/artifact-library/api/delivery`, {\n      method: 'POST',\n      headers: { 'content-type': 'application/json', 'x-runner3-library': '1' },\n      body: req.postData() || '{}',\n    });\n    const data = await upstream.json().catch(() => ({}));\n    if (!upstream.ok || data?.ok !== true || !data?.delivery?.url) {\n      return route.fulfill({ status: upstream.status || 502, contentType: 'application/json', body: JSON.stringify(data) });\n    }\n    previewEpubSourceUrl = String(data.delivery.url);\n    data.delivery.url = `${origin}/__r3_preview_epub`;\n    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });\n  }\n  if (url.pathname === '/__r3_preview_epub') {\n    if (!previewEpubSourceUrl) return route.fulfill({ status: 503, body: 'PREVIEW_EPUB_SOURCE_MISSING' });\n    const headers = {};\n    const range = req.headers()['range'];\n    if (range) headers.Range = range;\n    const upstream = await fetch(previewEpubSourceUrl, { headers });\n    const body = Buffer.from(await upstream.arrayBuffer());\n    const responseHeaders = { 'content-type': upstream.headers.get('content-type') || 'application/epub+zip', 'cache-control': 'no-store' };\n    for (const name of ['accept-ranges', 'content-range']) {\n      const value = upstream.headers.get(name);\n      if (value) responseHeaders[name] = value;\n    }\n    return route.fulfill({ status: upstream.status, headers: responseHeaders, body });\n  }\n\n  if (!ready) return route.continue();\n"""
+          if s.count(old)!=1: raise SystemExit('preview e2e route marker missing or ambiguous')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+          PY
+          node --check scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q '__r3_preview_epub' scripts/reader_audio_core_v33_preview_e2e.mjs
+
       - name: Run v33 preview browser E2E
         env:
           RUNNER3_CORE_URL: ${{ env.PREVIEW_URL }}
+          RUNNER3_BASELINE_URL: ${{ env.BASELINE_URL }}
           EBOOK_BROWSER_SMOKE_BOOK_KEY: core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub
         run: node scripts/reader_audio_core_v33_preview_e2e.mjs
