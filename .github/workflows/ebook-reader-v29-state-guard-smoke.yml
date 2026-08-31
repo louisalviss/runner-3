@@ -111,24 +111,27 @@ jobs:
           if anchor not in s: raise SystemExit('play anchor missing')
           s=s.replace(anchor,inject,1)
           oldassert="  if (!started.active) throw new Error('bold active paragraph missing after viewport-word start');"
-          newassert="""  if (!started.active) throw new Error('active paragraph missing after viewport-word start');
-  const darkHighlight = await page.evaluate(() => {
-    for (const frame of document.querySelectorAll('#viewer iframe')) {
-      try {
-        const doc=frame.contentDocument;
-        const el=doc?.querySelector('[data-r3-audio-reading-v11=\"1\"]');
-        if(!el)continue;
-        const cs=doc.defaultView.getComputedStyle(el);
-        return { backgroundColor:cs.backgroundColor, boxShadow:cs.boxShadow, fontWeight:cs.fontWeight, theme:doc.documentElement.dataset.r3OuterTheme||'', stylePresent:Boolean(doc.getElementById('r3AudioDarkHighlightV30Style')) };
-      } catch {}
-    }
-    return null;
-  });
-  console.log(JSON.stringify({phase:'dark-highlight-v30', darkHighlight}));
-  if (!darkHighlight?.stylePresent) throw new Error('v30 iframe highlight style missing');
-  if (darkHighlight.theme !== 'dark') throw new Error(`v30 iframe dark theme not synced: ${JSON.stringify(darkHighlight)}`);
-  if (!darkHighlight.backgroundColor || darkHighlight.backgroundColor === 'rgba(0, 0, 0, 0)' || darkHighlight.backgroundColor === 'transparent') throw new Error(`dark active background is transparent: ${JSON.stringify(darkHighlight)}`);
-  if (!darkHighlight.boxShadow || darkHighlight.boxShadow === 'none') throw new Error(`dark active passage has no contrast bar: ${JSON.stringify(darkHighlight)}`);"""
+          lines=[
+            "  if (!started.active) throw new Error('active paragraph missing after viewport-word start');",
+            "  const darkHighlight = await page.evaluate(() => {",
+            "    for (const frame of document.querySelectorAll('#viewer iframe')) {",
+            "      try {",
+            "        const doc=frame.contentDocument;",
+            "        const el=doc?.querySelector('[data-r3-audio-reading-v11=\\\"1\\\"]');",
+            "        if(!el)continue;",
+            "        const cs=doc.defaultView.getComputedStyle(el);",
+            "        return { backgroundColor:cs.backgroundColor, boxShadow:cs.boxShadow, fontWeight:cs.fontWeight, theme:doc.documentElement.dataset.r3OuterTheme||'', stylePresent:Boolean(doc.getElementById('r3AudioDarkHighlightV30Style')) };",
+            "      } catch {}",
+            "    }",
+            "    return null;",
+            "  });",
+            "  console.log(JSON.stringify({phase:'dark-highlight-v30', darkHighlight}));",
+            "  if (!darkHighlight?.stylePresent) throw new Error('v30 iframe highlight style missing');",
+            "  if (darkHighlight.theme !== 'dark') throw new Error('v30 iframe dark theme not synced: '+JSON.stringify(darkHighlight));",
+            "  if (!darkHighlight.backgroundColor || darkHighlight.backgroundColor === 'rgba(0, 0, 0, 0)' || darkHighlight.backgroundColor === 'transparent') throw new Error('dark active background is transparent: '+JSON.stringify(darkHighlight));",
+            "  if (!darkHighlight.boxShadow || darkHighlight.boxShadow === 'none') throw new Error('dark active passage has no contrast bar: '+JSON.stringify(darkHighlight));",
+          ]
+          newassert='\n'.join(lines)
           if oldassert not in s: raise SystemExit('active assertion missing')
           s=s.replace(oldassert,newassert,1)
           open(p,'w',encoding='utf-8').write(s)
