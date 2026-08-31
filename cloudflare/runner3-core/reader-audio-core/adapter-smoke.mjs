@@ -8,7 +8,15 @@ class FakeAudio extends EventTarget {
     this.ended = false;
     this.readyState = 1;
     this.currentTime = 0;
-    this.src = '';
+    this._src = '';
+    this._playbackRate = 1;
+    this.defaultPlaybackRate = 1;
+  }
+  get src() { return this._src; }
+  set src(value) {
+    this._src = String(value || '');
+    // Model the browser behavior that exposed the live E2E regression:
+    // selecting a new resource can drop the active playback rate.
     this._playbackRate = 1;
   }
   get playbackRate() { return this._playbackRate; }
@@ -85,7 +93,8 @@ await adapter.mount({
   segments: segments1,
 });
 assert.equal(audio.currentTime, 1.25);
-assert.equal(audio.playbackRate, 2);
+assert.equal(audio.playbackRate, 2, 'saved playback rate was lost when src changed');
+assert.equal(audio.defaultPlaybackRate, 2, 'default playback rate did not follow canonical state');
 assert.equal(adapter.snapshot().cfi, 'b');
 assert.equal(landed.at(-1).cfi, 'b');
 assert.equal(landed.at(-1).options.animate, false);
@@ -96,6 +105,7 @@ assert.ok(clock, '75ms playback clock did not start');
 assert.equal(adapter.controller.startClock(), clock, 'duplicate playback clock created');
 adapter.setRate(2.5);
 assert.equal(audio.playbackRate, 2.5);
+assert.equal(audio.defaultPlaybackRate, 2.5);
 assert.equal(adapter.snapshot().playbackRate, 2.5);
 
 await adapter.seek(2.4);
@@ -119,6 +129,7 @@ await sleep(35);
 assert.equal(adapter.snapshot().chapter, '2');
 assert.equal(adapter.snapshot().mediaId, 'm2');
 assert.equal(audio.src, 'two.mp3');
+assert.equal(audio.playbackRate, 2.5, 'chapter media swap lost playback rate');
 assert.equal(adapter.snapshot().cfi, 'd');
 assert.equal(adapter.snapshot().playingIntent, true);
 assert.equal(audio.paused, false);
