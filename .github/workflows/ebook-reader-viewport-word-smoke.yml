@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-v24:
+  deploy-v25:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,13 +29,13 @@ jobs:
           done
       - uses: actions/checkout@v4
         with:
-          ref: 19fd5ee26adb53c9d2b58738adb5e87cc810a019
+          ref: 9b699de9392718997ab08d2c06e05995eef3f403
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compose canonical mailbox with Reader v24
+      - name: Compose canonical mailbox with Reader v25
         shell: bash
         run: |
           set -euo pipefail
@@ -54,17 +54,17 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v24-resume-wait-match-entry.js
-          grep -q 'artifact-library-reader-v24-resume-wait-match-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioResumeWaitMatchV24=true' cloudflare/runner3-core/artifact-library-reader-v24-resume-wait-match-entry.js
-      - name: Deploy Reader v24 Core
+          node --check cloudflare/runner3-core/artifact-library-reader-v25-reuse-restored-media-entry.js
+          grep -q 'artifact-library-reader-v25-reuse-restored-media-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioReuseRestoredMediaV25=true' cloudflare/runner3-core/artifact-library-reader-v25-reuse-restored-media-entry.js
+      - name: Deploy Reader v25 Core
         working-directory: cloudflare/runner3-core
         shell: bash
         run: |
           set -euo pipefail
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
-      - name: Verify v24 live before browser proof
+      - name: Verify v25 live before browser proof
         shell: bash
         run: |
           set -euo pipefail
@@ -75,16 +75,16 @@ jobs:
           echo "READER_HTTP=$code"
           cat /tmp/h.clean
           if [ "$code" != 200 ]; then head -c 700 /tmp/reader; exit 1; fi
-          grep -qi '^x-r3-reader-runtime: v24-resume-wait-match$' /tmp/h.clean
-          grep -qi '^x-r3-reader-patch-proof: v23+v24:wait-matching-signature-before-restore$' /tmp/h.clean
-          grep -q 'window.__r3AudioResumeWaitMatchV24=true' /tmp/reader
-          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v24.csv")"
+          grep -qi '^x-r3-reader-runtime: v25-reuse-restored-media$' /tmp/h.clean
+          grep -qi '^x-r3-reader-patch-proof: v24+v25:saved-signature-media-reuse-before-hydration$' /tmp/h.clean
+          grep -q 'window.__r3AudioReuseRestoredMediaV25=true' /tmp/reader
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v25.csv")"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'READER_V24_LIVE=PASS'
+          echo 'READER_V25_LIVE=PASS'
 
   viewport-word:
-    needs: deploy-v24
+    needs: deploy-v25
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -95,18 +95,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Adapt canonical proof to v24 runtime
+      - name: Adapt canonical proof to v25 runtime
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           p='scripts/ebook_reader_viewport_word_smoke.mjs'
           s=open(p,encoding='utf-8').read()
-          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v24';")
-          s=s.replace("runtime.includes('v16')","runtime.includes('v24')")
-          s=s.replace('live Reader is not v16:','live Reader is not v24:')
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v25';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v25')")
+          s=s.replace('live Reader is not v16:','live Reader is not v25:')
           old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
-          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioResumeWaitMatchV24 === true'
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioReuseRestoredMediaV25 === true'
           if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
           anchor='  const beforeFollowCfi = started.cfi;'
@@ -114,14 +114,23 @@ jobs:
           if anchor not in s: raise SystemExit('follow pause anchor missing')
           s=s.replace(anchor,pause,1)
           oldrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null }; });"
-          newrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { debug: window.__r3AudioResumeV23Debug || null, waitDebug: window.__r3AudioResumeWaitV24Debug || null, time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, mediaId: a?.dataset?.r3AudioId || '' }; });"
+          newrest="const restored = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { debug: window.__r3AudioResumeV23Debug || null, waitDebug: window.__r3AudioResumeWaitV24Debug || null, reuseDebug: window.__r3AudioReuseV25Debug || null, time: Number(a?.currentTime || 0), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, mediaId: a?.dataset?.r3AudioId || '' }; });"
           if oldrest not in s: raise SystemExit('restore log marker missing')
           s=s.replace(oldrest,newrest,1)
+          oldresume="const resumed = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), src: String(a?.currentSrc || a?.getAttribute('src') || '') }; });"
+          newresume="const resumed = await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); return { time: Number(a?.currentTime || 0), paused: Boolean(a?.paused), src: String(a?.currentSrc || a?.getAttribute('src') || ''), cfi: window.r3ReaderBridge?.current?.()?.start?.cfi || null, mediaId: a?.dataset?.r3AudioId || '', reuseDebug: window.__r3AudioReuseV25Debug || null }; });"
+          if oldresume not in s: raise SystemExit('resume log marker missing')
+          s=s.replace(oldresume,newresume,1)
+          anchor2="  if (!resumed.src.includes(TEST_ID)) throw new Error('resume did not reuse same audio media');"
+          proof=anchor2+"\n  if (!resumed.reuseDebug) throw new Error('v25 restored-media reuse path did not execute');\n  if (!resumed.cfi || resumed.cfi === beforeFollowCfi) throw new Error('resume did not restore Reader CFI to followed page');"
+          if anchor2 not in s: raise SystemExit('resume assertion anchor missing')
+          s=s.replace(anchor2,proof,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
-          grep -q "seek-smoke-v24" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioResumeWaitMatchV24" scripts/ebook_reader_viewport_word_smoke.mjs
-          grep -q "__r3AudioResumeV23Debug" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "seek-smoke-v25" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioReuseRestoredMediaV25" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "__r3AudioReuseV25Debug" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "resume did not restore Reader CFI" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "next-page-target" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "mediaRangeCount" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
@@ -131,4 +140,4 @@ jobs:
       - name: Prove exact start, page follow, CFI resume and no duplicate audio POST
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v24: wait for matching chapter/frame before v23 restores CFI/media ownership
+# v25: reuse already-restored media immediately even before v11 hydration completes
