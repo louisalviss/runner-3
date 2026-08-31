@@ -2,25 +2,6 @@ import app from "./artifact-library-reader-v28-prime-base-position-entry.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
-const NO_PAYLOAD_OLD = `    if(!payload){setStatus('Chưa lấy được nội dung chương');return;}`;
-const NO_PAYLOAD_NEW = `    if(!payload){
-      const existingId=idFromAudio()||currentId||String(audio&&audio.dataset&&audio.dataset.r3AudioId||'');
-      const hasMedia=Boolean(audio&&audio.getAttribute('src'));
-      if(existingId&&hasMedia){
-        currentId=existingId;
-        try{audio.dataset.r3AudioId=existingId;}catch{}
-        const duration=Number(audio.duration)||0;
-        const atEnd=Boolean(audio.ended||(duration>0&&(Number(audio.currentTime)||0)>=duration-.08));
-        if(atEnd){setMain('play');setStatus('Nam Minh · đã hết đoạn');return;}
-        if(!audio.paused){audio.pause();setMain('play');setStatus('Nam Minh · tạm dừng');saveState(true);return;}
-        try{await audio.play();setMain('pause');setStatus('Nam Minh · đang phát');}
-        catch{setMain('play');setStatus('Nam Minh · nhấn phát lại');}
-        return;
-      }
-      setStatus('Chưa lấy được nội dung chương');
-      return;
-    }`;
-
 const STATUS_GUARD = `<script data-r3-audio-media-state-guard-v29="1">
 (()=>{
   if(window.__r3AudioMediaStateGuardV29)return;
@@ -29,10 +10,33 @@ const STATUS_GUARD = `<script data-r3-audio-media-state-guard-v29="1">
   const main=document.getElementById('r3AudioMain');
   const status=document.getElementById('r3AudioStatus');
   if(!audio||!main||!status)return;
+
   const set=text=>{status.textContent=String(text||'Nam Minh').slice(0,120);};
   const playUi=()=>{main.textContent='Ⅱ';main.disabled=false;main.setAttribute('aria-label','Tạm dừng audio');};
   const pauseUi=()=>{main.textContent='▶';main.disabled=false;main.setAttribute('aria-label','Phát audio');};
-  audio.addEventListener('loadedmetadata',()=>{if(audio.getAttribute('src')&&!audio.ended)set('Nam Minh · sẵn sàng');});
+  const hasUsableFrame=()=>{
+    for(const frame of document.querySelectorAll('#viewer iframe')){
+      try{if(String(frame.contentDocument?.body?.innerText||'').trim().length>=80)return true;}catch{}
+    }
+    return false;
+  };
+  const validMedia=()=>Boolean(audio.getAttribute('src')&&(audio.currentSrc||audio.getAttribute('src')));
+
+  // Window capture runs before the older document-capture handlers. Only own the click
+  // when the current EPUB page is sparse/unreadable but a valid media source already exists.
+  window.addEventListener('click',event=>{
+    const target=event.target&&event.target.closest?event.target.closest('#r3AudioMain'):null;
+    if(!target||!validMedia()||hasUsableFrame())return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const duration=Number(audio.duration)||0;
+    const atEnd=Boolean(audio.ended||(duration>0&&(Number(audio.currentTime)||0)>=duration-.08));
+    if(atEnd){pauseUi();set('Nam Minh · đã hết đoạn');return;}
+    if(!audio.paused){audio.pause();pauseUi();set('Nam Minh · tạm dừng');return;}
+    audio.play().then(()=>{playUi();set('Nam Minh · đang phát');}).catch(()=>{pauseUi();set('Nam Minh · nhấn phát lại');});
+  },true);
+
+  audio.addEventListener('loadedmetadata',()=>{if(validMedia()&&!audio.ended)set('Nam Minh · sẵn sàng');});
   audio.addEventListener('playing',()=>{playUi();set('Nam Minh · đang phát');});
   audio.addEventListener('play',()=>{playUi();set('Nam Minh · đang phát');});
   audio.addEventListener('pause',()=>{if(!audio.ended){pauseUi();set('Nam Minh · tạm dừng');}});
@@ -40,20 +44,11 @@ const STATUS_GUARD = `<script data-r3-audio-media-state-guard-v29="1">
 })();
 </script>`;
 
-function replaceOnce(source, needle, replacement, label) {
-  const first = source.indexOf(needle);
-  if (first < 0) throw new Error(`READER_V29_PATCH_MISSING:${label}`);
-  if (source.indexOf(needle, first + needle.length) >= 0) throw new Error(`READER_V29_PATCH_AMBIGUOUS:${label}`);
-  return source.slice(0, first) + replacement + source.slice(first + needle.length);
-}
-
 function patchMediaStateGuard(html) {
-  let out = String(html || '');
+  const out = String(html || '');
   if (out.includes('data-r3-audio-media-state-guard-v29="1"')) return out;
-  out = replaceOnce(out, NO_PAYLOAD_OLD, NO_PAYLOAD_NEW, 'noPayloadMediaGuard');
   if (!out.includes('</body>')) throw new Error('READER_V29_BODY_MARKER_MISSING');
-  out = out.replace('</body>', STATUS_GUARD + '</body>');
-  return out;
+  return out.replace('</body>', STATUS_GUARD + '</body>');
 }
 
 export default {
@@ -69,7 +64,7 @@ export default {
       headers.delete("Content-Length");
       headers.set("X-Robots-Tag", ROBOTS);
       headers.set("X-R3-Reader-Runtime", "v29-media-state-guard");
-      headers.set("X-R3-Reader-Patch-Proof", "v28+v29:valid-media-status-guard");
+      headers.set("X-R3-Reader-Patch-Proof", "v28+v29:sparse-page-valid-media-window-capture");
       return new Response(updated, { status: 200, headers });
     } catch (error) {
       return new Response('Reader runtime v29 patch failed', {
