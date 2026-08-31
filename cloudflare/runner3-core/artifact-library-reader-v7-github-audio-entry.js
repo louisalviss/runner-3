@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v19-stable-final-seek-entry.js";
+import app from "./artifact-library-reader-v20-seekable-anchor-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
