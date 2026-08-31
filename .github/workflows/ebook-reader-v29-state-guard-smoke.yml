@@ -19,7 +19,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: ed6af36eac76067395ea7dd28280e9ed30ed8226
+      PINNED_SOURCE: f4660f1523eee55ab7e460f9b640a9389851bd96
     steps:
       - name: Validate Cloudflare credentials
         shell: bash
@@ -78,7 +78,7 @@ jobs:
               ok=1
               break
             fi
-            echo "WAIT_V29 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true)"
+            echo "WAIT_V29 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true) error=$(grep -i '^x-r3-reader-patch-error:' /tmp/h.clean || true)"
             sleep 1
           done
           test "$ok" = 1
