@@ -5,7 +5,7 @@ on:
   push:
     paths:
       - 'cloudflare/runner3-core/reader-audio-core/**'
-      - 'scripts/reader_audio_core_live_injection_e2e.mjs'
+      - 'scripts/reader_audio_core_live_injection_e2e_v2.mjs'
       - '.github/workflows/reader-audio-core-live-e2e.yml'
 
 permissions:
@@ -39,4 +39,4 @@ jobs:
             --global-name=R3AudioCoreE2E \
             --outfile=/tmp/reader-audio-core-e2e.js
       - name: Prove core against live Reader without production mutation
-        run: node scripts/reader_audio_core_live_injection_e2e.mjs /tmp/reader-audio-core-e2e.js
+        run: node scripts/reader_audio_core_live_injection_e2e_v2.mjs /tmp/reader-audio-core-e2e.js
