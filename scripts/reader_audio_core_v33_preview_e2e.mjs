@@ -139,7 +139,29 @@ try {
   if (navStatus !== 200 || runtime !== 'v33-audio-core-owner') throw new Error(`PREVIEW_RUNTIME_BAD:status=${navStatus}:runtime=${runtime}:error=${navError}`);
   if (!proof.includes('core-single-owner')) throw new Error(`PREVIEW_PROOF_BAD:${proof}`);
   await page.waitForSelector('#r3AudioMain', { timeout: 30000 });
-  await page.waitForSelector('#viewer iframe', { timeout: 30000 });
+  await page.waitForTimeout(1200);
+  const bootDiagnostic = await page.evaluate(() => ({
+    readyState: document.readyState,
+    viewer: Boolean(document.getElementById('viewer')),
+    iframeCount: document.querySelectorAll('#viewer iframe').length,
+    viewerDisplay: document.getElementById('viewer') ? getComputedStyle(document.getElementById('viewer')).display : null,
+    coreBoot: Boolean(window.__r3AudioCoreProductionV33),
+    coreError: String(window.__r3AudioCoreV33BootError || ''),
+    bridge: Boolean(window.r3ReaderBridge),
+    flags: {
+      v6: Boolean(window.__r3AudioLegacyV6Suppressed),
+      v8: Boolean(window.__r3AudioLegacyV8Suppressed),
+      v11: Boolean(window.__r3AudioLegacyV11Suppressed),
+      v29: Boolean(window.__r3AudioLegacyV29Suppressed),
+      v31: Boolean(window.__r3AudioLegacyV31ClockSuppressed),
+    },
+    bodyText: String(document.body?.innerText || '').slice(0, 500),
+  }));
+  console.log(JSON.stringify({ phase: 'boot-diagnostic', bootDiagnostic, pageErrors: errors.slice(0, 5) }));
+  await page.waitForSelector('#viewer iframe', { state: 'attached', timeout: 30000 });
+  await page.waitForFunction(() => [...document.querySelectorAll('#viewer iframe')].some((frame) => {
+    try { return String(frame.contentDocument?.body?.innerText || '').trim().length >= 80; } catch { return false; }
+  }), null, { timeout: 30000 });
   await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.__r3AudioCoreProductionV33), null, { timeout: 30000 });
   await page.waitForFunction(() => Boolean(window.__r3AudioLegacyV6Suppressed && window.__r3AudioLegacyV8Suppressed && window.__r3AudioLegacyV11Suppressed && window.__r3AudioLegacyV29Suppressed && window.__r3AudioLegacyV31ClockSuppressed), null, { timeout: 10000 });
 
