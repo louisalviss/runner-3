@@ -5,6 +5,7 @@ const CORE_URL = process.env.RUNNER3_CORE_URL || 'https://runner3-core.ducduy241
 const BOOK_KEY = process.env.EBOOK_BROWSER_SMOKE_BOOK_KEY || 'core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub';
 const BUNDLE_PATH = process.argv[2] || '/tmp/reader-audio-core-e2e.js';
 const readerUrl = `${CORE_URL}/artifact-library/read?key=${encodeURIComponent(BOOK_KEY)}`;
+const E2E_MEDIA_BASE = `${CORE_URL}/__r3_e2e_audio`;
 const E2E_STATE_KEY = 'r3-reader-audio-core-e2e-v1';
 const bundle = fs.readFileSync(BUNDLE_PATH, 'utf8');
 
@@ -44,7 +45,7 @@ const errors = [];
 page.on('pageerror', (error) => errors.push(String(error?.stack || error)));
 page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
 
-await page.route('https://e2e.invalid/**', async (route) => {
+await page.route(`${E2E_MEDIA_BASE}/**`, async (route) => {
   const reply = rangeReply(route.request(), wav);
   await route.fulfill(reply);
 });
@@ -84,7 +85,7 @@ async function collectPageCfis(count = 3) {
 
 async function injectAdapter({ cfis, clearState = false } = {}) {
   await page.addScriptTag({ content: bundle });
-  await page.evaluate(({ cfis, stateKey, clearState }) => {
+  await page.evaluate(({ cfis, stateKey, clearState, mediaBase }) => {
     if (!window.R3AudioCoreE2E?.ReaderAudioAdapter) throw new Error('ADAPTER_BUNDLE_EXPORT_MISSING');
     if (clearState) localStorage.removeItem(stateKey);
     document.getElementById('r3AudioCoreE2E')?.remove();
@@ -138,15 +139,15 @@ async function injectAdapter({ cfis, clearState = false } = {}) {
       highlight: (target) => metrics.highlights.push(target.cfi),
       clearHighlight: () => {},
       resolveNextReadable: async (chapter) => chapter === 'one'
-        ? { chapter: 'two', mediaId: 'media-two', src: 'https://e2e.invalid/two.wav', segments: segments2, time: 0, cfi: cfis[2] }
+        ? { chapter: 'two', mediaId: 'media-two', src: `${mediaBase}/two.wav`, segments: segments2, time: 0, cfi: cfis[2] }
         : null,
       prepareNext: async (next) => ({ ...next, prepared: true }),
       activateChapter: async (next) => next,
       continuous: true,
       onTarget: (target) => metrics.targets.push(target.cfi),
     });
-    window.__r3CoreE2E = { adapter, audio, segments1, segments2, stateKey };
-  }, { cfis, stateKey: E2E_STATE_KEY, clearState });
+    window.__r3CoreE2E = { adapter, audio, segments1, segments2, stateKey, mediaBase };
+  }, { cfis, stateKey: E2E_STATE_KEY, clearState, mediaBase: E2E_MEDIA_BASE });
 }
 
 try {
@@ -158,10 +159,10 @@ try {
   console.log(JSON.stringify({ phase: 'real-cfis', count: cfis.length, cfis }));
   await injectAdapter({ cfis, clearState: true });
 
-  const mounted = await page.evaluate(async ({ bookKey, cfi }) => {
+  const mounted = await page.evaluate(async ({ bookKey, cfi, src }) => {
     const { adapter, segments1 } = window.__r3CoreE2E;
-    return adapter.mount({ bookKey, chapter: 'one', mediaId: 'media-one', src: 'https://e2e.invalid/one.wav', segments: segments1, time: 0, cfi, playbackRate: 1, playingIntent: false, autoplay: false });
-  }, { bookKey: BOOK_KEY, cfi: cfis[0] });
+    return adapter.mount({ bookKey, chapter: 'one', mediaId: 'media-one', src, segments: segments1, time: 0, cfi, playbackRate: 1, playingIntent: false, autoplay: false });
+  }, { bookKey: BOOK_KEY, cfi: cfis[0], src: `${E2E_MEDIA_BASE}/one.wav` });
   if (mounted.chapter !== 'one' || mounted.cfi !== cfis[0]) throw new Error(`MOUNT_STATE_BAD:${JSON.stringify(mounted)}`);
 
   const ownership = await page.evaluate(async () => {
@@ -218,10 +219,10 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 30000 });
   await injectAdapter({ cfis, clearState: false });
-  const restored = await page.evaluate(async () => {
+  const restored = await page.evaluate(async ({ src }) => {
     const { adapter, segments2 } = window.__r3CoreE2E;
-    return adapter.mount({ segments: segments2, src: 'https://e2e.invalid/two.wav', autoplay: false });
-  });
+    return adapter.mount({ segments: segments2, src, autoplay: false });
+  }, { src: `${E2E_MEDIA_BASE}/two.wav` });
   await page.waitForTimeout(220);
   if (restored.chapter !== 'two' || restored.mediaId !== 'media-two' || restored.time < 1.2 || restored.playbackRate < 1.4) throw new Error(`RESTORE_BAD:${JSON.stringify(restored)}`);
   if (await currentCfi() !== cfis[2]) throw new Error('RESTORE_DID_NOT_FOLLOW_SAVED_REAL_CFI');
