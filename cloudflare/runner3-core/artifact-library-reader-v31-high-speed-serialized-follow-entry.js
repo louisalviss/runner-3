@@ -29,7 +29,7 @@ const FOLLOW_WRAPPER = `  let r3FollowInFlightV31=false;
       const pendingForce=r3FollowPendingForceV31;
       r3FollowPendingV31=false;
       r3FollowPendingForceV31=false;
-      if(pending&&!audio.paused&&!audio.ended){
+      if(pending&&(pendingForce||(!audio.paused&&!audio.ended))){
         queueMicrotask(()=>{try{syncReading(pendingForce);}catch{}});
       }
     }
