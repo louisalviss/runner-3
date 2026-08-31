@@ -1,0 +1,42 @@
+name: Reader Audio Core Live Injection E2E
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'cloudflare/runner3-core/reader-audio-core/**'
+      - 'scripts/reader_audio_core_live_injection_e2e.mjs'
+      - '.github/workflows/reader-audio-core-live-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reader-audio-core-live-injection-e2e
+  cancel-in-progress: true
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      EBOOK_BROWSER_SMOKE_BOOK_KEY: core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test dependencies
+        run: |
+          npm install --no-save playwright esbuild
+          npx playwright install --with-deps chromium
+      - name: Bundle isolated Reader Audio Core for test-time injection
+        run: |
+          npx esbuild cloudflare/runner3-core/reader-audio-core/index.js \
+            --bundle \
+            --format=iife \
+            --global-name=R3AudioCoreE2E \
+            --outfile=/tmp/reader-audio-core-e2e.js
+      - name: Prove core against live Reader without production mutation
+        run: node scripts/reader_audio_core_live_injection_e2e.mjs /tmp/reader-audio-core-e2e.js
