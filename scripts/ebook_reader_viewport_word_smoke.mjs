@@ -197,19 +197,32 @@ try {
   if (started.saved?.id !== TEST_ID) throw new Error(`saved media id mismatch: ${JSON.stringify(started.saved)}`);
 
   const beforeFollowCfi = started.cfi;
-  const followIndex = Math.min(words.length - 2, candidate.visibleTokenOrdinal + 120);
+  await page.evaluate(async () => { if (window.r3ReaderBridge?.next) await window.r3ReaderBridge.next(); });
+  await page.waitForTimeout(260);
+  const nextPageTarget = await snapshot();
+  if (!nextPageTarget.cfi || nextPageTarget.cfi === beforeFollowCfi || nextPageTarget.visibleTokenOrdinal <= candidate.visibleTokenOrdinal) {
+    throw new Error(`could not establish a real next-page word target: before=${beforeFollowCfi} next=${JSON.stringify(nextPageTarget)}`);
+  }
+  const followIndex = Math.min(words.length - 2, nextPageTarget.visibleTokenOrdinal);
   const followTime = followIndex * STEP_MS / 1000;
+  await page.evaluate(async () => { if (window.r3ReaderBridge?.prev) await window.r3ReaderBridge.prev(); });
+  await page.waitForTimeout(260);
+  const backAtStart = await snapshot();
+  if (backAtStart.cfi !== beforeFollowCfi) throw new Error(`could not return to start page before follow: before=${beforeFollowCfi} now=${backAtStart.cfi}`);
+  console.log(JSON.stringify({ phase: 'next-page-target', beforeFollowCfi, nextPageCfi: nextPageTarget.cfi, followIndex, followTime, nextVisibleToken: nextPageTarget.visibleToken }));
+
   await page.evaluate(t => {
     const a = document.getElementById('r3AudioElement');
     a.currentTime = t;
     a.dispatchEvent(new Event('seeked'));
     a.dispatchEvent(new Event('timeupdate'));
   }, followTime);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1500);
   const afterFollow = await snapshot();
-  console.log(JSON.stringify({ phase: 'word-follow', beforeFollowCfi, followIndex, followTime, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));
+  const followDebug = await page.evaluate(() => window.__r3AudioFollowV22Debug || window.__r3AudioFollowV21Debug || null);
+  console.log(JSON.stringify({ phase: 'word-follow', debug: followDebug, beforeFollowCfi, followIndex, followTime, nextPageCfi: nextPageTarget.cfi, afterCfi: afterFollow.cfi, visibleTokenOrdinal: afterFollow.visibleTokenOrdinal, visibleToken: afterFollow.visibleToken }));
   if (!afterFollow.cfi) throw new Error('CFI missing after word follow');
-  if (followIndex > candidate.visibleTokenOrdinal + 20 && afterFollow.cfi === beforeFollowCfi) throw new Error('CFI did not advance after seeking audio to a later word');
+  if (afterFollow.cfi === beforeFollowCfi) throw new Error('CFI did not advance to the real next-page word');
   if (afterFollow.visibleTokenOrdinal < Math.max(0, followIndex - 30)) throw new Error(`Reader did not follow audio word closely enough: target=${followIndex} visible=${afterFollow.visibleTokenOrdinal}`);
 
   await page.evaluate(() => { const a = document.getElementById('r3AudioElement'); a.pause(); a.dispatchEvent(new Event('timeupdate')); });
