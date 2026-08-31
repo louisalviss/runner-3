@@ -87,11 +87,36 @@ export class AudioController {
     return this.snapshot();
   }
 
+  async waitUntilReady(timeoutMs = 5000) {
+    if (this.audio.readyState >= 1) return true;
+    try { this.audio.load?.(); } catch {}
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (ok, error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.audio.removeEventListener('loadedmetadata', onReady);
+        this.audio.removeEventListener('canplay', onReady);
+        this.audio.removeEventListener('error', onError);
+        if (ok) resolve(true);
+        else reject(error || new Error('AUDIO_MEDIA_NOT_READY'));
+      };
+      const onReady = () => finish(true);
+      const onError = () => finish(false, this.audio.error || new Error('AUDIO_MEDIA_ERROR'));
+      const timer = setTimeout(() => finish(false, new Error('AUDIO_MEDIA_READY_TIMEOUT')), Math.max(250, Number(timeoutMs) || 5000));
+      this.audio.addEventListener('loadedmetadata', onReady, { once: true });
+      this.audio.addEventListener('canplay', onReady, { once: true });
+      this.audio.addEventListener('error', onError, { once: true });
+    });
+  }
+
   async play() {
     this.bind();
     this.state.playingIntent = true;
     this.persist();
     try {
+      await this.waitUntilReady();
       await this.audio.play();
     } catch (error) {
       this.state.playingIntent = false;
