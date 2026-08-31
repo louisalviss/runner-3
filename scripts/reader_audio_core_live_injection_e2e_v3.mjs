@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const sourcePath = 'scripts/reader_audio_core_live_injection_e2e_v2.mjs';
-const outPath = '/tmp/reader_audio_core_live_injection_e2e_v3.generated.mjs';
+const outPath = 'scripts/.reader_audio_core_live_injection_e2e_v3.generated.mjs';
 let source = fs.readFileSync(sourcePath, 'utf8');
 
 const needle = "  await page.evaluate(async ({ first, last }) => {\n    const { adapter } = window.__r3CoreE2EV2;";
