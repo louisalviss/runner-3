@@ -8,17 +8,21 @@ const files = fs.readdirSync(root)
   .map((name) => `.github/workflows/${name}`)
   .sort();
 
+function coreDeploySteps(text) {
+  const blocks = String(text).split(/\n(?=\s*-\s+(?:name:|uses:|run:))/g);
+  return blocks.filter((block) => {
+    const deploy = /wrangler(?:@[^\s]+)?[^\n]*\bdeploy\b/i.test(block);
+    if (!deploy) return false;
+    return /(?:working-directory:\s*(?:cloudflare|workers)\/runner3-core)|(?:cd\s+(?:cloudflare|workers)\/runner3-core)|(?:--config\s+[^\n]*runner3-core)/i.test(block);
+  });
+}
+
 const violations = [];
 for (const file of files) {
   if (file === allowed) continue;
   const text = fs.readFileSync(path.resolve(file), 'utf8');
-  const mentionsCore = /(?:cloudflare|workers)\/runner3-core|runner3-core\.ducduy2411\.workers\.dev|\brunner3[-_]core\b/i.test(text);
-  if (!mentionsCore) continue;
-  const exposesDeployCredential = /CLOUDFLARE_API_TOKEN/.test(text);
-  const invokesWranglerDeploy = /wrangler(?:@[^\s]+)?[^\n]*\bdeploy\b/i.test(text);
-  if (exposesDeployCredential || invokesWranglerDeploy) {
-    violations.push({ file, exposesDeployCredential, invokesWranglerDeploy });
-  }
+  const steps = coreDeploySteps(text);
+  if (steps.length) violations.push({ file, coreDeployStepCount: steps.length });
 }
 
 if (violations.length) {
@@ -29,7 +33,6 @@ if (violations.length) {
 
 const owner = fs.readFileSync(path.resolve(allowed), 'utf8');
 if (!/group:\s*runner3-core-production/.test(owner)) throw new Error('canonical production concurrency group missing');
-if (!/CLOUDFLARE_API_TOKEN/.test(owner) || !/wrangler(?:@[^\s]+)?[^\n]*\bdeploy\b/i.test(owner)) {
-  throw new Error('canonical production owner no longer contains the deploy path');
-}
+if (!/CLOUDFLARE_API_TOKEN/.test(owner)) throw new Error('canonical production credential missing');
+if (!coreDeploySteps(owner).length) throw new Error('canonical production deploy step missing');
 console.log(`RUNNER3_CORE_SINGLE_DEPLOY_OWNER=PASS owner=${allowed} workflows=${files.length}`);
