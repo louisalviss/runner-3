@@ -49,8 +49,7 @@ async function handleItems(request,env){
     let semanticFeatures=0;
     for(const r of list) semanticFeatures+=(await enrichItem(env,r)).applied;
     await markProfileDirty(env,"content_items_or_features_changed");
-    const recompute=await maybeRecomputePersonal(env);
-    return Response.json({ok:true,applied:list.length,semantic_features:semanticFeatures,feature_model:FEATURE_MODEL_VERSION,profile_recomputed:Boolean(recompute.recomputed)});
+    return Response.json({ok:true,applied:list.length,semantic_features:semanticFeatures,feature_model:FEATURE_MODEL_VERSION,materialization_status:"dirty"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
@@ -66,8 +65,7 @@ async function handleFeatures(request,env){
   try{
     const list=rows(await request.json()); await env.DB.batch(list.map(r=>featureStatement(env,r)));
     await markProfileDirty(env,"content_features_changed");
-    const recompute=await maybeRecomputePersonal(env);
-    return Response.json({ok:true,applied:list.length,profile_recomputed:Boolean(recompute.recomputed)});
+    return Response.json({ok:true,applied:list.length,materialization_status:"dirty"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
