@@ -23,7 +23,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PINNED_SOURCE: 9ee64d82ef110646c916c7e1d6719c0fe891ff97
+      PINNED_SOURCE: efa885a4038dc59047985c90a8eeeb44959e430e
     steps:
       - name: Validate Cloudflare credentials
         shell: bash
