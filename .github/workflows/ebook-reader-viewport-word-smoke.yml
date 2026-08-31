@@ -109,11 +109,16 @@ jobs:
           new='window.__r3AudioViewportWordV15 === true && window.__r3AudioWordIndexFollowV22 === true'
           if old not in s: raise SystemExit('v16 runtime marker condition missing')
           s=s.replace(old,new,1)
+          anchor='  const beforeFollowCfi = started.cfi;'
+          pause="  const beforeFollowCfi = started.cfi;\n  await page.evaluate(() => document.getElementById('r3AudioElement')?.pause());\n  await page.waitForTimeout(120);"
+          if anchor not in s: raise SystemExit('follow pause anchor missing')
+          s=s.replace(anchor,pause,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
           grep -q "seek-smoke-v22" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "__r3AudioWordIndexFollowV22" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "next-page-target" scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q "r3AudioElement.*pause" scripts/ebook_reader_viewport_word_smoke.mjs
           grep -q "mediaRangeCount" scripts/ebook_reader_viewport_word_smoke.mjs
       - name: Install browser runtime dependency
         run: |
@@ -122,4 +127,4 @@ jobs:
       - name: Prove exact start, real page follow and refresh resume
         run: node scripts/ebook_reader_viewport_word_smoke.mjs
 
-# v22: production-like Range media + exact start + real next-page target follow + refresh resume proof
+# v22: exact start + paused real-next-page probe + forced audio-follow + refresh resume proof
