@@ -1,3 +1,4 @@
+// rerun-marker: restored-v31-baseline-2026-09-01T05:12+07:00
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
