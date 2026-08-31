@@ -1,7 +1,7 @@
-import app from "./artifact-library-reader-v30-dark-highlight-entry.js";
+import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
-const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
+const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
 const ALLOWED_EVENT = "ebook_reader_audio";
 const GITHUB_API = "https://api.github.com";
 const GITHUB_REPO = "louisalviss/runner-3";
@@ -46,23 +46,11 @@ async function dispatchWorkflow(env, jobId = "") {
   if (!secret) throw new Error("GITHUB_PAT_NOT_CONFIGURED");
   const repoApi = String(env.RUNNER3_GITHUB_REPO_API || `${GITHUB_API}/repos/${GITHUB_REPO}`).replace(/\/+$/, "");
   const workflow = String(env.RUNNER3_EBOOK_AUDIO_WORKFLOW || GITHUB_WORKFLOW);
-  const payload = {
-    schema_version: 1,
-    source: "ebook-reader",
-    at: new Date().toISOString(),
-    workflow,
-  };
+  const payload = { schema_version: 1, source: "ebook-reader", at: new Date().toISOString(), workflow };
   if (ID_RE.test(String(jobId || ""))) payload.job_id = String(jobId);
-
   const response = await fetch(`${repoApi}/dispatches`, {
     method: "POST",
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${secret}`,
-      "Content-Type": "application/json",
-      "User-Agent": "runner3-core/ebook-audio",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
+    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${secret}`, "Content-Type": "application/json", "User-Agent": "runner3-core/ebook-audio", "X-GitHub-Api-Version": "2022-11-28" },
     body: JSON.stringify({ event_type: ALLOWED_EVENT, client_payload: payload }),
   });
   if (!response.ok) {
@@ -77,12 +65,10 @@ async function manualDispatch(request, env) {
   if (!internalAuthorized(request, env)) return json({ ok: false, error: "UNAUTHORIZED" }, 401);
   const body = await request.json().catch(() => ({}));
   const jobId = ID_RE.test(String(body?.job_id || "")) ? String(body.job_id) : "";
-  try {
-    return json(await dispatchWorkflow(env, jobId), 202);
-  } catch (error) {
+  try { return json(await dispatchWorkflow(env, jobId), 202); }
+  catch (error) {
     const message = String(error?.message || error || "dispatch failed");
-    const status = message === "GITHUB_PAT_NOT_CONFIGURED" ? 503 : 502;
-    return json({ ok: false, error: message.slice(0, 600) }, status);
+    return json({ ok: false, error: message.slice(0, 600) }, message === "GITHUB_PAT_NOT_CONFIGURED" ? 503 : 502);
   }
 }
 
@@ -90,18 +76,13 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
-
     const shouldDispatch = url.pathname === "/artifact-library/audio" && request.method === "POST";
     const response = await ebookAudio.fetch(request, env, ctx, app);
     if (shouldDispatch && response?.status === 202) {
       let jobId = "";
-      try {
-        const state = await response.clone().json();
-        if (ID_RE.test(String(state?.id || ""))) jobId = String(state.id);
-      } catch {}
+      try { const state = await response.clone().json(); if (ID_RE.test(String(state?.id || ""))) jobId = String(state.id); } catch {}
       const task = dispatchWorkflow(env, jobId).catch((error) => console.error("ebook audio dispatch failed", String(error?.message || error)));
-      if (ctx?.waitUntil) ctx.waitUntil(task);
-      else await task;
+      if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
     }
     return response;
   },
