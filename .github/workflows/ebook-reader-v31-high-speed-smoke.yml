@@ -1,0 +1,156 @@
+name: Ebook Reader v31 High Speed Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/ebook-reader-v31-high-speed-smoke.yml'
+      - 'cloudflare/runner3-core/artifact-library-reader-v31-high-speed-serialized-follow-entry.js'
+      - 'cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ebook-reader-v31-high-speed-smoke
+  cancel-in-progress: true
+
+jobs:
+  deploy-v31:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PINNED_SOURCE: 9ee64d82ef110646c916c7e1d6719c0fe891ff97
+    steps:
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
+          done
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PINNED_SOURCE }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compose canonical mailbox with Reader v31
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('cloudflare/runner3-core')
+          mailbox=root/'mailbox-entry.js'
+          text=mailbox.read_text(encoding='utf-8')
+          old='import app from "./audio-entry.js";'
+          new='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if old not in text: raise SystemExit('canonical mailbox import marker missing')
+          mailbox.write_text(text.replace(old,new,1),encoding='utf-8')
+          cfg_path=root/'wrangler.jsonc'
+          cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
+          cfg['main']='mailbox-entry.js'
+          cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
+          PY
+          node --check cloudflare/runner3-core/mailbox-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v31-high-speed-serialized-follow-entry.js
+          grep -q 'artifact-library-reader-v31-high-speed-serialized-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__r3AudioHighSpeedFollowV31=true' cloudflare/runner3-core/artifact-library-reader-v31-high-speed-serialized-follow-entry.js
+      - name: Deploy Reader v31 Core
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NO_COLOR=1
+          npx --yes wrangler@4 deploy
+      - name: Verify v31 live before browser proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          core='https://runner3-core.ducduy2411.workers.dev'
+          encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
+          ok=0
+          for attempt in $(seq 1 20); do
+            code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+            tr -d '\r' </tmp/h >/tmp/h.clean
+            if [ "$code" = 200 ] && grep -qi '^x-r3-reader-runtime: v31-high-speed-serialized-follow$' /tmp/h.clean && grep -qi '^x-r3-reader-patch-proof: v30+v31:75ms-high-speed-clock+single-flight-follow$' /tmp/h.clean && grep -q 'window.__r3AudioHighSpeedFollowV31=true' /tmp/reader; then ok=1; break; fi
+            echo "WAIT_V31 attempt=$attempt http=$code runtime=$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean || true) error=$(grep -i '^x-r3-reader-patch-error:' /tmp/h.clean || true)"
+            sleep 1
+          done
+          test "$ok" = 1
+          echo 'READER_V31_LIVE=PASS'
+
+  browser-proof-2x:
+    needs: deploy-v31
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      EBOOK_BROWSER_SMOKE_BOOK_KEY: core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub
+      PINNED_SOURCE: 9ee64d82ef110646c916c7e1d6719c0fe891ff97
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PINNED_SOURCE }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Adapt canonical viewport proof to v31 at 2x
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          p='scripts/ebook_reader_viewport_word_smoke.mjs'
+          s=open(p,encoding='utf-8').read()
+          s=s.replace("const TEST_ID = 'seek-smoke-v16';","const TEST_ID = 'seek-smoke-v31';")
+          s=s.replace("runtime.includes('v16')","runtime.includes('v31')")
+          s=s.replace('live Reader is not v16:','live Reader is not v31:')
+          old='window.__r3AudioViewportWordV15 === true && window.__r3AudioOuterGeometryV16 === true'
+          new='window.__r3AudioViewportWordV15 === true && window.__r3AudioHighSpeedFollowV31 === true'
+          if old not in s: raise SystemExit('runtime marker missing')
+          s=s.replace(old,new,1)
+          pause_anchor='  const beforeFollowCfi = started.cfi;'
+          pause_patch="  const beforeFollowCfi = started.cfi;\n  await page.evaluate(() => document.getElementById('r3AudioElement')?.pause());\n  await page.waitForTimeout(180);"
+          if pause_anchor not in s: raise SystemExit('manual pagination pause anchor missing')
+          s=s.replace(pause_anchor,pause_patch,1)
+          old_follow="""  await page.evaluate(t => {
+    const a = document.getElementById('r3AudioElement');
+    a.currentTime = t;
+    a.dispatchEvent(new Event('seeked'));
+    a.dispatchEvent(new Event('timeupdate'));
+  }, followTime);
+  await page.waitForTimeout(1500);"""
+          new_follow="""  const highSpeedStart = Math.max(0, followTime - 0.5);
+  await page.evaluate(async t => {
+    const a = document.getElementById('r3AudioElement');
+    a.pause();
+    a.playbackRate = 2;
+    a.defaultPlaybackRate = 2;
+    a.currentTime = t;
+    a.dispatchEvent(new Event('seeked'));
+    try { await a.play(); } catch {}
+  }, highSpeedStart);
+  await page.waitForFunction(() => Number(window.__r3AudioHighSpeedV31Debug?.ticks || 0) >= 4, null, { timeout: 4000 });
+  await page.waitForTimeout(900);"""
+          if old_follow not in s: raise SystemExit('follow block missing')
+          s=s.replace(old_follow,new_follow,1)
+          assert_anchor="  if (afterFollow.visibleTokenOrdinal < Math.max(0, followIndex - 30)) throw new Error(`Reader did not follow audio word closely enough: target=${followIndex} visible=${afterFollow.visibleTokenOrdinal}`);"
+          assert_patch=assert_anchor+"\n  await page.evaluate(() => document.getElementById('r3AudioElement')?.pause());\n  await page.waitForTimeout(220);\n  const v31debug = await page.evaluate(() => window.__r3AudioHighSpeedV31Debug || null);\n  console.log(JSON.stringify({phase:'high-speed-v31',v31debug,followIndex,visibleTokenOrdinal:afterFollow.visibleTokenOrdinal,afterCfi:afterFollow.cfi}));\n  if (!v31debug || v31debug.ticks < 4) throw new Error('v31 high-speed clock did not tick');\n  if (Number(v31debug.lastRate || 0) < 1.9) throw new Error('v31 proof did not run near 2x: '+JSON.stringify(v31debug));\n  if (Number(v31debug.maxConcurrent || 0) !== 1) throw new Error('v31 follow overlap detected: '+JSON.stringify(v31debug));\n  if (Number(v31debug.currentConcurrent || 0) !== 0) throw new Error('v31 follow remained in flight after pause: '+JSON.stringify(v31debug));\n  if (afterFollow.visibleTokenOrdinal > followIndex + 120) throw new Error(`v31 double-jump suspected: target=${followIndex} visible=${afterFollow.visibleTokenOrdinal}`);"
+          if assert_anchor not in s: raise SystemExit('follow assertion anchor missing')
+          s=s.replace(assert_anchor,assert_patch,1)
+          open(p,'w',encoding='utf-8').write(s)
+          PY
+          grep -q 'seek-smoke-v31' scripts/ebook_reader_viewport_word_smoke.mjs
+          grep -q 'high-speed-v31' scripts/ebook_reader_viewport_word_smoke.mjs
+      - name: Install browser runtime dependency
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Prove 2x sync crosses one page without overlapping follow
+        run: node scripts/ebook_reader_viewport_word_smoke.mjs
