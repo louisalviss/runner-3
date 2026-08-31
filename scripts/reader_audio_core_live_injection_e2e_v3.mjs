@@ -1,4 +1,4 @@
-// rerun-marker: cfi-spine-aware-navigation-2026-09-01T05:27+07:00
+// rerun-marker: resilient-live-v31-boot-2026-09-01
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -26,9 +26,9 @@ patchOnce(
 );
 
 patchOnce(
-  "  const runtime = response?.headers()?.['x-r3-reader-runtime'] || '';\n  if (runtime !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_BASELINE_NOT_V31:${runtime || 'missing'}`);\n  await page.waitForSelector('#viewer iframe', { timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 30000 });\n  return runtime;",
-  "  const runtimeHeader = response?.headers()?.['x-r3-reader-runtime'] || '';\n  await page.waitForSelector('#viewer iframe', { timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 30000 });\n  await page.waitForFunction(() => window.__r3AudioHighSpeedFollowV31 === true, null, { timeout: 10000 });\n  const markerV31 = await page.evaluate(() => window.__r3AudioHighSpeedFollowV31 === true);\n  if (runtimeHeader && runtimeHeader !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_BASELINE_WRONG_HEADER:${runtimeHeader}`);\n  if (!markerV31) throw new Error(`LIVE_BASELINE_NOT_V31:${runtimeHeader || 'missing'}`);\n  return runtimeHeader || 'v31-high-speed-serialized-follow';",
-  'browser-runtime-gate',
+  "async function bootV31() {\n  const response = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });\n  const runtime = response?.headers()?.['x-r3-reader-runtime'] || '';\n  if (runtime !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_BASELINE_NOT_V31:${runtime || 'missing'}`);\n  await page.waitForSelector('#viewer iframe', { timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 30000 });\n  return runtime;\n}",
+  "async function bootV31() {\n  let lastError = null;\n  for (let attempt = 1; attempt <= 3; attempt++) {\n    try {\n      const response = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });\n      const runtimeHeader = response?.headers()?.['x-r3-reader-runtime'] || '';\n      if (runtimeHeader && runtimeHeader !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_BASELINE_WRONG_HEADER:${runtimeHeader}`);\n      await page.waitForSelector('#viewer iframe', { state: 'attached', timeout: 20000 });\n      await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 20000 });\n      await page.waitForFunction(() => window.__r3AudioHighSpeedFollowV31 === true, null, { timeout: 10000 });\n      const markerV31 = await page.evaluate(() => window.__r3AudioHighSpeedFollowV31 === true);\n      if (!markerV31) throw new Error(`LIVE_BASELINE_NOT_V31:${runtimeHeader || 'missing'}`);\n      return runtimeHeader || 'v31-high-speed-serialized-follow';\n    } catch (error) {\n      lastError = error;\n      console.log(JSON.stringify({ phase: 'live-boot-retry', attempt, error: String(error?.message || error) }));\n      if (attempt < 3) {\n        await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});\n        await page.waitForTimeout(700 * attempt);\n      }\n    }\n  }\n  throw lastError || new Error('LIVE_V31_BOOT_FAILED');\n}",
+  'browser-runtime-retry-gate',
 );
 
 fs.writeFileSync(outPath, source, 'utf8');
