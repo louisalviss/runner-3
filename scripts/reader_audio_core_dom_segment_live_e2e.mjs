@@ -16,6 +16,14 @@ try {
   await page.waitForSelector('#viewer iframe', { timeout: 30000 });
   await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.cfiFromNode && window.r3ReaderBridge?.next && window.r3ReaderBridge?.prev), null, { timeout: 30000 });
   await page.waitForFunction(() => window.__r3AudioHighSpeedFollowV31 === true, null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    for (const frame of document.querySelectorAll('#viewer iframe')) {
+      try {
+        if (String(frame.contentDocument?.body?.innerText || '').trim().length >= 100) return true;
+      } catch {}
+    }
+    return false;
+  }, null, { timeout: 30000 });
   if (runtime && runtime !== 'v31-high-speed-serialized-follow') throw new Error(`LIVE_RUNTIME_NOT_V31:${runtime}`);
 
   await page.addScriptTag({ content: bundle });
