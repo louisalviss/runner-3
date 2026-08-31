@@ -1,27 +1,17 @@
-name: Runner3 Core Deploy Trigger 2
+name: Runner3 Core Deploy Trigger 2 (Legacy, No Deploy)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/runner3-core-deploy-trigger-2.yml'
+  workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Retired duplicate deploy trigger. Production runner3-core deployment is
+# owned exclusively by runner3-core-public-hosted-reader-deploy.yml.
 jobs:
-  deploy:
+  legacy-no-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install Wrangler
-        run: npm install -g wrangler
-      - name: Deploy Runner3 Core
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          cd workers/runner3-core
-          wrangler deploy
+      - run: |
+          echo 'LEGACY_RUNNER3_CORE_TRIGGER_2_DISABLED=PASS'
+          echo 'Production deploy owner: runner3-core-public-hosted-reader-deploy.yml'
