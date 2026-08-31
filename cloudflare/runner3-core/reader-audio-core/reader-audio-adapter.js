@@ -18,12 +18,15 @@ export class ReaderAudioAdapter {
     prepareNext,
     activateChapter,
     continuous = true,
+    prefetchOnMount = true,
+    prefetchAfterAdvance = true,
     onState,
     onTarget,
   } = {}) {
     if (!audio) throw new Error('ReaderAudioAdapter requires audio');
     this.audio = audio;
     this.continuous = Boolean(continuous);
+    this.prefetchOnMount = Boolean(prefetchOnMount);
     this.onState = onState;
     this.onTarget = onTarget;
     this.activateChapter = activateChapter;
@@ -33,6 +36,7 @@ export class ReaderAudioAdapter {
       resolveNextReadable,
       prepare: prepareNext,
       activate: (next, options) => this.#activatePrepared(next, options),
+      prefetchAfterAdvance,
     });
     this.controller = new AudioController({
       audio,
@@ -77,7 +81,7 @@ export class ReaderAudioAdapter {
       time: state.time,
     }));
     await this.#syncMappedTarget(this.controller.snapshot(), { force: true });
-    if (state.chapter) this.queue.prefetch(state.chapter).catch(() => {});
+    if (this.prefetchOnMount && state.chapter) this.queue.prefetch(state.chapter).catch(() => {});
     if (state.playingIntent && context.autoplay !== false) await this.controller.play();
     return this.snapshot();
   }
