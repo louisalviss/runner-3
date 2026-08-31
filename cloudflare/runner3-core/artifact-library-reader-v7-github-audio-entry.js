@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v23-resume-cfi-id-entry.js";
+import app from "./artifact-library-reader-v24-resume-wait-match-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
