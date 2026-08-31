@@ -7,6 +7,7 @@ on:
       - 'cloudflare/runner3-core/reader-audio-core/**'
       - 'scripts/reader_audio_core_live_injection_e2e_v2.mjs'
       - 'scripts/reader_audio_core_live_injection_e2e_v3.mjs'
+      - 'scripts/reader_audio_core_dom_segment_live_e2e.mjs'
       - '.github/workflows/reader-audio-core-live-e2e.yml'
 
 permissions:
@@ -39,5 +40,7 @@ jobs:
             --format=iife \
             --global-name=R3AudioCoreE2E \
             --outfile=/tmp/reader-audio-core-e2e.js
-      - name: Prove core against live Reader without production mutation
+      - name: Prove core orchestration against live Reader without production mutation
         run: node scripts/reader_audio_core_live_injection_e2e_v3.mjs /tmp/reader-audio-core-e2e.js
+      - name: Prove live DOM timing to CFI segment integration
+        run: node scripts/reader_audio_core_dom_segment_live_e2e.mjs /tmp/reader-audio-core-e2e.js
