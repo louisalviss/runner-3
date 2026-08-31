@@ -2,7 +2,7 @@
 """Client for Runner3 Content Intelligence API.
 
 Generic structured path for RSS/X/Facebook/Reddit/web/YouTube items, features,
-user events, explicit interest saves, interest-profile recomputation and personal relevance scoring.
+append-only user events, thin explicit-interest ingest, and derived profile reads.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ MECHANISM_RULES: dict[str, tuple[str, ...]] = {
 
 def request_json(method: str, path: str, payload: dict[str, Any] | None = None, *, core_url: str | None = None) -> dict[str, Any]:
     base = (core_url or os.environ.get("RUNNER3_CORE_URL") or DEFAULT_CORE_URL).rstrip("/")
-    headers = {"Accept": "application/json", "User-Agent": "runner3-content-intelligence/1.2"}
+    headers = {"Accept": "application/json", "User-Agent": "runner3-content-intelligence/1.3"}
     token = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -150,8 +150,19 @@ def cmd_event_batch(args: argparse.Namespace) -> int:
     rows = obj.get("events") if isinstance(obj, dict) else obj
     if not isinstance(rows, list):
         raise SystemExit("event batch must be a list or {events:[...]}")
-    applied = post_batches("/content-intelligence/events/batch", rows, args.core_url)
-    print(json.dumps({"ok": True, "applied": applied}, sort_keys=True))
+    applied = 0
+    missing_or_duplicate = 0
+    durable = True
+    for batch in batches(rows):
+        if not batch:
+            continue
+        result = request_json("POST", "/content-intelligence/events/batch", {"rows": batch}, core_url=args.core_url)
+        if result.get("ok") is not True:
+            raise RuntimeError(result)
+        applied += int(result.get("applied") or 0)
+        missing_or_duplicate += int(result.get("missing_or_duplicate") or 0)
+        durable = durable and result.get("durable") is True
+    print(json.dumps({"ok": True, "durable": durable, "applied": applied, "requested": len(rows), "missing_or_duplicate": missing_or_duplicate}, sort_keys=True))
     return 0
 
 
@@ -160,6 +171,15 @@ def cmd_interest_save(args: argparse.Namespace) -> int:
     if not isinstance(payload, dict):
         raise SystemExit("interest save payload must be an object")
     result = request_json("POST", "/content-intelligence/interests/save", payload, core_url=args.core_url)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def cmd_interest_ingest(args: argparse.Namespace) -> int:
+    payload = load_json(args.file)
+    if not isinstance(payload, dict):
+        raise SystemExit("interest ingest payload must be an object")
+    result = request_json("POST", "/content-intelligence/interests/ingest", payload, core_url=args.core_url)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 
@@ -199,8 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--file", required=True)
     b.set_defaults(func=cmd_event_batch)
     i = sub.add_parser("interest-save")
-    i.add_argument("--file", required=True, help="JSON payload accepted by /content-intelligence/interests/save")
+    i.add_argument("--file", required=True, help="Legacy eager payload accepted by /content-intelligence/interests/save")
     i.set_defaults(func=cmd_interest_save)
+    ii = sub.add_parser("interest-ingest")
+    ii.add_argument("--file", required=True, help="Thin durable payload accepted by /content-intelligence/interests/ingest")
+    ii.set_defaults(func=cmd_interest_ingest)
     r = sub.add_parser("recompute")
     r.add_argument("--model-version", default=DEFAULT_PERSONAL_MODEL)
     r.set_defaults(func=cmd_recompute)
@@ -213,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     return args.func(args)
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
