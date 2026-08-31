@@ -1,29 +1,17 @@
-name: Trigger Runner3 Core Deploy
+name: Runner3 Core Deploy Trigger (Legacy, No Deploy)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'workers/runner3-core/**'
-      - '.github/workflows/runner3-core-deploy-trigger.yml'
 
+permissions:
+  contents: read
+
+# Retired legacy deploy path. The old workers/runner3-core tree no longer
+# exists on main, and this workflow must never receive production credentials.
 jobs:
-  deploy:
+  legacy-no-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install Wrangler
-        run: npm install -g wrangler
-      - name: Deploy Runner3 Core
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          cd workers/runner3-core
-          wrangler deploy
+      - run: |
+          echo 'LEGACY_RUNNER3_CORE_TRIGGER_DISABLED=PASS'
+          echo 'Production deploy owner: runner3-core-public-hosted-reader-deploy.yml'
