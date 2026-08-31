@@ -133,6 +133,10 @@ jobs:
           ]
           if oldassert not in s: raise SystemExit('active assertion missing')
           s=s.replace(oldassert,'\n'.join(lines),1)
+          pause_anchor='  const beforeFollowCfi = started.cfi;'
+          pause_patch="  const beforeFollowCfi = started.cfi;\n  await page.evaluate(() => document.getElementById('r3AudioElement')?.pause());\n  await page.waitForTimeout(150);"
+          if pause_anchor not in s: raise SystemExit('manual pagination pause anchor missing')
+          s=s.replace(pause_anchor,pause_patch,1)
           open(p,'w',encoding='utf-8').write(s)
           PY
       - name: Install browser runtime dependency
