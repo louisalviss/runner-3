@@ -1,1 +1,107 @@
-{"ok":false,"error":"rollout_proof_missing","runId":"33344042728"}
+{
+  "checkedAt": "2026-08-31T00:23:49.134520+00:00",
+  "runId": "33344387789",
+  "baseUrl": "https://runner3-core.ducduy2411.workers.dev",
+  "health": {
+    "http": 200,
+    "ok": true,
+    "d1": true,
+    "r2": true
+  },
+  "catalog": {
+    "http": 503,
+    "count": null,
+    "ids": [],
+    "exactSix": false,
+    "retiredAbsent": true
+  },
+  "fetch": {
+    "genk-165260824141950644": {
+      "http": 200,
+      "ok": true,
+      "error": null,
+      "chars": 11864,
+      "checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec"
+    },
+    "fulcrum-url-a87e54dbda2e37fe40a7": {
+      "http": 200,
+      "ok": true,
+      "error": null,
+      "chars": 8424,
+      "checksum": "0ff90ee23b9af7175f62e409966314b5532db4e45b142ab923f98b287bd721f4"
+    },
+    "tinhte-4171630": {
+      "http": 503,
+      "ok": false,
+      "error": null,
+      "chars": null,
+      "checksum": null
+    },
+    "nghiencuuquocte-url-6cd04807aefc80d9be93": {
+      "http": 503,
+      "ok": false,
+      "error": null,
+      "chars": null,
+      "checksum": null
+    },
+    "rasa-url-71191f21386ea1a88a22": {
+      "http": 503,
+      "ok": false,
+      "error": null,
+      "chars": null,
+      "checksum": null
+    },
+    "cloudflare-url-781ba125e818919ba95e": {
+      "http": 503,
+      "ok": false,
+      "error": null,
+      "chars": null,
+      "checksum": null
+    }
+  },
+  "details": {
+    "genk-165260824141950644": {
+      "http": 200,
+      "fetch_status": "fetched",
+      "translation_status": "native_vi",
+      "source_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
+      "translation_checksum": "6d86319727bfe7c0a5256d4c92999181e0a12ebf90aef52dcb1607c9ec711aec",
+      "qa_state": "native_vi",
+      "last_error": null
+    },
+    "fulcrum-url-a87e54dbda2e37fe40a7": {
+      "http": 503,
+      "fetch_status": null,
+      "translation_status": null,
+      "source_checksum": null,
+      "translation_checksum": null,
+      "qa_state": null,
+      "last_error": null
+    }
+  },
+  "nativeViViews": {
+    "genk-165260824141950644": {
+      "http": 200,
+      "nativeVi": true,
+      "bodyChars": 11864,
+      "imageCount": 2
+    }
+  },
+  "translationPackets": {
+    "fulcrum-url-a87e54dbda2e37fe40a7": {
+      "http": 503,
+      "ok": false,
+      "sectionCount": null,
+      "sourceChecksum": null
+    }
+  },
+  "errors": [
+    "packet:fulcrum-url-a87e54dbda2e37fe40a7:503",
+    "fetch:tinhte-4171630:503",
+    "fetch:nghiencuuquocte-url-6cd04807aefc80d9be93:503",
+    "fetch:rasa-url-71191f21386ea1a88a22:503",
+    "fetch:cloudflare-url-781ba125e818919ba95e:503",
+    "catalog_not_exact_six"
+  ],
+  "ok": false
+}
