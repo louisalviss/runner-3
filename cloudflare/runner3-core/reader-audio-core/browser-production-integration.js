@@ -510,13 +510,31 @@ function bootReaderAudioCore() {
 
   async function initialRestore() {
     try {
-      for (let n = 0; n < 100 && !bridge()?.current; n++) await sleep(100);
       const saved = loadState();
-      if (saved.cfi && bridge()?.display) {
-        try { await bridge().display(saved.cfi); await sleep(220); } catch {}
+      for (let n = 0; n < 100; n++) {
+        const loc = bridge()?.current?.();
+        if (loc?.start?.cfi || loc?.start?.href) break;
+        await sleep(100);
       }
-      if (saved.mediaId) await prepareCurrent({ autoplay: false, allowSaved: true });
-      else syncUi(saved);
+      if (saved.cfi && bridge()?.display) {
+        try { await bridge().display(saved.cfi); } catch {}
+      }
+      if (saved.mediaId) {
+        let ready = false;
+        for (let n = 0; n < 120; n++) {
+          const loc = bridge()?.current?.();
+          const payload = framePayload();
+          const locationReady = Boolean(loc?.start?.cfi || loc?.start?.href);
+          const chapterReady = Boolean(payload && (!saved.chapter || payload.chapter === saved.chapter));
+          if (locationReady && chapterReady) {
+            ready = true;
+            break;
+          }
+          await sleep(100);
+        }
+        if (!ready) throw new Error('READER_CHAPTER_NOT_READY');
+        await prepareCurrent({ autoplay: false, allowSaved: true });
+      } else syncUi(saved);
     } catch (error) {
       debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
     }
