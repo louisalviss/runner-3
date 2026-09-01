@@ -10,7 +10,21 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 390, height: 760 } });
 const page = await context.newPage();
 const pageErrors = [];
+let signedEpubUrl = '';
 page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
+
+await page.route('**/__reader_v34_epub_proxy__', async (route) => {
+  if (!signedEpubUrl) return route.fulfill({ status: 503, body: 'SIGNED_EPUB_URL_MISSING' });
+  const upstream = await context.request.fetch(signedEpubUrl, { method: 'GET', failOnStatusCode: false });
+  await route.fulfill({
+    status: upstream.status(),
+    headers: {
+      'content-type': upstream.headers()['content-type'] || 'application/epub+zip',
+      'cache-control': 'private, no-store',
+    },
+    body: await upstream.body(),
+  });
+});
 
 await page.route('**/artifact-library/api/delivery', async (route) => {
   const request = route.request();
@@ -20,10 +34,20 @@ await page.route('**/artifact-library/api/delivery', async (route) => {
     data: request.postData() || '{}',
     failOnStatusCode: false,
   });
+  const raw = await upstream.text();
+  let body = raw;
+  try {
+    const data = JSON.parse(raw);
+    if (upstream.ok() && data?.delivery?.url) {
+      signedEpubUrl = new URL(data.delivery.url, productionBase).href;
+      data.delivery.url = `${base}/__reader_v34_epub_proxy__`;
+      body = JSON.stringify(data);
+    }
+  } catch {}
   await route.fulfill({
     status: upstream.status(),
-    headers: { 'content-type': upstream.headers()['content-type'] || 'application/json', 'cache-control': 'private, no-store' },
-    body: await upstream.body(),
+    headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' },
+    body,
   });
 });
 
@@ -46,7 +70,7 @@ try {
       bodyText: String(document.body?.innerText || '').slice(0, 300),
       scripts: [...document.querySelectorAll('script[data-r3-audio-continuity-v34],script[data-r3-audio-core-runtime-v33]')].map((node) => node.getAttributeNames().reduce((out, name) => ({ ...out, [name]: node.getAttribute(name) }), {})),
     }));
-    console.log('V34_BOOT_DIAG', JSON.stringify({ diag, pageErrors }));
+    console.log('V34_BOOT_DIAG', JSON.stringify({ diag, signedEpubUrl: Boolean(signedEpubUrl), pageErrors }));
     throw error;
   }
   await page.waitForFunction(() => {
