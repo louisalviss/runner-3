@@ -1,0 +1,40 @@
+name: Reader v42 Sentence Page Follow Patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/patch_reader_v42_sentence_page_follow.py'
+      - '.github/workflows/reader-v42-sentence-page-follow-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply v42 sentence and page-follow patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_reader_v42_sentence_page_follow.py
+          node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'function rangePageDirection(range)' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'Deterministic sentence boundaries' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'for(let step=0;step<5;step++)' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+      - name: Commit v42 source patch
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/reader-v42-sentence-page-follow-patch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js .github/workflows/reader-v42-sentence-page-follow-patch.yml
+          git commit -m 'fix(reader): deterministic sentence highlight and page-step follow v42'
+          git push origin HEAD:main
