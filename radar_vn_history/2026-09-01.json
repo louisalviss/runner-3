@@ -10,38 +10,48 @@
     "f33_after_midnight_grace_hours": 3,
     "forum_min_local_hour": 20
   },
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
   "close_quality": false,
-  "blocking_reasons": [
-    "trends_history_missing",
-    "forum_history_missing"
-  ],
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-09-01.json",
-      "present": false
+      "present": true,
+      "sha256": "5abd63979e7038259c1feefae270e56b59f27d2ecf93f5c4f1c49f1b6daa6c58",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-09-01",
+      "captured_at": "2026-09-01T12:46:27.205566+00:00",
+      "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-09-01.json",
       "present": true,
-      "sha256": "6449bbe39307b08fbe59c131b4a999d5d0324b9a3ae29aa915cc33438e044059",
+      "sha256": "87acaec3484529b255ac9b882e6ea87f6f6417ead1d3155b7259c5c762ad1334",
       "status": "HEALTHY",
       "vietnam_date": "2026-09-01",
-      "generated_at": "2026-08-31T21:07:49.795Z",
+      "generated_at": "2026-09-01T15:40:17.335Z",
       "run_id": 33439454335,
-      "artifact_id": 9775746895,
+      "artifact_id": 9808152489,
       "threads_discovered": 20,
-      "expected_pages_total": 120,
-      "fetched_pages_total": 120,
+      "expected_pages_total": 157,
+      "fetched_pages_total": 157,
       "missing_pages_total": 0,
-      "posts_total": 2013,
+      "posts_total": 2664,
       "target_date_source": "workflow_dispatch_input"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-09-01.json",
-      "present": false
+      "present": true,
+      "sha256": "dd8b094ae948f246b4876b455f4c8329098687196cd46d9132f7cb7d27967cbb",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-09-01",
+      "generated_at": "2026-09-01T12:48:59.059Z",
+      "run_id": 33509101187,
+      "artifact_id": 9801108195,
+      "posts_total": 883,
+      "crawl_outcome": "success"
     }
   }
 }
