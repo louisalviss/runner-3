@@ -29,8 +29,8 @@ function patchEbookAudio(html) {
 #r3AudioDock.r3-expanded #r3AudioMain{width:48px;height:48px;font-size:19px}
 body.r3-audio-ui #viewer{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}
 body.r3-audio-ui .bottom-status{bottom:calc(72px + env(safe-area-inset-bottom,0px))!important}
-body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(146px + env(safe-area-inset-bottom,0px))!important}
-body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(151px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(72px + env(safe-area-inset-bottom,0px))!important}
 body.settings #r3AudioDock{opacity:0;pointer-events:none;transform:translate(-50%,14px)}
 @media(min-width:700px){#r3AudioDock{bottom:10px}}
 @media(prefers-reduced-motion:reduce){#r3AudioDock{transition:none}}
@@ -89,7 +89,6 @@ body.settings #r3AudioDock{opacity:0;pointer-events:none;transform:translate(-50
     expand.textContent=expanded?'⌄':'⌃';
     expand.setAttribute('aria-label',expanded?'Thu gọn trình phát':'Mở rộng trình phát');
     if(persist){try{localStorage.setItem('r3-reader-audio-expanded',expanded?'1':'0');}catch{}}
-    requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
   }
 
   function syncTimeline(){

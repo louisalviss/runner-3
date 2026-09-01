@@ -145,8 +145,8 @@ const V35_PLAYER_CHAPTERS = `<style data-r3-player-chapters-v38="1">
 #r3AudioChapterSelect{min-width:0;width:100%;padding:0 9px;text-overflow:ellipsis}
 #r3ReaderChapterBadge{position:fixed;z-index:21;left:76px;right:76px;top:calc(max(10px,env(safe-area-inset-top)) + 30px);text-align:center;color:var(--muted,#888);font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transition:opacity .16s ease}
 body.controls #r3ReaderChapterBadge{opacity:1}
-body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(192px + env(safe-area-inset-bottom,0px))!important}
-body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(197px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(72px + env(safe-area-inset-bottom,0px))!important}
 </style>
 <script data-r3-player-chapters-v38="1">
 (()=>{
