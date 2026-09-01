@@ -7,6 +7,8 @@ on:
     paths:
       - 'cloudflare/runner3-core/**'
       - 'scripts/ebook_reader_audio_tts.py'
+      - 'scripts/ebook_reader_audio_tts_v2.py'
+      - 'scripts/ebook_reader_audio_tts_daemon.py'
       - '.github/workflows/ebook-reader-audio.yml'
       - '.github/scripts/runner3_core_deploy_smoke.py'
       - '.github/workflows/runner3-core-deploy.yml'
@@ -56,7 +58,7 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-page-v7.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v8.js
           node --check cloudflare/runner3-core/src/index.js
-          python3 -m py_compile scripts/ebook_reader_audio_tts.py
+          python3 -m py_compile scripts/ebook_reader_audio_tts.py scripts/ebook_reader_audio_tts_v2.py scripts/ebook_reader_audio_tts_daemon.py
           grep -q 'renderReaderArticlePageV8' cloudflare/runner3-core/reader-media-entry.js
           ! grep -q 'renderReaderArticlePageV7(request, url)' cloudflare/runner3-core/reader-media-entry.js
           grep -q 'vi-VN-NamMinhNeural' cloudflare/runner3-core/src/rss-reader-audio.js
@@ -67,7 +69,9 @@ jobs:
           grep -q 'nam-minh-v8' cloudflare/runner3-core/src/rss-reader-page-v8.js
           grep -q 'cloneNode(true)' cloudflare/runner3-core/src/rss-reader-page-v8.js
           grep -q 'audio-library/ebook-reader-queue/' cloudflare/runner3-core/src/ebook-reader-audio.js
-          grep -q 'repository_dispatch' .github/workflows/ebook-reader-audio.yml
+          grep -q '/api/internal/ebook-reader-audio/job' scripts/ebook_reader_audio_tts_daemon.py
+          grep -q '/api/internal/ebook-reader-audio/complete' scripts/ebook_reader_audio_tts_daemon.py
+          ! grep -Eq 'repository_dispatch:|schedule:' .github/workflows/ebook-reader-audio.yml
           grep -q 'WordBoundary' scripts/ebook_reader_audio_tts.py
           node --input-type=module - <<'NODE'
           import { handleRssReaderPlus } from './cloudflare/runner3-core/src/rss-reader-plus.js';
@@ -207,5 +211,5 @@ jobs:
           print('Runner3 Core source validation OK')
           print('Entry chain: reader-v7-github-audio -> reader-v6 -> reader-v5')
           print('Production deploy owner: private louisalviss/vps-control')
-          print('Ebook audio: Core queue -> repository_dispatch -> GitHub-hosted Nam Minh TTS -> R2')
+          print('Ebook audio: Core queue -> always-on VPS Nam Minh TTS consumer -> R2; GitHub workflow manual fallback only')
           PY
