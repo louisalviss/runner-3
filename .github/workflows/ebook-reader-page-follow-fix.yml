@@ -1,0 +1,233 @@
+name: Ebook Reader Page Follow Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ebook-reader-page-follow-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch page-boundary follow and highlight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if new in text:
+                  return
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one marker, got {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          follower = 'cloudflare/runner3-core/reader-audio-core/reader-follower.js'
+          old = '''  async #drain() {
+              let moved = false;
+              while (this.pending) {
+                const job = this.pending;
+                this.pending = null;
+                this.clearHighlight?.();
+                this.highlight?.(job.target);
+                const visible = job.force ? false : Boolean(await this.isVisible?.(job.target));
+                if (!visible && this.displayCfi) {
+                  await this.displayCfi(job.target.cfi, { animate: false });
+                  moved = true;
+                }
+              }
+              return moved;
+            }'''
+          new = '''  async #drain() {
+              let moved = false;
+              while (this.pending) {
+                const job = this.pending;
+                this.pending = null;
+                const visible = job.force ? false : Boolean(await this.isVisible?.(job.target));
+                if (!visible && this.displayCfi) {
+                  this.clearHighlight?.();
+                  const landed = await this.displayCfi(job.target.cfi, { animate: false });
+                  moved = Boolean(landed) || moved;
+                  if (this.pending) continue;
+                  if (landed === false && !Boolean(await this.isVisible?.(job.target))) continue;
+                }
+                this.clearHighlight?.();
+                this.highlight?.(job.target);
+              }
+              return moved;
+            }'''
+          replace_once(follower, old, new, 'reader-follower:display-before-highlight')
+
+          browser = 'cloudflare/runner3-core/reader-audio-core/browser-production-integration.js'
+          old = '''  function blockVisible(el) {
+              try {
+                const doc = el.ownerDocument;
+                const win = doc.defaultView;
+                const width = win?.innerWidth || doc.documentElement.clientWidth || 1;
+                const height = win?.innerHeight || doc.documentElement.clientHeight || 1;
+                return [...el.getClientRects()].some((rect) => rect.right > 2 && rect.left < width - 2 && rect.bottom > 2 && rect.top < height - 2);
+              } catch { return false; }
+            }'''
+          new = '''  function blockVisible(el) {
+              try {
+                const doc = el?.ownerDocument;
+                if (!doc) return false;
+                const payload = framePayload();
+                const frame = payload?.doc === doc ? payload.frame : null;
+                const viewer = document.getElementById('viewer');
+                return [...el.getClientRects()].some((rect) => {
+                  if (frame && viewer) {
+                    const fr = frame.getBoundingClientRect();
+                    const vr = viewer.getBoundingClientRect();
+                    const left = fr.left + rect.left;
+                    const top = fr.top + rect.top;
+                    const right = fr.left + rect.right;
+                    const bottom = fr.top + rect.bottom;
+                    return right > vr.left + 2 && left < vr.right - 2 && bottom > vr.top + 2 && top < vr.bottom - 2;
+                  }
+                  const win = doc.defaultView;
+                  const width = win?.innerWidth || doc.documentElement.clientWidth || 1;
+                  const height = win?.innerHeight || doc.documentElement.clientHeight || 1;
+                  return rect.right > 2 && rect.left < width - 2 && rect.bottom > 2 && rect.top < height - 2;
+                });
+              } catch { return false; }
+            }'''
+          replace_once(browser, old, new, 'browser:outer-viewport-visibility')
+
+          old = '''    const coverage = matched / Math.max(1, Math.min(domTokens.length, timingTokens.length));
+              return { segments, visible, coverage };
+            }
+
+            async function readAudioState(id) {'''
+          new = '''    const coverage = matched / Math.max(1, Math.min(domTokens.length, timingTokens.length));
+              return { segments, visible, coverage };
+            }
+
+            function rebuildCurrentMapping(expectedChapter = '') {
+              try {
+                if (!currentTiming.length) return null;
+                const payload = framePayload();
+                if (!payload) return null;
+                if (expectedChapter && payload.chapter !== expectedChapter) return null;
+                currentPayload = payload;
+                const alignment = buildSegments(payload, currentTiming);
+                return alignment.segments.length ? alignment : null;
+              } catch { return null; }
+            }
+
+            async function readAudioState(id) {'''
+          replace_once(browser, old, new, 'browser:rebuild-mapping-helper')
+
+          old = '''  async function displayCfi(cfi) {
+              const b = bridge();
+              if (!b?.display || !cfi) return false;
+              debug.displayCalls++;
+              debug.displayConcurrent++;
+              debug.maxDisplayConcurrent = Math.max(debug.maxDisplayConcurrent, debug.displayConcurrent);
+              try {
+                await b.display(cfi);
+                try { b.persist?.(); } catch {}
+                await sleep(60);
+                return true;
+              } finally {
+                debug.displayConcurrent = Math.max(0, debug.displayConcurrent - 1);
+              }
+            }'''
+          new = '''  async function displayCfi(cfi) {
+              const b = bridge();
+              if (!b?.display || !cfi) return false;
+              debug.displayCalls++;
+              debug.displayConcurrent++;
+              debug.maxDisplayConcurrent = Math.max(debug.maxDisplayConcurrent, debug.displayConcurrent);
+              try {
+                const expectedChapter = String(currentPayload?.chapter || '');
+                await b.display(cfi);
+                try { b.persist?.(); } catch {}
+                for (let attempt = 0; attempt < 18; attempt++) {
+                  await sleep(attempt === 0 ? 80 : 50);
+                  rebuildCurrentMapping(expectedChapter);
+                  const el = mappedElements.get(String(cfi));
+                  if (el && blockVisible(el)) return true;
+                }
+                return false;
+              } finally {
+                debug.displayConcurrent = Math.max(0, debug.displayConcurrent - 1);
+              }
+            }'''
+          replace_once(browser, old, new, 'browser:verify-relocation-and-remap')
+
+          smoke = Path('cloudflare/runner3-core/reader-audio-core/reader-follower-page-turn-smoke.mjs')
+          smoke.write_text('''import assert from 'node:assert/strict';
+          import { ReaderFollower } from './reader-follower.js';
+
+          const events = [];
+          let visible = false;
+          const follower = new ReaderFollower({
+            displayCfi: async (cfi) => {
+              events.push(`display:${cfi}`);
+              visible = true;
+              return true;
+            },
+            isVisible: async () => visible,
+            clearHighlight: () => events.push('clear'),
+            highlight: (target) => events.push(`highlight:${target.cfi}`),
+          });
+
+          await follower.follow({ cfi: 'epubcfi(/6/4)' }, { force: true });
+          const displayIndex = events.indexOf('display:epubcfi(/6/4)');
+          const highlightIndex = events.indexOf('highlight:epubcfi(/6/4)');
+          assert.ok(displayIndex >= 0, 'page boundary must request display');
+          assert.ok(highlightIndex > displayIndex, 'highlight must be applied after relocation');
+
+          events.length = 0;
+          visible = true;
+          await follower.follow({ cfi: 'epubcfi(/6/5)' });
+          assert.equal(events.some((x) => x.startsWith('display:')), false, 'visible target must not trigger page movement');
+          assert.equal(events.at(-1), 'highlight:epubcfi(/6/5)');
+
+          console.log('READER_FOLLOWER_PAGE_TURN_SMOKE=PASS');
+          ''', encoding='utf-8')
+          PY
+
+      - name: Run Reader audio regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/runner3-core/reader-audio-core/reader-follower.js
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          node cloudflare/runner3-core/reader-audio-core/reader-follower-page-turn-smoke.mjs
+          node cloudflare/runner3-core/reader-audio-core/adapter-smoke.mjs
+          node cloudflare/runner3-core/reader-audio-core/core-smoke.mjs
+
+      - name: Commit patch and trigger Reader Core deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > ops/reader-core-deploy.trigger <<EOF
+          ebook-reader-page-follow-boundary-v37
+          requested_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          reason=fix outer viewport page-follow, remap DOM after CFI relocation, and reapply highlight only after landing
+          EOF
+          rm -f .github/workflows/ebook-reader-page-follow-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cloudflare/runner3-core/reader-audio-core/reader-follower.js \
+                  cloudflare/runner3-core/reader-audio-core/browser-production-integration.js \
+                  cloudflare/runner3-core/reader-audio-core/reader-follower-page-turn-smoke.mjs \
+                  ops/reader-core-deploy.trigger \
+                  .github/workflows/ebook-reader-page-follow-fix.yml
+          git commit -m "fix(reader-audio): preserve page follow and highlight across pagination"
+          git push origin HEAD:main
