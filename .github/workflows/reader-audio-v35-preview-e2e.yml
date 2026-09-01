@@ -8,6 +8,8 @@ on:
     paths:
       - 'cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js'
       - 'scripts/reader_audio_v35_preview_e2e.mjs'
+      - 'scripts/verify_runner3_core_single_deploy_owner.mjs'
+      - '.github/workflows/runner3-core-public-hosted-reader-deploy.yml'
       - '.github/workflows/reader-audio-v35-preview-e2e.yml'
 
 permissions:
@@ -42,6 +44,9 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+      - name: Validate production single-writer configuration
+        run: node scripts/verify_runner3_core_single_deploy_owner.mjs
 
       - name: Install build and browser dependencies
         run: |
