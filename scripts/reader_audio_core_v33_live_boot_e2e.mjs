@@ -77,8 +77,8 @@ try {
   await page.waitForTimeout(500);
 
   const result = await page.evaluate(() => ({
-    ownerMarker: document.documentElement.getAttribute('data-r3-audio-core-owner-v33'),
-    runtimeMarker: document.documentElement.getAttribute('data-r3-audio-core-runtime-v33'),
+    ownerMarker: Boolean(document.querySelector('script[data-r3-audio-core-owner-v33="1"]')),
+    runtimeMarker: Boolean(document.querySelector('script[data-r3-audio-core-runtime-v33="1"]')),
     flags: {
       v6: Boolean(window.__r3AudioLegacyV6Suppressed),
       v8: Boolean(window.__r3AudioLegacyV8Suppressed),
@@ -108,7 +108,7 @@ try {
     'r3AudioElement:ended',
   ];
 
-  if (result.ownerMarker !== '1' || result.runtimeMarker !== '1') throw new Error('V33_DOM_MARKERS_MISSING');
+  if (!result.ownerMarker || !result.runtimeMarker) throw new Error('V33_DOM_MARKERS_MISSING');
   if (!result.flags.v6 || !result.flags.v8 || !result.flags.v11 || !result.flags.v29 || !result.flags.v31) throw new Error('LEGACY_SUPPRESSION_INCOMPLETE');
   if (result.flags.v31ClockStarted) throw new Error('LEGACY_V31_CLOCK_STARTED');
   if (result.debugOwner !== 'reader-audio-core-v33') throw new Error(`OWNER_WRONG:${result.debugOwner}`);
