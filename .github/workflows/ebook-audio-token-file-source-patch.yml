@@ -1,0 +1,61 @@
+name: Ebook Audio Token File Source Patch
+
+on:
+  push:
+    branches:
+      - fix/ebook-audio-vps-token-file
+    paths:
+      - .github/workflows/ebook-audio-token-file-source-patch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ebook-audio-vps-token-file
+          fetch-depth: 0
+
+      - name: Patch token resolver and validate syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/ebook_reader_audio_tts_vps.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'CORE_TOKEN = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()'
+          new = '''TOKEN_FILE = os.environ.get("EBOOK_AUDIO_VPS_TOKEN_FILE", "").strip()
+          FILE_TOKEN = Path(TOKEN_FILE).read_text(encoding="utf-8").rstrip("\\r\\n") if TOKEN_FILE else ""
+          CORE_TOKEN = (
+              FILE_TOKEN
+              or os.environ.get("EBOOK_AUDIO_VPS_TOKEN", "").strip()
+              or os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
+          )'''
+          if new not in text:
+              if old not in text:
+                  raise SystemExit('expected legacy CORE_TOKEN assignment not found')
+              text = text.replace(old, new, 1)
+          text = text.replace('raise RuntimeError("RUNNER3_CORE_TOKEN is required")', 'raise RuntimeError("Ebook audio Core token is required")')
+          path.write_text(text, encoding='utf-8')
+          PY
+          python3 -m py_compile scripts/ebook_reader_audio_tts_vps.py
+          grep -q 'EBOOK_AUDIO_VPS_TOKEN_FILE' scripts/ebook_reader_audio_tts_vps.py
+
+      - name: Commit source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- scripts/ebook_reader_audio_tts_vps.py; then
+            echo 'SOURCE_PATCH=no_change'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/ebook_reader_audio_tts_vps.py
+          git commit -m 'fix(ebook-audio): support protected VPS token file'
+          git push origin HEAD:fix/ebook-audio-vps-token-file
