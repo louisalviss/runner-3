@@ -1,13 +1,15 @@
 import { normalizePlaybackState } from './state-contract.js';
 
 export class AudioController {
-  constructor({ audio, loadState, saveState, onTick, onEnded } = {}) {
+  constructor({ audio, loadState, saveState, onTick, onEnded, persistIntervalMs = 1000 } = {}) {
     if (!audio) throw new Error('AudioController requires audio');
     this.audio = audio;
     this.loadState = loadState;
     this.saveState = saveState;
     this.onTick = onTick;
     this.onEnded = onEnded;
+    this.persistIntervalMs = Math.max(250, Number(persistIntervalMs) || 1000);
+    this.lastClockPersistAt = 0;
     this.timer = null;
     this.state = normalizePlaybackState();
     this.bound = false;
@@ -84,8 +86,6 @@ export class AudioController {
     if (cfi !== undefined) next.cfi = cfi;
     if (time !== undefined) next.time = time;
     this.state = normalizePlaybackState(next);
-    // Browsers may reset playbackRate to defaultPlaybackRate when a new media
-    // resource is selected. Re-apply the canonical state after every src swap.
     this.applyPlaybackRate();
     this.persist();
     return this.snapshot();
@@ -168,6 +168,7 @@ export class AudioController {
 
   startClock() {
     if (this.timer) return this.timer;
+    this.lastClockPersistAt = Date.now();
     this.timer = setInterval(() => this.tick(false), 75);
     return this.timer;
   }
@@ -182,6 +183,11 @@ export class AudioController {
     this.state.time = Math.max(0, Number(this.audio.currentTime) || 0);
     this.state.playbackRate = normalizePlaybackState({ playbackRate: this.audio.playbackRate }).playbackRate;
     this.onTick?.(this.snapshot(), { force });
+    const now = Date.now();
+    if (force || now - this.lastClockPersistAt >= this.persistIntervalMs) {
+      this.lastClockPersistAt = now;
+      this.persist();
+    }
     return this.snapshot();
   }
 

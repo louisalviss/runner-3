@@ -1,0 +1,189 @@
+name: Reader Audio Core v33 Preview E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - reader-audio-core-integration-v33-rebased
+    paths:
+      - 'cloudflare/runner3-core/reader-audio-core/**'
+      - 'cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js'
+      - 'scripts/build_reader_audio_core_browser_bundle.mjs'
+      - 'scripts/reader_audio_core_v33_preview_e2e.mjs'
+      - '.github/workflows/reader-audio-core-v33-preview-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reader-audio-core-v33-preview
+  cancel-in-progress: true
+
+env:
+  PREVIEW_NAME: runner3-core-reader-v33-preview
+  PREVIEW_URL: https://runner3-core-reader-v33-preview.ducduy2411.workers.dev
+  BASELINE_URL: https://runner3-core.ducduy2411.workers.dev
+
+jobs:
+  preview-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate preview credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
+          done
+
+      - name: Install build and browser dependencies
+        run: |
+          npm install --no-save esbuild playwright
+          npx playwright install --with-deps chromium
+
+      - name: Build browser core bundle
+        run: node scripts/build_reader_audio_core_browser_bundle.mjs
+
+      - name: Compose isolated v33 preview Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,re,os
+          root=pathlib.Path('cloudflare/runner3-core')
+
+          wrapper=root/'artifact-library-reader-v7-github-audio-entry.js'
+          text=wrapper.read_text(encoding='utf-8')
+          text,count=re.subn(
+            r'import app from "\./artifact-library-reader-v\d+[^\"]*-entry\.js";',
+            'import app from "./artifact-library-reader-v33-audio-core-entry.js";',
+            text,
+            count=1,
+          )
+          if count != 1: raise SystemExit('reader wrapper import marker missing')
+          wrapper.write_text(text,encoding='utf-8')
+
+          mailbox=root/'mailbox-entry.js'
+          text=mailbox.read_text(encoding='utf-8')
+          old='import app from "./audio-entry.js";'
+          new='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if old in text: text=text.replace(old,new,1)
+          elif new not in text: raise SystemExit('canonical mailbox import marker missing')
+          mailbox.write_text(text,encoding='utf-8')
+
+          cfg_path=root/'wrangler.jsonc'
+          cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
+          cfg['name']=os.environ['PREVIEW_NAME']
+          cfg['main']='mailbox-entry.js'
+          cfg.pop('triggers',None)
+          cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
+          PY
+          node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
+          node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
+          node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
+          grep -q 'artifact-library-reader-v33-audio-core-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          ! grep -q '"triggers"' cloudflare/runner3-core/wrangler.jsonc
+
+      - name: Deploy isolated preview Worker
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NO_COLOR=1
+          npx --yes wrangler@4 deploy
+
+      - name: Verify preview runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
+          ok=0
+          for attempt in $(seq 1 20); do
+            code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$PREVIEW_URL/artifact-library/read?key=$encoded")"
+            tr -d '\r' </tmp/h >/tmp/h.clean
+            runtime="$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            proof="$(grep -i '^x-r3-reader-patch-proof:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "PREVIEW_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof"
+            if [ "$code" = 200 ] && [ "$runtime" = 'v33-audio-core-owner' ] && [ "$proof" = 'v31+v33:core-single-owner+legacy-suppressed' ] && grep -q 'data-r3-audio-core-runtime-v33="1"' /tmp/reader; then ok=1; break; fi
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 1200 /tmp/reader; exit 1; fi
+          echo 'READER_AUDIO_CORE_V33_PREVIEW_DEPLOY=PASS'
+
+      - name: Prepare real EPUB relay for preview browser E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/reader_audio_core_v33_preview_e2e.mjs')
+          s=p.read_text(encoding='utf-8')
+
+          needle="const CORE_URL = process.env.RUNNER3_CORE_URL;\n"
+          replacement=needle+"const BASELINE_URL = process.env.RUNNER3_BASELINE_URL || 'https://runner3-core.ducduy2411.workers.dev';\n"
+          if s.count(needle)!=1: raise SystemExit('preview e2e CORE_URL marker missing or ambiguous')
+          s=s.replace(needle,replacement,1)
+
+          needle="let postCount = 0;\n"
+          replacement=needle+"let previewEpubSourceUrl = '';\n"
+          if s.count(needle)!=1: raise SystemExit('preview e2e postCount marker missing or ambiguous')
+          s=s.replace(needle,replacement,1)
+
+          old="""await page.route('**/*', async (route) => {\n  if (!ready) return route.continue();\n  const req = route.request();\n  let url;\n  try { url = new URL(req.url()); } catch { return route.continue(); }\n  if (url.origin !== origin) return route.continue();\n"""
+          new="""await page.route('**/*', async (route) => {\n  const req = route.request();\n  let url;\n  try { url = new URL(req.url()); } catch { return route.continue(); }\n  if (url.origin !== origin) return route.continue();\n\n  // Test-only relay of real EPUB bytes; no production secret or mutation.\n  if (url.pathname === '/artifact-library/api/delivery' && req.method() === 'POST') {\n    const upstream = await fetch(`${BASELINE_URL}/artifact-library/api/delivery`, {\n      method: 'POST',\n      headers: { 'content-type': 'application/json', 'x-runner3-library': '1' },\n      body: req.postData() || '{}',\n    });\n    const data = await upstream.json().catch(() => ({}));\n    if (!upstream.ok || data?.ok !== true || !data?.delivery?.url) {\n      return route.fulfill({ status: upstream.status || 502, contentType: 'application/json', body: JSON.stringify(data) });\n    }\n    previewEpubSourceUrl = String(data.delivery.url);\n    data.delivery.url = `${origin}/__r3_preview_epub`;\n    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });\n  }\n  if (url.pathname === '/__r3_preview_epub') {\n    if (!previewEpubSourceUrl) return route.fulfill({ status: 503, body: 'PREVIEW_EPUB_SOURCE_MISSING' });\n    const headers = {};\n    const range = req.headers()['range'];\n    if (range) headers.Range = range;\n    const upstream = await fetch(previewEpubSourceUrl, { headers });\n    const body = Buffer.from(await upstream.arrayBuffer());\n    const responseHeaders = { 'content-type': upstream.headers.get('content-type') || 'application/epub+zip', 'cache-control': 'no-store' };\n    for (const name of ['accept-ranges', 'content-range']) {\n      const value = upstream.headers.get(name);\n      if (value) responseHeaders[name] = value;\n    }\n    return route.fulfill({ status: upstream.status, headers: responseHeaders, body });\n  }\n\n  if (!ready) return route.continue();\n"""
+          if s.count(old)!=1: raise SystemExit('preview e2e route marker missing or ambiguous')
+          s=s.replace(old,new,1)
+
+          old="""  await page.waitForSelector('#viewer iframe', { state: 'attached', timeout: 30000 });\n  await page.waitForFunction(() => [...document.querySelectorAll('#viewer iframe')].some((frame) => {\n    try { return String(frame.contentDocument?.body?.innerText || '').trim().length >= 80; } catch { return false; }\n  }), null, { timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.__r3AudioCoreProductionV33), null, { timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.__r3AudioLegacyV6Suppressed && window.__r3AudioLegacyV8Suppressed && window.__r3AudioLegacyV11Suppressed && window.__r3AudioLegacyV29Suppressed && window.__r3AudioLegacyV31ClockSuppressed), null, { timeout: 10000 });\n\n  first = await bestFrame();\n  if (!first?.href || !first?.cfi) throw new Error('FIRST_FRAME_MISSING');\n"""
+          new="""  await page.waitForSelector('#viewer iframe', { state: 'attached', timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.r3ReaderBridge?.current && window.__r3AudioCoreProductionV33), null, { timeout: 30000 });\n  await page.waitForFunction(() => Boolean(window.__r3AudioLegacyV6Suppressed && window.__r3AudioLegacyV8Suppressed && window.__r3AudioLegacyV11Suppressed && window.__r3AudioLegacyV29Suppressed && window.__r3AudioLegacyV31ClockSuppressed), null, { timeout: 10000 });\n\n  // A fresh reader starts on cover/front-matter in some EPUBs. Walk forward\n  // until the first text-bearing spine item rather than treating cover as failure.\n  for (let i = 0; i < 40; i++) {\n    first = await bestFrame();\n    if (first?.href && first?.cfi) break;\n    await page.evaluate(async () => window.r3ReaderBridge.next());\n    await page.waitForTimeout(150);\n  }\n  if (!first?.href || !first?.cfi) throw new Error('FIRST_READABLE_FRAME_MISSING');\n"""
+          if s.count(old)!=1: raise SystemExit('preview e2e first-readable marker missing or ambiguous')
+          s=s.replace(old,new,1)
+
+          old="""  await page.evaluate(async (cfi) => window.r3ReaderBridge.display(cfi), startCfi);\n  await page.waitForTimeout(250);\n"""
+          new="""  await page.evaluate(async (cfi) => window.r3ReaderBridge.display(cfi), startCfi);\n  let restoredFirst = null;\n  for (let i = 0; i < 40; i++) {\n    restoredFirst = await bestFrame();\n    if (restoredFirst?.href === first.href && restoredFirst?.text?.length >= 80) break;\n    await page.waitForTimeout(120);\n  }\n  if (restoredFirst?.href !== first.href) throw new Error(`RETURN_TO_FIRST_CHAPTER_FAILED:${JSON.stringify({ first, restoredFirst })}`);\n"""
+          if s.count(old)!=1: raise SystemExit('preview e2e restore-first marker missing or ambiguous')
+          s=s.replace(old,new,1)
+
+          old="""  await page.locator('#r3AudioMain').click();\n  await page.waitForFunction((id) => String(document.getElementById('r3AudioElement')?.currentSrc || '').includes(id), ID1, { timeout: 15000 });\n"""
+          new="""  await page.locator('#r3AudioMain').click();\n  try {\n    await page.waitForFunction((id) => String(document.getElementById('r3AudioElement')?.currentSrc || '').includes(id), ID1, { timeout: 15000 });\n  } catch (error) {\n    const diagnostic = await page.evaluate((stateKey) => {\n      const audio = document.getElementById('r3AudioElement');\n      return {\n        src: String(audio?.getAttribute('src') || ''),\n        currentSrc: String(audio?.currentSrc || ''),\n        readyState: Number(audio?.readyState || 0),\n        paused: Boolean(audio?.paused),\n        ended: Boolean(audio?.ended),\n        main: String(document.getElementById('r3AudioMain')?.textContent || ''),\n        status: String(document.getElementById('r3AudioStatus')?.textContent || ''),\n        debug: window.__r3AudioCoreV33Debug,\n        ownerAudit: window.__r3OwnerAudit,\n        current: window.r3ReaderBridge?.current?.(),\n        saved: JSON.parse(localStorage.getItem(stateKey) || 'null'),\n      };\n    }, `r3-reader-audio-core-v1:${BOOK_KEY}`);\n    console.log(JSON.stringify({ phase: 'audio-start-failure', postCount, firstHref: first?.href, nextHref: next?.href, diagnostic, pageErrors: errors.slice(0, 8) }));\n    throw new Error(`AUDIO_START_ID1_TIMEOUT:${String(error?.message || error)}`);\n  }\n"""
+          if s.count(old)!=1: raise SystemExit('preview e2e audio-start marker missing or ambiguous')
+          s=s.replace(old,new,1)
+
+          old="""  await page.waitForFunction(() => !document.getElementById('r3AudioElement')?.paused, null, { timeout: 8000 });\n"""
+          new="""  try {\n    await page.waitForFunction(() => !document.getElementById('r3AudioElement')?.paused, null, { timeout: 8000 });\n  } catch (error) {\n    const diagnostic = await page.evaluate((stateKey) => {\n      const audio = document.getElementById('r3AudioElement');\n      return {\n        src: String(audio?.getAttribute('src') || ''),\n        currentSrc: String(audio?.currentSrc || ''),\n        readyState: Number(audio?.readyState || 0),\n        networkState: Number(audio?.networkState || 0),\n        paused: Boolean(audio?.paused),\n        ended: Boolean(audio?.ended),\n        error: audio?.error ? { code: audio.error.code, message: String(audio.error.message || '') } : null,\n        duration: Number(audio?.duration || 0),\n        main: String(document.getElementById('r3AudioMain')?.textContent || ''),\n        status: String(document.getElementById('r3AudioStatus')?.textContent || ''),\n        debug: window.__r3AudioCoreV33Debug,\n        saved: JSON.parse(localStorage.getItem(stateKey) || 'null'),\n      };\n    }, `r3-reader-audio-core-v1:${BOOK_KEY}`);\n    console.log(JSON.stringify({ phase: 'audio-play-failure', postCount, diagnostic, pageErrors: errors.slice(0, 8) }));\n    throw new Error(`AUDIO_PLAY_TIMEOUT:${String(error?.message || error)}`);\n  }\n"""
+          if old not in s: raise SystemExit('preview e2e audio-play marker missing')
+          s=s.replace(old,new,1)
+
+          old="""  await page.evaluate(() => document.getElementById('r3AudioElement')?.dispatchEvent(new Event('ended')));\n  await page.waitForFunction((id) => String(document.getElementById('r3AudioElement')?.currentSrc || '').includes(id), ID2, { timeout: 15000 });\n"""
+          new="""  await page.evaluate(() => document.getElementById('r3AudioElement')?.dispatchEvent(new Event('ended')));\n  try {\n    await page.waitForFunction((id) => String(document.getElementById('r3AudioElement')?.currentSrc || '').includes(id), ID2, { timeout: 15000 });\n  } catch (error) {\n    const diagnostic = await page.evaluate((stateKey) => {\n      const audio = document.getElementById('r3AudioElement');\n      return {\n        src: String(audio?.getAttribute('src') || ''),\n        currentSrc: String(audio?.currentSrc || ''),\n        readyState: Number(audio?.readyState || 0),\n        paused: Boolean(audio?.paused),\n        ended: Boolean(audio?.ended),\n        currentTime: Number(audio?.currentTime || 0),\n        main: String(document.getElementById('r3AudioMain')?.textContent || ''),\n        status: String(document.getElementById('r3AudioStatus')?.textContent || ''),\n        debug: window.__r3AudioCoreV33Debug,\n        ownerAudit: window.__r3OwnerAudit,\n        current: window.r3ReaderBridge?.current?.(),\n        saved: JSON.parse(localStorage.getItem(stateKey) || 'null'),\n      };\n    }, `r3-reader-audio-core-v1:${BOOK_KEY}`);\n    console.log(JSON.stringify({ phase: 'auto-next-id2-failure', postCount, firstHref: first?.href, nextHref: next?.href, diagnostic, pageErrors: errors.slice(0, 8) }));\n    throw new Error(`AUTO_NEXT_ID2_TIMEOUT:${String(error?.message || error)}`);\n  }\n"""
+          if s.count(old)!=1: raise SystemExit('preview e2e auto-next marker missing or ambiguous')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+          node --check scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q '__r3_preview_epub' scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q 'FIRST_READABLE_FRAME_MISSING' scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q 'RETURN_TO_FIRST_CHAPTER_FAILED' scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q 'audio-start-failure' scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q 'audio-play-failure' scripts/reader_audio_core_v33_preview_e2e.mjs
+          grep -q 'auto-next-id2-failure' scripts/reader_audio_core_v33_preview_e2e.mjs
+
+      - name: Run v33 preview browser E2E
+        env:
+          RUNNER3_CORE_URL: ${{ env.PREVIEW_URL }}
+          RUNNER3_BASELINE_URL: ${{ env.BASELINE_URL }}
+          EBOOK_BROWSER_SMOKE_BOOK_KEY: core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub
+        run: node scripts/reader_audio_core_v33_preview_e2e.mjs

@@ -1,0 +1,24 @@
+name: Reader Audio Full Ownership Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - reader-audio-core-integration-v33
+    paths:
+      - 'scripts/audit_reader_audio_owners_all.mjs'
+      - '.github/workflows/reader-audio-owner-full-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  owner-full-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/audit_reader_audio_owners_all.mjs

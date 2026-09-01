@@ -1,8 +1,9 @@
 export class PlaybackQueue {
-  constructor({ resolveNextReadable, prepare, activate } = {}) {
+  constructor({ resolveNextReadable, prepare, activate, prefetchAfterAdvance = true } = {}) {
     this.resolveNextReadable = resolveNextReadable;
     this.prepare = prepare;
     this.activate = activate;
+    this.prefetchAfterAdvance = Boolean(prefetchAfterAdvance);
     this.next = null;
     this.preparing = null;
   }
@@ -23,12 +24,16 @@ export class PlaybackQueue {
     }
   }
 
+  clear() {
+    this.next = null;
+  }
+
   async advance(currentChapter, { autoplay = true } = {}) {
     const next = this.next || await this.prefetch(currentChapter);
     this.next = null;
     if (!next) return null;
     await this.activate?.(next, { autoplay });
-    this.prefetch(next.chapter || next.id).catch(() => {});
+    if (this.prefetchAfterAdvance) this.prefetch(next.chapter || next.id).catch(() => {});
     return next;
   }
 }
