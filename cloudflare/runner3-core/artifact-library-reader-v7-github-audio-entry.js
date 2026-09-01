@@ -1,5 +1,5 @@
 import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";
-import ebookAudio from "./src/ebook-reader-audio.js";
+import ebookAudio from "./src/ebook-reader-audio-bounded-claim.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
 const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
