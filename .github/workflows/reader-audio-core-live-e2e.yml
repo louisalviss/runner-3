@@ -3,6 +3,7 @@ name: Reader Audio Core v34 Live Boot E2E
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - 'cloudflare/runner3-core/reader-audio-core/**'
       - 'cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js'
