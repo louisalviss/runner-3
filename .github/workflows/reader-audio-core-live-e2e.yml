@@ -1,4 +1,4 @@
-name: Reader Audio Core v34 Live Boot E2E
+name: Reader Audio Core v35 Live Boot E2E
 
 on:
   workflow_dispatch:
@@ -8,14 +8,15 @@ on:
       - 'cloudflare/runner3-core/reader-audio-core/**'
       - 'cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js'
       - 'cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js'
-      - 'scripts/reader_audio_core_v34_live_boot_e2e.mjs'
+      - 'cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js'
+      - 'scripts/reader_audio_core_v35_live_boot_e2e.mjs'
       - '.github/workflows/reader-audio-core-live-e2e.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: reader-audio-core-v34-live-boot-e2e
+  group: reader-audio-core-v35-live-boot-e2e
   cancel-in-progress: true
 
 jobs:
@@ -34,5 +35,5 @@ jobs:
         run: |
           npm install --no-save playwright
           npx playwright install --with-deps chromium
-      - name: Prove v34 live boot ownership without production mutation
-        run: node scripts/reader_audio_core_v34_live_boot_e2e.mjs
+      - name: Prove v35 live boot single-owner continuity without production mutation
+        run: node scripts/reader_audio_core_v35_live_boot_e2e.mjs
