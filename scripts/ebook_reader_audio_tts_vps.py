@@ -28,6 +28,7 @@ CORE_TOKEN = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
 SOURCE = os.environ.get("RUNNER3_SOURCE", "linveo-vps1").strip() or "linveo-vps1"
 POLL_SECONDS = max(0.25, min(float(os.environ.get("EBOOK_AUDIO_VPS_POLL_SECONDS", "1")), 30.0))
 IDLE_HEARTBEAT_SECONDS = max(10.0, min(float(os.environ.get("EBOOK_AUDIO_VPS_HEARTBEAT_SECONDS", "30")), 300.0))
+HEARTBEAT_ENABLED = str(os.environ.get("EBOOK_AUDIO_VPS_HEARTBEAT_ENABLED", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
 LOCK_PATH = os.environ.get("EBOOK_AUDIO_VPS_LOCK", "/run/ebook-reader-audio-consumer.lock")
 WORKER_NAME = os.environ.get("EBOOK_AUDIO_VPS_WORKER", "linveo-vps1-ebook-audio").strip() or "linveo-vps1-ebook-audio"
 
@@ -84,6 +85,8 @@ def put_bytes(path, payload, content_type, timeout=180):
 
 
 def report_state(status, detail):
+    if not HEARTBEAT_ENABLED:
+        return None
     try:
         return request_json(
             "PUT",
@@ -230,7 +233,13 @@ def daemon_loop():
     last_heartbeat = 0.0
     print(
         json.dumps(
-            {"event": "consumer-start", "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "pid": os.getpid()},
+            {
+                "event": "consumer-start",
+                "worker": WORKER_NAME,
+                "pollSeconds": POLL_SECONDS,
+                "heartbeatEnabled": HEARTBEAT_ENABLED,
+                "pid": os.getpid(),
+            },
             ensure_ascii=False,
         ),
         flush=True,
@@ -262,7 +271,7 @@ def daemon_loop():
                 continue
 
             now = time.monotonic()
-            if now - last_heartbeat >= IDLE_HEARTBEAT_SECONDS:
+            if HEARTBEAT_ENABLED and now - last_heartbeat >= IDLE_HEARTBEAT_SECONDS:
                 report_state("active", {"phase": "idle", "processed": processed, "failures": failures})
                 last_heartbeat = now
             time.sleep(POLL_SECONDS)
@@ -289,7 +298,7 @@ def main():
     if not CORE_URL.startswith("https://"):
         raise RuntimeError("RUNNER3_CORE_URL must be HTTPS")
     if args.check_config:
-        print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "heartbeatEnabled": HEARTBEAT_ENABLED}, ensure_ascii=False))
         return 0
 
     signal.signal(signal.SIGTERM, handle_signal)
