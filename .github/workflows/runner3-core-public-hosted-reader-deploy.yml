@@ -53,7 +53,7 @@ jobs:
           node scripts/build_reader_audio_core_browser_bundle.mjs
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
 
-      - name: Compose latest Core with canonical Reader v35 single-owner continuity runtime
+      - name: Compose latest Core with canonical Reader v35 and audio-media fast path
         shell: bash
         run: |
           set -euo pipefail
@@ -74,11 +74,18 @@ jobs:
 
           mailbox=root/'mailbox-entry.js'
           text=mailbox.read_text(encoding='utf-8')
-          old='import app from "./audio-entry.js";'
-          new='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
-          if old not in text and new not in text: raise SystemExit('canonical mailbox import marker missing')
-          if old in text: text=text.replace(old,new,1)
+          canonical='import app from "./audio-entry.js";'
+          direct='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if canonical not in text and direct not in text: raise SystemExit('canonical mailbox import marker missing')
+          if direct in text: text=text.replace(direct,canonical,1)
           mailbox.write_text(text,encoding='utf-8')
+
+          audio_entry=root/'audio-entry.js'
+          audio_text=audio_entry.read_text(encoding='utf-8')
+          if 'import { handleAudioMedia } from "./src/audio-media.js";' not in audio_text:
+              raise SystemExit('audio-media fast path import missing')
+          if 'import("./artifact-library-reader-v7-github-audio-entry.js")' not in audio_text:
+              raise SystemExit('lazy canonical reader import missing')
 
           cfg_path=root/'wrangler.jsonc'
           cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
@@ -86,6 +93,7 @@ jobs:
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
+          node --check cloudflare/runner3-core/audio-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
@@ -94,6 +102,9 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
           node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'import app from "./audio-entry.js";' cloudflare/runner3-core/mailbox-entry.js
+          grep -q 'import("./artifact-library-reader-v7-github-audio-entry.js")' cloudflare/runner3-core/audio-entry.js
+          grep -q 'handleAudioMedia' cloudflare/runner3-core/audio-entry.js
           grep -q 'artifact-library-reader-v35-continuity-single-owner-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
           grep -q 'data-r3-audio-continuity-v35' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
           grep -q 'singleAudioListenerOwner:true' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
@@ -119,7 +130,7 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live Reader v35 and stable Core surfaces
+      - name: Verify live Reader v35, fast audio-media, and stable Core surfaces
         shell: bash
         run: |
           set -euo pipefail
@@ -144,9 +155,14 @@ jobs:
           echo "AUDIO_SURFACE http=$acode body=$(head -c 180 /tmp/audio.json | tr '\n' ' ')"
           test "$acode" = 400
 
+          qcode="$(curl -sS -o /tmp/audio-media.json -w '%{http_code}' "$core/audio-media?prefix=audio-library%2Febook-reader-queue%2F&limit=1")"
+          echo "AUDIO_MEDIA_FAST_PATH http=$qcode body=$(head -c 180 /tmp/audio-media.json | tr '\n' ' ')"
+          test "$qcode" = 401
+          grep -q 'UNAUTHORIZED' /tmp/audio-media.json
+
           mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v31.csv")"
           echo "MAILBOX_SURFACE http=$mcode body=$(head -c 180 /tmp/mailbox.csv | tr '\n' ' ')"
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
 
-          echo 'RUNNER3_CORE_PRODUCTION_V35=PASS'
+          echo 'RUNNER3_CORE_PRODUCTION_V35_AUDIO_FAST_PATH=PASS'
