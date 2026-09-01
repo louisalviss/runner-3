@@ -24,7 +24,13 @@ import ebook_reader_audio_tts_v2 as timing_worker
 base = timing_worker.base
 
 CORE_URL = os.environ.get("RUNNER3_CORE_URL", "https://runner3-core.ducduy2411.workers.dev").rstrip("/")
-CORE_TOKEN = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
+TOKEN_FILE = os.environ.get("EBOOK_AUDIO_VPS_TOKEN_FILE", "").strip()
+FILE_TOKEN = Path(TOKEN_FILE).read_text(encoding="utf-8").rstrip("\r\n") if TOKEN_FILE else ""
+CORE_TOKEN = (
+    FILE_TOKEN
+    or os.environ.get("EBOOK_AUDIO_VPS_TOKEN", "").strip()
+    or os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
+)
 SOURCE = os.environ.get("RUNNER3_SOURCE", "linveo-vps1").strip() or "linveo-vps1"
 POLL_SECONDS = max(0.25, min(float(os.environ.get("EBOOK_AUDIO_VPS_POLL_SECONDS", "1")), 30.0))
 IDLE_HEARTBEAT_SECONDS = max(10.0, min(float(os.environ.get("EBOOK_AUDIO_VPS_HEARTBEAT_SECONDS", "30")), 300.0))
@@ -41,7 +47,7 @@ def now_iso():
 
 def headers(content_type=None):
     if not CORE_TOKEN:
-        raise RuntimeError("RUNNER3_CORE_TOKEN is required")
+        raise RuntimeError("Ebook audio Core token is required")
     out = {
         "Authorization": f"Bearer {CORE_TOKEN}",
         "Accept": "application/json",
@@ -285,7 +291,7 @@ def main():
     args = parser.parse_args()
 
     if not CORE_TOKEN:
-        raise RuntimeError("RUNNER3_CORE_TOKEN is required")
+        raise RuntimeError("Ebook audio Core token is required")
     if not CORE_URL.startswith("https://"):
         raise RuntimeError("RUNNER3_CORE_URL must be HTTPS")
     if args.check_config:
