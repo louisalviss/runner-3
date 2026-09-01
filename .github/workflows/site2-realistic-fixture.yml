@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: runner3-site2-realistic-fixture
@@ -31,6 +32,7 @@ jobs:
       WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
@@ -100,6 +102,7 @@ jobs:
                 theme:"astra",
                 commerce:"woocommerce",
                 fixture_source_sha:process.env.SOURCE_SHA,
+                fixture_summary:setup.fixture_summary,
                 previous_baseline_run:"site2-baseline-32792586937-1",
                 previous_baseline_scope:"pre-realistic / non-comparable",
                 setup_completed_at:setup.completed_at,
@@ -134,9 +137,12 @@ jobs:
             const plugins=d?.wordpress?.plugins||[];
             const activeTheme=themes.find(x=>x.status==="active")?.name;
             const woo=plugins.find(x=>x.name==="woocommerce");
+            const optimizerPattern=/(litespeed|wp-super-cache|w3-total-cache|autoptimize|wp-optimize|wp-rocket|perfmatters|nitropack|sg-cachepress)/i;
+            const activeOptimizers=plugins.filter(x=>["active","active-network"].includes(x.status)&&optimizerPattern.test(String(x.name||""))).map(x=>x.name);
             if(activeTheme!=="astra") throw new Error(`Astra not active: ${activeTheme}`);
             if(!woo || !["active","active-network"].includes(woo.status)) throw new Error("WooCommerce not active");
-            console.log("SITE2_REALISTIC_LIVECONFIG_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,posts:d.wordpress.posts,pages:d.wordpress.pages}));
+            if(activeOptimizers.length) throw new Error(`Optimizer/cache plugins active before baseline: ${activeOptimizers.join(",")}`);
+            console.log("SITE2_REALISTIC_LIVECONFIG_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,posts:d.wordpress.posts,pages:d.wordpress.pages,activeOptimizers}));
           '
           SQL="SELECT site_id,status,json_extract(metadata_json,'$.fixture') AS fixture,json_extract(metadata_json,'$.previous_baseline_scope') AS prior_scope FROM sites WHERE site_id='site2';"
           npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" \
@@ -148,6 +154,14 @@ jobs:
             if(!r || r.status!=="realistic-fixture" || r.fixture!=="astra-woo-v1") throw new Error("D1 fixture state mismatch");
             console.log("SITE2_D1_FIXTURE_OK", JSON.stringify(r));
           '
+
+      - name: Dispatch fresh D1-backed Site2 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          gh workflow run site2-optimizer-baseline.yml --ref "$REF"
+          echo "SITE2_BASELINE_DISPATCHED ref=$REF"
 
       - name: Evidence summary
         if: always()
@@ -166,4 +180,5 @@ jobs:
               echo '```'
             fi
             echo '- old D1 baseline `site2-baseline-32792586937-1` is marked historical/non-comparable after successful setup.'
+            echo '- fresh five-sample D1-backed baseline is dispatched only after all fixture guards pass.'
           } >> "$GITHUB_STEP_SUMMARY"
