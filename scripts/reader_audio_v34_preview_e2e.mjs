@@ -18,7 +18,21 @@ try {
   if (headers['x-r3-reader-runtime'] !== 'v34-continuous-range-sync') throw new Error(`RUNTIME_${headers['x-r3-reader-runtime'] || 'missing'}`);
   if (headers['x-r3-reader-patch-proof'] !== 'v33+v34:ahead-prefetch+range-follow+manual-sync') throw new Error('PROOF_MISMATCH');
 
-  await page.waitForFunction(() => Boolean(window.__r3AudioContinuityV34 && window.r3ReaderBridge?.current?.()?.start), null, { timeout: 20000 });
+  try {
+    await page.waitForFunction(() => Boolean(window.__r3AudioContinuityV34 && window.r3ReaderBridge?.current?.()?.start), null, { timeout: 20000 });
+  } catch (error) {
+    const diag = await page.evaluate(() => ({
+      v34: Boolean(window.__r3AudioContinuityV34),
+      bridge: Boolean(window.r3ReaderBridge),
+      current: window.r3ReaderBridge?.current?.() || null,
+      core: Boolean(window.__r3AudioCoreProductionV33),
+      coreBootError: window.__r3AudioCoreV33BootError || '',
+      bodyText: String(document.body?.innerText || '').slice(0, 300),
+      scripts: [...document.querySelectorAll('script[data-r3-audio-continuity-v34],script[data-r3-audio-core-runtime-v33]')].map((node) => node.getAttributeNames().reduce((out, name) => ({ ...out, [name]: node.getAttribute(name) }), {})),
+    }));
+    console.log('V34_BOOT_DIAG', JSON.stringify({ diag, pageErrors }));
+    throw error;
+  }
   await page.waitForFunction(() => {
     const frames = [...document.querySelectorAll('#viewer iframe')];
     return frames.some((frame) => {
