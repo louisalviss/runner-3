@@ -1,6 +1,7 @@
 import app from "./audio-entry.js";
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,100}$/;
+const NEW_REQUEST_ID_RE = /^m_[0-9a-f]{32}$/;
 const MAILBOX_ALG = "RSA-OAEP-SHA256+A256GCM";
 const MAX_MAILBOX_BYTES = 300000;
 const CLAIM_LEASE_SECONDS = 1900;
@@ -90,6 +91,7 @@ async function handleMailboxRequestSubmit(request, env, url) {
   const authError = requireCoreWriteAuth(request, env);
   if (authError) return authError;
   const requestId = match[1];
+  if (!NEW_REQUEST_ID_RE.test(requestId)) return Response.json({ ok: false, error: "INVALID_REQUEST_ID" }, { status: 400 });
   const raw = await request.arrayBuffer();
   if (!raw.byteLength || raw.byteLength > MAX_MAILBOX_BYTES) return Response.json({ ok: false, error: "MAILBOX_PAYLOAD_SIZE" }, { status: 413 });
   let envelope;
