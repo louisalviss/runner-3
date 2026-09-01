@@ -27,7 +27,7 @@ function bootReaderAudioCore() {
 
   const STATE_KEY = `r3-reader-audio-core-v1:${bookKey}`;
   const LEGACY_KEY = `r3-reader-audio-state-v11:${bookKey}`;
-  const rates = [1, 1.25, 1.5, 1.75, 2];
+  const rates = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3];
   const debug = window.__r3AudioCoreV33Debug = {
     owner: 'reader-audio-core-v33',
     legacy: { v6: Boolean(window.__r3AudioLegacyV6Suppressed), v8: Boolean(window.__r3AudioLegacyV8Suppressed), v11: Boolean(window.__r3AudioLegacyV11Suppressed), v29: Boolean(window.__r3AudioLegacyV29Suppressed), v31Clock: Boolean(window.__r3AudioLegacyV31ClockSuppressed) },
@@ -478,6 +478,8 @@ function bootReaderAudioCore() {
     }
   }
 
+  window.__r3AudioCorePrepareCurrent = prepareCurrent;
+
   async function onMain(event) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -504,6 +506,19 @@ function bootReaderAudioCore() {
     }
   }
 
+  function setRateValue(value) {
+    const rounded = Math.round((Number(value) || 1) * 4) / 4;
+    const next = Math.max(rates[0], Math.min(rates[rates.length - 1], rounded));
+    const state = adapter?.snapshot?.() || loadState();
+    if (adapter) adapter.setRate(next);
+    else saveState({ ...state, playbackRate: next });
+    audio.playbackRate = next;
+    if (speed) speed.textContent = `${next}×`;
+    setStatus(`Nam Minh · tốc độ ${next}×`);
+    return next;
+  }
+  window.__r3AudioCoreSetRate = setRateValue;
+
   function cycleRate(event) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -511,11 +526,7 @@ function bootReaderAudioCore() {
     const currentRate = Number(state.playbackRate) || 1;
     let index = rates.findIndex((value) => Math.abs(value - currentRate) < 0.01);
     if (index < 0) index = 0;
-    const next = rates[(index + 1) % rates.length];
-    if (adapter) adapter.setRate(next);
-    else saveState({ ...state, playbackRate: next });
-    if (speed) speed.textContent = `${next}×`;
-    setStatus(`Nam Minh · tốc độ ${next}×`);
+    setRateValue(rates[(index + 1) % rates.length]);
   }
 
   main.addEventListener('click', onMain, true);

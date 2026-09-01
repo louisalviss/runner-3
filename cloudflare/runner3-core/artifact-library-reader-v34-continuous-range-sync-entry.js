@@ -259,9 +259,10 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
   function phraseRange(index){
     const center=nearestMappedIndex(index);
     if(center<0)return null;
-    const bucket=Math.floor(center/6)*6;
+    const phraseSpan=12;
+    const bucket=Math.floor(center/phraseSpan)*phraseSpan;
     let first=-1,last=-1;
-    for(let i=bucket;i<Math.min(mappedWords.length,bucket+6);i++)if(mappedWords[i]){if(first<0)first=i;last=i;}
+    for(let i=bucket;i<Math.min(mappedWords.length,bucket+phraseSpan);i++)if(mappedWords[i]){if(first<0)first=i;last=i;}
     if(first<0){first=center;last=center;}
     try{
       const start=mappedWords[first],end=mappedWords[last];
