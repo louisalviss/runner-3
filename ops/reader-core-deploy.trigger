@@ -1,3 +1,3 @@
-ebook-reader-page-follow-boundary-v37
-requested_at=2026-09-01T22:23:16Z
-reason=fix outer viewport page-follow, remap DOM after CFI relocation, and reapply highlight only after landing
+ebook-reader-page-follow-boundary-v37-deploy
+requested_at=2026-09-01T22:24:00Z
+reason=deploy tested outer viewport page-follow, DOM remap after CFI relocation, and post-relocation highlight
