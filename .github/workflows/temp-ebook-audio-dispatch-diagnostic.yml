@@ -1,0 +1,62 @@
+name: TEMP Ebook Audio Dispatch Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-ebook-audio-dispatch-diagnostic.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Inspect Worker secret names only
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 secret list --json > /tmp/secrets.json
+          python3 - <<'PY'
+          import json, pathlib, datetime
+          raw=json.load(open('/tmp/secrets.json'))
+          if isinstance(raw, dict):
+              items=raw.get('secrets') or raw.get('result') or []
+          else:
+              items=raw
+          names=[]
+          for item in items or []:
+              if isinstance(item, str): names.append(item)
+              elif isinstance(item, dict) and item.get('name'): names.append(str(item['name']))
+          names=sorted(set(names))
+          result={
+              'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'secret_names': names,
+              'has_runner3_github_pat': 'RUNNER3_GITHUB_PAT' in names,
+              'has_ebook_audio_github_token': 'EBOOK_AUDIO_GITHUB_TOKEN' in names,
+              'has_runner3_core_token': 'RUNNER3_CORE_TOKEN' in names,
+              'dispatch_secret_present': ('RUNNER3_GITHUB_PAT' in names or 'EBOOK_AUDIO_GITHUB_TOKEN' in names),
+          }
+          out=pathlib.Path('../../ops/ebook-audio-dispatch-diagnostic.json')
+          out.write_text(json.dumps(result, indent=2)+'\n', encoding='utf-8')
+          print(json.dumps(result))
+          PY
+      - name: Persist diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ops/ebook-audio-dispatch-diagnostic.json
+          git commit -m 'diag: record ebook audio dispatch secret presence [skip ci]' || exit 0
+          git push origin HEAD:main
