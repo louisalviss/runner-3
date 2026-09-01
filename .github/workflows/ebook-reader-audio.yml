@@ -1,19 +1,7 @@
 name: Ebook Reader Audio
-run-name: Ebook Reader Audio · ${{ github.event_name }} · ${{ github.event.client_payload.job_id || inputs.job_id || 'queue-scan' }}
+run-name: Ebook Reader Audio · manual fallback · ${{ inputs.job_id || 'queue-scan' }}
 
 on:
-  repository_dispatch:
-    types: [ebook_reader_audio]
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/ebook_reader_audio_tts.py'
-      - 'scripts/ebook_reader_audio_tts_v2.py'
-      - 'scripts/ebook_reader_audio_r2_e2e.py'
-      - '.github/workflows/ebook-reader-audio.yml'
-      - '.github/workflows/ebook-reader-audio-r2-e2e.yml'
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       job_id:
@@ -38,7 +26,7 @@ jobs:
       EBOOK_AUDIO_BUCKET: runner3-wp-media
       EBOOK_AUDIO_VOICE: vi-VN-NamMinhNeural
       EBOOK_AUDIO_VOICE_RATE: +3%
-      EBOOK_AUDIO_JOB_ID: ${{ github.event.client_payload.job_id || inputs.job_id || '' }}
+      EBOOK_AUDIO_JOB_ID: ${{ inputs.job_id || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,10 +36,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Report queue trigger
+      - name: Report manual fallback trigger
         shell: bash
         run: |
-          echo "EBOOK_AUDIO_TRIGGER=${GITHUB_EVENT_NAME}"
+          echo "EBOOK_AUDIO_TRIGGER=workflow_dispatch"
           echo "EBOOK_AUDIO_JOB_ID=${EBOOK_AUDIO_JOB_ID:-queue-scan}"
 
       - name: Install TTS dependencies
