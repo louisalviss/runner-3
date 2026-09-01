@@ -1,6 +1,7 @@
 import app from './artifact-library-reader-v33-audio-core-entry.js';
 
 const ROBOTS = 'noindex, nofollow, noarchive, nosnippet, noimageindex';
+const SENTENCE_OWNER_BOOT = `<script data-r3-sentence-highlight-owner-v43="1">window.__R3_READER_SENTENCE_HIGHLIGHT_OWNER=true;</script>`;
 
 const BRIDGE_RANGE_NEEDLE = `    cfiFromRange(range){\n`;
 const BRIDGE_RANGE_PATCH = `    async peekReadableAhead(offset=1){
@@ -154,6 +155,9 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
 
   function ensureFrameHooks(doc){
     if(!doc)return;
+    // v43 backstop for BFCache/retained rendition documents created pre-fix.
+    try{doc.getElementById('r3AudioDarkHighlightV30Style')?.remove();}catch{}
+    try{doc.querySelectorAll('[data-r3-audio-reading-v11]').forEach(el=>el.removeAttribute('data-r3-audio-reading-v11'));}catch{}
     if(!doc.getElementById('r3AudioReadingStyleV34')){
       const style=doc.createElement('style');
       style.id='r3AudioReadingStyleV34';
@@ -620,6 +624,9 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
 function patchV34(html) {
   let out = String(html || '');
   if (out.includes('data-r3-audio-continuity-v34="1"')) return out;
+  const ownerMarker = '<script data-r3-ebook-audio-v6="2">';
+  if (!out.includes(ownerMarker)) throw new Error('READER_V43_PATCH_MISSING:v30-dark-highlight');
+  out = out.replace(ownerMarker, SENTENCE_OWNER_BOOT + ownerMarker);
   if (!out.includes(BRIDGE_RANGE_NEEDLE)) throw new Error('READER_V34_PATCH_MISSING:cfiFromRange');
   out = out.replace(BRIDGE_RANGE_NEEDLE, BRIDGE_RANGE_PATCH);
   if (!out.includes('</body>')) throw new Error('READER_V34_BODY_MARKER_MISSING');

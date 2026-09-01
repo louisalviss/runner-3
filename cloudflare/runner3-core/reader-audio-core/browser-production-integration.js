@@ -348,11 +348,9 @@ function bootReaderAudioCore() {
   }
 
   function highlight(target) {
-    const el = mappedElements.get(String(target?.cfi || ''));
-    if (!el || el === activeBlock) return;
+    // v43: sentence continuity is the only visual highlight owner.
+    window.__R3_READER_SENTENCE_HIGHLIGHT_OWNER = true;
     clearHighlight();
-    activeBlock = el;
-    try { el.setAttribute('data-r3-audio-reading-v11', '1'); } catch {}
   }
 
   function isVisible(target) {

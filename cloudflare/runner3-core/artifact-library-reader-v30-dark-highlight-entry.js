@@ -4,6 +4,10 @@ const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
 const HIGHLIGHT_SCRIPT = `<script data-r3-audio-dark-highlight-v30="1">
 (()=>{
+  if(window.__R3_READER_SENTENCE_HIGHLIGHT_OWNER){
+    window.__r3AudioDarkHighlightV30Suppressed=true;
+    return;
+  }
   if(window.__r3AudioDarkHighlightV30)return;
   window.__r3AudioDarkHighlightV30=true;
   const STYLE_ID='r3AudioDarkHighlightV30Style';
