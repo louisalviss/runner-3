@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# trigger v44 clean highlight owner
 p = Path('.github/workflows/runner3-core-public-hosted-reader-deploy.yml')
 s = p.read_text(encoding='utf-8')
 old = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner'
