@@ -5,6 +5,7 @@ on:
     paths:
       - 'cloudflare/runner3-core/audio-entry.js'
       - 'cloudflare/runner3-core/src/ebook-reader-audio.js'
+      - 'scripts/ebook_reader_audio_tts_vps.py'
       - 'scripts/verify_ebook_audio_fast_path.mjs'
       - '.github/workflows/ebook-audio-fast-path-source.yml'
   push:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'cloudflare/runner3-core/audio-entry.js'
       - 'cloudflare/runner3-core/src/ebook-reader-audio.js'
+      - 'scripts/ebook_reader_audio_tts_vps.py'
       - 'scripts/verify_ebook_audio_fast_path.mjs'
       - '.github/workflows/ebook-audio-fast-path-source.yml'
 
@@ -31,3 +33,16 @@ jobs:
       - run: node --check cloudflare/runner3-core/audio-entry.js
       - run: node --check cloudflare/runner3-core/src/ebook-reader-audio.js
       - run: node scripts/verify_ebook_audio_fast_path.mjs
+      - run: python3 -m py_compile scripts/ebook_reader_audio_tts_vps.py
+      - name: Verify heartbeat is opt-in
+        run: |
+          python3 - <<'PY'
+          import ast
+          p='scripts/ebook_reader_audio_tts_vps.py'
+          text=open(p,encoding='utf-8').read()
+          assert 'EBOOK_AUDIO_VPS_HEARTBEAT_ENABLED' in text
+          assert 'HEARTBEAT_ENABLED' in text
+          assert 'if not HEARTBEAT_ENABLED:' in text
+          ast.parse(text)
+          print('EBOOK_AUDIO_VPS_HEARTBEAT_OPT_IN=PASS')
+          PY
