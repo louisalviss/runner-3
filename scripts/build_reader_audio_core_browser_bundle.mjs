@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { build } from 'esbuild';
+
+execFileSync('python3', ['scripts/apply_reader_v44_build_patch.py'], { stdio: 'inherit' });
 
 const entry = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-integration.js');
 const output = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js');
