@@ -1,0 +1,79 @@
+name: tmp Core mailbox guard deploy v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-core-mailbox-guard-deploy-v2-20260901.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-core-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compose exact current canonical Core
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('cloudflare/runner3-core')
+          wrapper=root/'artifact-library-reader-v7-github-audio-entry.js'
+          s=wrapper.read_text(encoding='utf-8')
+          old='import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";'
+          new='import app from "./artifact-library-reader-v35-continuity-single-owner-entry.js";'
+          if new not in s:
+              if old not in s: raise SystemExit('unexpected reader wrapper import')
+              s=s.replace(old,new,1)
+          wrapper.write_text(s,encoding='utf-8')
+          mailbox=root/'mailbox-entry.js'
+          s=mailbox.read_text(encoding='utf-8')
+          oldm='import app from "./audio-entry.js";'; newm='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if newm not in s:
+              if oldm not in s: raise SystemExit('unexpected mailbox import')
+              s=s.replace(oldm,newm,1)
+          required=('const NEW_REQUEST_ID_RE = /^m_[0-9a-f]{32}$/;','if (!NEW_REQUEST_ID_RE.test(requestId))')
+          for marker in required:
+              if marker not in s: raise SystemExit('guard marker missing: '+marker)
+          mailbox.write_text(s,encoding='utf-8')
+          cfg=root/'wrangler.jsonc'; data=json.loads(cfg.read_text(encoding='utf-8')); data['main']='mailbox-entry.js'; cfg.write_text(json.dumps(data,indent=2)+'\n',encoding='utf-8')
+          PY
+          node --check cloudflare/runner3-core/mailbox-entry.js
+          test -f cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+      - name: Deploy Runner3 Core
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy
+          echo 'CORE_STRICT_GUARD_DEPLOY=PASS'
+      - name: Self-clean workflow
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git reset --hard origin/main
+          rm -f .github/workflows/tmp-core-mailbox-guard-deploy-v2-20260901.yml
+          git add .github/workflows/tmp-core-mailbox-guard-deploy-v2-20260901.yml
+          git commit -m 'cleanup: remove Core mailbox guard deploy v2 workflow' || exit 0
+          git push origin HEAD:main
