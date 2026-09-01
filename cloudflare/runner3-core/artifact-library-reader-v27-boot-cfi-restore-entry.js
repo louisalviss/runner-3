@@ -8,9 +8,14 @@ const BOOT_SCRIPT = `<script data-r3-audio-boot-cfi-v27="1">
   const params=new URLSearchParams(location.search);
   const bookKey=params.get('key')||'';
   if(!bookKey)return;
-  let saved=null;
-  try{saved=JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:'+bookKey)||'null');}catch{}
-  const target=String(saved&&saved.cfi||'');
+  const baseKey='r3-reader-position:'+bookKey;
+  let target='';
+  try{target=String(localStorage.getItem(baseKey)||'');}catch{}
+  if(!target){
+    let saved=null;
+    try{saved=JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:'+bookKey)||'null');}catch{}
+    target=String(saved&&saved.cfi||'');
+  }
   if(!target)return;
   const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const currentCfi=()=>{

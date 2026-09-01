@@ -27,6 +27,7 @@ function bootReaderAudioCore() {
 
   const STATE_KEY = `r3-reader-audio-core-v1:${bookKey}`;
   const LEGACY_KEY = `r3-reader-audio-state-v11:${bookKey}`;
+  const READER_POSITION_KEY = `r3-reader-position:${bookKey}`;
   const rates = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3];
   const debug = window.__r3AudioCoreV33Debug = {
     owner: 'reader-audio-core-v33',
@@ -578,25 +579,27 @@ function bootReaderAudioCore() {
         if (loc?.start?.cfi || loc?.start?.href) break;
         await sleep(100);
       }
-      if (saved.cfi && bridge()?.display) {
-        try { await bridge().display(saved.cfi); } catch {}
+      let readerCfi = '';
+      try { readerCfi = String(localStorage.getItem(READER_POSITION_KEY) || ''); } catch {}
+      const restoreCfi = readerCfi || saved.cfi || '';
+      if (restoreCfi && bridge()?.display) {
+        try { await bridge().display(restoreCfi); } catch {}
       }
       if (saved.mediaId) {
-        let ready = false;
+        let payload = null;
+        let locationReady = false;
         for (let n = 0; n < 120; n++) {
           const loc = bridge()?.current?.();
-          const payload = framePayload();
-          const locationReady = Boolean(loc?.start?.cfi || loc?.start?.href);
-          const chapterReady = Boolean(payload && (!saved.chapter || payload.chapter === saved.chapter));
-          if (locationReady && chapterReady) {
-            ready = true;
-            break;
-          }
+          payload = framePayload();
+          locationReady = Boolean(loc?.start?.cfi || loc?.start?.href);
+          if (locationReady && payload) break;
           await sleep(100);
         }
-        if (!ready) throw new Error('READER_CHAPTER_NOT_READY');
-        await prepareCurrent({ autoplay: false, allowSaved: true });
-      } else syncUi(saved);
+        if (!locationReady || !payload) throw new Error('READER_CHAPTER_NOT_READY');
+        const sameAudioChapter = Boolean(!saved.chapter || payload.chapter === saved.chapter);
+        if (sameAudioChapter) await prepareCurrent({ autoplay: false, allowSaved: true });
+        else syncUi({ ...saved, chapter: payload.chapter, mediaId: '', time: 0, cfi: restoreCfi, playingIntent: false });
+      } else syncUi({ ...saved, cfi: restoreCfi });
     } catch (error) {
       debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
     }

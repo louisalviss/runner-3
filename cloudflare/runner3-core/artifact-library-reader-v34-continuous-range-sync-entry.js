@@ -259,19 +259,55 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
   function phraseRange(index){
     const center=nearestMappedIndex(index);
     if(center<0)return null;
-    const phraseSpan=12;
-    const bucket=Math.floor(center/phraseSpan)*phraseSpan;
-    let first=-1,last=-1;
-    for(let i=bucket;i<Math.min(mappedWords.length,bucket+phraseSpan);i++)if(mappedWords[i]){if(first<0)first=i;last=i;}
-    if(first<0){first=center;last=center;}
+    const wordRange=mappedWords[center];
+    if(!wordRange)return null;
     try{
-      const start=mappedWords[first],end=mappedWords[last];
-      if(!start||!end||start.startContainer.ownerDocument!==end.endContainer.ownerDocument)return mappedWords[center];
-      const range=start.startContainer.ownerDocument.createRange();
-      range.setStart(start.startContainer,start.startOffset);
-      range.setEnd(end.endContainer,end.endOffset);
+      const doc=wordRange.startContainer.ownerDocument;
+      const startNode=wordRange.startContainer.nodeType===1?wordRange.startContainer:wordRange.startContainer.parentElement;
+      const block=startNode&&startNode.closest?startNode.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote'):null;
+      if(!block)return wordRange;
+      const text=String(block.textContent||'');
+      if(!text.trim())return wordRange;
+      let centerOffset=0,foundCenter=false;
+      const walker=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT);
+      let node;
+      while((node=walker.nextNode())){
+        if(node===wordRange.startContainer){centerOffset+=wordRange.startOffset;foundCenter=true;break;}
+        centerOffset+=String(node.nodeValue||'').length;
+      }
+      if(!foundCenter){const fallback=doc.createRange();fallback.selectNodeContents(block);return fallback;}
+      let sentenceStart=0,sentenceEnd=text.length;
+      if(typeof Intl!=='undefined'&&typeof Intl.Segmenter==='function'){
+        const segmenter=new Intl.Segmenter('vi',{granularity:'sentence'});
+        for(const part of segmenter.segment(text)){
+          const from=Number(part.index)||0;
+          const to=from+String(part.segment||'').length;
+          if(centerOffset>=from&&centerOffset<=to){sentenceStart=from;sentenceEnd=to;break;}
+        }
+      }else{
+        const left=text.slice(0,centerOffset);
+        const right=text.slice(centerOffset);
+        const leftMatch=left.match(/[.!?…][\s\"'”’»)]*[^.!?…]*$/);
+        if(leftMatch)sentenceStart=Math.max(0,left.length-leftMatch[0].length+1);
+        const rightMatch=right.match(/[.!?…][\"'”’»)]*(?:\s|$)/);
+        if(rightMatch)sentenceEnd=Math.min(text.length,centerOffset+rightMatch.index+rightMatch[0].length);
+      }
+      while(sentenceStart<sentenceEnd&&/\s/.test(text[sentenceStart]||''))sentenceStart++;
+      while(sentenceEnd>sentenceStart&&/\s/.test(text[sentenceEnd-1]||''))sentenceEnd--;
+      let cursor=0,startNodeFound=null,startOffset=0,endNodeFound=null,endOffset=0;
+      const walker2=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT);
+      while((node=walker2.nextNode())){
+        const len=String(node.nodeValue||'').length;
+        if(!startNodeFound&&sentenceStart<=cursor+len){startNodeFound=node;startOffset=Math.max(0,sentenceStart-cursor);}
+        if(sentenceEnd<=cursor+len){endNodeFound=node;endOffset=Math.max(0,sentenceEnd-cursor);break;}
+        cursor+=len;
+      }
+      if(!startNodeFound||!endNodeFound){const fallback=doc.createRange();fallback.selectNodeContents(block);return fallback;}
+      const range=doc.createRange();
+      range.setStart(startNodeFound,startOffset);
+      range.setEnd(endNodeFound,endOffset);
       return range;
-    }catch{return mappedWords[center]||null;}
+    }catch{return wordRange;}
   }
 
   function rangeVisible(range){
@@ -300,17 +336,19 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
   async function syncWord(index,force=false){
     if(!timingWords.length)return false;
     buildWordMap(false);
+    const center=nearestMappedIndex(index);
+    const followRange=center>=0?mappedWords[center]:null;
     const range=phraseRange(index);
-    if(!range)return false;
+    if(!range||!followRange)return false;
     applyExactHighlight(range);
-    if(!force&&rangeVisible(range))return true;
+    if(!force&&rangeVisible(followRange))return true;
     if(Date.now()<suppressDisplayUntil)return true;
     const now=Date.now();
     if(!force&&now-lastFollowAt<450)return false;
     const b=bridge();
     if(!b||typeof b.cfiFromRange!=='function'||typeof b.display!=='function')return false;
     let cfi='';
-    try{cfi=String(b.cfiFromRange(range)||'');}catch{}
+    try{cfi=String(b.cfiFromRange(followRange)||'');}catch{}
     if(!cfi)return false;
     lastFollowAt=now;
     debug.exactFollowCalls++;

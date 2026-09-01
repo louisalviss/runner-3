@@ -8,14 +8,19 @@ const PRIME = `<script data-r3-audio-prime-base-position-v28="1">
   const params=new URLSearchParams(location.search);
   const bookKey=params.get('key')||'';
   if(!bookKey)return;
+  const baseKey='r3-reader-position:'+bookKey;
+  let previous='';
+  try{previous=String(localStorage.getItem(baseKey)||'');}catch{}
+  if(previous){
+    window.__r3AudioPrimeBasePositionV28Debug={phase:'kept-reader-position',baseKey,previous};
+    return;
+  }
   let saved=null;
   try{saved=JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:'+bookKey)||'null');}catch{}
   const cfi=String(saved&&saved.cfi||'');
   if(!cfi)return;
-  const baseKey='r3-reader-position:'+bookKey;
-  let previous='';
-  try{previous=String(localStorage.getItem(baseKey)||'');localStorage.setItem(baseKey,cfi);}catch{}
-  window.__r3AudioPrimeBasePositionV28Debug={phase:'primed',baseKey,previous,cfi};
+  try{localStorage.setItem(baseKey,cfi);}catch{}
+  window.__r3AudioPrimeBasePositionV28Debug={phase:'primed-audio-fallback',baseKey,previous,cfi};
 })();
 </script>`;
 

@@ -26,6 +26,7 @@ const V35_LAYOUT_STABILIZER = `<script data-r3-reader-layout-stabilize-v35="1">
   }
   function savedCfi(){
     if(!bookKey)return '';
+    try{const reader=String(localStorage.getItem('r3-reader-position:'+bookKey)||'');if(reader)return reader;}catch{}
     const keys=['r3-reader-audio-state-v11:'+bookKey,'r3-reader-audio-core-v1:'+bookKey];
     for(const key of keys){
       try{
@@ -133,6 +134,10 @@ const V35_LAYOUT_STABILIZER = `<script data-r3-reader-layout-stabilize-v35="1">
 })();
 </script>`;
 
+const V35_EARLY_AUDIO_RESERVE = `<style data-r3-reader-audio-reserve-v40="1">
+#viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}
+</style>`;
+
 const V35_PLAYER_CHAPTERS = `<style data-r3-player-chapters-v38="1">
 #r3AudioHead{grid-template-columns:minmax(0,1fr) 32px 50px 32px 36px!important;gap:5px!important}
 #r3AudioSpeedDown,#r3AudioSpeedUp{height:36px;min-width:32px!important;border:1px solid var(--line,rgba(127,127,127,.22))!important;border-radius:11px!important;background:color-mix(in srgb,var(--fg,currentColor) 7%,transparent)!important;font-size:18px!important;font-weight:800!important;padding:0!important}
@@ -145,8 +150,8 @@ const V35_PLAYER_CHAPTERS = `<style data-r3-player-chapters-v38="1">
 #r3AudioChapterSelect{min-width:0;width:100%;padding:0 9px;text-overflow:ellipsis}
 #r3ReaderChapterBadge{position:fixed;z-index:21;left:76px;right:76px;top:calc(max(10px,env(safe-area-inset-top)) + 30px);text-align:center;color:var(--muted,#888);font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transition:opacity .16s ease}
 body.controls #r3ReaderChapterBadge{opacity:1}
-body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}
-body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(72px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui #viewer,body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui .bottom-status,body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(216px + env(safe-area-inset-bottom,0px))!important}
 </style>
 <script data-r3-player-chapters-v38="1">
 (()=>{
@@ -371,6 +376,8 @@ function patchSingleAudioOwner(html) {
   },100);`;
 
   out = replaceScoped(out, V34_MARKER, oldRuntime, newRuntime, 'single-audio-owner');
+  if (!out.includes('</head>')) throw new Error('READER_V35_HEAD_MARKER_MISSING');
+  out = out.replace('</head>', V35_EARLY_AUDIO_RESERVE + '</head>');
   if (!out.includes('</body>')) throw new Error('READER_V35_BODY_MARKER_MISSING');
   out = out.replace('</body>', V35_FLAG + V35_LAYOUT_STABILIZER + V35_PLAYER_CHAPTERS + '</body>');
   return out;
