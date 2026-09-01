@@ -1,0 +1,110 @@
+=== BEFORE ===
+
+ ⛅️ wrangler 4.127.1
+────────────────────
+Resource location: remote 
+
+🌀 Executing on remote database runner3-core (514a2c61-3f7a-44d0-a51b-e07525d32a5d):
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+🚣 Executed 1 command in 0.27ms
+[
+  {
+    "results": [
+      {
+        "request_id": "mailbox-semantic-test-name",
+        "status": "failed",
+        "lease_owner": null,
+        "lease_until": null
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "IAD",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.2721
+      },
+      "duration": 0.2721,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 20152320,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
+=== UPDATE ===
+
+ ⛅️ wrangler 4.127.1
+────────────────────
+Resource location: remote 
+
+🌀 Executing on remote database runner3-core (514a2c61-3f7a-44d0-a51b-e07525d32a5d):
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+🚣 Executed 1 command in 0.25ms
+[
+  {
+    "results": [],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "IAD",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.249
+      },
+      "duration": 0.249,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 20152320,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
+=== AFTER ===
+
+ ⛅️ wrangler 4.127.1
+────────────────────
+Resource location: remote 
+
+🌀 Executing on remote database runner3-core (514a2c61-3f7a-44d0-a51b-e07525d32a5d):
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+🚣 Executed 1 command in 0.20ms
+[
+  {
+    "results": [
+      {
+        "request_id": "mailbox-semantic-test-name",
+        "status": "failed",
+        "lease_owner": null,
+        "lease_until": null
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "IAD",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1959
+      },
+      "duration": 0.1959,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 20152320,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
