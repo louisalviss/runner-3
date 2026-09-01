@@ -13,7 +13,32 @@ const pageErrors = [];
 let signedEpubUrl = '';
 let epubProxyStatus = 0;
 let epubProxyBytes = 0;
+let audioPostCount = 0;
+const audioPostChapters = [];
 page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
+
+await page.route('**/artifact-library/audio*', async (route) => {
+  const request = route.request();
+  const url = new URL(request.url());
+  if (url.pathname !== '/artifact-library/audio') return route.continue();
+  if (request.method() === 'POST') {
+    audioPostCount++;
+    let body = {};
+    try { body = JSON.parse(request.postData() || '{}'); } catch {}
+    audioPostChapters.push(String(body.chapterHref || ''));
+    const id = `mock-prefetch-${audioPostCount}`;
+    return route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' },
+      body: JSON.stringify({ ok: true, id, status: 'ready', bookKey, chapterTitle: body.chapterTitle || null, mediaUrl: `/__mock_audio__?id=${id}`, timingUrl: `/__mock_timing__?id=${id}` }),
+    });
+  }
+  return route.fulfill({
+    status: 404,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ok: false, error: 'MOCK_AUDIO_STATE_NOT_EXPECTED' }),
+  });
+});
 
 await page.route('**/__reader_v34_epub_proxy__', async (route) => {
   if (!signedEpubUrl) return route.fulfill({ status: 503, body: 'SIGNED_EPUB_URL_MISSING' });
@@ -63,6 +88,12 @@ async function readerDiag() {
     current: window.r3ReaderBridge?.current?.() || null,
     core: Boolean(window.__r3AudioCoreProductionV33),
     coreBootError: window.__r3AudioCoreV33BootError || '',
+    continuity: window.__r3AudioContinuityV34 ? {
+      prefetchRequests: window.__r3AudioContinuityV34.prefetchRequests,
+      prefetchReady: window.__r3AudioContinuityV34.prefetchReady,
+      cacheHits: window.__r3AudioContinuityV34.cacheHits,
+      lastError: window.__r3AudioContinuityV34.lastError,
+    } : null,
     loading: { text: document.getElementById('loading')?.textContent || '', hidden: document.getElementById('loading')?.classList.contains('hidden') || false },
     frames: [...document.querySelectorAll('#viewer iframe')].map((frame) => {
       try {
@@ -135,6 +166,29 @@ try {
   if (!peek.payload || peek.payload.textLength < 80 || !peek.payload.chapterHref) throw new Error('PEEK_NEXT_EMPTY');
   if (peek.before.href !== peek.after.href || peek.before.cfi !== peek.after.cfi) throw new Error('PEEK_MUTATED_READER');
 
+  await page.evaluate(() => document.getElementById('r3AudioElement')?.dispatchEvent(new Event('loadedmetadata')));
+  try {
+    await page.waitForFunction(() => Number(window.__r3AudioContinuityV34?.prefetchReady || 0) >= 1, null, { timeout: 5000 });
+  } catch (error) {
+    console.log('V34_PREFETCH_DIAG', JSON.stringify({ diag: await readerDiag(), audioPostCount, audioPostChapters }));
+    throw error;
+  }
+  const postsBeforeHandoff = audioPostCount;
+  const handoff = await page.evaluate(async () => {
+    const payload = await window.__r3AudioContinuityV34.peek(1);
+    const beforeHits = Number(window.__r3AudioContinuityV34.cacheHits || 0);
+    const response = await window.fetch('/artifact-library/audio', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bookKey: new URLSearchParams(location.search).get('key') || '', text: payload.text, chapterTitle: payload.chapterTitle, chapterHref: payload.chapterHref, bookTitle: document.title || 'Ebook', clientVersion: 'reader-audio-core-v33' }),
+    });
+    const state = await response.json().catch(() => ({}));
+    return { http: response.status, status: state.status || '', mediaUrl: state.mediaUrl || '', hitDelta: Number(window.__r3AudioContinuityV34.cacheHits || 0) - beforeHits, chapterHref: payload.chapterHref };
+  });
+  const postsAfterHandoff = audioPostCount;
+  if (postsAfterHandoff !== postsBeforeHandoff) throw new Error(`HANDOFF_NETWORK_POST_${postsBeforeHandoff}_${postsAfterHandoff}`);
+  if (handoff.http !== 200 || handoff.status !== 'ready' || !handoff.mediaUrl || handoff.hitDelta !== 1) throw new Error(`HANDOFF_CACHE_MISS_${JSON.stringify(handoff)}`);
+
   const synthetic = await page.evaluate(async () => {
     const frame = [...document.querySelectorAll('#viewer iframe')].find((candidate) => {
       try { return String(candidate.contentDocument?.body?.innerText || '').trim().length >= 80; } catch { return false; }
@@ -169,6 +223,10 @@ try {
     readableTextLength: readable.state.best?.textLength || 0,
     peekNonMutating: true,
     nextTextLength: peek.payload.textLength,
+    prefetchReady: true,
+    prefetchNetworkPosts: postsBeforeHandoff,
+    handoffCacheHit: handoff.hitDelta === 1,
+    handoffExtraNetworkPosts: postsAfterHandoff - postsBeforeHandoff,
     rangeMappedWords: synthetic.mapped,
     exactRangeFollow: synthetic.followDelta >= 1,
     shortHighlightChars: synthetic.highlightText.length,
