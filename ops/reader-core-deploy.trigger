@@ -1,3 +1,3 @@
-ebook-reader-canonical-position-sentence-layout-v40-deploy
-requested_at=2026-09-01T23:19:00Z
-reason=deploy Reader-owned refresh position, sentence-level audio highlight with current-word page follow, and fixed pre-boot player reserve to prevent overlap/reflow
+ebook-reader-single-highlight-owner-v41-deploy
+requested_at=2026-09-02
+reason=deploy global cleanup of stale audio CSS highlights across retained epub rendition documents before setting the one active sentence highlight
