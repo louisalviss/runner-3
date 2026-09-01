@@ -1,0 +1,79 @@
+name: tmp Core mailbox deploy debug
+
+on:
+  push:
+    branches: [maintenance/core-mailbox-guard-deploy-debug-20260901]
+    paths:
+      - '.github/workflows/tmp-core-mailbox-deploy-debug-20260901.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compose and capture sanitized deploy diagnostics
+        shell: bash
+        run: |
+          set -uo pipefail
+          out=ops-results/core-mailbox-deploy-debug-20260901.txt
+          mkdir -p ops-results
+          token_state=MISSING; account_state=MISSING
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && token_state=PRESENT
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] && account_state=PRESENT
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('cloudflare/runner3-core')
+          wrapper=root/'artifact-library-reader-v7-github-audio-entry.js'
+          s=wrapper.read_text(); old='import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";'; new='import app from "./artifact-library-reader-v35-continuity-single-owner-entry.js";'
+          if new not in s:
+              if old not in s: raise SystemExit('unexpected reader wrapper import')
+              s=s.replace(old,new,1)
+          wrapper.write_text(s)
+          mailbox=root/'mailbox-entry.js'; s=mailbox.read_text(); oldm='import app from "./audio-entry.js";'; newm='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if newm not in s:
+              if oldm not in s: raise SystemExit('unexpected mailbox import')
+              s=s.replace(oldm,newm,1)
+          if 'const NEW_REQUEST_ID_RE = /^m_[0-9a-f]{32}$/;' not in s or 'if (!NEW_REQUEST_ID_RE.test(requestId))' not in s: raise SystemExit('strict guard missing')
+          mailbox.write_text(s)
+          cfg=root/'wrangler.jsonc'; d=json.loads(cfg.read_text()); d['main']='mailbox-entry.js'; cfg.write_text(json.dumps(d,indent=2)+'\n')
+          PY
+          cd cloudflare/runner3-core
+          set +e
+          npx --yes wrangler@4 deploy > /tmp/wrangler.out 2>&1
+          rc=$?
+          set -e
+          cd ../..
+          python3 - "$out" "$token_state" "$account_state" "$rc" <<'PY'
+          import os,sys
+          out,ts,acs,rc=sys.argv[1:]
+          text=open('/tmp/wrangler.out',encoding='utf-8',errors='replace').read()
+          for value in (os.environ.get('CLOUDFLARE_API_TOKEN',''),os.environ.get('CLOUDFLARE_ACCOUNT_ID','')):
+              if value: text=text.replace(value,'<REDACTED>')
+          lines=text.splitlines()[-120:]
+          open(out,'w',encoding='utf-8').write(f'token={ts}\naccount={acs}\nrc={rc}\n'+'\n'.join(lines)+'\n')
+          PY
+      - name: Commit evidence and self-clean
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout maintenance/core-mailbox-guard-deploy-debug-20260901
+          rm -f .github/workflows/tmp-core-mailbox-deploy-debug-20260901.yml
+          git add ops-results/core-mailbox-deploy-debug-20260901.txt .github/workflows/tmp-core-mailbox-deploy-debug-20260901.yml
+          git commit -m 'diag: capture Core mailbox deploy failure'
+          git push origin HEAD:maintenance/core-mailbox-guard-deploy-debug-20260901
