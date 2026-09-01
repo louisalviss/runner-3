@@ -1,3 +1,3 @@
-ebook-reader-v43-single-highlight-owner-deploy
+ebook-reader-v44-clean-highlight-owner-deploy
 requested_at=2026-09-02
-reason=disable legacy v30 whole-block bold/background painter and v33 block attribute highlight so v34 sentence continuity is the only visual highlight owner
+reason=apply build-time v44 single sentence highlight owner, clear all custom highlight registries before each paint, preserve page-step follow, and remove legacy visual owners
