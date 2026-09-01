@@ -45,7 +45,15 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Compose latest Core with canonical Reader v31 baseline
+      - name: Build Reader Audio Core browser bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save esbuild
+          node scripts/build_reader_audio_core_browser_bundle.mjs
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
+
+      - name: Compose latest Core with canonical Reader v33 Audio Core
         shell: bash
         run: |
           set -euo pipefail
@@ -57,7 +65,7 @@ jobs:
           text=wrapper.read_text(encoding='utf-8')
           text,count=re.subn(
             r'import app from "\./artifact-library-reader-v\d+[^\"]*-entry\.js";',
-            'import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";',
+            'import app from "./artifact-library-reader-v33-audio-core-entry.js";',
             text,
             count=1,
           )
@@ -79,9 +87,15 @@ jobs:
           PY
           node --check cloudflare/runner3-core/mailbox-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v31-high-speed-serialized-follow-entry.js
-          grep -q 'artifact-library-reader-v31-high-speed-serialized-follow-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'window.__r3AudioHighSpeedFollowV31=true' cloudflare/runner3-core/artifact-library-reader-v31-high-speed-serialized-follow-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
+          node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
+          node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
+          node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'artifact-library-reader-v33-audio-core-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'window.__R3_READER_AUDIO_CORE_OWNER=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
+          grep -q '__r3AudioLegacyV11Suppressed=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
+          grep -q '__r3AudioLegacyV31ClockSuppressed=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
 
       - name: Apply Core D1 migrations
@@ -91,7 +105,7 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@4 d1 migrations apply runner3-core --remote
 
-      - name: Deploy latest Core with Reader v31 baseline
+      - name: Deploy latest Core with Reader v33 Audio Core
         shell: bash
         working-directory: cloudflare/runner3-core
         run: |
@@ -99,7 +113,7 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live Reader v31 and stable Core surfaces
+      - name: Verify live Reader v33 and stable Core surfaces
         shell: bash
         run: |
           set -euo pipefail
@@ -112,13 +126,13 @@ jobs:
             runtime="$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             proof="$(grep -i '^x-r3-reader-patch-proof:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof"
-            if [ "$code" = 200 ] && [ "$runtime" = 'v31-high-speed-serialized-follow' ] && [ "$proof" = 'v30+v31:75ms-high-speed-clock+single-flight-follow' ] && grep -q 'window.__r3AudioHighSpeedFollowV31=true' /tmp/reader; then
+            if [ "$code" = 200 ] && [ "$runtime" = 'v33-audio-core-owner' ] && [ "$proof" = 'v31+v33:core-single-owner+legacy-suppressed' ] && grep -q 'data-r3-audio-core-owner-v33="1"' /tmp/reader && grep -q 'data-r3-audio-core-runtime-v33="1"' /tmp/reader && grep -q '__r3AudioLegacyV11Suppressed=true' /tmp/reader && grep -q '__r3AudioLegacyV31ClockSuppressed=true' /tmp/reader; then
               ok=1
               break
             fi
             sleep 1
           done
-          if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 700 /tmp/reader; exit 1; fi
+          if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 1200 /tmp/reader; exit 1; fi
 
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
           echo "AUDIO_SURFACE http=$acode body=$(head -c 180 /tmp/audio.json | tr '\n' ' ')"
@@ -129,4 +143,4 @@ jobs:
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
 
-          echo 'RUNNER3_CORE_PRODUCTION_V31=PASS'
+          echo 'RUNNER3_CORE_PRODUCTION_V33=PASS'
