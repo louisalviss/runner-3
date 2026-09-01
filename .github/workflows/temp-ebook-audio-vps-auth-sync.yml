@@ -1,0 +1,142 @@
+name: Temp Ebook Audio VPS Auth Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-ebook-audio-vps-auth-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ebook-audio-vps-auth-sync
+  cancel-in-progress: false
+
+jobs:
+  repair-and-smoke:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 12
+    env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Verify canonical Core secret before touching VPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          body="$(mktemp)"
+          code="$(curl -sS --max-time 20 -o "$body" -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $RUNNER3_CORE_TOKEN" \
+            "$RUNNER3_CORE_URL/api/internal/ebook-reader-audio/job")"
+          python3 - "$body" "$code" <<'PY'
+          import json,sys
+          body,code=sys.argv[1],int(sys.argv[2])
+          data=json.load(open(body,encoding='utf-8'))
+          if code != 405 or data.get('error') != 'METHOD_NOT_ALLOWED':
+              raise SystemExit('CANONICAL_CORE_SECRET_REJECTED')
+          print('CANONICAL_CORE_SECRET=PASS')
+          PY
+          rm -f "$body"
+
+      - name: Synchronize canonical token into VPS env
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n env RUNNER3_CORE_TOKEN="$RUNNER3_CORE_TOKEN" RUNNER3_CORE_URL="$RUNNER3_CORE_URL" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path('/etc/chatgpt-vps-bridge.env')
+          lines=p.read_text(encoding='utf-8').splitlines() if p.exists() else []
+          updates={'RUNNER3_CORE_TOKEN':os.environ['RUNNER3_CORE_TOKEN'],'RUNNER3_CORE_URL':os.environ['RUNNER3_CORE_URL']}
+          out=[]; seen=set()
+          for line in lines:
+              if '=' in line and not line.lstrip().startswith('#'):
+                  key=line.split('=',1)[0].strip()
+                  if key in updates:
+                      out.append(f'{key}={updates[key]}'); seen.add(key); continue
+              out.append(line)
+          for key,value in updates.items():
+              if key not in seen: out.append(f'{key}={value}')
+          p.write_text('\n'.join(out)+'\n',encoding='utf-8')
+          p.chmod(0o600)
+          PY
+          echo 'VPS_CORE_TOKEN_SYNC=PASS'
+
+      - name: Restart sole VPS consumer and verify auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n systemctl disable --now ebook-reader-audio-tts.service >/dev/null 2>&1 || true
+          sudo -n systemctl restart ebook-reader-audio-consumer.service
+          for i in $(seq 1 20); do
+            [ "$(systemctl is-active ebook-reader-audio-consumer.service 2>/dev/null || true)" = active ] && break
+            sleep 1
+          done
+          test "$(systemctl is-active ebook-reader-audio-consumer.service)" = active
+          test "$(systemctl is-enabled ebook-reader-audio-consumer.service)" = enabled
+          test "$(systemctl is-active ebook-reader-audio-tts.service 2>/dev/null || true)" != active
+          sleep 3
+          if sudo -n journalctl -u ebook-reader-audio-consumer.service --since '-20 sec' --no-pager -o cat | grep -q 'HTTP 401'; then
+            echo 'VPS_CONSUMER_STILL_UNAUTHORIZED' >&2
+            exit 1
+          fi
+          echo 'VPS_CONSUMER_AUTH=PASS'
+
+      - name: Live pending-to-ready production smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime as dt,json,time,urllib.parse,urllib.request,uuid
+          base='https://runner3-core.ducduy2411.workers.dev'
+          stamp=uuid.uuid4().hex[:12]
+          book_key='core/ebook/vps-auth-repair/final/auth-repair.epub'
+          text=('Đây là kiểm tra trực tiếp sau khi đồng bộ xác thực cho consumer âm thanh Ebook Reader trên VPS. '
+                'Consumer phải nhận công việc trong vài giây, tạo giọng Nam Minh và trả trạng thái sẵn sàng. '
+                'Mã kiểm tra '+stamp+'.')
+          payload={'bookKey':book_key,'text':text,'chapterTitle':'VPS auth repair '+stamp,
+                   'chapterHref':'Text/auth-repair-'+stamp+'.xhtml','bookTitle':'VPS auth repair',
+                   'clientVersion':'vps-auth-repair-smoke'}
+          req=urllib.request.Request(base+'/artifact-library/audio',data=json.dumps(payload,ensure_ascii=False).encode(),
+                                     headers={'Content-Type':'application/json','Accept':'application/json'},method='POST')
+          start=time.monotonic()
+          with urllib.request.urlopen(req,timeout=30) as response:
+              initial_http=response.status; state=json.load(response)
+          job_id=state.get('id')
+          if initial_http not in (200,202) or not job_id:
+              raise SystemExit('SMOKE_CREATE_FAILED')
+          initial_status=state.get('status')
+          while time.monotonic()-start < 180:
+              if state.get('status')=='ready': break
+              if state.get('status')=='error': raise SystemExit('SMOKE_JOB_ERROR:'+str(state.get('error') or ''))
+              time.sleep(0.75)
+              q=urllib.parse.urlencode({'id':job_id,'bookKey':book_key})
+              with urllib.request.urlopen(base+'/artifact-library/audio?'+q,timeout=30) as response:
+                  state=json.load(response)
+          elapsed=round(time.monotonic()-start,3)
+          if state.get('status')!='ready': raise SystemExit('SMOKE_PENDING_TO_READY_TIMEOUT')
+          result={'ok':True,'testedAt':dt.datetime.now(dt.timezone.utc).isoformat(),'jobId':job_id,
+                  'initialStatus':initial_status,'finalStatus':'ready','pendingToReadySeconds':elapsed,
+                  'durationSeconds':state.get('durationSeconds'),'timingAvailable':state.get('timingAvailable')}
+          print(json.dumps(result,ensure_ascii=False))
+          open('/tmp/ebook-audio-auth-sync-smoke.json','w',encoding='utf-8').write(json.dumps(result))
+          PY
+
+      - name: Prove VPS process produced the smoke job
+        shell: bash
+        run: |
+          set -euo pipefail
+          job_id="$(python3 -c 'import json; print(json.load(open("/tmp/ebook-audio-auth-sync-smoke.json"))["jobId"])')"
+          ok=0
+          for i in $(seq 1 20); do
+            if sudo -n journalctl -u ebook-reader-audio-consumer.service --since '-5 min' --no-pager -o cat \
+              | grep -F '"jobId": "'"$job_id"'"' | grep -q '"event": "job-ready"'; then
+              ok=1; break
+            fi
+            sleep 1
+          done
+          test "$ok" = 1
+          echo "VPS_OWNED_PENDING_TO_READY=PASS job=$job_id"
