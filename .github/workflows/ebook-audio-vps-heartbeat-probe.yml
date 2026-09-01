@@ -1,0 +1,41 @@
+name: Ebook Audio VPS Heartbeat Probe
+
+on:
+  push:
+    branches:
+      - ops/ebook-audio-vps-e2e-20260901
+    paths:
+      - .github/workflows/ebook-audio-vps-heartbeat-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read sanitized heartbeat state
+        env:
+          CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://runner3-core.ducduy2411.workers.dev'
+          test -n "${CORE_TOKEN:-}"
+          : > heartbeat-probe.txt
+          for PATHNAME in '/state/ebook-audio-vps-consumer' '/state_v3/ebook-audio-vps-consumer'; do
+            CODE="$(curl -sS -o response.json -w '%{http_code}' --max-time 20 -H "Authorization: Bearer $CORE_TOKEN" "$BASE$PATHNAME" || true)"
+            echo "path=$PATHNAME http=$CODE" | tee -a heartbeat-probe.txt
+            if jq -e . response.json >/dev/null 2>&1; then
+              jq '{status,updatedAt,consumer,jobId,error,ok,state,value,data}' response.json | tee -a heartbeat-probe.txt
+            else
+              echo 'non_json_response' | tee -a heartbeat-probe.txt
+            fi
+          done
+      - name: Upload sanitized heartbeat result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebook-audio-vps-heartbeat-probe
+          path: heartbeat-probe.txt
+          if-no-files-found: error
