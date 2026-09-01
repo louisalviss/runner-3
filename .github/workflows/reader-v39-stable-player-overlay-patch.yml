@@ -1,0 +1,77 @@
+name: Reader v39 Stable Player Overlay Patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reader-v39-stable-player-overlay-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Keep EPUB viewport fixed while player expands
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          v6 = Path('cloudflare/runner3-core/artifact-library-reader-v6-entry.js')
+          s = v6.read_text()
+          replacements = {
+            "body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(146px + env(safe-area-inset-bottom,0px))!important}":
+            "body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}",
+            "body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(151px + env(safe-area-inset-bottom,0px))!important}":
+            "body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(72px + env(safe-area-inset-bottom,0px))!important}",
+            "    requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));\n": "",
+          }
+          for old, new in replacements.items():
+            if old not in s:
+              raise SystemExit(f'v6 missing needle: {old[:80]}')
+            s = s.replace(old, new, 1)
+          v6.write_text(s)
+
+          v35 = Path('cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js')
+          s = v35.read_text()
+          replacements = {
+            "body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(192px + env(safe-area-inset-bottom,0px))!important}":
+            "body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}",
+            "body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(197px + env(safe-area-inset-bottom,0px))!important}":
+            "body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(72px + env(safe-area-inset-bottom,0px))!important}",
+          }
+          for old, new in replacements.items():
+            if old not in s:
+              raise SystemExit(f'v35 missing needle: {old[:80]}')
+            s = s.replace(old, new, 1)
+          v35.write_text(s)
+          PY
+      - name: Regression checks
+        run: |
+          node --check cloudflare/runner3-core/artifact-library-reader-v6-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+          python3 - <<'PY'
+          from pathlib import Path
+          v6=Path('cloudflare/runner3-core/artifact-library-reader-v6-entry.js').read_text()
+          v35=Path('cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js').read_text()
+          assert "r3-audio-expanded #viewer{bottom:calc(66px" in v6
+          assert "r3-audio-expanded #viewer{bottom:calc(66px" in v35
+          assert "requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));" not in v6
+          assert 'data-r3-player-chapters-v38="1"' in v35
+          print('stable overlay regression checks PASS')
+          PY
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "louisalviss"
+          git config user.email "ducduy2411@gmail.com"
+          rm .github/workflows/reader-v39-stable-player-overlay-patch.yml
+          git add cloudflare/runner3-core/artifact-library-reader-v6-entry.js cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js .github/workflows/reader-v39-stable-player-overlay-patch.yml
+          git commit -m "fix(reader): keep EPUB viewport stable under expanded player"
+          git push origin HEAD:main
