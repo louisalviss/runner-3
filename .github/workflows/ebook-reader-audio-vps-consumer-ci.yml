@@ -1,0 +1,43 @@
+name: Ebook Reader Audio VPS Consumer CI
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ebook_reader_audio_tts.py'
+      - 'scripts/ebook_reader_audio_tts_v2.py'
+      - 'scripts/ebook_reader_audio_tts_daemon.py'
+      - '.github/workflows/ebook-reader-audio.yml'
+      - '.github/workflows/ebook-reader-audio-vps-consumer-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime dependencies
+        run: python -m pip install -q requests edge-tts==7.2.8
+      - name: Compile and import daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/ebook_reader_audio_tts.py scripts/ebook_reader_audio_tts_v2.py scripts/ebook_reader_audio_tts_daemon.py
+          RUNNER3_CORE_TOKEN=test PYTHONPATH=scripts python scripts/ebook_reader_audio_tts_daemon.py --config-health
+      - name: Validate internal API contract and manual-only fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '/api/internal/ebook-reader-audio/job' scripts/ebook_reader_audio_tts_daemon.py
+          grep -q '/api/internal/ebook-reader-audio/media' scripts/ebook_reader_audio_tts_daemon.py
+          grep -q '/api/internal/ebook-reader-audio/timing' scripts/ebook_reader_audio_tts_daemon.py
+          grep -q '/api/internal/ebook-reader-audio/complete' scripts/ebook_reader_audio_tts_daemon.py
+          if grep -Eq 'repository_dispatch:|schedule:' .github/workflows/ebook-reader-audio.yml; then
+            echo 'GitHub TTS fallback must not have repository_dispatch or schedule triggers' >&2
+            exit 1
+          fi
