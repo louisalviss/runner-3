@@ -1,0 +1,287 @@
+name: Reader v38 Player Chapters Patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reader-v38-player-chapters-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Patch Reader highlight, speed and chapter navigation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('cloudflare/runner3-core')
+
+          # 1) Longer exact speech highlight: 6 -> 12 timing words.
+          p = root / 'artifact-library-reader-v34-continuous-range-sync-entry.js'
+          text = p.read_text(encoding='utf-8')
+          old = """    const bucket=Math.floor(center/6)*6;
+              let first=-1,last=-1;
+              for(let i=bucket;i<Math.min(mappedWords.length,bucket+6);i++)if(mappedWords[i]){if(first<0)first=i;last=i;}"""
+          new = """    const phraseSpan=12;
+              const bucket=Math.floor(center/phraseSpan)*phraseSpan;
+              let first=-1,last=-1;
+              for(let i=bucket;i<Math.min(mappedWords.length,bucket+phraseSpan);i++)if(mappedWords[i]){if(first<0)first=i;last=i;}"""
+          if old not in text:
+              raise SystemExit('v34 phraseRange marker missing')
+          text = text.replace(old, new, 1)
+          p.write_text(text, encoding='utf-8')
+
+          # 2) Expose canonical EPUB TOC chapter navigation through r3ReaderBridge.
+          p = root / 'artifact-library-reader-v8-continuous-audio-entry.js'
+          text = p.read_text(encoding='utf-8')
+          marker = r"    persist(){\n"
+          if marker not in text:
+              raise SystemExit('v8 bridge persist marker missing')
+          methods = r"""    async chapters(){\n      try{\n        const nav=book&&book.loaded&&book.loaded.navigation?await book.loaded.navigation:(book&&book.navigation||null);\n        const rows=[];\n        const walk=items=>{for(const item of items||[]){const href=String(item&&item.href||'');const label=String(item&&item.label||item&&item.title||'').trim();if(href&&label)rows.push({href,label});if(item&&Array.isArray(item.subitems))walk(item.subitems);}};\n        walk(nav&&nav.toc||[]);\n        if(rows.length)return rows.map((row,index)=>({index,href:row.href,label:row.label}));\n        const items=book&&book.spine&&book.spine.spineItems||[];\n        return items.filter(item=>item&&item.href&&item.linear!=='no').map((item,index)=>({index,href:String(item.href),label:'Phần '+(index+1)}));\n      }catch{return [];}\n    },\n    async chapterInfo(){\n      try{\n        const chapters=await this.chapters();\n        const loc=rendition&&rendition.currentLocation?rendition.currentLocation():null;\n        const href=String(loc&&loc.start&&loc.start.href||'');\n        const clean=value=>{let raw=String(value||'').split('#')[0];try{raw=decodeURIComponent(raw);}catch{}while(raw.startsWith('./'))raw=raw.slice(2);return raw;};\n        const current=clean(href);\n        let index=chapters.findIndex(row=>{const candidate=clean(row.href);return candidate===current||candidate.endsWith('/'+current)||current.endsWith('/'+candidate);});\n        if(index<0&&chapters.length)index=0;\n        return {index,total:chapters.length,chapter:index>=0?chapters[index]:null,chapters};\n      }catch{return {index:-1,total:0,chapter:null,chapters:[]};}\n    },\n    async displayChapter(target){\n      try{\n        const chapters=await this.chapters();\n        let row=null;\n        if(typeof target==='number')row=chapters[Math.max(0,Math.min(chapters.length-1,Math.trunc(target)))]||null;\n        else row=chapters.find(item=>String(item.href)===String(target))||null;\n        if(!row||!rendition)return false;\n        await rendition.display(row.href);\n        try{this.persist();}catch{}\n        return true;\n      }catch{return false;}\n    },\n    async stepChapter(delta){\n      try{\n        const info=await this.chapterInfo();\n        if(!info.total)return false;\n        const step=Number(delta)<0?-1:1;\n        const next=Math.max(0,Math.min(info.total-1,info.index+step));\n        if(next===info.index)return false;\n        return await this.displayChapter(next);\n      }catch{return false;}\n    },\n"""
+          text = text.replace(marker, methods + marker, 1)
+          p.write_text(text, encoding='utf-8')
+
+          # 3) Canonical audio core: wider speed range and callable setters for enhanced UI.
+          p = root / 'reader-audio-core/browser-production-integration.js'
+          text = p.read_text(encoding='utf-8')
+          old_rates = '  const rates = [1, 1.25, 1.5, 1.75, 2];'
+          new_rates = '  const rates = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3];'
+          if old_rates not in text:
+              raise SystemExit('audio core rates marker missing')
+          text = text.replace(old_rates, new_rates, 1)
+
+          prepare_marker = '\n  async function onMain(event) {'
+          if prepare_marker not in text:
+              raise SystemExit('audio core prepare exposure marker missing')
+          text = text.replace(prepare_marker, '\n  window.__r3AudioCorePrepareCurrent = prepareCurrent;\n' + prepare_marker, 1)
+
+          old_cycle = """  function cycleRate(event) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              const state = adapter?.snapshot?.() || loadState();
+              const currentRate = Number(state.playbackRate) || 1;
+              let index = rates.findIndex((value) => Math.abs(value - currentRate) < 0.01);
+              if (index < 0) index = 0;
+              const next = rates[(index + 1) % rates.length];
+              if (adapter) adapter.setRate(next);
+              else saveState({ ...state, playbackRate: next });
+              if (speed) speed.textContent = `${next}×`;
+              setStatus(`Nam Minh · tốc độ ${next}×`);
+            }"""
+          new_cycle = """  function setRateValue(value) {
+              const rounded = Math.round((Number(value) || 1) * 4) / 4;
+              const next = Math.max(rates[0], Math.min(rates[rates.length - 1], rounded));
+              const state = adapter?.snapshot?.() || loadState();
+              if (adapter) adapter.setRate(next);
+              else saveState({ ...state, playbackRate: next });
+              audio.playbackRate = next;
+              if (speed) speed.textContent = `${next}×`;
+              setStatus(`Nam Minh · tốc độ ${next}×`);
+              return next;
+            }
+            window.__r3AudioCoreSetRate = setRateValue;
+
+            function cycleRate(event) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              const state = adapter?.snapshot?.() || loadState();
+              const currentRate = Number(state.playbackRate) || 1;
+              let index = rates.findIndex((value) => Math.abs(value - currentRate) < 0.01);
+              if (index < 0) index = 0;
+              setRateValue(rates[(index + 1) % rates.length]);
+            }"""
+          if old_cycle not in text:
+              raise SystemExit('audio core cycleRate block missing')
+          text = text.replace(old_cycle, new_cycle, 1)
+          p.write_text(text, encoding='utf-8')
+
+          # 4) Mobile player enhancer + chapter list + chapter label in Reader chrome.
+          p = root / 'artifact-library-reader-v35-continuity-single-owner-entry.js'
+          text = p.read_text(encoding='utf-8')
+          if 'data-r3-player-chapters-v38="1"' not in text:
+              insert_at = '\nfunction replaceScoped('
+              if insert_at not in text:
+                  raise SystemExit('v35 enhancer insertion marker missing')
+              enhancer = r'''
+          const V35_PLAYER_CHAPTERS = `<style data-r3-player-chapters-v38="1">
+          #r3AudioHead{grid-template-columns:minmax(0,1fr) 32px 50px 32px 36px!important;gap:5px!important}
+          #r3AudioSpeedDown,#r3AudioSpeedUp{height:36px;min-width:32px!important;border:1px solid var(--line,rgba(127,127,127,.22))!important;border-radius:11px!important;background:color-mix(in srgb,var(--fg,currentColor) 7%,transparent)!important;font-size:18px!important;font-weight:800!important;padding:0!important}
+          #r3AudioSpeedDown:disabled,#r3AudioSpeedUp:disabled{opacity:.32}
+          #r3AudioChapterMeta{margin-top:2px;color:var(--muted,#888);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          #r3AudioChapterNav{display:none;grid-template-columns:42px minmax(0,1fr) 42px;gap:7px;align-items:center;padding:2px 12px 8px}
+          #r3AudioDock.r3-expanded #r3AudioChapterNav{display:grid}
+          #r3AudioChapterPrev,#r3AudioChapterNext,#r3AudioChapterSelect{height:36px;border:1px solid var(--line,rgba(127,127,127,.22))!important;border-radius:10px!important;background:color-mix(in srgb,var(--fg,currentColor) 5%,transparent)!important;color:var(--fg,inherit)!important;font:inherit!important;font-size:11px!important;font-weight:700!important}
+          #r3AudioChapterPrev,#r3AudioChapterNext{min-width:42px!important;font-size:20px!important;padding:0!important}
+          #r3AudioChapterSelect{min-width:0;width:100%;padding:0 9px;text-overflow:ellipsis}
+          #r3ReaderChapterBadge{position:fixed;z-index:21;left:76px;right:76px;top:calc(max(10px,env(safe-area-inset-top)) + 30px);text-align:center;color:var(--muted,#888);font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transition:opacity .16s ease}
+          body.controls #r3ReaderChapterBadge{opacity:1}
+          body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(192px + env(safe-area-inset-bottom,0px))!important}
+          body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(197px + env(safe-area-inset-bottom,0px))!important}
+          </style>
+          <script data-r3-player-chapters-v38="1">
+          (()=>{
+            if(window.__r3PlayerChaptersV38)return;
+            window.__r3PlayerChaptersV38={version:'v38',chapterMoves:0};
+            const params=new URLSearchParams(location.search);
+            const bookKey=params.get('key')||'';
+            const dock=document.getElementById('r3AudioDock');
+            const audio=document.getElementById('r3AudioElement');
+            const speed=document.getElementById('r3AudioSpeed');
+            const status=document.getElementById('r3AudioStatus');
+            const title=document.getElementById('r3AudioTitle');
+            const copy=document.getElementById('r3AudioCopy');
+            const timeline=document.getElementById('r3AudioTimeline');
+            if(!bookKey||!dock||!audio||!speed||!status)return;
+            const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+            const bridge=()=>window.r3ReaderBridge||null;
+            const rates=[.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3];
+            let changing=false;
+            let chapterSig='';
+            let offRelocated=null;
+
+            const down=document.createElement('button');
+            down.id='r3AudioSpeedDown';down.type='button';down.textContent='−';down.setAttribute('aria-label','Giảm tốc độ');
+            const up=document.createElement('button');
+            up.id='r3AudioSpeedUp';up.type='button';up.textContent='+';up.setAttribute('aria-label','Tăng tốc độ');
+            speed.before(down);speed.after(up);
+
+            const meta=document.createElement('div');
+            meta.id='r3AudioChapterMeta';meta.textContent='Đang đọc chapter…';
+            if(copy)copy.appendChild(meta);
+
+            const nav=document.createElement('div');
+            nav.id='r3AudioChapterNav';
+            nav.innerHTML='<button id="r3AudioChapterPrev" type="button" aria-label="Chapter trước">‹</button><select id="r3AudioChapterSelect" aria-label="Danh sách chapter"></select><button id="r3AudioChapterNext" type="button" aria-label="Chapter sau">›</button>';
+            if(timeline)dock.insertBefore(nav,timeline);else dock.appendChild(nav);
+            const prev=nav.querySelector('#r3AudioChapterPrev');
+            const next=nav.querySelector('#r3AudioChapterNext');
+            const select=nav.querySelector('#r3AudioChapterSelect');
+
+            const badge=document.createElement('div');
+            badge.id='r3ReaderChapterBadge';
+            document.body.appendChild(badge);
+
+            function labelRate(value){const n=Number(value)||1;return String(n).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1')+'×';}
+            function currentRate(){const fromAudio=Number(audio.playbackRate);if(Number.isFinite(fromAudio)&&fromAudio>0)return fromAudio;return Number(String(speed.textContent||'1').replace('×',''))||1;}
+            function updateRateButtons(){const rate=currentRate();down.disabled=rate<=rates[0]+.001;up.disabled=rate>=rates[rates.length-1]-.001;}
+            function setRate(value){const nextRate=Math.max(rates[0],Math.min(rates[rates.length-1],Math.round(Number(value)*4)/4));const setter=window.__r3AudioCoreSetRate;if(typeof setter==='function')setter(nextRate);else{audio.playbackRate=nextRate;speed.textContent=labelRate(nextRate);}updateRateButtons();}
+            down.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();setRate(currentRate()-.25);},true);
+            up.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();setRate(currentRate()+.25);},true);
+            audio.addEventListener('ratechange',updateRateButtons);
+            speed.addEventListener('click',()=>setTimeout(updateRateButtons,0));
+            updateRateButtons();
+
+            async function refreshChapters(force=false){
+              try{
+                const b=bridge();
+                if(!b||typeof b.chapterInfo!=='function')return false;
+                const info=await b.chapterInfo();
+                const chapters=Array.isArray(info&&info.chapters)?info.chapters:[];
+                if(!chapters.length){meta.textContent='Chapter chưa có TOC';badge.textContent='';return false;}
+                const sig=chapters.map(row=>String(row.href||'')+'|'+String(row.label||'')).join('¦');
+                if(force||sig!==chapterSig||select.options.length!==chapters.length){
+                  chapterSig=sig;select.innerHTML='';
+                  chapters.forEach((row,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=String(row.label||('Chapter '+(index+1)));select.appendChild(option);});
+                }
+                const index=Math.max(0,Math.min(chapters.length-1,Number(info.index)>=0?Number(info.index):0));
+                select.value=String(index);
+                prev.disabled=index<=0;next.disabled=index>=chapters.length-1;
+                const row=chapters[index]||{};
+                meta.textContent='Chương '+(index+1)+' / '+chapters.length;
+                badge.textContent=String(row.label||('Chương '+(index+1)))+' · '+(index+1)+'/'+chapters.length;
+                return true;
+              }catch{return false;}
+            }
+
+            async function moveChapter(target,mode){
+              if(changing)return;
+              const b=bridge();
+              if(!b)return;
+              changing=true;
+              const wasPlaying=!audio.paused&&!audio.ended;
+              try{
+                audio.pause();
+                status.textContent='Nam Minh · chuyển chapter…';
+                let ok=false;
+                if(mode==='step'&&typeof b.stepChapter==='function')ok=await b.stepChapter(Number(target));
+                else if(mode==='index'&&typeof b.displayChapter==='function')ok=await b.displayChapter(Number(target));
+                if(!ok){status.textContent='Không chuyển được chapter';return;}
+                window.__r3PlayerChaptersV38.chapterMoves++;
+                await delay(260);
+                await refreshChapters(true);
+                const prepare=window.__r3AudioCorePrepareCurrent;
+                if(typeof prepare==='function')await prepare({autoplay:wasPlaying,allowSaved:false});
+                else status.textContent=wasPlaying?'Nam Minh · nhấn phát lại':'Nam Minh · sẵn sàng';
+              }catch(error){status.textContent=String(error&&error.message||'Lỗi chapter').slice(0,90);}
+              finally{changing=false;}
+            }
+
+            prev.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();moveChapter(-1,'step');},true);
+            next.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();moveChapter(1,'step');},true);
+            select.addEventListener('change',event=>{event.stopImmediatePropagation();moveChapter(Number(select.value),'index');},true);
+
+            const hook=()=>{const b=bridge();if(b&&typeof b.onRelocated==='function'&&!offRelocated){offRelocated=b.onRelocated(()=>setTimeout(()=>refreshChapters(false),100));return true;}return false;};
+            let tries=0;const boot=setInterval(()=>{hook();refreshChapters(false);if(++tries>40){clearInterval(boot);}},150);
+            window.addEventListener('pagehide',()=>{clearInterval(boot);try{offRelocated&&offRelocated();}catch{}},{once:true});
+          })();
+          </script>`;
+          '''
+              text = text.replace(insert_at, enhancer + insert_at, 1)
+
+          old_tail = "out = out.replace('</body>', V35_FLAG + V35_LAYOUT_STABILIZER + '</body>');"
+          new_tail = "out = out.replace('</body>', V35_FLAG + V35_LAYOUT_STABILIZER + V35_PLAYER_CHAPTERS + '</body>');"
+          if old_tail not in text:
+              raise SystemExit('v35 body enhancer marker missing')
+          text = text.replace(old_tail, new_tail, 1)
+          p.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Static and bundle regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/runner3-core/artifact-library-reader-v8-continuous-audio-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'const phraseSpan=12' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'async chapterInfo()' cloudflare/runner3-core/artifact-library-reader-v8-continuous-audio-entry.js
+          grep -q 'async stepChapter(delta)' cloudflare/runner3-core/artifact-library-reader-v8-continuous-audio-entry.js
+          grep -q 'window.__r3AudioCoreSetRate = setRateValue' cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'window.__r3AudioCorePrepareCurrent = prepareCurrent' cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'data-r3-player-chapters-v38' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+          npm install --no-save esbuild
+          node scripts/build_reader_audio_core_browser_bundle.mjs
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
+          node --test cloudflare/runner3-core/reader-audio-core/*.test.js
+
+      - name: Commit canonical source patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'reader-patch-bot'
+          git config user.email 'reader-patch-bot@users.noreply.github.com'
+          git add cloudflare/runner3-core/artifact-library-reader-v8-continuous-audio-entry.js
+          git add cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          git add cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+          git add cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          git add cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
+          git rm .github/workflows/reader-v38-player-chapters-patch.yml
+          git commit -m 'feat(reader): longer highlight speed controls and chapter nav'
+          git push origin main
