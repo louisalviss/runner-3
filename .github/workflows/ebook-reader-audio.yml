@@ -1,5 +1,5 @@
 name: Ebook Reader Audio
-run-name: Ebook Reader Audio · manual VPS fallback
+run-name: Ebook Reader Audio · ensure VPS consumer
 
 on:
   workflow_dispatch:
@@ -8,28 +8,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: ebook-reader-audio-vps-manual-fallback
+  group: ebook-reader-audio-vps-maintenance
   cancel-in-progress: false
 
 jobs:
-  kick-vps-consumer:
+  ensure-vps-consumer:
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 5
     steps:
-      - name: Run serialized VPS consumer once
+      - name: Ensure the sole persistent VPS consumer is healthy
         shell: bash
         run: |
           set -euo pipefail
-          test -x /usr/local/libexec/ebook-audio-vps-consumer-run
-          sudo /usr/local/libexec/ebook-audio-vps-consumer-run
-
-      - name: Verify VPS timer ownership
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo systemctl is-enabled ebook-audio-vps-consumer.timer
-          sudo systemctl is-active ebook-audio-vps-consumer.timer
-          if sudo systemctl is-enabled ebook-audio-vps-consumer.service >/dev/null 2>&1; then
-            echo 'Persistent service must remain disabled; timer is the runtime owner.' >&2
-            exit 1
+          if [ "$(systemctl is-active ebook-reader-audio-consumer.service 2>/dev/null || true)" != active ]; then
+            sudo systemctl start ebook-reader-audio-consumer.service
           fi
+          test "$(systemctl is-active ebook-reader-audio-consumer.service)" = active
+          test "$(systemctl is-enabled ebook-reader-audio-consumer.service)" = enabled
+          test "$(systemctl is-active ebook-reader-audio-tts.service 2>/dev/null || true)" != active
+          test "$(systemctl is-enabled ebook-reader-audio-tts.service 2>/dev/null || true)" != enabled
+          echo 'EBOOK_AUDIO_VPS_SINGLE_CONSUMER=PASS'
