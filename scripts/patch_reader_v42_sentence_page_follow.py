@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# trigger v42
 p = Path('cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js')
 s = p.read_text(encoding='utf-8')
 
