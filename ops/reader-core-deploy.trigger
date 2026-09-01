@@ -1,3 +1,3 @@
-core-mailbox-request-id-guard-20260901
-requested_at=2026-09-01T19:51:00+07:00
-reason=canonical production cutover for strict new-submission m_<32hex> request-id guard before D1 insert; preserve legacy drain compatibility
+ebook-audio-continuity-20260902
+requested_at=2026-09-02T02:06:00+07:00
+reason=deploy warm-ahead reader, processing lease, and sole VPS runtime path before enabling concurrent synthesis
