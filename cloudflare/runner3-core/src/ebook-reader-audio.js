@@ -9,6 +9,7 @@ const MAX_AUDIO_BYTES = 80 * 1024 * 1024;
 const MEDIA_TICKET_VERSION = "ebook-audio-media-v1";
 const MEDIA_TICKET_TTL_SECONDS = 4 * 60 * 60;
 const PROCESSING_LEASE_MS = 10 * 60 * 1000;
+const CLAIM_SCAN_LIMIT = 8;
 
 function json(value, status = 200) {
   return Response.json(value, {
@@ -101,6 +102,11 @@ function idValid(id) { return /^ebook-[a-f0-9]{32}$/.test(String(id || "")); }
 function itemKey(id) { return `${ITEM_PREFIX}${id}.json`; }
 function queueKey(id) { return `${QUEUE_PREFIX}${id}.json`; }
 function mediaPrefix(id) { return `${MEDIA_PREFIX}${id}/`; }
+
+function processingLeaseFresh(item, nowMs = Date.now()) {
+  const leaseAt = Date.parse(String(item?.processingAt || item?.updatedAt || ""));
+  return Number.isFinite(leaseAt) && nowMs - leaseAt < PROCESSING_LEASE_MS;
+}
 
 async function getJson(bucket, key) {
   const object = await bucket.get(key);
@@ -225,19 +231,24 @@ async function readExisting(env, id, bookKey) {
 }
 
 async function nextInternalJob(env) {
-  const listing = await env.AUDIO_MEDIA.list({ prefix: QUEUE_PREFIX, limit: 50 });
+  const listing = await env.AUDIO_MEDIA.list({ prefix: QUEUE_PREFIX, limit: CLAIM_SCAN_LIMIT });
   const objects = [...(listing.objects || [])].sort((a, b) => String(a.uploaded || "").localeCompare(String(b.uploaded || "")));
   for (const object of objects) {
     const queue = await getJson(env.AUDIO_MEDIA, object.key);
-    if (!queue || queue.kind !== "ebook-reader" || !idValid(queue.id)) continue;
-    const item = await getJson(env.AUDIO_MEDIA, queue.itemKey || itemKey(queue.id));
-    if (!item || item.kind !== "ebook-reader" || item.status === "ready") {
+    if (!queue || queue.kind !== "ebook-reader" || !idValid(queue.id)) {
       await env.AUDIO_MEDIA.delete(object.key);
       continue;
     }
-    if (item.status === "processing") {
-      const leaseAt = Date.parse(String(item.processingAt || item.updatedAt || ""));
-      if (Number.isFinite(leaseAt) && Date.now() - leaseAt < PROCESSING_LEASE_MS) continue;
+    const item = await getJson(env.AUDIO_MEDIA, queue.itemKey || itemKey(queue.id));
+    if (!item || item.kind !== "ebook-reader" || item.status === "ready" || item.status === "error") {
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    if (item.status === "processing" && processingLeaseFresh(item)) {
+      // Claimed jobs must not remain in the pending queue. Clean legacy entries
+      // incrementally so one poll never burns through the whole R2 listing.
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
     }
     const scriptObject = await env.AUDIO_MEDIA.get(queue.scriptKey || `${mediaPrefix(queue.id)}script.txt`);
     if (!scriptObject) {
@@ -255,6 +266,7 @@ async function nextInternalJob(env) {
     item.processingAt = now;
     item.updatedAt = now;
     await putJson(env.AUDIO_MEDIA, itemKey(queue.id), item);
+    await env.AUDIO_MEDIA.delete(object.key);
     return { ...queue, script };
   }
   return null;
@@ -357,11 +369,26 @@ export async function handleEbookReaderAudio(request, env) {
     const key = itemKey(id);
     const prefix = mediaPrefix(id);
     const existing = await getJson(env.AUDIO_MEDIA, key);
-    if (existing && existing.kind === "ebook-reader" && existing.bookKey === bookKey && existing.textSha256 === textSha256 && ["pending", "processing", "ready"].includes(existing.status)) {
-      return json(await publicStateWithMedia(env, existing));
+    const now = new Date().toISOString();
+    if (existing && existing.kind === "ebook-reader" && existing.bookKey === bookKey && existing.textSha256 === textSha256) {
+      if (existing.status === "ready" || existing.status === "pending" || (existing.status === "processing" && processingLeaseFresh(existing))) {
+        return json(await publicStateWithMedia(env, existing));
+      }
+      if (existing.status === "processing") {
+        // A crashed consumer no longer leaves a permanent processing tombstone.
+        // Recreate the pending queue only after the processing lease expires.
+        await env.AUDIO_MEDIA.put(`${prefix}script.txt`, script, { httpMetadata: { contentType: "text/plain; charset=utf-8" }, customMetadata: { scope: "ebook-reader-audio", voice: VOICE, version: AUDIO_VERSION } });
+        existing.status = "pending";
+        existing.error = null;
+        existing.processingAt = null;
+        existing.updatedAt = now;
+        const recoveryQueue = { id, kind: "ebook-reader", bookKey, itemKey: key, scriptKey: `${prefix}script.txt`, mediaPrefix: prefix, audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, createdAt: now };
+        await putJson(env.AUDIO_MEDIA, key, existing);
+        await putJson(env.AUDIO_MEDIA, queueKey(id), recoveryQueue);
+        return json(publicState(existing), 202);
+      }
     }
 
-    const now = new Date().toISOString();
     await env.AUDIO_MEDIA.put(`${prefix}script.txt`, script, { httpMetadata: { contentType: "text/plain; charset=utf-8" }, customMetadata: { scope: "ebook-reader-audio", voice: VOICE, version: AUDIO_VERSION } });
     const item = {
       id, kind: "ebook-reader", bookKey,
