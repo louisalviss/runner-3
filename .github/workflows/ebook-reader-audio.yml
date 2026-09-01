@@ -1,63 +1,30 @@
 name: Ebook Reader Audio
-run-name: Ebook Reader Audio · manual fallback · ${{ inputs.job_id || 'queue-scan' }}
+run-name: Ebook Reader Audio · ensure VPS consumer
 
 on:
   workflow_dispatch:
-    inputs:
-      job_id:
-        description: Optional ebook-<32hex> job id; blank scans queue
-        required: false
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: runner3-ebook-reader-audio
+  group: ebook-reader-audio-vps-maintenance
   cancel-in-progress: false
 
 jobs:
-  tts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      EBOOK_AUDIO_BUCKET: runner3-wp-media
-      EBOOK_AUDIO_VOICE: vi-VN-NamMinhNeural
-      EBOOK_AUDIO_VOICE_RATE: +3%
-      EBOOK_AUDIO_JOB_ID: ${{ inputs.job_id || '' }}
+  ensure-vps-consumer:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Report manual fallback trigger
-        shell: bash
-        run: |
-          echo "EBOOK_AUDIO_TRIGGER=workflow_dispatch"
-          echo "EBOOK_AUDIO_JOB_ID=${EBOOK_AUDIO_JOB_ID:-queue-scan}"
-
-      - name: Install TTS dependencies
+      - name: Ensure the sole persistent VPS consumer is healthy
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -q requests edge-tts==7.2.8
-          python - <<'PY'
-          import edge_tts
-          print('EDGE_TTS_VERSION=' + str(getattr(edge_tts, '__version__', '7.2.8')))
-          PY
-          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ffmpeg
+          if [ "$(systemctl is-active ebook-reader-audio-consumer.service 2>/dev/null || true)" != active ]; then
+            sudo systemctl start ebook-reader-audio-consumer.service
           fi
-
-      - name: Process Ebook Reader audio queue
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/ebook_reader_audio_tts_v2.py
+          test "$(systemctl is-active ebook-reader-audio-consumer.service)" = active
+          test "$(systemctl is-enabled ebook-reader-audio-consumer.service)" = enabled
+          test "$(systemctl is-active ebook-reader-audio-tts.service 2>/dev/null || true)" != active
+          test "$(systemctl is-enabled ebook-reader-audio-tts.service 2>/dev/null || true)" != enabled
+          echo 'EBOOK_AUDIO_VPS_SINGLE_CONSUMER=PASS'
