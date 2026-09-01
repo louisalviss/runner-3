@@ -1,0 +1,37 @@
+name: Ebook Audio Bounded Claim Test
+
+on:
+  push:
+    branches:
+      - main
+      - fix/ebook-audio-bounded-claim-lease
+    paths:
+      - 'cloudflare/runner3-core/src/ebook-reader-audio-bounded-claim.js'
+      - 'cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js'
+      - 'scripts/ebook_reader_audio_bounded_claim_test.mjs'
+      - '.github/workflows/ebook-reader-audio-bounded-claim-test.yml'
+  pull_request:
+    paths:
+      - 'cloudflare/runner3-core/src/ebook-reader-audio-bounded-claim.js'
+      - 'cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js'
+      - 'scripts/ebook_reader_audio_bounded_claim_test.mjs'
+      - '.github/workflows/ebook-reader-audio-bounded-claim-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bounded-claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate module syntax
+        run: |
+          node --check cloudflare/runner3-core/src/ebook-reader-audio-bounded-claim.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+      - name: Run bounded claim and lease regression
+        run: node --experimental-default-type=module scripts/ebook_reader_audio_bounded_claim_test.mjs
