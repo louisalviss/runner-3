@@ -1,0 +1,59 @@
+name: Ebook Audio VPS Live E2E Probe
+
+on:
+  push:
+    branches:
+      - ops/ebook-audio-vps-e2e-20260901
+    paths:
+      - .github/workflows/ebook-audio-vps-e2e-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  live-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Create real audio job and wait for VPS consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://runner3-core.ducduy2411.workers.dev'
+          BOOK_KEY='core/ebook/ops-vps-e2e/final/probe.epub'
+          TEXT='Đây là bài kiểm tra trực tiếp cho hệ thống đọc sách bằng giọng nói trên VPS. Mục tiêu là xác nhận hàng đợi được nhận, âm thanh được tạo, dữ liệu thời gian được xuất bản và trạng thái cuối cùng chuyển sang sẵn sàng.'
+          PAYLOAD="$(jq -nc --arg bookKey "$BOOK_KEY" --arg text "$TEXT" '{bookKey:$bookKey,text:$text,chapterTitle:"VPS E2E probe",chapterHref:"ops-vps-e2e",bookTitle:"Ebook Audio VPS E2E"}')"
+
+          START="$(date +%s)"
+          CREATE="$(curl --fail-with-body --silent --show-error --max-time 20 -H 'content-type: application/json' -d "$PAYLOAD" "$BASE/artifact-library/audio")"
+          ID="$(jq -r '.id // empty' <<<"$CREATE")"
+          STATUS="$(jq -r '.status // empty' <<<"$CREATE")"
+          test -n "$ID"
+          echo "job_id=$ID initial_status=$STATUS"
+
+          for i in $(seq 1 120); do
+            STATE="$(curl --fail-with-body --silent --show-error --max-time 15 "$BASE/artifact-library/audio?bookKey=$(printf '%s' "$BOOK_KEY" | jq -sRr @uri)&id=$ID")"
+            STATUS="$(jq -r '.status // empty' <<<"$STATE")"
+            NOW="$(date +%s)"
+            ELAPSED="$((NOW-START))"
+            echo "poll=$i elapsed_seconds=$ELAPSED status=$STATUS"
+
+            if [ "$STATUS" = 'ready' ]; then
+              jq '{ok,id,status,durationSeconds,timingAvailable,voice,voiceRate,error}' <<<"$STATE"
+              test "$(jq -r '.timingAvailable' <<<"$STATE")" = 'true'
+              test -n "$(jq -r '.mediaUrl // empty' <<<"$STATE")"
+              test -n "$(jq -r '.timingUrl // empty' <<<"$STATE")"
+              echo "EBOOK_AUDIO_VPS_E2E_PASS elapsed_seconds=$ELAPSED job_id=$ID"
+              exit 0
+            fi
+
+            if [ "$STATUS" = 'error' ]; then
+              jq '{ok,id,status,error,updatedAt}' <<<"$STATE"
+              echo "EBOOK_AUDIO_VPS_E2E_FAIL job entered error" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "EBOOK_AUDIO_VPS_E2E_TIMEOUT job_id=$ID last_status=$STATUS" >&2
+          exit 1
