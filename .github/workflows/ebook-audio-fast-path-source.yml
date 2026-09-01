@@ -1,0 +1,33 @@
+name: Ebook Audio Fast Path Source
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/runner3-core/audio-entry.js'
+      - 'cloudflare/runner3-core/src/ebook-reader-audio.js'
+      - 'scripts/verify_ebook_audio_fast_path.mjs'
+      - '.github/workflows/ebook-audio-fast-path-source.yml'
+  push:
+    branches:
+      - fix/ebook-audio-fast-internal-vps
+    paths:
+      - 'cloudflare/runner3-core/audio-entry.js'
+      - 'cloudflare/runner3-core/src/ebook-reader-audio.js'
+      - 'scripts/verify_ebook_audio_fast_path.mjs'
+      - '.github/workflows/ebook-audio-fast-path-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check cloudflare/runner3-core/audio-entry.js
+      - run: node --check cloudflare/runner3-core/src/ebook-reader-audio.js
+      - run: node scripts/verify_ebook_audio_fast_path.mjs
