@@ -16,10 +16,24 @@ function executableText(text) {
     .join('\n');
 }
 
+function isExplicitIsolatedPreview(source) {
+  const name = source.match(/^\s*PREVIEW_NAME:\s*([^\s#]+)\s*$/mi)?.[1] || '';
+  const rewritesWorkerName = /cfg\[['"]name['"]\]\s*=\s*os\.environ\[['"]PREVIEW_NAME['"]\]/.test(source);
+  const stripsScheduledTriggers = /cfg\.pop\(['"]triggers['"]\s*,\s*None\)/.test(source);
+  return Boolean(
+    name
+    && name !== 'runner3-core'
+    && /^runner3-core-[a-z0-9-]+$/i.test(name)
+    && rewritesWorkerName
+    && stripsScheduledTriggers
+  );
+}
+
 function coreDeployEvidence(text) {
   const source = executableText(text);
   const evidence = [];
   const inheritedCoreCwd = /defaults:[\s\S]{0,500}?working-directory:\s*(?:cloudflare|workers)\/runner3-core\b/i.test(source);
+  const isolatedPreview = isExplicitIsolatedPreview(source);
   const blocks = source.split(/\n(?=\s*-\s+(?:name:|uses:|run:))/g);
 
   for (const block of blocks) {
@@ -32,10 +46,10 @@ function coreDeployEvidence(text) {
     const wranglerAction = /cloudflare\/wrangler-action@/i.test(block)
       && /(?:workingDirectory|working-directory|command):[^\n]*runner3-core/i.test(block);
 
-    if ((wranglerDeploy || packageDeploy) && (coreCwd || coreTarget || inheritedCoreCwd)) {
+    if ((wranglerDeploy || packageDeploy) && (coreCwd || coreTarget || inheritedCoreCwd) && !isolatedPreview) {
       evidence.push('runner3-core-deploy-step');
     }
-    if (wranglerAction) evidence.push('runner3-core-wrangler-action');
+    if (wranglerAction && !isolatedPreview) evidence.push('runner3-core-wrangler-action');
   }
 
   if (/workers\/scripts\/runner3-core/i.test(source) && /(?:curl|fetch|api\.cloudflare\.com)/i.test(source)) {
@@ -63,5 +77,6 @@ const ownerEvidence = coreDeployEvidence(owner);
 if (!/group:\s*runner3-core-production/.test(owner)) throw new Error('canonical production concurrency group missing');
 if (!/CLOUDFLARE_API_TOKEN/.test(owner)) throw new Error('canonical production credential missing');
 if (!ownerEvidence.length) throw new Error('canonical production deploy evidence missing');
-if (!/reader-v31-high-speed-serialized-follow-entry\.js/.test(owner)) throw new Error('canonical Reader v31 composition missing');
-console.log(`RUNNER3_CORE_SINGLE_DEPLOY_OWNER=PASS owner=${allowed} workflows=${files.length} detection=step-aware`);
+if (!/artifact-library-reader-v33-audio-core-entry\.js/.test(owner)) throw new Error('canonical Reader v33 composition missing');
+if (!/__r3AudioLegacyV11Suppressed=true/.test(owner)) throw new Error('canonical Reader v33 legacy suppression gate missing');
+console.log(`RUNNER3_CORE_SINGLE_DEPLOY_OWNER=PASS owner=${allowed} workflows=${files.length} detection=step-aware preview-aware`);
