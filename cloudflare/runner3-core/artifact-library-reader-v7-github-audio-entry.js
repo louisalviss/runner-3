@@ -8,6 +8,7 @@ const GITHUB_API = "https://api.github.com";
 const GITHUB_REPO = "louisalviss/runner-3";
 const GITHUB_WORKFLOW = "ebook-reader-audio.yml";
 const ID_RE = /^ebook-[a-f0-9]{32}$/;
+const EBOOK_AUDIO_INTERNAL_PREFIX = "/api/internal/ebook-reader-audio/";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -32,10 +33,28 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
-function internalAuthorized(request, env) {
-  const expected = String(env.RUNNER3_CORE_TOKEN || "");
+function bearerToken(request) {
   const header = String(request.headers.get("authorization") || "");
-  return Boolean(expected) && header.startsWith("Bearer ") && safeEqual(header.slice(7), expected);
+  return header.startsWith("Bearer ") ? header.slice(7) : "";
+}
+
+function internalAuthorized(request, env) {
+  const bearer = bearerToken(request);
+  if (!bearer) return false;
+  const core = String(env.RUNNER3_CORE_TOKEN || "");
+  const dedicated = String(env.EBOOK_AUDIO_VPS_TOKEN || "");
+  return (Boolean(core) && safeEqual(bearer, core)) || (Boolean(dedicated) && safeEqual(bearer, dedicated));
+}
+
+function canonicalizeEbookAudioInternalRequest(request, env, url) {
+  if (!url.pathname.startsWith(EBOOK_AUDIO_INTERNAL_PREFIX)) return request;
+  const dedicated = String(env.EBOOK_AUDIO_VPS_TOKEN || "");
+  const core = String(env.RUNNER3_CORE_TOKEN || "");
+  const bearer = bearerToken(request);
+  if (!dedicated || !core || !safeEqual(bearer, dedicated)) return request;
+  const headers = new Headers(request.headers);
+  headers.set("authorization", `Bearer ${core}`);
+  return new Request(request, { headers });
 }
 
 function triggerRoute(pathname) {
@@ -80,7 +99,8 @@ export default {
     if (rssSaveResponse) return rssSaveResponse;
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
     const shouldDispatch = url.pathname === "/artifact-library/audio" && request.method === "POST";
-    const response = await ebookAudio.fetch(request, env, ctx, app);
+    const routedRequest = canonicalizeEbookAudioInternalRequest(request, env, url);
+    const response = await ebookAudio.fetch(routedRequest, env, ctx, app);
     if (shouldDispatch && response?.status === 202) {
       let jobId = "";
       try { const state = await response.clone().json(); if (ID_RE.test(String(state?.id || ""))) jobId = String(state.id); } catch {}
