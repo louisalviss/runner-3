@@ -1,0 +1,51 @@
+name: Reader v44 Clean Highlight Owner Patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/patch_reader_v44_clean_highlight_owner.py'
+      - 'scripts/patch_reader_v44_deploy_validation.py'
+      - '.github/workflows/reader-v44-clean-highlight-owner-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply v44 clean highlight owner
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_reader_v44_clean_highlight_owner.py
+          python3 scripts/patch_reader_v44_deploy_validation.py
+          node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+          grep -q 'data-r3-sentence-highlight-owner-v44' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q "const NAME='r3-sentence-current-v44'" cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q "registry.clear" cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'for(let step=0;step<5;step++)' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'if(direction>0)await b.next();' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'else await b.prev();' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          ! grep -q 'win.CSS.highlights.set(highlightName' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'v34+v35+v44:range-follow+single-audio+single-highlight-owner' .github/workflows/runner3-core-public-hosted-reader-deploy.yml
+      - name: Commit v44 source patch
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/reader-v44-clean-highlight-owner-patch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js \
+                  cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js \
+                  .github/workflows/runner3-core-public-hosted-reader-deploy.yml \
+                  .github/workflows/reader-v44-clean-highlight-owner-patch.yml
+          git commit -m 'fix(reader): replace highlight stack with single owner v44'
+          git push origin HEAD:main
