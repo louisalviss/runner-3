@@ -321,9 +321,39 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
     }catch{return false;}
   }
 
+  function clearAllAudioHighlights(){
+    const docs=new Set();
+    for(const frame of document.querySelectorAll('#viewer iframe')){
+      try{if(frame.contentDocument)docs.add(frame.contentDocument);}catch{}
+    }
+    try{
+      for(const content of bridge()?.contents?.()||[]){
+        const doc=content&&content.document;
+        if(doc)docs.add(doc);
+      }
+    }catch{}
+    if(activeDoc)docs.add(activeDoc);
+    for(const doc of docs){
+      try{doc.querySelectorAll('[data-r3-audio-reading-v11]').forEach(el=>el.removeAttribute('data-r3-audio-reading-v11'));}catch{}
+      try{
+        const registry=doc.defaultView&&doc.defaultView.CSS&&doc.defaultView.CSS.highlights;
+        if(!registry)continue;
+        registry.delete(highlightName);
+        try{
+          for(const item of registry){
+            const name=Array.isArray(item)?item[0]:item;
+            if(String(name||'').startsWith('r3-audio-'))registry.delete(name);
+          }
+        }catch{}
+      }catch{}
+    }
+  }
+
   function applyExactHighlight(range){
     if(!range)return;
     const doc=range.startContainer&&range.startContainer.ownerDocument;
+    if(!doc)return;
+    clearAllAudioHighlights();
     ensureFrameHooks(doc);
     try{
       const win=doc.defaultView;
