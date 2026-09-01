@@ -1,0 +1,208 @@
+from pathlib import Path
+
+
+def replace_once(path, old, new, label):
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    if new in text:
+        return
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one marker, got {count}")
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+path = "cloudflare/runner3-core/reader-audio-core/browser-production-integration.js"
+old = "  const bridge = () => window.r3ReaderBridge || null;\n  const setStatus = (text) => { status.textContent = String(text || 'Nam Minh').slice(0, 120); };"
+new = """  const bridge = () => window.r3ReaderBridge || null;
+  const warmAhead = async (waitMs = 0) => {
+    try {
+      const prime = window.__r3AudioContinuityV34?.primePrefetch;
+      if (typeof prime !== 'function') return null;
+      const task = Promise.resolve(prime());
+      if (!(Number(waitMs) > 0)) { task.catch(() => {}); return null; }
+      return await Promise.race([task, sleep(Math.max(0, Number(waitMs) || 0)).then(() => null)]);
+    } catch { return null; }
+  };
+  const setStatus = (text) => { status.textContent = String(text || 'Nam Minh').slice(0, 120); };"""
+replace_once(path, old, new, "browser:warmAhead-helper")
+
+old = """    const payload = framePayload();
+    if (!adapter || !payload || adapter.snapshot().chapter !== payload.chapter || !audio.getAttribute('src')) {
+      const ready = await prepareCurrent({ autoplay: true, allowSaved: true });"""
+new = """    const payload = framePayload();
+    if (!adapter || !payload || adapter.snapshot().chapter !== payload.chapter || !audio.getAttribute('src')) {
+      warmAhead(0);
+      const ready = await prepareCurrent({ autoplay: true, allowSaved: true });"""
+replace_once(path, old, new, "browser:prime-on-play")
+
+old = """      await adapter.mount(context);
+      if (autoplay) await adapter.play();
+      syncUi(adapter.snapshot());"""
+new = """      await adapter.mount(context);
+      if (autoplay) {
+        const rate = Math.max(1, Number(saved.playbackRate) || 1);
+        const effectiveSeconds = Math.max(0, Number(prepared.state.durationSeconds) || 0) / rate;
+        if (effectiveSeconds > 0 && effectiveSeconds < 18) {
+          setStatus('Nam Minh · chuẩn bị liền mạch…');
+          await warmAhead(Math.min(10000, Math.max(1500, Math.round((18 - effectiveSeconds) * 1000))));
+        }
+        await adapter.play();
+      }
+      syncUi(adapter.snapshot());"""
+replace_once(path, old, new, "browser:warm-barrier")
+
+path = "cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js"
+old = """  function schedulePrefetch(){
+    setTimeout(()=>prefetchOne(1),250);
+    setTimeout(()=>prefetchOne(2),1200);
+  }"""
+new = """  function schedulePrefetch(){
+    setTimeout(()=>prefetchOne(1),0);
+    setTimeout(()=>prefetchOne(2),150);
+  }"""
+replace_once(path, old, new, "v34:prefetch-delay")
+
+path = "cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js"
+old = "    `${debugNeedle}\\n    primePrefetch(){schedulePrefetch();return true;},`,"
+new = "    `${debugNeedle}\\n    primePrefetch(){schedulePrefetch();return prefetchOne(1);},`,"
+replace_once(path, old, new, "v35:awaitable-prime")
+
+path = "cloudflare/runner3-core/src/ebook-reader-audio.js"
+old = 'const MEDIA_TICKET_TTL_SECONDS = 4 * 60 * 60;'
+new = 'const MEDIA_TICKET_TTL_SECONDS = 4 * 60 * 60;\nconst PROCESSING_LEASE_MS = 10 * 60 * 1000;'
+replace_once(path, old, new, "core:lease-constant")
+old = """    if (!item || item.kind !== \"ebook-reader\" || item.status === \"ready\") {
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    const scriptObject = await env.AUDIO_MEDIA.get(queue.scriptKey || `${mediaPrefix(queue.id)}script.txt`);"""
+new = """    if (!item || item.kind !== \"ebook-reader\" || item.status === \"ready\") {
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    if (item.status === \"processing\") {
+      const leaseAt = Date.parse(String(item.processingAt || item.updatedAt || \"\"));
+      if (Number.isFinite(leaseAt) && Date.now() - leaseAt < PROCESSING_LEASE_MS) continue;
+    }
+    const scriptObject = await env.AUDIO_MEDIA.get(queue.scriptKey || `${mediaPrefix(queue.id)}script.txt`);"""
+replace_once(path, old, new, "core:skip-active-processing")
+
+path = "scripts/ebook_reader_audio_tts_vps.py"
+old = "import urllib.request\nfrom pathlib import Path"
+new = "import urllib.request\nfrom concurrent.futures import ThreadPoolExecutor\nfrom pathlib import Path"
+replace_once(path, old, new, "consumer:executor-import")
+old = 'WORKER_NAME = os.environ.get("EBOOK_AUDIO_VPS_WORKER", "linveo-vps1-ebook-audio").strip() or "linveo-vps1-ebook-audio"\n\nSTOP = False'
+new = '''WORKER_NAME = os.environ.get("EBOOK_AUDIO_VPS_WORKER", "linveo-vps1-ebook-audio").strip() or "linveo-vps1-ebook-audio"
+try:
+    MAX_CONCURRENCY = max(1, min(int(os.environ.get("EBOOK_AUDIO_VPS_CONCURRENCY", "2")), 4))
+except (TypeError, ValueError):
+    MAX_CONCURRENCY = 2
+
+STOP = False'''
+replace_once(path, old, new, "consumer:concurrency-config")
+
+p = Path(path)
+text = p.read_text(encoding="utf-8")
+start = text.index("def daemon_loop():\n")
+end = text.index("\ndef main():\n", start)
+new_loop = '''def daemon_loop():
+    processed = 0
+    failures = 0
+    last_heartbeat = 0.0
+    active = {}
+    print(
+        json.dumps(
+            {
+                "event": "consumer-start",
+                "worker": WORKER_NAME,
+                "pollSeconds": POLL_SECONDS,
+                "concurrency": MAX_CONCURRENCY,
+                "pid": os.getpid(),
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    report_state("active", {"phase": "start", "processed": processed, "failures": failures, "active": 0, "concurrency": MAX_CONCURRENCY})
+    last_heartbeat = time.monotonic()
+
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY, thread_name_prefix="ebook-audio") as pool:
+        while not STOP or active:
+            completed = [future for future in active if future.done()]
+            for future in completed:
+                job_id = active.pop(future)
+                try:
+                    future.result()
+                    processed += 1
+                    report_state("active", {"phase": "ready", "jobId": job_id, "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
+                except Exception as exc:
+                    failures += 1
+                    publish_failure(job_id, exc)
+                    print(
+                        json.dumps(
+                            {"event": "job-error", "jobId": job_id, "error": f"{type(exc).__name__}: {exc}"[:800]},
+                            ensure_ascii=False,
+                        ),
+                        flush=True,
+                    )
+                    report_state("degraded", {"phase": "job-error", "jobId": job_id, "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
+                last_heartbeat = time.monotonic()
+
+            claimed = False
+            if not STOP:
+                try:
+                    while len(active) < MAX_CONCURRENCY:
+                        job = claim_next_job()
+                        if not job:
+                            break
+                        job_id = str(job.get("id") or "")
+                        future = pool.submit(process_job, job)
+                        active[future] = job_id
+                        claimed = True
+                        print(json.dumps({"event": "job-start", "jobId": job_id, "active": len(active), "concurrency": MAX_CONCURRENCY}, ensure_ascii=False), flush=True)
+                except Exception as exc:
+                    failures += 1
+                    print(json.dumps({"event": "poll-error", "error": f"{type(exc).__name__}: {exc}"[:800]}, ensure_ascii=False), flush=True)
+                    report_state("degraded", {"phase": "poll-error", "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
+                    last_heartbeat = time.monotonic()
+                    time.sleep(min(10.0, max(POLL_SECONDS, 2.0)))
+                    continue
+
+            now = time.monotonic()
+            if now - last_heartbeat >= IDLE_HEARTBEAT_SECONDS:
+                report_state("active", {"phase": "busy" if active else "idle", "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
+                last_heartbeat = now
+            if not claimed and not completed:
+                time.sleep(min(POLL_SECONDS, 0.5) if active else POLL_SECONDS)
+
+    report_state("stopped", {"phase": "shutdown", "processed": processed, "failures": failures, "active": 0, "concurrency": MAX_CONCURRENCY})
+    print(json.dumps({"event": "consumer-stop", "processed": processed, "failures": failures, "concurrency": MAX_CONCURRENCY}, ensure_ascii=False), flush=True)
+    return 0
+'''
+p.write_text(text[:start] + new_loop + text[end:], encoding="utf-8")
+
+old = 'print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS}, ensure_ascii=False))'
+new = 'print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "concurrency": MAX_CONCURRENCY}, ensure_ascii=False))'
+replace_once(path, old, new, "consumer:check-config")
+
+path = "cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js"
+p = Path(path)
+text = p.read_text(encoding="utf-8")
+old = '''    const shouldDispatch = url.pathname === "/artifact-library/audio" && request.method === "POST";
+    const routedRequest = canonicalizeEbookAudioInternalRequest(request, env, url);
+    const response = await ebookAudio.fetch(routedRequest, env, ctx, app);
+    if (shouldDispatch && response?.status === 202) {
+      let jobId = "";
+      try { const state = await response.clone().json(); if (ID_RE.test(String(state?.id || ""))) jobId = String(state.id); } catch {}
+      const task = dispatchWorkflow(env, jobId).catch((error) => console.error("ebook audio dispatch failed", String(error?.message || error)));
+      if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
+    }
+    return response;'''
+new = '''    const routedRequest = canonicalizeEbookAudioInternalRequest(request, env, url);
+    return ebookAudio.fetch(routedRequest, env, ctx, app);'''
+if new not in text:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"v7:runtime-dispatch marker count={count}")
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
