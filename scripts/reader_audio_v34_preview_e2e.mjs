@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 
 const base = process.env.PREVIEW_URL;
+const productionBase = process.env.PRODUCTION_URL || 'https://runner3-core.ducduy2411.workers.dev';
 const bookKey = process.env.EBOOK_BROWSER_SMOKE_BOOK_KEY || 'core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub';
 if (!base) throw new Error('PREVIEW_URL_REQUIRED');
 
@@ -10,6 +11,21 @@ const context = await browser.newContext({ viewport: { width: 390, height: 760 }
 const page = await context.newPage();
 const pageErrors = [];
 page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
+
+await page.route('**/artifact-library/api/delivery', async (route) => {
+  const request = route.request();
+  const upstream = await context.request.fetch(`${productionBase}/artifact-library/api/delivery`, {
+    method: request.method(),
+    headers: { 'content-type': 'application/json', 'x-runner3-library': '1' },
+    data: request.postData() || '{}',
+    failOnStatusCode: false,
+  });
+  await route.fulfill({
+    status: upstream.status(),
+    headers: { 'content-type': upstream.headers()['content-type'] || 'application/json', 'cache-control': 'private, no-store' },
+    body: await upstream.body(),
+  });
+});
 
 try {
   const response = await page.goto(readerUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
