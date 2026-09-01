@@ -13,23 +13,24 @@ permissions:
 jobs:
   live-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Probe real audio job
+      - name: Probe fresh production audio job
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://runner3-core.ducduy2411.workers.dev'
-          BOOK_KEY='core/ebook/ops-vps-e2e/final/probe.epub'
-          TEXT='Đây là bài kiểm tra trực tiếp cho hệ thống đọc sách bằng giọng nói trên VPS. Mục tiêu là xác nhận hàng đợi được nhận, âm thanh được tạo, dữ liệu thời gian được xuất bản và trạng thái cuối cùng chuyển sang sẵn sàng.'
-          PAYLOAD="$(jq -nc --arg bookKey "$BOOK_KEY" --arg text "$TEXT" '{bookKey:$bookKey,text:$text,chapterTitle:"VPS E2E probe",chapterHref:"ops-vps-e2e",bookTitle:"Ebook Audio VPS E2E"}')"
+          BOOK_KEY='core/ebook/ops-vps-e2e/final/probe-tokenfile-auth-v2.epub'
+          TEXT='Đây là bài kiểm tra production mới sau khi khôi phục consumer âm thanh trên VPS. Job này phải được consumer Linveo nhận từ hàng đợi, tạo audio giọng Nam Minh, xuất timing và chuyển trạng thái sang ready mà không phụ thuộc vào job kiểm tra cũ.'
+          PAYLOAD="$(jq -nc --arg bookKey "$BOOK_KEY" --arg text "$TEXT" '{bookKey:$bookKey,text:$text,chapterTitle:"Fresh VPS auth recovery probe",chapterHref:"ops-vps-auth-recovery-v2",bookTitle:"Ebook Audio Fresh Production E2E"}')"
           CREATE="$(curl --fail-with-body --silent --show-error --max-time 20 -H 'content-type: application/json' -d "$PAYLOAD" "$BASE/artifact-library/audio")"
           ID="$(jq -r '.id // empty' <<<"$CREATE")"
           test -n "$ID"
+          echo "created_id=$ID"
           ENCODED_BOOK="$(printf '%s' "$BOOK_KEY" | jq -sRr @uri)"
 
           STATE="$CREATE"
-          for i in $(seq 1 15); do
+          for i in $(seq 1 60); do
             STATE="$(curl --fail-with-body --silent --show-error --max-time 15 "$BASE/artifact-library/audio?bookKey=$ENCODED_BOOK&id=$ID")"
             STATUS="$(jq -r '.status // empty' <<<"$STATE")"
             echo "poll=$i status=$STATUS"
@@ -38,13 +39,20 @@ jobs:
             sleep 1
           done
 
-          jq '{id,status,bookKey,durationSeconds,timingAvailable,voice,voiceRate,updatedAt,error,mediaPresent:(.mediaUrl!=null),timingUrlPresent:(.timingUrl!=null)}' <<<"$STATE" > probe-result.json
-          cat probe-result.json
+          jq '{id,status,bookKey,durationSeconds,timingAvailable,voice,voiceRate,updatedAt,error,mediaPresent:(.mediaUrl!=null),timingUrlPresent:(.timingUrl!=null)}' <<<"$STATE" | tee probe-result.json
+
+          test "$(jq -r '.status' <<<"$STATE")" = 'ready'
+          test "$(jq -r '.mediaUrl != null' <<<"$STATE")" = 'true'
+          test "$(jq -r '.timingUrl != null' <<<"$STATE")" = 'true'
+          test "$(jq -r '.timingAvailable == true' <<<"$STATE")" = 'true'
+          jq -e '(.durationSeconds // 0) > 0' <<<"$STATE" >/dev/null
+          test "$(jq -r '.error == null' <<<"$STATE")" = 'true'
+          echo 'FRESH_PRODUCTION_E2E=PASS'
 
       - name: Upload probe result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ebook-audio-vps-probe-result
+          name: ebook-audio-vps-probe-result-auth-recovery-v2
           path: probe-result.json
           if-no-files-found: error
