@@ -25,13 +25,16 @@ export class ReaderFollower {
     while (this.pending) {
       const job = this.pending;
       this.pending = null;
-      this.clearHighlight?.();
-      this.highlight?.(job.target);
       const visible = job.force ? false : Boolean(await this.isVisible?.(job.target));
       if (!visible && this.displayCfi) {
-        await this.displayCfi(job.target.cfi, { animate: false });
-        moved = true;
+        this.clearHighlight?.();
+        const landed = await this.displayCfi(job.target.cfi, { animate: false });
+        moved = Boolean(landed) || moved;
+        if (this.pending) continue;
+        if (landed === false && !Boolean(await this.isVisible?.(job.target))) continue;
       }
+      this.clearHighlight?.();
+      this.highlight?.(job.target);
     }
     return moved;
   }

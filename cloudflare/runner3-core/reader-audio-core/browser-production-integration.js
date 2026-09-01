@@ -176,11 +176,26 @@ function bootReaderAudioCore() {
 
   function blockVisible(el) {
     try {
-      const doc = el.ownerDocument;
-      const win = doc.defaultView;
-      const width = win?.innerWidth || doc.documentElement.clientWidth || 1;
-      const height = win?.innerHeight || doc.documentElement.clientHeight || 1;
-      return [...el.getClientRects()].some((rect) => rect.right > 2 && rect.left < width - 2 && rect.bottom > 2 && rect.top < height - 2);
+      const doc = el?.ownerDocument;
+      if (!doc) return false;
+      const payload = framePayload();
+      const frame = payload?.doc === doc ? payload.frame : null;
+      const viewer = document.getElementById('viewer');
+      return [...el.getClientRects()].some((rect) => {
+        if (frame && viewer) {
+          const fr = frame.getBoundingClientRect();
+          const vr = viewer.getBoundingClientRect();
+          const left = fr.left + rect.left;
+          const top = fr.top + rect.top;
+          const right = fr.left + rect.right;
+          const bottom = fr.top + rect.bottom;
+          return right > vr.left + 2 && left < vr.right - 2 && bottom > vr.top + 2 && top < vr.bottom - 2;
+        }
+        const win = doc.defaultView;
+        const width = win?.innerWidth || doc.documentElement.clientWidth || 1;
+        const height = win?.innerHeight || doc.documentElement.clientHeight || 1;
+        return rect.right > 2 && rect.left < width - 2 && rect.bottom > 2 && rect.top < height - 2;
+      });
     } catch { return false; }
   }
 
@@ -232,6 +247,18 @@ function bootReaderAudioCore() {
     const visible = segments.find((segment) => blockVisible(mappedElements.get(segment.cfi))) || segments[0] || null;
     const coverage = matched / Math.max(1, Math.min(domTokens.length, timingTokens.length));
     return { segments, visible, coverage };
+  }
+
+  function rebuildCurrentMapping(expectedChapter = '') {
+    try {
+      if (!currentTiming.length) return null;
+      const payload = framePayload();
+      if (!payload) return null;
+      if (expectedChapter && payload.chapter !== expectedChapter) return null;
+      currentPayload = payload;
+      const alignment = buildSegments(payload, currentTiming);
+      return alignment.segments.length ? alignment : null;
+    } catch { return null; }
   }
 
   async function readAudioState(id) {
@@ -297,10 +324,16 @@ function bootReaderAudioCore() {
     debug.displayConcurrent++;
     debug.maxDisplayConcurrent = Math.max(debug.maxDisplayConcurrent, debug.displayConcurrent);
     try {
+      const expectedChapter = String(currentPayload?.chapter || '');
       await b.display(cfi);
       try { b.persist?.(); } catch {}
-      await sleep(60);
-      return true;
+      for (let attempt = 0; attempt < 18; attempt++) {
+        await sleep(attempt === 0 ? 80 : 50);
+        rebuildCurrentMapping(expectedChapter);
+        const el = mappedElements.get(String(cfi));
+        if (el && blockVisible(el)) return true;
+      }
+      return false;
     } finally {
       debug.displayConcurrent = Math.max(0, debug.displayConcurrent - 1);
     }

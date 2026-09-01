@@ -1,3 +1,3 @@
-ebook-audio-continuity-20260902
-requested_at=2026-09-02T02:06:00+07:00
-reason=deploy warm-ahead reader, processing lease, and sole VPS runtime path before enabling concurrent synthesis
+ebook-reader-page-follow-boundary-v37
+requested_at=2026-09-01T22:23:16Z
+reason=fix outer viewport page-follow, remap DOM after CFI relocation, and reapply highlight only after landing
