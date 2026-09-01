@@ -8,9 +8,16 @@ explicitly without duplicating the queue/R2/idempotency implementation.
 Microsoft's consumer Edge TTS websocket can intermittently reject or fail a
 handshake. Retry those transport-level failures inside one queue attempt so a
 short service/network incident does not burn the job's durable retry budget.
+
+The wrapper also re-discovers the durable queue after each processed batch.
+That closes the gap where an Ebook Reader auto-next request can be queued while
+a workflow run is already active: the same run can now pick it up instead of
+waiting for the next scheduled scan.
 """
 
 import asyncio
+import json
+import os
 
 import aiohttp
 import edge_tts
@@ -68,5 +75,50 @@ async def synthesize_part_word_boundary(text, path):
 
 base.synthesize_part = synthesize_part_word_boundary
 
+
+def main():
+    base.require_env()
+    requested = os.environ.get("EBOOK_AUDIO_JOB_ID", "").strip()
+    pending = [base.normalize_job_id(requested)] if requested else []
+    processed = set()
+    failures = 0
+
+    while len(processed) < base.MAX_JOBS_PER_RUN:
+        if not pending:
+            pending = [job_id for job_id in base.discover_jobs() if job_id not in processed]
+            if not pending:
+                break
+
+        job_id = pending.pop(0)
+        if job_id in processed:
+            continue
+        processed.add(job_id)
+
+        try:
+            base.process_job(job_id)
+        except Exception as exc:
+            failures += 1
+            print(
+                json.dumps(
+                    {"jobId": job_id, "status": "error", "error": str(exc)},
+                    ensure_ascii=False,
+                )
+            )
+
+    if not processed:
+        print(json.dumps({"status": "idle", "queuePrefix": base.QUEUE_PREFIX}))
+    else:
+        print(
+            json.dumps(
+                {
+                    "status": "complete" if not failures else "partial-error",
+                    "processedJobs": len(processed),
+                    "failures": failures,
+                }
+            )
+        )
+    return 1 if failures else 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(base.main())
+    raise SystemExit(main())
