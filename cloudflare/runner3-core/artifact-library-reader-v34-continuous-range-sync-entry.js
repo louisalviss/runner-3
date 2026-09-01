@@ -372,8 +372,8 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
   }
 
   function schedulePrefetch(){
-    setTimeout(()=>prefetchOne(1),250);
-    setTimeout(()=>prefetchOne(2),1200);
+    setTimeout(()=>prefetchOne(1),0);
+    setTimeout(()=>prefetchOne(2),150);
   }
 
   const wrappedFetch=async(input,init)=>{

@@ -49,6 +49,15 @@ function bootReaderAudioCore() {
   let currentTiming = [];
 
   const bridge = () => window.r3ReaderBridge || null;
+  const warmAhead = async (waitMs = 0) => {
+    try {
+      const prime = window.__r3AudioContinuityV34?.primePrefetch;
+      if (typeof prime !== 'function') return null;
+      const task = Promise.resolve(prime());
+      if (!(Number(waitMs) > 0)) { task.catch(() => {}); return null; }
+      return await Promise.race([task, sleep(Math.max(0, Number(waitMs) || 0)).then(() => null)]);
+    } catch { return null; }
+  };
   const setStatus = (text) => { status.textContent = String(text || 'Nam Minh').slice(0, 120); };
   const setTitle = (text) => { if (title) title.textContent = String(text || 'Chương hiện tại').slice(0, 120); };
   const formatTime = (value) => {
@@ -414,7 +423,15 @@ function bootReaderAudioCore() {
         context.playbackRate = saved.playbackRate || 1;
       }
       await adapter.mount(context);
-      if (autoplay) await adapter.play();
+      if (autoplay) {
+        const rate = Math.max(1, Number(saved.playbackRate) || 1);
+        const effectiveSeconds = Math.max(0, Number(prepared.state.durationSeconds) || 0) / rate;
+        if (effectiveSeconds > 0 && effectiveSeconds < 18) {
+          setStatus('Nam Minh · chuẩn bị liền mạch…');
+          await warmAhead(Math.min(10000, Math.max(1500, Math.round((18 - effectiveSeconds) * 1000))));
+        }
+        await adapter.play();
+      }
       syncUi(adapter.snapshot());
       setStatus(autoplay ? 'Nam Minh · đang phát' : 'Nam Minh · sẵn sàng');
       return adapter.snapshot();
@@ -434,6 +451,7 @@ function bootReaderAudioCore() {
     if (busy) return;
     const payload = framePayload();
     if (!adapter || !payload || adapter.snapshot().chapter !== payload.chapter || !audio.getAttribute('src')) {
+      warmAhead(0);
       const ready = await prepareCurrent({ autoplay: true, allowSaved: true });
       if (!ready) return;
       return;

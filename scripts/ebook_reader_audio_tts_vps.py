@@ -17,6 +17,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import ebook_reader_audio_tts_v2 as timing_worker
@@ -36,6 +37,10 @@ POLL_SECONDS = max(0.25, min(float(os.environ.get("EBOOK_AUDIO_VPS_POLL_SECONDS"
 IDLE_HEARTBEAT_SECONDS = max(10.0, min(float(os.environ.get("EBOOK_AUDIO_VPS_HEARTBEAT_SECONDS", "30")), 300.0))
 LOCK_PATH = os.environ.get("EBOOK_AUDIO_VPS_LOCK", "/run/ebook-reader-audio-consumer.lock")
 WORKER_NAME = os.environ.get("EBOOK_AUDIO_VPS_WORKER", "linveo-vps1-ebook-audio").strip() or "linveo-vps1-ebook-audio"
+try:
+    MAX_CONCURRENCY = max(1, min(int(os.environ.get("EBOOK_AUDIO_VPS_CONCURRENCY", "2")), 4))
+except (TypeError, ValueError):
+    MAX_CONCURRENCY = 2
 
 STOP = False
 
@@ -234,25 +239,32 @@ def daemon_loop():
     processed = 0
     failures = 0
     last_heartbeat = 0.0
+    active = {}
     print(
         json.dumps(
-            {"event": "consumer-start", "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "pid": os.getpid()},
+            {
+                "event": "consumer-start",
+                "worker": WORKER_NAME,
+                "pollSeconds": POLL_SECONDS,
+                "concurrency": MAX_CONCURRENCY,
+                "pid": os.getpid(),
+            },
             ensure_ascii=False,
         ),
         flush=True,
     )
-    report_state("active", {"phase": "start", "processed": processed, "failures": failures})
+    report_state("active", {"phase": "start", "processed": processed, "failures": failures, "active": 0, "concurrency": MAX_CONCURRENCY})
     last_heartbeat = time.monotonic()
 
-    while not STOP:
-        try:
-            job = claim_next_job()
-            if job:
-                job_id = str(job.get("id") or "")
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY, thread_name_prefix="ebook-audio") as pool:
+        while not STOP or active:
+            completed = [future for future in active if future.done()]
+            for future in completed:
+                job_id = active.pop(future)
                 try:
-                    process_job(job)
+                    future.result()
                     processed += 1
-                    report_state("active", {"phase": "ready", "jobId": job_id, "processed": processed, "failures": failures})
+                    report_state("active", {"phase": "ready", "jobId": job_id, "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
                 except Exception as exc:
                     failures += 1
                     publish_failure(job_id, exc)
@@ -263,26 +275,39 @@ def daemon_loop():
                         ),
                         flush=True,
                     )
-                    report_state("degraded", {"phase": "job-error", "jobId": job_id, "processed": processed, "failures": failures})
+                    report_state("degraded", {"phase": "job-error", "jobId": job_id, "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
                 last_heartbeat = time.monotonic()
-                continue
+
+            claimed = False
+            if not STOP:
+                try:
+                    while len(active) < MAX_CONCURRENCY:
+                        job = claim_next_job()
+                        if not job:
+                            break
+                        job_id = str(job.get("id") or "")
+                        future = pool.submit(process_job, job)
+                        active[future] = job_id
+                        claimed = True
+                        print(json.dumps({"event": "job-start", "jobId": job_id, "active": len(active), "concurrency": MAX_CONCURRENCY}, ensure_ascii=False), flush=True)
+                except Exception as exc:
+                    failures += 1
+                    print(json.dumps({"event": "poll-error", "error": f"{type(exc).__name__}: {exc}"[:800]}, ensure_ascii=False), flush=True)
+                    report_state("degraded", {"phase": "poll-error", "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
+                    last_heartbeat = time.monotonic()
+                    time.sleep(min(10.0, max(POLL_SECONDS, 2.0)))
+                    continue
 
             now = time.monotonic()
             if now - last_heartbeat >= IDLE_HEARTBEAT_SECONDS:
-                report_state("active", {"phase": "idle", "processed": processed, "failures": failures})
+                report_state("active", {"phase": "busy" if active else "idle", "processed": processed, "failures": failures, "active": len(active), "concurrency": MAX_CONCURRENCY})
                 last_heartbeat = now
-            time.sleep(POLL_SECONDS)
-        except Exception as exc:
-            failures += 1
-            print(json.dumps({"event": "poll-error", "error": f"{type(exc).__name__}: {exc}"[:800]}, ensure_ascii=False), flush=True)
-            report_state("degraded", {"phase": "poll-error", "processed": processed, "failures": failures})
-            last_heartbeat = time.monotonic()
-            time.sleep(min(10.0, max(POLL_SECONDS, 2.0)))
+            if not claimed and not completed:
+                time.sleep(min(POLL_SECONDS, 0.5) if active else POLL_SECONDS)
 
-    report_state("stopped", {"phase": "shutdown", "processed": processed, "failures": failures})
-    print(json.dumps({"event": "consumer-stop", "processed": processed, "failures": failures}, ensure_ascii=False), flush=True)
+    report_state("stopped", {"phase": "shutdown", "processed": processed, "failures": failures, "active": 0, "concurrency": MAX_CONCURRENCY})
+    print(json.dumps({"event": "consumer-stop", "processed": processed, "failures": failures, "concurrency": MAX_CONCURRENCY}, ensure_ascii=False), flush=True)
     return 0
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -295,7 +320,7 @@ def main():
     if not CORE_URL.startswith("https://"):
         raise RuntimeError("RUNNER3_CORE_URL must be HTTPS")
     if args.check_config:
-        print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "concurrency": MAX_CONCURRENCY}, ensure_ascii=False))
         return 0
 
     signal.signal(signal.SIGTERM, handle_signal)
