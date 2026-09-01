@@ -1,0 +1,52 @@
+name: Temp Ebook Audio Direct R2 VPS Probe
+
+on:
+  push:
+    branches:
+      - diag/ebook-audio-direct-r2-vps
+    paths:
+      - '.github/workflows/temp-ebook-audio-direct-r2-vps-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      EBOOK_AUDIO_BUCKET: runner3-wp-media
+    steps:
+      - name: Probe VPS runner and direct R2 credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HOST=$(hostname)"
+          echo "USER=$(id -un)"
+          test -n "${CLOUDFLARE_API_TOKEN:-}" && echo 'CF_TOKEN=PRESENT' || { echo 'CF_TOKEN=MISSING'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" && echo 'CF_ACCOUNT=PRESENT' || { echo 'CF_ACCOUNT=MISSING'; exit 2; }
+          echo "SERVICE_ACTIVE=$(systemctl is-active ebook-reader-audio-tts.service 2>/dev/null || true)"
+          echo "SERVICE_ENABLED=$(systemctl is-enabled ebook-reader-audio-tts.service 2>/dev/null || true)"
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${EBOOK_AUDIO_BUCKET}/objects?prefix=audio-library%2Febook-reader-queue%2F&per_page=1"
+          code="$(curl -sS --max-time 30 -o /tmp/r2-probe.json -w '%{http_code}' -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$url")"
+          echo "R2_HTTP=$code"
+          python3 - <<'PY'
+          import json
+          p='/tmp/r2-probe.json'
+          try:
+              d=json.load(open(p))
+          except Exception as e:
+              raise SystemExit('R2_JSON_INVALID:'+type(e).__name__)
+          print('R2_SUCCESS='+str(bool(d.get('success'))).lower())
+          result=d.get('result') or []
+          print('R2_ROWS='+str(len(result) if isinstance(result,list) else -1))
+          if not d.get('success'):
+              errs=d.get('errors') or []
+              print('R2_ERROR_CODES='+','.join(str(x.get('code')) for x in errs if isinstance(x,dict)))
+          PY
+          test "$code" = 200
+          python3 -c 'import json; d=json.load(open("/tmp/r2-probe.json")); assert d.get("success") is True'
+          echo 'EBOOK_AUDIO_DIRECT_R2_VPS_PROBE=PASS'
