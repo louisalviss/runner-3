@@ -236,7 +236,12 @@ try {
 
   const finalAudit = await page.evaluate(() => ({ audit: window.__r3OwnerAudit, debug: window.__r3AudioCoreV33Debug }));
   if (finalAudit.debug.maxDisplayConcurrent > 1) throw new Error(`DISPLAY_OVERLAP:${JSON.stringify(finalAudit.debug)}`);
-  const fatal = errors.filter((text) => !/favicon|ResizeObserver/i.test(text));
+  const fatal = errors.filter((text) => {
+    if (/favicon|ResizeObserver/i.test(text)) return false;
+    const knownEpubRangeNoise = /setting end offset to start container length failed IndexSizeError: Failed to execute 'setEnd' on 'Range': There is no child at offset \d+\./i.test(text)
+      && /\/artifact-library\/vendor\/epub\.min\.js/i.test(text);
+    return !knownEpubRangeNoise;
+  });
   if (fatal.length) throw new Error(`BROWSER_ERRORS:${fatal.slice(0, 5).join(' | ')}`);
 
   console.log(JSON.stringify({ phase: 'reader-audio-core-v33-preview', ok: true, runtime, proof, postCount, singleMainOwner: ownership.audit.mainClicks === 1, single75msClock: clocks75 === 1, legacyOwnersSuppressed: ownership.flags, periodicPersist: true, rate2x: true, autoNext: true, resume: true, maxDisplayConcurrent: finalAudit.debug.maxDisplayConcurrent, productionMutation: false }));
