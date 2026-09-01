@@ -166,3 +166,147 @@ jobs:
           grep -q 'pending' /tmp/mailbox.csv
 
           echo 'RUNNER3_CORE_PRODUCTION_V35_AUDIO_FAST_PATH=PASS'
+
+  sync_ebook_audio_token:
+    needs: deploy
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[sync-ebook-audio-token]')
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - name: Checkout canonical Core source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Rotate one shared Core token and sync VPS atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          token="$(python3 - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(48))
+          PY
+          )"
+          test -n "$token"
+          echo "::add-mask::$token"
+          printf '%s' "$token" | npx --yes wrangler@4 secret put RUNNER3_CORE_TOKEN --config cloudflare/runner3-core/wrangler.jsonc
+          sudo -n env R3_TOKEN="$token" CORE_URL="$CORE_URL" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path('/etc/chatgpt-vps-bridge.env')
+          lines=p.read_text(encoding='utf-8').splitlines() if p.exists() else []
+          updates={'RUNNER3_CORE_TOKEN':os.environ['R3_TOKEN'],'RUNNER3_CORE_URL':os.environ['CORE_URL']}
+          out=[]; seen=set()
+          for line in lines:
+              if '=' in line and not line.lstrip().startswith('#'):
+                  key=line.split('=',1)[0].strip()
+                  if key in updates:
+                      out.append(f'{key}={updates[key]}'); seen.add(key); continue
+              out.append(line)
+          for key,value in updates.items():
+              if key not in seen: out.append(f'{key}={value}')
+          p.write_text('\n'.join(out)+'\n',encoding='utf-8')
+          p.chmod(0o600)
+          PY
+          sudo -n systemctl restart ebook-reader-audio-consumer.service
+          sync
+          ok=0
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -I -o /tmp/ebook-auth-head -w '%{http_code}' -H "Authorization: Bearer $token" "$CORE_URL/api/internal/ebook-reader-audio/job" || true)"
+            echo "INTERNAL_AUTH_HEAD attempt=$attempt http=$code"
+            if [ "$code" = 405 ]; then ok=1; break; fi
+            sleep 1
+          done
+          test "$ok" = 1
+          sleep 3
+          test "$(systemctl is-active ebook-reader-audio-consumer.service)" = active
+          if sudo journalctl -u ebook-reader-audio-consumer.service --since '-10 sec' --no-pager -o cat | grep -q 'UNAUTHORIZED'; then
+            echo 'CONSUMER_INTERNAL_AUTH_STILL_UNAUTHORIZED' >&2
+            exit 1
+          fi
+          echo 'EBOOK_AUDIO_TOKEN_SYNC=PASS'
+
+  ebook_audio_live_smoke:
+    needs: sync_ebook_audio_token
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      job_id: ${{ steps.smoke.outputs.job_id }}
+      pending_to_ready_seconds: ${{ steps.smoke.outputs.pending_to_ready_seconds }}
+    steps:
+      - name: Create unique production audio job and wait for ready
+        id: smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,time,urllib.parse,urllib.request,uuid,os
+          base='https://runner3-core.ducduy2411.workers.dev'
+          stamp=uuid.uuid4().hex[:12]
+          book_key='core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub'
+          text=('Đây là kiểm tra production cho consumer âm thanh Ebook Reader trên VPS. '
+                'Yêu cầu mới phải được lấy khỏi hàng đợi gần như ngay lập tức, tổng hợp bằng giọng Nam Minh, '
+                'tạo timing theo từ và chuyển sang trạng thái sẵn sàng. Mã '+stamp+'.')
+          payload={'bookKey':book_key,'text':text,'chapterTitle':'VPS owned smoke '+stamp,'chapterHref':'Text/vps-owned-smoke-'+stamp+'.xhtml','bookTitle':'VPS owned smoke','clientVersion':'vps-owned-smoke-v1'}
+          req=urllib.request.Request(base+'/artifact-library/audio',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'Mozilla/5.0','Origin':base,'Referer':base+'/'},method='POST')
+          start=time.monotonic()
+          try:
+              with urllib.request.urlopen(req,timeout=30) as response:
+                  http=response.status; state=json.load(response)
+          except urllib.error.HTTPError as exc:
+              body=exc.read().decode('utf-8','replace')[:1000]
+              raise SystemExit(f'CREATE_HTTP_{exc.code}:{body}')
+          job_id=state.get('id')
+          if http not in (200,202) or not job_id: raise SystemExit('CREATE_INVALID:'+json.dumps(state,ensure_ascii=False))
+          while time.monotonic()-start < 120:
+              if state.get('status')=='ready': break
+              if state.get('status')=='error': raise SystemExit('AUDIO_ERROR:'+json.dumps(state,ensure_ascii=False))
+              time.sleep(.75)
+              q=urllib.parse.urlencode({'id':job_id,'bookKey':book_key})
+              with urllib.request.urlopen(base+'/artifact-library/audio?'+q,timeout=30) as response: state=json.load(response)
+          elapsed=round(time.monotonic()-start,3)
+          if state.get('status')!='ready': raise SystemExit('AUDIO_READY_TIMEOUT:'+json.dumps({'id':job_id,'last':state},ensure_ascii=False))
+          out=os.environ['GITHUB_OUTPUT']
+          with open(out,'a',encoding='utf-8') as f:
+              f.write('job_id='+job_id+'\n')
+              f.write('pending_to_ready_seconds='+str(elapsed)+'\n')
+          print(json.dumps({'ok':True,'jobId':job_id,'pendingToReadySeconds':elapsed,'durationSeconds':state.get('durationSeconds'),'timingAvailable':state.get('timingAvailable')},ensure_ascii=False))
+          print('EBOOK_AUDIO_LIVE_PENDING_TO_READY=PASS')
+          PY
+
+  verify_ebook_audio_vps_owner:
+    needs: ebook_audio_live_smoke
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - name: Prove exact smoke job was rendered by persistent VPS consumer
+        shell: bash
+        env:
+          JOB_ID: ${{ needs.ebook_audio_live_smoke.outputs.job_id }}
+          READY_SECONDS: ${{ needs.ebook_audio_live_smoke.outputs.pending_to_ready_seconds }}
+        run: |
+          set -euo pipefail
+          test -n "$JOB_ID"
+          test "$(systemctl is-active ebook-reader-audio-consumer.service)" = active
+          test "$(systemctl is-enabled ebook-reader-audio-consumer.service)" = enabled
+          test "$(systemctl is-active ebook-reader-audio-tts.service 2>/dev/null || true)" != active
+          ok=0
+          for attempt in $(seq 1 30); do
+            if sudo journalctl -u ebook-reader-audio-consumer.service --since '-5 min' --no-pager -o cat | grep -F '"jobId": "'"$JOB_ID"'"' | grep -q '"event": "job-ready"'; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ok" = 1
+          echo "EBOOK_AUDIO_VPS_OWNED_JOB_READY=$JOB_ID"
+          echo "EBOOK_AUDIO_PENDING_TO_READY_SECONDS=$READY_SECONDS"
+          echo 'EBOOK_AUDIO_VPS_RUNTIME_CUTOVER=PASS'
