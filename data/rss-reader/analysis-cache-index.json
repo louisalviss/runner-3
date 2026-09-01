@@ -1,14 +1,14 @@
 {
   "version": 1,
   "policy": "lazy-selected-analysis-fetch; parallel-batch; raw-text-artifact-ttl-7d; repo-stores-pointer-only",
-  "updatedAt": "2026-08-31T21:12:09Z",
+  "updatedAt": "2026-09-01T10:21:50Z",
   "latestRequestId": "rss-deep-20260823-2-3-4-9-14-15-18-25-28",
-  "latestRunId": 33440086987,
-  "latestArtifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+  "latestRunId": 33497007012,
+  "latestArtifactName": null,
   "requestedCount": 9,
-  "cacheHitCount": 2,
-  "fetchedCount": 6,
-  "errorCount": 1,
+  "cacheHitCount": 7,
+  "fetchedCount": 0,
+  "errorCount": 2,
   "entries": {
     "https://hoquoctuan.substack.com/p/oc-cham-238-cuoc-chien-loi-suat-trai": {
       "displayIndex": 15,
@@ -168,7 +168,9 @@
       "rawTextSha256": "sha256:40167b5ce79b947ade64d18a276ea39cb7d04ac64cf9afa4e9514338610407a8",
       "fetchedAt": "2026-08-25T02:08:03Z",
       "expiresAt": "2026-09-01T02:08:03Z",
-      "status": "ready"
+      "status": "error",
+      "lastError": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 273",
+      "lastErrorAt": "2026-09-01T10:21:50Z"
     },
     "https://www.economist.com/business/2026/08/23/china-is-training-up-thousands-of-humanoid-robots": {
       "displayIndex": 2,
@@ -190,7 +192,7 @@
       "expiresAt": "2026-08-31T20:59:56Z",
       "status": "error",
       "lastError": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 252",
-      "lastErrorAt": "2026-08-31T21:12:05Z"
+      "lastErrorAt": "2026-09-01T10:21:50Z"
     },
     "https://nghiencuuquocte.org/2026/08/22/cuoc-khung-hoang-kinh-te-toan-cau-tiep-theo-co-the-bat-nguon-tu-trung-quoc/": {
       "displayIndex": 11,
@@ -346,72 +348,69 @@
         "status": "cache_hit"
       },
       {
-        "displayIndex": 4,
-        "canonicalUrl": "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-32800203901",
-        "runId": 32800203901,
-        "rawTextSha256": "sha256:40167b5ce79b947ade64d18a276ea39cb7d04ac64cf9afa4e9514338610407a8",
-        "expiresAt": "2026-09-01T02:08:03Z",
+        "displayIndex": 9,
+        "canonicalUrl": "https://genk.vn/cong-an-phat-thong-bao-quan-trong-ve-thay-doi-moi-tu-28-9-toi-tat-ca-nhung-ai-co-tai-khoan-vneid-165260823171357428.chn",
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+        "runId": 33440086987,
+        "rawTextSha256": "sha256:143abe38ce5f720320853b0f9cb9a5ad1d84633d3b685eb0c8d38b347644695d",
+        "expiresAt": "2026-09-07T21:12:06Z",
         "status": "cache_hit"
-      }
-    ],
-    "fetched": [
+      },
       {
         "displayIndex": 14,
-        "sourceKey": "genk",
         "canonicalUrl": "https://genk.vn/tu-tuan-nay-nhung-truong-hop-sau-se-bi-khoa-tai-khoan-mang-xa-hoi-vo-thoi-han-165260823150449901.chn",
-        "route": "direct",
-        "chars": 1877,
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+        "runId": 33440086987,
         "rawTextSha256": "sha256:d465db31e6d4a7e628f2d0bf46a02cfe756d6b94a998b8af369c70183c53118e",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987"
-      },
-      {
-        "displayIndex": 18,
-        "sourceKey": "genk",
-        "canonicalUrl": "https://genk.vn/hang-xe-may-dien-viet-vua-noi-tam-dung-nay-da-he-lo-du-an-moi-gia-hon-30-trieu-ra-mat-thang-sau-165260823144712856.chn",
-        "route": "direct",
-        "chars": 3183,
-        "rawTextSha256": "sha256:e244ecce0acd265e5ddea206851ad6efc2d9498d91212b271486d7714f4c6375",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987"
-      },
-      {
-        "displayIndex": 9,
-        "sourceKey": "genk",
-        "canonicalUrl": "https://genk.vn/cong-an-phat-thong-bao-quan-trong-ve-thay-doi-moi-tu-28-9-toi-tat-ca-nhung-ai-co-tai-khoan-vneid-165260823171357428.chn",
-        "route": "direct",
-        "chars": 5689,
-        "rawTextSha256": "sha256:143abe38ce5f720320853b0f9cb9a5ad1d84633d3b685eb0c8d38b347644695d",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987"
-      },
-      {
-        "displayIndex": 25,
-        "sourceKey": "genk",
-        "canonicalUrl": "https://genk.vn/muc-xu-phat-vi-pham-hanh-chinh-doi-voi-hanh-vi-vi-pham-ve-bao-ve-du-lieu-ca-nhan-165260823144515216.chn",
-        "route": "direct",
-        "chars": 10290,
-        "rawTextSha256": "sha256:edc0a1dec1491a3af95d365c2f1ccff4a135e10d92d7d49330ddd5413368d15e",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987"
-      },
-      {
-        "displayIndex": 28,
-        "sourceKey": "genk",
-        "canonicalUrl": "https://genk.vn/vi-sao-dong-vat-tren-trai-dat-hau-nhu-deu-co-co-the-doi-xung-hai-ben-165260823003841528.chn",
-        "route": "direct",
-        "chars": 7742,
-        "rawTextSha256": "sha256:0eb171de0c66689581e1c003725ba228b204391a65a4da46f56963b59d8af729",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987"
+        "expiresAt": "2026-09-07T21:12:06Z",
+        "status": "cache_hit"
       },
       {
         "displayIndex": 15,
-        "sourceKey": "hoquoctuan",
         "canonicalUrl": "https://hoquoctuan.substack.com/p/oc-cham-238-cuoc-chien-loi-suat-trai",
-        "route": "jina-live",
-        "chars": 30721,
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+        "runId": 33440086987,
         "rawTextSha256": "sha256:5b7c5606837ff9137bb6d9a726440524db1096e7c6e475a5942e6947bb05dc23",
-        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987"
+        "expiresAt": "2026-09-07T21:12:09Z",
+        "status": "cache_hit"
+      },
+      {
+        "displayIndex": 18,
+        "canonicalUrl": "https://genk.vn/hang-xe-may-dien-viet-vua-noi-tam-dung-nay-da-he-lo-du-an-moi-gia-hon-30-trieu-ra-mat-thang-sau-165260823144712856.chn",
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+        "runId": 33440086987,
+        "rawTextSha256": "sha256:e244ecce0acd265e5ddea206851ad6efc2d9498d91212b271486d7714f4c6375",
+        "expiresAt": "2026-09-07T21:12:06Z",
+        "status": "cache_hit"
+      },
+      {
+        "displayIndex": 25,
+        "canonicalUrl": "https://genk.vn/muc-xu-phat-vi-pham-hanh-chinh-doi-voi-hanh-vi-vi-pham-ve-bao-ve-du-lieu-ca-nhan-165260823144515216.chn",
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+        "runId": 33440086987,
+        "rawTextSha256": "sha256:edc0a1dec1491a3af95d365c2f1ccff4a135e10d92d7d49330ddd5413368d15e",
+        "expiresAt": "2026-09-07T21:12:06Z",
+        "status": "cache_hit"
+      },
+      {
+        "displayIndex": 28,
+        "canonicalUrl": "https://genk.vn/vi-sao-dong-vat-tren-trai-dat-hau-nhu-deu-co-co-the-doi-xung-hai-ben-165260823003841528.chn",
+        "artifactName": "rss-analysis-rss-deep-20260823-2-3-4-9-14-15-18-25-28-33440086987",
+        "runId": 33440086987,
+        "rawTextSha256": "sha256:0eb171de0c66689581e1c003725ba228b204391a65a4da46f56963b59d8af729",
+        "expiresAt": "2026-09-07T21:12:08Z",
+        "status": "cache_hit"
       }
     ],
+    "fetched": [],
     "errors": [
+      {
+        "displayIndex": 4,
+        "sourceKey": "economist",
+        "canonicalUrl": "https://www.economist.com/finance-and-economics/2026/08/23/is-scott-bessent-the-fed-chair-donald-trump-always-wanted",
+        "title": "Is Scott Bessent the Fed chair Donald Trump always wanted?",
+        "error": "direct=RuntimeError: direct HTTP 403; jina=RuntimeError: jina text too thin: 273"
+      },
       {
         "displayIndex": 2,
         "sourceKey": "economist",
