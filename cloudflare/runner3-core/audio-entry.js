@@ -1,4 +1,5 @@
 import { handleAudioMedia } from "./src/audio-media.js";
+import { handleEbookReaderAudio } from "./src/ebook-reader-audio.js";
 
 let readerAppPromise = null;
 let learningModulePromise = null;
@@ -20,6 +21,8 @@ export default {
     const url = new URL(request.url);
     const audioResponse = await handleAudioMedia(request, env, url);
     if (audioResponse) return audioResponse;
+    const ebookAudioResponse = await handleEbookReaderAudio(request, env);
+    if (ebookAudioResponse) return ebookAudioResponse;
     const app = await loadReaderApp();
     return app.fetch(request, env, ctx);
   },
