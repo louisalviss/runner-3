@@ -8,6 +8,7 @@ const MAX_SCRIPT_CHARS = 180000;
 const MAX_AUDIO_BYTES = 80 * 1024 * 1024;
 const MEDIA_TICKET_VERSION = "ebook-audio-media-v1";
 const MEDIA_TICKET_TTL_SECONDS = 4 * 60 * 60;
+const PROCESSING_LEASE_MS = 10 * 60 * 1000;
 
 function json(value, status = 200) {
   return Response.json(value, {
@@ -233,6 +234,10 @@ async function nextInternalJob(env) {
     if (!item || item.kind !== "ebook-reader" || item.status === "ready") {
       await env.AUDIO_MEDIA.delete(object.key);
       continue;
+    }
+    if (item.status === "processing") {
+      const leaseAt = Date.parse(String(item.processingAt || item.updatedAt || ""));
+      if (Number.isFinite(leaseAt) && Date.now() - leaseAt < PROCESSING_LEASE_MS) continue;
     }
     const scriptObject = await env.AUDIO_MEDIA.get(queue.scriptKey || `${mediaPrefix(queue.id)}script.txt`);
     if (!scriptObject) {

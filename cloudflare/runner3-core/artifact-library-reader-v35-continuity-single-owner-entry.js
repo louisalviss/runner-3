@@ -26,7 +26,7 @@ function patchSingleAudioOwner(html) {
     out,
     V34_MARKER,
     debugNeedle,
-    `${debugNeedle}\n    primePrefetch(){schedulePrefetch();return true;},`,
+    `${debugNeedle}\n    primePrefetch(){schedulePrefetch();return prefetchOne(1);},`,
     'debug-prime-prefetch',
   );
 

@@ -98,15 +98,7 @@ export default {
     const rssSaveResponse = await handleRssLibrarySave(request, env, url);
     if (rssSaveResponse) return rssSaveResponse;
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
-    const shouldDispatch = url.pathname === "/artifact-library/audio" && request.method === "POST";
     const routedRequest = canonicalizeEbookAudioInternalRequest(request, env, url);
-    const response = await ebookAudio.fetch(routedRequest, env, ctx, app);
-    if (shouldDispatch && response?.status === 202) {
-      let jobId = "";
-      try { const state = await response.clone().json(); if (ID_RE.test(String(state?.id || ""))) jobId = String(state.id); } catch {}
-      const task = dispatchWorkflow(env, jobId).catch((error) => console.error("ebook audio dispatch failed", String(error?.message || error)));
-      if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
-    }
-    return response;
+    return ebookAudio.fetch(routedRequest, env, ctx, app);
   },
 };
