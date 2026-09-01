@@ -8,6 +8,7 @@ const action = process.env.CANDIDATE_ACTION || 'activate';
 const pluginZip = process.env.CANDIDATE_ZIP || '';
 const pluginSlug = process.env.CANDIDATE_PLUGIN_SLUG || 'runner3-site2-hero-preload';
 const preloadId = process.env.CANDIDATE_PRELOAD_ID || 'runner3-site2-hero-preload';
+const expectedLcpUrl = process.env.EXPECTED_LCP_URL || '';
 const out = process.env.CANDIDATE_OUT || '/tmp/site2-candidate-toggle.json';
 let token = String(process.env.WASMER_TOKEN || '').replace(/[\r\n]/g, '').trim();
 if (!token) throw new Error('WASMER_TOKEN is required');
@@ -53,26 +54,54 @@ async function readState(page) {
   };
 }
 
-async function ensureInstalled(page) {
-  let state = await readState(page);
-  if (state.installed) return 'reused';
-
+async function uploadCandidateZip(page) {
   await page.goto(`${target}/wp-admin/plugin-install.php?tab=upload`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   const input = page.locator('input[type="file"][name="pluginzip"]');
   await input.waitFor({ state: 'visible', timeout: 30_000 });
   await input.setInputFiles(pluginZip);
   await page.locator('#install-plugin-submit').click();
   await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
+}
 
-  const body = await page.locator('body').innerText();
-  if (!/Destination folder already exists/i.test(body)) {
-    const activateNow = page.locator('a.button.activate-now, a.button[href*="action=activate"]');
-    if (await activateNow.count()) await gotoAdminHref(page, activateNow.first());
+async function ensureInstalled(page) {
+  const before = await readState(page);
+  // During the final KEEP verification the exact candidate package is already
+  // active from this workflow attempt. Do not attempt to replace an active
+  // plugin; setActive() + verifyFrontend() below will verify its live state.
+  // The initial activation path is still protected because the workflow first
+  // forces the candidate OFF, so an inactive installed slug must be replaced.
+  if (before.active) return 'already-active-verify-only';
+
+  // Always upload the exact candidate ZIP for an activation run. Reusing an
+  // already-installed slug can silently execute stale candidate code from a
+  // previous A/B attempt, invalidating the experiment.
+  await uploadCandidateZip(page);
+
+  let body = await page.locator('body').innerText();
+  let installAction = before.installed ? 'replaced' : 'installed';
+
+  if (/Destination folder already exists|already installed/i.test(body)) {
+    const replace = page.locator(
+      'a.update-from-upload-overwrite, a.button[href*="overwrite=update-plugin"], a.button:has-text("Replace current with uploaded")'
+    ).first();
+    if (!(await replace.count())) {
+      throw new Error('candidate package already exists but WordPress replace-upload action is unavailable');
+    }
+    await gotoAdminHref(page, replace);
+    await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
+    body = await page.locator('body').innerText();
+    if (/Plugin update failed|Installation failed/i.test(body)) {
+      throw new Error(`candidate package replacement failed: ${body.slice(0, 500)}`);
+    }
+  } else if (before.installed) {
+    // If an installed candidate was present, WordPress must explicitly take
+    // the overwrite path. Otherwise we cannot prove the new ZIP was deployed.
+    throw new Error('installed candidate did not enter WordPress replace-upload flow');
   }
 
-  state = await readState(page);
+  const state = await readState(page);
   if (!state.installed) throw new Error(`candidate plugin ${pluginSlug} was not installed`);
-  return 'installed';
+  return installAction;
 }
 
 async function setActive(page, shouldBeActive) {
@@ -81,8 +110,7 @@ async function setActive(page, shouldBeActive) {
   if (!state.installed) throw new Error('candidate plugin missing');
   if (state.active === shouldBeActive) return state;
 
-  const rows = pluginRow(page);
-  const row = rows.first();
+  const row = pluginRow(page).first();
   const locator = shouldBeActive
     ? row.locator('a[href*="action=activate"]').first()
     : row.locator('a[href*="action=deactivate"]').first();
@@ -97,25 +125,48 @@ async function setActive(page, shouldBeActive) {
 async function verifyFrontend(page, shouldBeActive) {
   const homeResponse = await page.goto(`${target}/?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   if (!homeResponse || homeResponse.status() >= 400) throw new Error(`homepage failed with ${homeResponse?.status()}`);
+
   const preload = page.locator(`link#${preloadId}[rel="preload"][as="image"]`);
   const count = await preload.count();
   if (shouldBeActive && count !== 1) throw new Error(`expected exactly one candidate hero preload, got ${count}`);
   if (!shouldBeActive && count !== 0) throw new Error('candidate preload remained after rollback');
   const href = count ? await preload.first().getAttribute('href') : null;
   if (href && new URL(href, target).host !== expectedHost) throw new Error('candidate preload points off origin');
+  if (shouldBeActive && expectedLcpUrl && new URL(href, target).href !== new URL(expectedLcpUrl, target).href) {
+    throw new Error(`candidate preloads wrong LCP resource: ${href}`);
+  }
 
-  const hero = page.locator('.runner3-fixture-home section').first();
-  const heroRect = await hero.boundingBox();
-  const headline = (await hero.locator('h1').first().textContent().catch(() => ''))?.trim() || '';
-  if (!heroRect || heroRect.width < 250 || heroRect.height < 450) throw new Error(`hero geometry regression: ${JSON.stringify(heroRect)}`);
-  if (!headline.includes('Everyday goods')) throw new Error('hero headline regression');
+  const homeText = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+  if (!homeText.includes('Best Quality Products') || !homeText.includes('Join The Organic Movement!')) {
+    throw new Error('official Organic Store homepage identity regression');
+  }
+  const homeProductCards = await page.locator('li.product, .wc-block-product, .products .product').count();
+  if (homeProductCards < 8) throw new Error(`Organic Store homepage product regression: ${homeProductCards}`);
 
-  const shopResponse = await page.goto(`${target}/shop/?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
-  if (!shopResponse || shopResponse.status() >= 400) throw new Error(`shop failed with ${shopResponse?.status()}`);
-  const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
-  if (productCards < 8) throw new Error(`shop product regression: ${productCards}`);
+  const apiResponse = await page.context().request.get(`${target}/?rest_route=/wc/store/v1/products&per_page=100&__candidate_verify=${Date.now()}`);
+  if (!apiResponse.ok()) throw new Error(`Store API failed with ${apiResponse.status()}`);
+  const products = await apiResponse.json();
+  if (!Array.isArray(products) || products.length < 30) throw new Error(`Store API product regression: ${Array.isArray(products) ? products.length : 'non-array'}`);
 
-  return { preloadCount: count, preloadHref: href, heroRect, headline, shopProductCards: productCards };
+  let catalog = null;
+  for (const path of ['/shop-3/', '/shop-2/', '/shop/']) {
+    const response = await page.goto(`${target}${path}?__candidate_verify=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90_000 }).catch(() => null);
+    if (!response || response.status() >= 400) continue;
+    const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
+    if (productCards >= 8) {
+      catalog = { path, status: response.status(), productCards };
+      break;
+    }
+  }
+  if (!catalog) throw new Error('no healthy official Woo catalog route found');
+
+  return {
+    preloadCount: count,
+    preloadHref: href,
+    homeProductCards,
+    storeApiProducts: products.length,
+    catalog,
+  };
 }
 
 const result = { target, action, pluginSlug, status: 'starting', startedAt: new Date().toISOString() };
