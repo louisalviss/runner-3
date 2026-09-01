@@ -1,0 +1,161 @@
+name: TEMP Reader Audio v34 Single Listener Patch
+
+on:
+  push:
+    branches:
+      - fix/reader-audio-v34-continuous-sync
+    paths:
+      - '.github/workflows/temp-v34-single-listener-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reader-audio-v34-continuous-sync
+          fetch-depth: 0
+      - name: Replace duplicate audio listeners with observer and RAF continuity clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js')
+          text = path.read_text(encoding='utf-8')
+
+          old_debug = """    syncTestWord(index,force=true){return syncWord(Math.max(0,Number(index)||0),Boolean(force));},
+    peek(offset=1){return bridge()&&bridge().peekReadableAhead?bridge().peekReadableAhead(offset):Promise.resolve(null);},
+"""
+          new_debug = """    syncTestWord(index,force=true){return syncWord(Math.max(0,Number(index)||0),Boolean(force));},
+    peek(offset=1){return bridge()&&bridge().peekReadableAhead?bridge().peekReadableAhead(offset):Promise.resolve(null);},
+    primePrefetch(){schedulePrefetch();return true;},
+"""
+          if text.count(old_debug) != 1:
+              raise SystemExit('v34 debug marker mismatch')
+          text = text.replace(old_debug, new_debug, 1)
+
+          old_runtime = """  const tick=async()=>{
+    installBridgeHooks();
+    const id=currentId();
+    if(id&&id!==timingId)await loadTimingForCurrent();
+    if(timingWords.length&&!audio.ended){
+      const index=wordIndexAt((Number(audio.currentTime)||0)*1000);
+      if(index>=0)syncWord(index,false);
+    }
+  };
+
+  audio.addEventListener('loadedmetadata',()=>{loadTimingForCurrent().then(()=>{tick();schedulePrefetch();});});
+  audio.addEventListener('play',()=>{loadTimingForCurrent().then(()=>{tick();schedulePrefetch();});});
+  audio.addEventListener('timeupdate',tick);
+  audio.addEventListener('seeked',tick);
+  audio.addEventListener('ended',()=>{for(const doc of [...document.querySelectorAll('#viewer iframe')].map(f=>{try{return f.contentDocument;}catch{return null;}}).filter(Boolean)){try{doc.defaultView&&doc.defaultView.CSS&&doc.defaultView.CSS.highlights&&doc.defaultView.CSS.highlights.delete(highlightName);}catch{}}});
+  window.addEventListener('pagehide',()=>{try{relocatedOff&&relocatedOff();}catch{}},{once:true});
+
+  const boot=setInterval(()=>{
+    if(installBridgeHooks()){
+      clearInterval(boot);
+      setTimeout(()=>{manualArmedAt=Date.now();tick();if(currentId())schedulePrefetch();},700);
+    }
+  },100);
+"""
+          new_runtime = """  let tickBusy=false;
+  let armedMediaId='';
+  let wasEnded=Boolean(audio.ended);
+  let rafId=0;
+  let lastRafAt=0;
+
+  function clearRangeHighlight(){
+    for(const doc of [...document.querySelectorAll('#viewer iframe')].map(f=>{try{return f.contentDocument;}catch{return null;}}).filter(Boolean)){
+      try{doc.defaultView&&doc.defaultView.CSS&&doc.defaultView.CSS.highlights&&doc.defaultView.CSS.highlights.delete(highlightName);}catch{}
+    }
+  }
+
+  const tick=async()=>{
+    if(tickBusy)return;
+    tickBusy=true;
+    try{
+      installBridgeHooks();
+      const id=currentId();
+      if(id&&id!==timingId)await loadTimingForCurrent();
+      if(timingWords.length&&!audio.ended){
+        const index=wordIndexAt((Number(audio.currentTime)||0)*1000);
+        if(index>=0)await syncWord(index,false);
+      }
+    }finally{tickBusy=false;}
+  };
+
+  function armCurrentMedia(){
+    const id=currentId();
+    if(!id||id===armedMediaId)return false;
+    armedMediaId=id;
+    loadTimingForCurrent().then(()=>tick()).catch(()=>{});
+    schedulePrefetch();
+    return true;
+  }
+
+  const srcObserver=new MutationObserver(()=>armCurrentMedia());
+  try{srcObserver.observe(audio,{attributes:true,attributeFilter:['src']});}catch{}
+
+  const continuityFrame=stamp=>{
+    if(stamp-lastRafAt>=100){
+      lastRafAt=stamp;
+      armCurrentMedia();
+      tick();
+      const endedNow=Boolean(audio.ended);
+      if(endedNow&&!wasEnded)clearRangeHighlight();
+      wasEnded=endedNow;
+    }
+    rafId=requestAnimationFrame(continuityFrame);
+  };
+  rafId=requestAnimationFrame(continuityFrame);
+
+  window.addEventListener('pagehide',()=>{
+    try{relocatedOff&&relocatedOff();}catch{}
+    try{srcObserver.disconnect();}catch{}
+    try{cancelAnimationFrame(rafId);}catch{}
+  },{once:true});
+
+  const boot=setInterval(()=>{
+    if(installBridgeHooks()){
+      clearInterval(boot);
+      setTimeout(()=>{manualArmedAt=Date.now();tick();armCurrentMedia();},700);
+    }
+  },100);
+"""
+          if text.count(old_runtime) != 1:
+              raise SystemExit('v34 runtime marker mismatch')
+          text = text.replace(old_runtime, new_runtime, 1)
+          path.write_text(text, encoding='utf-8')
+
+          test = Path('scripts/reader_audio_v34_preview_e2e.mjs')
+          test_text = test.read_text(encoding='utf-8')
+          old_test = "await page.evaluate(() => document.getElementById('r3AudioElement')?.dispatchEvent(new Event('loadedmetadata')));"
+          new_test = "await page.evaluate(() => window.__r3AudioContinuityV34?.primePrefetch?.());"
+          if test_text.count(old_test) != 1:
+              raise SystemExit('preview prefetch trigger marker mismatch')
+          test.write_text(test_text.replace(old_test, new_test, 1), encoding='utf-8')
+          PY
+
+          node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          node --check scripts/reader_audio_v34_preview_e2e.mjs
+          ! grep -q "audio.addEventListener('timeupdate'" cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          ! grep -q "audio.addEventListener('play'" cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          ! grep -q "audio.addEventListener('ended'" cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+          grep -q 'primePrefetch' cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
+
+      - name: Commit patch to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'reader-audio-bot'
+          git config user.email 'reader-audio-bot@users.noreply.github.com'
+          git add cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js scripts/reader_audio_v34_preview_e2e.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(reader-audio): preserve single audio listener owner in v34'
+          git push origin HEAD:fix/reader-audio-v34-continuous-sync
