@@ -275,51 +275,93 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
         if(node===wordRange.startContainer){centerOffset+=wordRange.startOffset;foundCenter=true;break;}
         centerOffset+=String(node.nodeValue||'').length;
       }
-      if(!foundCenter){const fallback=doc.createRange();fallback.selectNodeContents(block);return fallback;}
-      let sentenceStart=0,sentenceEnd=text.length;
-      if(typeof Intl!=='undefined'&&typeof Intl.Segmenter==='function'){
-        const segmenter=new Intl.Segmenter('vi',{granularity:'sentence'});
-        for(const part of segmenter.segment(text)){
-          const from=Number(part.index)||0;
-          const to=from+String(part.segment||'').length;
-          if(centerOffset>=from&&centerOffset<=to){sentenceStart=from;sentenceEnd=to;break;}
+      if(!foundCenter)return wordRange;
+
+      // Deterministic sentence boundaries. Safari/Intl.Segmenter can return a
+      // surprisingly large segment for translated EPUB punctuation/markup.
+      let sentenceStart=0;
+      for(let i=Math.min(text.length-1,Math.max(0,centerOffset-1));i>=0;i--){
+        if(/[.!?…]/.test(text[i]||'')){sentenceStart=i+1;break;}
+      }
+      let sentenceEnd=text.length;
+      for(let i=Math.max(0,centerOffset);i<text.length;i++){
+        if(/[.!?…]/.test(text[i]||'')){
+          sentenceEnd=i+1;
+          while(sentenceEnd<text.length&&/[\"'”’»)]/.test(text[sentenceEnd]||''))sentenceEnd++;
+          break;
         }
-      }else{
-        const left=text.slice(0,centerOffset);
-        const right=text.slice(centerOffset);
-        const leftMatch=left.match(/[.!?…][\s\"'”’»)]*[^.!?…]*$/);
-        if(leftMatch)sentenceStart=Math.max(0,left.length-leftMatch[0].length+1);
-        const rightMatch=right.match(/[.!?…][\"'”’»)]*(?:\s|$)/);
-        if(rightMatch)sentenceEnd=Math.min(text.length,centerOffset+rightMatch.index+rightMatch[0].length);
       }
       while(sentenceStart<sentenceEnd&&/\s/.test(text[sentenceStart]||''))sentenceStart++;
       while(sentenceEnd>sentenceStart&&/\s/.test(text[sentenceEnd-1]||''))sentenceEnd--;
-      let cursor=0,startNodeFound=null,startOffset=0,endNodeFound=null,endOffset=0;
+      if(sentenceEnd<=sentenceStart)return wordRange;
+
+      let cursor=0,startFound=null,startOffset=0,endFound=null,endOffset=0;
       const walker2=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT);
       while((node=walker2.nextNode())){
         const len=String(node.nodeValue||'').length;
-        if(!startNodeFound&&sentenceStart<=cursor+len){startNodeFound=node;startOffset=Math.max(0,sentenceStart-cursor);}
-        if(sentenceEnd<=cursor+len){endNodeFound=node;endOffset=Math.max(0,sentenceEnd-cursor);break;}
+        if(!startFound&&sentenceStart<=cursor+len){startFound=node;startOffset=Math.max(0,sentenceStart-cursor);}
+        if(sentenceEnd<=cursor+len){endFound=node;endOffset=Math.max(0,sentenceEnd-cursor);break;}
         cursor+=len;
       }
-      if(!startNodeFound||!endNodeFound){const fallback=doc.createRange();fallback.selectNodeContents(block);return fallback;}
+      if(!startFound||!endFound)return wordRange;
       const range=doc.createRange();
-      range.setStart(startNodeFound,startOffset);
-      range.setEnd(endNodeFound,endOffset);
+      range.setStart(startFound,startOffset);
+      range.setEnd(endFound,endOffset);
       return range;
     }catch{return wordRange;}
+  }
+
+
+  function rangePageDirection(range){
+    try{
+      if(!range)return 0;
+      const doc=range.startContainer&&range.startContainer.ownerDocument;
+      const viewer=document.getElementById('viewer');
+      if(!doc||!viewer)return 0;
+      let frame=null;
+      for(const candidate of document.querySelectorAll('#viewer iframe')){
+        try{if(candidate.contentDocument===doc){frame=candidate;break;}}catch{}
+      }
+      if(!frame)return 0;
+      const vr=viewer.getBoundingClientRect();
+      const fr=frame.getBoundingClientRect();
+      const rects=[...range.getClientRects()];
+      if(!rects.length)return 0;
+      let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+      for(const rect of rects){
+        left=Math.min(left,fr.left+rect.left);
+        right=Math.max(right,fr.left+rect.right);
+        top=Math.min(top,fr.top+rect.top);
+        bottom=Math.max(bottom,fr.top+rect.bottom);
+      }
+      if(left>=vr.right-3)return 1;
+      if(right<=vr.left+3)return -1;
+      if(top>=vr.bottom-3)return 1;
+      if(bottom<=vr.top+3)return -1;
+      return 0;
+    }catch{return 0;}
   }
 
   function rangeVisible(range){
     try{
       if(!range)return false;
       const doc=range.startContainer&&range.startContainer.ownerDocument;
-      const win=doc&&doc.defaultView;
-      const width=win&&win.innerWidth||doc.documentElement.clientWidth||1;
-      const height=win&&win.innerHeight||doc.documentElement.clientHeight||1;
-      return [...range.getClientRects()].some(rect=>rect.right>2&&rect.left<width-2&&rect.bottom>2&&rect.top<height-2);
+      const viewer=document.getElementById('viewer');
+      if(!doc||!viewer)return false;
+      let frame=null;
+      for(const candidate of document.querySelectorAll('#viewer iframe')){
+        try{if(candidate.contentDocument===doc){frame=candidate;break;}}catch{}
+      }
+      if(!frame)return false;
+      const vr=viewer.getBoundingClientRect();
+      const fr=frame.getBoundingClientRect();
+      return [...range.getClientRects()].some(rect=>{
+        const left=fr.left+rect.left,right=fr.left+rect.right,top=fr.top+rect.top,bottom=fr.top+rect.bottom;
+        return right>vr.left+3&&left<vr.right-3&&bottom>vr.top+3&&top<vr.bottom-3;
+      });
     }catch{return false;}
   }
+
 
   function clearAllAudioHighlights(){
     const docs=new Set();
@@ -366,24 +408,60 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
   async function syncWord(index,force=false){
     if(!timingWords.length)return false;
     buildWordMap(false);
-    const center=nearestMappedIndex(index);
-    const followRange=center>=0?mappedWords[center]:null;
-    const range=phraseRange(index);
+    let center=nearestMappedIndex(index);
+    let followRange=center>=0?mappedWords[center]:null;
+    let range=phraseRange(index);
     if(!range||!followRange)return false;
     applyExactHighlight(range);
-    if(!force&&rangeVisible(followRange))return true;
+
+    let direction=rangePageDirection(followRange);
+    if(!force&&direction===0&&rangeVisible(followRange))return true;
     if(Date.now()<suppressDisplayUntil)return true;
     const now=Date.now();
-    if(!force&&now-lastFollowAt<450)return false;
+    if(!force&&now-lastFollowAt<260)return false;
     const b=bridge();
-    if(!b||typeof b.cfiFromRange!=='function'||typeof b.display!=='function')return false;
-    let cfi='';
-    try{cfi=String(b.cfiFromRange(followRange)||'');}catch{}
-    if(!cfi)return false;
+    if(!b)return false;
     lastFollowAt=now;
     debug.exactFollowCalls++;
-    try{await b.display(cfi);return true;}catch{return false;}
+    const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+
+    // Prefer page stepping. display(CFI) is only a fallback because on iOS
+    // epub.js may accept display() without changing the visible column.
+    if(direction&&((direction>0&&typeof b.next==='function')||(direction<0&&typeof b.prev==='function'))){
+      for(let step=0;step<5;step++){
+        try{
+          if(direction>0)await b.next();
+          else await b.prev();
+        }catch{break;}
+        await wait(75);
+        if(rangeVisible(followRange)){
+          buildWordMap(true);
+          range=phraseRange(index);
+          if(range)applyExactHighlight(range);
+          try{if(typeof b.persist==='function')b.persist();}catch{}
+          return true;
+        }
+        direction=rangePageDirection(followRange);
+        if(!direction)break;
+      }
+    }
+
+    center=nearestMappedIndex(index);
+    followRange=center>=0?mappedWords[center]:followRange;
+    let cfi='';
+    try{if(followRange&&typeof b.cfiFromRange==='function')cfi=String(b.cfiFromRange(followRange)||'');}catch{}
+    if(!cfi||typeof b.display!=='function')return false;
+    try{
+      await b.display(cfi);
+      await wait(110);
+      buildWordMap(true);
+      range=phraseRange(index);
+      if(range)applyExactHighlight(range);
+      try{if(typeof b.persist==='function')b.persist();}catch{}
+      return true;
+    }catch{return false;}
   }
+
 
   async function loadTimingForCurrent(){
     const id=currentId();
