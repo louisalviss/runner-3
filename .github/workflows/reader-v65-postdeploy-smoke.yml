@@ -1,0 +1,33 @@
+name: Reader v65 Post-Deploy Smoke
+
+on:
+  workflow_run:
+    workflows: ["Runner3 Core Production Deploy"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Server-side Reader v65 smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/reader_v65_postdeploy_smoke.py https://runner3-core.ducduy2411.workers.dev
+      - name: Device acceptance remains explicit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s ops/reader-v65-safari-smoke-checklist.md
+          grep -q 'PASS rule: v65 becomes canonical only after all device checks pass' ops/reader-v65-safari-smoke-checklist.md
+          echo 'READER_V65_DEVICE_ACCEPTANCE=PENDING_USER_IPHONE_SAFARI'
