@@ -7,6 +7,9 @@ execFileSync('python3', ['scripts/apply_reader_v44_build_patch.py'], { stdio: 'i
 execFileSync('python3', ['scripts/patch_reader_v49_epub_idb_cache.py'], { stdio: 'inherit' });
 execFileSync('node', ['cloudflare/runner3-core/reader-audio-core/reader-v49-epub-cache-smoke.mjs'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v51_live_session_library.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_artifact_library_r2_upload.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v52_r2_upload.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v52_r2_upload.py'], { stdio: 'inherit' });
 
 const entry = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-integration.js');
 const output = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js');
