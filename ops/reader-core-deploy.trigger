@@ -1,3 +1,3 @@
-ebook-reader-v53-simple-library-upload
+ebook-reader-v54-library-ux
 requested_at=2026-09-03
-reason=fix v52 wrong-layer UI patch; add visible Upload EPUB button and authenticated R2 upload route to artifact-library-simple-entry used by production Library
+reason=fix canonical book titles, add compact cover thumbnails, local reading progress bars/filters, and metadata-aware cards while preserving v51 Reader/audio owners
