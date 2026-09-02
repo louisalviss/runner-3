@@ -2,6 +2,7 @@ from pathlib import Path
 
 backend = Path('cloudflare/runner3-core/src/ebook-reader-audio.js').read_text()
 reader = Path('cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js').read_text()
+v35 = Path('cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js').read_text()
 
 required_backend = [
     'function queuePriorityRank(queue)',
@@ -28,6 +29,15 @@ required_reader = [
 for marker in required_reader:
     if marker not in reader:
         raise SystemExit(f'READER_V60_READER_MISSING:{marker}')
+
+required_v35 = [
+    'manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();',
+    'manualArmedAt=Date.now();tick();warmCurrentChapter();armCurrentMedia();',
+    "out = replaceScoped(out, V34_MARKER, oldRuntime, newRuntime, 'single-audio-owner');",
+]
+for marker in required_v35:
+    if marker not in v35:
+        raise SystemExit(f'READER_V60_V35_COMPOSITION_MISSING:{marker}')
 
 # Background prefetch must enqueue only. Polling ready for prefetch used to add hundreds
 # of status requests and does not help the persistent R2 cache.
