@@ -1,0 +1,38 @@
+name: Runner3 Core Health Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-core-health-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Probe public Core health and local secret presence
+        shell: bash
+        run: |
+          set -euo pipefail
+          core='https://runner3-core.ducduy2411.workers.dev'
+          if [[ -n "${RUNNER3_CORE_TOKEN:-}" ]]; then repo_secret_present=true; else repo_secret_present=false; fi
+          code="$(curl --connect-timeout 10 --max-time 20 -sS -D /tmp/core-health.headers -o /tmp/core-health.json -w '%{http_code}' "$core/health")"
+          echo "CORE_HEALTH_HTTP=$code"
+          echo "REPO_RUNNER3_CORE_TOKEN_PRESENT=$repo_secret_present"
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/core-health.json',encoding='utf-8'))
+          print('CORE_HEALTH_OK=%s' % data.get('ok'))
+          print('CORE_HEALTH_DB=%s' % data.get('db'))
+          print('CORE_HEALTH_WRITE_AUTH=%s' % data.get('write_auth'))
+          print('CORE_HEALTH_ARTIFACT_AUTH=%s' % data.get('artifact_auth'))
+          print('CORE_HEALTH_VERSION=%s' % data.get('version'))
+          PY
+          test "$code" = 200
