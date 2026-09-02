@@ -1,4 +1,4 @@
-name: Runner3 Core Emergency Rollback
+name: Runner3 Core Exact Version Rollback
 
 on:
   push:
@@ -17,11 +17,11 @@ concurrency:
 jobs:
   rollback:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      ROLLBACK_REF: 9ee4d7f16e14099abfc842904edc754c047b7499
+      HEALTHY_VERSION: bc768574-b7ed-4e49-b017-cac5044476a3
     steps:
       - name: Validate deploy credentials
         shell: bash
@@ -32,78 +32,26 @@ jobs:
             echo "PRESENT:$name"
           done
 
-      - name: Checkout exact last-known-good source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.ROLLBACK_REF }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Build canonical Reader browser bundle
+      - name: Confirm healthy version is still rollback-eligible
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$ROLLBACK_REF"
-          echo "ROLLBACK_SOURCE=$(git rev-parse HEAD)"
-          npm install --no-save esbuild
-          node scripts/build_reader_audio_core_browser_bundle.mjs
-          node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
-
-      - name: Compose canonical v35 Core exactly as healthy deploy
-        shell: bash
-        run: |
-          set -euo pipefail
+          npx --yes wrangler@4 versions list --name runner3-core --json >/tmp/versions.json
           python3 - <<'PY'
-          import json,pathlib,re
-          root=pathlib.Path('cloudflare/runner3-core')
-          wrapper=root/'artifact-library-reader-v7-github-audio-entry.js'
-          text=wrapper.read_text(encoding='utf-8')
-          text,count=re.subn(
-            r'import app from "\./artifact-library-reader-v\d+[^\"]*-entry\.js";',
-            'import app from "./artifact-library-reader-v35-continuity-single-owner-entry.js";',
-            text,
-            count=1,
-          )
-          if count != 1: raise SystemExit('reader wrapper import marker missing')
-          wrapper.write_text(text,encoding='utf-8')
-
-          mailbox=root/'mailbox-entry.js'
-          text=mailbox.read_text(encoding='utf-8')
-          canonical='import app from "./audio-entry.js";'
-          direct='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
-          if canonical not in text and direct not in text: raise SystemExit('canonical mailbox import marker missing')
-          if direct in text: text=text.replace(direct,canonical,1)
-          mailbox.write_text(text,encoding='utf-8')
-
-          audio_entry=root/'audio-entry.js'
-          audio_text=audio_entry.read_text(encoding='utf-8')
-          if 'import { handleAudioMedia } from "./src/audio-media.js";' not in audio_text:
-              raise SystemExit('audio-media fast path import missing')
-          if 'import("./artifact-library-reader-v7-github-audio-entry.js")' not in audio_text:
-              raise SystemExit('lazy canonical reader import missing')
-
-          cfg_path=root/'wrangler.jsonc'
-          cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
-          cfg['main']='opportunity-router-entry.js'
-          cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
+          import json, os
+          versions=json.load(open('/tmp/versions.json',encoding='utf-8'))
+          target=os.environ['HEALTHY_VERSION']
+          ids={str(v.get('id') or v.get('version_id') or '') for v in versions}
+          print('TARGET_VERSION_PRESENT=%s' % (target in ids))
+          if target not in ids:
+              raise SystemExit('known healthy Cloudflare version is no longer rollback-eligible')
           PY
-          node --check cloudflare/runner3-core/opportunity-router-entry.js
-          node --check cloudflare/runner3-core/mailbox-entry.js
-          node --check cloudflare/runner3-core/audio-entry.js
-          node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
-          grep -q 'artifact-library-reader-v35-continuity-single-owner-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
 
-      - name: Deploy exact last-known-good Core source
+      - name: Roll back exact Cloudflare version
         shell: bash
-        working-directory: cloudflare/runner3-core
         run: |
           set -euo pipefail
-          export NO_COLOR=1
-          npx --yes wrangler@4 deploy
+          npx --yes wrangler@4 rollback "$HEALTHY_VERSION" --name runner3-core --message "Emergency rollback: restore last-known-good Core version after persistent 1102"
 
       - name: Verify health stability and critical surfaces
         shell: bash
@@ -112,8 +60,9 @@ jobs:
           core='https://runner3-core.ducduy2411.workers.dev'
           consecutive=0
           for attempt in $(seq 1 30); do
-            code="$(curl --connect-timeout 10 --max-time 20 -sS -o /tmp/health -w '%{http_code}' "$core/health" || true)"
-            echo "HEALTH attempt=$attempt http=$code"
+            code="$(curl --connect-timeout 10 --max-time 20 -sS -D /tmp/h -o /tmp/health -w '%{http_code}' "$core/health" || true)"
+            err="$(tr -d '\r' </tmp/h | grep -i '^cf-error-type:' | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "HEALTH attempt=$attempt http=$code cf_error_type=$err"
             if [ "$code" = 200 ] && python3 -c 'import json; d=json.load(open("/tmp/health")); assert d.get("ok") is True'; then
               consecutive=$((consecutive+1))
               [ "$consecutive" -ge 5 ] && break
@@ -139,4 +88,4 @@ jobs:
           test "$ocode" = 200
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
-          echo 'RUNNER3_CORE_EMERGENCY_ROLLBACK=PASS'
+          echo 'RUNNER3_CORE_EXACT_VERSION_ROLLBACK=PASS'
