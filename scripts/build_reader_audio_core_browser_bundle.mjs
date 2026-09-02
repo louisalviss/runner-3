@@ -29,6 +29,9 @@ execFileSync('python3', ['scripts/patch_reader_v58_live_search_normalize.py'], {
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v58_atomic_boot_library_sort.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v58_atomic_boot_library_sort.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v58_atomic_boot_library_sort.py'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v59_compact_library_filter.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v59_compact_library_filter.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v59_compact_library_filter.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v2-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v5-entry.js'], { stdio: 'inherit' });
