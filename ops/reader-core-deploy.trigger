@@ -1,3 +1,3 @@
-ebook-reader-v54-library-ux-retry
+ebook-reader-v55-progress-real-covers
 requested_at=2026-09-03
-reason=retry v54 after correcting a smoke-test marker; source patch already passed and production was not changed by the failed run
+reason=fix null progress incorrectly rendered as 0 percent, generate epub.js locations for accurate CFI percentage backfill, and serve real cover images extracted from EPUB metadata catalog in R2
