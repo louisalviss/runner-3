@@ -9,9 +9,11 @@ on:
       - 'scripts/ebook_reader_audio_tts.py'
       - 'scripts/ebook_reader_audio_tts_v2.py'
       - 'scripts/ebook_reader_audio_tts_daemon.py'
+      - 'scripts/verify_runner3_core_single_deploy_owner.mjs'
       - '.github/workflows/ebook-reader-audio.yml'
       - '.github/scripts/runner3_core_deploy_smoke.py'
       - '.github/workflows/runner3-core-deploy.yml'
+      - '.github/workflows/runner3-core-public-hosted-reader-deploy.yml'
 
 permissions:
   contents: read
@@ -198,18 +200,19 @@ jobs:
           console.log('RSS Reader v8 isolates legacy audio DOM/handlers');
           console.log('RSS audio scoped media ticket + HTTP Range 206 E2E PASS');
           NODE
+          node scripts/verify_runner3_core_single_deploy_owner.mjs
           python3 - <<'PY'
           import json
           p='cloudflare/runner3-core/wrangler.jsonc'
           d=json.load(open(p,encoding='utf-8'))
           assert d.get('name') == 'runner3-core'
-          assert d.get('main') == 'artifact-library-reader-v7-github-audio-entry.js'
+          assert d.get('main') == 'opportunity-router-entry.js'
           assert d.get('d1_databases')
           buckets={x.get('binding'):x.get('bucket_name') for x in d.get('r2_buckets',[])}
           assert buckets.get('ARTIFACTS') == 'runner3-artifacts'
           assert buckets.get('AUDIO_MEDIA') == 'runner3-wp-media'
           print('Runner3 Core source validation OK')
-          print('Entry chain: reader-v7-github-audio -> reader-v6 -> reader-v5')
-          print('Production deploy owner: private louisalviss/vps-control')
+          print('Entry chain: opportunity-router -> mailbox/audio -> canonical Reader v35')
+          print('Production deploy owner: .github/workflows/runner3-core-public-hosted-reader-deploy.yml')
           print('Ebook audio: Core queue -> always-on VPS Nam Minh TTS consumer -> R2; GitHub workflow manual fallback only')
           PY
