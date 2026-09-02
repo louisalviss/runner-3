@@ -1,202 +1,215 @@
 from pathlib import Path
 
-backend = Path('cloudflare/runner3-core/src/ebook-reader-audio.js')
-reader = Path('cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js')
+AUDIO = Path('cloudflare/runner3-core/src/ebook-reader-audio.js')
+V34 = Path('cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js')
 
-b = backend.read_text()
-r = reader.read_text()
+a = AUDIO.read_text()
+v = V34.read_text()
 
-# --- Backend priority model -------------------------------------------------
-lease = '''function processingLeaseFresh(item, nowMs = Date.now()) {
-  const leaseAt = Date.parse(String(item?.processingAt || item?.updatedAt || ""));
-  return Number.isFinite(leaseAt) && nowMs - leaseAt < PROCESSING_LEASE_MS;
+if 'PREFETCH_QUEUE_PREFIX' not in a:
+    needle = 'const QUEUE_PREFIX = "audio-library/ebook-reader-queue/";\n'
+    if needle not in a:
+        raise SystemExit('V60_AUDIO_QUEUE_PREFIX_ANCHOR_MISSING')
+    a = a.replace(
+        needle,
+        needle
+        + 'const FOREGROUND_QUEUE_PREFIX = "audio-library/ebook-reader-queue-foreground/";\n'
+        + 'const PREFETCH_QUEUE_PREFIX = "audio-library/ebook-reader-queue-prefetch/";\n',
+        1,
+    )
+
+    needle = 'function queueKey(id) { return `${QUEUE_PREFIX}${id}.json`; }\n'
+    replacement = '''function queueKey(id, priority = "foreground") {
+  const prefix = priority === "prefetch" ? PREFETCH_QUEUE_PREFIX : FOREGROUND_QUEUE_PREFIX;
+  return `${prefix}${id}.json`;
+}
+function legacyQueueKey(id) { return `${QUEUE_PREFIX}${id}.json`; }
+async function deleteQueueKeys(env, id) {
+  await Promise.all([
+    env.AUDIO_MEDIA.delete(queueKey(id, "foreground")),
+    env.AUDIO_MEDIA.delete(queueKey(id, "prefetch")),
+    env.AUDIO_MEDIA.delete(legacyQueueKey(id)),
+  ]);
 }
 '''
-if lease not in b:
-    raise SystemExit('V60_BACKEND_MISSING_PROCESSING_LEASE')
-b = b.replace(lease, lease + '''\nfunction queuePriorityRank(queue) {
-  // Legacy queue entries are treated as foreground. Only explicit prefetch is low priority.
-  return String(queue?.priority || "foreground") === "prefetch" ? 1 : 0;
-}
-''', 1)
+    if needle not in a:
+        raise SystemExit('V60_AUDIO_QUEUE_KEY_ANCHOR_MISSING')
+    a = a.replace(needle, replacement, 1)
 
-job_head = '''async function nextInternalJob(env) {
-  const listing = await env.AUDIO_MEDIA.list({ prefix: QUEUE_PREFIX, limit: CLAIM_SCAN_LIMIT });
-  const objects = [...(listing.objects || [])].sort((a, b) => String(a.uploaded || "").localeCompare(String(b.uploaded || "")));
+    start = a.find('async function nextInternalJob(env) {')
+    end = a.find('\nasync function handleInternal(', start)
+    if start < 0 or end < 0:
+        raise SystemExit('V60_AUDIO_NEXT_JOB_ANCHOR_MISSING')
+    replacement = '''async function claimInternalQueuePrefix(env, prefix) {
+  const listing = await env.AUDIO_MEDIA.list({ prefix, limit: CLAIM_SCAN_LIMIT });
+  const objects = [...(listing.objects || [])].sort((x, y) => String(x.uploaded || "").localeCompare(String(y.uploaded || "")));
   for (const object of objects) {
     const queue = await getJson(env.AUDIO_MEDIA, object.key);
-'''
-job_new = '''async function nextInternalJob(env) {
-  const listing = await env.AUDIO_MEDIA.list({ prefix: QUEUE_PREFIX, limit: CLAIM_SCAN_LIMIT });
-  const objects = [...(listing.objects || [])];
-  const queueCache = new Map();
-  for (const object of objects) queueCache.set(object.key, await getJson(env.AUDIO_MEDIA, object.key));
-  objects.sort((a, b) => {
-    const priority = queuePriorityRank(queueCache.get(a.key)) - queuePriorityRank(queueCache.get(b.key));
-    if (priority) return priority;
-    return String(a.uploaded || "").localeCompare(String(b.uploaded || ""));
-  });
-  for (const object of objects) {
-    const queue = queueCache.get(object.key);
-'''
-if job_head not in b:
-    raise SystemExit('V60_BACKEND_MISSING_JOB_HEAD')
-b = b.replace(job_head, job_new, 1)
+    if (!queue || queue.kind !== "ebook-reader" || !idValid(queue.id)) {
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    const item = await getJson(env.AUDIO_MEDIA, queue.itemKey || itemKey(queue.id));
+    if (!item || item.kind !== "ebook-reader" || item.status === "ready" || item.status === "error") {
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    if (item.status === "processing" && processingLeaseFresh(item)) {
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    const scriptObject = await env.AUDIO_MEDIA.get(queue.scriptKey || `${mediaPrefix(queue.id)}script.txt`);
+    if (!scriptObject) {
+      item.status = "error";
+      item.error = "Audio script missing";
+      item.updatedAt = new Date().toISOString();
+      await putJson(env.AUDIO_MEDIA, itemKey(queue.id), item);
+      await env.AUDIO_MEDIA.delete(object.key);
+      continue;
+    }
+    const script = await scriptObject.text();
+    const now = new Date().toISOString();
+    const priority = queue.priority === "prefetch" || prefix === PREFETCH_QUEUE_PREFIX ? "prefetch" : "foreground";
+    item.status = "processing";
+    item.priority = priority;
+    item.error = null;
+    item.processingAt = now;
+    item.updatedAt = now;
+    await putJson(env.AUDIO_MEDIA, itemKey(queue.id), item);
+    await env.AUDIO_MEDIA.delete(object.key);
+    return { ...queue, priority, script };
+  }
+  return null;
+}
 
-body_anchor = '''    const body = await request.json().catch(() => ({}));
-    const bookKey = normalizeBookKey(body?.bookKey);
+async function nextInternalJob(env) {
+  // User-visible playback must always beat speculative work. Legacy queue
+  // entries are drained before the low-priority prefetch lane.
+  for (const prefix of [FOREGROUND_QUEUE_PREFIX, QUEUE_PREFIX, PREFETCH_QUEUE_PREFIX]) {
+    const job = await claimInternalQueuePrefix(env, prefix);
+    if (job) return job;
+  }
+  return null;
+}
 '''
-body_new = '''    const body = await request.json().catch(() => ({}));
-    const clientVersion = String(body?.clientVersion || "");
-    const isPrefetch = body?.prefetch === true || /prefetch|warm-current/i.test(clientVersion);
-    const requestPriority = isPrefetch ? "prefetch" : "foreground";
-    const bookKey = normalizeBookKey(body?.bookKey);
-'''
-if body_anchor not in b:
-    raise SystemExit('V60_BACKEND_MISSING_PUBLIC_BODY')
-b = b.replace(body_anchor, body_new, 1)
+    a = a[:start] + replacement + a[end:]
 
-existing_anchor = '''    if (existing && existing.kind === "ebook-reader" && existing.bookKey === bookKey && existing.textSha256 === textSha256) {
-      if (existing.status === "ready" || existing.status === "pending" || (existing.status === "processing" && processingLeaseFresh(existing))) {
-        return json(await publicStateWithMedia(env, existing));
-      }
-      if (existing.status === "processing") {
-'''
-existing_new = '''    if (existing && existing.kind === "ebook-reader" && existing.bookKey === bookKey && existing.textSha256 === textSha256) {
+    a = a.replace('await env.AUDIO_MEDIA.delete(queueKey(bodyId));', 'await deleteQueueKeys(env, bodyId);')
+
+    start = a.find('  if (route.kind === "status" && request.method === "POST") {')
+    end = a.find('\n  const bookKey = normalizeBookKey(url.searchParams.get("bookKey"));', start)
+    if start < 0 or end < 0:
+        raise SystemExit('V60_AUDIO_PUBLIC_POST_ANCHOR_MISSING')
+    replacement = '''  if (route.kind === "status" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const bookKey = normalizeBookKey(body?.bookKey);
+    if (!bookKey) return json({ ok: false, error: "BOOK_KEY_REQUIRED" }, 400);
+    if (!validFinalEpubKey(bookKey)) return json({ ok: false, error: "FINAL_EPUB_ONLY" }, 403);
+    const script = normalizeSpeechText(body?.text);
+    if (script.length < 80) return json({ ok: false, error: "EBOOK_AUDIO_TEXT_TOO_SHORT" }, 422);
+    if (script.length > MAX_SCRIPT_CHARS) return json({ ok: false, error: "EBOOK_AUDIO_TEXT_TOO_LONG" }, 413);
+
+    const requestedPriority = body?.prefetch === true ? "prefetch" : "foreground";
+    const textSha256 = await sha256Hex(script);
+    const id = await audioId(bookKey, textSha256);
+    const key = itemKey(id);
+    const prefix = mediaPrefix(id);
+    const existing = await getJson(env.AUDIO_MEDIA, key);
+    const now = new Date().toISOString();
+    const queueFor = (priority) => ({
+      id, kind: "ebook-reader", bookKey, itemKey: key, scriptKey: `${prefix}script.txt`, mediaPrefix: prefix,
+      audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, priority, createdAt: now,
+    });
+
+    if (existing && existing.kind === "ebook-reader" && existing.bookKey === bookKey && existing.textSha256 === textSha256) {
       if (existing.status === "ready") return json(await publicStateWithMedia(env, existing));
+
       if (existing.status === "pending") {
-        if (requestPriority === "foreground" && existing.requestPriority !== "foreground") {
-          existing.requestPriority = "foreground";
+        // Opening/playing a chapter that was only prefetched promotes the exact
+        // job rather than creating duplicate TTS work.
+        if (requestedPriority === "foreground" && existing.priority !== "foreground") {
+          existing.priority = "foreground";
           existing.updatedAt = now;
-          const queued = await getJson(env.AUDIO_MEDIA, queueKey(id));
-          if (queued) {
-            queued.priority = "foreground";
-            queued.promotedAt = now;
-            await putJson(env.AUDIO_MEDIA, queueKey(id), queued);
-          }
           await putJson(env.AUDIO_MEDIA, key, existing);
+          await env.AUDIO_MEDIA.delete(queueKey(id, "prefetch"));
+          await env.AUDIO_MEDIA.delete(legacyQueueKey(id));
+          await putJson(env.AUDIO_MEDIA, queueKey(id, "foreground"), queueFor("foreground"));
         }
-        return json(await publicStateWithMedia(env, existing));
+        return json(publicState(existing));
       }
+
       if (existing.status === "processing" && processingLeaseFresh(existing)) {
         return json(await publicStateWithMedia(env, existing));
       }
+
       if (existing.status === "processing") {
-'''
-if existing_anchor not in b:
-    raise SystemExit('V60_BACKEND_MISSING_EXISTING_BRANCH')
-b = b.replace(existing_anchor, existing_new, 1)
-
-recovery_old = '''const recoveryQueue = { id, kind: "ebook-reader", bookKey, itemKey: key, scriptKey: `${prefix}script.txt`, mediaPrefix: prefix, audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, createdAt: now };'''
-recovery_new = '''const recoveryQueue = { id, kind: "ebook-reader", bookKey, itemKey: key, scriptKey: `${prefix}script.txt`, mediaPrefix: prefix, audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, priority: requestPriority, createdAt: now };'''
-if recovery_old not in b:
-    raise SystemExit('V60_BACKEND_MISSING_RECOVERY_QUEUE')
-b = b.replace(recovery_old, recovery_new, 1)
-
-item_old = '''      sourceLabel: "Ebook Library", status: "pending", createdAt: existing?.createdAt || now, updatedAt: now,
-'''
-item_new = '''      sourceLabel: "Ebook Library", status: "pending", requestPriority, createdAt: existing?.createdAt || now, updatedAt: now,
-'''
-if item_old not in b:
-    raise SystemExit('V60_BACKEND_MISSING_ITEM_PRIORITY')
-b = b.replace(item_old, item_new, 1)
-
-queue_old = '''    const queue = { id, kind: "ebook-reader", bookKey, itemKey: key, scriptKey: `${prefix}script.txt`, mediaPrefix: prefix, audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, createdAt: now };
-'''
-queue_new = '''    const queue = { id, kind: "ebook-reader", bookKey, itemKey: key, scriptKey: `${prefix}script.txt`, mediaPrefix: prefix, audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, priority: requestPriority, createdAt: now };
-'''
-if queue_old not in b:
-    raise SystemExit('V60_BACKEND_MISSING_NEW_QUEUE')
-b = b.replace(queue_old, queue_new, 1)
-
-# --- Browser prefetch: enqueue only, do not poll in the background ----------
-prefetch_post_old = """body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',clientVersion:'reader-audio-v34-prefetch'})"""
-prefetch_post_new = """body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',clientVersion:'reader-audio-v60-prefetch',prefetch:true})"""
-if prefetch_post_old not in r:
-    raise SystemExit('V60_READER_MISSING_PREFETCH_POST')
-r = r.replace(prefetch_post_old, prefetch_post_new, 1)
-
-poll_old = '''      if(state.status!=='ready')state=await waitPrefetchReady(state.id);
-      const value={payload,state,canonical:canonical(payload.text)};
-      prefetchCache.set(payload.chapterHref,value);
-      debug.prefetchReady++;
-      return value;
-'''
-poll_new = '''      const value={payload,state,canonical:canonical(payload.text)};
-      if(state.status==='ready'&&state.mediaUrl&&state.timingUrl){
-        prefetchCache.set(payload.chapterHref,value);
-        debug.prefetchReady++;
+        await env.AUDIO_MEDIA.put(`${prefix}script.txt`, script, { httpMetadata: { contentType: "text/plain; charset=utf-8" }, customMetadata: { scope: "ebook-reader-audio", voice: VOICE, version: AUDIO_VERSION } });
+        const recoveredPriority = requestedPriority === "foreground" || existing.priority === "foreground" ? "foreground" : "prefetch";
+        existing.status = "pending";
+        existing.priority = recoveredPriority;
+        existing.error = null;
+        existing.processingAt = null;
+        existing.updatedAt = now;
+        await putJson(env.AUDIO_MEDIA, key, existing);
+        await deleteQueueKeys(env, id);
+        await putJson(env.AUDIO_MEDIA, queueKey(id, recoveredPriority), queueFor(recoveredPriority));
+        return json(publicState(existing), 202);
       }
-      return value;
-'''
-if poll_old not in r:
-    raise SystemExit('V60_READER_MISSING_PREFETCH_WAIT')
-r = r.replace(poll_old, poll_new, 1)
+    }
 
-location_var = '''  let relocatedOff=null;
-  let locationTimer=0;
-'''
-location_new = '''  let relocatedOff=null;
-  let locationTimer=0;
-  let warmCurrentTimer=0;
-  let warmCurrentSignature='';
-'''
-if location_var not in r:
-    raise SystemExit('V60_READER_MISSING_LOCATION_VARS')
-r = r.replace(location_var, location_new, 1)
-
-schedule_anchor = '''  function schedulePrefetch(){
-    setTimeout(()=>prefetchOne(1),0);
-    setTimeout(()=>prefetchOne(2),150);
+    await env.AUDIO_MEDIA.put(`${prefix}script.txt`, script, { httpMetadata: { contentType: "text/plain; charset=utf-8" }, customMetadata: { scope: "ebook-reader-audio", voice: VOICE, version: AUDIO_VERSION } });
+    const item = {
+      id, kind: "ebook-reader", bookKey,
+      chapterTitle: String(body?.chapterTitle || "").trim().slice(0, 240) || null,
+      chapterHref: String(body?.chapterHref || "").trim().slice(0, 600) || null,
+      title: String(body?.bookTitle || "Ebook").trim().slice(0, 240) || "Ebook",
+      sourceLabel: "Ebook Library", status: "pending", priority: requestedPriority,
+      createdAt: existing?.createdAt || now, updatedAt: now,
+      expiresAt: null, pinned: true, durationSeconds: null, progressSeconds: 0, audioUrl: null, transcriptUrl: null, timingUrl: null,
+      mediaPrefix: prefix, audioVersion: AUDIO_VERSION, voice: VOICE, voiceRate: VOICE_RATE, textSha256, error: null,
+    };
+    await putJson(env.AUDIO_MEDIA, key, item);
+    await deleteQueueKeys(env, id);
+    await putJson(env.AUDIO_MEDIA, queueKey(id, requestedPriority), queueFor(requestedPriority));
+    return json(publicState(item), 202);
   }
 '''
-warm_block = '''  async function warmCurrentChapter(){
-    const payload=framePayload();
-    if(!payload||!payload.text||String(payload.text).length<80||!payload.chapterHref)return null;
-    const signature=payload.chapterHref+'|'+payload.signature;
-    if(signature===warmCurrentSignature)return null;
-    warmCurrentSignature=signature;
-    try{
-      const response=await rawFetch('/artifact-library/audio',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',clientVersion:'reader-audio-v60-warm-current',prefetch:true})});
+    a = a[:start] + replacement + a[end:]
+
+if 'reader-audio-v60-prefetch' not in v:
+    v = v.replace('    prefetchReady:0,\n', '    prefetchReady:0,\n    prefetchEnqueued:0,\n', 1)
+    start = v.find('  async function waitPrefetchReady(id){')
+    end = v.find('\n  function schedulePrefetch(){', start)
+    if start < 0 or end < 0:
+        raise SystemExit('V60_V34_PREFETCH_BLOCK_ANCHOR_MISSING')
+    replacement = '''  async function prefetchOne(offset){
+    const key='ahead:'+offset;
+    if(prefetching.has(key))return prefetching.get(key);
+    const task=(async()=>{
+      const b=bridge();
+      if(!b||typeof b.peekReadableAhead!=='function')return null;
+      const payload=await b.peekReadableAhead(offset);
+      if(!payload||!payload.text||String(payload.text).length<80||!payload.chapterHref)return null;
+      const existing=prefetchCache.get(payload.chapterHref);
+      if(existing&&existing.state&&['ready','pending','processing'].includes(String(existing.state.status||'')))return existing;
+      debug.prefetchRequests++;
+      debug.lastPrefetchChapter=payload.chapterHref;
+      const response=await rawFetch('/artifact-library/audio',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',prefetch:true,clientVersion:'reader-audio-v60-prefetch'})});
       const state=await response.json().catch(()=>({}));
-      if(!response.ok)return null;
-      if(state.status==='ready'&&state.mediaUrl&&state.timingUrl){
-        prefetchCache.set(payload.chapterHref,{payload,state,canonical:canonical(payload.text)});
-        debug.prefetchReady++;
-      }
-      return state;
-    }catch(error){debug.lastError=String(error&&error.message||error||'warm current failed').slice(0,180);return null;}
-  }
-
-  function schedulePrefetch(){
-    setTimeout(()=>prefetchOne(1),0);
-    setTimeout(()=>prefetchOne(2),150);
+      if(!response.ok)throw new Error(state.error||('HTTP_'+response.status));
+      if(!state.id)throw new Error('PREFETCH_ID_MISSING');
+      const value={payload,state,canonical:canonical(payload.text),queuedAt:Date.now()};
+      prefetchCache.set(payload.chapterHref,value);
+      if(state.status==='ready'&&state.mediaUrl&&state.timingUrl)debug.prefetchReady++;
+      else debug.prefetchEnqueued++;
+      return value;
+    })().catch(error=>{debug.lastError=String(error&&error.message||error||'prefetch failed').slice(0,180);return null;}).finally(()=>prefetching.delete(key));
+    prefetching.set(key,task);
+    return task;
   }
 '''
-if schedule_anchor not in r:
-    raise SystemExit('V60_READER_MISSING_SCHEDULE_PREFETCH')
-r = r.replace(schedule_anchor, warm_block, 1)
+    v = v[:start] + replacement + v[end:]
 
-reloc_old = '''        clearTimeout(locationTimer);
-        locationTimer=setTimeout(()=>handleManualRelocation(loc),90);
-'''
-reloc_new = '''        clearTimeout(locationTimer);
-        locationTimer=setTimeout(()=>handleManualRelocation(loc),90);
-        clearTimeout(warmCurrentTimer);
-        warmCurrentTimer=setTimeout(()=>warmCurrentChapter(),650);
-'''
-if reloc_old not in r:
-    raise SystemExit('V60_READER_MISSING_RELOCATION_HOOK')
-r = r.replace(reloc_old, reloc_new, 1)
-
-boot_old = '''      setTimeout(()=>{manualArmedAt=Date.now();tick();if(currentId())schedulePrefetch();},700);
-'''
-boot_new = '''      setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);
-'''
-if boot_old not in r:
-    raise SystemExit('V60_READER_MISSING_BOOT_HOOK')
-r = r.replace(boot_old, boot_new, 1)
-
-backend.write_text(b)
-reader.write_text(r)
+AUDIO.write_text(a)
+V34.write_text(v)
 print('READER_V60_AUDIO_PRIORITY_PREFETCH_PATCH=PASS')
