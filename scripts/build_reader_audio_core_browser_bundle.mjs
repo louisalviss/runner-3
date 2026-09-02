@@ -18,6 +18,9 @@ execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v55_progress_
 execFileSync('python3', ['scripts/patch_reader_v55_progress_real_covers.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v55_live_cover_followup.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v55_progress_real_covers.py'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v56_auto_enrich_progress_migration.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v56_auto_enrich_progress_migration.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v56_auto_enrich_progress_migration.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v2-entry.js'], { stdio: 'inherit' });
 
