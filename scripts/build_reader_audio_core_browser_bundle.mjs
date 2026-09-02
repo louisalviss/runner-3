@@ -44,6 +44,9 @@ execFileSync('python3', ['scripts/check_reader_v62_paginated_vertical_clamp.py']
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v63_library_recovery.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v63_library_recovery.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v63_library_recovery.py'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v64_progress_repair.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v64_progress_repair.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v64_progress_repair.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/src/ebook-reader-audio.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
