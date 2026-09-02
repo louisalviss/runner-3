@@ -30,7 +30,7 @@ reader_markers = [
     "cover.className='r3-live-cover'",
     "progressLine.className='r3-live-progress-line'",
     'r3TitleForBookV54',
-    'data-r3-audio-continuity-v35',
+    'window.__r3LiveReaderSessionV51=',
 ]
 for marker in simple_markers:
     if marker not in simple:
