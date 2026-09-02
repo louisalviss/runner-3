@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# trigger v45 direct restore
 root = Path('cloudflare/runner3-core')
 v27 = root / 'artifact-library-reader-v27-boot-cfi-restore-entry.js'
 v28 = root / 'artifact-library-reader-v28-prime-base-position-entry.js'
@@ -177,7 +178,6 @@ s27 = replace_region(
     'v27 BOOT_SCRIPT',
 )
 
-# Suspend sentence highlight/page-follow while the hidden restore transaction owns the viewport.
 guard = "  async function syncWord(index,force=false){\n    if(window.__R3_READER_RESTORE_PENDING)return false;\n"
 if 'if(window.__R3_READER_RESTORE_PENDING)return false;' not in s34:
     marker = '  async function syncWord(index,force=false){\n'
@@ -185,7 +185,6 @@ if 'if(window.__R3_READER_RESTORE_PENDING)return false;' not in s34:
         raise SystemExit('v34 syncWord marker missing')
     s34 = s34.replace(marker, guard, 1)
 
-# Acceptance gates.
 checks = [
     ('v28', s28, 'data-r3-direct-restore-v45="1"'),
     ('v28', s28, 'window.__R3_READER_RESTORE_PENDING=true'),
