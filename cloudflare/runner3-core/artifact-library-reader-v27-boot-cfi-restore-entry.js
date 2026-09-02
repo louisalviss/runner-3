@@ -24,6 +24,13 @@ const BOOT_SCRIPT = `<script data-r3-audio-boot-cfi-v27="1" data-r3-direct-resto
   function savedReaderCfi(){
     try{return String(localStorage.getItem(baseKey)||'');}catch{return '';}
   }
+  async function waitBaseBootDone(){
+    for(let n=0;n<140;n++){
+      if(window.__R3_BASE_READER_BOOT_DONE===true)return true;
+      await delay(80);
+    }
+    return window.__R3_BASE_READER_BOOT_DONE===true;
+  }
   async function waitReaderStable(){
     let last='';
     let stable=0;
@@ -59,6 +66,14 @@ const BOOT_SCRIPT = `<script data-r3-audio-boot-cfi-v27="1" data-r3-direct-resto
     debug.phase='observe-base-reader';
     debug.target=String(window.__r3ReaderRestoreTargetV45||savedReaderCfi()||'');
     const initial=currentCfi();
+    debug.phase='wait-base-display-promise';
+    const bootDone=await waitBaseBootDone();
+    if(!bootDone){
+      window.__r3AudioBootCfiV27Debug={phase:'timeout',target:debug.target||'',initial,current:currentCfi(),reason:'base-display-promise'};
+      finish('base-display-timeout');
+      return;
+    }
+    debug.phase='wait-final-cfi';
     const stable=await waitReaderStable();
     if(!stable){
       window.__r3AudioBootCfiV27Debug={phase:'timeout',target:debug.target||'',initial,current:'',reason:'base-reader'};

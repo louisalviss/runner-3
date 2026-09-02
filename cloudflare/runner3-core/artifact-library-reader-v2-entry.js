@@ -171,7 +171,28 @@ function readerPage(key) {
       rendition.on('rendered',()=>{bindEpubContents();$('loading').classList.add('hidden');});
       rendition.on('relocated',loc=>{const cfi=loc?.start?.cfi;if(cfi)persist(keys.position,cfi);const pct=Number.isFinite(loc?.start?.percentage)?Math.round(loc.start.percentage*100):null;$('position').textContent=pct===null?'Đã lưu vị trí':pct+'% · đã lưu';setTimeout(bindEpubContents,0);});
       const saved=localStorage.getItem(keys.position)||'';
-      try{await rendition.display(saved||undefined);}catch{localStorage.removeItem(keys.position);await rendition.display();}
+      window.__R3_BASE_READER_BOOT_PENDING=true;
+      window.__R3_BASE_READER_BOOT_DONE=false;
+      window.__r3BaseReaderBootV47={phase:'display',target:saved||'',startedAt:Date.now(),after:'',error:''};
+      try{
+        await rendition.display(saved||undefined);
+      }catch(error){
+        window.__r3BaseReaderBootV47.error=String(error&&error.message||error||'display failed').slice(0,180);
+        localStorage.removeItem(keys.position);
+        await rendition.display();
+      }
+      // Do not reveal the reader merely because currentLocation() looked stable for a moment.
+      // The authoritative signal is the resolved display() promise plus two paint frames.
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      try{
+        const loc=rendition&&rendition.currentLocation&&rendition.currentLocation();
+        window.__r3BaseReaderBootV47.after=String(loc&&loc.start&&loc.start.cfi||'');
+      }catch{}
+      window.__r3BaseReaderBootV47.phase='done';
+      window.__r3BaseReaderBootV47.finishedAt=Date.now();
+      window.__R3_BASE_READER_BOOT_PENDING=false;
+      window.__R3_BASE_READER_BOOT_DONE=true;
+      try{window.dispatchEvent(new CustomEvent('r3-base-reader-boot-done-v47',{detail:{target:saved||'',cfi:window.__r3BaseReaderBootV47.after||''}}));}catch{}
       bindEpubContents();$('loading').classList.add('hidden');
     }catch(error){$('loading').classList.remove('hidden');$('loading').textContent='Không mở được EPUB: '+String(error?.message||error);$('position').textContent='Reader error';showControls();}
   }

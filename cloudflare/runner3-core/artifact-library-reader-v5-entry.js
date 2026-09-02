@@ -61,7 +61,9 @@ function patchLiveReflow(html) {
     rendition.themes.override('padding-right','0',true);
     rendition.themes.override('margin-left','0',true);
     rendition.themes.override('margin-right','0',true);
-    r3ScheduleReflow(anchor);
+    // During initial boot, rendition.display(savedCFI) owns pagination exclusively.
+    // Reflow is only allowed after the base reader has declared BOOT_DONE.
+    if(window.__R3_BASE_READER_BOOT_DONE&&anchor)r3ScheduleReflow(anchor);
   }`;
 
   if (out.includes(oldApply)) out = out.replace(oldApply, newApply);

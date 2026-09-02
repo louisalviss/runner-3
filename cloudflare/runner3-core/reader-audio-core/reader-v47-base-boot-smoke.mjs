@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const root=path.resolve('cloudflare/runner3-core');
+const read=p=>fs.readFileSync(path.join(root,p),'utf8');
+const v2=read('artifact-library-reader-v2-entry.js');
+const v5=read('artifact-library-reader-v5-entry.js');
+const v27=read('artifact-library-reader-v27-boot-cfi-restore-entry.js');
+if(!v2.includes('window.__R3_BASE_READER_BOOT_DONE=true'))throw new Error('base boot completion marker missing');
+if(!v2.includes("await rendition.display(saved||undefined)"))throw new Error('base saved CFI display missing');
+if(!v2.includes("r3-base-reader-boot-done-v47"))throw new Error('base boot event missing');
+if(!v5.includes('if(window.__R3_BASE_READER_BOOT_DONE&&anchor)r3ScheduleReflow(anchor);'))throw new Error('v5 boot reflow guard missing');
+if(!v27.includes('async function waitBaseBootDone()'))throw new Error('v27 boot promise wait missing');
+if(!v27.includes("debug.phase='wait-base-display-promise';"))throw new Error('v27 overlay still uses heuristic-only readiness');
+const baseDisplayAt=v2.indexOf('await rendition.display(saved||undefined)');
+const doneAt=v2.indexOf('window.__R3_BASE_READER_BOOT_DONE=true');
+if(baseDisplayAt<0||doneAt<baseDisplayAt)throw new Error('BOOT_DONE occurs before display resolves');
+console.log('READER_V47_BASE_BOOT_PROMISE=PASS');
