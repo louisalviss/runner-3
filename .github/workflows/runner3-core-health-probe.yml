@@ -1,4 +1,4 @@
-name: Runner3 Core Health Probe
+name: Runner3 Core Emergency Rollback
 
 on:
   push:
@@ -10,36 +10,133 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: runner3-core-production
+  cancel-in-progress: false
+
 jobs:
-  probe:
+  rollback:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
-      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROLLBACK_REF: 9ee4d7f16e14099abfc842904edc754c047b7499
     steps:
-      - name: Probe public Core health and local secret presence
+      - name: Validate deploy credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
+            echo "PRESENT:$name"
+          done
+
+      - name: Checkout exact last-known-good source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ROLLBACK_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build canonical Reader browser bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$ROLLBACK_REF"
+          echo "ROLLBACK_SOURCE=$(git rev-parse HEAD)"
+          npm install --no-save esbuild
+          node scripts/build_reader_audio_core_browser_bundle.mjs
+          node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
+
+      - name: Compose canonical v35 Core exactly as healthy deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,re
+          root=pathlib.Path('cloudflare/runner3-core')
+          wrapper=root/'artifact-library-reader-v7-github-audio-entry.js'
+          text=wrapper.read_text(encoding='utf-8')
+          text,count=re.subn(
+            r'import app from "\./artifact-library-reader-v\d+[^\"]*-entry\.js";',
+            'import app from "./artifact-library-reader-v35-continuity-single-owner-entry.js";',
+            text,
+            count=1,
+          )
+          if count != 1: raise SystemExit('reader wrapper import marker missing')
+          wrapper.write_text(text,encoding='utf-8')
+
+          mailbox=root/'mailbox-entry.js'
+          text=mailbox.read_text(encoding='utf-8')
+          canonical='import app from "./audio-entry.js";'
+          direct='import app from "./artifact-library-reader-v7-github-audio-entry.js";'
+          if canonical not in text and direct not in text: raise SystemExit('canonical mailbox import marker missing')
+          if direct in text: text=text.replace(direct,canonical,1)
+          mailbox.write_text(text,encoding='utf-8')
+
+          audio_entry=root/'audio-entry.js'
+          audio_text=audio_entry.read_text(encoding='utf-8')
+          if 'import { handleAudioMedia } from "./src/audio-media.js";' not in audio_text:
+              raise SystemExit('audio-media fast path import missing')
+          if 'import("./artifact-library-reader-v7-github-audio-entry.js")' not in audio_text:
+              raise SystemExit('lazy canonical reader import missing')
+
+          cfg_path=root/'wrangler.jsonc'
+          cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
+          cfg['main']='opportunity-router-entry.js'
+          cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
+          PY
+          node --check cloudflare/runner3-core/opportunity-router-entry.js
+          node --check cloudflare/runner3-core/mailbox-entry.js
+          node --check cloudflare/runner3-core/audio-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'artifact-library-reader-v35-continuity-single-owner-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+
+      - name: Deploy exact last-known-good Core source
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          export NO_COLOR=1
+          npx --yes wrangler@4 deploy
+
+      - name: Verify health stability and critical surfaces
         shell: bash
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
-          if [[ -n "${RUNNER3_CORE_TOKEN:-}" ]]; then repo_secret_present=true; else repo_secret_present=false; fi
-          code="$(curl --connect-timeout 10 --max-time 20 -sS -D /tmp/core-health.headers -o /tmp/core-health.body -w '%{http_code}' "$core/health")"
-          echo "CORE_HEALTH_HTTP=$code"
-          echo "REPO_RUNNER3_CORE_TOKEN_PRESENT=$repo_secret_present"
-          echo '--- SAFE RESPONSE HEADERS ---'
-          tr -d '\r' </tmp/core-health.headers | grep -Ei '^(HTTP/|content-type:|server:|cf-ray:|cf-error-type:|cf-error-origin:|retry-after:)' || true
-          echo '--- BODY PREFIX ---'
-          head -c 800 /tmp/core-health.body | tr '\n' ' '; echo
-          if [[ "$code" = 200 ]]; then
-            python3 - <<'PY'
-          import json
-          data=json.load(open('/tmp/core-health.body',encoding='utf-8'))
-          print('CORE_HEALTH_OK=%s' % data.get('ok'))
-          print('CORE_HEALTH_D1=%s' % data.get('d1'))
-          print('CORE_HEALTH_WRITE_AUTH=%s' % data.get('write_auth'))
-          print('CORE_HEALTH_ARTIFACT_AUTH=%s' % data.get('artifact_auth'))
-          PY
-          fi
-          test "$code" = 200
+          consecutive=0
+          for attempt in $(seq 1 30); do
+            code="$(curl --connect-timeout 10 --max-time 20 -sS -o /tmp/health -w '%{http_code}' "$core/health" || true)"
+            echo "HEALTH attempt=$attempt http=$code"
+            if [ "$code" = 200 ] && python3 -c 'import json; d=json.load(open("/tmp/health")); assert d.get("ok") is True'; then
+              consecutive=$((consecutive+1))
+              [ "$consecutive" -ge 5 ] && break
+            else
+              consecutive=0
+            fi
+            sleep 1
+          done
+          test "$consecutive" -ge 5
 
-# one-shot probe trigger: edge diagnostics
+          encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
+          code="$(curl -sS -D /tmp/rh -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+          runtime="$(tr -d '\r' </tmp/rh | grep -i '^x-r3-reader-runtime:' | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          proof="$(tr -d '\r' </tmp/rh | grep -i '^x-r3-reader-patch-proof:' | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "READER http=$code runtime=$runtime proof=$proof"
+          test "$code" = 200
+          test "$runtime" = 'v35-continuity-single-owner'
+          test "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner'
+
+          ocode="$(curl -sS -o /tmp/opportunity.json -w '%{http_code}' "$core/opportunity-radar/regime/current/global")"
+          mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v31.csv")"
+          echo "OPPORTUNITY http=$ocode MAILBOX http=$mcode"
+          test "$ocode" = 200
+          test "$mcode" = 200
+          grep -q 'pending' /tmp/mailbox.csv
+          echo 'RUNNER3_CORE_EMERGENCY_ROLLBACK=PASS'
