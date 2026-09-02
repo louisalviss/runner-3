@@ -1,0 +1,240 @@
+name: Opportunity Radar D1 Physical Split
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/opportunity-radar-d1-physical-split.yml'
+      - 'ops/opportunity-radar/d1-split.trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: opportunity-radar-d1-physical-split
+  cancel-in-progress: false
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SOURCE_DB: runner3-core
+      TARGET_DB: runner3-opportunity-radar
+    steps:
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'MISSING:CLOUDFLARE_API_TOKEN'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'MISSING:CLOUDFLARE_ACCOUNT_ID'; exit 2; }
+          echo 'CLOUDFLARE_CREDENTIALS=PRESENT'
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create or resolve dedicated D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          list=/tmp/d1-list.json
+          npx --yes wrangler@4 d1 list --json > "$list"
+          if ! python3 - "$list" "$TARGET_DB" >/tmp/target-id <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))
+          target=sys.argv[2]
+          def walk(x):
+              if isinstance(x,dict):
+                  if x.get('name') == target:
+                      for k in ('uuid','database_id','id'):
+                          if x.get(k): return str(x[k])
+                  for v in x.values():
+                      r=walk(v)
+                      if r: return r
+              elif isinstance(x,list):
+                  for v in x:
+                      r=walk(v)
+                      if r: return r
+              return None
+          found=walk(data)
+          if not found: raise SystemExit(1)
+          print(found)
+          PY
+          then
+            npx --yes wrangler@4 d1 create "$TARGET_DB" --location apac
+            npx --yes wrangler@4 d1 list --json > "$list"
+            python3 - "$list" "$TARGET_DB" >/tmp/target-id <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1])); target=sys.argv[2]
+          def walk(x):
+              if isinstance(x,dict):
+                  if x.get('name') == target:
+                      for k in ('uuid','database_id','id'):
+                          if x.get(k): return str(x[k])
+                  for v in x.values():
+                      r=walk(v)
+                      if r: return r
+              elif isinstance(x,list):
+                  for v in x:
+                      r=walk(v)
+                      if r: return r
+              return None
+          found=walk(data)
+          if not found: raise SystemExit('TARGET_DB_ID_NOT_FOUND')
+          print(found)
+          PY
+          fi
+          echo "TARGET_DB_ID=$(cat /tmp/target-id)" >> "$GITHUB_ENV"
+          echo "TARGET_DB_RESOLVED=$TARGET_DB"
+
+      - name: Detect already completed cutover
+        id: cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          cfg=json.loads(pathlib.Path('cloudflare/runner3-core/wrangler.jsonc').read_text())
+          bindings={x.get('binding'):x for x in cfg.get('d1_databases',[])}
+          module=pathlib.Path('cloudflare/runner3-core/src/opportunity-regime.js').read_text()
+          done=('OPPORTUNITY_DB' in bindings and 'env.OPPORTUNITY_DB' in module and 'env.DB.prepare(`SELECT * FROM opportunity_regime_current' not in module)
+          print(f'ALREADY_CUTOVER={str(done).lower()}')
+          with open(pathlib.Path(__import__('os').environ['GITHUB_OUTPUT']),'a') as f: f.write(f'done={str(done).lower()}\n')
+          PY
+
+      - name: Create target schema
+        if: steps.cutover.outputs.done != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute "$TARGET_DB" --remote --file=cloudflare/runner3-core/migrations/0009_opportunity_regime_state.sql
+
+      - name: Copy Opportunity Radar rows
+        if: steps.cutover.outputs.done != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for table in opportunity_candidate_regime_state opportunity_regime_history opportunity_regime_current; do
+            npx --yes wrangler@4 d1 execute "$TARGET_DB" --remote --command "DELETE FROM $table"
+          done
+          for table in opportunity_regime_current opportunity_regime_history opportunity_candidate_regime_state; do
+            file="/tmp/${table}.sql"
+            npx --yes wrangler@4 d1 export "$SOURCE_DB" --remote --skip-confirmation --table="$table" --no-schema --output="$file"
+            npx --yes wrangler@4 d1 execute "$TARGET_DB" --remote --file="$file"
+          done
+
+      - name: Verify exact source-target data equality
+        if: steps.cutover.outputs.done != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          source='runner3-core'; target='runner3-opportunity-radar'
+          queries={
+            'opportunity_regime_current':'SELECT * FROM opportunity_regime_current ORDER BY regime_key',
+            'opportunity_regime_history':'SELECT * FROM opportunity_regime_history ORDER BY regime_key,to_version',
+            'opportunity_candidate_regime_state':'SELECT * FROM opportunity_candidate_regime_state ORDER BY candidate_key,regime_key',
+          }
+          def rows(db,sql):
+              p=subprocess.run(['npx','--yes','wrangler@4','d1','execute',db,'--remote','--command',sql,'--json'],check=True,capture_output=True,text=True)
+              data=json.loads(p.stdout)
+              def find(x):
+                  if isinstance(x,dict):
+                      if isinstance(x.get('results'),list): return x['results']
+                      for v in x.values():
+                          r=find(v)
+                          if r is not None: return r
+                  elif isinstance(x,list):
+                      for v in x:
+                          r=find(v)
+                          if r is not None: return r
+                  return None
+              return find(data) or []
+          proof={}
+          for table,sql in queries.items():
+              a=rows(source,sql); b=rows(target,sql)
+              proof[table]={'source':len(a),'target':len(b),'equal':a==b}
+              if a != b:
+                  print(json.dumps(proof,indent=2,ensure_ascii=False))
+                  raise SystemExit(f'DATA_MISMATCH:{table}')
+          print(json.dumps(proof,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Patch Worker binding and Opportunity Radar DB owner
+        if: steps.cutover.outputs.done != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          root=pathlib.Path('cloudflare/runner3-core')
+          cfg_path=root/'wrangler.jsonc'
+          cfg=json.loads(cfg_path.read_text())
+          d1=cfg.setdefault('d1_databases',[])
+          target={
+            'binding':'OPPORTUNITY_DB',
+            'database_name':'runner3-opportunity-radar',
+            'database_id':os.environ['TARGET_DB_ID'],
+          }
+          found=False
+          for i,item in enumerate(d1):
+              if item.get('binding')=='OPPORTUNITY_DB':
+                  d1[i]=target; found=True
+          if not found: d1.append(target)
+          cfg_path.write_text(json.dumps(cfg,indent=2)+'\n')
+
+          mod_path=root/'src/opportunity-regime.js'
+          text=mod_path.read_text()
+          if 'function opportunityDb(env)' not in text:
+              direct=text.count('env.DB')
+              if direct < 1: raise SystemExit('NO_ENV_DB_REFERENCES_FOUND')
+              text=text.replace('env.DB','opportunityDb(env)')
+              marker='function requireDb(env) {'
+              helper='function opportunityDb(env) {\n  return env.OPPORTUNITY_DB || null;\n}\n\n'
+              if marker not in text: raise SystemExit('REQUIRE_DB_MARKER_MISSING')
+              text=text.replace(marker,helper+marker,1)
+          mod_path.write_text(text)
+          PY
+          node --check cloudflare/runner3-core/src/opportunity-regime.js
+          grep -q '"binding": "OPPORTUNITY_DB"' cloudflare/runner3-core/wrangler.jsonc
+          grep -q 'return env.OPPORTUNITY_DB || null' cloudflare/runner3-core/src/opportunity-regime.js
+          if grep -q 'env.DB.prepare.*opportunity_' cloudflare/runner3-core/src/opportunity-regime.js; then
+            echo 'DIRECT_CORE_DB_REFERENCE_REMAINS' >&2
+            exit 1
+          fi
+
+      - name: Persist cutover to main
+        if: steps.cutover.outputs.done != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/wrangler.jsonc cloudflare/runner3-core/src/opportunity-regime.js
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat(opportunity-radar): cut over to dedicated D1 [skip ci]'
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main || true
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "OPPORTUNITY_D1_SPLIT=PREPARED"
+          echo "TARGET_DB=$TARGET_DB"
+          echo "TARGET_DB_ID=$TARGET_DB_ID"
+          echo "Existing runner3-core Opportunity tables are intentionally retained for rollback."
