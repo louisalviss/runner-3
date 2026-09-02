@@ -3,7 +3,6 @@ import json
 import os
 import pathlib
 import posixpath
-import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
@@ -16,18 +15,46 @@ ACCOUNT_ID = os.environ.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
 API_TOKEN = os.environ.get('CLOUDFLARE_API_TOKEN', '').strip()
 
 
-def run(*args):
-    print('+', ' '.join(args), flush=True)
-    subprocess.run(args, check=True)
+def auth_headers(extra=None):
+    h = {'Authorization': f'Bearer {API_TOKEN}'}
+    if extra:
+        h.update(extra)
+    return h
 
 
 def cf_json(url):
-    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {API_TOKEN}', 'Accept': 'application/json'})
+    req = urllib.request.Request(url, headers=auth_headers({'Accept': 'application/json'}))
     with urllib.request.urlopen(req, timeout=60) as response:
         data = json.load(response)
     if not data.get('success'):
         raise RuntimeError('CLOUDFLARE_API_FAILED:' + json.dumps(data.get('errors') or []))
     return data
+
+
+def object_url(key):
+    encoded = urllib.parse.quote(key, safe='/')
+    return f'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/r2/buckets/{BUCKET}/objects/{encoded}'
+
+
+def get_object_bytes(key):
+    req = urllib.request.Request(object_url(key), headers=auth_headers())
+    with urllib.request.urlopen(req, timeout=180) as response:
+        return response.read()
+
+
+def put_object_bytes(key, data, content_type):
+    req = urllib.request.Request(object_url(key), data=data, method='PUT', headers=auth_headers({'Content-Type': content_type}))
+    with urllib.request.urlopen(req, timeout=180) as response:
+        body = response.read()
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f'R2_PUT_FAILED:{response.status}:{key}')
+        if body:
+            try:
+                payload = json.loads(body.decode('utf-8'))
+                if payload.get('success') is False:
+                    raise RuntimeError('R2_PUT_API_FAILED:' + json.dumps(payload.get('errors') or []))
+            except UnicodeDecodeError:
+                pass
 
 
 def list_final_epubs():
@@ -56,7 +83,6 @@ def list_final_epubs():
         if not cursor:
             break
 
-    # Match production Library behavior: one latest final EPUB per scope.
     latest = {}
     for obj in objects:
         scope = obj['scope']
@@ -127,8 +153,10 @@ def epub_metadata(epub_path: pathlib.Path):
                     continue
                 score = 0
                 hay = f'{item_id} {href}'.lower()
-                if 'cover' in hay: score += 10
-                if media in ('image/jpeg', 'image/png', 'image/webp'): score += 2
+                if 'cover' in hay:
+                    score += 10
+                if media in ('image/jpeg', 'image/png', 'image/webp'):
+                    score += 2
                 ranked.append((score, href, media))
             if ranked:
                 ranked.sort(reverse=True)
@@ -141,8 +169,7 @@ def epub_metadata(epub_path: pathlib.Path):
             try:
                 cover_bytes = zf.read(cover_path)
             except KeyError:
-                from urllib.parse import unquote
-                cover_path = unquote(cover_path)
+                cover_path = urllib.parse.unquote(cover_path)
                 cover_bytes = zf.read(cover_path)
 
         return {'title': title, 'creator': creator, 'cover_bytes': cover_bytes, 'cover_media': cover_media}
@@ -150,9 +177,12 @@ def epub_metadata(epub_path: pathlib.Path):
 
 def extension_for(media, data):
     media = (media or '').lower()
-    if media == 'image/png' or data.startswith(b'\x89PNG'): return '.png', 'image/png'
-    if media == 'image/webp' or data.startswith(b'RIFF'): return '.webp', 'image/webp'
-    if media == 'image/gif' or data.startswith(b'GIF8'): return '.gif', 'image/gif'
+    if media == 'image/png' or data.startswith(b'\x89PNG'):
+        return '.png', 'image/png'
+    if media == 'image/webp' or data.startswith(b'RIFF'):
+        return '.webp', 'image/webp'
+    if media == 'image/gif' or data.startswith(b'GIF8'):
+        return '.gif', 'image/gif'
     return '.jpg', 'image/jpeg'
 
 
@@ -170,16 +200,14 @@ def main():
             scope = obj['scope']
             print(f'[{i}/{len(objects)}] {scope}: {key}', flush=True)
             epub_path = root / f'{i:03d}.epub'
-            run('npx', '--yes', 'wrangler@4', 'r2', 'object', 'get', f'{BUCKET}/{key}', '--remote', '--file', str(epub_path))
+            epub_path.write_bytes(get_object_bytes(key))
             meta = epub_metadata(epub_path)
             entry = {'title': meta.get('title') or '', 'creator': meta.get('creator') or '', 'epub_key': key}
             cover = meta.get('cover_bytes')
             if cover:
                 ext, media = extension_for(meta.get('cover_media') or '', cover)
                 cover_key = f'core/ebook/{scope}/meta/cover{ext}'
-                cover_path = root / f'{i:03d}{ext}'
-                cover_path.write_bytes(cover)
-                run('npx', '--yes', 'wrangler@4', 'r2', 'object', 'put', f'{BUCKET}/{cover_key}', '--remote', '--file', str(cover_path), '--content-type', media)
+                put_object_bytes(cover_key, cover, media)
                 entry['cover_key'] = cover_key
                 entry['cover_type'] = media
                 entry['cover_bytes'] = len(cover)
@@ -187,9 +215,8 @@ def main():
                 print(f'WARN no cover found: {scope}', flush=True)
             catalog['books'][scope] = entry
 
-        index_path = root / 'library-books.json'
-        index_path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        run('npx', '--yes', 'wrangler@4', 'r2', 'object', 'put', f'{BUCKET}/{INDEX_KEY}', '--remote', '--file', str(index_path), '--content-type', 'application/json')
+        index_bytes = (json.dumps(catalog, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+        put_object_bytes(INDEX_KEY, index_bytes, 'application/json')
         print('R3_R2_CATALOG_ENRICH=PASS books=%d covers=%d' % (len(catalog['books']), sum(1 for x in catalog['books'].values() if x.get('cover_key'))))
 
 
