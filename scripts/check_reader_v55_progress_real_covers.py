@@ -8,7 +8,8 @@ for marker in [
     'async function libraryCatalogIndex(env)',
     'async function publicCover(request, env)',
     'p === "/artifact-library/api/cover"',
-    "img.src='/artifact-library/api/cover?key='",
+    "book&&book.cover_key",
+    "'/artifact-library/api/cover?key='+encodeURIComponent(book.cover_key)",
     "raw===null||raw===undefined||raw===''",
     'id="uploadEpub"',
     'async function publicUpload(request, env)',
@@ -28,13 +29,11 @@ for marker in [
     if marker not in reader:
         raise SystemExit('V55_READER_MISSING:' + marker)
 
-# The old v54 conversion of null -> Number(null) -> 0 must be gone in both UIs.
 if "const n=Number(row&&row.percent);" in simple:
     raise SystemExit('V55_SIMPLE_NULL_TO_ZERO_REMAINS')
 if "const n=Number(row&&row.percent);" in reader:
     raise SystemExit('V55_READER_NULL_TO_ZERO_REMAINS')
 
-# Existing accepted Reader owners remain in the composed source tree.
 v35 = Path('cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js').read_text(encoding='utf-8')
 for marker in ['data-r3-audio-continuity-v35', 'singleAudioListenerOwner:true']:
     if marker not in v35:
