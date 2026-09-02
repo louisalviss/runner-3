@@ -53,7 +53,7 @@ jobs:
           node scripts/build_reader_audio_core_browser_bundle.mjs
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
 
-      - name: Compose latest Core with canonical Reader v35 and audio-media fast path
+      - name: Compose latest Core with canonical Reader v35, mailbox, and Opportunity Radar router
         shell: bash
         run: |
           set -euo pipefail
@@ -87,13 +87,25 @@ jobs:
           if 'import("./artifact-library-reader-v7-github-audio-entry.js")' not in audio_text:
               raise SystemExit('lazy canonical reader import missing')
 
+          opportunity_entry=root/'opportunity-router-entry.js'
+          opportunity_text=opportunity_entry.read_text(encoding='utf-8')
+          if 'handleOpportunityRegime' not in opportunity_text or 'guardOpportunityRegimeWrite' not in opportunity_text:
+              raise SystemExit('opportunity router missing')
+
           cfg_path=root/'wrangler.jsonc'
           cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
-          cfg['main']='mailbox-entry.js'
+          cfg['main']='opportunity-router-entry.js'
+          bindings={x.get('binding'):x for x in cfg.get('d1_databases',[])}
+          opportunity=bindings.get('OPPORTUNITY_DB')
+          if not opportunity or opportunity.get('database_name') != 'runner3-opportunity-radar':
+              raise SystemExit('OPPORTUNITY_DB dedicated binding missing')
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
+          node --check cloudflare/runner3-core/opportunity-router-entry.js
           node --check cloudflare/runner3-core/mailbox-entry.js
           node --check cloudflare/runner3-core/audio-entry.js
+          node --check cloudflare/runner3-core/src/opportunity-regime.js
+          node --check cloudflare/runner3-core/src/opportunity-regime-write-guard.js
           node --check cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
@@ -103,6 +115,11 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
           grep -q 'import app from "./audio-entry.js";' cloudflare/runner3-core/mailbox-entry.js
+          grep -q 'handleOpportunityRegime' cloudflare/runner3-core/opportunity-router-entry.js
+          grep -q 'guardOpportunityRegimeWrite' cloudflare/runner3-core/opportunity-router-entry.js
+          grep -q 'return env.OPPORTUNITY_DB || null' cloudflare/runner3-core/src/opportunity-regime.js
+          grep -q '"binding": "OPPORTUNITY_DB"' cloudflare/runner3-core/wrangler.jsonc
+          grep -q '"database_name": "runner3-opportunity-radar"' cloudflare/runner3-core/wrangler.jsonc
           grep -q 'import("./artifact-library-reader-v7-github-audio-entry.js")' cloudflare/runner3-core/audio-entry.js
           grep -q 'handleAudioMedia' cloudflare/runner3-core/audio-entry.js
           grep -q 'artifact-library-reader-v35-continuity-single-owner-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
@@ -122,7 +139,7 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@4 d1 migrations apply runner3-core --remote
 
-      - name: Deploy latest Core with Reader v35 single-owner continuity runtime
+      - name: Deploy latest Core with dedicated Opportunity Radar D1 router
         shell: bash
         working-directory: cloudflare/runner3-core
         run: |
@@ -130,7 +147,7 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live Reader v35, fast audio-media, and stable Core surfaces
+      - name: Verify live Reader, Opportunity Radar D1, audio-media, and stable Core surfaces
         shell: bash
         run: |
           set -euo pipefail
@@ -151,6 +168,19 @@ jobs:
           done
           if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 1200 /tmp/reader; exit 1; fi
 
+          ocode="$(curl -sS -o /tmp/opportunity.json -w '%{http_code}' "$core/opportunity-radar/regime/current/global")"
+          echo "OPPORTUNITY_RADAR_D1 http=$ocode body=$(head -c 300 /tmp/opportunity.json | tr '\n' ' ')"
+          test "$ocode" = 200
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/opportunity.json',encoding='utf-8'))
+          assert data.get('ok') is True, data
+          current=data.get('current')
+          assert isinstance(current,dict), data
+          assert current.get('regime_key') == 'global', data
+          print('OPPORTUNITY_RADAR_D1=PASS version=%s' % current.get('version'))
+          PY
+
           acode="$(curl -sS -o /tmp/audio.json -w '%{http_code}' "$core/artifact-library/audio")"
           echo "AUDIO_SURFACE http=$acode body=$(head -c 180 /tmp/audio.json | tr '\n' ' ')"
           test "$acode" = 400
@@ -165,4 +195,4 @@ jobs:
           test "$mcode" = 200
           grep -q 'pending' /tmp/mailbox.csv
 
-          echo 'RUNNER3_CORE_PRODUCTION_V35_AUDIO_FAST_PATH=PASS'
+          echo 'RUNNER3_CORE_PRODUCTION_OPPORTUNITY_D1=PASS'
