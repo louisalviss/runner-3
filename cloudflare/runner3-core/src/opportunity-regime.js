@@ -19,8 +19,12 @@ function noStoreJson(value, init = {}) {
   return new Response(JSON.stringify(value), { ...init, headers });
 }
 
+function opportunityDb(env) {
+  return env.OPPORTUNITY_DB || null;
+}
+
 function requireDb(env) {
-  if (!env.DB) return noStoreJson({ ok: false, error: "D1_NOT_BOUND" }, { status: 503 });
+  if (!opportunityDb(env)) return noStoreJson({ ok: false, error: "D1_NOT_BOUND" }, { status: 503 });
   return null;
 }
 
@@ -152,7 +156,7 @@ function decisionChanged(current, next) {
 }
 
 async function readCurrent(env, regimeKey) {
-  const row = await env.DB.prepare(`SELECT * FROM opportunity_regime_current WHERE regime_key=?`).bind(regimeKey).first();
+  const row = await opportunityDb(env).prepare(`SELECT * FROM opportunity_regime_current WHERE regime_key=?`).bind(regimeKey).first();
   return parseCurrent(row);
 }
 
@@ -183,8 +187,8 @@ async function putCurrent(request, env, regimeKey) {
         default_action: next.defaultAction,
       }, "new_state");
       try {
-        await env.DB.batch([
-          env.DB.prepare(`INSERT INTO opportunity_regime_current
+        await opportunityDb(env).batch([
+          opportunityDb(env).prepare(`INSERT INTO opportunity_regime_current
             (regime_key,macro_state,fed_state,policy_market_state,policy_direction,default_action,
              evidence_json,confirmation_json,affected_exposures_json,source_session,evidence_asof,
              last_checked_at,state_changed_at,version,updated_at)
@@ -192,7 +196,7 @@ async function putCurrent(request, env, regimeKey) {
             .bind(regimeKey,next.macro,next.fed,next.relation,next.direction,next.defaultAction,
               next.evidenceJson,next.confirmationJson,next.exposuresJson,next.sourceSession,next.evidenceAsof,
               next.checkedAt,stateChangedAt),
-          env.DB.prepare(`INSERT INTO opportunity_regime_history
+          opportunityDb(env).prepare(`INSERT INTO opportunity_regime_history
             (transition_id,regime_key,from_version,to_version,old_state_json,new_state_json,trigger,evidence_json,source_run_id,changed_at)
             VALUES(?,?,0,1,NULL,?,?,?,?,?)`)
             .bind(transitionId,regimeKey,newStateJson,next.trigger,next.evidenceJson,next.sourceRunId,next.checkedAt),
@@ -212,8 +216,8 @@ async function putCurrent(request, env, regimeKey) {
         default_action: next.defaultAction,
       }, "new_state");
       try {
-        const results = await env.DB.batch([
-          env.DB.prepare(`UPDATE opportunity_regime_current SET
+        const results = await opportunityDb(env).batch([
+          opportunityDb(env).prepare(`UPDATE opportunity_regime_current SET
             macro_state=?,fed_state=?,policy_market_state=?,policy_direction=?,default_action=?,
             evidence_json=?,confirmation_json=?,affected_exposures_json=?,source_session=?,evidence_asof=?,
             last_checked_at=?,state_changed_at=?,version=?,updated_at=CURRENT_TIMESTAMP
@@ -221,7 +225,7 @@ async function putCurrent(request, env, regimeKey) {
             .bind(next.macro,next.fed,next.relation,next.direction,next.defaultAction,
               next.evidenceJson,next.confirmationJson,next.exposuresJson,next.sourceSession,next.evidenceAsof,
               next.checkedAt,stateChangedAt,toVersion,regimeKey,currentVersion),
-          env.DB.prepare(`INSERT INTO opportunity_regime_history
+          opportunityDb(env).prepare(`INSERT INTO opportunity_regime_history
             (transition_id,regime_key,from_version,to_version,old_state_json,new_state_json,trigger,evidence_json,source_run_id,changed_at)
             SELECT ?,?,?,?,?,?,?,?,?,?
             WHERE EXISTS (SELECT 1 FROM opportunity_regime_current WHERE regime_key=? AND version=?)`)
@@ -237,7 +241,7 @@ async function putCurrent(request, env, regimeKey) {
         return noStoreJson({ ok: false, error: "VERSION_CONFLICT", expected_version: currentVersion, current: raced }, { status: 409 });
       }
     } else {
-      const result = await env.DB.prepare(`UPDATE opportunity_regime_current SET
+      const result = await opportunityDb(env).prepare(`UPDATE opportunity_regime_current SET
         evidence_json=?,confirmation_json=?,affected_exposures_json=?,source_session=?,evidence_asof=?,
         last_checked_at=?,updated_at=CURRENT_TIMESTAMP
         WHERE regime_key=? AND version=?`)
@@ -259,7 +263,7 @@ async function putCurrent(request, env, regimeKey) {
 async function getHistory(env, regimeKey, url) {
   const rawLimit = Number.parseInt(url.searchParams.get("limit") || "20", 10);
   const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
-  const result = await env.DB.prepare(`SELECT transition_id,regime_key,from_version,to_version,
+  const result = await opportunityDb(env).prepare(`SELECT transition_id,regime_key,from_version,to_version,
     old_state_json,new_state_json,trigger,evidence_json,source_run_id,changed_at,created_at
     FROM opportunity_regime_history WHERE regime_key=? ORDER BY to_version DESC LIMIT ?`)
     .bind(regimeKey, limit).all();
@@ -294,7 +298,7 @@ async function putCandidate(request, env, candidateKey) {
     const exposureJson = jsonText(body?.exposure, "exposure");
     const impactNote = text(body?.impact_note, 10000);
     const sourceRowRef = text(body?.source_row_ref, 300);
-    await env.DB.prepare(`INSERT INTO opportunity_candidate_regime_state
+    await opportunityDb(env).prepare(`INSERT INTO opportunity_candidate_regime_state
       (candidate_key,regime_key,exposure_json,regime_impact,impact_note,checked_at,regime_version,source_row_ref,updated_at)
       VALUES(?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(candidate_key,regime_key) DO UPDATE SET
@@ -306,7 +310,7 @@ async function putCandidate(request, env, candidateKey) {
         source_row_ref=excluded.source_row_ref,
         updated_at=CURRENT_TIMESTAMP`)
       .bind(candidateKey,regimeKey,exposureJson,impact,impactNote,checkedAt,regimeVersion,sourceRowRef).run();
-    const row = await env.DB.prepare(`SELECT * FROM opportunity_candidate_regime_state
+    const row = await opportunityDb(env).prepare(`SELECT * FROM opportunity_candidate_regime_state
       WHERE candidate_key=? AND regime_key=?`).bind(candidateKey,regimeKey).first();
     return noStoreJson({ ok: true, candidate: parseCandidate(row) });
   } catch (err) {
@@ -320,7 +324,7 @@ async function getCandidate(request, env, candidateKey, url) {
   let regimeKey;
   try { regimeKey = key(url.searchParams.get("regime_key") || "global", "regime_key"); }
   catch (err) { return noStoreJson({ ok: false, error: String(err?.message || err) }, { status: 400 }); }
-  const row = await env.DB.prepare(`SELECT * FROM opportunity_candidate_regime_state
+  const row = await opportunityDb(env).prepare(`SELECT * FROM opportunity_candidate_regime_state
     WHERE candidate_key=? AND regime_key=?`).bind(candidateKey,regimeKey).first();
   return noStoreJson({ ok: true, candidate: parseCandidate(row) });
 }
@@ -332,7 +336,7 @@ async function getStaleCandidates(request, env, regimeKey, url) {
   if (!current) return noStoreJson({ ok: true, regime_key: regimeKey, current_version: null, candidates: [] });
   const rawLimit = Number.parseInt(url.searchParams.get("limit") || "100", 10);
   const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100));
-  const result = await env.DB.prepare(`SELECT * FROM opportunity_candidate_regime_state
+  const result = await opportunityDb(env).prepare(`SELECT * FROM opportunity_candidate_regime_state
     WHERE regime_key=? AND regime_version < ? ORDER BY regime_version ASC, checked_at ASC LIMIT ?`)
     .bind(regimeKey,current.version,limit).all();
   return noStoreJson({
