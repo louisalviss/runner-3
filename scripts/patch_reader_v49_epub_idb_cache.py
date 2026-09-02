@@ -61,7 +61,6 @@ new_block = """  const R3_EPUB_CACHE_DB='r3-reader-epub-cache-v49';
       });
       const buffer=row&&row.buffer;
       if(!(buffer instanceof ArrayBuffer)||buffer.byteLength<64)return null;
-      // Touch LRU asynchronously; failure must never block Reader startup.
       try{
         const tx=db.transaction(R3_EPUB_CACHE_STORE,'readwrite');
         tx.objectStore(R3_EPUB_CACHE_STORE).put({...row,at:Date.now()});
@@ -158,7 +157,7 @@ for(const marker of [
   "r3LoadingTimer=setTimeout",
   '<div id="loading" class="hidden">Đang mở EPUB…</div>'
 ])if(!src.includes(marker))throw new Error('V49_MISSING:'+marker);
-if(src.includes('const url=await signedUrl();\n      const response=await fetch(url);'))throw new Error('V49_LEGACY_ALWAYS_NETWORK_PATH');
+if(src.includes('const response=await fetch(url);if(!response.ok)'))throw new Error('V49_LEGACY_ALWAYS_NETWORK_PATH');
 console.log('READER_V49_EPUB_IDB_CACHE=PASS');
 """, encoding='utf-8')
 
