@@ -1,3 +1,3 @@
-ebook-reader-v51-live-session-library
+ebook-reader-v52-r2-self-upload
 requested_at=2026-09-02
-reason=keep current epub.js Book/Rendition alive while browsing Library; reopening the same book closes the Library panel instead of navigating/reinitializing EPUB
+reason=allow authenticated Library session to upload EPUB directly into the existing ARTIFACTS R2 bucket and refresh both main Library and live Reader Library panel
