@@ -1,3 +1,3 @@
-ebook-reader-v54-library-ux
+ebook-reader-v54-library-ux-retry
 requested_at=2026-09-03
-reason=fix canonical book titles, add compact cover thumbnails, local reading progress bars/filters, and metadata-aware cards while preserving v51 Reader/audio owners
+reason=retry v54 after correcting a smoke-test marker; source patch already passed and production was not changed by the failed run
