@@ -1,3 +1,3 @@
-ebook-reader-v64-progress-repair
-requested_at=2026-09-03T04:14:00+07:00
-reason=repair false 0 percent reading progress by preferring generated epub.js Locations, using live spine/displayed-page fallback before Locations are ready, and backfilling the current mounted book whenever live Library opens; preserve v57 fast path, v60 audio, v62 Safari layout and v63 Library recovery
+ebook-reader-v65-sync-manage-candidate
+requested_at=2026-09-03T06:21:00+07:00
+reason=deploy v65 candidate after full build validation PASS: Reader-specific guarded rollback isolation, Safari post-deploy smoke, D1 cross-device progress sync with local fallback/newer-wins merge, and Library Rename/Delete in main + live Reader panel; preserve v57 fast path, v59 filter memory, v60 audio prefetch/owner, v62 Safari layout, v63 recovery/version handshake, and v64 progress repair; v64 remains canonical rollback until device acceptance PASS
