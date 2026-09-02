@@ -1,3 +1,3 @@
-opportunity-radar-d1-cutover-deploy
+ebook-reader-v48-atomic-quiet-reveal-deploy
 requested_at=2026-09-02
-reason=deploy runner3-core with OPPORTUNITY_DB dedicated D1 binding after verified physical split; retain legacy runner3-core opportunity tables for rollback
+reason=hide the final EPUB column/reflow motion after reopen; wait for base display promise, fonts, CFI and geometry quiet window before atomically revealing reader; freeze bootstrap transitions
