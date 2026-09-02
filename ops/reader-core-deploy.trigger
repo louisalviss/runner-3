@@ -1,3 +1,3 @@
-ebook-reader-v55-progress-real-covers-retry
+ebook-reader-v55-progress-real-covers-final
 requested_at=2026-09-03
-reason=retry v55 after correcting only the cover smoke-test marker; patch itself passed, first run stopped before production deploy
+reason=deploy v55 after fixing the final live-Library cover marker; R2 catalog enrichment is PASS with 15 books and 14 real EPUB covers
