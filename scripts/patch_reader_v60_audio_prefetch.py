@@ -178,6 +178,12 @@ async function nextInternalJob(env) {
 
 if 'reader-audio-v60-prefetch' not in v:
     v = v.replace('    prefetchReady:0,\n', '    prefetchReady:0,\n    prefetchEnqueued:0,\n', 1)
+
+    vars_needle = '  let relocatedOff=null;\n  let locationTimer=0;\n'
+    if vars_needle not in v:
+        raise SystemExit('V60_V34_WARM_VARS_ANCHOR_MISSING')
+    v = v.replace(vars_needle, vars_needle + "  let warmCurrentTimer=0;\n  let warmCurrentSignature='';\n", 1)
+
     start = v.find('  async function waitPrefetchReady(id){')
     end = v.find('\n  function schedulePrefetch(){', start)
     if start < 0 or end < 0:
@@ -207,8 +213,36 @@ if 'reader-audio-v60-prefetch' not in v:
     prefetching.set(key,task);
     return task;
   }
+
+  async function warmCurrentChapter(){
+    const payload=framePayload();
+    if(!payload||!payload.text||String(payload.text).length<80||!payload.chapterHref)return null;
+    const signature=payload.chapterHref+'|'+payload.signature;
+    if(signature===warmCurrentSignature)return null;
+    warmCurrentSignature=signature;
+    try{
+      const response=await rawFetch('/artifact-library/audio',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',prefetch:true,clientVersion:'reader-audio-v60-warm-current'})});
+      const state=await response.json().catch(()=>({}));
+      if(!response.ok||!state.id)return null;
+      const value={payload,state,canonical:canonical(payload.text),queuedAt:Date.now()};
+      prefetchCache.set(payload.chapterHref,value);
+      if(state.status==='ready'&&state.mediaUrl&&state.timingUrl)debug.prefetchReady++;
+      else debug.prefetchEnqueued++;
+      return value;
+    }catch(error){debug.lastError=String(error&&error.message||error||'warm current failed').slice(0,180);return null;}
+  }
 '''
     v = v[:start] + replacement + v[end:]
+
+    reloc_needle = "        clearTimeout(locationTimer);\n        locationTimer=setTimeout(()=>handleManualRelocation(loc),90);\n"
+    if reloc_needle not in v:
+        raise SystemExit('V60_V34_RELOCATION_ANCHOR_MISSING')
+    v = v.replace(reloc_needle, reloc_needle + "        clearTimeout(warmCurrentTimer);\n        warmCurrentTimer=setTimeout(()=>warmCurrentChapter(),650);\n", 1)
+
+    boot_needle = "      setTimeout(()=>{manualArmedAt=Date.now();tick();if(currentId())schedulePrefetch();},700);\n"
+    if boot_needle not in v:
+        raise SystemExit('V60_V34_BOOT_ANCHOR_MISSING')
+    v = v.replace(boot_needle, "      setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);\n", 1)
 
 AUDIO.write_text(a)
 V34.write_text(v)
