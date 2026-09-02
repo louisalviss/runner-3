@@ -1,3 +1,3 @@
-ebook-reader-v45-direct-hidden-restore-deploy
+ebook-reader-v45-direct-hidden-restore-deploy-2
 requested_at=2026-09-02
-reason=hide intermediate pagination during saved-position restore, use direct CFI relocation instead of repeated visible display attempts, and suspend highlight/page-follow until restore is stable
+reason=redeploy bundle-safe hidden direct CFI restore UX after fixing nested template syntax; keep audio highlight and page-follow suspended until restore completes
