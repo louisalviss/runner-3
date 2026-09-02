@@ -1,3 +1,3 @@
-ebook-reader-v57-resource-fastpath
+ebook-reader-v58-atomic-boot-library-sort
 requested_at=2026-09-03
-reason=fix intermittent Cloudflare 1102 by lazy-loading mailbox/legacy Reader stacks; route Library/list/cover/upload/enrich/delivery/vendor through lightweight path and background progress migration through direct authenticated R2 streaming
+reason=eliminate visible intermediate epub.js page renders by revealing only after stable base CFI and suppressing post-boot reflow; add Recent open, New added, and A-to-Z Library sorting while preserving v57 resource fast path
