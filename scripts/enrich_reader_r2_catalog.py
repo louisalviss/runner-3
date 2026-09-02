@@ -1,23 +1,71 @@
 #!/usr/bin/env python3
 import json
-import mimetypes
 import os
 import pathlib
 import posixpath
 import subprocess
 import tempfile
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
-CORE = os.environ.get('R3_LIBRARY_ORIGIN', 'https://runner3-core.ducduy2411.workers.dev').rstrip('/')
 BUCKET = os.environ.get('R3_ARTIFACT_BUCKET', 'runner3-artifacts')
 INDEX_KEY = 'core/ebook/_index/library-books.json'
+ACCOUNT_ID = os.environ.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
+API_TOKEN = os.environ.get('CLOUDFLARE_API_TOKEN', '').strip()
 
 
 def run(*args):
     print('+', ' '.join(args), flush=True)
     subprocess.run(args, check=True)
+
+
+def cf_json(url):
+    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {API_TOKEN}', 'Accept': 'application/json'})
+    with urllib.request.urlopen(req, timeout=60) as response:
+        data = json.load(response)
+    if not data.get('success'):
+        raise RuntimeError('CLOUDFLARE_API_FAILED:' + json.dumps(data.get('errors') or []))
+    return data
+
+
+def list_final_epubs():
+    if not ACCOUNT_ID or not API_TOKEN:
+        raise RuntimeError('CLOUDFLARE_CREDENTIALS_MISSING')
+    base = f'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/r2/buckets/{BUCKET}/objects'
+    cursor = ''
+    objects = []
+    while True:
+        query = {'prefix': 'core/ebook/', 'per_page': '1000'}
+        if cursor:
+            query['cursor'] = cursor
+        data = cf_json(base + '?' + urllib.parse.urlencode(query))
+        for obj in data.get('result') or []:
+            key = str(obj.get('key') or '')
+            if '/final/' not in key or not key.lower().endswith('.epub'):
+                continue
+            parts = key.split('/')
+            scope = parts[2] if len(parts) > 3 else ''
+            if scope:
+                objects.append({'key': key, 'scope': scope, 'last_modified': obj.get('last_modified'), 'size': obj.get('size')})
+        info = data.get('result_info') or {}
+        if not info.get('is_truncated'):
+            break
+        cursor = str(info.get('cursor') or '')
+        if not cursor:
+            break
+
+    # Match production Library behavior: one latest final EPUB per scope.
+    latest = {}
+    for obj in objects:
+        scope = obj['scope']
+        cur = latest.get(scope)
+        if not cur or str(obj.get('last_modified') or '') > str(cur.get('last_modified') or ''):
+            latest[scope] = obj
+    rows = sorted(latest.values(), key=lambda x: x['scope'])
+    print(f'R2_LIST_FINAL_EPUBS={len(rows)}', flush=True)
+    return rows
 
 
 def text_content(node):
@@ -93,17 +141,11 @@ def epub_metadata(epub_path: pathlib.Path):
             try:
                 cover_bytes = zf.read(cover_path)
             except KeyError:
-                # Some EPUBs use percent-escaped paths in the manifest.
                 from urllib.parse import unquote
                 cover_path = unquote(cover_path)
                 cover_bytes = zf.read(cover_path)
 
-        return {
-            'title': title,
-            'creator': creator,
-            'cover_bytes': cover_bytes,
-            'cover_media': cover_media,
-        }
+        return {'title': title, 'creator': creator, 'cover_bytes': cover_bytes, 'cover_media': cover_media}
 
 
 def extension_for(media, data):
@@ -115,29 +157,22 @@ def extension_for(media, data):
 
 
 def main():
-    with urllib.request.urlopen(CORE + '/artifact-library/api/list', timeout=60) as response:
-        payload = json.load(response)
-    objects = payload.get('objects') or []
+    objects = list_final_epubs()
     if not objects:
         raise SystemExit('NO_EPUB_OBJECTS')
 
-    catalog = {'version': 1, 'generated_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z', 'books': {}}
+    from datetime import datetime, timezone
+    catalog = {'version': 1, 'generated_at': datetime.now(timezone.utc).isoformat(), 'books': {}}
     with tempfile.TemporaryDirectory(prefix='r3-epub-catalog-') as tmp:
         root = pathlib.Path(tmp)
         for i, obj in enumerate(objects, 1):
-            key = str(obj.get('key') or '')
-            scope = str(obj.get('scope') or '')
-            if not key or not scope:
-                continue
+            key = obj['key']
+            scope = obj['scope']
             print(f'[{i}/{len(objects)}] {scope}: {key}', flush=True)
             epub_path = root / f'{i:03d}.epub'
             run('npx', '--yes', 'wrangler@4', 'r2', 'object', 'get', f'{BUCKET}/{key}', '--remote', '--file', str(epub_path))
             meta = epub_metadata(epub_path)
-            entry = {
-                'title': meta.get('title') or '',
-                'creator': meta.get('creator') or '',
-                'epub_key': key,
-            }
+            entry = {'title': meta.get('title') or '', 'creator': meta.get('creator') or '', 'epub_key': key}
             cover = meta.get('cover_bytes')
             if cover:
                 ext, media = extension_for(meta.get('cover_media') or '', cover)
@@ -155,9 +190,7 @@ def main():
         index_path = root / 'library-books.json'
         index_path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         run('npx', '--yes', 'wrangler@4', 'r2', 'object', 'put', f'{BUCKET}/{INDEX_KEY}', '--remote', '--file', str(index_path), '--content-type', 'application/json')
-        print('R3_R2_CATALOG_ENRICH=PASS books=%d covers=%d' % (
-            len(catalog['books']), sum(1 for x in catalog['books'].values() if x.get('cover_key'))
-        ))
+        print('R3_R2_CATALOG_ENRICH=PASS books=%d covers=%d' % (len(catalog['books']), sum(1 for x in catalog['books'].values() if x.get('cover_key'))))
 
 
 if __name__ == '__main__':
