@@ -21,8 +21,12 @@ execFileSync('python3', ['scripts/check_reader_v55_progress_real_covers.py'], { 
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v56_auto_enrich_progress_migration.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v56_auto_enrich_progress_migration.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v56_auto_enrich_progress_migration.py'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v57_resource_fastpath.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v57_resource_fastpath.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v57_resource_fastpath.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v2-entry.js'], { stdio: 'inherit' });
+execFileSync('node', ['--check', 'cloudflare/runner3-core/opportunity-router-entry.js'], { stdio: 'inherit' });
 
 const entry = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-integration.js');
 const output = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js');
