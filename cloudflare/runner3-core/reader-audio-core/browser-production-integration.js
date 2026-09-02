@@ -422,7 +422,7 @@ function bootReaderAudioCore() {
     });
   }
 
-  async function prepareCurrent({ autoplay = false, allowSaved = true } = {}) {
+  async function prepareCurrent({ autoplay = false, allowSaved = true, followOnMount = autoplay } = {}) {
     if (busy) return adapter?.snapshot?.() || null;
     busy = true;
     setMain('loading');
@@ -447,6 +447,7 @@ function bootReaderAudioCore() {
         src: prepared.state.mediaUrl,
         segments: rebuilt.segments,
         autoplay: false,
+        followOnMount: Boolean(followOnMount),
       };
       if (!sameSaved) {
         context.time = visible?.start || 0;
@@ -570,38 +571,38 @@ function bootReaderAudioCore() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') adapter?.persist?.(); });
 
   async function initialRestore() {
-    try {
-      const saved = loadState();
-      for (let n = 0; n < 100; n++) {
-        const loc = bridge()?.current?.();
-        if (loc?.start?.cfi || loc?.start?.href) break;
-        await sleep(100);
-      }
-      let readerCfi = '';
-      try { readerCfi = String(localStorage.getItem(READER_POSITION_KEY) || ''); } catch {}
-      const restoreCfi = readerCfi || saved.cfi || '';
-      if (restoreCfi && bridge()?.display) {
-        try { await bridge().display(restoreCfi); } catch {}
-      }
-      if (saved.mediaId) {
-        let payload = null;
-        let locationReady = false;
-        for (let n = 0; n < 120; n++) {
-          const loc = bridge()?.current?.();
-          payload = framePayload();
-          locationReady = Boolean(loc?.start?.cfi || loc?.start?.href);
-          if (locationReady && payload) break;
-          await sleep(100);
-        }
-        if (!locationReady || !payload) throw new Error('READER_CHAPTER_NOT_READY');
-        const sameAudioChapter = Boolean(!saved.chapter || payload.chapter === saved.chapter);
-        if (sameAudioChapter) await prepareCurrent({ autoplay: false, allowSaved: true });
-        else syncUi({ ...saved, chapter: payload.chapter, mediaId: '', time: 0, cfi: restoreCfi, playingIntent: false });
-      } else syncUi({ ...saved, cfi: restoreCfi });
-    } catch (error) {
-      debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
+  try {
+    const saved = loadState();
+    for (let n = 0; n < 140; n++) {
+      const loc = bridge()?.current?.();
+      const ready = Boolean(loc?.start?.cfi || loc?.start?.href);
+      if (ready && !window.__R3_READER_RESTORE_PENDING) break;
+      await sleep(80);
     }
+    const loc = bridge()?.current?.();
+    const liveCfi = String(loc?.start?.cfi || '');
+    let readerCfi = '';
+    try { readerCfi = String(localStorage.getItem(READER_POSITION_KEY) || ''); } catch {}
+    const restoreCfi = liveCfi || readerCfi || saved.cfi || '';
+    if (saved.mediaId) {
+      let payload = null;
+      let locationReady = false;
+      for (let n = 0; n < 80; n++) {
+        const currentLoc = bridge()?.current?.();
+        payload = framePayload();
+        locationReady = Boolean(currentLoc?.start?.cfi || currentLoc?.start?.href);
+        if (locationReady && payload) break;
+        await sleep(80);
+      }
+      if (!locationReady || !payload) throw new Error('READER_CHAPTER_NOT_READY');
+      const sameAudioChapter = Boolean(!saved.chapter || payload.chapter === saved.chapter);
+      if (sameAudioChapter) await prepareCurrent({ autoplay: false, allowSaved: true, followOnMount: false });
+      else syncUi({ ...saved, chapter: payload.chapter, mediaId: '', time: 0, cfi: restoreCfi, playingIntent: false });
+    } else syncUi({ ...saved, cfi: restoreCfi, playingIntent: false });
+  } catch (error) {
+    debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
   }
+}
 
   initialRestore();
 }

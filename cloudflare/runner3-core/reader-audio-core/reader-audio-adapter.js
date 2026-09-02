@@ -80,7 +80,7 @@ export class ReaderAudioAdapter {
       cfi: state.cfi || context.cfi,
       time: state.time,
     }));
-    await this.#syncMappedTarget(this.controller.snapshot(), { force: true });
+    if (context.followOnMount !== false) await this.#syncMappedTarget(this.controller.snapshot(), { force: true });
     if (this.prefetchOnMount && state.chapter) this.queue.prefetch(state.chapter).catch(() => {});
     if (state.playingIntent && context.autoplay !== false) await this.controller.play();
     return this.snapshot();
