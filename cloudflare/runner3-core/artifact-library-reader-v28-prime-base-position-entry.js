@@ -27,12 +27,12 @@ const PRIME = `<script data-r3-audio-prime-base-position-v28="1" data-r3-direct-
   document.documentElement.classList.add('r3-restore-pending-v45');
   const style=document.createElement('style');
   style.id='r3ReaderDirectRestoreV45Style';
-  style.textContent=`
-    html.r3-restore-pending-v45 #viewer{visibility:hidden!important;opacity:0!important}
-    html.r3-restore-pending-v45 #r3AudioDock{opacity:0!important;pointer-events:none!important}
-    html.r3-restore-pending-v45 body::before{content:'';position:fixed;z-index:2147483600;inset:0;background:var(--bg,#fff);pointer-events:auto}
-    html.r3-restore-pending-v45 body::after{content:'Đang mở vị trí gần nhất…';position:fixed;z-index:2147483601;left:50%;top:48%;transform:translate(-50%,-50%);padding:11px 16px;border-radius:999px;background:color-mix(in srgb,var(--fg,#222) 8%,var(--bg,#fff));color:var(--fg,#333);font:600 13px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap;box-shadow:0 8px 30px rgba(0,0,0,.08);pointer-events:none}
-  `;
+  style.textContent=[
+    "html.r3-restore-pending-v45 #viewer{visibility:hidden!important;opacity:0!important}",
+    "html.r3-restore-pending-v45 #r3AudioDock{opacity:0!important;pointer-events:none!important}",
+    "html.r3-restore-pending-v45 body::before{content:'';position:fixed;z-index:2147483600;inset:0;background:var(--bg,#fff);pointer-events:auto}",
+    "html.r3-restore-pending-v45 body::after{content:'Đang mở vị trí gần nhất…';position:fixed;z-index:2147483601;left:50%;top:48%;transform:translate(-50%,-50%);padding:11px 16px;border-radius:999px;background:color-mix(in srgb,var(--fg,#222) 8%,var(--bg,#fff));color:var(--fg,#333);font:600 13px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap;box-shadow:0 8px 30px rgba(0,0,0,.08);pointer-events:none}"
+  ].join('');
   (document.head||document.documentElement).appendChild(style);
   window.__r3ReaderDirectRestoreV45={phase:'primed',bookKey,target,source,startedAt:Date.now(),after:'',error:''};
 })();
