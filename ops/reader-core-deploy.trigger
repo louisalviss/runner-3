@@ -1,3 +1,3 @@
-ebook-reader-v49-indexeddb-cache-deploy
+ebook-reader-v49-indexeddb-cache-deploy-retry
 requested_at=2026-09-02
-reason=avoid full signed-url network EPUB download on every reopen; cache raw EPUB bytes by bookKey in IndexedDB, limit to four recent books, and delay loading indicator so cache-hit opens do not flash a loader
+reason=retry after smoke-test syntax repair; cache raw EPUB bytes by bookKey in IndexedDB and suppress loader flash on cache-hit reopen
