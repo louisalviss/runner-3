@@ -2,25 +2,39 @@ import app from "./artifact-library-reader-v27-boot-cfi-restore-entry.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 const EPUB_MARKER = '<script src="/artifact-library/vendor/epub.min.js"></script>\n<script>';
-const PRIME = `<script data-r3-audio-prime-base-position-v28="1">
+const PRIME = `<script data-r3-audio-prime-base-position-v28="1" data-r3-direct-restore-v45="1">
 (()=>{
   window.__r3AudioPrimeBasePositionV28=true;
   const params=new URLSearchParams(location.search);
   const bookKey=params.get('key')||'';
   if(!bookKey)return;
   const baseKey='r3-reader-position:'+bookKey;
-  let previous='';
-  try{previous=String(localStorage.getItem(baseKey)||'');}catch{}
-  if(previous){
-    window.__r3AudioPrimeBasePositionV28Debug={phase:'kept-reader-position',baseKey,previous};
-    return;
+  let target='';
+  try{target=String(localStorage.getItem(baseKey)||'');}catch{}
+  let source='reader-position';
+  if(!target){
+    let saved=null;
+    try{saved=JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:'+bookKey)||'null');}catch{}
+    target=String(saved&&saved.cfi||'');
+    source='audio-fallback';
+    if(target)try{localStorage.setItem(baseKey,target);}catch{}
   }
-  let saved=null;
-  try{saved=JSON.parse(localStorage.getItem('r3-reader-audio-state-v11:'+bookKey)||'null');}catch{}
-  const cfi=String(saved&&saved.cfi||'');
-  if(!cfi)return;
-  try{localStorage.setItem(baseKey,cfi);}catch{}
-  window.__r3AudioPrimeBasePositionV28Debug={phase:'primed-audio-fallback',baseKey,previous,cfi};
+  window.__r3AudioPrimeBasePositionV28Debug={phase:target?'restore-pending':'no-target',baseKey,target,source};
+  if(!target)return;
+
+  window.__R3_READER_RESTORE_PENDING=true;
+  window.__r3ReaderRestoreTargetV45=target;
+  document.documentElement.classList.add('r3-restore-pending-v45');
+  const style=document.createElement('style');
+  style.id='r3ReaderDirectRestoreV45Style';
+  style.textContent=`
+    html.r3-restore-pending-v45 #viewer{visibility:hidden!important;opacity:0!important}
+    html.r3-restore-pending-v45 #r3AudioDock{opacity:0!important;pointer-events:none!important}
+    html.r3-restore-pending-v45 body::before{content:'';position:fixed;z-index:2147483600;inset:0;background:var(--bg,#fff);pointer-events:auto}
+    html.r3-restore-pending-v45 body::after{content:'Đang mở vị trí gần nhất…';position:fixed;z-index:2147483601;left:50%;top:48%;transform:translate(-50%,-50%);padding:11px 16px;border-radius:999px;background:color-mix(in srgb,var(--fg,#222) 8%,var(--bg,#fff));color:var(--fg,#333);font:600 13px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap;box-shadow:0 8px 30px rgba(0,0,0,.08);pointer-events:none}
+  `;
+  (document.head||document.documentElement).appendChild(style);
+  window.__r3ReaderDirectRestoreV45={phase:'primed',bookKey,target,source,startedAt:Date.now(),after:'',error:''};
 })();
 </script>`;
 

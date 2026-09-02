@@ -410,6 +410,7 @@ const OVERLAY = `<script data-r3-audio-continuity-v34="1">
   }
 
   async function syncWord(index,force=false){
+    if(window.__R3_READER_RESTORE_PENDING)return false;
     if(!timingWords.length)return false;
     buildWordMap(false);
     let center=nearestMappedIndex(index);
