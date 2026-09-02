@@ -1,3 +1,3 @@
-ebook-reader-v62-paginated-vertical-clamp
-requested_at=2026-09-03T02:32:00+07:00
-reason=keep paginated EPUB viewer and iframe vertical scroll at zero after hidden restore, Safari visualViewport settle, rendered events, and later v5 reflow; preserve horizontal page position, saved CFI, v60 audio priority and v57 fast path
+ebook-reader-v63-library-recovery
+requested_at=2026-09-03T03:36:00+07:00
+reason=restore accepted v59-v62 Reader/Library after erroneous emergency rollback to v58; harden live Library list/render recovery and add future stale-client version handshake while preserving v57 fast path and v62 Safari layout fix
