@@ -1,3 +1,3 @@
-ebook-reader-v47-base-display-promise-deploy
+opportunity-radar-d1-cutover-deploy
 requested_at=2026-09-02
-reason=wait for authoritative base rendition.display(savedCFI) promise before revealing reader; suppress v5 boot reflow so internal pagination cannot become visible
+reason=deploy runner3-core with OPPORTUNITY_DB dedicated D1 binding after verified physical split; retain legacy runner3-core opportunity tables for rollback
