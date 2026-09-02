@@ -1,3 +1,3 @@
-ebook-reader-v58-atomic-boot-library-sort
+ebook-reader-v58-atomic-boot-library-sort-retry
 requested_at=2026-09-03
-reason=eliminate visible intermediate epub.js page renders by revealing only after stable base CFI and suppressing post-boot reflow; add Recent open, New added, and A-to-Z Library sorting while preserving v57 resource fast path
+reason=retry v58 after normalizing the composed rendered handler; keep intermediate epub.js renders hidden until stable CFI and add Recent open, New added, A-to-Z Library sorting
