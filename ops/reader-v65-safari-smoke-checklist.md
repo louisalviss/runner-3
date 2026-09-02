@@ -1,8 +1,14 @@
 # Ebook Reader v65 — Safari/iPhone acceptance
 
-Status: REQUIRED after deploy. Server smoke is necessary but does not replace this device test.
+Status: DEPLOYED CANDIDATE / DEVICE ACCEPTANCE REQUIRED. Server smoke passed; it does not replace this device test.
 
-Canonical rollback: v64 Cloudflare version `4fc0bb37-4ffa-49e6-8722-e3631428c6ac`.
+Deployment metadata:
+- Source/deploy commit: `9149e472c62fc0a4310205e9f1f668d12781d5b4`
+- Build validation run: `33694628997` — PASS
+- Production deploy run: `33694684233` — PASS
+- v65 Cloudflare version: `e142f20d-3d46-401c-a48c-56a0f678e549`
+- Post-deploy server smoke run: `33694731436` — PASS
+- Canonical rollback remains v64 Cloudflare version `4fc0bb37-4ffa-49e6-8722-e3631428c6ac`.
 
 Run on iPhone Safari with a book that already has saved progress:
 
