@@ -1,3 +1,3 @@
-ebook-reader-v50-fast-reveal
+ebook-reader-v51-live-session-library
 requested_at=2026-09-02
-reason=remove v48 artificial visual-quiet wait and visible restore loader; reveal immediately after authoritative base display promise while keeping saved-CFI restore and v49 EPUB cache
+reason=keep current epub.js Book/Rendition alive while browsing Library; reopening the same book closes the Library panel instead of navigating/reinitializing EPUB
