@@ -1,0 +1,42 @@
+name: Delete Migrated Ebook Backup Branch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/delete-migrated-ebook-backup-branch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Delete migrated backup branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='backup/ebook-audio-v44-pass-20260902'
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git push origin --delete "$branch"
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo 'BACKUP_BRANCH_DELETE_FAILED' >&2
+            exit 1
+          fi
+          echo 'RUNNER3_EBOOK_BACKUP_BRANCH_DELETED=PASS'
+      - name: Remove cleanup workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/delete-migrated-ebook-backup-branch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u .github/workflows/delete-migrated-ebook-backup-branch.yml
+          git commit -m 'chore: remove ebook backup migration helper'
+          git push origin HEAD:main
