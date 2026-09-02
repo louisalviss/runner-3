@@ -1,3 +1,3 @@
-ebook-reader-v48-atomic-quiet-reveal-deploy
+ebook-reader-v49-indexeddb-cache-deploy
 requested_at=2026-09-02
-reason=hide the final EPUB column/reflow motion after reopen; wait for base display promise, fonts, CFI and geometry quiet window before atomically revealing reader; freeze bootstrap transitions
+reason=avoid full signed-url network EPUB download on every reopen; cache raw EPUB bytes by bookKey in IndexedDB, limit to four recent books, and delay loading indicator so cache-hit opens do not flash a loader
