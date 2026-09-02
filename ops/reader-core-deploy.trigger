@@ -1,3 +1,3 @@
-ebook-reader-v49-indexeddb-cache-deploy-retry
+ebook-reader-v50-fast-reveal
 requested_at=2026-09-02
-reason=retry after smoke-test syntax repair; cache raw EPUB bytes by bookKey in IndexedDB and suppress loader flash on cache-hit reopen
+reason=remove v48 artificial visual-quiet wait and visible restore loader; reveal immediately after authoritative base display promise while keeping saved-CFI restore and v49 EPUB cache
