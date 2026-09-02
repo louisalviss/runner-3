@@ -1,0 +1,59 @@
+name: Reddit Native Public Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/reddit-native-probe/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe public Reddit native routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re, subprocess
+          target='https://www.reddit.com/r/reddit/comments/sphocx/test_post_please_ignore/'
+          urls=[
+            ('canonical', target),
+            ('json', target+'.json?raw_json=1'),
+            ('json_short', 'https://www.reddit.com/comments/sphocx.json?raw_json=1'),
+            ('old', 'https://old.reddit.com/r/reddit/comments/sphocx/test_post_please_ignore/'),
+            ('old_json', 'https://old.reddit.com/r/reddit/comments/sphocx/test_post_please_ignore/.json?raw_json=1'),
+            ('rss', target+'.rss'),
+          ]
+          uas=[
+            ('browser','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'),
+            ('chatgpt','ChatGPT-User/1.0'),
+          ]
+          challenge=('prove your humanity','blocked by network security','whoa there, pardner','captcha','verify you are human')
+          for uname,ua in uas:
+            for name,url in urls:
+              p=subprocess.run(['curl','-L','-sS','--connect-timeout','8','--max-time','20','-A',ua,'-D','-','-o','/tmp/body', '-w','\n__STATUS__=%{http_code}\n__TYPE__=%{content_type}\n__FINAL__=%{url_effective}\n',url],text=True,capture_output=True)
+              try: body=open('/tmp/body','r',encoding='utf-8',errors='replace').read()
+              except Exception: body=''
+              low=' '.join(body.lower().split())
+              status=re.search(r'__STATUS__=(\d+)',p.stdout)
+              ctype=re.search(r'__TYPE__=([^\n]*)',p.stdout)
+              final=re.search(r'__FINAL__=([^\n]*)',p.stdout)
+              print(json.dumps({
+                'ua':uname,'route':name,'rc':p.returncode,
+                'status':int(status.group(1)) if status else None,
+                'content_type':ctype.group(1) if ctype else '',
+                'final_url':final.group(1) if final else '',
+                'chars':len(body),
+                'challenge':next((x for x in challenge if x in low),None),
+                'has_post_id':'sphocx' in low,
+                'has_title':'test post please ignore' in low,
+                'looks_json':body.lstrip().startswith(('[','{')),
+                'looks_rss':'<rss' in low or '<feed' in low,
+              },sort_keys=True))
+          PY
