@@ -1,3 +1,3 @@
-ebook-reader-v56-auto-enrich-progress-migration
+ebook-reader-v57-resource-fastpath
 requested_at=2026-09-03
-reason=deploy background legacy CFI progress migration in Library and automatic EPUB metadata/real-cover extraction plus R2 catalog sidecar update immediately after user upload
+reason=fix intermittent Cloudflare 1102 by lazy-loading mailbox/legacy Reader stacks; route Library/list/cover/upload/enrich/delivery/vendor through lightweight path and background progress migration through direct authenticated R2 streaming
