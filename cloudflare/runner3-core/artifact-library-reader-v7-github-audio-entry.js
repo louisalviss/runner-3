@@ -95,6 +95,9 @@ async function manualDispatch(request, env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/healthz") {
+      return json({ ok: true, service: "runner3-core" });
+    }
     const rssSaveResponse = await handleRssLibrarySave(request, env, url);
     if (rssSaveResponse) return rssSaveResponse;
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
