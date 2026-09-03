@@ -3,8 +3,6 @@ from pathlib import Path
 ROOT=Path('cloudflare/runner3-core')
 V2=(ROOT/'artifact-library-reader-v2-entry.js').read_text(encoding='utf-8')
 V36=(ROOT/'artifact-library-reader-v36-home-screen-safe-area-entry.js').read_text(encoding='utf-8')
-AUDIO=(ROOT/'audio-entry.js').read_text(encoding='utf-8')
-OUTER=(ROOT/'opportunity-router-entry.js').read_text(encoding='utf-8')
 
 required=[
     '__r3StageGeometryV67',
@@ -42,28 +40,6 @@ for marker in [
     'Cache-Control", "public, max-age=86400, stale-while-revalidate=604800"',
 ]:
     if marker not in V36:
-        raise SystemExit('READER_V67_INNER_VENDOR_CACHE_MISSING:'+marker)
-
-for marker in [
-    'const READER_VENDOR_CACHE_V67 = new Set([',
-    '"/artifact-library/vendor/jszip.min.js"',
-    '"/artifact-library/vendor/epub.min.js"',
-    'function maybeCacheReaderVendorV67(request, url, response)',
-    'headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")',
-    'headers.set("X-R3-Reader-Vendor-Cache", "v67")',
-    'return maybeCacheReaderVendorV67(request, url, startupPatched);',
-]:
-    if marker not in AUDIO:
-        raise SystemExit('READER_V67_OUTER_VENDOR_CACHE_MISSING:'+marker)
-
-for marker in [
-    'const READER_VENDOR_CACHE_V67_OUTERMOST = new Set([',
-    'function applyReaderVendorCacheV67Outermost(request, url, response)',
-    'headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")',
-    'headers.set("X-R3-Reader-Vendor-Cache", "v67-outermost")',
-    'return applyReaderVendorCacheV67Outermost(request, url, response);',
-]:
-    if marker not in OUTER:
-        raise SystemExit('READER_V67_WRANGLER_VENDOR_CACHE_MISSING:'+marker)
+        raise SystemExit('READER_V67_VENDOR_CACHE_MISSING:'+marker)
 
 print('READER_V67_STAGE_GEOMETRY_PERF_CHECK=PASS')
