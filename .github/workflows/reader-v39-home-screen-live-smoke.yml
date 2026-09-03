@@ -57,6 +57,9 @@ jobs:
               && grep -q '__r3StandaloneInnerTopV66' /tmp/reader.html \
               && grep -q "owner:'standalone-inner-top-v66'" /tmp/reader.html \
               && grep -q "body.style.setProperty('padding-top','8px','important')" /tmp/reader.html \
+              && grep -q "r3NormalizeStandaloneInnerTopV66(c,'bind-rendered')" /tmp/reader.html \
+              && grep -q "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-80')" /tmp/reader.html \
+              && grep -q "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-240')" /tmp/reader.html \
               && ! grep -q 'r3-ios-standalone-forced-inset-v38' /tmp/reader.html \
               && ! grep -q -- '--r3-ios-forced-top-v38' /tmp/reader.html; then
               reader_ok=1
