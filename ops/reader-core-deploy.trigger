@@ -1,3 +1,3 @@
-ebook-reader-v66-standalone-inner-top-post-render
-requested_at=2026-09-03T22:24:00+07:00
-reason=deploy Reader v66 post-render fix after Build Validation PASS run 33772244741: v66 early content hook was being overwritten by EPUB chapter styles; reapply standalone-only inner top normalization on every rendered bind plus 80ms and 240ms settle passes, keep outer opaque-v39 viewport and forced inset disabled, preserve 8px reading top gap and existing CFI/pagination ownership
+ebook-reader-v67-stage-geometry-perf
+requested_at=2026-09-03T23:08:00+07:00
+reason=deploy Reader v67 after validation run 33776649580 PASS: remove fixed-body 100dvh dynamic owner, settle visual viewport in parallel with EPUB cache/network before epub.js stage creation, eliminate v61 post-render resize+redisplay, keep initial iframe hidden until final boot gates complete, normalize chapter top spacing consistently across Safari and Home Screen, expand persistent EPUB IDB LRU 4->12, preload jszip/epub parser scripts and cache only those static vendor responses for one day; preserve private HTML/library no-store and existing CFI/audio ownership
