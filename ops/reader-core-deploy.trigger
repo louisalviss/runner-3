@@ -1,3 +1,3 @@
-ebook-reader-v65-fast-library-index
-requested_at=2026-09-03T18:12:29+07:00
-reason=deploy stable v65 Library speed optimization after validation PASS: keep canonical EPUBs in R2 as source of truth; add derived library-index-v65.json with 5m validity, safe corruption/missing fallback rebuild, immediate invalidation after upload/rename/delete, manual Refresh force rebuild, localStorage instant repeat-open list cache, and nonblocking server progress hydration; postdeploy smoke primes index then verifies next list request hits index; preserve v60 audio, v62 Safari cold-boot guard, v64 progress repair and v65 sync/manage
+ebook-reader-v65-home-screen-startup-v39
+requested_at=2026-09-03T20:42:13+07:00
+reason=deploy final-stage Home Screen startup fix after Reader v65 Build Validation PASS: remove v38 forced 48px inset, patch final built artifact-library HTML after all v44-v65 Library patches with apple-mobile-web-app-capable=yes, mobile-web-app-capable=yes, apple-mobile-web-app-status-bar-style=black and opaque-v39 startup marker/header; keep Reader viewer top=0 with forced inset disabled; dedicated live smoke must verify both /artifact-library startup and /artifact-library/read before acceptance
