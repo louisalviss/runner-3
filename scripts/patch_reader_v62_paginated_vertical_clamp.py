@@ -36,8 +36,9 @@ helper = anchor + r'''
             if(win&&Math.abs(Number(win.scrollY||0))>.5){win.scrollTo(Number(win.scrollX||0),0);fixed++;}
           }catch{}
         }
-        const state=window.__r3PaginatedVerticalClampV62||(window.__r3PaginatedVerticalClampV62={owner:'paginated-vertical-clamp-v62',calls:0,fixes:0,lastReason:'',lastAt:0});
+        const state=window.__r3PaginatedVerticalClampV62||(window.__r3PaginatedVerticalClampV62={owner:'paginated-vertical-clamp-v62',calls:0,fixes:0,lastReason:'',lastAt:0,coldBootGuardTicks:0,coldBootGuardActive:false});
         state.calls++;state.fixes+=fixed;state.lastReason=String(reason||'');state.lastAt=Date.now();
+        if(reason==='cold-boot-guard')state.coldBootGuardTicks=(Number(state.coldBootGuardTicks)||0)+1;
         return fixed;
       }
       window.__r3ClampPaginatedVerticalV62=r3ClampPaginatedVerticalV62;
@@ -85,18 +86,37 @@ if v5_anchor not in v5:
     raise SystemExit('V62_V5_REFLOW_ANCHOR_MISSING')
 v5 = v5.replace(v5_anchor, v5_new, 1)
 
-# Safari can emit one last visual viewport resize after the address bar finishes
-# animating. During the first four seconds, only clear vertical drift; never
-# trigger another display() from this listener.
+# iOS Safari may introduce paginated iframe vertical drift without emitting a
+# visualViewport resize. Previously that could remain visible until the final
+# four-second clamp. During cold boot, clamp only vertical drift every 100 ms;
+# never call rendition.display() or resize from this guard, so CFI/page position
+# and horizontal pagination remain untouched.
 reveal_new2 = reveal_new + r'''
       try{
         const vv=window.visualViewport||null;
-        if(vv){
-          let clampTimer=0;
-          const onBootViewportV62=()=>{clearTimeout(clampTimer);clampTimer=setTimeout(()=>r3ClampPaginatedVerticalV62('visual-viewport'),80);};
-          vv.addEventListener('resize',onBootViewportV62,{passive:true});
-          setTimeout(()=>{try{vv.removeEventListener('resize',onBootViewportV62);}catch{}clearTimeout(clampTimer);r3ClampPaginatedVerticalV62('boot-window-end');},4000);
-        }
+        let clampTimer=0;
+        let coldBootGuardTimer=0;
+        const coldBootGuardStarted=Date.now();
+        const clampStateV62=window.__r3PaginatedVerticalClampV62;
+        if(clampStateV62){clampStateV62.coldBootGuardActive=true;clampStateV62.coldBootGuardStartedAt=coldBootGuardStarted;}
+        const runColdBootGuardV62=()=>{
+          r3ClampPaginatedVerticalV62('cold-boot-guard');
+          if(Date.now()-coldBootGuardStarted>=4200&&coldBootGuardTimer){
+            clearInterval(coldBootGuardTimer);coldBootGuardTimer=0;
+            if(clampStateV62)clampStateV62.coldBootGuardActive=false;
+          }
+        };
+        runColdBootGuardV62();
+        coldBootGuardTimer=setInterval(runColdBootGuardV62,100);
+        const onBootViewportV62=()=>{clearTimeout(clampTimer);clampTimer=setTimeout(()=>r3ClampPaginatedVerticalV62('visual-viewport'),80);};
+        if(vv)vv.addEventListener('resize',onBootViewportV62,{passive:true});
+        setTimeout(()=>{
+          try{if(vv)vv.removeEventListener('resize',onBootViewportV62);}catch{}
+          clearTimeout(clampTimer);
+          if(coldBootGuardTimer){clearInterval(coldBootGuardTimer);coldBootGuardTimer=0;}
+          if(clampStateV62){clampStateV62.coldBootGuardActive=false;clampStateV62.coldBootGuardEndedAt=Date.now();}
+          r3ClampPaginatedVerticalV62('boot-window-end');
+        },4200);
       }catch{}'''
 v2 = v2.replace(reveal_new, reveal_new2, 1)
 
@@ -106,6 +126,9 @@ for marker in [
     "r3ClampPaginatedVerticalV62('pre-reveal')",
     "r3ClampPaginatedVerticalV62('post-geometry')",
     "r3ClampPaginatedVerticalV62('visual-viewport')",
+    "r3ClampPaginatedVerticalV62('cold-boot-guard')",
+    'coldBootGuardTimer=setInterval(runColdBootGuardV62,100)',
+    'coldBootGuardActive=true',
 ]:
     if marker not in v2:
         raise SystemExit('V62_MISSING:' + marker)
