@@ -1,3 +1,3 @@
-ebook-reader-v65-home-screen-startup-v39
-requested_at=2026-09-03T20:42:13+07:00
-reason=deploy final-stage Home Screen startup fix after Reader v65 Build Validation PASS: remove v38 forced 48px inset, patch final built artifact-library HTML after all v44-v65 Library patches with apple-mobile-web-app-capable=yes, mobile-web-app-capable=yes, apple-mobile-web-app-status-bar-style=black and opaque-v39 startup marker/header; keep Reader viewer top=0 with forced inset disabled; dedicated live smoke must verify both /artifact-library startup and /artifact-library/read before acceptance
+ebook-reader-v66-standalone-inner-top
+requested_at=2026-09-03T21:50:00+07:00
+reason=deploy Reader v66 after Build Validation PASS run 33769962923: keep opaque-v39 outer Home Screen viewport with no forced 48px viewer inset; normalize the duplicate top spacing inside EPUB content only on iPhone standalone before pagination via rendition content hook, preserving 8px reading top gap and existing CFI/pagination ownership; live smoke must verify startup policy plus v66 runtime marker
