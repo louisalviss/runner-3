@@ -17,7 +17,7 @@ for marker in [
     'readCatalogDocumentV56',
     'r3WriteCatalogV65',
     'r3InstallMainManageV65',
-    'await r3HydrateServerProgressV65()',
+    'async function r3HydrateServerProgressV65()',
     'p === "/artifact-library/api/progress"',
     'p === "/artifact-library/api/manage"',
 ]:
