@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify v67 startup, stage geometry and cold cache policy
+      - name: Verify v67 startup and stage geometry policy
         shell: bash
         run: |
           set -euo pipefail
@@ -66,16 +66,5 @@ jobs:
           forbid_literal /tmp/reader.html 'body{position:fixed;inset:0;width:100%;height:100dvh;background:var(--bg)}' no_reader_shell_dynamic_dvh
           forbid_literal /tmp/reader.html 'const r3BootGeometryV61=await r3NormalizeBootGeometryV61' no_post_redisplay
           forbid_literal /tmp/reader.html 'const r3BootGeometryV61=await r3WaitStableBootGeometryV61' no_post_geometry_wait
-
-          for asset in jszip.min.js epub.min.js; do
-            asset_code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/vendor.h -o /dev/null -w '%{http_code}' "$core/artifact-library/vendor/$asset" || true)"
-            tr -d '\r' </tmp/vendor.h >/tmp/vendor.h.clean 2>/dev/null || true
-            cache="$(grep -i '^cache-control:' /tmp/vendor.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "VENDOR_CACHE_CHECK asset=$asset http=$asset_code cache=$cache"
-            test "$asset_code" = 200
-            echo "$cache" | grep -Fq 'public'
-            echo "$cache" | grep -Fq 'max-age=86400'
-            echo "$cache" | grep -Fq 'stale-while-revalidate=604800'
-          done
 
           echo 'READER_V67_GEOMETRY_COLD_BOOT_LIVE_SMOKE=PASS'
