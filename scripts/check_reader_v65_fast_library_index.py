@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Derived Library index is only a cache; canonical R2 EPUBs remain source of truth.
 text=Path('cloudflare/runner3-core/artifact-library-simple-entry.js').read_text(encoding='utf-8')
 required=[
   'R3_LIBRARY_FAST_INDEX_KEY_V65',
