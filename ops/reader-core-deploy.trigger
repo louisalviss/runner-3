@@ -1,3 +1,3 @@
-ebook-reader-v65-emergency-restore-after-v65.3
-requested_at=2026-09-03T07:26:00+07:00
-reason=emergency restore: v65.3 edit-name client UI caused blank Safari render despite server smoke; remove v65.3 runtime from production build and restore exact v65 chain; preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout and v64 progress repair; do not redeploy rename UI until a real WebKit browser smoke passes
+ebook-reader-v66-external-manage-ui
+requested_at=2026-09-03T08:34:00+07:00
+reason=deploy v66 candidate after full validation PASS: repaired generated v56 inline escape, external/failure-isolated Rename/Delete UI asset, real Playwright WebKit normal rename PASS and deliberately broken asset isolation PASS; preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout, v64 progress repair; v64 remains canonical rollback until physical iPhone Safari acceptance PASS
