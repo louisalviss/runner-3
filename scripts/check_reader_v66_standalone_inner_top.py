@@ -10,8 +10,11 @@ required = [
     "body.style.setProperty('margin-top','0','important')",
     "body.style.setProperty('padding-top','8px','important')",
     "rendition.hooks.content.register(contents=>r3NormalizeStandaloneInnerTopV66(contents,'content-hook'))",
-    "r3NormalizeStandaloneInnerTopV66(c,'bind-fallback')",
+    "r3NormalizeStandaloneInnerTopV66(c,'bind-rendered')",
+    "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-80')",
+    "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-240')",
     "root.dataset.r3StandaloneInnerTopV66='1'",
+    "if(r3PxV66(cs.marginTop)>4)",
 ]
 for marker in required:
     if marker not in text:
