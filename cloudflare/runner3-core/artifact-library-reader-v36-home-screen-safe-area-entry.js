@@ -3,74 +3,91 @@ import app from "./artifact-library-reader-v35-continuity-single-owner-entry.js"
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 const TRANSLUCENT = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
 const OPAQUE = '<meta name="apple-mobile-web-app-status-bar-style" content="black">';
+const CAPABLE = '<meta name="apple-mobile-web-app-capable" content="yes">';
+const MOBILE_CAPABLE = '<meta name="mobile-web-app-capable" content="yes">';
+const STARTUP_MARKER = '<meta name="r3-ios-home-screen-startup-policy" content="opaque-v39">';
 
-const HOME_SCREEN_SAFE_AREA_V36 = `<style data-r3-home-screen-safe-area-v36="1" data-r3-ios-statusbar-viewport-v37="1" data-r3-ios-forced-inset-v38="1">
-/* Prefer an opaque iOS status bar. Some standalone WebKit sessions keep the
-   old overlay geometry even after the meta policy changes, so v38 detects
-   that geometry and reserves a real top inset instead of trusting the meta. */
+const READER_MARKER = `<style data-r3-home-screen-safe-area-v36="1" data-r3-ios-statusbar-viewport-v39="1">
+/* v39: the Home Screen startup document owns the non-overlay viewport policy.
+   The Reader must not add a second top inset. */
 #viewer { top: 0 !important; }
-html.r3-ios-standalone-forced-inset-v38 #viewer {
-  top: max(env(safe-area-inset-top, 0px), var(--r3-ios-forced-top-v38, 48px)) !important;
-}
-html.r3-ios-standalone-forced-inset-v38 .topbar {
-  padding-top: max(10px, env(safe-area-inset-top, 0px), var(--r3-ios-forced-top-v38, 48px)) !important;
-}
 </style>
-<script data-r3-home-screen-safe-area-runtime-v36="1" data-r3-ios-forced-inset-runtime-v38="1">
+<script data-r3-home-screen-safe-area-runtime-v36="1" data-r3-ios-startup-viewport-runtime-v39="1">
 (()=>{
   if(window.__r3HomeScreenSafeAreaV36)return;
-  const root=document.documentElement;
   const standalone=Boolean((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true);
-  const iphone=/iPhone|iPod/i.test(String(navigator.userAgent||''));
-  function applyForcedInset(){
-    const width=Math.max(1,window.innerWidth||root.clientWidth||1);
-    const height=Math.max(1,window.innerHeight||root.clientHeight||1);
-    const portrait=height>=width;
-    const screenHeight=Math.max(Number(window.screen&&window.screen.height)||0,Number(window.screen&&window.screen.availHeight)||0);
-    const reservedGap=screenHeight>0?Math.max(0,screenHeight-height):0;
-    const force=Boolean(standalone&&iphone&&portrait&&reservedGap<40);
-    root.classList.toggle('r3-ios-standalone-forced-inset-v38',force);
-    if(force)root.style.setProperty('--r3-ios-forced-top-v38','48px');
-    else root.style.removeProperty('--r3-ios-forced-top-v38');
-    window.__r3HomeScreenSafeAreaV36={version:'v36-opaque-statusbar',standalone,statusbar:'black',viewerTop:'0',forcedInsetV38:force,reservedGap,screenHeight,innerHeight:height};
-  }
-  applyForcedInset();
-  window.addEventListener('resize',applyForcedInset,{passive:true});
-  window.addEventListener('orientationchange',()=>setTimeout(applyForcedInset,80),{passive:true});
+  window.__r3HomeScreenSafeAreaV36={version:'v39-startup-opaque',standalone,statusbar:'black',viewerTop:'0',forcedInset:false};
 })();
 </script>`;
 
-function patchHomeScreenSafeArea(html) {
+function ensureHeadMeta(html, meta) {
+  const out = String(html || "");
+  if (out.includes(meta)) return out;
+  if (!out.includes('</head>')) throw new Error("READER_V39_HEAD_MARKER_MISSING");
+  return out.replace('</head>', meta + '\n</head>');
+}
+
+function patchLibraryStartup(html) {
+  let out = String(html || "");
+  if (!out.includes('<meta name="viewport"') || !out.includes('viewport-fit=cover')) {
+    throw new Error("READER_V39_LIBRARY_VIEWPORT_FIT_COVER_MISSING");
+  }
+  out = ensureHeadMeta(out, CAPABLE);
+  out = ensureHeadMeta(out, MOBILE_CAPABLE);
+  if (out.includes(TRANSLUCENT)) out = out.replace(TRANSLUCENT, OPAQUE);
+  else if (!out.includes(OPAQUE)) out = ensureHeadMeta(out, OPAQUE);
+  out = ensureHeadMeta(out, STARTUP_MARKER);
+  return out;
+}
+
+function patchReader(html) {
   let out = String(html || "");
   if (out.includes('data-r3-home-screen-safe-area-v36="1"')) return out;
   if (!out.includes('<meta name="viewport"') || !out.includes('viewport-fit=cover')) {
-    throw new Error("READER_V36_VIEWPORT_FIT_COVER_MISSING");
+    throw new Error("READER_V39_READER_VIEWPORT_FIT_COVER_MISSING");
   }
-  if (!out.includes(TRANSLUCENT)) throw new Error("READER_V36_TRANSLUCENT_STATUSBAR_META_MISSING");
-  if (!out.includes('id="viewer"')) throw new Error("READER_V36_VIEWER_MISSING");
-  if (!out.includes('</head>')) throw new Error("READER_V36_HEAD_MARKER_MISSING");
-  out = out.replace(TRANSLUCENT, OPAQUE);
-  return out.replace('</head>', HOME_SCREEN_SAFE_AREA_V36 + '</head>');
+  if (!out.includes('id="viewer"')) throw new Error("READER_V39_VIEWER_MISSING");
+  if (out.includes(TRANSLUCENT)) out = out.replace(TRANSLUCENT, OPAQUE);
+  else if (!out.includes(OPAQUE)) out = ensureHeadMeta(out, OPAQUE);
+  out = ensureHeadMeta(out, CAPABLE);
+  out = ensureHeadMeta(out, MOBILE_CAPABLE);
+  out = ensureHeadMeta(out, STARTUP_MARKER);
+  return out.replace('</head>', READER_MARKER + '</head>');
+}
+
+function patchedHtmlResponse(response, updated, extraHeaders = {}) {
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  headers.set("X-Robots-Tag", ROBOTS);
+  for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value);
+  return new Response(updated, { status: response.status, headers });
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const response = await app.fetch(request, env, ctx);
-    if (url.pathname !== "/artifact-library/read" || request.method !== "GET") return response;
+    if (request.method !== "GET") return response;
     const type = response.headers.get("Content-Type") || "";
     if (!type.toLowerCase().includes("text/html") || response.status !== 200) return response;
+
     try {
-      const updated = patchHomeScreenSafeArea(await response.text());
-      const headers = new Headers(response.headers);
-      headers.delete("Content-Length");
-      headers.set("X-Robots-Tag", ROBOTS);
-      headers.set("X-R3-Reader-Home-Screen-Safe-Area", "v36");
-      headers.set("X-R3-Reader-IOS-Statusbar-Viewport", "opaque-v37");
-      headers.set("X-R3-Reader-IOS-Forced-Inset", "v38-auto");
-      return new Response(updated, { status: response.status, headers });
+      if (url.pathname === "/artifact-library") {
+        return patchedHtmlResponse(response, patchLibraryStartup(await response.text()), {
+          "X-R3-Reader-IOS-Startup-Viewport": "opaque-v39",
+        });
+      }
+      if (url.pathname === "/artifact-library/read") {
+        return patchedHtmlResponse(response, patchReader(await response.text()), {
+          "X-R3-Reader-Home-Screen-Safe-Area": "v36",
+          "X-R3-Reader-IOS-Statusbar-Viewport": "opaque-v39",
+          "X-R3-Reader-IOS-Forced-Inset": "disabled-v39",
+          "X-R3-Reader-IOS-Startup-Viewport": "opaque-v39",
+        });
+      }
+      return response;
     } catch (error) {
-      return new Response("Reader Home Screen safe-area patch failed", {
+      return new Response("Reader Home Screen viewport patch failed", {
         status: 503,
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
