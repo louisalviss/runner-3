@@ -4,17 +4,39 @@ const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 const TRANSLUCENT = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
 const OPAQUE = '<meta name="apple-mobile-web-app-status-bar-style" content="black">';
 
-const HOME_SCREEN_SAFE_AREA_V36 = `<style data-r3-home-screen-safe-area-v36="1" data-r3-ios-statusbar-viewport-v37="1">
-/* iOS Home Screen must not render the EPUB underneath the system status bar.
-   The opaque status-bar meta makes WebKit allocate viewport below the status bar;
-   keep viewer top at zero inside that already-safe viewport. */
+const HOME_SCREEN_SAFE_AREA_V36 = `<style data-r3-home-screen-safe-area-v36="1" data-r3-ios-statusbar-viewport-v37="1" data-r3-ios-forced-inset-v38="1">
+/* Prefer an opaque iOS status bar. Some standalone WebKit sessions keep the
+   old overlay geometry even after the meta policy changes, so v38 detects
+   that geometry and reserves a real top inset instead of trusting the meta. */
 #viewer { top: 0 !important; }
+html.r3-ios-standalone-forced-inset-v38 #viewer {
+  top: max(env(safe-area-inset-top, 0px), var(--r3-ios-forced-top-v38, 48px)) !important;
+}
+html.r3-ios-standalone-forced-inset-v38 .topbar {
+  padding-top: max(10px, env(safe-area-inset-top, 0px), var(--r3-ios-forced-top-v38, 48px)) !important;
+}
 </style>
-<script data-r3-home-screen-safe-area-runtime-v36="1">
+<script data-r3-home-screen-safe-area-runtime-v36="1" data-r3-ios-forced-inset-runtime-v38="1">
 (()=>{
   if(window.__r3HomeScreenSafeAreaV36)return;
+  const root=document.documentElement;
   const standalone=Boolean((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true);
-  window.__r3HomeScreenSafeAreaV36={version:'v36-opaque-statusbar',standalone,statusbar:'black',viewerTop:'0'};
+  const iphone=/iPhone|iPod/i.test(String(navigator.userAgent||''));
+  function applyForcedInset(){
+    const width=Math.max(1,window.innerWidth||root.clientWidth||1);
+    const height=Math.max(1,window.innerHeight||root.clientHeight||1);
+    const portrait=height>=width;
+    const screenHeight=Math.max(Number(window.screen&&window.screen.height)||0,Number(window.screen&&window.screen.availHeight)||0);
+    const reservedGap=screenHeight>0?Math.max(0,screenHeight-height):0;
+    const force=Boolean(standalone&&iphone&&portrait&&reservedGap<40);
+    root.classList.toggle('r3-ios-standalone-forced-inset-v38',force);
+    if(force)root.style.setProperty('--r3-ios-forced-top-v38','48px');
+    else root.style.removeProperty('--r3-ios-forced-top-v38');
+    window.__r3HomeScreenSafeAreaV36={version:'v36-opaque-statusbar',standalone,statusbar:'black',viewerTop:'0',forcedInsetV38:force,reservedGap,screenHeight,innerHeight:height};
+  }
+  applyForcedInset();
+  window.addEventListener('resize',applyForcedInset,{passive:true});
+  window.addEventListener('orientationchange',()=>setTimeout(applyForcedInset,80),{passive:true});
 })();
 </script>`;
 
@@ -45,6 +67,7 @@ export default {
       headers.set("X-Robots-Tag", ROBOTS);
       headers.set("X-R3-Reader-Home-Screen-Safe-Area", "v36");
       headers.set("X-R3-Reader-IOS-Statusbar-Viewport", "opaque-v37");
+      headers.set("X-R3-Reader-IOS-Forced-Inset", "v38-auto");
       return new Response(updated, { status: response.status, headers });
     } catch (error) {
       return new Response("Reader Home Screen safe-area patch failed", {
