@@ -98,6 +98,13 @@ async function waitForBookOrDiagnose(page,errors,consoleLines,label){
     throw new Error(label+'_NO_BOOK; asset='+JSON.stringify(asset)+'; pageErrors='+JSON.stringify(errors)+'; console='+JSON.stringify(consoleLines)+'; body='+body+'; html='+html+'; original='+String(error));
   }
 }
+async function waitForRenameRequest(){
+  for(let i=0;i<30;i++){
+    if(manageBodies.some(x=>x&&x.action==='rename'&&x.key===SAMPLE_KEY&&x.name==='Renamed WebKit Book'))return true;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  return false;
+}
 
 const browser=await webkit.launch({headless:true});
 try{
@@ -122,8 +129,7 @@ try{
   await input.waitFor();
   await input.fill('Renamed WebKit Book');
   await page.getByRole('button',{name:'Lưu',exact:true}).click();
-  await page.waitForLoadState('domcontentloaded');
-  if(!manageBodies.some(x=>x&&x.action==='rename'&&x.key===SAMPLE_KEY&&x.name==='Renamed WebKit Book'))throw new Error('WEBKIT_RENAME_REQUEST_MISSING');
+  if(!(await waitForRenameRequest()))throw new Error('WEBKIT_RENAME_REQUEST_MISSING:'+JSON.stringify(manageBodies));
   if(dialogs.length)throw new Error('WEBKIT_LEGACY_DIALOG_LEAK:'+dialogs.join('|'));
   if(errors.length)throw new Error('WEBKIT_PAGEERROR:'+errors.join('|'));
   console.log('READER_V66_WEBKIT_REAL_UI=PASS');
