@@ -53,7 +53,7 @@ jobs:
           node scripts/build_reader_audio_core_browser_bundle.mjs
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
 
-      - name: Compose latest Core with canonical Reader v35, mailbox, and Opportunity Radar router
+      - name: Compose latest Core with Reader v36 Home Screen safe area, mailbox, and Opportunity Radar router
         shell: bash
         run: |
           set -euo pipefail
@@ -65,7 +65,7 @@ jobs:
           text=wrapper.read_text(encoding='utf-8')
           text,count=re.subn(
             r'import app from "\./artifact-library-reader-v\d+[^\"]*-entry\.js";',
-            'import app from "./artifact-library-reader-v35-continuity-single-owner-entry.js";',
+            'import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";',
             text,
             count=1,
           )
@@ -110,6 +110,7 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
           node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
           node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
           node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
@@ -122,7 +123,8 @@ jobs:
           grep -q '"database_name": "runner3-opportunity-radar"' cloudflare/runner3-core/wrangler.jsonc
           grep -q 'import("./artifact-library-reader-v7-github-audio-entry.js")' cloudflare/runner3-core/audio-entry.js
           grep -q 'handleAudioMedia' cloudflare/runner3-core/audio-entry.js
-          grep -q 'artifact-library-reader-v35-continuity-single-owner-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'artifact-library-reader-v36-home-screen-safe-area-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          grep -q 'data-r3-home-screen-safe-area-v36' cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
           grep -q 'data-r3-audio-continuity-v35' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
           grep -q 'singleAudioListenerOwner:true' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
           grep -q 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
@@ -147,7 +149,7 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live Reader, Opportunity Radar D1, audio-media, and stable Core surfaces
+      - name: Verify live Reader, Home Screen safe area, Opportunity Radar D1, audio-media, and stable Core surfaces
         shell: bash
         run: |
           set -euo pipefail
@@ -159,8 +161,9 @@ jobs:
             tr -d '\r' </tmp/h >/tmp/h.clean
             runtime="$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             proof="$(grep -i '^x-r3-reader-patch-proof:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof"
-            if [ "$code" = 200 ] && [ "$runtime" = 'v35-continuity-single-owner' ] && [ "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' ] && grep -q 'data-r3-audio-continuity-v35="1"' /tmp/reader && grep -q 'data-r3-audio-continuity-v34="1"' /tmp/reader && grep -q 'data-r3-audio-core-owner-v33="1"' /tmp/reader && grep -q 'data-r3-audio-core-runtime-v33="1"' /tmp/reader && grep -q '__r3AudioLegacyV11Suppressed=true' /tmp/reader && grep -q '__r3AudioLegacyV31ClockSuppressed=true' /tmp/reader; then
+            home_safe="$(grep -i '^x-r3-reader-home-screen-safe-area:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof home_safe=$home_safe"
+            if [ "$code" = 200 ] && [ "$runtime" = 'v35-continuity-single-owner' ] && [ "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' ] && [ "$home_safe" = 'v36' ] && grep -q 'data-r3-home-screen-safe-area-v36="1"' /tmp/reader && grep -q 'data-r3-audio-continuity-v35="1"' /tmp/reader && grep -q 'data-r3-audio-continuity-v34="1"' /tmp/reader && grep -q 'data-r3-audio-core-owner-v33="1"' /tmp/reader && grep -q 'data-r3-audio-core-runtime-v33="1"' /tmp/reader && grep -q '__r3AudioLegacyV11Suppressed=true' /tmp/reader && grep -q '__r3AudioLegacyV31ClockSuppressed=true' /tmp/reader; then
               ok=1
               break
             fi
