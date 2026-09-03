@@ -1,0 +1,61 @@
+name: Reader v39 Home Screen Live Smoke
+
+on:
+  workflow_run:
+    workflows: ["Runner3 Core Production Deploy"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify Home Screen startup and Reader viewport policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          core='https://runner3-core.ducduy2411.workers.dev'
+
+          library_ok=0
+          for attempt in $(seq 1 12); do
+            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
+            tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
+            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "LIBRARY_STARTUP_CHECK attempt=$attempt http=$code startup=$startup"
+            if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] \
+              && grep -q 'name="apple-mobile-web-app-capable" content="yes"' /tmp/library.html \
+              && grep -q 'name="mobile-web-app-capable" content="yes"' /tmp/library.html \
+              && grep -q 'name="apple-mobile-web-app-status-bar-style" content="black"' /tmp/library.html \
+              && grep -q 'name="r3-ios-home-screen-startup-policy" content="opaque-v39"' /tmp/library.html; then
+              library_ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$library_ok" = 1
+
+          encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
+          reader_ok=0
+          for attempt in $(seq 1 12); do
+            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/reader.h -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded" || true)"
+            tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
+            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "READER_VIEWPORT_CHECK attempt=$attempt http=$code startup=$startup forced=$forced"
+            if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] && [ "$forced" = 'disabled-v39' ] \
+              && grep -q 'data-r3-ios-statusbar-viewport-v39="1"' /tmp/reader.html \
+              && grep -q '#viewer { top: 0 !important; }' /tmp/reader.html \
+              && ! grep -q 'r3-ios-standalone-forced-inset-v38' /tmp/reader.html \
+              && ! grep -q -- '--r3-ios-forced-top-v38' /tmp/reader.html; then
+              reader_ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$reader_ok" = 1
+          echo 'READER_V39_HOME_SCREEN_LIVE_SMOKE=PASS'
