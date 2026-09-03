@@ -1,4 +1,4 @@
-name: Reader v66 Home Screen Geometry Live Smoke
+name: Reader v67 Geometry and Cold Boot Live Smoke
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify Home Screen startup and Reader geometry policy
+      - name: Verify v67 startup, stage geometry and cold cache policy
         shell: bash
         run: |
           set -euo pipefail
@@ -34,8 +34,7 @@ jobs:
             if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] \
               && grep -q 'name="apple-mobile-web-app-capable" content="yes"' /tmp/library.html \
               && grep -q 'name="mobile-web-app-capable" content="yes"' /tmp/library.html \
-              && grep -q 'name="apple-mobile-web-app-status-bar-style" content="black"' /tmp/library.html \
-              && grep -q 'name="r3-ios-home-screen-startup-policy" content="opaque-v39"' /tmp/library.html; then
+              && grep -q 'name="apple-mobile-web-app-status-bar-style" content="black"' /tmp/library.html; then
               library_ok=1
               break
             fi
@@ -50,22 +49,37 @@ jobs:
             tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
             startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "READER_GEOMETRY_CHECK attempt=$attempt http=$code startup=$startup forced=$forced"
+            echo "READER_V67_GEOMETRY_CHECK attempt=$attempt http=$code startup=$startup forced=$forced"
             if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] && [ "$forced" = 'disabled-v39' ] \
-              && grep -q 'data-r3-ios-statusbar-viewport-v39="1"' /tmp/reader.html \
-              && grep -q '#viewer { top: 0 !important; }' /tmp/reader.html \
-              && grep -q '__r3StandaloneInnerTopV66' /tmp/reader.html \
-              && grep -q "owner:'standalone-inner-top-v66'" /tmp/reader.html \
-              && grep -q "body.style.setProperty('padding-top','8px','important')" /tmp/reader.html \
-              && grep -q "r3NormalizeStandaloneInnerTopV66(c,'bind-rendered')" /tmp/reader.html \
-              && grep -q "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-80')" /tmp/reader.html \
-              && grep -q "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-240')" /tmp/reader.html \
-              && ! grep -q 'r3-ios-standalone-forced-inset-v38' /tmp/reader.html \
-              && ! grep -q -- '--r3-ios-forced-top-v38' /tmp/reader.html; then
+              && grep -q '__r3StageGeometryV67' /tmp/reader.html \
+              && grep -q "owner:'stage-geometry-v67'" /tmp/reader.html \
+              && grep -q 'postResizeDisplay:false' /tmp/reader.html \
+              && grep -q 'postRenderGeometryWait:false' /tmp/reader.html \
+              && grep -q 'dvhOwner:false' /tmp/reader.html \
+              && grep -q "const r3PreRenderStageV67=await r3StagePromiseV67" /tmp/reader.html \
+              && grep -q 'const r3BootGeometryV61=r3PreRenderStageV67||null' /tmp/reader.html \
+              && grep -q 'const R3_EPUB_CACHE_LIMIT=12' /tmp/reader.html \
+              && grep -q 'rel="preload" href="/artifact-library/vendor/jszip.min.js" as="script"' /tmp/reader.html \
+              && grep -q 'rel="preload" href="/artifact-library/vendor/epub.min.js" as="script"' /tmp/reader.html \
+              && ! grep -q 'height:100dvh' /tmp/reader.html \
+              && ! grep -q 'const r3BootGeometryV61=await r3NormalizeBootGeometryV61' /tmp/reader.html \
+              && ! grep -q 'const r3BootGeometryV61=await r3WaitStableBootGeometryV61' /tmp/reader.html; then
               reader_ok=1
               break
             fi
             sleep 1
           done
           test "$reader_ok" = 1
-          echo 'READER_V66_HOME_SCREEN_GEOMETRY_LIVE_SMOKE=PASS'
+
+          for asset in jszip.min.js epub.min.js; do
+            asset_code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/vendor.h -o /dev/null -w '%{http_code}' "$core/artifact-library/vendor/$asset" || true)"
+            tr -d '\r' </tmp/vendor.h >/tmp/vendor.h.clean 2>/dev/null || true
+            cache="$(grep -i '^cache-control:' /tmp/vendor.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "VENDOR_CACHE_CHECK asset=$asset http=$asset_code cache=$cache"
+            test "$asset_code" = 200
+            echo "$cache" | grep -q 'public'
+            echo "$cache" | grep -q 'max-age=86400'
+            echo "$cache" | grep -q 'stale-while-revalidate=604800'
+          done
+
+          echo 'READER_V67_GEOMETRY_COLD_BOOT_LIVE_SMOKE=PASS'
