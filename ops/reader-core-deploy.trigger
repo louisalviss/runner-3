@@ -1,3 +1,3 @@
-ebook-reader-v65-safari-cold-boot-vertical-guard
-requested_at=2026-09-03T17:57:00+07:00
-reason=deploy stable v65 layout fix after validation PASS: iPhone Safari first load can develop paginated iframe vertical drift without visualViewport resize, previously remaining visible until v62 final 4s clamp; add 100ms cold-boot vertical-only clamp guard for 4.2s with no rendition.display or resize, preserving CFI/horizontal pagination; restore v65 CI/postdeploy smoke expectations; preserve v60 audio, v61 geometry, v64 progress repair and v65 sync/manage
+ebook-reader-v65-fast-library-index
+requested_at=2026-09-03T18:12:29+07:00
+reason=deploy stable v65 Library speed optimization after validation PASS: keep canonical EPUBs in R2 as source of truth; add derived library-index-v65.json with 5m validity, safe corruption/missing fallback rebuild, immediate invalidation after upload/rename/delete, manual Refresh force rebuild, localStorage instant repeat-open list cache, and nonblocking server progress hydration; postdeploy smoke primes index then verifies next list request hits index; preserve v60 audio, v62 Safari cold-boot guard, v64 progress repair and v65 sync/manage
