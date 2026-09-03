@@ -1,11 +1,10 @@
-name: Reader v39 Home Screen Live Smoke
+name: Reader v66 Home Screen Geometry Live Smoke
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/reader-v39-home-screen-live-smoke.yml'
-      - 'cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js'
   workflow_run:
     workflows: ["Runner3 Core Production Deploy"]
     types: [completed]
@@ -20,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify Home Screen startup and Reader viewport policy
+      - name: Verify Home Screen startup and Reader geometry policy
         shell: bash
         run: |
           set -euo pipefail
@@ -51,10 +50,13 @@ jobs:
             tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
             startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "READER_VIEWPORT_CHECK attempt=$attempt http=$code startup=$startup forced=$forced"
+            echo "READER_GEOMETRY_CHECK attempt=$attempt http=$code startup=$startup forced=$forced"
             if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] && [ "$forced" = 'disabled-v39' ] \
               && grep -q 'data-r3-ios-statusbar-viewport-v39="1"' /tmp/reader.html \
               && grep -q '#viewer { top: 0 !important; }' /tmp/reader.html \
+              && grep -q '__r3StandaloneInnerTopV66' /tmp/reader.html \
+              && grep -q "owner:'standalone-inner-top-v66'" /tmp/reader.html \
+              && grep -q "body.style.setProperty('padding-top','8px','important')" /tmp/reader.html \
               && ! grep -q 'r3-ios-standalone-forced-inset-v38' /tmp/reader.html \
               && ! grep -q -- '--r3-ios-forced-top-v38' /tmp/reader.html; then
               reader_ok=1
@@ -63,4 +65,4 @@ jobs:
             sleep 1
           done
           test "$reader_ok" = 1
-          echo 'READER_V39_HOME_SCREEN_LIVE_SMOKE=PASS'
+          echo 'READER_V66_HOME_SCREEN_GEOMETRY_LIVE_SMOKE=PASS'
