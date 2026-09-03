@@ -12,6 +12,10 @@ required_v2 = [
     "r3ClampPaginatedVerticalV62('post-geometry-raf')",
     "r3ClampPaginatedVerticalV62('pre-reveal')",
     "r3ClampPaginatedVerticalV62('visual-viewport')",
+    "r3ClampPaginatedVerticalV62('cold-boot-guard')",
+    'coldBootGuardTimer=setInterval(runColdBootGuardV62,100)',
+    'coldBootGuardActive=true',
+    'coldBootGuardActive=false',
     'win.scrollTo(Number(win.scrollX||0),0)',
 ]
 for marker in required_v2:
@@ -24,6 +28,8 @@ if "owner:'atomic-v58'" not in v2 or '__r3SafariBootGeometryV61' not in v2:
     raise SystemExit('READER_V62_BOOT_CHAIN_REGRESSION')
 if "__r3ClampPaginatedVerticalV62('v5-reflow')" not in v5:
     raise SystemExit('READER_V62_V5_REFLOW_CLAMP_MISSING')
+if "rendition.display()" in v2[v2.find('const runColdBootGuardV62='):v2.find('const runColdBootGuardV62=')+1000]:
+    raise SystemExit('READER_V62_COLD_BOOT_GUARD_MUST_NOT_DISPLAY')
 
 # Layout-only patch must preserve v60 audio behavior.
 for marker in ['reader-audio-v60-prefetch', 'reader-audio-v60-warm-current']:
@@ -31,3 +37,4 @@ for marker in ['reader-audio-v60-prefetch', 'reader-audio-v60-warm-current']:
         raise SystemExit('READER_V62_AUDIO_V60_MISSING:' + marker)
 
 print('READER_V62_PAGINATED_VERTICAL_CLAMP_CHECK=PASS')
+print('READER_V62_SAFARI_COLD_BOOT_GUARD_CHECK=PASS')
