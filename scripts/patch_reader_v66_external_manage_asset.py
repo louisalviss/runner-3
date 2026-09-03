@@ -22,10 +22,8 @@ if "const R3_READER_CLIENT_VERSION_V63='v66';" not in v2:
 
 IMPORT='import { READER_MANAGE_UI_V66_SOURCE } from "./reader-manage-ui-v66-asset-source.js";\n'
 if IMPORT not in simple:
-    marker='import app from "./artifact-test-cleanup-entry.js";\n'
-    if simple.count(marker)!=1:
-        raise SystemExit('V66_IMPORT_ANCHOR_COUNT:'+str(simple.count(marker)))
-    simple=simple.replace(marker,marker+IMPORT,1)
+    # Earlier build patches may replace the first import target. Prepending an ESM import is stable regardless of that chain.
+    simple=IMPORT+simple
 
 helpers=r'''
 function r3ManageUiAssetV66(request) {
