@@ -1,3 +1,3 @@
-ebook-reader-v67-stage-geometry-perf-outermost-cache
-requested_at=2026-09-03T23:27:00+07:00
-reason=deploy Reader v67 after validation run 33778465020 PASS: keep final pre-render visual viewport owner, no post-render resize/redisplay, no post-render geometry wait, no fixed-body 100dvh; move exact jszip.min.js and epub.min.js cache headers to opportunity-router-entry.js, the wrangler main/outermost response owner, with public max-age=86400 stale-while-revalidate=604800; private Library HTML, signed EPUB payloads, progress and audio remain no-store; retain EPUB IDB LRU 12 and existing CFI/audio owners
+ebook-reader-v67-emergency-cache-rollback
+requested_at=2026-09-04T03:12:00+07:00
+reason=emergency restore last-known-good v67 geometry runtime after parser response-cache wrappers caused Cloudflare Worker error 1101; remove only HTTP response rewrapping layers, keep v67 pre-render visual viewport stage owner, no post-render resize/redisplay/wait, EPUB iframe boot gate, top normalization, LRU12 and preload; parser HTTP cache optimization deferred; validation run 33801781186 PASS
