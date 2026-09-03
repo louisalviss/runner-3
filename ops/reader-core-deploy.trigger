@@ -1,3 +1,3 @@
-ebook-reader-v66-standalone-inner-top
-requested_at=2026-09-03T21:50:00+07:00
-reason=deploy Reader v66 after Build Validation PASS run 33769962923: keep opaque-v39 outer Home Screen viewport with no forced 48px viewer inset; normalize the duplicate top spacing inside EPUB content only on iPhone standalone before pagination via rendition content hook, preserving 8px reading top gap and existing CFI/pagination ownership; live smoke must verify startup policy plus v66 runtime marker
+ebook-reader-v66-standalone-inner-top-post-render
+requested_at=2026-09-03T22:24:00+07:00
+reason=deploy Reader v66 post-render fix after Build Validation PASS run 33772244741: v66 early content hook was being overwritten by EPUB chapter styles; reapply standalone-only inner top normalization on every rendered bind plus 80ms and 240ms settle passes, keep outer opaque-v39 viewport and forced inset disabled, preserve 8px reading top gap and existing CFI/pagination ownership
