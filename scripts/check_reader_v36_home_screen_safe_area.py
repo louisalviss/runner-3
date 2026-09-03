@@ -6,10 +6,6 @@ v36 = (root / 'artifact-library-reader-v36-home-screen-safe-area-entry.js').read
 wrapper = (root / 'artifact-library-reader-v7-github-audio-entry.js').read_text(encoding='utf-8')
 deploy = Path('.github/workflows/runner3-core-public-hosted-reader-deploy.yml').read_text(encoding='utf-8')
 
-# Base Reader deliberately uses viewport-fit=cover + translucent iOS status bar.
-# v36 now fixes Home Screen at the viewport policy layer: turn the status bar
-# opaque so WebKit allocates the document viewport below it, rather than trying
-# to compensate an overlay with env(safe-area-inset-top).
 for marker in [
     'viewport-fit=cover',
     'apple-mobile-web-app-status-bar-style" content="black-translucent',
@@ -20,23 +16,32 @@ for marker in [
 
 for marker in [
     'data-r3-home-screen-safe-area-v36="1"',
-    'data-r3-ios-statusbar-viewport-v37="1"',
-    'apple-mobile-web-app-status-bar-style" content="black-translucent',
-    'apple-mobile-web-app-status-bar-style" content="black',
-    'out = out.replace(TRANSLUCENT, OPAQUE)',
+    'data-r3-ios-statusbar-viewport-v39="1"',
+    'r3-ios-home-screen-startup-policy',
+    'opaque-v39',
+    'patchLibraryStartup',
+    'patchReader',
+    'apple-mobile-web-app-capable',
+    'mobile-web-app-capable',
+    'X-R3-Reader-IOS-Startup-Viewport',
+    'X-R3-Reader-IOS-Forced-Inset',
+    'disabled-v39',
     '#viewer { top: 0 !important; }',
-    "navigator.standalone===true",
-    "version:'v36-opaque-statusbar'",
-    "statusbar:'black'",
-    'X-R3-Reader-Home-Screen-Safe-Area',
-    'X-R3-Reader-IOS-Statusbar-Viewport',
 ]:
     if marker not in v36:
-        raise SystemExit('READER_V36_PATCH_MISSING:' + marker)
+        raise SystemExit('READER_V39_PATCH_MISSING:' + marker)
 
-# The old env(safe-area-inset-top) compensation was the ineffective strategy.
-if 'top: env(safe-area-inset-top' in v36:
-    raise SystemExit('READER_V36_OLD_TOP_INSET_COMPENSATION_STILL_PRESENT')
+# v38 caused a double inset on real iPhone Home Screen and must stay removed.
+for forbidden in [
+    'r3-ios-standalone-forced-inset-v38',
+    '--r3-ios-forced-top-v38',
+    '48px',
+    'screenHeight-height',
+    'forcedInsetV38',
+]:
+    if forbidden in v36:
+        raise SystemExit('READER_V39_OLD_FORCED_INSET_STILL_PRESENT:' + forbidden)
+
 if 'artifact-library-reader-v36-home-screen-safe-area-entry.js' not in wrapper:
     raise SystemExit('READER_V36_WRAPPER_NOT_CANONICAL')
 for marker in [
@@ -48,4 +53,4 @@ for marker in [
     if marker not in deploy:
         raise SystemExit('READER_V36_DEPLOY_GATE_MISSING:' + marker)
 
-print('READER_V36_HOME_SCREEN_SAFE_AREA_CHECK=PASS')
+print('READER_V39_HOME_SCREEN_STARTUP_VIEWPORT_CHECK=PASS')
