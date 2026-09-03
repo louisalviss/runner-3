@@ -50,11 +50,6 @@ execFileSync('python3', ['scripts/check_reader_v64_progress_repair.py'], { stdio
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v65_sync_manage.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v65_sync_manage.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v65_sync_manage.py'], { stdio: 'inherit' });
-execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v65_1_manage_sheet.py'], { stdio: 'inherit' });
-execFileSync('python3', ['scripts/patch_reader_v65_1_manage_sheet.py'], { stdio: 'inherit' });
-execFileSync('python3', ['scripts/check_reader_v65_1_manage_sheet.py'], { stdio: 'inherit' });
-execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v65_2_manage_sheet_quote_fix.py'], { stdio: 'inherit' });
-execFileSync('python3', ['scripts/patch_reader_v65_2_manage_sheet_quote_fix.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/src/ebook-reader-audio.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
