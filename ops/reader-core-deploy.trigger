@@ -1,3 +1,3 @@
-ebook-reader-v66-external-manage-ui
-requested_at=2026-09-03T08:34:00+07:00
-reason=deploy v66 candidate after full validation PASS: repaired generated v56 inline escape, external/failure-isolated Rename/Delete UI asset, real Playwright WebKit normal rename PASS and deliberately broken asset isolation PASS; preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout, v64 progress repair; v64 remains canonical rollback until physical iPhone Safari acceptance PASS
+ebook-reader-v65-emergency-restore-after-v66-smoke-fail
+requested_at=2026-09-03T08:36:00+07:00
+reason=emergency restore to stable v65 after v66 post-deploy smoke failed Reader asset injection marker; restore exact v65 build chain immediately, preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout and v64 progress repair; v66 remains blocked until Reader-path asset injection is corrected and live smoke passes
