@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, urllib.error, urllib.parse, urllib.request
+import json, sys, urllib.error, urllib.parse, urllib.request
 
 CORE=(sys.argv[1] if len(sys.argv)>1 else 'https://runner3-core.ducduy2411.workers.dev').rstrip('/')
 KEY='core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub'
@@ -14,8 +14,28 @@ def require(cond,label):
 
 status,h,library=get('/artifact-library')
 require(status==200,'library-http')
-for marker in ['data-r3-library-v56="1"','r3InstallMainManageV65','r3HydrateServerProgressV65']:
+for marker in ['data-r3-library-v56="1"','r3InstallMainManageV65','r3HydrateServerProgressV65','R3_LIBRARY_FAST_CLIENT_CACHE_V65']:
     require(marker in library,'library-marker:'+marker)
+
+# Prime the derived R2 index once after deploy. R2 remains source of truth; this
+# forced request intentionally scans canonical EPUBs and writes the fast index.
+status,h,body=get('/artifact-library/api/list?refresh=1')
+require(status==200,'library-index-prime-http')
+try: prime=json.loads(body)
+except Exception as error: raise SystemExit('READER_V65_SMOKE_FAIL:library-index-prime-json:'+str(error))
+require(prime.get('ok') is True,'library-index-prime-ok')
+require(prime.get('source')=='rebuild','library-index-prime-source')
+require(isinstance(prime.get('objects'),list),'library-index-prime-objects')
+
+# The immediately following normal request must hit the small derived index and
+# must not need another bucket-wide R2 list scan.
+status,h,body=get('/artifact-library/api/list')
+require(status==200,'library-index-hit-http')
+try: indexed=json.loads(body)
+except Exception as error: raise SystemExit('READER_V65_SMOKE_FAIL:library-index-hit-json:'+str(error))
+require(indexed.get('ok') is True,'library-index-hit-ok')
+require(indexed.get('source')=='index','library-index-hit-source')
+require(len(indexed.get('objects') or [])==len(prime.get('objects') or []),'library-index-hit-count')
 
 status,h,version=get('/artifact-library/api/client-version')
 require(status==200,'version-http')
@@ -43,5 +63,7 @@ for path in ['/artifact-library/api/progress','/artifact-library/api/manage']:
         require(e.code in (401,405), 'protected-route-status:'+path+':'+str(e.code))
 
 print('READER_V65_SERVER_SMOKE=PASS')
+print('LIBRARY_FAST_INDEX_PRIME=PASS count=%s rebuild_ms=%s' % (len(prime.get('objects') or []),prime.get('elapsed_ms')))
+print('LIBRARY_FAST_INDEX_HIT=PASS elapsed_ms=%s' % indexed.get('elapsed_ms'))
 print('SAFARI_COLD_BOOT_VERTICAL_GUARD=PASS')
 print('SAFARI_DEVICE_ACCEPTANCE=REQUIRED')
