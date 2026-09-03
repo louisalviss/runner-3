@@ -1,0 +1,46 @@
+name: Opportunity Radar D1 Live Proof
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/opportunity-radar-d1-live-proof.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RADAR_SYNC_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RADAR_RUN_ID: live-proof-${{ github.run_id }}
+      RADAR_RUN_ATTEMPT: ${{ github.run_attempt }}
+      RADAR_TRIGGER_SHA: ${{ github.sha }}
+      RADAR_WORKFLOW: Opportunity Radar D1 Live Proof
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run current market packet through live D1 checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RADAR_SYNC_TOKEN:-}"
+          python3 scripts/opportunity_radar_market_checkpoint.py
+      - name: Persist proof status
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '{"ok":true,"radarRunId":"%s","proofRunId":"%s","source":"live-current-market-packet"}\n' "$RADAR_RUN_ID" "$GITHUB_RUN_ID" > ops/opportunity-radar/d1-checkpoint-status.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/opportunity-radar/d1-checkpoint-status.json
+          git commit -m "Persist Opportunity Radar D1 live proof ${GITHUB_RUN_ID} [skip ci]" || exit 0
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main || { git rebase --abort || true; sleep 1; continue; }
+            git push origin HEAD:main && exit 0
+            sleep 1
+          done
+          exit 1
