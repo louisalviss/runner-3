@@ -1,0 +1,32 @@
+name: Runner3 Core Healthz Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-core-healthz-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify live healthz
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://runner3-core.ducduy2411.workers.dev/healthz'
+          code="$(curl --fail-with-body --silent --show-error --max-time 20 -o /tmp/healthz.json -w '%{http_code}' "$url")"
+          echo "HEALTHZ_HTTP=$code"
+          cat /tmp/healthz.json
+          test "$code" = 200
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/healthz.json',encoding='utf-8'))
+          assert data.get('ok') is True, data
+          assert data.get('service') == 'runner3-core', data
+          print('RUNNER3_CORE_HEALTHZ=PASS')
+          PY
