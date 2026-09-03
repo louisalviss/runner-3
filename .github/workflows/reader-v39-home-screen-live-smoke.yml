@@ -24,52 +24,48 @@ jobs:
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
+          require_literal() {
+            local file="$1" marker="$2" label="$3"
+            if grep -Fq "$marker" "$file"; then echo "PASS:$label"; else echo "FAIL:$label marker=$marker"; return 1; fi
+          }
+          forbid_literal() {
+            local file="$1" marker="$2" label="$3"
+            if grep -Fq "$marker" "$file"; then echo "FAIL:$label forbidden=$marker"; return 1; else echo "PASS:$label"; fi
+          }
 
-          library_ok=0
-          for attempt in $(seq 1 12); do
-            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
-            tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
-            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "LIBRARY_STARTUP_CHECK attempt=$attempt http=$code startup=$startup"
-            if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] \
-              && grep -q 'name="apple-mobile-web-app-capable" content="yes"' /tmp/library.html \
-              && grep -q 'name="mobile-web-app-capable" content="yes"' /tmp/library.html \
-              && grep -q 'name="apple-mobile-web-app-status-bar-style" content="black"' /tmp/library.html; then
-              library_ok=1
-              break
-            fi
-            sleep 1
-          done
-          test "$library_ok" = 1
+          code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
+          tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
+          startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "LIBRARY_STARTUP_CHECK http=$code startup=$startup"
+          test "$code" = 200
+          test "$startup" = 'opaque-v39'
+          require_literal /tmp/library.html 'name="apple-mobile-web-app-capable" content="yes"' library_capable
+          require_literal /tmp/library.html 'name="mobile-web-app-capable" content="yes"' library_mobile_capable
+          require_literal /tmp/library.html 'name="apple-mobile-web-app-status-bar-style" content="black"' library_statusbar
 
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
-          reader_ok=0
-          for attempt in $(seq 1 12); do
-            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/reader.h -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded" || true)"
-            tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
-            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "READER_V67_GEOMETRY_CHECK attempt=$attempt http=$code startup=$startup forced=$forced"
-            if [ "$code" = 200 ] && [ "$startup" = 'opaque-v39' ] && [ "$forced" = 'disabled-v39' ] \
-              && grep -q '__r3StageGeometryV67' /tmp/reader.html \
-              && grep -q "owner:'stage-geometry-v67'" /tmp/reader.html \
-              && grep -q 'postResizeDisplay:false' /tmp/reader.html \
-              && grep -q 'postRenderGeometryWait:false' /tmp/reader.html \
-              && grep -q 'dvhOwner:false' /tmp/reader.html \
-              && grep -q "const r3PreRenderStageV67=await r3StagePromiseV67" /tmp/reader.html \
-              && grep -q 'const r3BootGeometryV61=r3PreRenderStageV67||null' /tmp/reader.html \
-              && grep -q 'const R3_EPUB_CACHE_LIMIT=12' /tmp/reader.html \
-              && grep -q 'rel="preload" href="/artifact-library/vendor/jszip.min.js" as="script"' /tmp/reader.html \
-              && grep -q 'rel="preload" href="/artifact-library/vendor/epub.min.js" as="script"' /tmp/reader.html \
-              && ! grep -q 'height:100dvh' /tmp/reader.html \
-              && ! grep -q 'const r3BootGeometryV61=await r3NormalizeBootGeometryV61' /tmp/reader.html \
-              && ! grep -q 'const r3BootGeometryV61=await r3WaitStableBootGeometryV61' /tmp/reader.html; then
-              reader_ok=1
-              break
-            fi
-            sleep 1
-          done
-          test "$reader_ok" = 1
+          code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/reader.h -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded" || true)"
+          tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
+          startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "READER_V67_GEOMETRY_CHECK http=$code startup=$startup forced=$forced bytes=$(wc -c </tmp/reader.html)"
+          test "$code" = 200
+          test "$startup" = 'opaque-v39'
+          test "$forced" = 'disabled-v39'
+
+          require_literal /tmp/reader.html '__r3StageGeometryV67' stage_marker
+          require_literal /tmp/reader.html "owner:'stage-geometry-v67'" stage_owner
+          require_literal /tmp/reader.html 'postResizeDisplay:false' no_post_resize
+          require_literal /tmp/reader.html 'postRenderGeometryWait:false' no_post_wait
+          require_literal /tmp/reader.html 'dvhOwner:false' no_dvh_owner
+          require_literal /tmp/reader.html 'const r3PreRenderStageV67=await r3StagePromiseV67' pre_render_wait
+          require_literal /tmp/reader.html 'const r3BootGeometryV61=r3PreRenderStageV67||null' v61_delegated
+          require_literal /tmp/reader.html 'const R3_EPUB_CACHE_LIMIT=12' epub_lru_12
+          require_literal /tmp/reader.html 'rel="preload" href="/artifact-library/vendor/jszip.min.js" as="script"' jszip_preload
+          require_literal /tmp/reader.html 'rel="preload" href="/artifact-library/vendor/epub.min.js" as="script"' epub_preload
+          forbid_literal /tmp/reader.html 'height:100dvh' no_dynamic_dvh
+          forbid_literal /tmp/reader.html 'const r3BootGeometryV61=await r3NormalizeBootGeometryV61' no_post_redisplay
+          forbid_literal /tmp/reader.html 'const r3BootGeometryV61=await r3WaitStableBootGeometryV61' no_post_geometry_wait
 
           for asset in jszip.min.js epub.min.js; do
             asset_code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/vendor.h -o /dev/null -w '%{http_code}' "$core/artifact-library/vendor/$asset" || true)"
@@ -77,9 +73,9 @@ jobs:
             cache="$(grep -i '^cache-control:' /tmp/vendor.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             echo "VENDOR_CACHE_CHECK asset=$asset http=$asset_code cache=$cache"
             test "$asset_code" = 200
-            echo "$cache" | grep -q 'public'
-            echo "$cache" | grep -q 'max-age=86400'
-            echo "$cache" | grep -q 'stale-while-revalidate=604800'
+            echo "$cache" | grep -Fq 'public'
+            echo "$cache" | grep -Fq 'max-age=86400'
+            echo "$cache" | grep -Fq 'stale-while-revalidate=604800'
           done
 
           echo 'READER_V67_GEOMETRY_COLD_BOOT_LIVE_SMOKE=PASS'
