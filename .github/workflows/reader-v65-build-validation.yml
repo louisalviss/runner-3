@@ -1,4 +1,4 @@
-name: Reader v66 Build Validation
+name: Reader v67 Build Validation
 
 on:
   push:
@@ -21,6 +21,8 @@ on:
       - 'scripts/check_reader_v65_home_screen_startup.py'
       - 'scripts/patch_reader_v66_standalone_inner_top.py'
       - 'scripts/check_reader_v66_standalone_inner_top.py'
+      - 'scripts/patch_reader_v67_stage_geometry_perf.py'
+      - 'scripts/check_reader_v67_stage_geometry_perf.py'
       - 'scripts/check_reader_v36_home_screen_safe_area.py'
       - 'cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js'
   workflow_dispatch:
@@ -40,7 +42,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build and validate Reader through v66
+      - name: Build and validate Reader through v67
         shell: bash
         run: |
           set -euo pipefail
@@ -52,6 +54,7 @@ jobs:
           python3 scripts/check_reader_v65_fast_library_index.py
           python3 scripts/check_reader_v65_home_screen_startup.py
           python3 scripts/check_reader_v66_standalone_inner_top.py
+          python3 scripts/check_reader_v67_stage_geometry_perf.py
           python3 scripts/check_reader_v36_home_screen_safe_area.py
           node scripts/reader_v65_fast_library_index_smoke.mjs
           node --check cloudflare/runner3-core/artifact-library-simple-entry.js
@@ -59,4 +62,4 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-reader-v5-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
           node --check cloudflare/runner3-core/opportunity-router-entry.js
-          echo 'READER_V66_BUILD_VALIDATION=PASS'
+          echo 'READER_V67_BUILD_VALIDATION=PASS'
