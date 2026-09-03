@@ -25,6 +25,7 @@ on:
       - 'scripts/check_reader_v67_stage_geometry_perf.py'
       - 'scripts/check_reader_v36_home_screen_safe_area.py'
       - 'cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js'
+      - 'cloudflare/runner3-core/audio-entry.js'
   workflow_dispatch:
 
 permissions:
@@ -61,5 +62,6 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-reader-v2-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v5-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
+          node --check cloudflare/runner3-core/audio-entry.js
           node --check cloudflare/runner3-core/opportunity-router-entry.js
           echo 'READER_V67_BUILD_VALIDATION=PASS'
