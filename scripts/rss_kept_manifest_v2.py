@@ -54,6 +54,11 @@ def normalize_runner15(obj):
 def build(root, inventory_path):
     legacy.DIRECT_KEYS = set()
     legacy.SOURCE_PRIORITY.update({"hoquoctuan": 93, "vnhacker": 91})
+    # Article keys are not guaranteed to be globally unique across sources
+    # (for example date-derived IDs such as id:20260903). Canonical URLs are.
+    # Prefer URL identity so distinct articles cannot collide merely because
+    # two collectors emitted the same source-local key.
+    legacy.stable_id = lambda item: item.get("canonicalUrl") or item.get("key")
     obj = legacy.build(root, inventory_path)
     return normalize_runner15(obj)
 
