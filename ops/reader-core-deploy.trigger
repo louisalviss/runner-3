@@ -1,3 +1,3 @@
-ebook-reader-v67-stage-geometry-perf-final-cache
-requested_at=2026-09-03T23:22:00+07:00
-reason=deploy Reader v67 after validation run 33778076515 PASS: preserve final pre-render geometry owner/no post-render wait/no fixed-body 100dvh; add outer audio-entry cache ownership for only jszip.min.js and epub.min.js so parser assets actually reach iPhone with public max-age=86400 stale-while-revalidate=604800; private Library HTML, EPUB signed payloads, progress and audio remain no-store; retain EPUB IDB LRU 12 and current CFI/audio owners
+ebook-reader-v67-stage-geometry-perf-outermost-cache
+requested_at=2026-09-03T23:27:00+07:00
+reason=deploy Reader v67 after validation run 33778465020 PASS: keep final pre-render visual viewport owner, no post-render resize/redisplay, no post-render geometry wait, no fixed-body 100dvh; move exact jszip.min.js and epub.min.js cache headers to opportunity-router-entry.js, the wrangler main/outermost response owner, with public max-age=86400 stale-while-revalidate=604800; private Library HTML, signed EPUB payloads, progress and audio remain no-store; retain EPUB IDB LRU 12 and existing CFI/audio owners
