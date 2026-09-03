@@ -8,8 +8,6 @@ on:
       - 'scripts/build_reader_audio_core_browser_bundle.mjs'
       - 'scripts/patch_reader_v65_sync_manage.py'
       - 'scripts/check_reader_v65_sync_manage.py'
-      - 'scripts/patch_reader_v65_1_manage_sheet.py'
-      - 'scripts/check_reader_v65_1_manage_sheet.py'
   workflow_dispatch:
 
 permissions:
@@ -27,7 +25,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build full Reader chain through v65.1
+      - name: Build full Reader chain through v65
         shell: bash
         run: |
           set -euo pipefail
@@ -36,5 +34,5 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-simple-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v2-entry.js
           node --check cloudflare/runner3-core/opportunity-router-entry.js
-          python3 scripts/check_reader_v65_1_manage_sheet.py
-          echo 'READER_V65_1_BUILD_VALIDATION=PASS'
+          python3 scripts/check_reader_v65_sync_manage.py
+          echo 'READER_V65_BUILD_VALIDATION=PASS'
