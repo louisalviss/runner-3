@@ -1,4 +1,5 @@
 from pathlib import Path
+import runpy
 
 V2 = Path('cloudflare/runner3-core/artifact-library-reader-v2-entry.js')
 text = V2.read_text(encoding='utf-8')
@@ -20,10 +21,9 @@ for marker in required:
     if marker not in text:
         raise SystemExit('READER_V66_STANDALONE_INNER_TOP_MISSING:' + marker)
 
-# Do not regress to an outer forced safe-area offset; v66 owns only the EPUB
-# document's duplicate top spacing and leaves v39 outer viewport policy intact.
 for forbidden in ['r3-ios-standalone-forced-inset-v38', '--r3-ios-forced-top-v38']:
     if forbidden in text:
         raise SystemExit('READER_V66_OLD_FORCED_INSET_PRESENT:' + forbidden)
 
 print('READER_V66_STANDALONE_INNER_TOP_CHECK=PASS')
+runpy.run_path('scripts/check_reader_v67_stage_geometry_perf.py', run_name='__main__')
