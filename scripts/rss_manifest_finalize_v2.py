@@ -59,14 +59,21 @@ def normalize_runner15(obj):
     return obj
 
 
-def finalize(obj):
+def _configure_runner15_legacy():
     legacy.DIRECT_KEYS = set()
     legacy.SOURCE_PRIORITY.update({"hoquoctuan": 93, "vnhacker": 91})
+    # Source-local keys are not globally unique. Use canonical URL as the
+    # cross-source replay identity and retain key only as a fallback.
+    legacy.stable_id = lambda item: item.get("canonicalUrl") or item.get("key")
+
+
+def finalize(obj):
+    _configure_runner15_legacy()
     return normalize_runner15(legacy.rebuild_manifest(copy.deepcopy(obj)))
 
 
 def self_test():
-    legacy.DIRECT_KEYS = set()
+    _configure_runner15_legacy()
     legacy.self_test()
     return True
 
