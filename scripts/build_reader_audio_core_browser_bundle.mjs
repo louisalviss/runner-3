@@ -54,6 +54,9 @@ execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v65_fast_libr
 execFileSync('python3', ['scripts/patch_reader_v65_fast_library_index.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v65_fast_library_index.py'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v65_fast_library_index_smoke.mjs'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v65_home_screen_startup.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v65_home_screen_startup.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v65_home_screen_startup.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/src/ebook-reader-audio.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
