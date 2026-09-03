@@ -1,3 +1,3 @@
-ebook-reader-v65-emergency-restore
-requested_at=2026-09-03T07:08:00+07:00
-reason=emergency restore to last Safari-working v65 build after v65.1 custom management sheet caused blank client render on iPhone Safari; restore exact v65 build chain and v65 server smoke; preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout, v64 progress repair; v64 remains canonical rollback until device acceptance PASS
+ebook-reader-v65.3-edit-name-ux
+requested_at=2026-09-03T07:23:00+07:00
+reason=deploy isolated edit-name UX after build validation PASS: capture existing ellipsis action before legacy Safari prompt, show lightweight in-app action sheet and dedicated rename modal with prefilled input, Save/Cancel, collision feedback; keep Delete backend and native confirmation unchanged; preserve v65 sync/manage, v60 audio owner/prefetch, v62 Safari layout and v64 progress repair; v64 remains canonical rollback until device acceptance PASS
