@@ -2,7 +2,23 @@ from pathlib import Path
 
 ROOT=Path('cloudflare/runner3-core')
 SIMPLE=ROOT/'artifact-library-simple-entry.js'
+V2=ROOT/'artifact-library-reader-v2-entry.js'
 simple=SIMPLE.read_text(encoding='utf-8')
+v2=V2.read_text(encoding='utf-8')
+
+# v66 identity: keep the v65 sync table/backend, but advance client/server handshake for this UI architecture.
+if "reader_client_version:'v66'" not in simple:
+    if simple.count("reader_client_version:'v65'")!=1:
+        raise SystemExit('V66_SIMPLE_VERSION_ANCHOR_COUNT:'+str(simple.count("reader_client_version:'v65'")))
+    simple=simple.replace("reader_client_version:'v65'","reader_client_version:'v66'",1)
+if "'x-r3-reader-client-version':'v66'" not in simple:
+    if simple.count("'x-r3-reader-client-version':'v65'")!=1:
+        raise SystemExit('V66_SIMPLE_HEADER_ANCHOR_COUNT:'+str(simple.count("'x-r3-reader-client-version':'v65'")))
+    simple=simple.replace("'x-r3-reader-client-version':'v65'","'x-r3-reader-client-version':'v66'",1)
+if "const R3_READER_CLIENT_VERSION_V63='v66';" not in v2:
+    if v2.count("const R3_READER_CLIENT_VERSION_V63='v65';")!=1:
+        raise SystemExit('V66_READER_VERSION_ANCHOR_COUNT:'+str(v2.count("const R3_READER_CLIENT_VERSION_V63='v65';")))
+    v2=v2.replace("const R3_READER_CLIENT_VERSION_V63='v65';","const R3_READER_CLIENT_VERSION_V63='v66';",1)
 
 IMPORT='import { READER_MANAGE_UI_V66_SOURCE } from "./reader-manage-ui-v66-asset-source.js";\n'
 if IMPORT not in simple:
@@ -61,6 +77,8 @@ if asset_route not in simple:
 simple=simple.replace("script-src 'unsafe-inline';","script-src 'self' 'unsafe-inline';")
 
 for marker in [
+    "reader_client_version:'v66'",
+    "'x-r3-reader-client-version':'v66'",
     'READER_MANAGE_UI_V66_SOURCE',
     'function r3ManageUiAssetV66',
     'function r3InjectExternalManageAssetV66',
@@ -71,10 +89,13 @@ for marker in [
 ]:
     if marker not in simple:
         raise SystemExit('V66_SIMPLE_MISSING:'+marker)
+if "const R3_READER_CLIENT_VERSION_V63='v66';" not in v2:
+    raise SystemExit('V66_READER_VERSION_MISSING')
 
 # Safety rule: UI runtime itself must never be embedded into Reader/Library inline scripts.
-if 'window.__R3_MANAGE_UI_V66=true' in simple:
+if 'window.__R3_MANAGE_UI_V66=true' in simple or 'window.__R3_MANAGE_UI_V66=true' in v2:
     raise SystemExit('V66_RUNTIME_WAS_INLINED')
 
 SIMPLE.write_text(simple,encoding='utf-8')
+V2.write_text(v2,encoding='utf-8')
 print('READER_V66_EXTERNAL_MANAGE_ASSET=PASS')
