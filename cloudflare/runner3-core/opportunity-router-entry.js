@@ -4,22 +4,8 @@ import { handleOpportunityRegime } from "./src/opportunity-regime.js";
 import { guardOpportunityRegimeWrite } from "./src/opportunity-regime-write-guard.js";
 import { handlePrivateCoreFastPath } from "./vps-persistence-auth.js";
 
-const READER_VENDOR_CACHE_V67_OUTERMOST = new Set([
-  "/artifact-library/vendor/jszip.min.js",
-  "/artifact-library/vendor/epub.min.js",
-]);
-
 function isPrivateCoreFastPath(pathname) {
   return pathname.startsWith("/artifacts/") || pathname.startsWith("/checkpoints/");
-}
-
-function applyReaderVendorCacheV67Outermost(request, url, response) {
-  if (request.method !== "GET" || response.status !== 200 || !READER_VENDOR_CACHE_V67_OUTERMOST.has(url.pathname)) return response;
-  const headers = new Headers(response.headers);
-  headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-  headers.delete("Pragma");
-  headers.set("X-R3-Reader-Vendor-Cache", "v67-outermost");
-  return new Response(response.body, { status: response.status, headers });
 }
 
 export default {
@@ -39,8 +25,7 @@ export default {
     const regimeResponse = await handleOpportunityRegime(request, env, url);
     if (regimeResponse) return regimeResponse;
 
-    const response = await app.fetch(request, env, ctx);
-    return applyReaderVendorCacheV67Outermost(request, url, response);
+    return app.fetch(request, env, ctx);
   },
 
   async scheduled(controller, env, ctx) {
