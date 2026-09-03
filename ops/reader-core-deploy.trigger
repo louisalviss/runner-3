@@ -1,3 +1,3 @@
-ebook-reader-v67-stage-geometry-perf
-requested_at=2026-09-03T23:08:00+07:00
-reason=deploy Reader v67 after validation run 33776649580 PASS: remove fixed-body 100dvh dynamic owner, settle visual viewport in parallel with EPUB cache/network before epub.js stage creation, eliminate v61 post-render resize+redisplay, keep initial iframe hidden until final boot gates complete, normalize chapter top spacing consistently across Safari and Home Screen, expand persistent EPUB IDB LRU 4->12, preload jszip/epub parser scripts and cache only those static vendor responses for one day; preserve private HTML/library no-store and existing CFI/audio ownership
+ebook-reader-v67-stage-geometry-perf-final
+requested_at=2026-09-03T23:13:00+07:00
+reason=deploy final Reader v67 after validation run 33777139306 PASS: pre-render visual viewport stabilization is the sole cold-boot geometry owner; remove both v61 post-render resize+redisplay and redundant post-render 450ms geometry wait; remove fixed-body 100dvh, keep EPUB iframe hidden until final boot gates, normalize chapter top consistently in themes, expand persistent EPUB IDB LRU to 12, preload and cache jszip/epub vendor assets; preserve private HTML/library no-store, CFI, audio and existing rollback boundaries
