@@ -1,3 +1,3 @@
-ebook-reader-v65.1-manage-sheet-candidate
-requested_at=2026-09-03T06:52:00+07:00
-reason=deploy after READER_V65_1_BUILD_VALIDATION=PASS with v65.2 quote fix: custom mobile bottom sheet replaces Safari prompt/confirm, rename input and destructive delete confirmation are in-app, ellipsis control is lighter, client version remains v65.1; production v65 was unchanged by prior failed build; v64 remains canonical rollback until device acceptance PASS
+ebook-reader-v65-emergency-restore
+requested_at=2026-09-03T07:08:00+07:00
+reason=emergency restore to last Safari-working v65 build after v65.1 custom management sheet caused blank client render on iPhone Safari; restore exact v65 build chain and v65 server smoke; preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout, v64 progress repair; v64 remains canonical rollback until device acceptance PASS
