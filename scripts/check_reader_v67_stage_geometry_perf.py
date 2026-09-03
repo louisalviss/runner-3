@@ -8,13 +8,14 @@ required=[
     '__r3StageGeometryV67',
     "owner:'stage-geometry-v67'",
     'postResizeDisplay:false',
+    'postRenderGeometryWait:false',
     'dvhOwner:false',
     "html.r3-stage-boot-v67 #viewer iframe{opacity:0!important}",
     "document.documentElement.classList.add('r3-stage-boot-v67')",
     "document.documentElement.classList.remove('r3-stage-boot-v67')",
     "const r3StagePromiseV67=r3WaitPreRenderStageV67();",
-    "await r3StagePromiseV67;",
-    "const r3BootGeometryV61=await r3WaitStableBootGeometryV61();",
+    "const r3PreRenderStageV67=await r3StagePromiseV67;",
+    "const r3BootGeometryV61=r3PreRenderStageV67||null;",
     "const R3_EPUB_CACHE_LIMIT=12;",
     'rel="preload" href="/artifact-library/vendor/jszip.min.js" as="script"',
     'rel="preload" href="/artifact-library/vendor/epub.min.js" as="script"',
@@ -27,6 +28,7 @@ for marker in required:
 for forbidden in [
     'body{position:fixed;inset:0;width:100%;height:100dvh;background:var(--bg)}',
     'const r3BootGeometryV61=await r3NormalizeBootGeometryV61(r3BootAnchorV61);',
+    'const r3BootGeometryV61=await r3WaitStableBootGeometryV61();',
     'const R3_EPUB_CACHE_LIMIT=4;',
 ]:
     if forbidden in V2:
