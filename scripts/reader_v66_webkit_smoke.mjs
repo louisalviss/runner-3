@@ -45,7 +45,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(url.pathname==='/artifact-library/api/list'){
       res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
-      res.end(JSON.stringify({ok:true,objects:[{key:SAMPLE_KEY,size:12345,uploaded:'2026-09-03T00:00:00.000Z',scope:'webkit-smoke'}]}));
+      res.end(JSON.stringify({ok:true,prefix:'core/ebook/',final_only:true,canonical_latest_per_scope:true,objects:[{key:SAMPLE_KEY,size:12345,uploaded:'2026-09-03T00:00:00.000Z',scope:'webkit-smoke'}]}));
       return;
     }
     if(url.pathname==='/artifact-library/api/progress'){
@@ -75,15 +75,28 @@ server.listen(0,'127.0.0.1');
 await once(server,'listening');
 const origin='http://127.0.0.1:'+server.address().port;
 
+async function waitForBookOrDiagnose(page,errors,consoleLines,label){
+  try{
+    await page.waitForSelector('article.book',{timeout:7000});
+  }catch(error){
+    const body=(await page.locator('body').innerText().catch(()=>'' )).slice(0,1800).replace(/\s+/g,' ').trim();
+    const html=(await page.content().catch(()=>'' )).slice(0,3000).replace(/\s+/g,' ');
+    const asset=await page.evaluate(()=>({ready:window.__R3_MANAGE_UI_V66===true,assetError:window.__R3_MANAGE_UI_V66_ERROR||'',href:location.href})).catch(()=>({}));
+    throw new Error(label+'_NO_BOOK; asset='+JSON.stringify(asset)+'; pageErrors='+JSON.stringify(errors)+'; console='+JSON.stringify(consoleLines)+'; body='+body+'; html='+html+'; original='+String(error));
+  }
+}
+
 const browser=await webkit.launch({headless:true});
 try{
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const errors=[];
   const dialogs=[];
+  const consoleLines=[];
   page.on('pageerror',error=>errors.push(String(error)));
+  page.on('console',msg=>{if(msg.type()==='error'||msg.type()==='warning')consoleLines.push(msg.type()+':'+msg.text())});
   page.on('dialog',async dialog=>{dialogs.push(dialog.type()+':'+dialog.message());await dialog.dismiss()});
   await page.goto(origin+'/artifact-library',{waitUntil:'networkidle'});
-  await page.waitForSelector('article.book',{timeout:10000});
+  await waitForBookOrDiagnose(page,errors,consoleLines,'WEBKIT_MAIN');
   const bodyText=(await page.locator('body').innerText()).trim();
   if(bodyText.length<10)throw new Error('WEBKIT_LIBRARY_BODY_BLANK');
   const assetReady=await page.evaluate(()=>window.__R3_MANAGE_UI_V66===true);
@@ -105,9 +118,11 @@ try{
   brokenAsset=true;
   const failPage=await browser.newPage({viewport:{width:390,height:844}});
   const failErrors=[];
+  const failConsole=[];
   failPage.on('pageerror',error=>failErrors.push(String(error)));
+  failPage.on('console',msg=>{if(msg.type()==='error'||msg.type()==='warning')failConsole.push(msg.type()+':'+msg.text())});
   await failPage.goto(origin+'/artifact-library',{waitUntil:'networkidle'});
-  await failPage.waitForSelector('article.book',{timeout:10000});
+  await waitForBookOrDiagnose(failPage,failErrors,failConsole,'WEBKIT_BROKEN_ASSET');
   const failBody=(await failPage.locator('body').innerText()).trim();
   if(failBody.length<10)throw new Error('WEBKIT_BROKEN_ASSET_BLANKED_LIBRARY');
   const fallbackVisible=await failPage.locator('.r3-manage-v65').first().isVisible();
