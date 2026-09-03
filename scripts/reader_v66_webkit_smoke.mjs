@@ -1,4 +1,5 @@
 import http from 'node:http';
+import vm from 'node:vm';
 import { once } from 'node:events';
 import { webkit } from 'playwright';
 
@@ -33,6 +34,18 @@ const fakeEnv={
   },
   RUNNER3_CORE_TOKEN:'webkit-v66-token',
 };
+
+async function assertInlineScriptsParse(){
+  const response=await app.fetch(new Request('http://r3.local/artifact-library'),fakeEnv,{waitUntil(){}});
+  const html=await response.text();
+  const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(m=>m[1]).filter(x=>x.trim());
+  for(let i=0;i<scripts.length;i++){
+    try{new vm.Script(scripts[i],{filename:'artifact-library-inline-'+(i+1)+'.js'})}
+    catch(error){console.error('READER_V66_INLINE_SCRIPT_PARSE_FAIL index='+(i+1));console.error(String(error&&error.stack||error));throw error}
+  }
+  console.log('READER_V66_INLINE_SCRIPT_PARSE=PASS scripts='+scripts.length);
+}
+await assertInlineScriptsParse();
 
 const server=http.createServer(async(req,res)=>{
   const base='http://127.0.0.1:'+server.address().port;
