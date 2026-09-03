@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v31-high-speed-serialized-follow-entry.js";
+import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
