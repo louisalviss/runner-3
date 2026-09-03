@@ -240,20 +240,9 @@ async function putCurrent(request, env, regimeKey) {
         const raced = await readCurrent(env, regimeKey);
         return noStoreJson({ ok: false, error: "VERSION_CONFLICT", expected_version: currentVersion, current: raced }, { status: 409 });
       }
-    } else {
-      const result = await opportunityDb(env).prepare(`UPDATE opportunity_regime_current SET
-        evidence_json=?,confirmation_json=?,affected_exposures_json=?,source_session=?,evidence_asof=?,
-        last_checked_at=?,updated_at=CURRENT_TIMESTAMP
-        WHERE regime_key=? AND version=?`)
-        .bind(next.evidenceJson,next.confirmationJson,next.exposuresJson,next.sourceSession,next.evidenceAsof,
-          next.checkedAt,regimeKey,currentVersion).run();
-      if (Number(result?.meta?.changes || 0) !== 1) {
-        const raced = await readCurrent(env, regimeKey);
-        return noStoreJson({ ok: false, error: "VERSION_CONFLICT", expected_version: currentVersion, current: raced }, { status: 409 });
-      }
     }
 
-    const saved = await readCurrent(env, regimeKey);
+    const saved = current && !changed ? current : await readCurrent(env, regimeKey);
     return noStoreJson({ ok: true, changed, version_changed: Boolean(changed), current: saved });
   } catch (err) {
     return noStoreJson({ ok: false, error: String(err?.message || err) }, { status: 400 });

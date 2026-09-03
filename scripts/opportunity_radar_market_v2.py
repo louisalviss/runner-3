@@ -612,6 +612,23 @@ def signal_from(rec: dict[str, Any], generated_at: str, prior: dict[str, Any] | 
     }
 
 
+def latest_valid_market_session(history: dict[str, pd.DataFrame]) -> str | None:
+    """Return the newest valid upstream market session, independent of emitted signals."""
+    latest: str | None = None
+    for frame in history.values():
+        if frame is None or frame.empty or "Close" not in frame.columns:
+            continue
+        close = pd.to_numeric(frame["Close"], errors="coerce")
+        valid = close[close.notna() & close.map(lambda value: math.isfinite(float(value)) and float(value) > 0)]
+        if valid.empty:
+            continue
+        idx = valid.index[-1]
+        session = idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10]
+        if latest is None or session > latest:
+            latest = session
+    return latest
+
+
 def write_health(**kwargs: Any) -> None:
     HEALTH_OUT.write_text(json.dumps(kwargs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
@@ -658,8 +675,9 @@ def main() -> None:
         anomalies, guard_stats = build_anomalies(commons, snapshot, history, previous_packet)
         previous = previous_by_symbol(previous_packet)
         signals = [signal_from(x, generated_at, previous.get(str(x.get("symbol") or "").upper())) for x in anomalies]
-        source_dates = sorted({str(x.get("source", {}).get("last_date")) for x in signals if x.get("source", {}).get("last_date")})
-        source_session_date = source_dates[-1] if source_dates else None
+        source_session_date = latest_valid_market_session(history)
+        if source_session_date is None:
+            raise RuntimeError("no valid market session in fetched history")
 
         payload = {
             "schema_version": 2.0,
