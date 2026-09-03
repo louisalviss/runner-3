@@ -1,3 +1,3 @@
-ebook-reader-v65-emergency-restore-after-v66-smoke-fail
-requested_at=2026-09-03T08:36:00+07:00
-reason=emergency restore to stable v65 after v66 post-deploy smoke failed Reader asset injection marker; restore exact v65 build chain immediately, preserve v65 sync/manage backend, v60 audio owner/prefetch, v62 Safari layout and v64 progress repair; v66 remains blocked until Reader-path asset injection is corrected and live smoke passes
+ebook-reader-v65-safari-cold-boot-vertical-guard
+requested_at=2026-09-03T17:57:00+07:00
+reason=deploy stable v65 layout fix after validation PASS: iPhone Safari first load can develop paginated iframe vertical drift without visualViewport resize, previously remaining visible until v62 final 4s clamp; add 100ms cold-boot vertical-only clamp guard for 4.2s with no rendition.display or resize, preserving CFI/horizontal pagination; restore v65 CI/postdeploy smoke expectations; preserve v60 audio, v61 geometry, v64 progress repair and v65 sync/manage
