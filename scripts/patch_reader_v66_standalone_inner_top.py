@@ -44,8 +44,9 @@ helper = r'''  function r3StandaloneIphoneV66(){
       try{before=Math.round(Number(target.getBoundingClientRect().top||0)*10)/10;}catch{}
       state.lastBefore=before;
 
-      // In standalone mode WebKit already reserves the status-bar safe area at
-      // the outer viewport. Neutralize only the second top inset inside EPUB.
+      // The outer standalone viewport already owns the status-bar safe area.
+      // Reapply this after EPUB author styles settle so a chapter stylesheet
+      // cannot restore the duplicate top margin after the early content hook.
       root.style.setProperty('margin-top','0','important');
       root.style.setProperty('padding-top','0','important');
       body.style.setProperty('margin-top','0','important');
@@ -54,7 +55,7 @@ helper = r'''  function r3StandaloneIphoneV66(){
         try{
           const cs=win&&win.getComputedStyle?win.getComputedStyle(el):null;
           if(!cs)continue;
-          if(r3PxV66(cs.marginTop)>12)el.style.setProperty('margin-top','0','important');
+          if(r3PxV66(cs.marginTop)>4)el.style.setProperty('margin-top','0','important');
           if(r3PxV66(cs.paddingTop)>12)el.style.setProperty('padding-top','0','important');
         }catch{}
       }
@@ -72,7 +73,7 @@ render_patch = "      rendition=book.renderTo('viewer',{width:'100%',height:'100
 text = text.replace(render_anchor, render_patch, 1)
 
 bind_old = "    contents.forEach(c=>{try{bindGestureTarget(c.document,()=>c.window?.innerWidth||c.document?.documentElement?.clientWidth||window.innerWidth);}catch{}});"
-bind_new = "    contents.forEach(c=>{try{if(r3StandaloneIphoneV66()&&c.document?.documentElement?.dataset?.r3StandaloneInnerTopV66!=='1')r3NormalizeStandaloneInnerTopV66(c,'bind-fallback');bindGestureTarget(c.document,()=>c.window?.innerWidth||c.document?.documentElement?.clientWidth||window.innerWidth);}catch{}});"
+bind_new = "    contents.forEach(c=>{try{if(r3StandaloneIphoneV66()){r3NormalizeStandaloneInnerTopV66(c,'bind-rendered');setTimeout(()=>r3NormalizeStandaloneInnerTopV66(c,'bind-settle-80'),80);setTimeout(()=>r3NormalizeStandaloneInnerTopV66(c,'bind-settle-240'),240);}bindGestureTarget(c.document,()=>c.window?.innerWidth||c.document?.documentElement?.clientWidth||window.innerWidth);}catch{}});"
 if bind_old not in text:
     raise SystemExit('V66_BIND_LINE_MISSING')
 text = text.replace(bind_old, bind_new, 1)
@@ -82,7 +83,9 @@ for required in [
     "owner:'standalone-inner-top-v66'",
     "body.style.setProperty('padding-top','8px','important')",
     "rendition.hooks.content.register(contents=>r3NormalizeStandaloneInnerTopV66(contents,'content-hook'))",
-    "r3NormalizeStandaloneInnerTopV66(c,'bind-fallback')",
+    "r3NormalizeStandaloneInnerTopV66(c,'bind-rendered')",
+    "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-80')",
+    "r3NormalizeStandaloneInnerTopV66(c,'bind-settle-240')",
     "root.dataset.r3StandaloneInnerTopV66='1'",
 ]:
     if required not in text:
