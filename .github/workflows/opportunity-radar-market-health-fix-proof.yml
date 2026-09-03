@@ -1,0 +1,274 @@
+name: Opportunity Radar Market Health Fix Proof
+
+on:
+  push:
+    branches:
+      - fix/opportunity-market-health-20260904
+    paths:
+      - .github/workflows/opportunity-radar-market-health-fix-proof.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/opportunity-market-health-20260904
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Patch exact production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          market_path = Path('scripts/opportunity_radar_market_v2.py')
+          market = market_path.read_text(encoding='utf-8')
+          anchor = '''def write_health(**kwargs: Any) -> None:
+              HEALTH_OUT.write_text(json.dumps(kwargs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+          '''
+          helper = '''def latest_valid_market_session(history: dict[str, pd.DataFrame]) -> str | None:
+              """Return the newest valid upstream market session, independent of emitted signals."""
+              latest: str | None = None
+              for frame in history.values():
+                  if frame is None or frame.empty or "Close" not in frame.columns:
+                      continue
+                  close = pd.to_numeric(frame["Close"], errors="coerce")
+                  valid = close[close.notna() & close.map(lambda value: math.isfinite(float(value)) and float(value) > 0)]
+                  if valid.empty:
+                      continue
+                  idx = valid.index[-1]
+                  session = idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10]
+                  if latest is None or session > latest:
+                      latest = session
+              return latest
+
+
+          def write_health(**kwargs: Any) -> None:
+              HEALTH_OUT.write_text(json.dumps(kwargs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+          '''
+          if market.count(anchor) != 1:
+              raise SystemExit(f'market helper anchor count={market.count(anchor)}')
+          market = market.replace(anchor, helper, 1)
+          old_freshness = '''        source_dates = sorted({str(x.get("source", {}).get("last_date")) for x in signals if x.get("source", {}).get("last_date")})
+                  source_session_date = source_dates[-1] if source_dates else None
+          '''
+          new_freshness = '''        source_session_date = latest_valid_market_session(history)
+                  if source_session_date is None:
+                      raise RuntimeError("no valid market session in fetched history")
+          '''
+          if market.count(old_freshness) != 1:
+              raise SystemExit(f'market freshness anchor count={market.count(old_freshness)}')
+          market = market.replace(old_freshness, new_freshness, 1)
+          market_path.write_text(market, encoding='utf-8')
+
+          regime_path = Path('cloudflare/runner3-core/src/opportunity-regime.js')
+          regime = regime_path.read_text(encoding='utf-8')
+          old_unchanged = '''    } else {
+                const result = await opportunityDb(env).prepare(`UPDATE opportunity_regime_current SET
+                  evidence_json=?,confirmation_json=?,affected_exposures_json=?,source_session=?,evidence_asof=?,
+                  last_checked_at=?,updated_at=CURRENT_TIMESTAMP
+                  WHERE regime_key=? AND version=?`)
+                  .bind(next.evidenceJson,next.confirmationJson,next.exposuresJson,next.sourceSession,next.evidenceAsof,
+                    next.checkedAt,regimeKey,currentVersion).run();
+                if (Number(result?.meta?.changes || 0) !== 1) {
+                  const raced = await readCurrent(env, regimeKey);
+                  return noStoreJson({ ok: false, error: "VERSION_CONFLICT", expected_version: currentVersion, current: raced }, { status: 409 });
+                }
+              }
+          
+              const saved = await readCurrent(env, regimeKey);
+          '''
+          new_unchanged = '''    }
+          
+              const saved = current && !changed ? current : await readCurrent(env, regimeKey);
+          '''
+          if regime.count(old_unchanged) != 1:
+              raise SystemExit(f'regime unchanged anchor count={regime.count(old_unchanged)}')
+          regime = regime.replace(old_unchanged, new_unchanged, 1)
+          regime_path.write_text(regime, encoding='utf-8')
+          PY
+
+      - name: Prove market freshness semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -q pandas
+          python - <<'PY'
+          import ast
+          import math
+          from pathlib import Path
+          import pandas as pd
+
+          path = Path('scripts/opportunity_radar_market_v2.py')
+          source = path.read_text(encoding='utf-8')
+          tree = ast.parse(source)
+          fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'latest_valid_market_session')
+          module = ast.Module(body=[fn], type_ignores=[])
+          ast.fix_missing_locations(module)
+          ns = {'pd': pd, 'math': math}
+          exec(compile(module, str(path), 'exec'), ns)
+          latest = ns['latest_valid_market_session']
+
+          fresh_history = {
+              'AAA': pd.DataFrame({'Close': [100.0, 101.0]}, index=pd.to_datetime(['2026-09-02', '2026-09-03'])),
+              'BBB': pd.DataFrame({'Close': [50.0]}, index=pd.to_datetime(['2026-09-02'])),
+          }
+          signals = []
+          assert signals == []
+          assert latest(fresh_history) == '2026-09-03', 'fresh/no-signal must use upstream newest session'
+
+          stale_history = {
+              'AAA': pd.DataFrame({'Close': [100.0]}, index=pd.to_datetime(['2026-08-28'])),
+          }
+          assert latest(stale_history) == '2026-08-28', 'stale upstream must stay stale, never be refreshed synthetically'
+
+          invalid_history = {
+              'AAA': pd.DataFrame({'Close': [float('nan'), -1.0]}, index=pd.to_datetime(['2026-09-02', '2026-09-03'])),
+          }
+          assert latest(invalid_history) is None, 'invalid upstream bars must fail closed'
+          assert 'source_dates = sorted' not in source
+          assert 'source_session_date = latest_valid_market_session(history)' in source
+          assert 'raise RuntimeError("no valid market session in fetched history")' in source
+          print('PASS market: fresh/no-signal, stale-preserved, invalid-fail-closed')
+          PY
+
+      - name: Prove regime unchanged and changed semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp cloudflare/runner3-core/src/opportunity-regime.js /tmp/opportunity-regime.mjs
+          cp cloudflare/runner3-core/src/opportunity-regime-write-guard.js /tmp/opportunity-regime-write-guard.mjs
+          node --input-type=module <<'JS'
+          import { handleOpportunityRegime } from 'file:///tmp/opportunity-regime.mjs';
+          import { guardOpportunityRegimeWrite } from 'file:///tmp/opportunity-regime-write-guard.mjs';
+
+          function makeDb() {
+            let row = {
+              regime_key: 'global',
+              macro_state: 'NORMAL',
+              fed_state: 'GREEN',
+              policy_market_state: 'MIXED_OR_UNCONFIRMED',
+              policy_direction: 'NEUTRAL',
+              default_action: 'HOLD',
+              evidence_json: '{}',
+              confirmation_json: '[]',
+              affected_exposures_json: '[]',
+              source_session: '2026-09-03',
+              evidence_asof: '2026-09-03T20:00:00Z',
+              last_checked_at: '2026-09-03T20:00:00Z',
+              state_changed_at: '2026-09-03T20:00:00Z',
+              version: 7,
+              updated_at: '2026-09-03T20:00:00Z',
+            };
+            const db = {
+              writes: 0,
+              prepare(sql) {
+                const stmt = {
+                  sql,
+                  args: [],
+                  bind(...args) { this.args = args; return this; },
+                  async first() {
+                    if (sql.includes('FROM opportunity_regime_current')) return { ...row };
+                    return null;
+                  },
+                  async run() { db.writes += 1; return { meta: { changes: 1 } }; },
+                  async all() { return { results: [] }; },
+                };
+                return stmt;
+              },
+              async batch(stmts) {
+                db.writes += stmts.length;
+                const update = stmts[0];
+                if (update?.sql?.includes('UPDATE opportunity_regime_current')) {
+                  const a = update.args;
+                  row = {
+                    ...row,
+                    macro_state: a[0], fed_state: a[1], policy_market_state: a[2], policy_direction: a[3],
+                    default_action: a[4], evidence_json: a[5], confirmation_json: a[6], affected_exposures_json: a[7],
+                    source_session: a[8], evidence_asof: a[9], last_checked_at: a[10], state_changed_at: a[11], version: a[12],
+                  };
+                }
+                return [{ meta: { changes: 1 } }, { meta: { changes: 1 } }];
+              },
+              snapshot() { return { ...row }; },
+            };
+            return db;
+          }
+
+          const baseBody = {
+            macro_state: 'NORMAL', fed_state: 'GREEN', policy_market_state: 'MIXED_OR_UNCONFIRMED',
+            policy_direction: 'NEUTRAL', default_action: 'HOLD', expected_version: 7,
+            checked_at: '2026-09-04T00:00:00Z', evidence_asof: '2026-09-03T23:59:00Z',
+            evidence: { source: 'fresh' }, confirmation_families: [], affected_exposures: [],
+            source_session: '2026-09-03', trigger: 'proof', source_run_id: 'proof-unchanged',
+          };
+          const url = new URL('https://runner.example/opportunity-radar/regime/current/global');
+          const envToken = 'proof-token';
+
+          const dbUnchanged = makeDb();
+          const reqUnchanged = new Request(url, {
+            method: 'PUT', headers: { Authorization: `Bearer ${envToken}`, 'content-type': 'application/json' },
+            body: JSON.stringify(baseBody),
+          });
+          const resUnchanged = await handleOpportunityRegime(reqUnchanged, { OPPORTUNITY_DB: dbUnchanged, RUNNER3_CORE_TOKEN: envToken }, url);
+          const jsonUnchanged = await resUnchanged.json();
+          if (!jsonUnchanged.ok || jsonUnchanged.changed !== false) throw new Error(`unchanged response invalid: ${JSON.stringify(jsonUnchanged)}`);
+          if (dbUnchanged.writes !== 0) throw new Error(`unchanged mutated DB: writes=${dbUnchanged.writes}`);
+          if (jsonUnchanged.current.last_checked_at !== '2026-09-03T20:00:00Z') throw new Error('unchanged heartbeat mutated current timestamp');
+          console.log('PASS regime unchanged: changed=false, zero writes, timestamp preserved');
+
+          const dbChanged = makeDb();
+          const changedBody = { ...baseBody, macro_state: 'WATCH', source_run_id: 'proof-changed' };
+          const reqChanged = new Request(url, {
+            method: 'PUT', headers: { Authorization: `Bearer ${envToken}`, 'content-type': 'application/json' },
+            body: JSON.stringify(changedBody),
+          });
+          const resChanged = await handleOpportunityRegime(reqChanged, { OPPORTUNITY_DB: dbChanged, RUNNER3_CORE_TOKEN: envToken }, url);
+          const jsonChanged = await resChanged.json();
+          if (!jsonChanged.ok || jsonChanged.changed !== true) throw new Error(`changed response invalid: ${JSON.stringify(jsonChanged)}`);
+          if (dbChanged.writes !== 2) throw new Error(`changed must persist current+history atomically: writes=${dbChanged.writes}`);
+          if (jsonChanged.current.macro_state !== 'WATCH' || jsonChanged.current.version !== 8) throw new Error('changed regime did not persist new state/version');
+          console.log('PASS regime changed: persisted current+history and incremented version');
+
+          const originalNow = Date.now;
+          Date.now = () => Date.parse('2026-09-04T00:00:00Z');
+          const staleReq = new Request(url, {
+            method: 'PUT', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ checked_at: '2026-09-03T23:39:00Z' }),
+          });
+          const staleRes = await guardOpportunityRegimeWrite(staleReq, url);
+          Date.now = originalNow;
+          if (!staleRes || staleRes.status !== 409) throw new Error('stale write did not fail closed');
+          const staleJson = await staleRes.json();
+          if (staleJson.error !== 'STALE_REGIME_WRITE' || staleJson.max_age_seconds !== 1200) throw new Error(`stale guard changed threshold/semantic: ${JSON.stringify(staleJson)}`);
+          console.log('PASS stale guard: 20-minute threshold unchanged, fail-closed');
+          JS
+
+      - name: Verify only intended production files changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only | sort)"
+          expected=$'cloudflare/runner3-core/src/opportunity-regime.js\nscripts/opportunity_radar_market_v2.py'
+          printf 'Changed files:\n%s\n' "$changed"
+          test "$changed" = "$expected"
+
+      - name: Commit proven patch and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/opportunity-radar-market-health-fix-proof.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: correct Opportunity Radar market health semantics'
+          git push origin HEAD:fix/opportunity-market-health-20260904
