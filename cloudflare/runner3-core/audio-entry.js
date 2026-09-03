@@ -8,6 +8,10 @@ const MOBILE_CAPABLE = '<meta name="mobile-web-app-capable" content="yes">';
 const IOS_STATUS_BLACK = '<meta name="apple-mobile-web-app-status-bar-style" content="black">';
 const IOS_STATUS_TRANSLUCENT = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
 const IOS_STARTUP_MARKER = '<meta name="r3-ios-home-screen-startup-policy" content="opaque-v39">';
+const READER_VENDOR_CACHE_V67 = new Set([
+  "/artifact-library/vendor/jszip.min.js",
+  "/artifact-library/vendor/epub.min.js",
+]);
 
 function loadReaderApp() {
   if (!readerAppPromise) {
@@ -50,6 +54,15 @@ async function maybePatchLibraryStartup(request, url, response) {
   return new Response(updated, { status: response.status, headers });
 }
 
+function maybeCacheReaderVendorV67(request, url, response) {
+  if (request.method !== "GET" || response.status !== 200 || !READER_VENDOR_CACHE_V67.has(url.pathname)) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+  headers.delete("Pragma");
+  headers.set("X-R3-Reader-Vendor-Cache", "v67");
+  return new Response(response.body, { status: response.status, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -57,7 +70,8 @@ export default {
     if (audioResponse) return audioResponse;
     const app = await loadReaderApp();
     const response = await app.fetch(request, env, ctx);
-    return maybePatchLibraryStartup(request, url, response);
+    const startupPatched = await maybePatchLibraryStartup(request, url, response);
+    return maybeCacheReaderVendorV67(request, url, startupPatched);
   },
 
   async scheduled(controller, env, ctx) {
