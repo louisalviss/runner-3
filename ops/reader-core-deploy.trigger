@@ -1,3 +1,3 @@
-ebook-reader-v68-full-bleed-autostretch
-requested_at=2026-09-04T10:31:00+07:00
-reason=deploy Reader v68 after Build Validation 33833374706 PASS: switch iPhone Home Screen startup/Reader status bar to black-translucent full-bleed; size fixed Reader shell from live visualViewport width/height/offset before epub.js stage creation; #viewer fills the measured shell; debounce visualViewport resize and call rendition.resize only, never display/CFI navigation; preserve one safe-area reading inset plus 8px gap for standalone content; retain v67 no-100dvh/no-post-render-wait/no-post-redisplay, EPUB IDB LRU12, audio/CFI owners; keep parser HTTP cache experiment rolled back; live smoke must verify full-bleed-v68 on Library and Reader
+ebook-reader-v68-full-bleed-autostretch-direct-library-owner
+requested_at=2026-09-04T10:37:00+07:00
+reason=republish Reader v68 after Build Validation 33833754669 PASS and failed live smoke 33833567575 identified /artifact-library still emitted opaque-v39 from artifact-library-simple-entry.js; final build now rewrites the direct Library owner itself to black-translucent/full-bleed-v68, adds Library safe-area content padding, and preserves Reader visualViewport auto-stretch, single safe reading inset, no 100dvh/post-render redisplay, LRU12, audio/CFI ownership; live smoke must pass Library and Reader full-bleed-v68 before device test
