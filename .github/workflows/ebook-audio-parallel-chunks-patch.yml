@@ -2,7 +2,7 @@ name: Ebook Audio Parallel Chunk Patch
 
 on:
   push:
-    branches: [ops/ebook-audio-parallel-chunks-20260904]
+    branches: [main]
     paths:
       - '.github/workflows/ebook-audio-parallel-chunks-patch.yml'
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ops/ebook-audio-parallel-chunks-20260904
+          ref: main
           fetch-depth: 0
 
       - name: Patch VPS consumer for bounded parallel chunk synthesis
@@ -138,4 +138,4 @@ def process_job(job):
           git add scripts/ebook_reader_audio_tts_vps.py
           git diff --cached --check
           git commit -m 'perf(ebook-audio): synthesize chapter chunks concurrently'
-          git push origin HEAD:ops/ebook-audio-parallel-chunks-20260904
+          git push origin HEAD:main
