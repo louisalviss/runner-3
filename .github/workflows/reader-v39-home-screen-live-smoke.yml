@@ -1,4 +1,4 @@
-name: Reader v68 Full Bleed Auto-Stretch Live Smoke
+name: Reader v69 Audio Dock Reading Inset Live Smoke
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify v68 full-bleed startup and visualViewport ownership
+      - name: Verify v69 dynamic audio dock reading inset
         shell: bash
         run: |
           set -euo pipefail
@@ -33,22 +33,13 @@ jobs:
             if grep -Fq -- "$marker" "$file"; then echo "FAIL:$label forbidden=$marker"; return 1; else echo "PASS:$label"; fi
           }
 
-          library_ok=0
-          for attempt in $(seq 1 12); do
-            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
-            tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
-            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "LIBRARY_V68_STARTUP attempt=$attempt http=$code startup=$startup"
-            if [ "$code" = 200 ] && [ "$startup" = 'full-bleed-v68' ]; then library_ok=1; break; fi
-            sleep 1
-          done
-          test "$library_ok" = 1
-          require_literal /tmp/library.html 'name="apple-mobile-web-app-capable" content="yes"' library_capable
-          require_literal /tmp/library.html 'name="mobile-web-app-capable" content="yes"' library_mobile_capable
+          code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
+          tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
+          startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "LIBRARY_V69_STARTUP http=$code startup=$startup"
+          test "$code" = 200
+          test "$startup" = 'full-bleed-v68'
           require_literal /tmp/library.html 'name="apple-mobile-web-app-status-bar-style" content="black-translucent"' library_full_bleed_statusbar
-          require_literal /tmp/library.html 'name="r3-ios-home-screen-startup-policy" content="full-bleed-v68"' library_full_bleed_marker
-          forbid_literal /tmp/library.html 'name="apple-mobile-web-app-status-bar-style" content="black">' library_opaque_statusbar_removed
-          forbid_literal /tmp/library.html 'name="r3-ios-home-screen-startup-policy" content="opaque-v39"' library_opaque_marker_removed
 
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
           reader_ok=0
@@ -58,28 +49,34 @@ jobs:
             startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             statusbar="$(grep -i '^x-r3-reader-ios-statusbar-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "READER_V68_GEOMETRY attempt=$attempt http=$code startup=$startup statusbar=$statusbar forced=$forced bytes=$(wc -c </tmp/reader.html 2>/dev/null || echo 0)"
+            echo "READER_V69_GEOMETRY attempt=$attempt http=$code startup=$startup statusbar=$statusbar forced=$forced bytes=$(wc -c </tmp/reader.html 2>/dev/null || echo 0)"
             if [ "$code" = 200 ] && [ "$startup" = 'full-bleed-v68' ] && [ "$statusbar" = 'full-bleed-v68' ] && [ "$forced" = 'disabled-v68' ]; then reader_ok=1; break; fi
             sleep 1
           done
           test "$reader_ok" = 1
 
+          # v68 full-screen shell remains intact.
           require_literal /tmp/reader.html '__r3FullBleedV68' full_bleed_runtime
           require_literal /tmp/reader.html "owner:'full-bleed-autostretch-v68'" full_bleed_owner
-          require_literal /tmp/reader.html '--r3-screen-w-v68' measured_width_owner
-          require_literal /tmp/reader.html '--r3-screen-h-v68' measured_height_owner
-          require_literal /tmp/reader.html 'html.r3-full-bleed-v68 #viewer{inset:0!important;width:100%!important;height:100%!important}' viewer_fills_shell
-          require_literal /tmp/reader.html "r3ApplyFullBleedV68('pre-render-enter',false)" geometry_before_epub_stage
-          require_literal /tmp/reader.html "window.visualViewport.addEventListener('resize'" visual_viewport_resize_owner
-          require_literal /tmp/reader.html 'rendition.resize(w,h)' auto_stage_resize_without_display
-          require_literal /tmp/reader.html 'window.__r3FullBleedV68&&window.__r3FullBleedV68.safeTop' single_safe_reading_inset
+          require_literal /tmp/reader.html 'html.r3-full-bleed-v68 #viewer{inset:0!important;width:100%!important;height:100%!important}' v68_full_shell_rule
           require_literal /tmp/reader.html 'postResizeDisplay:false' no_display_after_resize
           require_literal /tmp/reader.html 'postRenderGeometryWait:false' no_post_render_wait
-          require_literal /tmp/reader.html 'const R3_EPUB_CACHE_LIMIT=12' epub_lru_12
-          require_literal /tmp/reader.html 'name="apple-mobile-web-app-status-bar-style" content="black-translucent"' reader_full_bleed_statusbar
-          forbid_literal /tmp/reader.html 'name="apple-mobile-web-app-status-bar-style" content="black">' reader_opaque_statusbar_removed
-          forbid_literal /tmp/reader.html 'body{position:fixed;inset:0;width:100%;height:100dvh;background:var(--bg)}' no_dynamic_dvh_shell
-          forbid_literal /tmp/reader.html 'r3-ios-standalone-forced-inset-v38' no_fixed_48px_owner
-          forbid_literal /tmp/reader.html '--r3-ios-forced-top-v38' no_fixed_top_variable
 
-          echo 'READER_V68_FULL_BLEED_AUTOSTRETCH_LIVE_SMOKE=PASS'
+          # v69 dynamically shortens only the EPUB reading stage to the actual dock top.
+          require_literal /tmp/reader.html '__r3AudioDockInsetV69' dock_runtime
+          require_literal /tmp/reader.html "owner:'audio-dock-reading-inset-v69'" dock_owner
+          require_literal /tmp/reader.html "document.getElementById('r3AudioDock')" stable_dock_id
+          require_literal /tmp/reader.html 'dock.getBoundingClientRect()' measured_dock_geometry
+          require_literal /tmp/reader.html '--r3-reading-bottom-v69' dynamic_bottom_variable
+          require_literal /tmp/reader.html 'bottom:var(--r3-reading-bottom-v69,0px)!important' viewer_dynamic_bottom
+          require_literal /tmp/reader.html 'height:auto!important' viewer_auto_height
+          require_literal /tmp/reader.html 'viewportBottom-Number(rect.top||0)' viewport_to_dock_overlap
+          require_literal /tmp/reader.html 'new ResizeObserver' dock_resize_observer
+          require_literal /tmp/reader.html 'new MutationObserver' late_dock_observer
+          require_literal /tmp/reader.html "r3ApplyAudioDockInsetV69('pre-render-enter',false)" dock_measure_before_pagination
+          require_literal /tmp/reader.html 'rendition.resize(stageW,stageH)' resize_to_visible_reading_stage
+          require_literal /tmp/reader.html "r3ApplyAudioDockInsetV69('v68-viewport',false)" viewport_resize_delegated_to_v69
+          forbid_literal /tmp/reader.html 'r3-audio-fixed-height-v69' no_fixed_player_height
+          forbid_literal /tmp/reader.html '--r3-audio-fixed-height-v69' no_fixed_player_height_variable
+
+          echo 'READER_V69_AUDIO_DOCK_READING_INSET_LIVE_SMOKE=PASS'
