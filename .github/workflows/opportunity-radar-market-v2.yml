@@ -8,9 +8,11 @@ on:
       - scripts/opportunity_radar_market_v2.py
       - .github/workflows/opportunity-radar-market-v2.yml
   schedule:
-    # 22:45 UTC Mon-Fri = 05:45 Asia/Ho_Chi_Minh next day Tue-Sat.
-    # Runs after each regular US trading session.
-    - cron: '45 22 * * 1-5'
+    # 21:02 UTC Mon-Fri = 04:02 Asia/Ho_Chi_Minh next day Tue-Sat.
+    # In US DST this is ~62m after regular close; in standard time it is ~2m after close.
+    # The NYSE-calendar + SPY preflight below waits for the latest completed session
+    # to become visible before running the full universe scan, including holiday handling.
+    - cron: '2 21 * * 1-5'
 
 # Bootstrap trigger after the workflow exists on main.
 concurrency:
@@ -33,7 +35,49 @@ jobs:
           python-version: '3.12'
 
       - name: Install market scanner dependencies
-        run: python -m pip install 'pandas>=2.2,<3' 'requests>=2.32,<3' 'yfinance>=0.2.65,<0.3' 'curl-cffi>=0.7,<1'
+        run: python -m pip install 'pandas>=2.2,<3' 'requests>=2.32,<3' 'yfinance>=0.2.65,<0.3' 'curl-cffi>=0.7,<1' 'pandas-market-calendars>=4.4,<6'
+
+      - name: Wait for latest completed NYSE session
+        shell: bash
+        run: |
+          python - <<'PY'
+          import time
+          from datetime import datetime, timedelta, timezone
+
+          import pandas_market_calendars as mcal
+          import pandas as pd
+          import yfinance as yf
+
+          now = datetime.now(timezone.utc)
+          cal = mcal.get_calendar('NYSE')
+          start = (now - timedelta(days=14)).date().isoformat()
+          end = (now + timedelta(days=1)).date().isoformat()
+          schedule = cal.schedule(start_date=start, end_date=end)
+          completed = schedule[schedule['market_close'] <= pd.Timestamp(now)]
+          if completed.empty:
+              raise SystemExit('No completed NYSE session found in lookback window')
+          expected = completed.index[-1].date().isoformat()
+          print(f'Expected latest completed NYSE session: {expected}')
+
+          deadline = time.time() + 20 * 60
+          last_seen = None
+          while time.time() < deadline:
+              df = yf.download(
+                  'SPY', period='10d', interval='1d', auto_adjust=False,
+                  actions=False, progress=False, threads=False, timeout=30,
+              )
+              if df is not None and not df.empty:
+                  idx = df.index[-1]
+                  last_seen = idx.date().isoformat() if hasattr(idx, 'date') else str(idx)[:10]
+                  print(f'SPY latest session: {last_seen}')
+                  if last_seen >= expected:
+                      break
+              time.sleep(60)
+          else:
+              raise SystemExit(
+                  f'Market data not fresh before timeout: expected {expected}, last_seen {last_seen}'
+              )
+          PY
 
       - name: Run Opportunity Radar V2 market scanner
         run: python scripts/opportunity_radar_market_v2.py
