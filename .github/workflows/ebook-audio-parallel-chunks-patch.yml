@@ -1,0 +1,141 @@
+name: Ebook Audio Parallel Chunk Patch
+
+on:
+  push:
+    branches: [ops/ebook-audio-parallel-chunks-20260904]
+    paths:
+      - '.github/workflows/ebook-audio-parallel-chunks-patch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/ebook-audio-parallel-chunks-20260904
+          fetch-depth: 0
+
+      - name: Patch VPS consumer for bounded parallel chunk synthesis
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/ebook_reader_audio_tts_vps.py')
+          s=p.read_text(encoding='utf-8')
+
+          old='''import signal\nimport sys\nimport tempfile\nimport time\nimport urllib.error\n'''
+          new='''import signal\nimport subprocess\nimport sys\nimport tempfile\nimport time\nimport urllib.error\n'''
+          if old not in s: raise SystemExit('import marker missing')
+          s=s.replace(old,new,1)
+
+          old='''try:\n    MAX_CONCURRENCY = max(1, min(int(os.environ.get("EBOOK_AUDIO_VPS_CONCURRENCY", "2")), 4))\nexcept (TypeError, ValueError):\n    MAX_CONCURRENCY = 2\n\nSTOP = False\n'''
+          new='''try:\n    MAX_CONCURRENCY = max(1, min(int(os.environ.get("EBOOK_AUDIO_VPS_CONCURRENCY", "2")), 4))\nexcept (TypeError, ValueError):\n    MAX_CONCURRENCY = 2\ntry:\n    TTS_CHUNK_CONCURRENCY = max(1, min(int(os.environ.get("EBOOK_AUDIO_TTS_CHUNK_CONCURRENCY", "2")), 3))\nexcept (TypeError, ValueError):\n    TTS_CHUNK_CONCURRENCY = 2\n\nSTOP = False\n'''
+          if old not in s: raise SystemExit('concurrency marker missing')
+          s=s.replace(old,new,1)
+
+          marker='''def process_job(job):\n'''
+          helper=r'''async def synthesize_parallel(script, work):
+    """Synthesize independent TTS chunks concurrently, then preserve canonical order/timing."""
+    chunks = base.tts_chunks(script)
+    if not chunks:
+        raise RuntimeError("Empty Ebook audio script")
+    if len(chunks) == 1 or TTS_CHUNK_CONCURRENCY <= 1:
+        return await base.synthesize(script, work)
+
+    semaphore = asyncio.Semaphore(TTS_CHUNK_CONCURRENCY)
+
+    async def render(index, text):
+        part = work / f"part-{index:04d}.mp3"
+        async with semaphore:
+            boundaries = await base.synthesize_part(text, part)
+        seconds = base.media_duration(part)
+        return index, part, seconds, boundaries
+
+    rendered = await asyncio.gather(*(render(index, text) for index, text in enumerate(chunks)))
+    rendered.sort(key=lambda row: row[0])
+
+    parts = []
+    words = []
+    base_ms = 0.0
+    for _index, part, part_seconds, boundaries in rendered:
+        for event in boundaries:
+            start_ms = base_ms + event["offsetMs"]
+            duration_ms = max(0.0, event["durationMs"])
+            words.append(
+                {
+                    "text": event["text"],
+                    "startMs": round(start_ms, 3),
+                    "durationMs": round(duration_ms, 3),
+                    "endMs": round(start_ms + duration_ms, 3),
+                }
+            )
+        base_ms += part_seconds * 1000.0
+        parts.append(part)
+
+    concat_file = work / "concat.txt"
+    concat_file.write_text("".join(f"file '{part.resolve()}'\n" for part in parts), encoding="utf-8")
+    output = work / "episode.mp3"
+    subprocess.check_call(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "concat", "-safe", "0", "-i", str(concat_file),
+            "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", str(output),
+        ]
+    )
+    output_seconds = base.media_duration(output)
+    if base_ms > 0 and output_seconds > 0:
+        scale = output_seconds * 1000.0 / base_ms
+        if abs(scale - 1.0) > 0.000001:
+            for word in words:
+                start = float(word["startMs"]) * scale
+                duration_ms = float(word["durationMs"]) * scale
+                word["startMs"] = round(start, 3)
+                word["durationMs"] = round(duration_ms, 3)
+                word["endMs"] = round(start + duration_ms, 3)
+    return output, output_seconds, words, len(chunks)
+
+
+def process_job(job):
+'''
+          if marker not in s: raise SystemExit('process marker missing')
+          s=s.replace(marker,helper,1)
+
+          old='''        mp3, seconds, words, chunks = asyncio.run(base.synthesize(script, work))\n'''
+          new='''        mp3, seconds, words, chunks = asyncio.run(synthesize_parallel(script, work))\n'''
+          if old not in s: raise SystemExit('synthesize call marker missing')
+          s=s.replace(old,new,1)
+
+          old='''        "chunkCount": chunks,\n        "renderSeconds": elapsed,\n        "status": "ready",\n'''
+          new='''        "chunkCount": chunks,\n        "chunkConcurrency": TTS_CHUNK_CONCURRENCY,\n        "renderSeconds": elapsed,\n        "status": "ready",\n'''
+          if old not in s: raise SystemExit('result marker missing')
+          s=s.replace(old,new,1)
+
+          old='''                "concurrency": MAX_CONCURRENCY,\n                "pid": os.getpid(),\n'''
+          new='''                "concurrency": MAX_CONCURRENCY,\n                "chunkConcurrency": TTS_CHUNK_CONCURRENCY,\n                "pid": os.getpid(),\n'''
+          if old not in s: raise SystemExit('consumer start marker missing')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+          python3 -m py_compile scripts/ebook_reader_audio_tts_vps.py
+          grep -Fq 'EBOOK_AUDIO_TTS_CHUNK_CONCURRENCY' scripts/ebook_reader_audio_tts_vps.py
+          grep -Fq 'asyncio.Semaphore(TTS_CHUNK_CONCURRENCY)' scripts/ebook_reader_audio_tts_vps.py
+          grep -Fq 'asyncio.gather' scripts/ebook_reader_audio_tts_vps.py
+          grep -Fq 'synthesize_parallel(script, work)' scripts/ebook_reader_audio_tts_vps.py
+
+      - name: Commit patched source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name ebook-audio-speed-bot
+          git config user.email ebook-audio-speed-bot@users.noreply.github.com
+          git add scripts/ebook_reader_audio_tts_vps.py
+          git diff --cached --check
+          git commit -m 'perf(ebook-audio): synthesize chapter chunks concurrently'
+          git push origin HEAD:ops/ebook-audio-parallel-chunks-20260904
