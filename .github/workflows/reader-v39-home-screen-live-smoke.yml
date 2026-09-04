@@ -1,4 +1,4 @@
-name: Reader v67 Geometry and Cold Boot Live Smoke
+name: Reader v68 Full Bleed Auto-Stretch Live Smoke
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify v67 startup and stage geometry policy
+      - name: Verify v68 full-bleed startup and visualViewport ownership
         shell: bash
         run: |
           set -euo pipefail
@@ -33,38 +33,53 @@ jobs:
             if grep -Fq "$marker" "$file"; then echo "FAIL:$label forbidden=$marker"; return 1; else echo "PASS:$label"; fi
           }
 
-          code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
-          tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
-          startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          echo "LIBRARY_STARTUP_CHECK http=$code startup=$startup"
-          test "$code" = 200
-          test "$startup" = 'opaque-v39'
+          library_ok=0
+          for attempt in $(seq 1 12); do
+            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/library.h -o /tmp/library.html -w '%{http_code}' "$core/artifact-library" || true)"
+            tr -d '\r' </tmp/library.h >/tmp/library.h.clean 2>/dev/null || true
+            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/library.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "LIBRARY_V68_STARTUP attempt=$attempt http=$code startup=$startup"
+            if [ "$code" = 200 ] && [ "$startup" = 'full-bleed-v68' ]; then library_ok=1; break; fi
+            sleep 1
+          done
+          test "$library_ok" = 1
           require_literal /tmp/library.html 'name="apple-mobile-web-app-capable" content="yes"' library_capable
           require_literal /tmp/library.html 'name="mobile-web-app-capable" content="yes"' library_mobile_capable
-          require_literal /tmp/library.html 'name="apple-mobile-web-app-status-bar-style" content="black"' library_statusbar
+          require_literal /tmp/library.html 'name="apple-mobile-web-app-status-bar-style" content="black-translucent"' library_full_bleed_statusbar
+          require_literal /tmp/library.html 'name="r3-ios-home-screen-startup-policy" content="full-bleed-v68"' library_full_bleed_marker
+          forbid_literal /tmp/library.html 'name="apple-mobile-web-app-status-bar-style" content="black">' library_opaque_statusbar_removed
+          forbid_literal /tmp/library.html 'name="r3-ios-home-screen-startup-policy" content="opaque-v39"' library_opaque_marker_removed
 
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
-          code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/reader.h -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded" || true)"
-          tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
-          startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          echo "READER_V67_GEOMETRY_CHECK http=$code startup=$startup forced=$forced bytes=$(wc -c </tmp/reader.html)"
-          test "$code" = 200
-          test "$startup" = 'opaque-v39'
-          test "$forced" = 'disabled-v39'
+          reader_ok=0
+          for attempt in $(seq 1 12); do
+            code="$(curl --http1.1 --retry 2 --retry-all-errors --connect-timeout 8 -sS -D /tmp/reader.h -o /tmp/reader.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded" || true)"
+            tr -d '\r' </tmp/reader.h >/tmp/reader.h.clean 2>/dev/null || true
+            startup="$(grep -i '^x-r3-reader-ios-startup-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            statusbar="$(grep -i '^x-r3-reader-ios-statusbar-viewport:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            forced="$(grep -i '^x-r3-reader-ios-forced-inset:' /tmp/reader.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "READER_V68_GEOMETRY attempt=$attempt http=$code startup=$startup statusbar=$statusbar forced=$forced bytes=$(wc -c </tmp/reader.html 2>/dev/null || echo 0)"
+            if [ "$code" = 200 ] && [ "$startup" = 'full-bleed-v68' ] && [ "$statusbar" = 'full-bleed-v68' ] && [ "$forced" = 'disabled-v68' ]; then reader_ok=1; break; fi
+            sleep 1
+          done
+          test "$reader_ok" = 1
 
-          require_literal /tmp/reader.html '__r3StageGeometryV67' stage_marker
-          require_literal /tmp/reader.html "owner:'stage-geometry-v67'" stage_owner
-          require_literal /tmp/reader.html 'postResizeDisplay:false' no_post_resize
-          require_literal /tmp/reader.html 'postRenderGeometryWait:false' no_post_wait
-          require_literal /tmp/reader.html 'dvhOwner:false' no_dvh_owner
-          require_literal /tmp/reader.html 'const r3PreRenderStageV67=await r3StagePromiseV67' pre_render_wait
-          require_literal /tmp/reader.html 'const r3BootGeometryV61=r3PreRenderStageV67||null' v61_delegated
+          require_literal /tmp/reader.html '__r3FullBleedV68' full_bleed_runtime
+          require_literal /tmp/reader.html "owner:'full-bleed-autostretch-v68'" full_bleed_owner
+          require_literal /tmp/reader.html '--r3-screen-w-v68' measured_width_owner
+          require_literal /tmp/reader.html '--r3-screen-h-v68' measured_height_owner
+          require_literal /tmp/reader.html 'html.r3-full-bleed-v68 #viewer{inset:0!important;width:100%!important;height:100%!important}' viewer_fills_shell
+          require_literal /tmp/reader.html "r3ApplyFullBleedV68('pre-render-enter',false)" geometry_before_epub_stage
+          require_literal /tmp/reader.html "window.visualViewport.addEventListener('resize'" visual_viewport_resize_owner
+          require_literal /tmp/reader.html 'rendition.resize(w,h)' auto_stage_resize_without_display
+          require_literal /tmp/reader.html 'window.__r3FullBleedV68&&window.__r3FullBleedV68.safeTop' single_safe_reading_inset
+          require_literal /tmp/reader.html 'postResizeDisplay:false' no_display_after_resize
+          require_literal /tmp/reader.html 'postRenderGeometryWait:false' no_post_render_wait
           require_literal /tmp/reader.html 'const R3_EPUB_CACHE_LIMIT=12' epub_lru_12
-          require_literal /tmp/reader.html 'rel="preload" href="/artifact-library/vendor/jszip.min.js" as="script"' jszip_preload
-          require_literal /tmp/reader.html 'rel="preload" href="/artifact-library/vendor/epub.min.js" as="script"' epub_preload
-          forbid_literal /tmp/reader.html 'body{position:fixed;inset:0;width:100%;height:100dvh;background:var(--bg)}' no_reader_shell_dynamic_dvh
-          forbid_literal /tmp/reader.html 'const r3BootGeometryV61=await r3NormalizeBootGeometryV61' no_post_redisplay
-          forbid_literal /tmp/reader.html 'const r3BootGeometryV61=await r3WaitStableBootGeometryV61' no_post_geometry_wait
+          require_literal /tmp/reader.html 'name="apple-mobile-web-app-status-bar-style" content="black-translucent"' reader_full_bleed_statusbar
+          forbid_literal /tmp/reader.html 'name="apple-mobile-web-app-status-bar-style" content="black">' reader_opaque_statusbar_removed
+          forbid_literal /tmp/reader.html 'body{position:fixed;inset:0;width:100%;height:100dvh;background:var(--bg)}' no_dynamic_dvh_shell
+          forbid_literal /tmp/reader.html 'r3-ios-standalone-forced-inset-v38' no_fixed_48px_owner
+          forbid_literal /tmp/reader.html -- '--r3-ios-forced-top-v38' no_fixed_top_variable
 
-          echo 'READER_V67_GEOMETRY_COLD_BOOT_LIVE_SMOKE=PASS'
+          echo 'READER_V68_FULL_BLEED_AUTOSTRETCH_LIVE_SMOKE=PASS'
