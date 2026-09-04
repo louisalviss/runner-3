@@ -36,17 +36,80 @@ This file is the implementation-side reproducibility contract for `Radar tin Vi�
 
 ## Render isolation
 
-- `VOZ F33 — TRANG 1` is rendered from the pinned F33 artifact only.
+- `VOZ F33` is rendered from the pinned F33 artifact only.
 - `VOZ discussion` may only summarize posts from that F33 thread's fully read pages 1..N.
 - Otofun, Tinhte, GameVN, Trends, press and social evidence must never be inserted into `VOZ discussion`.
-- Cross-source evidence is attached only during post-F33 clustering for Top/Breakout/category/Forum sections.
+- Cross-source evidence is attached only during post-F33 clustering for New/Material/Policy/Business/Breakout/Utility/Forum sections.
 
 ## Dedup and scope
 
-- Outside mandatory F33, one narrative equals one reader slot across the entire report.
-- If a narrative is in Top, it must not repeat in Breakout, AI/Tech, Money/Business, MXH or Forum Signal.
+- Outside F33 source coverage, one narrative equals one reader slot across the entire report.
 - Google Trends and forum engagement are signals, not factual authority and not automatic slot generators.
-- Main Radar is Vietnam-centered only. Standalone international stories stay out of the main Radar; international F33 page-1 threads remain only in the mandatory F33 snapshot.
+- Main Radar is Vietnam-centered only. Standalone international stories stay out of main reader lanes; international F33 page-1 threads are eligible only when selected as F33 discussion signals.
+
+## Reader render policy v3.5 — delta-first, anti-underfill
+
+The reader report must be dense enough to cover the day without padding or repeating the same story.
+
+### Story fingerprint
+
+- Build a canonical fingerprint for every narrative from normalized `entity/topic + event family + geography + action/policy/case id`.
+- Compare against the previous 72 hours of archived Radar reports before assigning a reader slot.
+- A story already covered inside the 72-hour window is blocked from `NEW SINCE YESTERDAY`.
+- It may return only in `MATERIAL UPDATE` when `material_delta=true`.
+
+### Material delta definition
+
+A delta is material when at least one of these changes:
+
+- legal/procedural status: proposal -> issuance, investigation -> prosecution/arrest/indictment/verdict;
+- official effective date, scope, eligibility, fee, tax, fine, entitlement or compliance requirement;
+- confirmed casualty/outcome/closure/opening/launch/recovery;
+- official number or market threshold changes enough to alter the story meaningfully;
+- operational action: service begins/stops, route opens, infrastructure enters use, regulator starts enforcement;
+- a new primary-source disclosure materially changes the interpretation.
+
+A new article, repost, commentary, headline rewrite, minor quote or routine continuation is not a material delta.
+
+### Freshness gate
+
+- Main reader lanes prefer events whose factual core happened or was officially disclosed inside the target-day window.
+- A resurfaced old fact with no material delta is not allowed into New/Policy/Business/Breakout/Utility merely because it trends or reappears on F33.
+- Useful resurfaced/misleading items may appear only in `CORRECTION / MISLEADING / OLD RESURFACED`.
+
+### Coverage budget
+
+- One fingerprint gets one primary lane only.
+- Do not retell a story in multiple lanes. A secondary lane may use at most a short cross-reference when necessary.
+- F33 discussion is allowed to reference the same real-world event because it is a provenance-separated community lens, but the factual story must not be re-explained there at full length.
+- Never fill a weak lane with low-value stories just to hit a quota.
+
+### Reader lane order and target sizes
+
+1. `NEW SINCE YESTERDAY` — 5–8 genuinely new independent stories.
+2. `MATERIAL UPDATE` — 3–6 previously covered stories with material delta. Omit or state none when empty.
+3. `VOZ F33 — STRONGEST DISCUSSIONS` — target 7–10 strongest page-1 threads after reading all pages; minimum 5 only when discussion quality is genuinely weak. Rank by engagement + reasoning value + Vietnam relevance, not raw post count alone.
+4. `POLICY / MONEY / RULE CHANGE` — 3–5 unique actionable changes. Format should answer: what changed, effective date, who is affected, action needed.
+5. `BUSINESS & MARKET SIGNAL` — 3–5 structural signals: liquidity, rates, business formation/closure, FDI, M&A, defaults, major capital allocation, sector inflection.
+6. `INTERNET BREAKOUT` — 3–6 fast-rising Trends/social narratives not already assigned. Explain why it is rising and whether it is transient or worth following.
+7. `LOCAL / PRACTICAL UTILITY` — 2–5 transport, weather, outages, airport, service, deadline or local-operation items with immediate utility.
+8. `FORUM SIGNAL` — sublanes: Tech/AI; Work/Salary; MMO; Crypto; Consumer/Auto/Home. Explicitly report `no material signal` for checked sublanes with no qualifying candidate.
+9. `CORRECTION / MISLEADING / OLD RESURFACED` — 1–3 only when useful: fix bait headlines, special conditions, wrong dates, or old stories resurfacing as if new.
+10. `WATCH TOMORROW` — 2–4 only when there is a concrete future hinge (deadline, hearing, launch, effective date, scheduled result, weather arrival, official release). Never make generic predictions.
+
+### Underfill check
+
+Before rendering, run this self-check:
+
+- Were at least 5 genuinely new stories found when the day supports them?
+- Were material updates separated from new stories rather than dropped as duplicates?
+- Were breakout Trends candidates actually resolved instead of ignored?
+- Were policy/money and business signals covered even when not viral?
+- Were checked Forum sublanes explicitly marked empty rather than silently omitted?
+- Were misleading or resurfaced headlines corrected?
+- Did every repeated story earn its slot via material delta?
+
+If the source pool contains qualifying stories and the report is materially thinner because of renderer selection, treat that as renderer underfill and repair before delivery.
 
 ## Replay behavior
 
