@@ -26,11 +26,11 @@ jobs:
           core='https://runner3-core.ducduy2411.workers.dev'
           require_literal() {
             local file="$1" marker="$2" label="$3"
-            if grep -Fq "$marker" "$file"; then echo "PASS:$label"; else echo "FAIL:$label marker=$marker"; return 1; fi
+            if grep -Fq -- "$marker" "$file"; then echo "PASS:$label"; else echo "FAIL:$label marker=$marker"; return 1; fi
           }
           forbid_literal() {
             local file="$1" marker="$2" label="$3"
-            if grep -Fq "$marker" "$file"; then echo "FAIL:$label forbidden=$marker"; return 1; else echo "PASS:$label"; fi
+            if grep -Fq -- "$marker" "$file"; then echo "FAIL:$label forbidden=$marker"; return 1; else echo "PASS:$label"; fi
           }
 
           library_ok=0
@@ -80,6 +80,6 @@ jobs:
           forbid_literal /tmp/reader.html 'name="apple-mobile-web-app-status-bar-style" content="black">' reader_opaque_statusbar_removed
           forbid_literal /tmp/reader.html 'body{position:fixed;inset:0;width:100%;height:100dvh;background:var(--bg)}' no_dynamic_dvh_shell
           forbid_literal /tmp/reader.html 'r3-ios-standalone-forced-inset-v38' no_fixed_48px_owner
-          forbid_literal /tmp/reader.html -- '--r3-ios-forced-top-v38' no_fixed_top_variable
+          forbid_literal /tmp/reader.html '--r3-ios-forced-top-v38' no_fixed_top_variable
 
           echo 'READER_V68_FULL_BLEED_AUTOSTRETCH_LIVE_SMOKE=PASS'
