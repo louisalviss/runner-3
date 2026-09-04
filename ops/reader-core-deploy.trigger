@@ -1,3 +1,3 @@
-ebook-reader-v68-full-bleed-autostretch-direct-library-owner
-requested_at=2026-09-04T10:37:00+07:00
-reason=republish Reader v68 after Build Validation 33833754669 PASS and failed live smoke 33833567575 identified /artifact-library still emitted opaque-v39 from artifact-library-simple-entry.js; final build now rewrites the direct Library owner itself to black-translucent/full-bleed-v68, adds Library safe-area content padding, and preserves Reader visualViewport auto-stretch, single safe reading inset, no 100dvh/post-render redisplay, LRU12, audio/CFI ownership; live smoke must pass Library and Reader full-bleed-v68 before device test
+ebook-reader-v69-audio-dock-reading-inset
+requested_at=2026-09-04T16:11:00+07:00
+reason=deploy Reader v69 after Build Validation run 33858188083 PASS: preserve v68 full-bleed/autostretch outer shell, but dynamically shorten only the EPUB reading stage to the measured top edge of #r3AudioDock using getBoundingClientRect; no hard-coded player height; ResizeObserver handles dock height/collapse changes, MutationObserver handles late insertion/state changes, viewport changes delegate to rendition.resize(stageW,stageH) only with no rendition.display or CFI navigation; keep v68 Home Screen full-bleed, v67 cold-boot invariants, LRU12 and audio ownership; post-deploy v69 live smoke must PASS before device acceptance
