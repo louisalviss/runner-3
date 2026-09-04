@@ -1,4 +1,4 @@
-name: Reader v68 Build Validation
+name: Reader v69 Build Validation
 
 on:
   push:
@@ -27,6 +27,8 @@ on:
       - 'scripts/check_reader_v68_full_bleed_autostretch.py'
       - 'scripts/patch_reader_v68_library_full_bleed_owner.py'
       - 'scripts/check_reader_v68_library_full_bleed_owner.py'
+      - 'scripts/patch_reader_v69_audio_dock_reading_inset.py'
+      - 'scripts/check_reader_v69_audio_dock_reading_inset.py'
       - 'scripts/check_reader_v36_home_screen_safe_area.py'
       - 'cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js'
       - 'cloudflare/runner3-core/audio-entry.js'
@@ -48,7 +50,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build and validate Reader through v68
+      - name: Build and validate Reader through v69
         shell: bash
         run: |
           set -euo pipefail
@@ -63,6 +65,7 @@ jobs:
           python3 scripts/check_reader_v67_stage_geometry_perf.py
           python3 scripts/check_reader_v68_full_bleed_autostretch.py
           python3 scripts/check_reader_v68_library_full_bleed_owner.py
+          python3 scripts/check_reader_v69_audio_dock_reading_inset.py
           python3 scripts/check_reader_v36_home_screen_safe_area.py
           node scripts/reader_v65_fast_library_index_smoke.mjs
           node --check cloudflare/runner3-core/artifact-library-simple-entry.js
@@ -71,4 +74,4 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
           node --check cloudflare/runner3-core/audio-entry.js
           node --check cloudflare/runner3-core/opportunity-router-entry.js
-          echo 'READER_V68_BUILD_VALIDATION=PASS'
+          echo 'READER_V69_BUILD_VALIDATION=PASS'
