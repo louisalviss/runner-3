@@ -38,6 +38,9 @@ function bootReaderAudioCore() {
     maxDisplayConcurrent: 0,
     displayConcurrent: 0,
     lastError: '',
+    iosFirstPlayFix: 'v70',
+    currentChapterPrewarm: true,
+    blockingWarmAhead: false,
     stateKey: STATE_KEY,
   };
 
@@ -456,13 +459,9 @@ function bootReaderAudioCore() {
         context.playbackRate = saved.playbackRate || 1;
       }
       await adapter.mount(context);
+      // v70: next-chapter warm-ahead is fire-and-forget. Never delay current playback for it.
+      warmAhead(0);
       if (autoplay) {
-        const rate = Math.max(1, Number(saved.playbackRate) || 1);
-        const effectiveSeconds = Math.max(0, Number(prepared.state.durationSeconds) || 0) / rate;
-        if (effectiveSeconds > 0 && effectiveSeconds < 18) {
-          setStatus('Nam Minh · chuẩn bị liền mạch…');
-          await warmAhead(Math.min(10000, Math.max(1500, Math.round((18 - effectiveSeconds) * 1000))));
-        }
         await adapter.play();
       }
       syncUi(adapter.snapshot());
@@ -470,7 +469,8 @@ function bootReaderAudioCore() {
       return adapter.snapshot();
     } catch (error) {
       debug.lastError = String(error?.message || error || 'reader audio error').slice(0, 240);
-      setStatus(debug.lastError);
+      const blocked = String(error?.name || '').toLowerCase() === 'notallowederror' || /not allowed|user gesture|user activation/i.test(debug.lastError);
+      setStatus(blocked ? 'Nam Minh · sẵn sàng · nhấn ▶ để phát' : 'Nam Minh · chưa tạo được audio · nhấn ▶ thử lại');
       setMain('play');
       return null;
     } finally {
@@ -486,9 +486,10 @@ function bootReaderAudioCore() {
     if (busy) return;
     const payload = framePayload();
     if (!adapter || !payload || adapter.snapshot().chapter !== payload.chapter || !audio.getAttribute('src')) {
-      warmAhead(0);
-      const ready = await prepareCurrent({ autoplay: true, allowSaved: true });
-      if (!ready) return;
+      // v70 iOS: a network/synthesis wait outlives the original tap activation.
+      // Prepare only; do not attempt delayed autoplay after the async wait.
+      const ready = await prepareCurrent({ autoplay: false, allowSaved: true, followOnMount: false });
+      if (ready) setStatus('Nam Minh · sẵn sàng · nhấn ▶ để phát');
       return;
     }
     if (!audio.paused && !audio.ended) {
@@ -502,7 +503,8 @@ function bootReaderAudioCore() {
       setStatus('Nam Minh · đang phát');
     } catch (error) {
       debug.lastError = String(error?.message || error || 'play failed').slice(0, 240);
-      setStatus('Nam Minh · nhấn phát lại');
+      const blocked = String(error?.name || '').toLowerCase() === 'notallowederror' || /not allowed|user gesture|user activation/i.test(debug.lastError);
+      setStatus(blocked ? 'Nam Minh · nhấn ▶ lại để phát' : 'Nam Minh · chưa phát được · nhấn ▶ thử lại');
     }
   }
 
@@ -598,7 +600,12 @@ function bootReaderAudioCore() {
       const sameAudioChapter = Boolean(!saved.chapter || payload.chapter === saved.chapter);
       if (sameAudioChapter) await prepareCurrent({ autoplay: false, allowSaved: true, followOnMount: false });
       else syncUi({ ...saved, chapter: payload.chapter, mediaId: '', time: 0, cfi: restoreCfi, playingIntent: false });
-    } else syncUi({ ...saved, cfi: restoreCfi, playingIntent: false });
+    } else {
+      syncUi({ ...saved, cfi: restoreCfi, playingIntent: false });
+      // v70: synth/load current chapter as soon as Reader is stable, before the user's first Play tap.
+      // This moves cold-start latency into idle reading time and preserves iOS user activation for playback.
+      await prepareCurrent({ autoplay: false, allowSaved: true, followOnMount: false });
+    }
   } catch (error) {
     debug.lastError = String(error?.message || error || 'restore failed').slice(0, 240);
   }
