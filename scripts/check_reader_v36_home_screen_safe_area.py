@@ -18,29 +18,31 @@ for marker in [
     'data-r3-home-screen-safe-area-v36="1"',
     'data-r3-ios-statusbar-viewport-v39="1"',
     'r3-ios-home-screen-startup-policy',
-    'opaque-v39',
+    'full-bleed-v68',
     'patchLibraryStartup',
     'patchReader',
     'apple-mobile-web-app-capable',
     'mobile-web-app-capable',
     'X-R3-Reader-IOS-Startup-Viewport',
     'X-R3-Reader-IOS-Forced-Inset',
-    'disabled-v39',
+    'disabled-v68',
+    'out.replace(OPAQUE, TRANSLUCENT)',
     '#viewer { top: 0 !important; }',
 ]:
     if marker not in v36:
-        raise SystemExit('READER_V39_PATCH_MISSING:' + marker)
+        raise SystemExit('READER_V68_PATCH_MISSING:' + marker)
 
-# v38 caused a double inset on real iPhone Home Screen and must stay removed.
 for forbidden in [
     'r3-ios-standalone-forced-inset-v38',
     '--r3-ios-forced-top-v38',
     '48px',
     'screenHeight-height',
     'forcedInsetV38',
+    'out.replace(TRANSLUCENT, OPAQUE)',
+    '"X-R3-Reader-IOS-Startup-Viewport": "opaque-v39"',
 ]:
     if forbidden in v36:
-        raise SystemExit('READER_V39_OLD_FORCED_INSET_STILL_PRESENT:' + forbidden)
+        raise SystemExit('READER_V68_OLD_VIEWPORT_POLICY_PRESENT:' + forbidden)
 
 if 'artifact-library-reader-v36-home-screen-safe-area-entry.js' not in wrapper:
     raise SystemExit('READER_V36_WRAPPER_NOT_CANONICAL')
@@ -53,4 +55,4 @@ for marker in [
     if marker not in deploy:
         raise SystemExit('READER_V36_DEPLOY_GATE_MISSING:' + marker)
 
-print('READER_V39_HOME_SCREEN_STARTUP_VIEWPORT_CHECK=PASS')
+print('READER_V68_HOME_SCREEN_FULL_BLEED_VIEWPORT_CHECK=PASS')
