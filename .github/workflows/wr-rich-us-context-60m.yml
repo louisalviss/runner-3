@@ -1,0 +1,141 @@
+name: WR Rich US Context 60m
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-rich-us-context-60m.yml'
+      - 'research/wr_rich_us_context_60m_20260825/**'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-rich-us-context-60m-20260825
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas requests dukascopy-python
+      - name: Fetch frozen Dukascopy helper
+        run: |
+          mkdir -p /tmp/wrctx
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrctx/exp.py
+      - name: Probe frozen QQQ and true-VIX registry contract
+        run: |
+          mkdir -p /tmp/probe
+          python3 - <<'PY'
+          import json,sys
+          from dukascopy_python import instruments as dq
+          sys.path.insert(0,'/tmp/wrctx')
+          import exp
+          vals=[v for k,v in vars(dq).items() if k.startswith('INSTRUMENT_') and isinstance(v,str)]
+          qqq_inst=exp.resolve_symbol('QQQ')
+          candidates=['VIX.IDX/USD','VOL.IDX/USD','VIX.CMD/USD']
+          selected=next((x for x in candidates if any(v.upper()==x.upper() for v in vals)),None)
+          related=sorted(v for v in vals if 'VIX' in v.upper() or 'VOL' in v.upper())
+          out={'version':'PREREGISTERED_V1','qqq_instrument':qqq_inst,'qqq_ok':bool(qqq_inst),'vix_allowed_candidates':candidates,'vix_instrument':selected,'registry_vix_vol_matches':related,'primary_ok':bool(qqq_inst and selected)}
+          open('/tmp/probe/probe.json','w').write(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          if not out['primary_ok']:
+              raise SystemExit('QQQ or permitted true VIX source unavailable in frozen registry')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-rich-us-context-probe
+          path: /tmp/probe
+          retention-days: 30
+
+  breadth:
+    needs: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests dukascopy-python
+      - name: Fetch frozen Dukascopy helper
+        run: |
+          mkdir -p /tmp/wrctx
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrctx/exp.py
+      - name: Build causal breadth and dispersion partials
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '8'
+          WR_CTX_HELPER_DIR: /tmp/wrctx
+          WR_CTX_OUT: /tmp/wr-rich-context
+        run: |
+          python3 -m py_compile research/wr_rich_us_context_60m_20260825/breadth_shard.py
+          python3 research/wr_rich_us_context_60m_20260825/breadth_shard.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-rich-us-context-breadth-${{ matrix.shard }}
+          path: /tmp/wr-rich-context
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: [probe, breadth]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas numpy requests dukascopy-python
+      - name: Download probe
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-rich-us-context-probe
+          path: /tmp/all/probe
+      - name: Download breadth shards
+        if: needs.breadth.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wr-rich-us-context-breadth-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Download frozen WR executable parent
+        uses: actions/download-artifact@v4
+        with:
+          name: wr-stock60-actual-final
+          path: /tmp/parent
+          github-token: ${{ github.token }}
+          repository: louisalviss/runner-3
+          run-id: 32677300335
+      - name: Fetch frozen Dukascopy helper
+        run: |
+          mkdir -p /tmp/wrctx
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wrctx/exp.py
+      - name: Evaluate frozen rich-context gates
+        run: |
+          mkdir -p /tmp/final
+          python3 -m py_compile research/wr_rich_us_context_60m_20260825/evaluate.py
+          python3 research/wr_rich_us_context_60m_20260825/evaluate.py --input /tmp/all --parent /tmp/parent --helper-dir /tmp/wrctx --out /tmp/final
+          cat /tmp/final/SUMMARY.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-rich-us-context-60m-final
+          path: /tmp/final
+          retention-days: 30
+          if-no-files-found: warn
