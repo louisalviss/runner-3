@@ -1,3 +1,3 @@
-ebook-reader-v67-emergency-cache-rollback
-requested_at=2026-09-04T03:12:00+07:00
-reason=emergency restore last-known-good v67 geometry runtime after parser response-cache wrappers caused Cloudflare Worker error 1101; remove only HTTP response rewrapping layers, keep v67 pre-render visual viewport stage owner, no post-render resize/redisplay/wait, EPUB iframe boot gate, top normalization, LRU12 and preload; parser HTTP cache optimization deferred; validation run 33801781186 PASS
+ebook-reader-v68-full-bleed-autostretch
+requested_at=2026-09-04T10:31:00+07:00
+reason=deploy Reader v68 after Build Validation 33833374706 PASS: switch iPhone Home Screen startup/Reader status bar to black-translucent full-bleed; size fixed Reader shell from live visualViewport width/height/offset before epub.js stage creation; #viewer fills the measured shell; debounce visualViewport resize and call rendition.resize only, never display/CFI navigation; preserve one safe-area reading inset plus 8px gap for standalone content; retain v67 no-100dvh/no-post-render-wait/no-post-redisplay, EPUB IDB LRU12, audio/CFI owners; keep parser HTTP cache experiment rolled back; live smoke must verify full-bleed-v68 on Library and Reader
