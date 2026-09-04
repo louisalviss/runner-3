@@ -1,3 +1,4 @@
-ebook-reader-v69-audio-dock-reading-inset
-requested_at=2026-09-04T16:11:00+07:00
-reason=deploy Reader v69 after Build Validation run 33858188083 PASS: preserve v68 full-bleed/autostretch outer shell, but dynamically shorten only the EPUB reading stage to the measured top edge of #r3AudioDock using getBoundingClientRect; no hard-coded player height; ResizeObserver handles dock height/collapse changes, MutationObserver handles late insertion/state changes, viewport changes delegate to rendition.resize(stageW,stageH) only with no rendition.display or CFI navigation; keep v68 Home Screen full-bleed, v67 cold-boot invariants, LRU12 and audio ownership; post-deploy v69 live smoke must PASS before device acceptance
+ebook-reader-v70-ios-first-play-latency
+requested_at=2026-09-04T19:53:00+07:00
+source_commit=216220498beb76c5293c5bdd71c380ee3c55b8a4
+reason=deploy audio-only v70 hotfix on top of Reader v69 PASS: preserve v68/v69 Home Screen/full-bleed/audio-dock geometry; prewarm current chapter after Reader stabilizes; never delayed-autoplay after synthesis/network wait on iOS; suppress raw NotAllowedError; make next-chapter warmAhead fire-and-forget so it cannot add 1.5-10s before current playback; warm audio remains immediate first-tap path
