@@ -80,12 +80,26 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live RSS Reader init path
+      - name: Verify live RSS Reader init path after propagation
         shell: bash
         run: |
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
           id='fulcrum-url-a87e54dbda2e37fe40a7'
+
+          propagated=0
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -D /tmp/prop.h -o /tmp/prop.json -w '%{http_code}' "$core/reader/rss/articles/$id" || true)"
+            tr -d '\r' </tmp/prop.h >/tmp/prop.h.clean || true
+            fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/prop.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "PROPAGATION attempt=$attempt http=$code fastpath=$fast body=$(head -c 120 /tmp/prop.json | tr '\n' ' ')"
+            if [ "$code" = 401 ] && [ "$fast" = 'rss-reader-api-fast-v2' ]; then
+              propagated=1
+              break
+            fi
+            sleep 1
+          done
+          test "$propagated" = 1
 
           html_code="$(curl -sS -D /tmp/html.h -o /tmp/html -w '%{http_code}' "$core/rss/article/$id")"
           tr -d '\r' </tmp/html.h >/tmp/html.h.clean
