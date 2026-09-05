@@ -1,4 +1,5 @@
 import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";
+import core from "./src/index.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
@@ -41,24 +42,36 @@ function bearerToken(request) {
 function internalAuthorized(request, env) {
   const bearer = bearerToken(request);
   if (!bearer) return false;
-  const core = String(env.RUNNER3_CORE_TOKEN || "");
+  const coreToken = String(env.RUNNER3_CORE_TOKEN || "");
   const dedicated = String(env.EBOOK_AUDIO_VPS_TOKEN || "");
-  return (Boolean(core) && safeEqual(bearer, core)) || (Boolean(dedicated) && safeEqual(bearer, dedicated));
+  return (Boolean(coreToken) && safeEqual(bearer, coreToken)) || (Boolean(dedicated) && safeEqual(bearer, dedicated));
 }
 
 function canonicalizeEbookAudioInternalRequest(request, env, url) {
   if (!url.pathname.startsWith(EBOOK_AUDIO_INTERNAL_PREFIX)) return request;
   const dedicated = String(env.EBOOK_AUDIO_VPS_TOKEN || "");
-  const core = String(env.RUNNER3_CORE_TOKEN || "");
+  const coreToken = String(env.RUNNER3_CORE_TOKEN || "");
   const bearer = bearerToken(request);
-  if (!dedicated || !core || !safeEqual(bearer, dedicated)) return request;
+  if (!dedicated || !coreToken || !safeEqual(bearer, dedicated)) return request;
   const headers = new Headers(request.headers);
-  headers.set("authorization", `Bearer ${core}`);
+  headers.set("authorization", `Bearer ${coreToken}`);
   return new Request(request, { headers });
 }
 
 function triggerRoute(pathname) {
   return pathname === "/api/internal/ebook-reader-audio/dispatch" || pathname === "/artifact-library/api/audio/internal/dispatch";
+}
+
+function isCoreControlPlaneRoute(pathname) {
+  return pathname === "/" ||
+    pathname === "/health" ||
+    pathname === "/status" ||
+    pathname === "/events" ||
+    pathname === "/events/latest" ||
+    pathname === "/radar/latest" ||
+    pathname.startsWith("/state/") ||
+    pathname.startsWith("/checkpoints/") ||
+    pathname.startsWith("/artifacts/");
 }
 
 async function dispatchWorkflow(env, jobId = "") {
@@ -97,6 +110,9 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json({ ok: true, service: "runner3-core" });
+    }
+    if (isCoreControlPlaneRoute(url.pathname)) {
+      return core.fetch(request, env, ctx);
     }
     const rssSaveResponse = await handleRssLibrarySave(request, env, url);
     if (rssSaveResponse) return rssSaveResponse;
