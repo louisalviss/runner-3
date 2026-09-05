@@ -1,4 +1,5 @@
 import app from "./opportunity-router-entry.js";
+import { handleRssReader } from "./src/rss-reader.js";
 import { renderReaderArticlePageV3 } from "./src/rss-reader-page-v3.js";
 import { repairGeneratedReaderHtml } from "./src/rss-reader-page-v4.js";
 import { addNamMinhReaderAudio } from "./src/rss-reader-page-v5.js";
@@ -8,6 +9,8 @@ import { addIsolatedNamMinhPlayer } from "./src/rss-reader-page-v8.js";
 const POLL_HARDEN_VERSION = "rss-audio-poll-adaptive-v1";
 const LEARNING_THRESHOLD_VERSION = "rss-deep-read-adaptive-v2";
 const FASTPATH_VERSION = "rss-article-fast-v1";
+const API_FASTPATH_VERSION = "rss-reader-api-fast-v2";
+const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
 
 const READER_LEARNING_SCRIPT = '<script>(function(){' +
   'var m=String(location.pathname||"").match(/^\\/rss\\/article\\/([^/]+)$/);if(!m)return;' +
@@ -115,6 +118,125 @@ function adaptDeepReadThreshold(html) {
   return { html: source, applied: changed === 3, changed };
 }
 
+function jsonFast(value, status = 200, route = "direct") {
+  return Response.json(value, {
+    status,
+    headers: {
+      "cache-control": "private, no-store",
+      "x-r3-rss-api-fastpath": API_FASTPATH_VERSION,
+      "x-r3-rss-api-route": route,
+    },
+  });
+}
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text ?? "")));
+  return [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function readerAuthorizedFast(request) {
+  const auth = request.headers.get("Authorization") || "";
+  const supplied = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!supplied) return false;
+  return (await sha256Hex(supplied)) === READER_TOKEN_SHA256;
+}
+
+async function fastCategories(request, env, url) {
+  if (request.method !== "GET" || url.pathname !== "/reader/rss/categories") return null;
+  if (!env.DB) return jsonFast({ ok: false, error: "D1_NOT_BOUND" }, 503, "categories");
+  if (!(await readerAuthorizedFast(request))) return jsonFast({ ok: false, error: "UNAUTHORIZED" }, 401, "categories");
+
+  const rows = await env.DB.prepare(`
+    SELECT c.name, c.keywords, c.sort_order,
+           COUNT(CASE WHEN s.category = c.name THEN 1 END) AS usage
+    FROM rss_reader_categories c
+    LEFT JOIN rss_reader_state s ON s.category = c.name
+    GROUP BY c.name, c.keywords, c.sort_order
+    ORDER BY c.sort_order, lower(c.name)
+  `).all();
+  const categories = (rows.results || []).map((row) => ({
+    name: String(row.name || "").trim(),
+    keywords: String(row.keywords || "").trim(),
+    sort_order: Number(row.sort_order || 100),
+    usage: Number(row.usage || 0),
+  })).filter((item) => item.name);
+  return jsonFast({ ok: true, categories }, 200, "categories");
+}
+
+async function fastNeighbors(request, env, url) {
+  if (request.method !== "GET") return null;
+  const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/neighbors$/);
+  if (!match) return null;
+  if (!env.DB) return jsonFast({ ok: false, error: "D1_NOT_BOUND" }, 503, "neighbors");
+  if (!(await readerAuthorizedFast(request))) return jsonFast({ ok: false, error: "UNAUTHORIZED" }, 401, "neighbors");
+
+  let articleId;
+  try { articleId = decodeURIComponent(match[1]); } catch { return jsonFast({ ok: false, error: "INVALID_ARTICLE_ID" }, 400, "neighbors"); }
+  const current = await env.DB.prepare(`
+    SELECT a.article_id, a.published_at
+    FROM rss_articles a
+    LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+    WHERE a.article_id = ? AND COALESCE(s.lifecycle, 'active') != 'deleted'
+    LIMIT 1
+  `).bind(articleId).first();
+  if (!current) return jsonFast({ ok: false, error: "ARTICLE_NOT_FOUND" }, 404, "neighbors");
+
+  const publishedAt = String(current.published_at || "");
+  const [previous, next] = await env.DB.batch([
+    env.DB.prepare(`
+      SELECT a.article_id, a.title
+      FROM rss_articles a
+      LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+      WHERE COALESCE(s.lifecycle, 'active') != 'deleted'
+        AND (a.published_at > ? OR (a.published_at = ? AND a.article_id > ?))
+      ORDER BY a.published_at ASC, a.article_id ASC
+      LIMIT 1
+    `).bind(publishedAt, publishedAt, articleId),
+    env.DB.prepare(`
+      SELECT a.article_id, a.title
+      FROM rss_articles a
+      LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+      WHERE COALESCE(s.lifecycle, 'active') != 'deleted'
+        AND (a.published_at < ? OR (a.published_at = ? AND a.article_id < ?))
+      ORDER BY a.published_at DESC, a.article_id DESC
+      LIMIT 1
+    `).bind(publishedAt, publishedAt, articleId),
+  ]);
+
+  return jsonFast({
+    ok: true,
+    previous: previous?.results?.[0] || null,
+    next: next?.results?.[0] || null,
+  }, 200, "neighbors");
+}
+
+function markApiFastPath(response, route) {
+  if (!response) return null;
+  const headers = new Headers(response.headers);
+  headers.set("x-r3-rss-api-fastpath", API_FASTPATH_VERSION);
+  headers.set("x-r3-rss-api-route", route);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function routeReaderApiFast(request, env, url) {
+  if (!url.pathname.startsWith("/reader/rss/")) return null;
+
+  const categoriesResponse = await fastCategories(request, env, url);
+  if (categoriesResponse) return categoriesResponse;
+
+  const neighborsResponse = await fastNeighbors(request, env, url);
+  if (neighborsResponse) return neighborsResponse;
+
+  const readerResponse = await handleRssReader(request, env, url);
+  if (readerResponse) return markApiFastPath(readerResponse, "core");
+
+  return null;
+}
+
 async function renderFastArticle(request, url) {
   const response = renderReaderArticlePageV3(request, url);
   if (!response) return null;
@@ -149,6 +271,10 @@ async function renderFastArticle(request, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const apiResponse = await routeReaderApiFast(request, env, url);
+    if (apiResponse) return apiResponse;
+
     if (request.method === "GET" && /^\/rss\/article\/[^/]+$/.test(url.pathname)) {
       const response = await renderFastArticle(request, url);
       if (response) return response;
