@@ -286,7 +286,7 @@ function patchSingleAudioOwner(html) {
   const boot=setInterval(()=>{
     if(installBridgeHooks()){
       clearInterval(boot);
-      setTimeout(()=>{manualArmedAt=Date.now();tick();if(currentId())schedulePrefetch();},700);
+      setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);
     }
   },100);`;
 
@@ -350,7 +350,7 @@ function patchSingleAudioOwner(html) {
   const boot=setInterval(()=>{
     if(installBridgeHooks()){
       clearInterval(boot);
-      setTimeout(()=>{manualArmedAt=Date.now();tick();armCurrentMedia();},700);
+      setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();armCurrentMedia();},700);
     }
   },100);`;
 
