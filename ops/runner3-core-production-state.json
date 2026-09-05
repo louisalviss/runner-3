@@ -1,38 +1,51 @@
 {
   "service": "runner3-core",
-  "recorded_at": "2026-09-05T12:47:25Z",
-  "cloudflare_version_id": "28a920d8-5c25-4b34-bab1-a2a1d262ad7f",
+  "recorded_at": "2026-09-05T13:13:55Z",
+  "cloudflare_version_id": "ea69da53-16e2-4439-af06-33d7cc9ebe98",
   "production_worker_source": {
     "base_ref": "31c38877b99d8fe93b9a2b144d765224600376d0",
-    "fast_entry_commit": "b4b7ec7b31dfd7cc626fd1761689255406aa7433",
+    "html_fast_entry_commit": "b4b7ec7b31dfd7cc626fd1761689255406aa7433",
     "wrangler_entry_commit": "f2837391823ddcb86ba829c6742ff98a5593c2bd",
-    "deployed_checkout_ref": "25a51384fa131815b13a7457004d7e33950fe3d1",
+    "reader_api_fast_entry_commit": "38c6507de354f48df8c79aa0fa1d75bfecafb304",
     "branch": "fix/runner3-rss-1102-20260905",
     "wrangler_main": "rss-article-fast-entry.js"
   },
   "hotfix": {
-    "issue": "Cloudflare Worker 1102 on GET /rss/article/:id",
-    "strategy": "flatten RSS article rendering to a single response.text() materialization and delegate all non-RSS-article routes to opportunity-router-entry.js",
-    "marker_header": "x-r3-rss-fastpath: rss-article-fast-v1"
+    "issue": "Cloudflare Worker resource failures on RSS article shell and Reader init APIs",
+    "html_strategy": "flatten GET /rss/article/:id rendering into the RSS fast entry",
+    "api_strategy": "route Reader detail/view directly to handleRssReader and implement lightweight D1-only categories/neighbors paths without importing rss-reader-plus.js",
+    "html_marker": "x-r3-rss-fastpath: rss-article-fast-v1",
+    "api_marker": "x-r3-rss-api-fastpath: rss-reader-api-fast-v2"
+  },
+  "data_proof": {
+    "article_id": "fulcrum-url-a87e54dbda2e37fe40a7",
+    "source_key": "fulcrum",
+    "fetch_status": "fetched",
+    "translation_status": "published",
+    "original_object_key_present": true,
+    "vi_object_key_present": true
   },
   "live_proof": {
-    "workflow_run_id": 33967014293,
-    "article": "/rss/article/fulcrum-url-a87e54dbda2e37fe40a7",
-    "article_http": 200,
-    "article_fastpath": "rss-article-fast-v1",
+    "workflow_run_id": 33968275406,
+    "workflow_job_id": 101312146213,
+    "article_html_http": 200,
+    "article_html_fastpath": "rss-article-fast-v1",
+    "unauth_detail_http": 401,
+    "unauth_categories_http": 401,
+    "unauth_neighbors_http": 401,
+    "unauth_view_http": 401,
+    "api_fastpath": "rss-reader-api-fast-v2",
     "healthz_http": 200,
     "opportunity_radar_http": 200,
-    "artifact_library_audio_http": 400,
-    "artifact_library_audio_expected_error": "AUDIO_ID_AND_BOOK_KEY_REQUIRED",
     "result": "PASS"
   },
   "deployment_safety": {
-    "main_source_contains_hotfix": true,
-    "main_fast_entry_commit": "961ef27c6dd609acc33f2e9fc570111fb56f50d2",
-    "main_wrangler_commit": "4bc1b9e0e0bd5d6866fe85bd51d4b46145b59cbb",
+    "main_source_contains_html_and_api_hotfix": true,
+    "main_api_fast_entry_commit": "5e751c6a2c4ad389354d8570957e682499d5e826",
     "canonical_main_wrangler_main": "rss-article-fast-entry.js",
     "integration_deploy_suppressed": true,
     "integration_workflow_runs": 0,
-    "note": "RSS 1102 fast-path is now durable in main. A future canonical deploy will retain the fast entry; normal release validation is still required because main contains other Worker changes beyond the currently deployed production snapshot."
+    "temporary_deploy_workflow_removed": true,
+    "note": "The RSS shell and Reader init hotfixes are durable in main. Authenticated device rendering still depends on the user's existing Reader token and should be verified from the client after refresh."
   }
 }
