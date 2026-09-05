@@ -40,6 +40,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node --check cloudflare/runner3-core/rss-reader-read-fast-entry.js
+          node --check cloudflare/runner3-core/src/delivery.js
           node --check cloudflare/runner3-core/opaque-mailbox-entry-v2.js
           node --check cloudflare/runner3-core/mailbox-entry.js
           node --check cloudflare/runner3-core/audio-entry.js
@@ -61,6 +63,10 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-page-v8.js
           node --check cloudflare/runner3-core/src/index.js
           python3 -m py_compile scripts/ebook_reader_audio_tts.py scripts/ebook_reader_audio_tts_v2.py scripts/ebook_reader_audio_tts_daemon.py
+          grep -q 'rss-reader-read-fast-v3-isolated-stream' cloudflare/runner3-core/rss-reader-read-fast-entry.js
+          grep -q 'routeDelivery' cloudflare/runner3-core/rss-reader-read-fast-entry.js
+          grep -q 'delivery-permalinks' cloudflare/runner3-core/src/delivery.js
+          test -f cloudflare/runner3-core/migrations/0012_delivery_permalinks.sql
           grep -q 'renderReaderArticlePageV8' cloudflare/runner3-core/reader-media-entry.js
           ! grep -q 'renderReaderArticlePageV7(request, url)' cloudflare/runner3-core/reader-media-entry.js
           grep -q 'vi-VN-NamMinhNeural' cloudflare/runner3-core/src/rss-reader-audio.js
@@ -206,13 +212,13 @@ jobs:
           p='cloudflare/runner3-core/wrangler.jsonc'
           d=json.load(open(p,encoding='utf-8'))
           assert d.get('name') == 'runner3-core'
-          assert d.get('main') == 'opportunity-router-entry.js'
+          assert d.get('main') == 'rss-reader-read-fast-entry.js'
           assert d.get('d1_databases')
           buckets={x.get('binding'):x.get('bucket_name') for x in d.get('r2_buckets',[])}
           assert buckets.get('ARTIFACTS') == 'runner3-artifacts'
           assert buckets.get('AUDIO_MEDIA') == 'runner3-wp-media'
           print('Runner3 Core source validation OK')
-          print('Entry chain: opportunity-router -> mailbox/audio -> canonical Reader v35')
+          print('Entry chain: RSS read fast path -> lazy fallback -> opportunity-router -> mailbox/audio -> canonical Reader v35')
           print('Production deploy owner: .github/workflows/runner3-core-public-hosted-reader-deploy.yml')
           print('Ebook audio: Core queue -> always-on VPS Nam Minh TTS consumer -> R2; GitHub workflow manual fallback only')
           PY

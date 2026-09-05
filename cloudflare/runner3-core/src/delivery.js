@@ -2,6 +2,7 @@ const MIN_TTL_SECONDS = 60;
 const MAX_TTL_SECONDS = 3600;
 const MAX_ARTIFACT_KEY_CHARS = 900;
 const textEncoder = new TextEncoder();
+const PERMANENT_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 function json(data, status = 200) {
   return Response.json(data, {
@@ -61,6 +62,17 @@ function fromB64url(value) {
   return out;
 }
 
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(String(value || "")));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomPermanentToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return b64url(bytes);
+}
+
 async function signingKey(env) {
   const secret = typeof env.RUNNER3_DELIVERY_SECRET === "string" && env.RUNNER3_DELIVERY_SECRET.trim()
     ? env.RUNNER3_DELIVERY_SECRET.trim()
@@ -117,6 +129,84 @@ function objectHeaders(object, artifact) {
 }
 
 export async function handleDelivery(request, env, url) {
+  if (request.method === "POST" && url.pathname === "/delivery-permalinks") {
+    if (!env.ARTIFACTS) return json({ ok: false, error: "R2_NOT_BOUND" }, 503);
+    if (!env.DB) return json({ ok: false, error: "D1_NOT_BOUND" }, 503);
+    const authError = requireBearer(request, env);
+    if (authError) return authError;
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ ok: false, error: "INVALID_JSON" }, 400);
+    }
+    const artifact = cleanArtifact(body?.project, body?.scope, body?.name);
+    if (!artifact) return json({ ok: false, error: "INVALID_ARTIFACT" }, 400);
+    const object = await env.ARTIFACTS.head(artifact.key);
+    if (!object) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
+    const token = randomPermanentToken();
+    const tokenHash = await sha256Hex(token);
+    const createdAt = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      "INSERT INTO delivery_permalinks (token_hash, project, scope, name, object_key, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, NULL)"
+    ).bind(tokenHash, artifact.project, artifact.scope, artifact.name, artifact.key, createdAt).run();
+    const permanent = new URL(`/delivery-permanent/${token}`, url.origin);
+    return json({
+      ok: true,
+      delivery: {
+        url: permanent.toString(),
+        permanent: true,
+        expires_at_unix: null,
+        ttl_seconds: null,
+        project: artifact.project,
+        scope: artifact.scope,
+        name: artifact.name,
+        key: artifact.key,
+        bytes: Number.isFinite(object.size) ? object.size : null,
+        etag: object.httpEtag || object.etag || null,
+      },
+    });
+  }
+
+  if (request.method === "POST" && url.pathname === "/delivery-permalinks/revoke") {
+    if (!env.DB) return json({ ok: false, error: "D1_NOT_BOUND" }, 503);
+    const authError = requireBearer(request, env);
+    if (authError) return authError;
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ ok: false, error: "INVALID_JSON" }, 400);
+    }
+    const token = String(body?.token || "").trim();
+    if (!PERMANENT_TOKEN_RE.test(token)) return json({ ok: false, error: "INVALID_PERMALINK_TOKEN" }, 400);
+    const tokenHash = await sha256Hex(token);
+    const revokedAt = Math.floor(Date.now() / 1000);
+    const result = await env.DB.prepare(
+      "UPDATE delivery_permalinks SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL"
+    ).bind(revokedAt, tokenHash).run();
+    return json({ ok: true, revoked: Number(result?.meta?.changes || 0) > 0 });
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/delivery-permanent/")) {
+    if (!env.ARTIFACTS) return json({ ok: false, error: "R2_NOT_BOUND" }, 503);
+    if (!env.DB) return json({ ok: false, error: "D1_NOT_BOUND" }, 503);
+    const token = url.pathname.slice("/delivery-permanent/".length);
+    if (!PERMANENT_TOKEN_RE.test(token)) return json({ ok: false, error: "PERMALINK_NOT_FOUND" }, 404);
+    const tokenHash = await sha256Hex(token);
+    const row = await env.DB.prepare(
+      "SELECT project, scope, name, object_key FROM delivery_permalinks WHERE token_hash = ? AND revoked_at IS NULL LIMIT 1"
+    ).bind(tokenHash).first();
+    if (!row) return json({ ok: false, error: "PERMALINK_NOT_FOUND" }, 404);
+    const artifact = cleanArtifact(row.project, row.scope, row.name);
+    if (!artifact || artifact.key !== String(row.object_key || "")) {
+      return json({ ok: false, error: "PERMALINK_ARTIFACT_INVALID" }, 500);
+    }
+    const object = await env.ARTIFACTS.get(artifact.key);
+    if (!object) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
+    return new Response(object.body, { status: 200, headers: objectHeaders(object, artifact) });
+  }
+
   if (request.method === "POST" && url.pathname === "/delivery-links") {
     if (!env.ARTIFACTS) return json({ ok: false, error: "R2_NOT_BOUND" }, 503);
     const authError = requireBearer(request, env);
