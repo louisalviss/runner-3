@@ -1,6 +1,9 @@
 import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";
 import core from "./src/index.js";
+import readerMedia from "./reader-media-entry.js";
+import legacyAudio from "./artifact-library-reader-v6-audio-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
+import { handleRssLibrary } from "./src/rss-library.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
 const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
@@ -63,8 +66,7 @@ function triggerRoute(pathname) {
 }
 
 function isCoreControlPlaneRoute(pathname) {
-  return pathname === "/" ||
-    pathname === "/health" ||
+  return pathname === "/health" ||
     pathname === "/status" ||
     pathname === "/events" ||
     pathname === "/events/latest" ||
@@ -111,12 +113,31 @@ export default {
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json({ ok: true, service: "runner3-core" });
     }
+    if (request.method === "GET" && url.pathname === "/") {
+      return Response.redirect(new URL("/artifact-library", url).toString(), 302);
+    }
     if (isCoreControlPlaneRoute(url.pathname)) {
       return core.fetch(request, env, ctx);
     }
     const rssSaveResponse = await handleRssLibrarySave(request, env, url);
     if (rssSaveResponse) return rssSaveResponse;
+    if (request.method === "GET" && url.pathname === "/ui/rss") {
+      return Response.redirect(new URL("/rss/library", url).toString(), 302);
+    }
+    if (url.pathname === "/rss/library" || url.pathname.startsWith("/rss/media/")) {
+      return readerMedia.fetch(request, env, ctx);
+    }
+    if (url.pathname.startsWith("/api/rss/")) {
+      const rssResponse = await handleRssLibrary(request, env, url);
+      return rssResponse || json({ ok: false, error: "NOT_FOUND" }, 404);
+    }
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
+    if (url.pathname.startsWith("/artifact-library/api/audio/")) {
+      return legacyAudio.fetch(request, env, ctx);
+    }
+    if (url.pathname.startsWith("/api/ebook-reader-audio/")) {
+      return json({ ok: false, error: "NOT_FOUND" }, 404);
+    }
     const routedRequest = canonicalizeEbookAudioInternalRequest(request, env, url);
     return ebookAudio.fetch(routedRequest, env, ctx, app);
   },
