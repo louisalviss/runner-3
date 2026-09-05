@@ -182,7 +182,6 @@ body.r3-audio-ui .bottom-status,body.r3-audio-ui.r3-audio-expanded .bottom-statu
   down.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();setRate(currentRate()-.25);},true);
   up.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();setRate(currentRate()+.25);},true);
   audio.addEventListener('ratechange',updateRateButtons);
-  speed.addEventListener('click',()=>setTimeout(updateRateButtons,0));
   updateRateButtons();
 
   async function refreshChapters(force=false){
@@ -297,9 +296,7 @@ function patchSingleAudioOwner(html) {
   let lastRafAt=0;
 
   function clearRangeHighlight(){
-    for(const doc of [...document.querySelectorAll('#viewer iframe')].map(f=>{try{return f.contentDocument;}catch{return null;}}).filter(Boolean)){
-      try{doc.defaultView&&doc.defaultView.CSS&&doc.defaultView.CSS.highlights&&doc.defaultView.CSS.highlights.delete(highlightName);}catch{}
-    }
+    try{window.__r3SentenceHighlightV44?.clear?.();}catch{}
   }
 
   const tick=async()=>{
