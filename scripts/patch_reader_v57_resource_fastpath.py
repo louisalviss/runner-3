@@ -72,12 +72,44 @@ router_lazy = '''let r3CoreAppPromiseV57 = null;\nlet r3LibraryFastAppPromiseV57
 if old_router_import in router:
     router = replace_once(router, old_router_import, router_lazy, 'router lazy core import')
 elif 'r3LoadCoreAppV57' not in router:
-    raise SystemExit('router core import marker missing')
+    # Newer router revisions already lazy-load mailbox/core so mailbox can stay
+    # isolated from the Reader graph. Layer the v57 Library loader on top rather
+    # than requiring the retired static import marker.
+    existing_lazy_marker = 'function loadApp() {'
+    if existing_lazy_marker not in router:
+        raise SystemExit('router core import marker missing')
+    compat_lazy = '''let r3LibraryFastAppPromiseV57 = null;
+function r3LoadCoreAppV57() {
+  return loadApp();
+}
+function r3LoadLibraryFastAppV57() {
+  if (!r3LibraryFastAppPromiseV57) r3LibraryFastAppPromiseV57 = import("./artifact-library-simple-entry.js").then((module) => module.default);
+  return r3LibraryFastAppPromiseV57;
+}
+function r3IsLibraryFastPathV57(pathname) {
+  if (pathname === "/artifact-library") return true;
+  if (pathname.startsWith("/artifact-library/vendor/")) return true;
+  return new Set([
+    "/artifact-library/api/list",
+    "/artifact-library/api/cover",
+    "/artifact-library/api/upload",
+    "/artifact-library/api/enrich-upload",
+    "/artifact-library/api/raw",
+    "/artifact-library/api/delivery",
+  ]).has(pathname);
+}
+
+'''
+    router = router.replace('let appPromise = null;\n', 'let appPromise = null;\n' + compat_lazy, 1)
 
 fetch_anchor = '    const url = new URL(request.url);\n\n'
+fetch_anchor_compact = '    const url = new URL(request.url);\n'
 fast_fetch = '    const url = new URL(request.url);\n\n    if (r3IsLibraryFastPathV57(url.pathname)) {\n      return (await r3LoadLibraryFastAppV57()).fetch(request, env, ctx);\n    }\n\n'
 if 'r3IsLibraryFastPathV57(url.pathname)' not in router:
-    router = replace_once(router, fetch_anchor, fast_fetch, 'router fast fetch')
+    if fetch_anchor in router:
+        router = replace_once(router, fetch_anchor, fast_fetch, 'router fast fetch')
+    else:
+        router = replace_once(router, fetch_anchor_compact, fast_fetch, 'router fast fetch compact')
 
 router = router.replace('    return app.fetch(request, env, ctx);', '    return (await r3LoadCoreAppV57()).fetch(request, env, ctx);')
 router = router.replace('    if (typeof app.scheduled === "function") {\n      return app.scheduled(controller, env, ctx);\n    }', '    const app = await r3LoadCoreAppV57();\n    if (typeof app.scheduled === "function") {\n      return app.scheduled(controller, env, ctx);\n    }')
@@ -89,7 +121,7 @@ for marker in [
     if marker not in simple:
         raise SystemExit('V57_SIMPLE_MISSING:' + marker)
 for marker in [
-    'r3LoadCoreAppV57', 'r3LoadLibraryFastAppV57', 'r3IsLibraryFastPathV57',
+    'r3LoadCoreAppV57', 'r3LoadLibraryFastAppPromiseV57' if False else 'r3LoadLibraryFastAppV57', 'r3IsLibraryFastPathV57',
     'return (await r3LoadLibraryFastAppV57()).fetch(request, env, ctx);',
 ]:
     if marker not in router:
