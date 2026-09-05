@@ -1,4 +1,4 @@
-ebook-reader-v70-ios-first-play-latency
-requested_at=2026-09-04T19:53:00+07:00
-source_commit=216220498beb76c5293c5bdd71c380ee3c55b8a4
-reason=deploy audio-only v70 hotfix on top of Reader v69 PASS: preserve v68/v69 Home Screen/full-bleed/audio-dock geometry; prewarm current chapter after Reader stabilizes; never delayed-autoplay after synthesis/network wait on iOS; suppress raw NotAllowedError; make next-chapter warmAhead fire-and-forget so it cannot add 1.5-10s before current playback; warm audio remains immediate first-tap path
+runner3-core-verifier-retest-20260906
+requested_at=2026-09-06T06:18:00+07:00
+source_commit=cbe7aa1e58dc2516617ffea2c4e2b72a372bcaac
+reason=re-run current canonical Runner3 Core production deploy and verifier after isolating prior failure to Reader HTTP 500 / Cloudflare 1101; do not loosen verifier or Opportunity Radar semantics
