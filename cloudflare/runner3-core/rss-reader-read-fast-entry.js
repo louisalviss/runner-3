@@ -1,6 +1,4 @@
-import app from "./rss-article-fast-entry.js";
-
-const VERSION = "rss-reader-read-fast-v1";
+const VERSION = "rss-reader-read-fast-v3-isolated-stream";
 const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
 const READER_CATEGORIES = ["AI", "Tech", "Kinh tế", "Chính trị", "Khoa học", "Trading", "WordPress", "Khác"];
 
@@ -51,7 +49,9 @@ function cleanRow(row) {
 
 async function getArticle(env, articleId) {
   return env.DB.prepare(`
-    SELECT a.*,
+    SELECT a.article_id, a.canonical_url, a.source_key, a.source_name, a.source_language,
+           a.title, a.published_at, a.fetch_status, a.translation_status, a.qa_state,
+           a.last_error, a.updated_at, a.original_object_key, a.vi_object_key,
            COALESCE(s.lifecycle, 'active') AS lifecycle,
            COALESCE(s.featured, 0) AS featured,
            s.category, s.preference, s.last_opened_at
@@ -60,6 +60,43 @@ async function getArticle(env, articleId) {
     WHERE a.article_id = ?
     LIMIT 1
   `).bind(articleId).first();
+}
+
+function streamArtifactEnvelope(article, kind, nativeVi, object) {
+  if (!object?.body || typeof object.body.getReader !== "function") return null;
+  const encoder = new TextEncoder();
+  const prefix = `{"ok":true,"article":${JSON.stringify(cleanRow(article))},"view":${JSON.stringify(kind)},"nativeVi":${nativeVi ? "true" : "false"},"artifact":`;
+  const suffix = "}";
+  const source = object.body;
+  const body = new ReadableStream({
+    async start(controller) {
+      const reader = source.getReader();
+      try {
+        controller.enqueue(encoder.encode(prefix));
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value?.byteLength) controller.enqueue(value);
+        }
+        controller.enqueue(encoder.encode(suffix));
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      } finally {
+        try { reader.releaseLock(); } catch {}
+      }
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "private, no-store",
+      "x-r3-rss-read-fastpath": VERSION,
+      "x-r3-rss-read-route": kind,
+      "x-r3-rss-artifact-stream": "1",
+    },
+  });
 }
 
 async function markOpened(env, articleId) {
@@ -97,6 +134,51 @@ async function routeRead(request, env, url, ctx) {
     }
   }
 
+  const neighborMatch = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/neighbors$/);
+  if (neighborMatch) {
+    let neighborId;
+    try { neighborId = decodeURIComponent(neighborMatch[1]); }
+    catch { return json({ ok: false, error: "INVALID_ARTICLE_ID" }, 400, "neighbors"); }
+    try {
+      const current = await env.DB.prepare(`
+        SELECT a.article_id, a.published_at
+        FROM rss_articles a
+        LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+        WHERE a.article_id = ? AND COALESCE(s.lifecycle, 'active') != 'deleted'
+        LIMIT 1
+      `).bind(neighborId).first();
+      if (!current) return json({ ok: false, error: "ARTICLE_NOT_FOUND" }, 404, "neighbors");
+      const publishedAt = String(current.published_at || "");
+      const [previous, next] = await env.DB.batch([
+        env.DB.prepare(`
+          SELECT a.article_id, a.title
+          FROM rss_articles a
+          LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+          WHERE COALESCE(s.lifecycle, 'active') != 'deleted'
+            AND (a.published_at > ? OR (a.published_at = ? AND a.article_id > ?))
+          ORDER BY a.published_at ASC, a.article_id ASC
+          LIMIT 1
+        `).bind(publishedAt, publishedAt, neighborId),
+        env.DB.prepare(`
+          SELECT a.article_id, a.title
+          FROM rss_articles a
+          LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+          WHERE COALESCE(s.lifecycle, 'active') != 'deleted'
+            AND (a.published_at < ? OR (a.published_at = ? AND a.article_id < ?))
+          ORDER BY a.published_at DESC, a.article_id DESC
+          LIMIT 1
+        `).bind(publishedAt, publishedAt, neighborId),
+      ]);
+      return json({
+        ok: true,
+        previous: previous?.results?.[0] || null,
+        next: next?.results?.[0] || null,
+      }, 200, "neighbors");
+    } catch (error) {
+      return json({ ok: false, error: "NEIGHBORS_READ_FAILED", detail: String(error?.message || error).slice(0, 300) }, 500, "neighbors");
+    }
+  }
+
   const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)(?:\/(vi|original))?$/);
   if (!match) return null;
   let articleId;
@@ -122,12 +204,18 @@ async function routeRead(request, env, url, ctx) {
     }
     const object = await env.ARTIFACTS.get(key);
     if (!object) return json({ ok: false, error: "ARTIFACT_MISSING", article: cleanRow(article) }, 500, kind);
-    const artifact = JSON.parse(await object.text());
     if (ctx?.waitUntil) ctx.waitUntil(markOpened(env, articleId).catch(() => {}));
-    return json({ ok: true, article: cleanRow(article), view: kind, nativeVi, artifact }, 200, kind);
+    const streamed = streamArtifactEnvelope(article, kind, nativeVi, object);
+    if (!streamed) return json({ ok: false, error: "ARTIFACT_STREAM_UNAVAILABLE" }, 500, kind);
+    return streamed;
   } catch (error) {
     return json({ ok: false, error: "ARTICLE_READ_FAILED", detail: String(error?.message || error).slice(0, 300) }, 500, "article");
   }
+}
+
+async function loadFallbackApp() {
+  const module = await import("./rss-article-fast-entry.js");
+  return module.default;
 }
 
 export default {
@@ -135,9 +223,11 @@ export default {
     const url = new URL(request.url);
     const response = await routeRead(request, env, url, ctx);
     if (response) return response;
+    const app = await loadFallbackApp();
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
+    const app = await loadFallbackApp();
     if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },
 };
