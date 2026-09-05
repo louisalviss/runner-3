@@ -213,6 +213,20 @@ async function routeRead(request, env, url, ctx) {
   }
 }
 
+function isDeliveryPath(pathname) {
+  return pathname === "/delivery-links" ||
+    pathname === "/delivery-permalinks" ||
+    pathname === "/delivery-permalinks/revoke" ||
+    pathname.startsWith("/delivery/") ||
+    pathname.startsWith("/delivery-permanent/");
+}
+
+async function routeDelivery(request, env, url) {
+  if (!isDeliveryPath(url.pathname)) return null;
+  const { handleDelivery } = await import("./src/delivery.js");
+  return handleDelivery(request, env, url);
+}
+
 async function loadFallbackApp() {
   const module = await import("./rss-article-fast-entry.js");
   return module.default;
@@ -221,6 +235,8 @@ async function loadFallbackApp() {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const deliveryResponse = await routeDelivery(request, env, url);
+    if (deliveryResponse) return deliveryResponse;
     const response = await routeRead(request, env, url, ctx);
     if (response) return response;
     const app = await loadFallbackApp();
