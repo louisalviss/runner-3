@@ -21,12 +21,13 @@ import math
 import re
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
 
@@ -612,6 +613,28 @@ def signal_from(rec: dict[str, Any], generated_at: str, prior: dict[str, Any] | 
     }
 
 
+def expected_latest_completed_us_session(now: datetime | None = None) -> str:
+    """Return the latest NYSE regular session whose market close has passed."""
+    current = pd.Timestamp(now or datetime.now(TZ))
+    if current.tzinfo is None:
+        current = current.tz_localize(TZ)
+    current_utc = current.tz_convert("UTC")
+    cal = mcal.get_calendar("NYSE")
+    start = (current_utc.date() - timedelta(days=14)).isoformat()
+    end = (current_utc.date() + timedelta(days=1)).isoformat()
+    schedule = cal.schedule(start_date=start, end_date=end)
+    completed = schedule[schedule["market_close"] <= current_utc]
+    if completed.empty:
+        raise RuntimeError("no completed NYSE session found in lookback window")
+    return completed.index[-1].date().isoformat()
+
+
+def classify_source_session(source_session_date: str, expected_session_date: str) -> tuple[str, bool, str | None]:
+    if source_session_date == expected_session_date:
+        return "COMPLETE", True, None
+    return "DEGRADED", False, "STALE_SOURCE_SESSION"
+
+
 def latest_valid_market_session(history: dict[str, pd.DataFrame]) -> str | None:
     """Return the newest valid upstream market session, independent of emitted signals."""
     latest: str | None = None
@@ -634,7 +657,8 @@ def write_health(**kwargs: Any) -> None:
 
 
 def main() -> None:
-    generated_at = datetime.now(TZ).isoformat()
+    generated_at_dt = datetime.now(TZ)
+    generated_at = generated_at_dt.isoformat()
     try:
         previous_packet = load_previous_packet()
 
@@ -678,13 +702,20 @@ def main() -> None:
         source_session_date = latest_valid_market_session(history)
         if source_session_date is None:
             raise RuntimeError("no valid market session in fetched history")
+        expected_session_date = expected_latest_completed_us_session(generated_at_dt)
+        market_status, market_complete, reason_code = classify_source_session(
+            source_session_date, expected_session_date
+        )
 
         payload = {
             "schema_version": 2.0,
             "purpose": "Opportunity Radar V2 raw intake — MARKET_PRICING only; not a trade recommendation",
             "generated_at": generated_at,
             "source_session_date": source_session_date,
-            "complete": True,
+            "expected_latest_completed_us_session": expected_session_date,
+            "status": market_status,
+            "reason_code": reason_code,
+            "complete": market_complete,
             "discovery_policy": {
                 "early_watch_ttl_completed_sessions": CFG["early_watch_ttl_sessions"],
                 "continuation_window_completed_sessions": CFG["continuation_window_sessions"],
@@ -711,8 +742,10 @@ def main() -> None:
             schema_version=2.0,
             generated_at=generated_at,
             source_session_date=source_session_date,
-            status="COMPLETE",
-            complete=True,
+            expected_latest_completed_us_session=expected_session_date,
+            status=market_status,
+            reason_code=reason_code,
+            complete=market_complete,
             signal_count=len(signals),
             history_requested=len(eligible),
             history_returned=len(history),
