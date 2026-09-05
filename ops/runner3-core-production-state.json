@@ -1,0 +1,34 @@
+{
+  "service": "runner3-core",
+  "recorded_at": "2026-09-05T12:47:25Z",
+  "cloudflare_version_id": "28a920d8-5c25-4b34-bab1-a2a1d262ad7f",
+  "production_worker_source": {
+    "base_ref": "31c38877b99d8fe93b9a2b144d765224600376d0",
+    "fast_entry_commit": "b4b7ec7b31dfd7cc626fd1761689255406aa7433",
+    "wrangler_entry_commit": "f2837391823ddcb86ba829c6742ff98a5593c2bd",
+    "deployed_checkout_ref": "25a51384fa131815b13a7457004d7e33950fe3d1",
+    "branch": "fix/runner3-rss-1102-20260905",
+    "wrangler_main": "rss-article-fast-entry.js"
+  },
+  "hotfix": {
+    "issue": "Cloudflare Worker 1102 on GET /rss/article/:id",
+    "strategy": "flatten RSS article rendering to a single response.text() materialization and delegate all non-RSS-article routes to opportunity-router-entry.js",
+    "marker_header": "x-r3-rss-fastpath: rss-article-fast-v1"
+  },
+  "live_proof": {
+    "workflow_run_id": 33967014293,
+    "article": "/rss/article/fulcrum-url-a87e54dbda2e37fe40a7",
+    "article_http": 200,
+    "article_fastpath": "rss-article-fast-v1",
+    "healthz_http": 200,
+    "opportunity_radar_http": 200,
+    "artifact_library_audio_http": 400,
+    "artifact_library_audio_expected_error": "AUDIO_ID_AND_BOOK_KEY_REQUIRED",
+    "result": "PASS"
+  },
+  "deployment_safety": {
+    "main_source_contains_hotfix": false,
+    "canonical_main_wrangler_main": "opportunity-router-entry.js",
+    "warning": "Do not run the canonical runner3-core production deploy from current main until the RSS fast-entry hotfix is integrated into the intended main Worker source; doing so can overwrite Cloudflare version 28a920d8-5c25-4b34-bab1-a2a1d262ad7f."
+  }
+}
