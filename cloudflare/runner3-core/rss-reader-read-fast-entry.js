@@ -1,6 +1,4 @@
-import app from "./rss-article-fast-entry.js";
-
-const VERSION = "rss-reader-read-fast-v2-stream";
+const VERSION = "rss-reader-read-fast-v3-isolated-stream";
 const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
 const READER_CATEGORIES = ["AI", "Tech", "Kinh tế", "Chính trị", "Khoa học", "Trading", "WordPress", "Khác"];
 
@@ -136,6 +134,51 @@ async function routeRead(request, env, url, ctx) {
     }
   }
 
+  const neighborMatch = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/neighbors$/);
+  if (neighborMatch) {
+    let neighborId;
+    try { neighborId = decodeURIComponent(neighborMatch[1]); }
+    catch { return json({ ok: false, error: "INVALID_ARTICLE_ID" }, 400, "neighbors"); }
+    try {
+      const current = await env.DB.prepare(`
+        SELECT a.article_id, a.published_at
+        FROM rss_articles a
+        LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+        WHERE a.article_id = ? AND COALESCE(s.lifecycle, 'active') != 'deleted'
+        LIMIT 1
+      `).bind(neighborId).first();
+      if (!current) return json({ ok: false, error: "ARTICLE_NOT_FOUND" }, 404, "neighbors");
+      const publishedAt = String(current.published_at || "");
+      const [previous, next] = await env.DB.batch([
+        env.DB.prepare(`
+          SELECT a.article_id, a.title
+          FROM rss_articles a
+          LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+          WHERE COALESCE(s.lifecycle, 'active') != 'deleted'
+            AND (a.published_at > ? OR (a.published_at = ? AND a.article_id > ?))
+          ORDER BY a.published_at ASC, a.article_id ASC
+          LIMIT 1
+        `).bind(publishedAt, publishedAt, neighborId),
+        env.DB.prepare(`
+          SELECT a.article_id, a.title
+          FROM rss_articles a
+          LEFT JOIN rss_reader_state s ON s.article_id = a.article_id
+          WHERE COALESCE(s.lifecycle, 'active') != 'deleted'
+            AND (a.published_at < ? OR (a.published_at = ? AND a.article_id < ?))
+          ORDER BY a.published_at DESC, a.article_id DESC
+          LIMIT 1
+        `).bind(publishedAt, publishedAt, neighborId),
+      ]);
+      return json({
+        ok: true,
+        previous: previous?.results?.[0] || null,
+        next: next?.results?.[0] || null,
+      }, 200, "neighbors");
+    } catch (error) {
+      return json({ ok: false, error: "NEIGHBORS_READ_FAILED", detail: String(error?.message || error).slice(0, 300) }, 500, "neighbors");
+    }
+  }
+
   const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)(?:\/(vi|original))?$/);
   if (!match) return null;
   let articleId;
@@ -170,14 +213,21 @@ async function routeRead(request, env, url, ctx) {
   }
 }
 
+async function loadFallbackApp() {
+  const module = await import("./rss-article-fast-entry.js");
+  return module.default;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const response = await routeRead(request, env, url, ctx);
     if (response) return response;
+    const app = await loadFallbackApp();
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
+    const app = await loadFallbackApp();
     if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },
 };
