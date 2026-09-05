@@ -31,10 +31,10 @@ jobs:
             echo "PRESENT:$name"
           done
 
-      - name: Checkout exact isolated hotfix
+      - name: Checkout isolated hotfix branch
         uses: actions/checkout@v4
         with:
-          ref: 67b13eb38a0a1402ef526754536f3156d4466e24
+          ref: fix/runner3-rss-1102-20260905
           fetch-depth: 1
           persist-credentials: false
 
