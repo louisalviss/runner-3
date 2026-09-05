@@ -1,3 +1,9 @@
+import { handleRssReader } from "./src/rss-reader.js";
+import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
+import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
+import { handleRssReaderLearning, recordReaderStateLearning, reconcileLibraryLearning } from "./src/rss-reader-learning.js";
+import { preserveArticleImages, serveCachedReaderImage } from "./src/rss-image-enrich.js";
+
 const VERSION = "rss-reader-read-fast-v3-isolated-stream";
 const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
 const READER_CATEGORIES = ["AI", "Tech", "Kinh tế", "Chính trị", "Khoa học", "Trading", "WordPress", "Khác"];
@@ -112,10 +118,16 @@ async function markOpened(env, articleId) {
 async function routeRead(request, env, url, ctx) {
   if (!url.pathname.startsWith("/reader/rss/")) return null;
   if (request.method !== "GET") return null;
+
+  const categoriesRoute = url.pathname === "/reader/rss/categories";
+  const neighborMatch = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/neighbors$/);
+  const articleMatch = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)(?:\/(vi|original))?$/);
+  if (!categoriesRoute && !neighborMatch && !articleMatch) return null;
+
   if (!env.DB) return json({ ok: false, error: "D1_NOT_BOUND" }, 503, "binding");
   if (!(await authorized(request))) return json({ ok: false, error: "UNAUTHORIZED" }, 401, "auth");
 
-  if (url.pathname === "/reader/rss/categories") {
+  if (categoriesRoute) {
     try {
       const rows = await env.DB.prepare(`
         SELECT name, keywords, sort_order
@@ -134,7 +146,6 @@ async function routeRead(request, env, url, ctx) {
     }
   }
 
-  const neighborMatch = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/neighbors$/);
   if (neighborMatch) {
     let neighborId;
     try { neighborId = decodeURIComponent(neighborMatch[1]); }
@@ -179,7 +190,7 @@ async function routeRead(request, env, url, ctx) {
     }
   }
 
-  const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)(?:\/(vi|original))?$/);
+  const match = articleMatch;
   if (!match) return null;
   let articleId;
   try { articleId = decodeURIComponent(match[1]); }
@@ -213,6 +224,106 @@ async function routeRead(request, env, url, ctx) {
   }
 }
 
+
+function internalReaderRequest(request, articleId, suffix = "") {
+  const target = new URL(request.url);
+  target.pathname = `/reader/rss/articles/${encodeURIComponent(articleId)}${suffix}`;
+  target.search = "";
+  const headers = new Headers();
+  const authorization = request.headers.get("authorization");
+  if (authorization) headers.set("authorization", authorization);
+  return { target, request: new Request(target.toString(), { method: "GET", headers }) };
+}
+
+async function authorizeReaderArticle(request, env, ctx, articleId) {
+  const internal = internalReaderRequest(request, articleId);
+  const response = await routeRead(internal.request, env, internal.target, ctx);
+  if (!response?.ok) return { ok: false, response: response || json({ ok: false, error: "ARTICLE_NOT_FOUND" }, 404, "authorize") };
+  const payload = await response.json().catch(() => null);
+  if (!payload?.article) return { ok: false, response: json({ ok: false, error: "ARTICLE_NOT_FOUND" }, 404, "authorize") };
+  return { ok: true, payload };
+}
+
+async function cleanReaderArticleView(request, env, ctx, articleId, view) {
+  const internal = internalReaderRequest(request, articleId, `/${view === "original" ? "original" : "vi"}`);
+  const response = await routeRead(internal.request, env, internal.target, ctx);
+  if (!response?.ok) return { ok: false, response: response || json({ ok: false, error: "ARTICLE_AUDIO_SOURCE_FAILED" }, 502, "audio-source") };
+  const payload = await response.json().catch(() => null);
+  if (!payload?.artifact) return { ok: false, response: json({ ok: false, error: "READER_PAYLOAD_INVALID" }, 500, "audio-source") };
+  return { ok: true, payload };
+}
+
+function stateArticleId(request, url) {
+  if (request.method !== "POST") return "";
+  const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/state$/);
+  if (!match) return "";
+  try { return decodeURIComponent(match[1]); } catch { return ""; }
+}
+
+function shouldPreserveImages(body) {
+  if (!body || typeof body !== "object") return false;
+  return body.preference === "like" || body.featured === true || body.lifecycle === "archived";
+}
+
+async function routeReaderExtended(request, env, url, ctx) {
+  if (!url.pathname.startsWith("/reader/rss/")) return null;
+
+  const plusResponse = await handleRssReaderPlus(request, env, url);
+  if (plusResponse) {
+    if (request.method === "GET" && url.pathname === "/reader/rss/library/v2" && plusResponse.ok) {
+      const task = reconcileLibraryLearning(plusResponse.clone(), env).catch((error) => {
+        console.warn("rss learning library reconcile failed", String(error?.message || error));
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
+    }
+    return plusResponse;
+  }
+
+  const learningResponse = await handleRssReaderLearning(
+    request,
+    env,
+    url,
+    (articleId) => authorizeReaderArticle(request, env, ctx, articleId),
+  );
+  if (learningResponse) return learningResponse;
+
+  const audioResponse = await handleRssReaderAudio(request, env, url, {
+    authorize: (articleId) => authorizeReaderArticle(request, env, ctx, articleId),
+    cleanView: (articleId, view) => cleanReaderArticleView(request, env, ctx, articleId, view),
+  });
+  if (audioResponse) return audioResponse;
+
+  const stateId = stateArticleId(request, url);
+  const stateClone = stateId ? request.clone() : null;
+  const baseResponse = await handleRssReader(request, env, url);
+  if (!baseResponse) return null;
+
+  if (stateId && baseResponse.ok && stateClone) {
+    const body = await stateClone.json().catch(() => null);
+    const tasks = [recordReaderStateLearning(env, stateId, body).catch((error) => {
+      console.warn("rss reader learning state failed", stateId, String(error?.message || error));
+    })];
+    if (shouldPreserveImages(body)) {
+      tasks.push(preserveArticleImages(env, stateId).catch((error) => {
+        console.warn("rss image preserve failed", stateId, String(error?.message || error));
+      }));
+    }
+    const task = Promise.all(tasks);
+    if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
+  }
+  return baseResponse;
+}
+
+async function routeRssPage(request, env, url) {
+  if (request.method === "GET" && url.pathname === "/rss/library") {
+    return handleRssReaderPlus(request, env, url);
+  }
+  if (request.method === "GET" && url.pathname.startsWith("/rss/media/")) {
+    return serveCachedReaderImage(request, env, url);
+  }
+  return null;
+}
+
 function isDeliveryPath(pathname) {
   return pathname === "/delivery-links" ||
     pathname === "/delivery-permalinks" ||
@@ -237,8 +348,12 @@ export default {
     const url = new URL(request.url);
     const deliveryResponse = await routeDelivery(request, env, url);
     if (deliveryResponse) return deliveryResponse;
+    const pageResponse = await routeRssPage(request, env, url);
+    if (pageResponse) return pageResponse;
     const response = await routeRead(request, env, url, ctx);
     if (response) return response;
+    const extendedResponse = await routeReaderExtended(request, env, url, ctx);
+    if (extendedResponse) return extendedResponse;
     const app = await loadFallbackApp();
     return app.fetch(request, env, ctx);
   },

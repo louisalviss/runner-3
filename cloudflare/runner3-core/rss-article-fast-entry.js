@@ -1,5 +1,6 @@
 import app from "./opportunity-router-entry.js";
 import { handleRssReader } from "./src/rss-reader.js";
+import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { renderReaderArticlePageV3 } from "./src/rss-reader-page-v3.js";
 import { repairGeneratedReaderHtml } from "./src/rss-reader-page-v4.js";
 import { addNamMinhReaderAudio } from "./src/rss-reader-page-v5.js";
@@ -39,7 +40,7 @@ const ADAPTIVE_POLL = `  function pollSleep(ms){return new Promise(function(reso
         var status=String(info.status||'missing');
         if(status==='ready'){
           if(rememberReady(info,view))state('Nam Minh · sẵn sàng · bấm ▶');
-          else state('Audio lỗi · thiếu URL');
+          else state('Audio lội · thiếu URL');
           return;
         }
         if(status==='error')throw new Error(info.error||'Không thể tạo audio');
@@ -50,7 +51,7 @@ const ADAPTIVE_POLL = `  function pollSleep(ms){return new Promise(function(reso
       }
     }catch(error){
       if(!stopped&&serial===pollSerial){
-        state('Audio lỗi');
+        state('Audio lội');
         toast(error&&error.message?error.message:'Không tạo được audio');
       }
     }
@@ -212,7 +213,7 @@ async function fastNeighbors(request, env, url) {
 
 function markApiFastPath(response, route) {
   if (!response) return null;
-  const headers = new Headers(response.headers);
+  headers = new Headers(response.headers);
   headers.set("x-r3-rss-api-fastpath", API_FASTPATH_VERSION);
   headers.set("x-r3-rss-api-route", route);
   return new Response(response.body, {
@@ -230,6 +231,9 @@ async function routeReaderApiFast(request, env, url) {
 
   const neighborsResponse = await fastNeighbors(request, env, url);
   if (neighborsResponse) return neighborsResponse;
+
+  const plusResponse = await handleRssReaderPlus(request, env, url);
+  if (plusResponse) return markApiFastPath(plusResponse, "plus");
 
   const readerResponse = await handleRssReader(request, env, url);
   if (readerResponse) return markApiFastPath(readerResponse, "core");
