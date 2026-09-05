@@ -27,8 +27,12 @@
     "result": "PASS"
   },
   "deployment_safety": {
-    "main_source_contains_hotfix": false,
-    "canonical_main_wrangler_main": "opportunity-router-entry.js",
-    "warning": "Do not run the canonical runner3-core production deploy from current main until the RSS fast-entry hotfix is integrated into the intended main Worker source; doing so can overwrite Cloudflare version 28a920d8-5c25-4b34-bab1-a2a1d262ad7f."
+    "main_source_contains_hotfix": true,
+    "main_fast_entry_commit": "961ef27c6dd609acc33f2e9fc570111fb56f50d2",
+    "main_wrangler_commit": "4bc1b9e0e0bd5d6866fe85bd51d4b46145b59cbb",
+    "canonical_main_wrangler_main": "rss-article-fast-entry.js",
+    "integration_deploy_suppressed": true,
+    "integration_workflow_runs": 0,
+    "note": "RSS 1102 fast-path is now durable in main. A future canonical deploy will retain the fast entry; normal release validation is still required because main contains other Worker changes beyond the currently deployed production snapshot."
   }
 }
