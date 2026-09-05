@@ -296,7 +296,9 @@ function patchSingleAudioOwner(html) {
   let lastRafAt=0;
 
   function clearRangeHighlight(){
-    try{window.__r3SentenceHighlightV44?.clear?.();}catch{}
+    for(const doc of [...document.querySelectorAll('#viewer iframe')].map(f=>{try{return f.contentDocument;}catch{return null;}}).filter(Boolean)){
+      try{doc.defaultView&&doc.defaultView.CSS&&doc.defaultView.CSS.highlights&&doc.defaultView.CSS.highlights.delete(highlightName);}catch{}
+    }
   }
 
   const tick=async()=>{
