@@ -135,10 +135,49 @@ export function extractSemanticFeatures(item = {}) {
   return [...deduped.values()];
 }
 
+function normalizedFeature(row = {}) {
+  return {
+    feature_type: String(row.feature_type || ""),
+    feature_key: String(row.feature_key || ""),
+    feature_value: row.feature_value == null ? null : String(row.feature_value),
+    weight: Number(row.weight ?? 1),
+    confidence: Number(row.confidence ?? 1),
+    model_version: String(row.model_version || ""),
+  };
+}
+
+function featureSetsEqual(existing, generated) {
+  if (existing.length !== generated.length) return false;
+  const keyOf = (row) => `${row.feature_type}\u0000${row.feature_key}`;
+  const current = new Map(existing.map((row) => {
+    const normalized = normalizedFeature(row);
+    return [keyOf(normalized), normalized];
+  }));
+  for (const row of generated) {
+    const normalized = normalizedFeature(row);
+    const prior = current.get(keyOf(normalized));
+    if (!prior) return false;
+    if (prior.feature_value !== normalized.feature_value) return false;
+    if (prior.weight !== normalized.weight || prior.confidence !== normalized.confidence) return false;
+    if (prior.model_version !== normalized.model_version) return false;
+  }
+  return true;
+}
+
 export async function replaceAutoSemanticFeatures(env, itemId, item = {}) {
-  if (!env?.DB || !itemId) return { applied: 0, features: [] };
+  if (!env?.DB || !itemId) return { applied: 0, features: [], unchanged: true };
   const generated = extractSemanticFeatures({ ...item, item_id: itemId });
   const models = [...AUTO_MODELS];
+  const current = await env.DB.prepare(`
+    SELECT feature_type,feature_key,feature_value,weight,confidence,model_version
+    FROM content_features
+    WHERE item_id=? AND model_version IN (${models.map(() => "?").join(",")})
+  `).bind(itemId, ...models).all();
+  const existing = current.results || [];
+  if (featureSetsEqual(existing, generated)) {
+    return { applied: 0, features: generated, unchanged: true };
+  }
+
   await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN (${models.map(() => "?").join(",")})`).bind(itemId, ...models).run();
   let applied = 0;
   for (const feature of generated) {
@@ -151,5 +190,5 @@ export async function replaceAutoSemanticFeatures(env, itemId, item = {}) {
     `).bind(itemId, feature.feature_type, feature.feature_key, feature.feature_value, feature.weight, feature.confidence, feature.model_version).run();
     applied += Number(result.meta?.changes || 0);
   }
-  return { applied, features: generated };
+  return { applied, features: generated, unchanged: false };
 }
