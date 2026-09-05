@@ -103,6 +103,7 @@ jobs:
           PY
           node --check cloudflare/runner3-core/opportunity-router-entry.js
           node --check cloudflare/runner3-core/mailbox-entry.js
+          node --check cloudflare/runner3-core/mailbox-fast-entry.js
           node --check cloudflare/runner3-core/audio-entry.js
           node --check cloudflare/runner3-core/src/opportunity-regime.js
           node --check cloudflare/runner3-core/src/opportunity-regime-write-guard.js
@@ -132,7 +133,7 @@ jobs:
           grep -q 'window.__R3_READER_AUDIO_CORE_OWNER=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           grep -q '__r3AudioLegacyV11Suppressed=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           grep -q '__r3AudioLegacyV31ClockSuppressed=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
-          grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-entry.js
+          grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-fast-entry.js
 
       - name: Apply Core D1 migrations
         shell: bash
@@ -192,6 +193,11 @@ jobs:
           echo "AUDIO_MEDIA_FAST_PATH http=$qcode body=$(head -c 180 /tmp/audio-media.json | tr '\n' ' ')"
           test "$qcode" = 401
           grep -q 'UNAUTHORIZED' /tmp/audio-media.json
+
+          mhcode="$(curl -sS -o /tmp/mailbox-health.json -w '%{http_code}' "$core/mailbox/health")"
+          echo "MAILBOX_HEALTH http=$mhcode body=$(head -c 180 /tmp/mailbox-health.json | tr '\n' ' ')"
+          test "$mhcode" = 200
+          grep -q 'mailbox-fast-v1' /tmp/mailbox-health.json
 
           mcode="$(curl -sS -o /tmp/mailbox.csv -w '%{http_code}' "$core/mailbox/results/smoke-reader-v31.csv")"
           echo "MAILBOX_SURFACE http=$mcode body=$(head -c 180 /tmp/mailbox.csv | tr '\n' ' ')"
