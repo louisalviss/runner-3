@@ -56,16 +56,22 @@ async function handleItems(request,env){
 function featureStatement(env,row){
   const itemId=text(row.item_id,4096)?.trim(),type=text(row.feature_type,100)?.trim(),key=text(row.feature_key,300)?.trim(); if(!itemId||!type||!key)throw new Error("item_id_feature_type_feature_key_required");
   return env.DB.prepare(`INSERT INTO content_features(item_id,feature_type,feature_key,feature_value,weight,confidence,model_version,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(item_id,feature_type,feature_key) DO UPDATE SET feature_value=excluded.feature_value,weight=excluded.weight,confidence=excluded.confidence,model_version=excluded.model_version,updated_at=CURRENT_TIMESTAMP`)
+    ON CONFLICT(item_id,feature_type,feature_key) DO UPDATE SET feature_value=excluded.feature_value,weight=excluded.weight,confidence=excluded.confidence,model_version=excluded.model_version,updated_at=CURRENT_TIMESTAMP
+    WHERE content_features.feature_value IS NOT excluded.feature_value
+       OR content_features.weight IS NOT excluded.weight
+       OR content_features.confidence IS NOT excluded.confidence
+       OR content_features.model_version IS NOT excluded.model_version`)
     .bind(itemId,type,key,text(row.feature_value,4000),Number(row.weight??1),Number(row.confidence??1),text(row.model_version,200));
 }
 async function handleFeatures(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
-    const list=rows(await request.json()); await env.DB.batch(list.map(r=>featureStatement(env,r)));
-    await markProfileDirty(env,"content_features_changed");
-    return Response.json({ok:true,applied:list.length,materialization_status:"dirty"});
+    const list=rows(await request.json());
+    const results=await env.DB.batch(list.map(r=>featureStatement(env,r)));
+    const changed=results.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
+    if(changed) await markProfileDirty(env,"content_features_changed");
+    return Response.json({ok:true,applied:list.length,changed,materialization_status:changed?"dirty":"unchanged"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
