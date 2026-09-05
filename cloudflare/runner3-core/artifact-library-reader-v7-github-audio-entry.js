@@ -5,6 +5,12 @@ import legacyAudio from "./artifact-library-reader-v6-audio-entry.js";
 import ebookAudio from "./src/ebook-reader-audio.js";
 import { handleRssLibrary } from "./src/rss-library.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
+import { handleRssReader } from "./src/rss-reader.js";
+import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
+import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
+import { handleRssReaderLearning, recordReaderStateLearning } from "./src/rss-reader-learning.js";
+import { handleContentIntelligence } from "./src/content-intelligence.js";
+import { preserveArticleImages } from "./src/rss-image-enrich.js";
 
 const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
 const ALLOWED_EVENT = "ebook_reader_audio";
@@ -76,6 +82,65 @@ function isCoreControlPlaneRoute(pathname) {
     pathname.startsWith("/artifacts/");
 }
 
+function internalReaderRequest(request, articleId, suffix = "") {
+  const target = new URL(request.url);
+  target.pathname = `/reader/rss/articles/${encodeURIComponent(articleId)}${suffix}`;
+  target.search = "";
+  const headers = new Headers();
+  const authorization = request.headers.get("authorization");
+  if (authorization) headers.set("authorization", authorization);
+  return { target, request: new Request(target.toString(), { method: "GET", headers }) };
+}
+
+async function directReaderPayload(request, env, articleId, suffix = "") {
+  const internal = internalReaderRequest(request, articleId, suffix);
+  const response = await handleRssReader(internal.request, env, internal.target);
+  if (!response?.ok) return { ok: false, response };
+  const payload = await response.json().catch(() => null);
+  if (!payload?.article) return { ok: false, response: json({ ok: false, error: "ARTICLE_NOT_FOUND" }, 404) };
+  return { ok: true, payload };
+}
+
+function stateArticleId(request, url) {
+  if (request.method !== "POST") return null;
+  const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/state$/);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
+
+function shouldPreserveImages(body) {
+  return Boolean(body && (body.featured === true || body.preference === "like" || body.lifecycle === "archived"));
+}
+
+async function dispatchRssReader(request, env, ctx, url) {
+  const plusResponse = await handleRssReaderPlus(request, env, url);
+  if (plusResponse) return plusResponse;
+
+  const learningResponse = await handleRssReaderLearning(request, env, url, (articleId) => directReaderPayload(request, env, articleId));
+  if (learningResponse) return learningResponse;
+
+  const audioResponse = await handleRssReaderAudio(request, env, url, {
+    authorize: (articleId) => directReaderPayload(request, env, articleId),
+    cleanView: (articleId, view) => directReaderPayload(request, env, articleId, `/${view === "original" ? "original" : "vi"}`),
+  });
+  if (audioResponse) return audioResponse;
+
+  const articleId = stateArticleId(request, url);
+  const stateClone = articleId ? request.clone() : null;
+  const baseResponse = await handleRssReader(request, env, url);
+  if (baseResponse) {
+    if (articleId && stateClone && baseResponse.ok) {
+      const body = await stateClone.json().catch(() => null);
+      const tasks = [recordReaderStateLearning(env, articleId, body).catch(() => null)];
+      if (shouldPreserveImages(body)) tasks.push(preserveArticleImages(env, articleId).catch(() => null));
+      const task = Promise.all(tasks);
+      if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
+    }
+    return baseResponse;
+  }
+  return json({ ok: false, error: "NOT_FOUND" }, 404);
+}
+
 async function dispatchWorkflow(env, jobId = "") {
   const secret = String(env.RUNNER3_GITHUB_PAT || env.EBOOK_AUDIO_GITHUB_TOKEN || "").trim();
   if (!secret) throw new Error("GITHUB_PAT_NOT_CONFIGURED");
@@ -119,18 +184,27 @@ export default {
     if (isCoreControlPlaneRoute(url.pathname)) {
       return core.fetch(request, env, ctx);
     }
+
     const rssSaveResponse = await handleRssLibrarySave(request, env, url);
     if (rssSaveResponse) return rssSaveResponse;
     if (request.method === "GET" && url.pathname === "/ui/rss") {
       return Response.redirect(new URL("/rss/library", url).toString(), 302);
     }
-    if (url.pathname === "/rss/library" || url.pathname.startsWith("/rss/media/")) {
+    if (url.pathname === "/rss/library" || url.pathname.startsWith("/rss/media/") || /^\/rss\/article\/[^/]+$/.test(url.pathname)) {
       return readerMedia.fetch(request, env, ctx);
     }
     if (url.pathname.startsWith("/api/rss/")) {
       const rssResponse = await handleRssLibrary(request, env, url);
       return rssResponse || json({ ok: false, error: "NOT_FOUND" }, 404);
     }
+    if (url.pathname.startsWith("/reader/rss/")) {
+      return dispatchRssReader(request, env, ctx, url);
+    }
+    if (url.pathname.startsWith("/content-intelligence/")) {
+      const ciResponse = await handleContentIntelligence(request, env, url);
+      return ciResponse || json({ ok: false, error: "NOT_FOUND" }, 404);
+    }
+
     if (triggerRoute(url.pathname)) return manualDispatch(request, env);
     if (url.pathname.startsWith("/artifact-library/api/audio/")) {
       return legacyAudio.fetch(request, env, ctx);
