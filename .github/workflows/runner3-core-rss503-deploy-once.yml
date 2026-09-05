@@ -42,13 +42,12 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate RSS article and API fast paths
+      - name: Validate lightweight Reader init path
         shell: bash
         run: |
           set -euo pipefail
           node --check cloudflare/runner3-core/rss-article-fast-entry.js
           node --check cloudflare/runner3-core/src/rss-reader.js
-          node --check cloudflare/runner3-core/src/rss-reader-plus.js
           python3 - <<'PY'
           import json
           p='cloudflare/runner3-core/wrangler.jsonc'
@@ -60,8 +59,10 @@ jobs:
           print('RSS_API_FASTPATH_CONFIG=PASS')
           PY
           grep -q 'handleRssReader } from "./src/rss-reader.js"' cloudflare/runner3-core/rss-article-fast-entry.js
-          grep -q 'handleRssReaderPlus } from "./src/rss-reader-plus.js"' cloudflare/runner3-core/rss-article-fast-entry.js
-          grep -q 'rss-reader-api-fast-v1' cloudflare/runner3-core/rss-article-fast-entry.js
+          ! grep -q 'rss-reader-plus.js' cloudflare/runner3-core/rss-article-fast-entry.js
+          grep -q 'rss-reader-api-fast-v2' cloudflare/runner3-core/rss-article-fast-entry.js
+          grep -q 'async function fastCategories' cloudflare/runner3-core/rss-article-fast-entry.js
+          grep -q 'async function fastNeighbors' cloudflare/runner3-core/rss-article-fast-entry.js
 
       - name: Verify target article exists in production D1
         shell: bash
@@ -69,10 +70,9 @@ jobs:
         run: |
           set -euo pipefail
           npx --yes wrangler@4 d1 execute runner3-core --remote --command "SELECT article_id, source_key, fetch_status, translation_status, original_object_key, vi_object_key FROM rss_articles WHERE article_id='fulcrum-url-a87e54dbda2e37fe40a7' LIMIT 1;" > /tmp/article-row.txt
-          cat /tmp/article-row.txt
           grep -q 'fulcrum-url-a87e54dbda2e37fe40a7' /tmp/article-row.txt
 
-      - name: Deploy RSS Reader API 503 hotfix
+      - name: Deploy RSS Reader init 503 hotfix
         shell: bash
         working-directory: cloudflare/runner3-core
         run: |
@@ -80,7 +80,7 @@ jobs:
           export NO_COLOR=1
           npx --yes wrangler@4 deploy
 
-      - name: Verify live RSS article API fast path
+      - name: Verify live RSS Reader init path
         shell: bash
         run: |
           set -euo pipefail
@@ -94,33 +94,26 @@ jobs:
           test "$html_code" = 200
           test "$html_fast" = 'rss-article-fast-v1'
 
-          detail_code="$(curl -sS -D /tmp/detail.h -o /tmp/detail.json -w '%{http_code}' "$core/reader/rss/articles/$id")"
-          tr -d '\r' </tmp/detail.h >/tmp/detail.h.clean
-          detail_fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/detail.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          detail_route="$(grep -i '^x-r3-rss-api-route:' /tmp/detail.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          echo "DETAIL http=$detail_code fastpath=$detail_fast route=$detail_route body=$(cat /tmp/detail.json)"
-          test "$detail_code" = 401
-          test "$detail_fast" = 'rss-reader-api-fast-v1'
-          test "$detail_route" = 'core'
-          grep -q 'UNAUTHORIZED' /tmp/detail.json
+          check_unauth() {
+            local name="$1" path="$2" route="$3"
+            local h="/tmp/${name}.h" b="/tmp/${name}.json"
+            local code
+            code="$(curl -sS -D "$h" -o "$b" -w '%{http_code}' "$core$path")"
+            tr -d '\r' <"$h" >"$h.clean"
+            local fast got_route
+            fast="$(grep -i '^x-r3-rss-api-fastpath:' "$h.clean" | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            got_route="$(grep -i '^x-r3-rss-api-route:' "$h.clean" | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "$name http=$code fastpath=$fast route=$got_route body=$(cat "$b")"
+            test "$code" = 401
+            test "$fast" = 'rss-reader-api-fast-v2'
+            test "$got_route" = "$route"
+            grep -q 'UNAUTHORIZED' "$b"
+          }
 
-          cat_code="$(curl -sS -D /tmp/cat.h -o /tmp/cat.json -w '%{http_code}' "$core/reader/rss/categories")"
-          tr -d '\r' </tmp/cat.h >/tmp/cat.h.clean
-          cat_fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/cat.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          cat_route="$(grep -i '^x-r3-rss-api-route:' /tmp/cat.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          echo "CATEGORIES http=$cat_code fastpath=$cat_fast route=$cat_route body=$(cat /tmp/cat.json)"
-          test "$cat_code" = 401
-          test "$cat_fast" = 'rss-reader-api-fast-v1'
-          test "$cat_route" = 'plus'
-          grep -q 'UNAUTHORIZED' /tmp/cat.json
-
-          view_code="$(curl -sS -D /tmp/view.h -o /tmp/view.json -w '%{http_code}' "$core/reader/rss/articles/$id/original")"
-          tr -d '\r' </tmp/view.h >/tmp/view.h.clean
-          view_fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/view.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          echo "VIEW http=$view_code fastpath=$view_fast body=$(cat /tmp/view.json)"
-          test "$view_code" = 401
-          test "$view_fast" = 'rss-reader-api-fast-v1'
-          grep -q 'UNAUTHORIZED' /tmp/view.json
+          check_unauth detail "/reader/rss/articles/$id" core
+          check_unauth categories "/reader/rss/categories" categories
+          check_unauth neighbors "/reader/rss/articles/$id/neighbors" neighbors
+          check_unauth view "/reader/rss/articles/$id/original" core
 
           hcode="$(curl -sS -o /tmp/health -w '%{http_code}' "$core/healthz")"
           echo "HEALTHZ http=$hcode body=$(cat /tmp/health)"
@@ -130,4 +123,4 @@ jobs:
           echo "OPPORTUNITY http=$ocode"
           test "$ocode" = 200
 
-          echo 'RUNNER3_CORE_RSS_READER_API_503_FIX=PASS'
+          echo 'RUNNER3_CORE_RSS_READER_INIT_503_FIX=PASS'
