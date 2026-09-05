@@ -94,13 +94,15 @@ jobs:
 
           cfg_path=root/'wrangler.jsonc'
           cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
-          cfg['main']='opportunity-router-entry.js'
+          cfg['main']='rss-reader-read-fast-entry.js'
           bindings={x.get('binding'):x for x in cfg.get('d1_databases',[])}
           opportunity=bindings.get('OPPORTUNITY_DB')
           if not opportunity or opportunity.get('database_name') != 'runner3-opportunity-radar':
               raise SystemExit('OPPORTUNITY_DB dedicated binding missing')
           cfg_path.write_text(json.dumps(cfg,indent=2)+'\n',encoding='utf-8')
           PY
+          node --check cloudflare/runner3-core/rss-reader-read-fast-entry.js
+          node --check cloudflare/runner3-core/src/delivery.js
           node --check cloudflare/runner3-core/opportunity-router-entry.js
           node --check cloudflare/runner3-core/mailbox-entry.js
           node --check cloudflare/runner3-core/mailbox-fast-entry.js
@@ -116,6 +118,10 @@ jobs:
           node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
           node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-integration.js
+          grep -q 'rss-reader-read-fast-v3-isolated-stream' cloudflare/runner3-core/rss-reader-read-fast-entry.js
+          grep -q 'routeDelivery' cloudflare/runner3-core/rss-reader-read-fast-entry.js
+          grep -q 'delivery-permalinks' cloudflare/runner3-core/src/delivery.js
+          test -f cloudflare/runner3-core/migrations/0012_delivery_permalinks.sql
           grep -q 'import app from "./audio-entry.js";' cloudflare/runner3-core/mailbox-entry.js
           grep -q 'handleOpportunityRegime' cloudflare/runner3-core/opportunity-router-entry.js
           grep -q 'guardOpportunityRegimeWrite' cloudflare/runner3-core/opportunity-router-entry.js
@@ -171,6 +177,29 @@ jobs:
             sleep 1
           done
           if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 1200 /tmp/reader; exit 1; fi
+
+          fcode="$(curl -sS -D /tmp/fast.h -o /tmp/fast.json -w '%{http_code}' "$core/reader/rss/categories")"
+          tr -d '\r' </tmp/fast.h >/tmp/fast.h.clean
+          fastpath="$(grep -i '^x-r3-rss-read-fastpath:' /tmp/fast.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "RSS_FASTPATH http=$fcode version=$fastpath"
+          test "$fcode" = 401
+          test "$fastpath" = 'rss-reader-read-fast-v3-isolated-stream'
+          ! grep -q 'error code: 1102' /tmp/fast.json
+
+          lcode="$(curl -sS -o /tmp/rss-library.html -w '%{http_code}' "$core/rss/library")"
+          echo "RSS_LIBRARY http=$lcode bytes=$(wc -c </tmp/rss-library.html)"
+          test "$lcode" = 200
+          ! grep -q 'error code: 1102' /tmp/rss-library.html
+
+          pcode="$(curl -sS -X POST -o /tmp/permalink.json -w '%{http_code}' "$core/delivery-permalinks")"
+          echo "DELIVERY_PERMALINK_AUTH http=$pcode body=$(head -c 180 /tmp/permalink.json | tr '\n' ' ')"
+          test "$pcode" = 401
+          grep -q 'UNAUTHORIZED' /tmp/permalink.json
+
+          dcode="$(curl -sS -o /tmp/permanent.json -w '%{http_code}' "$core/delivery-permanent/invalid")"
+          echo "DELIVERY_PERMANENT_INVALID http=$dcode body=$(head -c 180 /tmp/permanent.json | tr '\n' ' ')"
+          test "$dcode" = 404
+          grep -q 'PERMALINK_NOT_FOUND' /tmp/permanent.json
 
           ocode="$(curl -sS -o /tmp/opportunity.json -w '%{http_code}' "$core/opportunity-radar/regime/current/global")"
           echo "OPPORTUNITY_RADAR_D1 http=$ocode body=$(head -c 300 /tmp/opportunity.json | tr '\n' ' ')"
