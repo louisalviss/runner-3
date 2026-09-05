@@ -1,0 +1,133 @@
+name: Runner3 Core RSS Reader API 503 Deploy Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-core-rss503-deploy-once.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3-core-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'louisalviss/runner-3'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Validate Cloudflare deploy credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
+            echo "PRESENT:$name"
+          done
+
+      - name: Checkout isolated RSS API hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/runner3-rss-1102-20260905
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate RSS article and API fast paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/runner3-core/rss-article-fast-entry.js
+          node --check cloudflare/runner3-core/src/rss-reader.js
+          node --check cloudflare/runner3-core/src/rss-reader-plus.js
+          python3 - <<'PY'
+          import json
+          p='cloudflare/runner3-core/wrangler.jsonc'
+          d=json.load(open(p,encoding='utf-8'))
+          assert d.get('name') == 'runner3-core'
+          assert d.get('main') == 'rss-article-fast-entry.js'
+          assert any(x.get('binding') == 'DB' for x in d.get('d1_databases',[]))
+          assert any(x.get('binding') == 'ARTIFACTS' for x in d.get('r2_buckets',[]))
+          print('RSS_API_FASTPATH_CONFIG=PASS')
+          PY
+          grep -q 'handleRssReader } from "./src/rss-reader.js"' cloudflare/runner3-core/rss-article-fast-entry.js
+          grep -q 'handleRssReaderPlus } from "./src/rss-reader-plus.js"' cloudflare/runner3-core/rss-article-fast-entry.js
+          grep -q 'rss-reader-api-fast-v1' cloudflare/runner3-core/rss-article-fast-entry.js
+
+      - name: Verify target article exists in production D1
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute runner3-core --remote --command "SELECT article_id, source_key, fetch_status, translation_status, original_object_key, vi_object_key FROM rss_articles WHERE article_id='fulcrum-url-a87e54dbda2e37fe40a7' LIMIT 1;" > /tmp/article-row.txt
+          cat /tmp/article-row.txt
+          grep -q 'fulcrum-url-a87e54dbda2e37fe40a7' /tmp/article-row.txt
+
+      - name: Deploy RSS Reader API 503 hotfix
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          export NO_COLOR=1
+          npx --yes wrangler@4 deploy
+
+      - name: Verify live RSS article API fast path
+        shell: bash
+        run: |
+          set -euo pipefail
+          core='https://runner3-core.ducduy2411.workers.dev'
+          id='fulcrum-url-a87e54dbda2e37fe40a7'
+
+          html_code="$(curl -sS -D /tmp/html.h -o /tmp/html -w '%{http_code}' "$core/rss/article/$id")"
+          tr -d '\r' </tmp/html.h >/tmp/html.h.clean
+          html_fast="$(grep -i '^x-r3-rss-fastpath:' /tmp/html.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "HTML http=$html_code fastpath=$html_fast"
+          test "$html_code" = 200
+          test "$html_fast" = 'rss-article-fast-v1'
+
+          detail_code="$(curl -sS -D /tmp/detail.h -o /tmp/detail.json -w '%{http_code}' "$core/reader/rss/articles/$id")"
+          tr -d '\r' </tmp/detail.h >/tmp/detail.h.clean
+          detail_fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/detail.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          detail_route="$(grep -i '^x-r3-rss-api-route:' /tmp/detail.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "DETAIL http=$detail_code fastpath=$detail_fast route=$detail_route body=$(cat /tmp/detail.json)"
+          test "$detail_code" = 401
+          test "$detail_fast" = 'rss-reader-api-fast-v1'
+          test "$detail_route" = 'core'
+          grep -q 'UNAUTHORIZED' /tmp/detail.json
+
+          cat_code="$(curl -sS -D /tmp/cat.h -o /tmp/cat.json -w '%{http_code}' "$core/reader/rss/categories")"
+          tr -d '\r' </tmp/cat.h >/tmp/cat.h.clean
+          cat_fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/cat.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          cat_route="$(grep -i '^x-r3-rss-api-route:' /tmp/cat.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "CATEGORIES http=$cat_code fastpath=$cat_fast route=$cat_route body=$(cat /tmp/cat.json)"
+          test "$cat_code" = 401
+          test "$cat_fast" = 'rss-reader-api-fast-v1'
+          test "$cat_route" = 'plus'
+          grep -q 'UNAUTHORIZED' /tmp/cat.json
+
+          view_code="$(curl -sS -D /tmp/view.h -o /tmp/view.json -w '%{http_code}' "$core/reader/rss/articles/$id/original")"
+          tr -d '\r' </tmp/view.h >/tmp/view.h.clean
+          view_fast="$(grep -i '^x-r3-rss-api-fastpath:' /tmp/view.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "VIEW http=$view_code fastpath=$view_fast body=$(cat /tmp/view.json)"
+          test "$view_code" = 401
+          test "$view_fast" = 'rss-reader-api-fast-v1'
+          grep -q 'UNAUTHORIZED' /tmp/view.json
+
+          hcode="$(curl -sS -o /tmp/health -w '%{http_code}' "$core/healthz")"
+          echo "HEALTHZ http=$hcode body=$(cat /tmp/health)"
+          test "$hcode" = 200
+
+          ocode="$(curl -sS -o /tmp/opportunity.json -w '%{http_code}' "$core/opportunity-radar/regime/current/global")"
+          echo "OPPORTUNITY http=$ocode"
+          test "$ocode" = 200
+
+          echo 'RUNNER3_CORE_RSS_READER_API_503_FIX=PASS'
