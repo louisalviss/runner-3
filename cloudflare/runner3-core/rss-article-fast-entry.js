@@ -1,4 +1,6 @@
 import app from "./opportunity-router-entry.js";
+import { handleRssReader } from "./src/rss-reader.js";
+import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { renderReaderArticlePageV3 } from "./src/rss-reader-page-v3.js";
 import { repairGeneratedReaderHtml } from "./src/rss-reader-page-v4.js";
 import { addNamMinhReaderAudio } from "./src/rss-reader-page-v5.js";
@@ -8,6 +10,7 @@ import { addIsolatedNamMinhPlayer } from "./src/rss-reader-page-v8.js";
 const POLL_HARDEN_VERSION = "rss-audio-poll-adaptive-v1";
 const LEARNING_THRESHOLD_VERSION = "rss-deep-read-adaptive-v2";
 const FASTPATH_VERSION = "rss-article-fast-v1";
+const API_FASTPATH_VERSION = "rss-reader-api-fast-v1";
 
 const READER_LEARNING_SCRIPT = '<script>(function(){' +
   'var m=String(location.pathname||"").match(/^\\/rss\\/article\\/([^/]+)$/);if(!m)return;' +
@@ -115,6 +118,30 @@ function adaptDeepReadThreshold(html) {
   return { html: source, applied: changed === 3, changed };
 }
 
+function markApiFastPath(response, route) {
+  if (!response) return null;
+  const headers = new Headers(response.headers);
+  headers.set("x-r3-rss-api-fastpath", API_FASTPATH_VERSION);
+  headers.set("x-r3-rss-api-route", route);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function routeReaderApiFast(request, env, url) {
+  if (!url.pathname.startsWith("/reader/rss/")) return null;
+
+  const plusResponse = await handleRssReaderPlus(request, env, url);
+  if (plusResponse) return markApiFastPath(plusResponse, "plus");
+
+  const readerResponse = await handleRssReader(request, env, url);
+  if (readerResponse) return markApiFastPath(readerResponse, "core");
+
+  return null;
+}
+
 async function renderFastArticle(request, url) {
   const response = renderReaderArticlePageV3(request, url);
   if (!response) return null;
@@ -149,6 +176,10 @@ async function renderFastArticle(request, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const apiResponse = await routeReaderApiFast(request, env, url);
+    if (apiResponse) return apiResponse;
+
     if (request.method === "GET" && /^\/rss\/article\/[^/]+$/.test(url.pathname)) {
       const response = await renderFastArticle(request, url);
       if (response) return response;
