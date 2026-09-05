@@ -39,6 +39,9 @@ jobs:
           grep -q 'freshness_bonus' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'novelty_bonus' cloudflare/runner3-core/src/content-personalization.js
           grep -q '/content-intelligence/interests/save' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q 'NOT EXISTS(SELECT 1 FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?)' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q 'd1_readback:true' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q 'event_idempotent' cloudflare/runner3-core/src/content-intelligence.js
           grep -q 'featured_only' cloudflare/runner3-core/src/rss-reader-learning.js
           ! grep -q 'body.lifecycle === "archived".*saved' cloudflare/runner3-core/src/rss-reader-learning.js
           node --input-type=module - <<'NODE'
@@ -67,3 +70,28 @@ jobs:
           if (!bkeys.has('concept:capital-market-reform')) throw new Error('capital-market reform concept missing');
           console.log('Content Intelligence semantic feature regression PASS');
           NODE
+          python3 - <<'PY'
+          import sqlite3
+          db=sqlite3.connect(':memory:')
+          db.executescript('''
+          CREATE TABLE content_items(item_id TEXT PRIMARY KEY);
+          CREATE TABLE user_content_events(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT NOT NULL, render_id TEXT,
+            event_type TEXT NOT NULL, assistant_recommended INTEGER, assistant_rank INTEGER,
+            explicit_feedback TEXT, context_json TEXT, event_at TEXT DEFAULT CURRENT_TIMESTAMP
+          );
+          INSERT INTO content_items(item_id) VALUES('x:test:1');
+          ''')
+          sql='''INSERT INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
+          SELECT ?,?,?,?,?,?,?,CURRENT_TIMESTAMP
+          WHERE EXISTS(SELECT 1 FROM content_items WHERE item_id=?)
+            AND (? IS NULL OR NOT EXISTS(SELECT 1 FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?))'''
+          params=('x:test:1','interest-save:auto:x:test:1','interest_saved',0,None,'interest_saved','{}','x:test:1','interest-save:auto:x:test:1','x:test:1','interest_saved','interest-save:auto:x:test:1')
+          first=db.execute(sql,params).rowcount
+          second=db.execute(sql,params).rowcount
+          row=db.execute('SELECT COUNT(*),MAX(id) FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?',('x:test:1','interest_saved','interest-save:auto:x:test:1')).fetchone()
+          assert first==1, first
+          assert second==0, second
+          assert row[0]==1 and row[1] is not None, row
+          print('Content Intelligence interest idempotency/readback regression PASS')
+          PY
