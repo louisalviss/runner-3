@@ -1,0 +1,105 @@
+name: Mailbox encrypted E2E canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mailbox-e2e-canary-20260905.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Submit encrypted request and verify encrypted result
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          node <<'NODE'
+          const crypto = require('crypto');
+          const vpsPublicKey = `-----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAuHwx3zuFw1sCLdl4g8sh
+          TXv/Ep3+XUaamBXfr32FK+7VaQaDX3rKpOISJcEqKX6R0MCFqWAvhcRnyxbTImSi
+          YThCJKNe5kHbJgRo8v89tKzwauBFtdfapxuoXddetzaCSqUQRK3e6YQeyqRBDk0R
+          ydbuNbEMweH5T6HHbdMk4yXHHrtkPuOXLf/DmvAuk+EJFmzG4DAbt7//vuTg3HZF
+          Eo8fLImi+wVacDrHq0AsQqbKDK7EQD00Jb8uBHowzM1Km5W2zy8xVi+jx+xjPCKs
+          FhKA7TSUwOP75HNehrNOIkpgJqVSGG2LHdfHPgakc1r0rtQvF4RQ89JN6O9tqmOK
+          84tTDDTchv/KCUBuSCZ5gBGDjRDh8/yDae1Z/lSkwtOE0uqL3Ux9q2pkK/s4qZWP
+          oC5tH5SvibpYhBXMuQ/L1E7VBjr8TsnSMeyfyNE1FxrCIEAMlSRaoAnSvTuoujqm
+          OGQy0IpnFDpVcD0TxBHwCTONU3Ea6R2bu/p5xLbER533AgMBAAE=
+          -----END PUBLIC KEY-----`;
+          const core = 'https://runner3-core.ducduy2411.workers.dev';
+          const command = 'mailbox-fast-e2e-canary-20260905';
+          const requestId = 'm_' + crypto.randomBytes(16).toString('hex');
+          const { publicKey: replyPublic, privateKey: replyPrivate } = crypto.generateKeyPairSync('rsa', { modulusLength: 3072 });
+          const now = Date.now();
+          const body = {
+            request_id: requestId,
+            issued_at: new Date(now).toISOString(),
+            expires_at: new Date(now + 15 * 60 * 1000).toISOString(),
+            kind: 'echo',
+            command,
+          };
+          const aesKey = crypto.randomBytes(32);
+          const nonce = crypto.randomBytes(12);
+          const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, nonce);
+          cipher.setAAD(Buffer.from(requestId));
+          const ciphertext = Buffer.concat([cipher.update(Buffer.from(JSON.stringify(body))), cipher.final(), cipher.getAuthTag()]);
+          const encryptedKey = crypto.publicEncrypt({ key: vpsPublicKey, oaepHash: 'sha256', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING }, aesKey);
+          const envelope = {
+            version: 1,
+            alg: 'RSA-OAEP-SHA256+A256GCM',
+            request_id: requestId,
+            encrypted_key: encryptedKey.toString('base64'),
+            nonce: nonce.toString('base64'),
+            ciphertext: ciphertext.toString('base64'),
+            reply_public_key_der: replyPublic.export({ type: 'spki', format: 'der' }).toString('base64'),
+          };
+          async function main() {
+            const put = await fetch(`${core}/mailbox/requests/${requestId}`, {
+              method: 'PUT',
+              headers: { 'Authorization': `Bearer ${process.env.RUNNER3_CORE_TOKEN}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify(envelope),
+            });
+            if (put.status !== 202 && put.status !== 200) throw new Error(`submit_http_${put.status}`);
+            let row = null;
+            for (let i = 0; i < 60; i++) {
+              const r = await fetch(`${core}/mailbox/results/${requestId}.csv`, { cache: 'no-store' });
+              if (r.status !== 200) throw new Error(`result_http_${r.status}`);
+              const text = await r.text();
+              const lines = text.trim().split(/\r?\n/);
+              if (lines.length >= 2) {
+                const m = lines[1].match(/^"([^"]*)","([^"]*)","([^"]*)"$/);
+                if (m && m[1] !== 'pending') { row = { status: m[1], detailB64: m[2] }; break; }
+              }
+              await new Promise(r => setTimeout(r, 2000));
+            }
+            if (!row) throw new Error('result_timeout');
+            if (row.status !== 'done') throw new Error(`result_status_${row.status}`);
+            const resultEnvelope = JSON.parse(Buffer.from(row.detailB64, 'base64').toString('utf8'));
+            const resultKey = crypto.privateDecrypt({ key: replyPrivate, oaepHash: 'sha256', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING }, Buffer.from(resultEnvelope.encrypted_key, 'base64'));
+            const resultNonce = Buffer.from(resultEnvelope.nonce, 'base64');
+            const packed = Buffer.from(resultEnvelope.ciphertext, 'base64');
+            const tag = packed.subarray(packed.length - 16);
+            const enc = packed.subarray(0, packed.length - 16);
+            const decipher = crypto.createDecipheriv('aes-256-gcm', resultKey, resultNonce);
+            decipher.setAAD(Buffer.from(requestId));
+            decipher.setAuthTag(tag);
+            const plain = Buffer.concat([decipher.update(enc), decipher.final()]);
+            const payload = JSON.parse(plain.toString('utf8'));
+            if (payload.request_id !== requestId) throw new Error('result_request_id_mismatch');
+            if (payload.result?.ok !== true || payload.result?.kind !== 'echo' || payload.result?.echo !== command) throw new Error('result_payload_mismatch');
+            console.log('MAILBOX_ENCRYPTED_E2E=PASS');
+          }
+          main().catch(err => { console.error('MAILBOX_ENCRYPTED_E2E=FAIL', String(err.message || err)); process.exit(1); });
+          NODE
