@@ -45,12 +45,18 @@ jobs:
           p=json.load(open('results/vps-mailbox-runner-recovery-public-hosted.json', encoding='utf-8'))
           allowed={
             'observed_at_utc','hosted_producer','source_repo','purpose',
-            'opaque_submit_ok','encrypted_result_roundtrip_ok','codex_task_ok',
-            'transport_ok','worker_exit_zero','error_class'
+            'opaque_submit_ok','encrypted_result_roundtrip_ok','runner_recover_ok',
+            'transport_ok','recovery_action','recovered','active_after',
+            'listener_after','blocker','error_class'
           }
           assert set(p).issubset(allowed), set(p)-allowed
+          assert p.get('hosted_producer') is True, p
           assert p.get('opaque_submit_ok') is True, p
           assert p.get('encrypted_result_roundtrip_ok') is True, p
-          assert p.get('codex_task_ok') is True, p
+          assert p.get('transport_ok') is True, p
+          assert p.get('runner_recover_ok') is True, p
+          assert p.get('active_after') is True, p
+          assert p.get('listener_after') is True, p
+          assert p.get('recovery_action') in ('no-op-healthy','no-op-worker-active','wait-for-watchdog','wait-for-listener'), p
           print('PUBLIC_HOSTED_VPS_RUNNER_RECOVERY=PASS')
           PY
