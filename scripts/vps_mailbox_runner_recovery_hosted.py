@@ -29,19 +29,11 @@ def request(method: str, path: str, data: bytes | None = None, *, auth: bool = F
     auth_path: str | None = None
     try:
         cmd = [
-            "curl",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "30",
-            "--request",
-            method,
-            "--header",
-            "Accept: application/json,*/*",
-            "--header",
-            "Cache-Control: no-store",
-            "--user-agent",
-            "runner3-public-hosted-vps-recovery",
+            "curl", "--silent", "--show-error", "--max-time", "30",
+            "--request", method,
+            "--header", "Accept: application/json,*/*",
+            "--header", "Cache-Control: no-store",
+            "--user-agent", "runner3-public-hosted-vps-recovery",
         ]
         if auth:
             fd, auth_path = tempfile.mkstemp(prefix="runner3-auth-", text=True)
@@ -53,29 +45,65 @@ def request(method: str, path: str, data: bytes | None = None, *, auth: bool = F
             cmd += ["--header", f"@{auth_path}"]
         if data is not None:
             cmd += ["--header", "Content-Type: application/json", "--data-binary", "@-"]
-        cmd += ["--write-out", "\n%{http_code}", CORE + path]
+        cmd += ["--write-out", "\n%{http_code}\n%{content_type}", CORE + path]
         completed = subprocess.run(
-            cmd,
-            input=data,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=40,
+            cmd, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False, timeout=40,
         )
         if completed.returncode != 0:
             raise RuntimeError(f"curl_transport_failed_{completed.returncode}")
         try:
-            raw, status_raw = completed.stdout.rsplit(b"\n", 1)
+            raw, status_raw, content_type_raw = completed.stdout.rsplit(b"\n", 2)
             status = int(status_raw.decode("ascii"))
+            content_type = content_type_raw.decode("utf-8", "replace").strip()[:160]
         except Exception as exc:
             raise RuntimeError("curl_status_parse_failed") from exc
-        return status, raw
+        return status, raw, content_type
     finally:
         if auth_path:
             try:
                 os.unlink(auth_path)
             except FileNotFoundError:
                 pass
+
+
+def classify_http_body(raw: bytes, content_type: str) -> dict[str, object]:
+    out: dict[str, object] = {
+        "submit_content_type": content_type or "unknown",
+        "submit_body_bytes": len(raw),
+        "submit_body_sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    text = raw[:16_384].decode("utf-8", "replace")
+    lowered = text.lower()
+    if "cloudflare" in lowered or "cf-ray" in lowered:
+        out["submit_body_class"] = "cloudflare_edge"
+    elif "application/json" in content_type.lower():
+        out["submit_body_class"] = "json"
+    elif "text/html" in content_type.lower() or "<html" in lowered or "<!doctype" in lowered:
+        out["submit_body_class"] = "html"
+    elif not raw:
+        out["submit_body_class"] = "empty"
+    else:
+        out["submit_body_class"] = "other"
+
+    code_match = re.search(r'"error_code"\s*:\s*([0-9]{3,5})', text)
+    if not code_match:
+        code_match = re.search(r'error[-_ ]?([0-9]{3,5})', lowered)
+    if code_match:
+        out["submit_cloudflare_error_code"] = int(code_match.group(1))
+
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        error = parsed.get("error")
+        if isinstance(error, str) and re.fullmatch(r"[A-Z0-9_:-]{1,100}", error):
+            out["submit_error"] = error
+        error_name = parsed.get("error_name")
+        if isinstance(error_name, str) and re.fullmatch(r"[a-z0-9_-]{1,100}", error_name):
+            out["submit_cloudflare_error_name"] = error_name
+    return out
 
 
 def mailbox_public_key() -> rsa.RSAPublicKey:
@@ -120,17 +148,14 @@ def main() -> int:
             "request_id": request_id,
             "issued_at": now.isoformat(),
             "expires_at": (now + dt.timedelta(minutes=10)).isoformat(),
-            "kind": "router",
-            "timeout_seconds": 180,
+            "kind": "router", "timeout_seconds": 180,
             "task": {"flow": "runner-recover"},
         }
         plaintext = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         aes_key = os.urandom(32)
         nonce = os.urandom(12)
         envelope = {
-            "version": 1,
-            "alg": "RSA-OAEP-SHA256+A256GCM",
-            "request_id": request_id,
+            "version": 1, "alg": "RSA-OAEP-SHA256+A256GCM", "request_id": request_id,
             "encrypted_key": base64.b64encode(vps_pub.encrypt(
                 aes_key,
                 padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
@@ -139,27 +164,23 @@ def main() -> int:
             "ciphertext": base64.b64encode(AESGCM(aes_key).encrypt(nonce, plaintext, request_id.encode())).decode(),
             "reply_public_key_der": base64.b64encode(reply_der).decode(),
         }
-        status, raw = request(
-            "PUT",
-            f"/mailbox/requests/{request_id}",
-            json.dumps(envelope, separators=(",", ":")).encode(),
-            auth=True,
+        status, raw, content_type = request(
+            "PUT", f"/mailbox/requests/{request_id}",
+            json.dumps(envelope, separators=(",", ":")).encode(), auth=True,
         )
         proof["submit_status"] = int(status)
+        proof.update(classify_http_body(raw, content_type))
         try:
             accepted = json.loads(raw.decode())
         except Exception:
             accepted = {}
-        submit_error = accepted.get("error") if isinstance(accepted, dict) else None
-        if isinstance(submit_error, str) and submit_error:
-            proof["submit_error"] = submit_error[:100]
         proof["opaque_submit_ok"] = status in (200, 202) and accepted.get("ok") is True and accepted.get("accepted") is True
         if proof["opaque_submit_ok"] is not True:
             raise RuntimeError("mailbox_submit_rejected")
 
         deadline = time.time() + 210
         while time.time() < deadline:
-            csv_status, csv_raw = request("GET", f"/mailbox/results/{request_id}.csv")
+            csv_status, csv_raw, _ = request("GET", f"/mailbox/results/{request_id}.csv")
             if csv_status != 200:
                 time.sleep(3)
                 continue
@@ -173,25 +194,20 @@ def main() -> int:
                 padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
             )
             result_plain = AESGCM(result_key).decrypt(
-                base64.b64decode(detail["nonce"]),
-                base64.b64decode(detail["ciphertext"]),
-                request_id.encode(),
+                base64.b64decode(detail["nonce"]), base64.b64decode(detail["ciphertext"]), request_id.encode(),
             )
             result = json.loads(result_plain.decode())
             transport = result.get("result") if isinstance(result.get("result"), dict) else {}
             worker = transport.get("result") if isinstance(transport.get("result"), dict) else {}
             proof["encrypted_result_roundtrip_ok"] = (
-                result.get("request_id") == request_id
-                and transport.get("kind") == "router"
+                result.get("request_id") == request_id and transport.get("kind") == "router"
                 and transport.get("flow") == "runner-recover"
             )
             proof["transport_ok"] = transport.get("ok") is True and transport.get("exit_code") in (None, 0)
             proof["runner_recover_ok"] = proof["transport_ok"] is True and worker.get("ok") is True and worker.get("flow") == "runner-recover"
             for src, dst in (
-                ("action", "recovery_action"),
-                ("recovered", "recovered"),
-                ("active_after", "active_after"),
-                ("listener_after", "listener_after"),
+                ("action", "recovery_action"), ("recovered", "recovered"),
+                ("active_after", "active_after"), ("listener_after", "listener_after"),
                 ("blocker", "blocker"),
             ):
                 if src in worker and worker.get(src) is not None:

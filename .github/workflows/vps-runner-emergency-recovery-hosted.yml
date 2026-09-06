@@ -47,7 +47,9 @@ jobs:
             'observed_at_utc','hosted_producer','source_repo','purpose',
             'opaque_submit_ok','encrypted_result_roundtrip_ok','runner_recover_ok',
             'transport_ok','recovery_action','recovered','active_after',
-            'listener_after','blocker','error_class','submit_status','submit_error'
+            'listener_after','blocker','error_class','submit_status','submit_error',
+            'submit_content_type','submit_body_bytes','submit_body_sha256','submit_body_class',
+            'submit_cloudflare_error_code','submit_cloudflare_error_name'
           }
           assert set(p).issubset(allowed), set(p)-allowed
           assert p.get('hosted_producer') is True, p
