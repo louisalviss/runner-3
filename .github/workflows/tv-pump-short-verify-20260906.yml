@@ -1,3 +1,4 @@
+# trigger-2
 name: TV Pump Short Verify 20260906
 
 on:
@@ -99,7 +100,7 @@ jobs:
             const context=await browser.newContext({storageState,viewport:{width:1800,height:1100}});
             const page=await context.newPage();
             const first='OKX:RAVEUSDT.P';
-            await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent(first)+'&interval=60',{waitUntil:'domcontentloaded',timeout:90000});
+            await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent(first)+'&interval=60',{waitUntil:'domcontentloaded',timeout=90000});
             await page.waitForTimeout(12000);
             const cookies=await context.cookies();
             const authCookie=cookies.some(c=>/(^|\.)tradingview\.com$/i.test(c.domain.replace(/^\./,'')) && /session/i.test(c.name) && c.value);
@@ -140,7 +141,7 @@ jobs:
             await collect(page,first);
 
             for(const sym of ['OKX:ORDIUSDT.P','OKX:ENJUSDT.P']){
-              await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent(sym)+'&interval=60',{waitUntil:'domcontentloaded',timeout:90000});
+              await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent(sym)+'&interval=60',{waitUntil:'domcontentloaded',timeout=90000});
               await page.waitForTimeout(10000);
               await collect(page,sym);
             }
