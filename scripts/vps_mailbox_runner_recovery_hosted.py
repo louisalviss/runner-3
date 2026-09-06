@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 CORE = "https://runner3-core.ducduy2411.workers.dev"
-MAILBOX_SOURCE = "https://raw.githubusercontent.com/louisalviss/runner-3/main/cloudflare/runner3-core/mailbox-entry.js"
+MAILBOX_SOURCE = "https://raw.githubusercontent.com/louisalviss/runner-3/main/cloudflare/runner3-core/mailbox-fast-entry.js"
 TOKEN = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
 
 
@@ -42,7 +42,7 @@ def request(method: str, path: str, data: bytes | None = None, *, auth: bool = F
         return exc.code, exc.read()
 
 
-def mailbox_public_key() -> tuple[rsa.RSAPublicKey, str]:
+def mailbox_public_key() -> rsa.RSAPublicKey:
     req = urllib.request.Request(MAILBOX_SOURCE, headers={"User-Agent": "runner3-public-hosted-vps-recovery"})
     with urllib.request.urlopen(req, timeout=30) as response:
         source = response.read().decode("utf-8")
@@ -53,7 +53,9 @@ def mailbox_public_key() -> tuple[rsa.RSAPublicKey, str]:
     key = serialization.load_der_public_key(der)
     if not isinstance(key, rsa.RSAPublicKey) or key.key_size < 3072:
         raise RuntimeError("invalid mailbox public key")
-    return key, hashlib.sha256(der).hexdigest()
+    if len(hashlib.sha256(der).digest()) != 32:
+        raise RuntimeError("mailbox public key digest failed")
+    return key
 
 
 def main() -> int:
@@ -64,47 +66,27 @@ def main() -> int:
         "purpose": "recover-offline-self-hosted-runner-through-persistent-vps-mailbox",
         "opaque_submit_ok": False,
         "encrypted_result_roundtrip_ok": False,
-        "codex_task_ok": False,
+        "runner_recover_ok": False,
+        "transport_ok": False,
     }
     try:
         if not TOKEN:
             raise RuntimeError("token_missing")
         request_id = "m_" + secrets.token_hex(16)
-        vps_pub, _fingerprint = mailbox_public_key()
-
+        vps_pub = mailbox_public_key()
         reply_priv = rsa.generate_private_key(public_exponent=65537, key_size=3072)
         reply_der = reply_priv.public_key().public_bytes(
             serialization.Encoding.DER,
             serialization.PublicFormat.SubjectPublicKeyInfo,
         )
         now = dt.datetime.now(dt.timezone.utc)
-        goal = (
-            "Recover the GitHub self-hosted Actions runner on this VPS if it can be done safely without sudo. "
-            "First inspect actions.runner.* systemd unit state, Runner.Listener/Runner.Worker processes owned by the current "
-            "github-runner user, and github-runner-watchdog.timer/service. Do not read secrets or auth stores. "
-            "If the runner is already healthy, make no mutation and report healthy state. "
-            "If the runner unit is active but the listener process is clearly stale/disconnected and an unprivileged same-user "
-            "process restart is safe, terminate ONLY the stale GitHub runner listener/worker process so the already-installed "
-            "systemd Restart=always/watchdog can recreate it. Do not kill or restart ChatGPT, registrar, CloakBrowser, mailbox, "
-            "Codex, or unrelated processes. Never use sudo and never modify /etc, /opt, service definitions, credentials, or "
-            "browser profiles. If the runner unit is inactive or recovery requires privilege, make no mutation and report the exact "
-            "blocker. After any safe action, verify process/service state for up to 60 seconds. Return concise observed state, action, "
-            "verification, and remaining blocker."
-        )
         body = {
             "request_id": request_id,
             "issued_at": now.isoformat(),
-            "expires_at": (now + dt.timedelta(minutes=15)).isoformat(),
+            "expires_at": (now + dt.timedelta(minutes=10)).isoformat(),
             "kind": "router",
-            "timeout_seconds": 240,
-            "task": {
-                "flow": "codex-task",
-                "goal": goal,
-                "workspace": "vps-control",
-                "sandbox": "workspace-write",
-                "skills": ["vps-ops"],
-                "timeout_seconds": 180,
-            },
+            "timeout_seconds": 180,
+            "task": {"flow": "runner-recover"},
         }
         plaintext = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         aes_key = os.urandom(32)
@@ -113,12 +95,10 @@ def main() -> int:
             "version": 1,
             "alg": "RSA-OAEP-SHA256+A256GCM",
             "request_id": request_id,
-            "encrypted_key": base64.b64encode(
-                vps_pub.encrypt(
-                    aes_key,
-                    padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-                )
-            ).decode(),
+            "encrypted_key": base64.b64encode(vps_pub.encrypt(
+                aes_key,
+                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+            )).decode(),
             "nonce": base64.b64encode(nonce).decode(),
             "ciphertext": base64.b64encode(AESGCM(aes_key).encrypt(nonce, plaintext, request_id.encode())).decode(),
             "reply_public_key_der": base64.b64encode(reply_der).decode(),
@@ -137,7 +117,7 @@ def main() -> int:
         if proof["opaque_submit_ok"] is not True:
             raise RuntimeError(f"mailbox submit failed status={status}")
 
-        deadline = time.time() + 330
+        deadline = time.time() + 210
         while time.time() < deadline:
             csv_status, csv_raw = request("GET", f"/mailbox/results/{request_id}.csv")
             if csv_status != 200:
@@ -163,11 +143,19 @@ def main() -> int:
             proof["encrypted_result_roundtrip_ok"] = (
                 result.get("request_id") == request_id
                 and transport.get("kind") == "router"
-                and transport.get("flow") == "codex-task"
+                and transport.get("flow") == "runner-recover"
             )
-            proof["codex_task_ok"] = transport.get("ok") is True and worker.get("ok") is True
-            proof["transport_ok"] = transport.get("ok") is True
-            proof["worker_exit_zero"] = transport.get("exit_code") in (None, 0)
+            proof["transport_ok"] = transport.get("ok") is True and transport.get("exit_code") in (None, 0)
+            proof["runner_recover_ok"] = proof["transport_ok"] is True and worker.get("ok") is True and worker.get("flow") == "runner-recover"
+            for src, dst in (
+                ("action", "recovery_action"),
+                ("recovered", "recovered"),
+                ("active_after", "active_after"),
+                ("listener_after", "listener_after"),
+                ("blocker", "blocker"),
+            ):
+                if src in worker and worker.get(src) is not None:
+                    proof[dst] = worker.get(src)
             break
         else:
             raise TimeoutError("mailbox runner recovery result timeout")
@@ -178,7 +166,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(proof, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(proof, ensure_ascii=False, separators=(",", ":")))
-    return 0 if proof.get("encrypted_result_roundtrip_ok") is True and proof.get("codex_task_ok") is True else 1
+    return 0 if proof.get("encrypted_result_roundtrip_ok") is True and proof.get("runner_recover_ok") is True else 1
 
 
 if __name__ == "__main__":
