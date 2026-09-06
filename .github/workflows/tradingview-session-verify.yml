@@ -14,7 +14,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     env:
       AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -38,140 +38,35 @@ jobs:
           print('TV_SESSION_DECRYPT=PASS')
           PY
 
-      - name: Verify authenticated TradingView session and pump-short strategy
+      - name: Verify authenticated TradingView session
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save playwright-core@1.58.2 >/dev/null
-          cat > /tmp/tv_verify.js <<'NODE'
+          node <<'NODE'
           const fs=require('fs');
           const {chromium}=require('playwright-core');
-          const pine=`//@version=6
-          strategy("Extreme Pump Short Verify", overlay=true, pyramiding=0, initial_capital=100000, commission_type=strategy.commission.percent, commission_value=0.05, process_orders_on_close=true)
-          pumpPct = input.float(50.0, "24h pump %", step=5.0)
-          rolloverBars = input.int(6, "Rollover window bars", minval=1)
-          stopPct = input.float(20.0, "Stop %", step=1.0) / 100.0
-          holdBars = input.int(24, "Hold bars", minval=1)
-          cooldownBars = input.int(336, "Cooldown bars", minval=1)
-          startT = timestamp("UTC", 2026, 3, 10, 0, 0)
-          endT = timestamp("UTC", 2026, 9, 6, 23, 59)
-          inRange = time >= startT and time <= endT
-          ret24 = bar_index >= 24 ? (close / close[24] - 1.0) * 100.0 : na
-          pumpCross = inRange and ret24 >= pumpPct and (na(ret24[1]) or ret24[1] < pumpPct)
-          var int sigBar = na
-          var int lastTradeBar = na
-          if pumpCross
-              sigBar := bar_index
-          canEnter = not na(sigBar) and bar_index > sigBar and bar_index <= sigBar + rolloverBars and close < open and strategy.position_size == 0 and (na(lastTradeBar) or bar_index - lastTradeBar >= cooldownBars)
-          if canEnter
-              strategy.entry("S", strategy.short)
-              lastTradeBar := bar_index
-              sigBar := na
-          if not na(sigBar) and bar_index > sigBar + rolloverBars
-              sigBar := na
-          if strategy.position_size < 0
-              strategy.exit("STOP", "S", stop=strategy.position_avg_price * (1.0 + stopPct))
-              if strategy.opentrades > 0 and bar_index - strategy.opentrades.entry_bar_index(0) >= holdBars
-                  strategy.close("S", comment="TIME")
-          if time > endT and strategy.position_size != 0
-              strategy.close_all(comment="END")`;
-
-          const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
-          function emit(k,v){console.log(k+'='+String(v).replace(/\n/g,'\\n'));}
-          async function text(page){return await page.locator('body').innerText().catch(()=> '');}
-          async function clickAny(page,rxs){
-            for(const rx of rxs){
-              for(const loc of [page.getByRole('button',{name:rx}),page.getByText(rx,{exact:true})]){
-                const n=Math.min(await loc.count().catch(()=>0),8);
-                for(let i=0;i<n;i++){
-                  const e=loc.nth(i);
-                  if(await e.isVisible().catch(()=>false)){
-                    await e.click({timeout:8000}).catch(()=>{});
-                    await page.waitForTimeout(900);
-                    return true;
-                  }
-                }
-              }
-            }
-            return false;
-          }
-          async function strategyText(page,sym){
-            await clickAny(page,[/^Strategy Tester$/i,/^Strategy tester$/i]);
-            await page.waitForTimeout(3500);
-            const b=await text(page);
-            const lines=b.split(/\n/).map(s=>s.trim()).filter(Boolean);
-            const terms=['Total P&L','Net profit','Max equity drawdown','Max drawdown','Total trades','Profitable trades','Percent profitable','Profit factor','Avg trade'];
-            const hits=[];
-            for(let i=0;i<lines.length;i++) if(terms.some(t=>lines[i].toLowerCase().includes(t.toLowerCase()))) hits.push(lines.slice(i,i+5).join(' | '));
-            emit('TV_METRICS_'+sym.replace(/[^A-Z0-9]/gi,'_'),JSON.stringify(hits.slice(0,30)));
-            emit('TV_TAIL_'+sym.replace(/[^A-Z0-9]/gi,'_'),lines.slice(-100).join(' | '));
-          }
           (async()=>{
+            const exes=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium-browser','/usr/bin/chromium'];
             const executablePath=exes.find(p=>fs.existsSync(p));
             if(!executablePath) throw new Error('Chrome/Chromium missing');
-            const state=JSON.parse(fs.readFileSync('/tmp/tv-storage-state.json','utf8'));
+            const storageState=JSON.parse(fs.readFileSync('/tmp/tv-storage-state.json','utf8'));
             const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
-            const context=await browser.newContext({storageState:state,viewport:{width:1800,height:1100}});
+            const context=await browser.newContext({storageState,viewport:{width:1600,height:1000}});
             const page=await context.newPage();
-            const first='OKX:RAVEUSDT.P';
-            await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent(first)+'&interval=60',{waitUntil:'domcontentloaded',timeout:90000});
+            await page.goto('https://www.tradingview.com/chart/?symbol=BINANCE%3ABTCUSDT&interval=5',{waitUntil:'domcontentloaded',timeout:90000});
             await page.waitForTimeout(12000);
+            const body=await page.locator('body').innerText().catch(()=> '');
             const cookies=await context.cookies();
-            const auth=cookies.some(c=>/(^|\.)tradingview\.com$/i.test(c.domain.replace(/^\./,''))&&/session/i.test(c.name)&&c.value);
-            const b0=await text(page);
-            emit('TV_AUTH_SESSION_COOKIE',auth?'PASS':'FAIL');
-            emit('TV_SIGNIN_UI',/\bSign in\b/i.test(b0)?'PRESENT':'ABSENT');
-            emit('TV_INITIAL_TAIL',b0.split(/\n/).slice(-100).join(' | '));
-            if(!auth||/\bSign in\b/i.test(b0)) throw new Error('TradingView auth session invalid');
-
-            const pineOpened=await clickAny(page,[/^Pine Editor$/i,/Pine Editor/i]);
-            emit('TV_PINE_TAB',pineOpened?'PASS':'NOT_FOUND');
-            await page.waitForTimeout(2500);
-            let editor=page.locator('textarea.inputarea').first();
-            let wrote=false;
-            if(await editor.count().catch(()=>0)){
-              await editor.click({force:true}).catch(()=>{});
-              await page.keyboard.press('Control+A');
-              await page.keyboard.insertText(pine);
-              wrote=true;
-            } else {
-              const tas=page.locator('textarea');
-              const n=await tas.count().catch(()=>0);
-              for(let i=0;i<n;i++) if(await tas.nth(i).isVisible().catch(()=>false)){
-                await tas.nth(i).click(); await page.keyboard.press('Control+A'); await page.keyboard.insertText(pine); wrote=true; break;
-              }
-            }
-            emit('TV_EDITOR_WRITE',wrote?'PASS':'FAIL');
-            if(!wrote){emit('TV_EDITOR_BODY',await text(page));throw new Error('Pine editor unavailable');}
-            await page.waitForTimeout(800);
-            const added=await clickAny(page,[/^Add to chart$/i,/^Update on chart$/i,/Add to chart/i]);
-            if(!added) await page.keyboard.press('Control+Enter').catch(()=>{});
-            emit('TV_ADD_TO_CHART',added?'CLICKED':'CTRL_ENTER');
-            await page.waitForTimeout(9000);
-            emit('TV_AFTER_COMPILE',(await text(page)).split(/\n/).slice(-140).join(' | '));
-            await strategyText(page,first);
-
-            for(const sym of ['OKX:ORDIUSDT.P','OKX:ENJUSDT.P']){
-              await page.goto('https://www.tradingview.com/chart/?symbol='+encodeURIComponent(sym)+'&interval=60',{waitUntil:'domcontentloaded',timeout:90000});
-              await page.waitForTimeout(10000);
-              await strategyText(page,sym);
-            }
-            await page.screenshot({path:'/tmp/tv-final.png',fullPage:false}).catch(()=>{});
+            const authCookie=cookies.some(c=>/(^|\.)tradingview\.com$/i.test(c.domain.replace(/^\./,'')) && /session/i.test(c.name) && c.value);
+            const signedOut=/\bSign in\b/i.test(body);
+            console.log('TV_AUTH_SESSION_COOKIE='+(authCookie?'PASS':'FAIL'));
+            console.log('TV_SIGNIN_UI='+(signedOut?'PRESENT':'ABSENT'));
+            console.log('TV_CHART_LOADED='+(body.includes('BTCUSDT')?'PASS':'CHECK'));
             await browser.close();
-          })().catch(e=>{console.error('TV_STRATEGY_VERIFY_ERROR='+e.stack);process.exit(7)});
+            if(!authCookie || signedOut) process.exit(7);
+          })().catch(e=>{console.error('TV_SESSION_VERIFY_ERROR='+e.stack);process.exit(7)});
           NODE
-          node /tmp/tv_verify.js | tee /tmp/tv-verify.log
-
-      - name: Upload TradingView verification evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tv-pump-short-verify-20260906
-          path: |
-            /tmp/tv-verify.log
-            /tmp/tv-final.png
-          if-no-files-found: ignore
-          retention-days: 1
 
       - name: Cleanup decrypted session
         if: always()
