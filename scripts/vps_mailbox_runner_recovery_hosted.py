@@ -11,8 +11,9 @@ import os
 import pathlib
 import re
 import secrets
+import subprocess
+import tempfile
 import time
-import urllib.error
 import urllib.request
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -25,21 +26,56 @@ TOKEN = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
 
 
 def request(method: str, path: str, data: bytes | None = None, *, auth: bool = False):
-    headers = {
-        "Accept": "application/json,*/*",
-        "Cache-Control": "no-store",
-        "User-Agent": "runner3-public-hosted-vps-recovery",
-    }
-    if auth:
-        headers["Authorization"] = f"Bearer {TOKEN}"
-    if data is not None:
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(CORE + path, data=data, method=method, headers=headers)
+    auth_path: str | None = None
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+        cmd = [
+            "curl",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "30",
+            "--request",
+            method,
+            "--header",
+            "Accept: application/json,*/*",
+            "--header",
+            "Cache-Control: no-store",
+            "--user-agent",
+            "runner3-public-hosted-vps-recovery",
+        ]
+        if auth:
+            fd, auth_path = tempfile.mkstemp(prefix="runner3-auth-", text=True)
+            try:
+                os.write(fd, f"Authorization: Bearer {TOKEN}\n".encode("utf-8"))
+            finally:
+                os.close(fd)
+            os.chmod(auth_path, 0o600)
+            cmd += ["--header", f"@{auth_path}"]
+        if data is not None:
+            cmd += ["--header", "Content-Type: application/json", "--data-binary", "@-"]
+        cmd += ["--write-out", "\n%{http_code}", CORE + path]
+        completed = subprocess.run(
+            cmd,
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=40,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(f"curl_transport_failed_{completed.returncode}")
+        try:
+            raw, status_raw = completed.stdout.rsplit(b"\n", 1)
+            status = int(status_raw.decode("ascii"))
+        except Exception as exc:
+            raise RuntimeError("curl_status_parse_failed") from exc
+        return status, raw
+    finally:
+        if auth_path:
+            try:
+                os.unlink(auth_path)
+            except FileNotFoundError:
+                pass
 
 
 def mailbox_public_key() -> rsa.RSAPublicKey:
