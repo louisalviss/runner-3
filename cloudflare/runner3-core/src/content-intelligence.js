@@ -33,7 +33,19 @@ function itemStatement(env,row){
   const r=normalizedItem(row);
   return env.DB.prepare(`INSERT INTO content_items(item_id,canonical_url,source_type,source_name,source_key,title,published_at,captured_at,language,raw_ref,content_hash,metadata_json,first_seen_at,last_seen_at)
     VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    ON CONFLICT(item_id) DO UPDATE SET canonical_url=excluded.canonical_url,source_type=excluded.source_type,source_name=COALESCE(excluded.source_name,content_items.source_name),source_key=COALESCE(excluded.source_key,content_items.source_key),title=COALESCE(excluded.title,content_items.title),published_at=COALESCE(excluded.published_at,content_items.published_at),language=COALESCE(excluded.language,content_items.language),raw_ref=COALESCE(excluded.raw_ref,content_items.raw_ref),content_hash=COALESCE(excluded.content_hash,content_items.content_hash),metadata_json=COALESCE(excluded.metadata_json,content_items.metadata_json),last_seen_at=CURRENT_TIMESTAMP`)
+    ON CONFLICT(item_id) DO UPDATE SET canonical_url=excluded.canonical_url,source_type=excluded.source_type,source_name=COALESCE(excluded.source_name,content_items.source_name),source_key=COALESCE(excluded.source_key,content_items.source_key),title=COALESCE(excluded.title,content_items.title),published_at=COALESCE(excluded.published_at,content_items.published_at),language=COALESCE(excluded.language,content_items.language),raw_ref=COALESCE(excluded.raw_ref,content_items.raw_ref),content_hash=COALESCE(excluded.content_hash,content_items.content_hash),metadata_json=COALESCE(excluded.metadata_json,content_items.metadata_json),last_seen_at=CURRENT_TIMESTAMP
+    WHERE content_items.canonical_url IS NOT excluded.canonical_url
+       OR content_items.source_type IS NOT excluded.source_type
+       OR content_items.source_name IS NOT COALESCE(excluded.source_name,content_items.source_name)
+       OR content_items.source_key IS NOT COALESCE(excluded.source_key,content_items.source_key)
+       OR content_items.title IS NOT COALESCE(excluded.title,content_items.title)
+       OR content_items.published_at IS NOT COALESCE(excluded.published_at,content_items.published_at)
+       OR content_items.language IS NOT COALESCE(excluded.language,content_items.language)
+       OR content_items.raw_ref IS NOT COALESCE(excluded.raw_ref,content_items.raw_ref)
+       OR content_items.content_hash IS NOT COALESCE(excluded.content_hash,content_items.content_hash)
+       OR content_items.metadata_json IS NOT COALESCE(excluded.metadata_json,content_items.metadata_json)
+       OR content_items.last_seen_at IS NULL
+       OR content_items.last_seen_at <= datetime('now','-6 hours')`)
     .bind(r.item_id,r.canonical_url,r.source_type,text(r.source_name,300),text(r.source_key,200),text(r.title,4000),text(r.published_at,100),text(r.language,50),text(r.raw_ref,2000),text(r.content_hash,200),jsonText(r.metadata));
 }
 async function enrichItem(env,row){
@@ -45,11 +57,13 @@ async function handleItems(request,env){
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
     const list=rows(await request.json()).map(normalizedItem);
-    await env.DB.batch(list.map(r=>itemStatement(env,r)));
+    const itemResults=await env.DB.batch(list.map(r=>itemStatement(env,r)));
+    const itemChanges=itemResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
     let semanticFeatures=0;
     for(const r of list) semanticFeatures+=(await enrichItem(env,r)).applied;
-    await markProfileDirty(env,"content_items_or_features_changed");
-    return Response.json({ok:true,applied:list.length,semantic_features:semanticFeatures,feature_model:FEATURE_MODEL_VERSION,materialization_status:"dirty"});
+    const changed=itemChanges+semanticFeatures;
+    if(changed) await markProfileDirty(env,"content_items_or_features_changed");
+    return Response.json({ok:true,applied:list.length,item_changes:itemChanges,semantic_features:semanticFeatures,feature_model:FEATURE_MODEL_VERSION,materialization_status:changed?"dirty":"unchanged"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
@@ -115,17 +129,20 @@ async function handleInterestIngest(request,env){
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
     const body=await request.json(); const item=normalizedItem(body.item||body);
-    await itemStatement(env,item).run();
+    const itemResult=await itemStatement(env,item).run();
+    let featureChanges=0;
     if(Array.isArray(body.features)&&body.features.length){
       if(body.features.length>MAX_ROWS)throw new Error(`features_must_contain_at_most_${MAX_ROWS}`);
-      await env.DB.batch(body.features.map(f=>featureStatement(env,{...f,item_id:item.item_id})));
+      const featureResults=await env.DB.batch(body.features.map(f=>featureStatement(env,{...f,item_id:item.item_id})));
+      featureChanges=featureResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
     }
     const renderId=text(body.render_id,300)?.trim()||`interest-save:${item.item_id}`;
     const event={item_id:item.item_id,event_type:"interest_saved",render_id:renderId,explicit_feedback:"interest_saved",context:{source:"explicit_interest_ingest",...(body.context||{})}};
     const result=await eventStatement(env,event).run();
     const readback=await eventReadback(env,item.item_id,"interest_saved",renderId);
     if(readback.count!==1)return Response.json({ok:false,durable:false,d1_readback:false,error:"INTEREST_EVENT_READBACK_FAILED",item_id:item.item_id,render_id:renderId,event_count:readback.count},{status:500});
-    if(Number(result.meta?.changes||0)>0)await markProfileDirty(env,"explicit_interest_ingested");
+    const changed=Number(itemResult.meta?.changes||0)+featureChanges+Number(result.meta?.changes||0);
+    if(changed)await markProfileDirty(env,"explicit_interest_ingested");
     return Response.json({
       ok:true,
       durable:true,
@@ -150,18 +167,21 @@ async function handleInterestSave(request,env){
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
     const body=await request.json(); const item=normalizedItem(body.item||body);
-    await itemStatement(env,item).run();
+    const itemResult=await itemStatement(env,item).run();
     const semantic=await enrichItem(env,item);
+    let featureChanges=0;
     if(Array.isArray(body.features)&&body.features.length){
       if(body.features.length>MAX_ROWS)throw new Error(`features_must_contain_at_most_${MAX_ROWS}`);
-      await env.DB.batch(body.features.map(f=>featureStatement(env,{...f,item_id:item.item_id})));
+      const featureResults=await env.DB.batch(body.features.map(f=>featureStatement(env,{...f,item_id:item.item_id})));
+      featureChanges=featureResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
     }
     const renderId=text(body.render_id,300)?.trim()||`interest-save:${item.item_id}`;
     const event={item_id:item.item_id,event_type:"interest_saved",render_id:renderId,explicit_feedback:"interest_saved",context:{source:"explicit_interest_save",...(body.context||{})}};
     const result=await eventStatement(env,event).run();
-    await markProfileDirty(env,"explicit_interest_saved");
-    const recompute=await maybeRecomputePersonal(env);
-    return Response.json({ok:true,item_id:item.item_id,event_applied:Number(result.meta?.changes||0),semantic_features:semantic.applied,feature_model:FEATURE_MODEL_VERSION,model_version:PERSONAL_MODEL_VERSION,profile_recomputed:Boolean(recompute.recomputed)});
+    const changed=Number(itemResult.meta?.changes||0)+semantic.applied+featureChanges+Number(result.meta?.changes||0);
+    if(changed) await markProfileDirty(env,"explicit_interest_saved");
+    const recompute=changed?await maybeRecomputePersonal(env):{recomputed:false,status:"unchanged"};
+    return Response.json({ok:true,item_id:item.item_id,event_applied:Number(result.meta?.changes||0),item_changes:Number(itemResult.meta?.changes||0),feature_changes:featureChanges,semantic_features:semantic.applied,feature_model:FEATURE_MODEL_VERSION,model_version:PERSONAL_MODEL_VERSION,profile_recomputed:Boolean(recompute.recomputed),materialization_status:recompute.recomputed?"clean":(changed?"dirty":"unchanged")});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
