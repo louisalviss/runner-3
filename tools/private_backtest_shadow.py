@@ -179,6 +179,33 @@ def fetch_shadow_package(scope, root):
     return manifest, local
 
 
+def patch_runtime_vendor_aliases(helper_path: Path, aliases: dict[str, str] | None) -> dict[str, str]:
+    """Apply bounded data-vendor ticker aliases in the ephemeral shard helper only."""
+    aliases = {str(k).upper(): str(v).upper() for k, v in (aliases or {}).items() if str(k).strip() and str(v).strip()}
+    if not aliases:
+        return {}
+    for src, dst in aliases.items():
+        if not src.replace("-", "").isalnum() or not dst.replace("-", "").isalnum():
+            raise ValueError(f"invalid vendor symbol alias: {src}->{dst}")
+    text = helper_path.read_text(encoding="utf-8")
+    needle = '    if not symbol:\n        return None\n    return f"{symbol}.US/USD"'
+    alias_literal = json.dumps(dict(sorted(aliases.items())), ensure_ascii=True, sort_keys=True)
+    replacement = (
+        '    if not symbol:\n'
+        '        return None\n'
+        f'    aliases = {alias_literal}\n'
+        '    symbol = aliases.get(symbol, symbol)\n'
+        '    return f"{symbol}.US/USD"'
+    )
+    if needle not in text:
+        # Accept an already-patched helper only when every requested alias is present.
+        if all(f'"{src}": "{dst}"' in text for src, dst in aliases.items()):
+            return aliases
+        raise RuntimeError("unable to apply vendor symbol aliases to frozen helper")
+    helper_path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    return aliases
+
+
 def summary_ok(path):
     if not path.exists():
         return False
@@ -198,6 +225,7 @@ def shard(args):
     pkg.mkdir(); symbols_root.mkdir(); helper.mkdir()
     manifest, local = fetch_shadow_package(scope, pkg)
     shutil.copy2(local["helper"], helper / "exp.py")
+    vendor_aliases = patch_runtime_vendor_aliases(helper / "exp.py", cfg.get("vendor_symbol_aliases"))
     profile = json.loads(local["profile"].read_text(encoding="utf-8"))
     universe = [str(s).upper() for s in profile["universe"]]
     assigned = [s for i,s in enumerate(universe) if i % SHARDS == shard_id]
@@ -220,7 +248,7 @@ def shard(args):
     archive=work/f"shard-{shard_id:02d}.tar.gz"
     with tarfile.open(archive,"w:gz") as tf:
         tf.add(symbols_root,arcname="symbols")
-    status={"shard":shard_id,"assigned_count":len(assigned),"failed_count":len(failed),"failed_symbols":failed,"attempts":attempts,"elapsed_seconds":round(time.time()-started,3),"completed_at":core.now_iso()}
+    status={"shard":shard_id,"assigned_count":len(assigned),"failed_count":len(failed),"failed_symbols":failed,"attempts":attempts,"vendor_symbol_aliases":vendor_aliases,"elapsed_seconds":round(time.time()-started,3),"completed_at":core.now_iso()}
     status_p=work/f"shard-{shard_id:02d}.json"; write_json(status_p,status)
     core.upload_artifact(PROJECT,scope,f"shards/shard-{shard_id:02d}.tar.gz",archive,"application/gzip")
     core.upload_artifact(PROJECT,scope,f"shards/shard-{shard_id:02d}.json",status_p,"application/json; charset=utf-8")
