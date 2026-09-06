@@ -1,2 +1,2 @@
-request_id=runner-recovery-public-hosted-diagnose-20260907-02
-purpose=workers-error-tail-diagnosis-before-controlled-outage
+request_id=runner-recovery-public-hosted-tail-20260907-03
+purpose=capture-filtered-worker-exception-for-1101
