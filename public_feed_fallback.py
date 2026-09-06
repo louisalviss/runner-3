@@ -124,7 +124,8 @@ def main():
     if added:
         outp.parent.mkdir(parents=True,exist_ok=True)
         with outp.open('a',encoding='utf-8') as f:
-            for r in added: f.write(json.dumps(r,ensure_ascii=False)+'\\n')
+            for r in added:
+                f.write(json.dumps(r,ensure_ascii=False) + chr(10))
     summary={'selected_feeds':len(selected),'rows_added':len(added),'feeds':report,'coverage_note':'RSS fallback is discovery/first-post text only; it does not claim full thread-comment coverage.'}
     Path(args.summary).write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(summary,ensure_ascii=False))
