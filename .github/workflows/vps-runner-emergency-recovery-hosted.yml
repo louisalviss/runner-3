@@ -10,55 +10,106 @@ on:
       - 'ops/vps-runner-emergency-recovery.trigger'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: vps-runner-emergency-recovery-hosted
   cancel-in-progress: false
 
 jobs:
-  recover:
+  publish-request:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
-    env:
-      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    timeout-minutes: 5
+    outputs:
+      envelope_sha256: ${{ steps.produce.outputs.envelope_sha256 }}
     steps:
-      - name: Checkout public recovery client
+      - name: Checkout public recovery producer
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Install crypto dependency
         shell: bash
         run: python3 -m pip install --disable-pip-version-check --quiet cryptography
 
-      - name: Recover self-hosted runner through encrypted VPS mailbox
-        shell: bash
-        run: python3 scripts/vps_mailbox_runner_recovery_hosted.py
-
-      - name: Enforce sanitized recovery proof
-        if: always()
+      - name: Produce encrypted fixed-purpose recovery request
+        id: produce
         shell: bash
         run: |
           set -euo pipefail
-          test -f results/vps-mailbox-runner-recovery-public-hosted.json
+          python3 scripts/vps_mailbox_runner_recovery_hosted.py
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('results/vps-mailbox-runner-recovery-public-hosted.json', encoding='utf-8'))
+          assert p.get('request_published') is True, p
+          sha=str(p.get('envelope_sha256') or '')
+          assert len(sha)==64 and all(c in '0123456789abcdef' for c in sha), p
+          print(f'envelope_sha256={sha}')
+          PY
+
+      - name: Enforce sanitized producer proof
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           import json
           p=json.load(open('results/vps-mailbox-runner-recovery-public-hosted.json', encoding='utf-8'))
           allowed={
-            'observed_at_utc','hosted_producer','source_repo','purpose',
-            'opaque_submit_ok','encrypted_result_roundtrip_ok','runner_recover_ok',
-            'transport_ok','recovery_action','recovered','active_after',
-            'listener_after','blocker','error_class','submit_status','submit_error',
-            'submit_content_type','submit_body_bytes','submit_body_sha256','submit_body_class',
-            'submit_cloudflare_error_code','submit_cloudflare_error_name'
+            'observed_at_utc','hosted_producer','source_repo','purpose','transport',
+            'fixed_flow','cloudflare_required','d1_required','request_published',
+            'request_path','envelope_sha256','envelope_bytes','expires_in_seconds','error_class'
           }
           assert set(p).issubset(allowed), set(p)-allowed
           assert p.get('hosted_producer') is True, p
-          assert p.get('opaque_submit_ok') is True, p
-          assert p.get('encrypted_result_roundtrip_ok') is True, p
-          assert p.get('transport_ok') is True, p
-          assert p.get('runner_recover_ok') is True, p
+          assert p.get('request_published') is True, p
+          assert p.get('fixed_flow') == 'runner-recover', p
+          assert p.get('transport') == 'github-public-encrypted-file', p
+          assert p.get('cloudflare_required') is False, p
+          assert p.get('d1_required') is False, p
+          print('PUBLIC_HOSTED_RUNNER_RECOVERY_PRODUCER=PASS')
+          PY
+
+      - name: Publish encrypted request to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Runner Recovery Hosted'
+          git config user.email 'runner-recovery-hosted@localhost'
+          git add ops/runner-recovery/request.json
+          git commit -m 'Publish encrypted runner recovery request [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+  verify-self-hosted:
+    needs: publish-request
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - name: Verify exact local recovery receipt
+        shell: bash
+        env:
+          EXPECTED_ENVELOPE_SHA256: ${{ needs.publish-request.outputs.envelope_sha256 }}
+        run: |
+          set -euo pipefail
+          RECEIPT=/opt/vps-mailbox/runner-recovery-public-receipt.json
+          deadline=$((SECONDS+150))
+          while true; do
+            if [ -s "$RECEIPT" ] && python3 - "$RECEIPT" "$EXPECTED_ENVELOPE_SHA256" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1], encoding='utf-8'))
+          expected=sys.argv[2]
+          assert p.get('envelope_sha256') == expected, p
+          assert p.get('ok') is True, p
+          assert p.get('flow') == 'runner-recover', p
+          assert p.get('action') in ('no-op-healthy','no-op-worker-active','wait-for-watchdog','wait-for-listener'), p
           assert p.get('active_after') is True, p
           assert p.get('listener_after') is True, p
-          assert p.get('recovery_action') in ('no-op-healthy','no-op-worker-active','wait-for-watchdog','wait-for-listener'), p
-          print('PUBLIC_HOSTED_VPS_RUNNER_RECOVERY=PASS')
           PY
+            then break
+            fi
+            [ "$SECONDS" -lt "$deadline" ] || { echo 'matching recovery receipt timeout' >&2; exit 1; }
+            sleep 3
+          done
+          systemctl is-active --quiet 'actions.runner.louisalviss-vps-control.linveo-vps1.service'
+          pgrep -u github-runner -f 'Runner.Listener' >/dev/null
+          echo 'PUBLIC_HOSTED_VPS_RUNNER_RECOVERY=PASS'
