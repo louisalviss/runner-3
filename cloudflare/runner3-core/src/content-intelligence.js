@@ -76,10 +76,19 @@ async function handleFeatures(request,env){
 }
 
 function eventStatement(env,row){
-  const itemId=text(row.item_id,4096)?.trim(),eventType=text(row.event_type,100)?.trim(); if(!itemId||!eventType)throw new Error("item_id_event_type_required"); if(!isSupportedContentEvent(eventType))throw new Error("unsupported_event_type");
+  const itemId=text(row.item_id,4096)?.trim(),eventType=text(row.event_type,100)?.trim(),renderId=text(row.render_id,300)?.trim()||null;
+  if(!itemId||!eventType)throw new Error("item_id_event_type_required"); if(!isSupportedContentEvent(eventType))throw new Error("unsupported_event_type");
   return env.DB.prepare(`INSERT INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
-    SELECT ?,?,?,?,?,?,?,CURRENT_TIMESTAMP WHERE EXISTS(SELECT 1 FROM content_items WHERE item_id=?)`)
-    .bind(itemId,text(row.render_id,300),eventType,row.assistant_recommended?1:0,Number.isFinite(Number(row.assistant_rank))?Number(row.assistant_rank):null,text(row.explicit_feedback,1000),jsonText(row.context),itemId);
+    SELECT ?,?,?,?,?,?,?,CURRENT_TIMESTAMP
+    WHERE EXISTS(SELECT 1 FROM content_items WHERE item_id=?)
+      AND (? IS NULL OR NOT EXISTS(SELECT 1 FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?))`)
+    .bind(itemId,renderId,eventType,row.assistant_recommended?1:0,Number.isFinite(Number(row.assistant_rank))?Number(row.assistant_rank):null,text(row.explicit_feedback,1000),jsonText(row.context),itemId,renderId,itemId,eventType,renderId);
+}
+
+async function eventReadback(env,itemId,eventType,renderId){
+  if(!renderId)return {count:0,id:null};
+  const row=await env.DB.prepare(`SELECT COUNT(*) AS n, MAX(id) AS id FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?`).bind(itemId,eventType,renderId).first();
+  return {count:Number(row?.n||0),id:row?.id??null};
 }
 async function handleEvent(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
@@ -114,13 +123,18 @@ async function handleInterestIngest(request,env){
     const renderId=text(body.render_id,300)?.trim()||`interest-save:${item.item_id}`;
     const event={item_id:item.item_id,event_type:"interest_saved",render_id:renderId,explicit_feedback:"interest_saved",context:{source:"explicit_interest_ingest",...(body.context||{})}};
     const result=await eventStatement(env,event).run();
-    await markProfileDirty(env,"explicit_interest_ingested");
+    const readback=await eventReadback(env,item.item_id,"interest_saved",renderId);
+    if(readback.count!==1)return Response.json({ok:false,durable:false,d1_readback:false,error:"INTEREST_EVENT_READBACK_FAILED",item_id:item.item_id,render_id:renderId,event_count:readback.count},{status:500});
+    if(Number(result.meta?.changes||0)>0)await markProfileDirty(env,"explicit_interest_ingested");
     return Response.json({
       ok:true,
       durable:true,
+      d1_readback:true,
       item_id:item.item_id,
+      render_id:renderId,
       event_applied:Number(result.meta?.changes||0),
-      event_id:result.meta?.last_row_id??null,
+      event_idempotent:Number(result.meta?.changes||0)===0,
+      event_id:readback.id,
       feature_model:FEATURE_MODEL_VERSION,
       model_version:PERSONAL_MODEL_VERSION,
       semantic_enrichment:"deferred",
