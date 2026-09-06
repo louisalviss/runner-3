@@ -109,13 +109,17 @@ def main() -> int:
             json.dumps(envelope, separators=(",", ":")).encode(),
             auth=True,
         )
+        proof["submit_status"] = int(status)
         try:
             accepted = json.loads(raw.decode())
         except Exception:
             accepted = {}
+        submit_error = accepted.get("error") if isinstance(accepted, dict) else None
+        if isinstance(submit_error, str) and submit_error:
+            proof["submit_error"] = submit_error[:100]
         proof["opaque_submit_ok"] = status in (200, 202) and accepted.get("ok") is True and accepted.get("accepted") is True
         if proof["opaque_submit_ok"] is not True:
-            raise RuntimeError(f"mailbox submit failed status={status}")
+            raise RuntimeError("mailbox_submit_rejected")
 
         deadline = time.time() + 210
         while time.time() < deadline:
