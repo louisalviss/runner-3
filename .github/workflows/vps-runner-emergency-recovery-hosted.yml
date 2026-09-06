@@ -47,7 +47,7 @@ jobs:
             'observed_at_utc','hosted_producer','source_repo','purpose',
             'opaque_submit_ok','encrypted_result_roundtrip_ok','runner_recover_ok',
             'transport_ok','recovery_action','recovered','active_after',
-            'listener_after','blocker','error_class'
+            'listener_after','blocker','error_class','submit_status','submit_error'
           }
           assert set(p).issubset(allowed), set(p)-allowed
           assert p.get('hosted_producer') is True, p
