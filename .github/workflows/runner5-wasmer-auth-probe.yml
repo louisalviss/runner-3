@@ -42,15 +42,15 @@ jobs:
               -pass env:AUTOMATION_KEY -in "$encrypted" -out /tmp/wasmer-probe.json 2>/dev/null; then
               source="$label"; decrypt_ok=true
               if python3 - <<'PY'
-import json
-p='/tmp/wasmer-probe.json'
-try:
-    d=json.load(open(p))
-    ok=bool((d.get('username') or d.get('email')) and d.get('password'))
-except Exception:
-    ok=False
-raise SystemExit(0 if ok else 1)
-PY
+          import json
+          p='/tmp/wasmer-probe.json'
+          try:
+              d=json.load(open(p))
+              ok=bool((d.get('username') or d.get('email')) and d.get('password'))
+          except Exception:
+              ok=False
+          raise SystemExit(0 if ok else 1)
+          PY
               then account_shape=true; fi
               rm -f /tmp/wasmer-probe.json
               return 0

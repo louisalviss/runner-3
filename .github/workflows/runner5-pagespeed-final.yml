@@ -46,13 +46,13 @@ jobs:
             rm -f /tmp/psi-candidate.json
             PSI_URL="$target" PSI_UI_OUT=/tmp/psi-candidate.json PSI_UI_SCREENSHOT=/tmp/psi-candidate.png node scripts/pagespeed-ui-audit.mjs || true
             if python - <<'PY'
-import json,os,sys
-p='/tmp/psi-candidate.json'
-if not os.path.exists(p): raise SystemExit(1)
-d=json.load(open(p))
-ok=d.get('status')=='ready' and str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/')
-raise SystemExit(0 if ok else 1)
-PY
+          import json,os,sys
+          p='/tmp/psi-candidate.json'
+          if not os.path.exists(p): raise SystemExit(1)
+          d=json.load(open(p))
+          ok=d.get('status')=='ready' and str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/')
+          raise SystemExit(0 if ok else 1)
+          PY
             then
               cp /tmp/psi-candidate.json /tmp/runner5-final-psi.json
               echo "$target" >/tmp/runner5-final-site.txt
@@ -61,15 +61,15 @@ PY
             echo 'Google PSI did not produce a result for this candidate'
           done
           python - <<'PY'
-import json,os
-p='/tmp/runner5-final-psi.json'; d=json.load(open(p))
-print(json.dumps({
- 'status':d.get('status'),'target':d.get('target'),'resultUrl':d.get('resultUrl'),
- 'mobile':(d.get('mobile') or {}).get('scores'),'mobileMetrics':(d.get('mobile') or {}).get('metrics'),
- 'desktop':(d.get('desktop') or {}).get('scores'),'desktopMetrics':(d.get('desktop') or {}).get('metrics'),
- 'detail':d.get('detail')
-},indent=2))
-PY
+          import json,os
+          p='/tmp/runner5-final-psi.json'; d=json.load(open(p))
+          print(json.dumps({
+           'status':d.get('status'),'target':d.get('target'),'resultUrl':d.get('resultUrl'),
+           'mobile':(d.get('mobile') or {}).get('scores'),'mobileMetrics':(d.get('mobile') or {}).get('metrics'),
+           'desktop':(d.get('desktop') or {}).get('scores'),'desktopMetrics':(d.get('desktop') or {}).get('metrics'),
+           'detail':d.get('detail')
+          },indent=2))
+          PY
       - name: Persist final PageSpeed result
         if: always()
         shell: bash
@@ -92,8 +92,8 @@ PY
         shell: bash
         run: |
           python - <<'PY'
-import json
-d=json.load(open('/tmp/runner5-final-psi.json'))
-assert d.get('status')=='ready', json.dumps(d,indent=2)
-assert str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/'), d.get('resultUrl')
-PY
+          import json
+          d=json.load(open('/tmp/runner5-final-psi.json'))
+          assert d.get('status')=='ready', json.dumps(d,indent=2)
+          assert str(d.get('resultUrl') or '').startswith('https://pagespeed.web.dev/analysis/'), d.get('resultUrl')
+          PY
