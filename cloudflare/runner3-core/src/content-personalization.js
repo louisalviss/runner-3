@@ -1,6 +1,6 @@
 export const PERSONAL_MODEL_VERSION = "personal-v2";
 export const PROFILE_STATE_KEY = "content-intelligence-profile";
-export const RECOMPUTE_DEBOUNCE_MS = 60_000;
+export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
 export const EVENT_WEIGHTS = {
   shown: 0,
   selected: 1,
@@ -16,12 +16,15 @@ export function isSupportedContentEvent(eventType) {
 }
 
 export async function markProfileDirty(env, reason = "content_intelligence_event") {
-  if (!env?.DB) return;
-  await env.DB.prepare(`
+  if (!env?.DB) return 0;
+  const result = await env.DB.prepare(`
     INSERT INTO workflow_state(source,status,detail,updated_at)
     VALUES(?, 'dirty', ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(source) DO UPDATE SET status='dirty', detail=excluded.detail, updated_at=CURRENT_TIMESTAMP
+    ON CONFLICT(source) DO UPDATE SET
+      status='dirty', detail=excluded.detail, updated_at=CURRENT_TIMESTAMP
+    WHERE workflow_state.status IS NOT 'dirty'
   `).bind(PROFILE_STATE_KEY, JSON.stringify({ reason })).run();
+  return Number(result.meta?.changes || 0);
 }
 
 async function profileState(env) {
@@ -66,9 +69,8 @@ const ITEM_SIGNAL_CTE = `
 `;
 
 export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODEL_VERSION) {
-  if (!env?.DB) return { ok: false, model_version: modelVersion, profile_features: 0 };
-  await env.DB.prepare("DELETE FROM interest_profile").run();
-  await env.DB.prepare(`${ITEM_SIGNAL_CTE}
+  if (!env?.DB) return { ok: false, model_version: modelVersion, profile_features: 0, changed: 0 };
+  const upsert = await env.DB.prepare(`${ITEM_SIGNAL_CTE}
     INSERT INTO interest_profile(
       feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at
     )
@@ -82,15 +84,45 @@ export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODE
     JOIN content_features f ON f.item_id=s.item_id
     WHERE s.signal<>0
     GROUP BY f.feature_type,f.feature_key
+    ON CONFLICT(feature_type,feature_key) DO UPDATE SET
+      weight=excluded.weight,
+      evidence_count=excluded.evidence_count,
+      positive_count=excluded.positive_count,
+      negative_count=excluded.negative_count,
+      confidence=excluded.confidence,
+      updated_at=CURRENT_TIMESTAMP
+    WHERE interest_profile.weight IS NOT excluded.weight
+       OR interest_profile.evidence_count IS NOT excluded.evidence_count
+       OR interest_profile.positive_count IS NOT excluded.positive_count
+       OR interest_profile.negative_count IS NOT excluded.negative_count
+       OR interest_profile.confidence IS NOT excluded.confidence
+  `).run();
+  const removed = await env.DB.prepare(`${ITEM_SIGNAL_CTE}
+    DELETE FROM interest_profile
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM item_signal s
+      JOIN content_features f ON f.item_id=s.item_id
+      WHERE s.signal<>0
+        AND f.feature_type=interest_profile.feature_type
+        AND f.feature_key=interest_profile.feature_key
+    )
   `).run();
   const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM interest_profile").first();
-  return { ok: true, model_version: modelVersion, profile_features: Number(row?.n || 0) };
+  return {
+    ok: true,
+    model_version: modelVersion,
+    profile_features: Number(row?.n || 0),
+    changed: Number(upsert.meta?.changes || 0) + Number(removed.meta?.changes || 0),
+  };
 }
 
 export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL_VERSION) {
-  if (!env?.DB) return { ok: false, model_version: modelVersion, scored_items: 0 };
-  await env.DB.prepare("DELETE FROM content_scores WHERE score_type='personal_relevance'").run();
-  await env.DB.prepare(`
+  if (!env?.DB) return { ok: false, model_version: modelVersion, scored_items: 0, changed: 0 };
+  const stale = await env.DB.prepare(
+    "DELETE FROM content_scores WHERE score_type='personal_relevance' AND model_version<>?"
+  ).bind(modelVersion).run();
+  const upsert = await env.DB.prepare(`
     WITH feature_rollup AS (
       SELECT i.item_id,
         COALESCE(SUM(p.weight*f.weight*f.confidence),0) AS relevance_signal,
@@ -137,9 +169,23 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
         'model',?
       ),?,CURRENT_TIMESTAMP
     FROM components
+    WHERE 1=1
+    ON CONFLICT(item_id,score_type,model_version) DO UPDATE SET
+      score=excluded.score,
+      confidence=excluded.confidence,
+      reason_json=excluded.reason_json,
+      scored_at=CURRENT_TIMESTAMP
+    WHERE content_scores.score IS NOT excluded.score
+       OR content_scores.confidence IS NOT excluded.confidence
+       OR content_scores.reason_json IS NOT excluded.reason_json
   `).bind(modelVersion, modelVersion).run();
   const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM content_scores WHERE score_type='personal_relevance' AND model_version=?").bind(modelVersion).first();
-  return { ok: true, model_version: modelVersion, scored_items: Number(row?.n || 0) };
+  return {
+    ok: true,
+    model_version: modelVersion,
+    scored_items: Number(row?.n || 0),
+    changed: Number(stale.meta?.changes || 0) + Number(upsert.meta?.changes || 0),
+  };
 }
 
 export async function recomputePersonalization(env, modelVersion = PERSONAL_MODEL_VERSION) {
