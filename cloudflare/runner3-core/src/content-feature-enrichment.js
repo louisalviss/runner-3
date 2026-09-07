@@ -178,17 +178,35 @@ export async function replaceAutoSemanticFeatures(env, itemId, item = {}) {
     return { applied: 0, features: generated, unchanged: true };
   }
 
-  await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN (${models.map(() => "?").join(",")})`).bind(itemId, ...models).run();
-  let applied = 0;
+  const keyOf = (row) => `${row.feature_type}\u0000${row.feature_key}`;
+  const generatedKeys = new Set(generated.map(keyOf));
+  const statements = [];
+  for (const row of existing) {
+    if (!generatedKeys.has(keyOf(row))) {
+      statements.push(env.DB.prepare(`
+        DELETE FROM content_features
+        WHERE item_id=? AND feature_type=? AND feature_key=?
+          AND model_version IN (${models.map(() => "?").join(",")})
+      `).bind(itemId, row.feature_type, row.feature_key, ...models));
+    }
+  }
   for (const feature of generated) {
-    const result = await env.DB.prepare(`
+    statements.push(env.DB.prepare(`
       INSERT INTO content_features(item_id,feature_type,feature_key,feature_value,weight,confidence,model_version,updated_at)
       VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(item_id,feature_type,feature_key) DO UPDATE SET
-        feature_value=excluded.feature_value,weight=excluded.weight,confidence=excluded.confidence,
-        model_version=excluded.model_version,updated_at=CURRENT_TIMESTAMP
-    `).bind(itemId, feature.feature_type, feature.feature_key, feature.feature_value, feature.weight, feature.confidence, feature.model_version).run();
-    applied += Number(result.meta?.changes || 0);
+        feature_value=excluded.feature_value,
+        weight=excluded.weight,
+        confidence=excluded.confidence,
+        model_version=excluded.model_version,
+        updated_at=CURRENT_TIMESTAMP
+      WHERE content_features.feature_value IS NOT excluded.feature_value
+         OR content_features.weight IS NOT excluded.weight
+         OR content_features.confidence IS NOT excluded.confidence
+         OR content_features.model_version IS NOT excluded.model_version
+    `).bind(itemId, feature.feature_type, feature.feature_key, feature.feature_value, feature.weight, feature.confidence, feature.model_version));
   }
-  return { applied, features: generated, unchanged: false };
+  const results = statements.length ? await env.DB.batch(statements) : [];
+  const applied = results.reduce((n, result) => n + Number(result.meta?.changes || 0), 0);
+  return { applied, features: generated, unchanged: applied === 0 };
 }

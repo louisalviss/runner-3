@@ -8,6 +8,8 @@ const MOBILE_CAPABLE = '<meta name="mobile-web-app-capable" content="yes">';
 const IOS_STATUS_BLACK = '<meta name="apple-mobile-web-app-status-bar-style" content="black">';
 const IOS_STATUS_TRANSLUCENT = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
 const IOS_STARTUP_MARKER = '<meta name="r3-ios-home-screen-startup-policy" content="opaque-v39">';
+const PERSONALIZATION_CRON = "47 * * * *";
+const DAILY_CRON = "17 3 * * *";
 
 function loadReaderApp() {
   if (!readerAppPromise) {
@@ -61,15 +63,24 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    const [{ maybeRecomputePersonal }, app] = await Promise.all([
+    const [learning, app] = await Promise.all([
       loadLearningModule(),
       loadReaderApp(),
     ]);
-    const flush = maybeRecomputePersonal(env, { force: true }).catch((error) => {
-      console.warn("content intelligence scheduled recompute failed", String(error?.message || error));
+    const flush = (async () => {
+      const recompute = await learning.maybeRecomputePersonal(env);
+      if (controller?.cron === DAILY_CRON && !recompute?.recomputed) {
+        await learning.refreshPersonalScoresDaily(env);
+      }
+    })().catch((error) => {
+      console.warn("content intelligence scheduled refresh failed", String(error?.message || error));
     });
     if (ctx?.waitUntil) ctx.waitUntil(flush);
     else await flush;
+
+    // The hourly cron exists only for personalization. Do not fan it out to the
+    // historical daily scheduled chain.
+    if (controller?.cron === PERSONALIZATION_CRON) return;
     if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },
 };

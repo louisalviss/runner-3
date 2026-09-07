@@ -2,6 +2,17 @@ name: Content Intelligence v2 Regression
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
+      - 'cloudflare/runner3-core/src/content-personalization.js'
+      - 'cloudflare/runner3-core/src/content-intelligence.js'
+      - 'cloudflare/runner3-core/src/rss-reader-learning.js'
+      - 'cloudflare/runner3-core/audio-entry.js'
+      - 'cloudflare/runner3-core/wrangler.jsonc'
+      - 'scripts/verify_runner3_d1_quota_guards.mjs'
+      - '.github/workflows/content-intelligence-v2-test.yml'
   push:
     branches: [main]
     paths:
@@ -9,6 +20,9 @@ on:
       - 'cloudflare/runner3-core/src/content-personalization.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
+      - 'cloudflare/runner3-core/audio-entry.js'
+      - 'cloudflare/runner3-core/wrangler.jsonc'
+      - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
 
 permissions:
@@ -34,6 +48,7 @@ jobs:
           node --check cloudflare/runner3-core/src/content-personalization.js
           node --check cloudflare/runner3-core/src/content-intelligence.js
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
+          node scripts/verify_runner3_d1_quota_guards.mjs
           grep -q 'interest_saved' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'latest-explicit-wins' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'freshness_bonus' cloudflare/runner3-core/src/content-personalization.js
