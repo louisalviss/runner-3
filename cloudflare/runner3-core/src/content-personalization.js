@@ -1,6 +1,8 @@
 export const PERSONAL_MODEL_VERSION = "personal-v2";
 export const PROFILE_STATE_KEY = "content-intelligence-profile";
-export const RECOMPUTE_DEBOUNCE_MS = 60_000;
+export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
+export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
+export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
 export const EVENT_WEIGHTS = {
   shown: 0,
   selected: 1,
@@ -16,16 +18,63 @@ export function isSupportedContentEvent(eventType) {
 }
 
 export async function markProfileDirty(env, reason = "content_intelligence_event") {
-  if (!env?.DB) return;
-  await env.DB.prepare(`
-    INSERT INTO workflow_state(source,status,detail,updated_at)
-    VALUES(?, 'dirty', ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(source) DO UPDATE SET status='dirty', detail=excluded.detail, updated_at=CURRENT_TIMESTAMP
+  if (!env?.DB) return 0;
+  const result = await env.DB.prepare(`
+    INSERT INTO workflow_state(source,status,run_id,detail,updated_at)
+    VALUES(?, 'dirty', NULL, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(source) DO UPDATE SET
+      status='dirty', run_id=NULL, detail=excluded.detail, updated_at=CURRENT_TIMESTAMP
+    WHERE workflow_state.status IS NOT 'dirty'
   `).bind(PROFILE_STATE_KEY, JSON.stringify({ reason })).run();
+  return Number(result.meta?.changes || 0);
 }
 
 async function profileState(env) {
-  return env.DB.prepare("SELECT status,detail,updated_at FROM workflow_state WHERE source=?").bind(PROFILE_STATE_KEY).first();
+  return env.DB.prepare("SELECT status,run_id,detail,updated_at FROM workflow_state WHERE source=?").bind(PROFILE_STATE_KEY).first();
+}
+
+function leaseToken() {
+  return typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function agoModifier(ms) {
+  return `-${Math.max(0, Math.floor(ms / 1000))} seconds`;
+}
+
+async function acquireRecomputeLease(env, modelVersion) {
+  const token = leaseToken();
+  const detail = JSON.stringify({ model: modelVersion, lease_acquired_at: new Date().toISOString() });
+  const result = await env.DB.prepare(`
+    UPDATE workflow_state
+    SET status='recomputing', run_id=?, detail=?, updated_at=CURRENT_TIMESTAMP
+    WHERE source=? AND (
+      (status='dirty' AND updated_at <= datetime('now',?))
+      OR (status='recomputing' AND updated_at <= datetime('now',?))
+    )
+  `).bind(token, detail, PROFILE_STATE_KEY, agoModifier(RECOMPUTE_DEBOUNCE_MS), agoModifier(RECOMPUTE_LEASE_MS)).run();
+  return Number(result.meta?.changes || 0) === 1 ? token : null;
+}
+
+async function finishRecomputeLease(env, token, modelVersion) {
+  const result = await env.DB.prepare(`
+    UPDATE workflow_state
+    SET status='clean', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
+    WHERE source=? AND status='recomputing' AND run_id=?
+  `).bind(JSON.stringify({ recomputed_at: new Date().toISOString(), model: modelVersion }), PROFILE_STATE_KEY, token).run();
+  return Number(result.meta?.changes || 0) === 1;
+}
+
+async function failRecomputeLease(env, token, error) {
+  await env.DB.prepare(`
+    UPDATE workflow_state
+    SET status='dirty', run_id=NULL, detail=?, updated_at=datetime('now',?)
+    WHERE source=? AND status='recomputing' AND run_id=?
+  `).bind(
+    JSON.stringify({ retryable_error: String(error?.message || error) }),
+    agoModifier(RECOMPUTE_DEBOUNCE_MS - RECOMPUTE_RETRY_MS),
+    PROFILE_STATE_KEY,
+    token,
+  ).run();
 }
 
 const ITEM_SIGNAL_CTE = `
@@ -66,9 +115,8 @@ const ITEM_SIGNAL_CTE = `
 `;
 
 export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODEL_VERSION) {
-  if (!env?.DB) return { ok: false, model_version: modelVersion, profile_features: 0 };
-  await env.DB.prepare("DELETE FROM interest_profile").run();
-  await env.DB.prepare(`${ITEM_SIGNAL_CTE}
+  if (!env?.DB) return { ok: false, model_version: modelVersion, profile_features: 0, changed: 0 };
+  const upsert = await env.DB.prepare(`${ITEM_SIGNAL_CTE}
     INSERT INTO interest_profile(
       feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at
     )
@@ -82,15 +130,45 @@ export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODE
     JOIN content_features f ON f.item_id=s.item_id
     WHERE s.signal<>0
     GROUP BY f.feature_type,f.feature_key
+    ON CONFLICT(feature_type,feature_key) DO UPDATE SET
+      weight=excluded.weight,
+      evidence_count=excluded.evidence_count,
+      positive_count=excluded.positive_count,
+      negative_count=excluded.negative_count,
+      confidence=excluded.confidence,
+      updated_at=CURRENT_TIMESTAMP
+    WHERE interest_profile.weight IS NOT excluded.weight
+       OR interest_profile.evidence_count IS NOT excluded.evidence_count
+       OR interest_profile.positive_count IS NOT excluded.positive_count
+       OR interest_profile.negative_count IS NOT excluded.negative_count
+       OR interest_profile.confidence IS NOT excluded.confidence
+  `).run();
+  const removed = await env.DB.prepare(`${ITEM_SIGNAL_CTE}
+    DELETE FROM interest_profile
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM item_signal s
+      JOIN content_features f ON f.item_id=s.item_id
+      WHERE s.signal<>0
+        AND f.feature_type=interest_profile.feature_type
+        AND f.feature_key=interest_profile.feature_key
+    )
   `).run();
   const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM interest_profile").first();
-  return { ok: true, model_version: modelVersion, profile_features: Number(row?.n || 0) };
+  return {
+    ok: true,
+    model_version: modelVersion,
+    profile_features: Number(row?.n || 0),
+    changed: Number(upsert.meta?.changes || 0) + Number(removed.meta?.changes || 0),
+  };
 }
 
 export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL_VERSION) {
-  if (!env?.DB) return { ok: false, model_version: modelVersion, scored_items: 0 };
-  await env.DB.prepare("DELETE FROM content_scores WHERE score_type='personal_relevance'").run();
-  await env.DB.prepare(`
+  if (!env?.DB) return { ok: false, model_version: modelVersion, scored_items: 0, changed: 0 };
+  const stale = await env.DB.prepare(
+    "DELETE FROM content_scores WHERE score_type='personal_relevance' AND model_version<>?"
+  ).bind(modelVersion).run();
+  const upsert = await env.DB.prepare(`
     WITH feature_rollup AS (
       SELECT i.item_id,
         COALESCE(SUM(p.weight*f.weight*f.confidence),0) AS relevance_signal,
@@ -137,29 +215,73 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
         'model',?
       ),?,CURRENT_TIMESTAMP
     FROM components
+    WHERE 1=1
+    ON CONFLICT(item_id,score_type,model_version) DO UPDATE SET
+      score=excluded.score,
+      confidence=excluded.confidence,
+      reason_json=excluded.reason_json,
+      scored_at=CURRENT_TIMESTAMP
+    WHERE content_scores.score IS NOT excluded.score
+       OR content_scores.confidence IS NOT excluded.confidence
+       OR content_scores.reason_json IS NOT excluded.reason_json
   `).bind(modelVersion, modelVersion).run();
   const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM content_scores WHERE score_type='personal_relevance' AND model_version=?").bind(modelVersion).first();
-  return { ok: true, model_version: modelVersion, scored_items: Number(row?.n || 0) };
+  return {
+    ok: true,
+    model_version: modelVersion,
+    scored_items: Number(row?.n || 0),
+    changed: Number(stale.meta?.changes || 0) + Number(upsert.meta?.changes || 0),
+  };
 }
 
 export async function recomputePersonalization(env, modelVersion = PERSONAL_MODEL_VERSION) {
   const profile = await recomputeInterestProfile(env, modelVersion);
   const scores = await recomputePersonalScores(env, modelVersion);
-  await env.DB.prepare(`
-    INSERT INTO workflow_state(source,status,detail,updated_at)
-    VALUES(?, 'clean', ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(source) DO UPDATE SET status='clean',detail=excluded.detail,updated_at=CURRENT_TIMESTAMP
-  `).bind(PROFILE_STATE_KEY, JSON.stringify({ recomputed_at: new Date().toISOString(), model: modelVersion })).run();
-  return { ok: true, model_version: modelVersion, profile_features: profile.profile_features, scored_items: scores.scored_items };
+  return {
+    ok: true,
+    model_version: modelVersion,
+    profile_features: profile.profile_features,
+    scored_items: scores.scored_items,
+    changed: Number(profile.changed || 0) + Number(scores.changed || 0),
+  };
 }
 
-export async function maybeRecomputePersonal(env, { force = false, modelVersion = PERSONAL_MODEL_VERSION } = {}) {
+export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION } = {}) {
   if (!env?.DB) return { ok: false, recomputed: false };
+  const before = await profileState(env);
+  if (!before) return { ok: true, recomputed: false, status: "missing" };
+  if (before.status === "clean") return { ok: true, recomputed: false, status: "clean" };
+
+  const token = await acquireRecomputeLease(env, modelVersion);
+  if (!token) {
+    const current = await profileState(env);
+    if (current?.status === "dirty") return { ok: true, recomputed: false, status: "dirty_debounced" };
+    if (current?.status === "recomputing") return { ok: true, recomputed: false, status: "recompute_in_progress" };
+    return { ok: true, recomputed: false, status: current?.status || "missing" };
+  }
+
+  try {
+    const result = await recomputePersonalization(env, modelVersion);
+    const committed = await finishRecomputeLease(env, token, modelVersion);
+    return {
+      ...result,
+      recomputed: true,
+      lease_committed: committed,
+      status: committed ? "clean" : "dirty_after_recompute",
+    };
+  } catch (error) {
+    await failRecomputeLease(env, token, error);
+    throw error;
+  }
+}
+
+export async function refreshPersonalScoresDaily(env, { modelVersion = PERSONAL_MODEL_VERSION } = {}) {
+  if (!env?.DB) return { ok: false, refreshed: false };
   const state = await profileState(env);
-  if (!state || state.status !== "dirty") return { ok: true, recomputed: false, status: state?.status || "missing" };
-  const last = Date.parse(state.updated_at || 0);
-  const due = force || !Number.isFinite(last) || Date.now() - last >= RECOMPUTE_DEBOUNCE_MS;
-  if (!due) return { ok: true, recomputed: false, status: "dirty_debounced" };
-  const result = await recomputePersonalization(env, modelVersion);
-  return { ...result, recomputed: true, status: "clean" };
+  if (!state) return { ok: true, refreshed: false, status: "profile_missing" };
+  if (state.status === "dirty" || state.status === "recomputing") {
+    return { ok: true, refreshed: false, status: `profile_${state.status}` };
+  }
+  const result = await recomputePersonalScores(env, modelVersion);
+  return { ...result, refreshed: true, status: "score_refreshed" };
 }
