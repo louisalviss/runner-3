@@ -29,7 +29,7 @@ jobs:
           project='ebook-editorial'; scope='vbth-chatgpt-direct'; name='work/editorial/batches/ch0003-s000086-8cca0c0357104bdb63e1827f.json'
           parts=['artifacts',project,scope]+name.split('/')
           url=core+'/'+ '/'.join(urllib.parse.quote(x,safe='') for x in parts)
-          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'Accept':'application/json','X-Runner3-Source':'github-hosted-ch3-inspect'})
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'Accept':'application/json','User-Agent':'runner-3-private-backtest/1','Cache-Control':'no-cache','X-Runner3-Source':'runner-3-github-hosted'})
           raw=urllib.request.urlopen(req,timeout=60).read(); obj=json.loads(raw)
           source=obj.get('source') or {}; edited=obj.get('edited') or {}
           keys=sorted(source)
@@ -48,3 +48,5 @@ jobs:
           git commit -m 'Publish Chapter 3 slot 102 inspection [skip ci]'
           git pull --rebase origin main
           git push origin HEAD:main
+
+# canonical-source-retry: 2026-09-07T22:22Z
