@@ -197,6 +197,24 @@ def cmd_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_recommendation_snapshot(args: argparse.Namespace) -> int:
+    payload = {"render_id": args.render_id, "snapshot_id": args.snapshot_id, "top_k": args.top_k}
+    result = request_json("POST", "/content-intelligence/recommendations/snapshot", payload, core_url=args.core_url)
+    text = json.dumps(result, ensure_ascii=False, sort_keys=True)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh: fh.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+    print(text)
+    return 0 if result.get("ok") else 1
+
+def cmd_recommendation_evaluate(args: argparse.Namespace) -> int:
+    from urllib.parse import quote
+    result = request_json("GET", f"/content-intelligence/recommendations/evaluate?snapshot_id={quote(args.snapshot_id, safe='')}", core_url=args.core_url)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh: fh.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0 if result.get("ok") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--core-url")
@@ -230,6 +248,16 @@ def build_parser() -> argparse.ArgumentParser:
     g = sub.add_parser("profile")
     g.add_argument("--limit", type=int, default=100)
     g.set_defaults(func=cmd_profile)
+    rs = sub.add_parser("recommendation-snapshot")
+    rs.add_argument("--render-id", required=True)
+    rs.add_argument("--snapshot-id", required=True)
+    rs.add_argument("--top-k", type=int, default=10)
+    rs.add_argument("--out")
+    rs.set_defaults(func=cmd_recommendation_snapshot)
+    reval = sub.add_parser("recommendation-evaluate")
+    reval.add_argument("--snapshot-id", required=True)
+    reval.add_argument("--out")
+    reval.set_defaults(func=cmd_recommendation_evaluate)
     return p
 
 

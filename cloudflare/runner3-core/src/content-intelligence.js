@@ -2,6 +2,9 @@ import { FEATURE_MODEL_VERSION, replaceAutoSemanticFeatures } from "./content-fe
 import {
   PERSONAL_MODEL_VERSION,
   RECOMPUTE_DEBOUNCE_MS,
+  PERSONAL_POLICY_VERSION,
+  snapshotRecommendationRun,
+  evaluateRecommendationRun,
   isSupportedContentEvent,
   markProfileDirty,
   maybeRecomputePersonal,
@@ -208,9 +211,20 @@ async function handleGuardedRecompute(request,env){
   });
 }
 async function handleProfileRecompute(request,env){ return handleGuardedRecompute(request,env); }
+async function handleRecommendationSnapshot(request,env){
+  const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
+  const body=await request.json().catch(()=>({}));
+  const result=await snapshotRecommendationRun(env,text(body.snapshot_id,300)||text(body.render_id,300),{sourceRenderId:text(body.render_id,300),topK:body.top_k,modelVersion:PERSONAL_MODEL_VERSION});
+  return Response.json(result,{status:result.ok?200:400});
+}
+async function handleRecommendationEvaluation(request,env,url){
+  const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
+  const result=await evaluateRecommendationRun(env,text(url.searchParams.get("snapshot_id"),300));
+  return Response.json(result,{status:result.ok?200:404});
+}
 async function handleScoresRecompute(request,env){ return handleGuardedRecompute(request,env); }
-async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,rows:result.results||[]}); }
-async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,rows:result.results||[]}); }
+async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION,rows:result.results||[]}); }
+async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION,rows:result.results||[]}); }
 
 async function handleSynthesis(request,env,url){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
@@ -245,6 +259,8 @@ export async function handleContentIntelligence(request,env,url){
   if(url.pathname==="/content-intelligence/profile/recompute")return handleProfileRecompute(request,env);
   if(url.pathname==="/content-intelligence/scores/recompute")return handleScoresRecompute(request,env);
   if(url.pathname==="/content-intelligence/scores/top")return handleTopScores(request,env,url);
+  if(url.pathname==="/content-intelligence/recommendations/snapshot")return handleRecommendationSnapshot(request,env);
+  if(url.pathname==="/content-intelligence/recommendations/evaluate")return handleRecommendationEvaluation(request,env,url);
   if(url.pathname==="/content-intelligence/synthesis")return handleSynthesis(request,env,url);
   return null;
 }
