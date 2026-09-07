@@ -1,0 +1,73 @@
+name: Interest v3 Live Materialization Verify
+
+on:
+  push:
+    branches: [interest-v3-live-verify-20260908]
+    paths:
+      - ".github/workflows/interest-v3-live-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: interest-v3-live-verify-20260908
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Trigger guarded materialization through snapshot and verify compression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          core='https://runner3-core.ducduy2411.workers.dev'
+          auth="Authorization: Bearer ${RUNNER3_CORE_TOKEN}"
+
+          curl -fsS -H "$auth" "$core/content-intelligence/synthesis?profile_limit=5&score_limit=5" -o /tmp/before.json
+          eval "$(python - <<'PY'
+          import json,shlex
+          p='data/rss-reader/recommendation-snapshots/2026-09-08.json'
+          s=json.load(open(p,encoding='utf-8'))
+          rid=str(s.get('source_render_id') or '')
+          assert rid, s
+          print('RID='+shlex.quote(rid))
+          PY
+          )"
+
+          python scripts/content_intelligence_client.py recommendation-snapshot \
+            --render-id "$RID" \
+            --snapshot-id "live-v3-materialization-${GITHUB_RUN_ID}" \
+            --top-k 10 --out /tmp/snapshot.json
+
+          curl -fsS -H "$auth" "$core/content-intelligence/synthesis?profile_limit=5&score_limit=5" -o /tmp/after.json
+          python scripts/content_intelligence_client.py recompute --model-version personal-v3 > /tmp/second.json
+
+          python - <<'PY'
+          import json
+          before=json.load(open('/tmp/before.json'))
+          snap=json.load(open('/tmp/snapshot.json'))
+          after=json.load(open('/tmp/after.json'))
+          second=json.load(open('/tmp/second.json'))
+          bcount=int((before.get('counts') or {}).get('profile_features') or 0)
+          acount=int((after.get('counts') or {}).get('profile_features') or 0)
+          mat=snap.get('materialization') or {}
+          assert snap.get('ok') is True, snap
+          assert mat.get('ok') is True, mat
+          assert mat.get('guarded') is True, mat
+          assert after.get('model_version') == 'personal-v3', after
+          assert acount > 0, acount
+          assert acount < 1208, (bcount,acount)
+          p2=second.get('profile') or {}
+          assert p2.get('recomputed') is False, p2
+          assert p2.get('status') in ('clean','dirty_debounced','recompute_in_progress'), p2
+          print('LIVE_V3_MATERIALIZATION_PASS before=%d after=%d materialization=%s second=%s' % (
+            bcount,acount,json.dumps(mat,sort_keys=True),json.dumps(p2,sort_keys=True)))
+          PY
