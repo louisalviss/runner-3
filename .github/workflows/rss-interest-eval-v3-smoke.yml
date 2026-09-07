@@ -1,0 +1,56 @@
+name: RSS Interest Eval v3 Smoke
+
+on:
+  push:
+    branches: [rss-interest-eval-v3-20260908]
+    paths: ['.github/workflows/rss-interest-eval-v3-smoke.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: rss-interest-eval-v3-20260908
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ingest and snapshot exact frozen manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          src='data/rss-reader/kept-manifest-today.json'
+          obj=json.load(open(src,encoding='utf-8'))
+          date=str(obj.get('date') or '').strip(); mh=str(obj.get('manifestHash') or '').strip()
+          assert date and mh, obj
+          obj['renderId']=f'rss:{date}:{mh}'
+          json.dump(obj,open('/tmp/ci-today.json','w',encoding='utf-8'),ensure_ascii=False)
+          open('/tmp/meta','w').write(f'{date}\n{mh}\n{len(obj.get("manifest") or [])}\n')
+          print('EXACT_RENDER_ID='+obj['renderId'])
+          PY
+          mapfile -t meta </tmp/meta
+          today="${meta[0]}"; hash="${meta[1]}"; expected="${meta[2]}"
+          python scripts/content_intelligence_client.py ingest-manifest --manifest /tmp/ci-today.json --source-type rss
+          python scripts/content_intelligence_client.py recommendation-snapshot \
+            --render-id "rss:${today}:${hash}" \
+            --snapshot-id "rss-v3-${today}-${hash:0:12}" \
+            --top-k 10 --out /tmp/snapshot.json
+          python - "$expected" <<'PY'
+          import json,sys
+          s=json.load(open('/tmp/snapshot.json',encoding='utf-8'))
+          expected=int(sys.argv[1])
+          assert s.get('ok') is True,s
+          assert s.get('item_count') == expected,(s.get('item_count'),expected)
+          assert len(s.get('baseline') or []) == min(10,expected),s
+          assert len(s.get('personalized') or []) == min(10,expected),s
+          print('EXACT_MANIFEST_SNAPSHOT_PASS item_count=%d distribution=%s' % (expected,s.get('score_distribution')))
+          PY
