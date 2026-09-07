@@ -1,0 +1,82 @@
+name: Interest v3 Final Live Verify
+
+on:
+  push:
+    branches: [interest-v3-final-live-verify-20260908]
+    paths:
+      - ".github/workflows/interest-v3-final-live-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: interest-v3-final-live-verify-20260908
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify v3 materialization, persisted scores, compression and guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          core='https://runner3-core.ducduy2411.workers.dev'
+          auth="Authorization: Bearer ${RUNNER3_CORE_TOKEN}"
+
+          eval "$(python - <<'PY'
+          import json,shlex
+          p='data/rss-reader/recommendation-snapshots/2026-09-08.json'
+          s=json.load(open(p,encoding='utf-8'))
+          rid=str(s.get('source_render_id') or '')
+          assert rid, s
+          print('RID='+shlex.quote(rid))
+          PY
+          )"
+
+          python scripts/content_intelligence_client.py recommendation-snapshot \
+            --render-id "$RID" \
+            --snapshot-id "final-live-v3-${GITHUB_RUN_ID}" \
+            --top-k 10 --out /tmp/snapshot.json
+
+          curl -fsS -H "$auth" "$core/content-intelligence/scores/top?limit=10" -o /tmp/top.json
+          curl -fsS -H "$auth" "$core/content-intelligence/synthesis?profile_limit=5&score_limit=5" -o /tmp/synthesis.json
+          python scripts/content_intelligence_client.py recompute --model-version personal-v3 > /tmp/repeat.json
+
+          python - <<'PY'
+          import json
+          snap=json.load(open('/tmp/snapshot.json'))
+          top=json.load(open('/tmp/top.json'))
+          syn=json.load(open('/tmp/synthesis.json'))
+          repeat=json.load(open('/tmp/repeat.json'))
+          mat=snap.get('materialization') or {}
+          rows=top.get('rows') or []
+          features=int((syn.get('counts') or {}).get('profile_features') or 0)
+          profile=repeat.get('profile') or {}
+          scores=repeat.get('scores') or {}
+
+          assert snap.get('ok') is True, snap
+          assert snap.get('model_version') == 'personal-v3', snap
+          assert mat.get('ok') is True, mat
+          assert mat.get('guarded') is True, mat
+          assert mat.get('model_version') == 'personal-v3', mat
+          assert top.get('ok') is True, top
+          assert top.get('model_version') == 'personal-v3', top
+          assert rows, top
+          assert all(r.get('model_version') == 'personal-v3' for r in rows), rows
+          assert syn.get('model_version') == 'personal-v3', syn
+          assert 0 < features < 300, features
+          assert profile.get('recomputed') is False, profile
+          assert profile.get('status') == 'clean', profile
+          assert scores.get('recomputed') is False, scores
+          assert scores.get('status') == 'clean', scores
+          print('FINAL_V3_LIVE_PASS features=%d persisted_rows=%d materialization=%s repeat_profile=%s' % (
+            features,len(rows),json.dumps(mat,sort_keys=True),json.dumps(profile,sort_keys=True)))
+          PY
