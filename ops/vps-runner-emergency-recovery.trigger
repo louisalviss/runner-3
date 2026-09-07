@@ -1,2 +1,2 @@
-request_id=runner-recovery-public-hosted-tail-20260907-03
-purpose=capture-filtered-worker-exception-for-1101
+request_id=runner-recovery-public-hosted-ebook-ch3-20260908-01
+purpose=restore-self-hosted-runner-for-ebook-chatgpt-direct-chapter3-resume
