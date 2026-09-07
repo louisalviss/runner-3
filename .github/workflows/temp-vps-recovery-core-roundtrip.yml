@@ -1,0 +1,86 @@
+name: Temp VPS Recovery Core Roundtrip
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-vps-recovery-core-roundtrip.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  roundtrip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CORE: https://runner3-core.ducduy2411.workers.dev
+      TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 1}
+      - name: Install crypto
+        run: python3 -m pip install --disable-pip-version-check --quiet cryptography
+      - name: Build fixed runner-recover request with ephemeral reply key
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,datetime as dt,hashlib,json,os,pathlib,re,secrets
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric import padding,rsa
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          src=pathlib.Path('cloudflare/runner3-core/mailbox-fast-entry.js').read_text()
+          m=re.search(r'const VPS_MAILBOX_PUBLIC_KEY_DER_B64 = "([A-Za-z0-9+/=]+)";',src); assert m
+          vps=serialization.load_der_public_key(base64.b64decode(m.group(1)))
+          rid='m_'+secrets.token_hex(16); reply=rsa.generate_private_key(public_exponent=65537,key_size=3072)
+          pub=reply.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)
+          now=dt.datetime.now(dt.timezone.utc)
+          body={'request_id':rid,'issued_at':now.isoformat(),'expires_at':(now+dt.timedelta(minutes=10)).isoformat(),'kind':'router','timeout_seconds':180,'task':{'flow':'runner-recover'}}
+          raw=json.dumps(body,separators=(',',':')).encode(); key=os.urandom(32); nonce=os.urandom(12)
+          env={'version':1,'alg':'RSA-OAEP-SHA256+A256GCM','request_id':rid,'encrypted_key':base64.b64encode(vps.encrypt(key,padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=None))).decode(),'nonce':base64.b64encode(nonce).decode(),'ciphertext':base64.b64encode(AESGCM(key).encrypt(nonce,raw,rid.encode())).decode(),'reply_public_key_der':base64.b64encode(pub).decode()}
+          pathlib.Path('/tmp/request.json').write_text(json.dumps(env,separators=(',',':')))
+          pathlib.Path('/tmp/reply.pem').write_bytes(reply.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+          pathlib.Path('/tmp/rid').write_text(rid)
+          print('request_id='+rid)
+          PY
+          echo "RID=$(cat /tmp/rid)" >> "$GITHUB_ENV"
+      - name: Enqueue and decrypt result
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data-binary @/tmp/request.json "$CORE/mailbox/requests/$RID" >/tmp/enqueue.json
+          for i in $(seq 1 45); do
+            curl -fsS "$CORE/mailbox/results/$RID.csv" >/tmp/result.csv
+            state=$(python3 -c "import csv; r=list(csv.DictReader(open('/tmp/result.csv'))); print((r[0].get('status') if r else 'pending') or 'pending')")
+            [ "$state" = done -o "$state" = failed ] && break
+            sleep 4
+          done
+          python3 - <<'PY'
+          import base64,csv,json,pathlib,datetime as dt
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric import padding
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          rid=pathlib.Path('/tmp/rid').read_text().strip(); rows=list(csv.DictReader(open('/tmp/result.csv'))); assert rows, 'no result row'
+          row=rows[0]; assert row.get('status') in ('done','failed'), row
+          detail=json.loads(base64.b64decode(row['detail_b64']).decode())
+          priv=serialization.load_pem_private_key(pathlib.Path('/tmp/reply.pem').read_bytes(),password=None)
+          key=priv.decrypt(base64.b64decode(detail['encrypted_key']),padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=None))
+          plain=AESGCM(key).decrypt(base64.b64decode(detail['nonce']),base64.b64decode(detail['ciphertext']),rid.encode())
+          result=json.loads(plain.decode())
+          allowed=('request_id','ok','flow','action','active_before','active_after','listener_before','listener_after','service','error','error_class')
+          safe={k:result.get(k) for k in allowed if k in result}
+          out={'observed_at_utc':dt.datetime.now(dt.timezone.utc).isoformat(),'mailbox_status':row.get('status'),'result':safe}
+          pathlib.Path('ops/runner-recovery/core-roundtrip-result.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+      - name: Publish sanitized roundtrip result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Runner Recovery Roundtrip'
+          git config user.email 'runner-recovery-roundtrip@localhost'
+          git add ops/runner-recovery/core-roundtrip-result.json
+          git commit -m 'Publish sanitized runner recovery roundtrip [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
