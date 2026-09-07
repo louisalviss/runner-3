@@ -16,7 +16,7 @@ import urllib.request
 from typing import Any
 
 DEFAULT_CORE_URL = "https://runner3-core.ducduy2411.workers.dev"
-DEFAULT_PERSONAL_MODEL = "personal-v2"
+DEFAULT_PERSONAL_MODEL = "personal-v3"
 
 FEATURE_RULES: dict[str, tuple[str, ...]] = {
     "macro_finance": ("bond", "yield", "treasury", "fed", "deficit", "debt", "recession", "capital market", "thị trường vốn", "lợi suất", "trái phiếu"),
