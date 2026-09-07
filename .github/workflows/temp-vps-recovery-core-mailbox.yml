@@ -1,0 +1,79 @@
+name: Temp VPS Recovery Core Mailbox
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-vps-recovery-core-mailbox.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CORE: https://runner3-core.ducduy2411.workers.dev
+      TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enqueue fixed-purpose encrypted recovery envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TOKEN"
+          RID=$(python3 -c "import json; print(json.load(open('ops/runner-recovery/request.json'))['request_id'])")
+          echo "RID=$RID" >> "$GITHUB_ENV"
+          code=$(curl -sS -o /tmp/enqueue.json -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data-binary @ops/runner-recovery/request.json \
+            "$CORE/mailbox/requests/$RID")
+          cat /tmp/enqueue.json
+          test "$code" = 202 -o "$code" = 200
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/enqueue.json'))
+          assert p.get('ok') is True and p.get('accepted') is True, p
+          print('CORE_MAILBOX_ENQUEUE=PASS', p.get('status'), 'duplicate='+str(p.get('duplicate')))
+          PY
+
+      - name: Poll sanitized mailbox status
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 45); do
+            code=$(curl -sS -o /tmp/status.json -w '%{http_code}' \
+              -H "Authorization: Bearer $TOKEN" \
+              "$CORE/mailbox/jobs/$RID" || true)
+            if [ "$code" = 200 ]; then
+              cat /tmp/status.json
+              state=$(python3 -c "import json; print(json.load(open('/tmp/status.json')).get('job',{}).get('status',''))")
+              case "$state" in completed|failed|cancelled) break;; esac
+            fi
+            sleep 4
+          done
+          python3 - <<'PY'
+          import json,datetime,os,pathlib
+          try: p=json.load(open('/tmp/status.json'))
+          except Exception: p={}
+          j=p.get('job') or {}
+          safe={k:j.get(k) for k in ('request_id','status','attempts','lease_owner','lease_until','last_error','created_at','updated_at')}
+          out={'observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'core_mailbox':safe}
+          pathlib.Path('ops/runner-recovery/core-mailbox-status.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Publish sanitized status
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Runner Recovery Core Mailbox'
+          git config user.email 'runner-recovery-core@localhost'
+          git add ops/runner-recovery/core-mailbox-status.json
+          git commit -m 'Publish sanitized Core Mailbox recovery status [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
