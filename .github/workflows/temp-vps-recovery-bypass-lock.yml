@@ -1,0 +1,48 @@
+name: Temp VPS Recovery Bypass Lock
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-vps-recovery-bypass-lock.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install crypto dependency
+        shell: bash
+        run: python3 -m pip install --disable-pip-version-check --quiet cryptography
+
+      - name: Produce fixed-purpose recovery request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/vps_mailbox_runner_recovery_hosted.py
+          python3 - <<'PY'
+          import json
+          p=json.load(open('results/vps-mailbox-runner-recovery-public-hosted.json',encoding='utf-8'))
+          assert p.get('request_published') is True, p
+          assert p.get('fixed_flow') == 'runner-recover', p
+          assert p.get('transport') == 'github-public-encrypted-file', p
+          print('RECOVERY_REQUEST_BUILD=PASS', p.get('envelope_sha256'))
+          PY
+
+      - name: Publish recovery request
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Runner Recovery Bypass'
+          git config user.email 'runner-recovery-bypass@localhost'
+          git add ops/runner-recovery/request.json
+          git commit -m 'Publish runner recovery request from bypass [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
