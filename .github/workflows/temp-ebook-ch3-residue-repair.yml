@@ -1,0 +1,84 @@
+name: Temp Ebook Ch3 Residue Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-ebook-ch3-residue-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CORE: https://runner3-core.ducduy2411.workers.dev
+      TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 1}
+      - name: CAS repair exact residue suffix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import copy,hashlib,json,os,pathlib,urllib.parse,urllib.request
+          CORE=os.environ['CORE'].rstrip('/'); TOKEN=os.environ['TOKEN']
+          PROJECT='ebook-editorial'; SCOPE='vbth-chatgpt-direct'
+          NAME='work/editorial/batches/ch0003-s000086-8cca0c0357104bdb63e1827f.json'
+          EXPECTED='3107cd9e701fa549e8c76f738455aac64d2043026ad2b35a4712dd3d89a68057'
+          SLOT='s0003_00102'; SUFFIX='Offline mừng sinh nhật 10 năm Tàng Thư Viện:'
+          def url(name):
+            parts=['artifacts',PROJECT,SCOPE]+name.split('/')
+            return CORE+'/'+ '/'.join(urllib.parse.quote(x,safe='') for x in parts)
+          def hdr(ct=None):
+            h={'Authorization':'Bearer '+TOKEN,'Accept':'*/*','User-Agent':'runner-3-private-backtest/1','Cache-Control':'no-cache','X-Runner3-Source':'runner-3-github-hosted'}
+            if ct: h['Content-Type']=ct
+            return h
+          def get(name):
+            return urllib.request.urlopen(urllib.request.Request(url(name),headers=hdr(),method='GET'),timeout=60).read()
+          def put(name,data):
+            r=urllib.request.urlopen(urllib.request.Request(url(name),headers=hdr('application/json; charset=utf-8'),data=data,method='PUT'),timeout=60)
+            return r.read()
+          raw=get(NAME); old_sha=hashlib.sha256(raw).hexdigest(); assert old_sha==EXPECTED,(old_sha,EXPECTED)
+          obj=json.loads(raw); before=copy.deepcopy(obj)
+          src=str(obj['source'][SLOT]); edt=str(obj['edited'][SLOT])
+          assert src.rstrip().endswith(SUFFIX),src[-160:]
+          assert edt.rstrip().endswith(SUFFIX),edt[-160:]
+          prefix=edt.rstrip()[:-len(SUFFIX)].rstrip()
+          assert prefix.endswith('hôn mê!'),prefix[-120:]
+          obj['edited'][SLOT]=prefix
+          # No other JSON field may change.
+          check=copy.deepcopy(before); check['edited'][SLOT]=prefix
+          assert obj==check
+          backup='work/editorial/repair-backups/ch0003-s000086-pre-residue-'+old_sha[:16]+'.json'
+          put(backup,raw)
+          assert hashlib.sha256(get(backup)).hexdigest()==old_sha
+          new_raw=(json.dumps(obj,ensure_ascii=False,separators=(',',':'))+'\n').encode('utf-8')
+          put(NAME,new_raw)
+          rb=get(NAME); rb_obj=json.loads(rb); new_sha=hashlib.sha256(rb).hexdigest()
+          assert rb_obj==obj
+          assert rb_obj['edited'][SLOT]==prefix and SUFFIX not in rb_obj['edited'][SLOT]
+          receipt={
+            'ok':True,'project':PROJECT,'scope':SCOPE,'artifact':NAME,'backup':backup,
+            'old_sha256':old_sha,'new_sha256':new_sha,'slot':SLOT,'suffix_removed':SUFFIX,
+            'source_preserved':rb_obj['source'][SLOT]==before['source'][SLOT],
+            'all_other_fields_preserved':True,
+            'edited_slot_old_sha256':hashlib.sha256(edt.encode()).hexdigest(),
+            'edited_slot_new_sha256':hashlib.sha256(prefix.encode()).hexdigest()
+          }
+          pathlib.Path('ops/ebook-ch3-residue-repair-receipt.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(receipt,ensure_ascii=False))
+          PY
+      - name: Publish repair receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Ebook Ch3 Repair'
+          git config user.email 'ebook-ch3-repair@localhost'
+          git add ops/ebook-ch3-residue-repair-receipt.json
+          git commit -m 'Publish Chapter 3 residue repair receipt [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
