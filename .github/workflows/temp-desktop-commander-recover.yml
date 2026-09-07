@@ -1,0 +1,37 @@
+name: Temp Desktop Commander Recover
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-desktop-commander-recover.yml'
+
+jobs:
+  recover:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - name: Restart Desktop Commander service
+        shell: bash
+        run: |
+          set -euo pipefail
+          if systemctl is-active --quiet desktop-commander.service; then
+            echo 'RDC_BEFORE=active'
+          else
+            echo 'RDC_BEFORE=inactive'
+          fi
+          if [ "$(id -u)" = 0 ]; then
+            systemctl restart desktop-commander.service
+          else
+            sudo -n systemctl restart desktop-commander.service
+          fi
+          sleep 3
+          if [ "$(id -u)" = 0 ]; then
+            systemctl is-active --quiet desktop-commander.service
+            systemctl --no-pager --full status desktop-commander.service | sed -n '1,14p'
+          else
+            sudo -n systemctl is-active --quiet desktop-commander.service
+            sudo -n systemctl --no-pager --full status desktop-commander.service | sed -n '1,14p'
+          fi
+          pgrep -af '/usr/bin/desktop-commander remote|desktop-commander remote' || true
+          echo 'RDC_RECOVERY=PASS'
