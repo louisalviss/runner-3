@@ -1,11 +1,10 @@
 import { FEATURE_MODEL_VERSION, replaceAutoSemanticFeatures } from "./content-feature-enrichment.js";
 import {
   PERSONAL_MODEL_VERSION,
+  RECOMPUTE_DEBOUNCE_MS,
   isSupportedContentEvent,
   markProfileDirty,
   maybeRecomputePersonal,
-  recomputeInterestProfile,
-  recomputePersonalScores,
 } from "./content-personalization.js";
 
 const MAX_ROWS = 100;
@@ -185,14 +184,22 @@ async function handleInterestSave(request,env){
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
-async function handleProfileRecompute(request,env){
+async function handleGuardedRecompute(request,env){
   const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
-  const body=await request.json().catch(()=>({})); return Response.json(await recomputeInterestProfile(env,text(body.model_version,200)||PERSONAL_MODEL_VERSION));
+  const body=await request.json().catch(()=>({}));
+  const modelVersion=text(body.model_version,200)||PERSONAL_MODEL_VERSION;
+  const recompute=await maybeRecomputePersonal(env,{modelVersion});
+  return Response.json({
+    ...recompute,
+    ok:recompute.ok!==false,
+    model_version:modelVersion,
+    guarded:true,
+    debounce_ms:RECOMPUTE_DEBOUNCE_MS,
+    force_allowed:false,
+  });
 }
-async function handleScoresRecompute(request,env){
-  const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
-  const body=await request.json().catch(()=>({})); return Response.json(await recomputePersonalScores(env,text(body.model_version,200)||PERSONAL_MODEL_VERSION));
-}
+async function handleProfileRecompute(request,env){ return handleGuardedRecompute(request,env); }
+async function handleScoresRecompute(request,env){ return handleGuardedRecompute(request,env); }
 async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,rows:result.results||[]}); }
 async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,rows:result.results||[]}); }
 
