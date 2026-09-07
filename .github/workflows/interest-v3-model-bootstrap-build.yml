@@ -1,0 +1,47 @@
+name: Interest v3 Model Bootstrap Build
+
+on:
+  push:
+    branches: [interest-v3-model-bootstrap-20260908]
+    paths:
+      - ".github/workflows/interest-v3-model-bootstrap-build.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: interest-v3-model-bootstrap-20260908
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply patch and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/patch_interest_v3_model_bootstrap.py
+          node --check cloudflare/runner3-core/src/content-personalization.js
+          python -m py_compile scripts/content_intelligence_client.py
+          node scripts/verify_runner3_d1_quota_guards.mjs
+          grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v3"' scripts/content_intelligence_client.py
+          grep -q 'model_materialization_missing' cloudflare/runner3-core/src/content-personalization.js
+          echo MODEL_BOOTSTRAP_VALIDATION_PASS
+      - name: Commit product and regression files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "runner3-ci-bot"
+          git config user.email "runner3-ci-bot@users.noreply.github.com"
+          git add cloudflare/runner3-core/src/content-personalization.js scripts/content_intelligence_client.py .github/workflows/content-intelligence-v2-test.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: bootstrap requested personalization model when scores are missing"
+          git push origin HEAD:interest-v3-model-bootstrap-20260908
