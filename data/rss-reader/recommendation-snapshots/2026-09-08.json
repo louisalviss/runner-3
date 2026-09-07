@@ -1,12 +1,11 @@
 {
   "ok": true,
-  "idempotent": false,
+  "idempotent": true,
   "snapshot_id": "rss-v3-2026-09-08-61f59da94595",
-  "model_version": "personal-v3",
-  "item_count": 4,
+  "source_render_id": "rss:2026-09-08:61f59da94595dcb66624cb5e85aaa24159d226cfb07334bbfe0af6ffcd5dbe52",
+  "created_at": "2026-09-07T22:35:13.525Z",
   "schema_version": 2,
   "policy_version": "compressed-profile-bounded-rank-v3",
-  "source_render_id": "rss:2026-09-08:61f59da94595dcb66624cb5e85aaa24159d226cfb07334bbfe0af6ffcd5dbe52",
   "top_k": 10,
   "baseline_policy": "canonical-manifest-order",
   "personalized_policy": "bounded-personal-relevance-live",
@@ -68,5 +67,18 @@
     "score_99_plus": 0
   },
   "profile_state": "dirty",
-  "created_at": "2026-09-07T22:35:13.525Z"
+  "materialization": {
+    "ok": true,
+    "model_version": "personal-v2",
+    "policy_version": "compressed-profile-bounded-rank-v3",
+    "profile_features": 213,
+    "scored_items": 995,
+    "changed": 2203,
+    "recomputed": true,
+    "lease_committed": true,
+    "status": "clean",
+    "guarded": true,
+    "debounce_ms": 14400000,
+    "force_allowed": false
+  }
 }
