@@ -360,7 +360,17 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   if (!env?.DB) return { ok: false, recomputed: false };
   const before = await profileState(env);
   if (!before) return { ok: true, recomputed: false, status: "missing" };
-  if (before.status === "clean") return { ok: true, recomputed: false, status: "clean" };
+  if (before.status === "clean") {
+    const materialized = await env.DB.prepare(
+      "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? LIMIT 1"
+    ).bind(modelVersion).first();
+    if (materialized?.ok) return { ok: true, recomputed: false, status: "clean" };
+    await env.DB.prepare(`
+      UPDATE workflow_state
+      SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
+      WHERE source=? AND status='clean'
+    `).bind(JSON.stringify({ reason: "model_materialization_missing", model: modelVersion }), PROFILE_STATE_KEY).run();
+  }
 
   const token = await acquireRecomputeLease(env, modelVersion);
   if (!token) {

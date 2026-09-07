@@ -63,6 +63,8 @@ jobs:
           grep -q "NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)" cloudflare/runner3-core/src/content-personalization.js
           ! grep -q "status='dirty' AND updated_at <= datetime('now',?)" cloudflare/runner3-core/src/content-personalization.js
           grep -q 'result\["materialization"\] = materialization' scripts/content_intelligence_client.py
+          grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v3"' scripts/content_intelligence_client.py
+          grep -q 'model_materialization_missing' cloudflare/runner3-core/src/content-personalization.js
           grep -q '/content-intelligence/interests/save' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/snapshot' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/evaluate' cloudflare/runner3-core/src/content-intelligence.js
