@@ -1,0 +1,62 @@
+name: Temp Ebook Chapter 3 Resume Generic Selfhosted
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-ebook-ch3-resume-generic-selfhosted.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temp-ebook-ch3-generic-rescue
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Exact host guard and resume
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST=$(hostname)
+          echo "host=$HOST"
+          case "$HOST" in runner-vps1|linveo-vps1) ;; *) echo 'wrong self-hosted runner; no side effect' >&2; exit 78;; esac
+          PY=/opt/chatgpt-bridge/venv/bin/python
+          COORD=/opt/browser-stack/bin/ebook_chatgpt_direct_coordinator.py
+          test -x "$PY" && test -f "$COORD"
+          mkdir -p ops/ebook-rescue
+          "$PY" "$COORD" status > ops/ebook-rescue/ch3-before.json 2>&1 || true
+          if pgrep -f '[e]book_chatgpt_direct_coordinator.py run --start 3' >/dev/null; then
+            echo 'existing_coordinator=true' > /tmp/ch3-rescue.log
+          else
+            echo 'existing_coordinator=false' > /tmp/ch3-rescue.log
+            "$PY" "$COORD" run --start 3 --max-chapters 1 --timeout 900 >> /tmp/ch3-rescue.log 2>&1 || echo "coordinator_exit=$?" >> /tmp/ch3-rescue.log
+          fi
+          "$PY" "$COORD" status > ops/ebook-rescue/ch3-after.json 2>&1 || true
+          python3 - <<'PY'
+          import json,pathlib,datetime,subprocess
+          def readj(p):
+              try:return json.loads(pathlib.Path(p).read_text())
+              except Exception:return {'raw':pathlib.Path(p).read_text(errors='replace')[-6000:] if pathlib.Path(p).exists() else ''}
+          out={'observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'host':subprocess.getoutput('hostname'),'before':readj('ops/ebook-rescue/ch3-before.json'),'after':readj('ops/ebook-rescue/ch3-after.json'),'log_tail':pathlib.Path('/tmp/ch3-rescue.log').read_text(errors='replace')[-12000:]}
+          pathlib.Path('ops/ebook-rescue/ch3-generic-receipt.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+      - name: Publish receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/ebook-rescue/ch3-generic-receipt.json || exit 0
+          git config user.name 'Ebook Ch3 Generic Rescue'
+          git config user.email 'ebook-ch3-rescue@localhost'
+          git add ops/ebook-rescue/ch3-generic-receipt.json
+          git commit -m 'Publish Chapter 3 generic rescue receipt [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
