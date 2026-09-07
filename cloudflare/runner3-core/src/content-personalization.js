@@ -1,5 +1,6 @@
 export const PERSONAL_MODEL_VERSION = "personal-v3";
 export const PROFILE_STATE_KEY = "content-intelligence-profile";
+export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-recompute";
 export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
 export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
 export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
@@ -51,20 +52,38 @@ async function acquireRecomputeLease(env, modelVersion) {
     UPDATE workflow_state
     SET status='recomputing', run_id=?, detail=?, updated_at=CURRENT_TIMESTAMP
     WHERE source=? AND (
-      (status='dirty' AND updated_at <= datetime('now',?))
+      (status='dirty' AND (
+        NOT EXISTS(SELECT 1 FROM workflow_state WHERE source=?)
+        OR EXISTS(SELECT 1 FROM workflow_state WHERE source=? AND updated_at <= datetime('now',?))
+        OR NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)
+      ))
       OR (status='recomputing' AND updated_at <= datetime('now',?))
     )
-  `).bind(token, detail, PROFILE_STATE_KEY, agoModifier(RECOMPUTE_DEBOUNCE_MS), agoModifier(RECOMPUTE_LEASE_MS)).run();
+  `).bind(
+    token, detail, PROFILE_STATE_KEY,
+    PROFILE_RECOMPUTE_CLOCK_KEY, PROFILE_RECOMPUTE_CLOCK_KEY, agoModifier(RECOMPUTE_DEBOUNCE_MS), modelVersion,
+    agoModifier(RECOMPUTE_LEASE_MS),
+  ).run();
   return Number(result.meta?.changes || 0) === 1 ? token : null;
 }
 
 async function finishRecomputeLease(env, token, modelVersion) {
+  const recomputedAt = new Date().toISOString();
+  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='clean', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
     WHERE source=? AND status='recomputing' AND run_id=?
-  `).bind(JSON.stringify({ recomputed_at: new Date().toISOString(), model: modelVersion }), PROFILE_STATE_KEY, token).run();
-  return Number(result.meta?.changes || 0) === 1;
+  `).bind(detail, PROFILE_STATE_KEY, token).run();
+  const committed = Number(result.meta?.changes || 0) === 1;
+  if (committed) {
+    await env.DB.prepare(`
+      INSERT INTO workflow_state(source,status,run_id,detail,updated_at)
+      VALUES(?, 'clean', NULL, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(source) DO UPDATE SET status='clean',run_id=NULL,detail=excluded.detail,updated_at=CURRENT_TIMESTAMP
+    `).bind(PROFILE_RECOMPUTE_CLOCK_KEY, detail).run();
+  }
+  return committed;
 }
 
 async function failRecomputeLease(env, token, error) {

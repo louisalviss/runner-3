@@ -11,6 +11,7 @@ on:
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
       - 'cloudflare/runner3-core/wrangler.jsonc'
+      - 'scripts/content_intelligence_client.py'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
   push:
@@ -22,6 +23,7 @@ on:
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
       - 'cloudflare/runner3-core/wrangler.jsonc'
+      - 'scripts/content_intelligence_client.py'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
 
@@ -57,6 +59,10 @@ jobs:
           grep -q 'PERCENT_RANK()' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'type_rank' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'compressed-profile-bounded-rank-v3' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'PROFILE_RECOMPUTE_CLOCK_KEY' cloudflare/runner3-core/src/content-personalization.js
+          grep -q "NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)" cloudflare/runner3-core/src/content-personalization.js
+          ! grep -q "status='dirty' AND updated_at <= datetime('now',?)" cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'result\["materialization"\] = materialization' scripts/content_intelligence_client.py
           grep -q '/content-intelligence/interests/save' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/snapshot' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/evaluate' cloudflare/runner3-core/src/content-intelligence.js
@@ -67,7 +73,7 @@ jobs:
           ! grep -q 'body.lifecycle === "archived".*saved' cloudflare/runner3-core/src/rss-reader-learning.js
           node --input-type=module - <<'NODE'
           import { extractSemanticFeatures, FEATURE_MODEL_VERSION } from './cloudflare/runner3-core/src/content-feature-enrichment.js';
-          import { EVENT_WEIGHTS, PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION, isSupportedContentEvent } from './cloudflare/runner3-core/src/content-personalization.js';
+          import { EVENT_WEIGHTS, PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION, PROFILE_RECOMPUTE_CLOCK_KEY, isSupportedContentEvent } from './cloudflare/runner3-core/src/content-personalization.js';
 
           const a = extractSemanticFeatures({
             canonical_url: 'https://rasa.com/blog/agent-orchestration-tools',
@@ -78,6 +84,7 @@ jobs:
           if (FEATURE_MODEL_VERSION !== 'semantic-bridge-v3') throw new Error('feature model marker mismatch');
           if (PERSONAL_MODEL_VERSION !== 'personal-v3') throw new Error('personal model marker mismatch');
           if (PERSONAL_POLICY_VERSION !== 'compressed-profile-bounded-rank-v3') throw new Error('personal policy marker mismatch');
+          if (PROFILE_RECOMPUTE_CLOCK_KEY !== 'content-intelligence-profile-last-recompute') throw new Error('recompute clock marker mismatch');
           if (!keys.has('topic:ai-agents')) throw new Error('AI-agent topic missing');
           if (!keys.has('concept:agent-orchestration')) throw new Error('agent-orchestration concept missing');
           if (!isSupportedContentEvent('interest_saved') || EVENT_WEIGHTS.interest_saved <= EVENT_WEIGHTS.deep_read) throw new Error('interest_saved priority incorrect');
