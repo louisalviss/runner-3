@@ -1,0 +1,46 @@
+name: Temp Core Mailbox Status Snapshot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-core-mailbox-status-snapshot.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CORE: https://runner3-core.ducduy2411.workers.dev
+      TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Read sanitized mailbox status
+        shell: bash
+        run: |
+          set -euo pipefail
+          RID=$(python3 -c "import json; print(json.load(open('ops/runner-recovery/request.json'))['request_id'])")
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$CORE/mailbox/jobs/$RID" > /tmp/status.json
+          python3 - <<'PY'
+          import json,datetime,pathlib
+          p=json.load(open('/tmp/status.json')); j=p.get('job') or {}
+          safe={k:j.get(k) for k in ('request_id','status','attempts','lease_owner','lease_until','last_error','created_at','updated_at')}
+          out={'observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'core_mailbox':safe}
+          pathlib.Path('ops/runner-recovery/core-mailbox-snapshot.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+      - name: Publish snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Core Mailbox Snapshot'
+          git config user.email 'core-mailbox-snapshot@localhost'
+          git add ops/runner-recovery/core-mailbox-snapshot.json
+          git commit -m 'Publish Core Mailbox recovery snapshot [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
