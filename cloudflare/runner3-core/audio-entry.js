@@ -65,7 +65,7 @@ export default {
       loadLearningModule(),
       loadReaderApp(),
     ]);
-    const flush = maybeRecomputePersonal(env, { force: true }).catch((error) => {
+    const flush = maybeRecomputePersonal(env).catch((error) => {
       console.warn("content intelligence scheduled recompute failed", String(error?.message || error));
     });
     if (ctx?.waitUntil) ctx.waitUntil(flush);

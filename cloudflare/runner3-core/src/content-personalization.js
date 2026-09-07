@@ -199,12 +199,12 @@ export async function recomputePersonalization(env, modelVersion = PERSONAL_MODE
   return { ok: true, model_version: modelVersion, profile_features: profile.profile_features, scored_items: scores.scored_items };
 }
 
-export async function maybeRecomputePersonal(env, { force = false, modelVersion = PERSONAL_MODEL_VERSION } = {}) {
+export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION } = {}) {
   if (!env?.DB) return { ok: false, recomputed: false };
   const state = await profileState(env);
   if (!state || state.status !== "dirty") return { ok: true, recomputed: false, status: state?.status || "missing" };
   const last = Date.parse(state.updated_at || 0);
-  const due = force || !Number.isFinite(last) || Date.now() - last >= RECOMPUTE_DEBOUNCE_MS;
+  const due = !Number.isFinite(last) || Date.now() - last >= RECOMPUTE_DEBOUNCE_MS;
   if (!due) return { ok: true, recomputed: false, status: "dirty_debounced" };
   const result = await recomputePersonalization(env, modelVersion);
   return { ...result, recomputed: true, status: "clean" };
