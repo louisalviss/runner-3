@@ -35,13 +35,13 @@ jobs:
           grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v3"' scripts/content_intelligence_client.py
           grep -q 'model_materialization_missing' cloudflare/runner3-core/src/content-personalization.js
           echo MODEL_BOOTSTRAP_VALIDATION_PASS
-      - name: Commit product and regression files
+      - name: Commit product files only
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "runner3-ci-bot"
           git config user.email "runner3-ci-bot@users.noreply.github.com"
-          git add cloudflare/runner3-core/src/content-personalization.js scripts/content_intelligence_client.py .github/workflows/content-intelligence-v2-test.yml
+          git add cloudflare/runner3-core/src/content-personalization.js scripts/content_intelligence_client.py
           git diff --cached --quiet && exit 0
           git commit -m "fix: bootstrap requested personalization model when scores are missing"
           git push origin HEAD:interest-v3-model-bootstrap-20260908
