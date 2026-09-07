@@ -1,0 +1,41 @@
+name: Interest v3 Guarded Recompute Probe
+
+on:
+  push:
+    branches: [interest-v3-recompute-probe-20260908]
+    paths: ['.github/workflows/interest-v3-recompute-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: interest-v3-recompute-probe-20260908
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Call guarded recompute and inspect synthesis
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/content_intelligence_client.py recompute --model-version personal-v3 | tee /tmp/recompute.json
+          core='https://runner3-core.ducduy2411.workers.dev'
+          curl -fsS -H "Authorization: Bearer $RUNNER3_CORE_TOKEN" \
+            "$core/content-intelligence/synthesis?profile_limit=5&score_limit=5" -o /tmp/synthesis.json
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/recompute.json'))
+          s=json.load(open('/tmp/synthesis.json'))
+          print('GUARDED_PROFILE=',json.dumps(r.get('profile'),sort_keys=True))
+          print('GUARDED_SCORES=',json.dumps(r.get('scores'),sort_keys=True))
+          print('SYNTHESIS_MODEL=',s.get('model_version'),'FEATURES=',(s.get('counts') or {}).get('profile_features'))
+          print('TOP_SCORE=',((s.get('top_scores') or [{}])[0]).get('score'))
+          PY
