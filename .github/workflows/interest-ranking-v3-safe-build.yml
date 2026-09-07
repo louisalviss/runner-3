@@ -5,6 +5,7 @@ on:
     branches: [interest-ranking-v3-safe-20260908]
     paths:
       - 'scripts/upgrade_content_intelligence_v3.py'
+      - 'scripts/fix_upgrade_v3_policy_response.py'
       - '.github/workflows/interest-ranking-v3-safe-build.yml'
 
 permissions:
@@ -27,6 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Fix upgrade matcher
+        run: python scripts/fix_upgrade_v3_policy_response.py
 
       - name: Apply v3 upgrade on quota-safe main
         run: python scripts/upgrade_content_intelligence_v3.py
