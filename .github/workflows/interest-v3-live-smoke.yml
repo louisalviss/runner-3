@@ -1,0 +1,60 @@
+name: Interest v3 Live Smoke
+
+on:
+  push:
+    branches: [interest-ranking-v3-safe-20260908]
+    paths: ['.github/workflows/interest-v3-live-smoke.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Verify live v3 profile, snapshot, and evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}"
+          core='https://runner3-core.ducduy2411.workers.dev'
+          auth="Authorization: Bearer $RUNNER3_CORE_TOKEN"
+          curl -fsS -H "$auth" "$core/content-intelligence/profile?limit=3" -o /tmp/profile.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/profile.json'))
+          assert p.get('ok') is True, p
+          assert p.get('model_version') == 'personal-v3', p
+          assert p.get('policy_version') == 'compressed-profile-bounded-rank-v3', p
+          print('LIVE_PROFILE_V3_PASS rows=%d' % len(p.get('rows') or []))
+          PY
+          curl -fsS -X POST -H "$auth" -H 'Content-Type: application/json' \
+            "$core/content-intelligence/recommendations/snapshot" \
+            --data '{"render_id":"2026-09-07","snapshot_id":"rss-2026-09-07-8339401efce6","top_k":10}' \
+            -o /tmp/snapshot.json
+          python3 - <<'PY'
+          import json
+          s=json.load(open('/tmp/snapshot.json'))
+          assert s.get('ok') is True, s
+          assert s.get('policy_version') == 'compressed-profile-bounded-rank-v3', s
+          assert len(s.get('baseline') or []) == 10, s
+          assert len(s.get('personalized') or []) == 10, s
+          d=s.get('score_distribution') or {}
+          assert d.get('count',0) >= 40, d
+          assert d.get('max') is not None, d
+          print('LIVE_SNAPSHOT_V3_PASS distribution=%s' % d)
+          PY
+          curl -fsS -H "$auth" \
+            "$core/content-intelligence/recommendations/evaluate?snapshot_id=rss-2026-09-07-8339401efce6" \
+            -o /tmp/eval.json
+          python3 - <<'PY'
+          import json
+          e=json.load(open('/tmp/eval.json'))
+          assert e.get('ok') is True, e
+          assert e.get('snapshot_id') == 'rss-2026-09-07-8339401efce6', e
+          assert 'baseline' in e and 'personalized' in e and 'lift' in e, e
+          print('LIVE_EVALUATION_V3_PASS evaluable=%s feedback=%s' % (e.get('evaluable'), e.get('feedback_event_count')))
+          PY
