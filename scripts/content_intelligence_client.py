@@ -198,8 +198,17 @@ def cmd_profile(args: argparse.Namespace) -> int:
 
 
 def cmd_recommendation_snapshot(args: argparse.Namespace) -> int:
+    materialization: dict[str, Any]
+    try:
+        materialization = request_json(
+            "POST", "/content-intelligence/profile/recompute",
+            {"model_version": DEFAULT_PERSONAL_MODEL}, core_url=args.core_url,
+        )
+    except Exception as exc:
+        materialization = {"ok": False, "error": str(exc), "guarded": True}
     payload = {"render_id": args.render_id, "snapshot_id": args.snapshot_id, "top_k": args.top_k}
     result = request_json("POST", "/content-intelligence/recommendations/snapshot", payload, core_url=args.core_url)
+    result["materialization"] = materialization
     text = json.dumps(result, ensure_ascii=False, sort_keys=True)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh: fh.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
