@@ -8,8 +8,7 @@ const MOBILE_CAPABLE = '<meta name="mobile-web-app-capable" content="yes">';
 const IOS_STATUS_BLACK = '<meta name="apple-mobile-web-app-status-bar-style" content="black">';
 const IOS_STATUS_TRANSLUCENT = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
 const IOS_STARTUP_MARKER = '<meta name="r3-ios-home-screen-startup-policy" content="opaque-v39">';
-const PERSONALIZATION_CRON = "47 * * * *";
-const DAILY_CRON = "17 3 * * *";
+const HOURLY_PERSONALIZATION_CRON = "17 * * * *";
 
 function loadReaderApp() {
   if (!readerAppPromise) {
@@ -52,6 +51,13 @@ async function maybePatchLibraryStartup(request, url, response) {
   return new Response(updated, { status: response.status, headers });
 }
 
+function isLegacyDailyWindow(controller) {
+  const scheduledTime = Number(controller?.scheduledTime);
+  if (!Number.isFinite(scheduledTime)) return false;
+  const at = new Date(scheduledTime);
+  return at.getUTCHours() === 3 && at.getUTCMinutes() === 17;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -63,24 +69,32 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    const [learning, app] = await Promise.all([
-      loadLearningModule(),
-      loadReaderApp(),
-    ]);
-    const flush = (async () => {
+    // One account cron slot serves both purposes. Every :17 run checks the
+    // personalization dirty/debounce state; only 03:17 UTC fans out to the
+    // historical daily scheduled chain and daily score-freshness refresh.
+    if (controller?.cron !== HOURLY_PERSONALIZATION_CRON) return;
+
+    const learning = await loadLearningModule();
+    const dailyWindow = isLegacyDailyWindow(controller);
+    const refresh = (async () => {
       const recompute = await learning.maybeRecomputePersonal(env);
-      if (controller?.cron === DAILY_CRON && !recompute?.recomputed) {
+      if (dailyWindow && !recompute?.recomputed) {
         await learning.refreshPersonalScoresDaily(env);
       }
     })().catch((error) => {
       console.warn("content intelligence scheduled refresh failed", String(error?.message || error));
     });
-    if (ctx?.waitUntil) ctx.waitUntil(flush);
-    else await flush;
 
-    // The hourly cron exists only for personalization. Do not fan it out to the
-    // historical daily scheduled chain.
-    if (controller?.cron === PERSONALIZATION_CRON) return;
+    if (!dailyWindow) {
+      if (ctx?.waitUntil) ctx.waitUntil(refresh);
+      else await refresh;
+      return;
+    }
+
+    // Preserve the former 03:17 UTC ordering: finish personalization work first,
+    // then execute the legacy daily chain exactly once.
+    await refresh;
+    const app = await loadReaderApp();
     if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },
 };

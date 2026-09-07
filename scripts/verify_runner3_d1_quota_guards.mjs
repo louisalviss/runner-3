@@ -26,9 +26,14 @@ requireText(intelligence, "heartbeat_changes", "heartbeat/material-change separa
 
 forbidText(enrichment, "await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN", "delete-all semantic rewrite reintroduced");
 forbidText(audio, "force: true", "scheduled force bypass reintroduced");
-requireText(audio, 'PERSONALIZATION_CRON = "47 * * * *"', "personalization-only cron routing missing");
+requireText(audio, 'HOURLY_PERSONALIZATION_CRON = "17 * * * *"', "single hourly cron routing missing");
+requireText(audio, "controller?.scheduledTime", "scheduled-time daily gate missing");
+requireText(audio, "getUTCHours() === 3", "03 UTC daily gate missing");
+requireText(audio, "getUTCMinutes() === 17", "minute-17 daily gate missing");
+requireText(audio, "if (!dailyWindow)", "hourly legacy fan-out guard missing");
 
 const crons = wrangler?.triggers?.crons || [];
-if (!crons.includes("17 3 * * *")) fail("daily legacy cron missing");
-if (!crons.includes("47 * * * *")) fail("hourly personalization cron missing");
+if (crons.length !== 1 || crons[0] !== "17 * * * *") {
+  fail(`runner3-core must consume exactly one cron slot; got ${JSON.stringify(crons)}`);
+}
 console.log("D1_QUOTA_GUARDS_PASS");
