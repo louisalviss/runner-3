@@ -1,0 +1,50 @@
+name: Temp Ebook Ch3 Slot102 Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-ebook-ch3-slot102-inspect.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CORE: https://runner3-core.ducduy2411.workers.dev
+      TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 1}
+      - name: Read exact batch artifact and sanitize snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,urllib.parse,urllib.request,pathlib,hashlib
+          core=os.environ['CORE'].rstrip('/'); token=os.environ['TOKEN']
+          project='ebook-editorial'; scope='vbth-chatgpt-direct'; name='work/editorial/batches/ch0003-s000086-8cca0c0357104bdb63e1827f.json'
+          parts=['artifacts',project,scope]+name.split('/')
+          url=core+'/'+ '/'.join(urllib.parse.quote(x,safe='') for x in parts)
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+token,'Accept':'application/json','X-Runner3-Source':'github-hosted-ch3-inspect'})
+          raw=urllib.request.urlopen(req,timeout=60).read(); obj=json.loads(raw)
+          source=obj.get('source') or {}; edited=obj.get('edited') or {}
+          keys=sorted(source)
+          wanted=[k for k in keys if k.endswith('_00100') or k.endswith('_00101') or k.endswith('_00102')]
+          out={'artifact_name':name,'artifact_sha256':hashlib.sha256(raw).hexdigest(),'slots':{k:{'source':source.get(k),'edited':edited.get(k)} for k in wanted},'semantic_qa':obj.get('semantic_qa')}
+          pathlib.Path('ops/ebook-ch3-slot102-inspect.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps({'keys':wanted,'artifact_sha256':out['artifact_sha256']}))
+          PY
+      - name: Publish snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Ebook Ch3 Inspector'
+          git config user.email 'ebook-ch3-inspect@localhost'
+          git add ops/ebook-ch3-slot102-inspect.json
+          git commit -m 'Publish Chapter 3 slot 102 inspection [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
