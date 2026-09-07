@@ -5,33 +5,43 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/temp-desktop-commander-recover.yml'
+  workflow_dispatch:
 
 jobs:
   recover:
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 5
     steps:
-      - name: Restart Desktop Commander service
+      - name: Recover Desktop Commander service
         shell: bash
         run: |
           set -euo pipefail
-          if systemctl is-active --quiet desktop-commander.service; then
+          SVC=desktop-commander.service
+          SUDO=''
+          if [ "$(id -u)" != 0 ]; then SUDO='sudo -n'; fi
+
+          if systemctl is-active --quiet "$SVC"; then
             echo 'RDC_BEFORE=active'
           else
             echo 'RDC_BEFORE=inactive'
           fi
-          if [ "$(id -u)" = 0 ]; then
-            systemctl restart desktop-commander.service
+
+          $SUDO systemctl reset-failed "$SVC" || true
+          $SUDO systemctl restart "$SVC"
+          sleep 5
+
+          $SUDO systemctl is-active --quiet "$SVC"
+          $SUDO systemctl --no-pager --full status "$SVC" | sed -n '1,18p'
+          pgrep -af '/usr/bin/desktop-commander remote|desktop-commander remote'
+
+          # A running process alone is not sufficient: require an established
+          # outbound TLS control connection used by Desktop Commander.
+          if ! ss -Hntp state established 2>/dev/null | grep -E 'desktop-commander|remote\.spaaces\.io:443|:443' >/dev/null; then
+            echo 'RDC_CONTROL_SOCKET=not_observed'
+            # Do not fail solely on ss attribution; journal gives a second signal.
+            $SUDO journalctl -u "$SVC" --since '-2 min' --no-pager -n 80
           else
-            sudo -n systemctl restart desktop-commander.service
+            echo 'RDC_CONTROL_SOCKET=observed'
           fi
-          sleep 3
-          if [ "$(id -u)" = 0 ]; then
-            systemctl is-active --quiet desktop-commander.service
-            systemctl --no-pager --full status desktop-commander.service | sed -n '1,14p'
-          else
-            sudo -n systemctl is-active --quiet desktop-commander.service
-            sudo -n systemctl --no-pager --full status desktop-commander.service | sed -n '1,14p'
-          fi
-          pgrep -af '/usr/bin/desktop-commander remote|desktop-commander remote' || true
+
           echo 'RDC_RECOVERY=PASS'
