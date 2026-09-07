@@ -1,2 +1,2 @@
-request_id=runner-recovery-public-hosted-ebook-ch3-20260908-01
-purpose=restore-self-hosted-runner-for-ebook-chatgpt-direct-chapter3-resume
+request_id=runner-recovery-rdc-20260908-01
+purpose=restore-self-hosted-runner-so-rdc-recovery-can-run
