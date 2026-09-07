@@ -1,0 +1,81 @@
+name: Temp Ebook Chapter 3 Resume VPS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/temp-ebook-ch3-resume-vps.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temp-ebook-ch3-resume-vps
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: [self-hosted, linux, linveo-vps1]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resume Chapter 3 fail-closed
+        shell: bash
+        run: |
+          set -u
+          PY=/opt/chatgpt-bridge/venv/bin/python
+          COORD=/opt/browser-stack/bin/ebook_chatgpt_direct_coordinator.py
+          OUT=/tmp/ebook-ch3-resume-${GITHUB_RUN_ID}.log
+          BEFORE=/tmp/ebook-ch3-before-${GITHUB_RUN_ID}.json
+          AFTER=/tmp/ebook-ch3-after-${GITHUB_RUN_ID}.json
+          date -u +%FT%TZ > /tmp/ebook-ch3-start-${GITHUB_RUN_ID}.txt
+          systemctl is-active chatgpt-vps-registrar.service || true
+          "$PY" "$COORD" status > "$BEFORE" 2>&1 || true
+          if pgrep -f '[e]book_chatgpt_direct_coordinator.py run --start 3' >/dev/null; then
+            echo 'existing_coordinator=true' | tee "$OUT"
+            deadline=$((SECONDS+1000))
+            while pgrep -f '[e]book_chatgpt_direct_coordinator.py run --start 3' >/dev/null && [ "$SECONDS" -lt "$deadline" ]; do sleep 5; done
+          else
+            echo 'existing_coordinator=false' | tee "$OUT"
+            "$PY" "$COORD" run --start 3 --max-chapters 1 --timeout 900 >> "$OUT" 2>&1 || echo "coordinator_exit=$?" >> "$OUT"
+          fi
+          "$PY" "$COORD" status > "$AFTER" 2>&1 || true
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, datetime
+          rid=os.environ['GITHUB_RUN_ID']
+          def txt(p):
+              try: return pathlib.Path(p).read_text(encoding='utf-8', errors='replace')
+              except Exception: return ''
+          def jload(p):
+              try: return json.loads(txt(p))
+              except Exception: return {'raw':txt(p)[-8000:]}
+          after=jload(f'/tmp/ebook-ch3-after-{rid}.json')
+          before=jload(f'/tmp/ebook-ch3-before-{rid}.json')
+          log=txt(f'/tmp/ebook-ch3-resume-{rid}.log')
+          try: registrar=subprocess.check_output(['systemctl','is-active','chatgpt-vps-registrar.service'], text=True).strip()
+          except Exception: registrar='unknown'
+          receipt={
+            'observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'run_id':rid,
+            'host':subprocess.getoutput('hostname'),
+            'registrar':registrar,
+            'before':before,
+            'after':after,
+            'log_tail':log[-12000:],
+          }
+          pathlib.Path('ops/ebook-ch3-resume-receipt.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Publish receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'VPS Ebook Resume'
+          git config user.email 'vps-ebook-resume@localhost'
+          git add ops/ebook-ch3-resume-receipt.json
+          git commit -m 'Publish ebook Chapter 3 resume receipt [skip ci]' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
