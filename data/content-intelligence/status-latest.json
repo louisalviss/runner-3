@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-08T08:10:00+07:00",
+  "status": "done",
+  "system": "content-intelligence-personalization",
+  "personalization": {
+    "model_version": "personal-v3",
+    "policy_version": "compressed-profile-bounded-rank-v3",
+    "feature_model_version": "semantic-bridge-v3",
+    "profile_state": "clean",
+    "profile_features": 213,
+    "previous_profile_features": 1208,
+    "profile_feature_reduction_pct": 82.37,
+    "scored_items_last_materialization": 995,
+    "client_default_model": "personal-v3"
+  },
+  "recompute_guard": {
+    "guarded": true,
+    "debounce_ms": 14400000,
+    "lease_based": true,
+    "separate_recompute_clock": true,
+    "repeat_recompute_verified_noop": true
+  },
+  "persisted_scores": {
+    "score_type": "personal_relevance",
+    "model_version": "personal-v3",
+    "verified": true,
+    "verified_top_rows": 10,
+    "all_verified_rows_match_model_version": true
+  },
+  "ranking": {
+    "baseline_policy": "canonical-manifest-order",
+    "personalized_policy": "bounded-personal-relevance-live",
+    "score_saturation_resolved": true,
+    "live_verification_max_score": 83.61929388425419,
+    "live_verification_score_99_plus": 0
+  },
+  "rss_invariants": {
+    "canonical_manifest_is_authority": true,
+    "personalization_must_not_change_manifest_numbering": true,
+    "personalization_must_not_filter_or_mutate_canonical_manifest": true,
+    "personalization_failure_must_not_fail_canonical_rss": true
+  },
+  "feedback_loop": {
+    "events": [
+      "selected",
+      "deep_read",
+      "saved",
+      "interest_saved",
+      "liked",
+      "disliked"
+    ],
+    "evaluation_metrics": [
+      "precision_at_k",
+      "recall_at_k",
+      "ndcg_at_k"
+    ],
+    "remaining_open_question": "Empirical recommendation lift versus canonical baseline requires more judged post-snapshot feedback events."
+  },
+  "production_verification": {
+    "merge_commit": "4913941ad0f58dcf311bc3b261031cb9d083ecc3",
+    "pull_request": 265,
+    "core_production_deploy_run_id": 34168024273,
+    "rss_reader_run_id": 34168024308,
+    "rss_reader_run_number": 523,
+    "final_live_verify_run_id": 34168088600,
+    "final_live_verify": "PASS"
+  }
+}
