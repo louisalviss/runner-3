@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '35 * * * *'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner3-d1-usage-watch.yml'
 
 permissions:
   contents: read
