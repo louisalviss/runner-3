@@ -29,7 +29,7 @@ jobs:
           base=os.environ['CORE_URL'].rstrip('/')
           token=os.environ['CORE_TOKEN']
           def call(path, payload=None, allow_duplicate=False):
-              headers={'Authorization':f'Bearer {token}','Accept':'application/json','Content-Type':'application/json'}
+              headers={'Authorization':f'Bearer {token}','Accept':'application/json','Content-Type':'application/json','User-Agent':'curl/8.5.0'}
               data=None if payload is None else json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
               req=urllib.request.Request(base+path,data=data,headers=headers,method='GET' if payload is None else 'POST')
               try:
