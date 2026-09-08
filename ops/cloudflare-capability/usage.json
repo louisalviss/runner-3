@@ -1,9 +1,9 @@
 {
-  "checkedAt": "2026-08-22T16:25:32.250939Z",
+  "checkedAt": "2026-09-08T01:51:20.535029Z",
   "window": {
-    "startUtc": "2026-08-22T00:00:00Z",
-    "endUtc": "2026-08-22T16:25:32.250939Z",
-    "dateUtc": "2026-08-22"
+    "startUtc": "2026-09-08T00:00:00Z",
+    "endUtc": "2026-09-08T01:51:20.535029Z",
+    "dateUtc": "2026-09-08"
   },
   "freeTierLimits": {
     "workersRequestsPerDay": 100000,
@@ -25,6 +25,11 @@
       "runner3-audio-chatgpt-bridge",
       "runner3-audio-library",
       "runner3-autocontent-ai",
+      "runner3-core",
+      "runner3-core-reader-v33-preview",
+      "runner3-core-reader-v34-preview",
+      "runner3-core-reader-v35-preview",
+      "runner3-direct-download",
       "runner3-rss-fastlane",
       "runner3-wp-control",
       "runner3-x-fast-direct",
@@ -32,20 +37,21 @@
       "wave-rider-scanner",
       "webcap",
       "wordpress-edge-proxy",
+      "wordpress-edge-proxy-lcp090",
       "wordpress-edge-proxy-v2"
     ],
     "pagesHttp": 200,
     "pagesProjects": [
+      "runner3wp-pages-gateway",
+      "runner3-download-gateway",
+      "worker-1",
       "runner5-restore-gateway",
       "runner5-restore-gateway-v100b",
       "runner5-restore-gateway-v100",
-      "runner3wp-pages-gateway",
-      "worker-1",
       "port-tracker",
       "file-convert",
       "trans-file",
-      "mind-canvas",
-      "veoremove"
+      "mind-canvas"
     ],
     "kvHttp": 200,
     "kvNamespaces": [
@@ -55,112 +61,89 @@
       "ocr-pdf-jobs"
     ],
     "d1Http": 200,
-    "d1Databases": []
+    "d1Databases": [
+      "ai-vps-common-access",
+      "link-interest-profile",
+      "runner3-opportunity-radar",
+      "runner3-wp-optimizer",
+      "runner3-core"
+    ]
   },
   "graphql": {
     "http": 200,
     "errors": []
   },
   "workers": {
-    "requestsToday": 1169,
-    "requestLimitPct": 1.17,
-    "errorsToday": 2,
-    "subrequestsToday": 2709,
+    "requestsToday": 1735,
+    "requestLimitPct": 1.74,
+    "errorsToday": 1,
+    "subrequestsToday": 270,
     "byScript": [
       {
-        "script": "runner5-restore-proxy",
-        "requests": 432,
-        "errors": 2,
-        "subrequests": 372
-      },
-      {
-        "script": "wordpress-edge-proxy",
-        "requests": 252,
-        "errors": 0,
-        "subrequests": 232
-      },
-      {
-        "script": "rss-proxy",
-        "requests": 217,
-        "errors": 0,
-        "subrequests": 864
+        "script": "runner3-core",
+        "requests": 1696,
+        "errors": 1,
+        "subrequests": 0
       },
       {
         "script": "wave-rider-scanner",
-        "requests": 205,
-        "errors": 0,
-        "subrequests": 1233
-      },
-      {
-        "script": "runner3-audio-chatgpt-bridge",
-        "requests": 29,
-        "errors": 0,
-        "subrequests": 0
-      },
-      {
-        "script": "runner3-audio-library",
         "requests": 22,
         "errors": 0,
-        "subrequests": 0
+        "subrequests": 220
       },
       {
-        "script": "runner3-rss-fastlane",
-        "requests": 7,
+        "script": "rss-proxy",
+        "requests": 11,
+        "errors": 0,
+        "subrequests": 44
+      },
+      {
+        "script": "runner5-restore-proxy",
+        "requests": 6,
         "errors": 0,
         "subrequests": 6
-      },
-      {
-        "script": "ocr-pdf",
-        "requests": 2,
-        "errors": 0,
-        "subrequests": 2
-      },
-      {
-        "script": "webcap",
-        "requests": 1,
-        "errors": 0,
-        "subrequests": 0
-      },
-      {
-        "script": "imdb-stremio-addon",
-        "requests": 1,
-        "errors": 0,
-        "subrequests": 0
-      },
-      {
-        "script": "runner3-x-fast-direct",
-        "requests": 1,
-        "errors": 0,
-        "subrequests": 0
       }
     ]
   },
   "kv": {
     "operationsToday": {
-      "read": 590,
-      "write": 590,
+      "read": 36,
+      "write": 14,
       "delete": 0,
       "list": 0,
       "other": 0
     },
     "limitPct": {
-      "read": 0.59,
-      "write": 59.0,
+      "read": 0.04,
+      "write": 1.4,
       "delete": 0.0,
       "list": 0.0
     }
   },
   "d1": {
     "totalsToday": {
-      "readQueries": 0,
-      "writeQueries": 0,
-      "rowsRead": 0,
-      "rowsWritten": 0
+      "readQueries": 4150,
+      "writeQueries": 905,
+      "rowsRead": 14289,
+      "rowsWritten": 1618
     },
     "limitPct": {
-      "rowsRead": 0.0,
-      "rowsWritten": 0.0
+      "rowsRead": 0.29,
+      "rowsWritten": 1.62
     },
-    "byDatabaseId": {}
+    "byDatabaseId": {
+      "823fccf7-0d71-4849-b262-4974ffbc49f2": {
+        "readQueries": 22,
+        "writeQueries": 0,
+        "rowsRead": 22,
+        "rowsWritten": 0
+      },
+      "514a2c61-3f7a-44d0-a51b-e07525d32a5d": {
+        "readQueries": 4128,
+        "writeQueries": 905,
+        "rowsRead": 14267,
+        "rowsWritten": 1618
+      }
+    }
   }
 }
