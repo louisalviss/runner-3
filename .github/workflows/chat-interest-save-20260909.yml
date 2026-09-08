@@ -1,0 +1,101 @@
+name: Chat interest save 2026-09-09
+
+on:
+  push:
+    paths:
+      - '.github/workflows/chat-interest-save-20260909.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  persist:
+    runs-on: ubuntu-latest
+    env:
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require write token
+        shell: bash
+        run: test -n "${CORE_TOKEN:-}"
+      - name: Persist interests and follow-up depth
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          base=os.environ['CORE_URL'].rstrip('/')
+          token=os.environ['CORE_TOKEN']
+          def call(path, payload=None, allow_duplicate=False):
+              headers={'Authorization':f'Bearer {token}','Accept':'application/json','Content-Type':'application/json'}
+              data=None if payload is None else json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+              req=urllib.request.Request(base+path,data=data,headers=headers,method='GET' if payload is None else 'POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=45) as r: return json.load(r)
+              except urllib.error.HTTPError as e:
+                  text=e.read().decode(errors='replace')
+                  if allow_duplicate and e.code==404 and 'CONTENT_ITEM_NOT_FOUND_OR_DUPLICATE' in text:
+                      return {'ok':True,'durable':True,'duplicate':True}
+                  raise RuntimeError(f'{path}: HTTP {e.code}: {text}')
+
+          items=[
+            (8,'theatlantic','The Atlantic','The Novel That Looks Death in the Eye','https://www.theatlantic.com/books/2026/09/emma-clines-anti-escapist-novel-switzy-book-review/688538/',[]),
+            (10,'genk','GenK','Bị OpenAI chặn không cho viết lên Internet, AI Agent chiếm một website cũ để tự lập diễn đàn: 13.000 thông điệp trong một tuần','https://genk.vn/bi-openai-chan-khong-cho-viet-len-internet-ai-agent-chiem-mot-website-cu-de-tu-lap-dien-dan-13000-thong-diep-trong-mot-tuan-16526090816361204.chn',[]),
+            (14,'theatlantic','The Atlantic','The Myth of Perfect Knowledge','https://www.theatlantic.com/ideas/2026/09/science-objectivity-myth-physics/688532/',[]),
+            (17,'scientificamerican','Scientific American','AI may have just solved a million-dollar math problem. The field will never be the same','https://www.scientificamerican.com/article/ai-may-have-just-solved-a-million-dollar-math-problem-the-field-will-never-be-the-same/',[
+              ('topic','ai-scientific-discovery'),('topic','frontier-mathematics'),('concept','formal-verification'),('mechanism','human-ai-research-collaboration'),('method','novel-method-vs-existing-ideas')]),
+            (22,'theatlantic','The Atlantic','A War of Assassinations','https://www.theatlantic.com/national-security/2026/09/iran-war-trump-assassinations/688522/',[
+              ('topic','geopolitical-escalation'),('mechanism','state-attribution'),('mechanism','retaliation-dynamics'),('concept','leadership-targeting-risk'),('mechanism','second-order-effects')]),
+            (32,'projectsyndicate','Project Syndicate','Unpaid Work in the AI Age','https://www.project-syndicate.org/commentary/ai-can-expand-leisure-time-by-increasing-productivity-in-unpaid-work-by-diane-coyle-2026-09',[
+              ('topic','ai-economics'),('concept','productivity-vs-income'),('mechanism','value-capture'),('concept','cash-roi'),('mechanism','monetization-of-time-saved')]),
+            (37,'genk','GenK','Kỹ sư Microsoft: "Thời coder gõ code đã qua", đây mới là công việc tương lai của lập trình viên','https://genk.vn/ky-su-microsoft-thoi-coder-go-code-da-qua-day-moi-la-cong-viec-tuong-lai-cua-lap-trinh-vien-165260908140328756.chn',[
+              ('topic','agentic-software-engineering'),('concept','non-coder-ai-workflows'),('mechanism','verification-architecture'),('concept','sandbox-permission-gates'),('concept','rollback-observability')]),
+            (59,'genk','GenK','Tiên đoán của tỷ phú Elon Musk về lĩnh vực giúp nền kinh tế toàn cầu phát triển gấp 10 lần','https://genk.vn/tien-doan-cua-ty-phu-elon-musk-ve-linh-vuc-giup-nen-kinh-te-toan-cau-phat-trien-gap-10-lan-165260908075144147.chn',[]),
+            (62,'scientificamerican','Scientific American','Why music is a powerful tool to quiet stress in the brain','https://www.scientificamerican.com/article/why-music-is-a-powerful-tool-to-quiet-stress-in-the-brain/',[]),
+          ]
+          interest_results=[]
+          for number,source_key,source_name,title,url,feature_pairs in items:
+              features=[{'feature_type':t,'feature_key':k,'weight':1.0,'confidence':1.0,'model_version':'chat-explicit-v1'} for t,k in feature_pairs]
+              payload={
+                'item':{'item_id':url,'canonical_url':url,'source_type':'rss','source_key':source_key,'source_name':source_name,'title':title},
+                'features':features,
+                'render_id':f'interest-save:chat:2026-09-09:rss08:{number}',
+                'context':{'origin':'chatgpt','manifest_date':'2026-09-08','manifest_number':number,'intent':'explicit_positive_interest'}
+              }
+              result=call('/content-intelligence/interests/ingest',payload)
+              if not (result.get('ok') and result.get('durable') and result.get('d1_readback')):
+                  raise RuntimeError(f'interest #{number} not durable: {result}')
+              interest_results.append((number,result.get('event_applied'),result.get('event_idempotent'),result.get('event_id')))
+
+          followups={
+            17:'interest in AI frontier discovery, formal proof, and whether AI contributes genuinely new research steps',
+            22:'interest in state attribution and escalation consequences; not endorsement of violence',
+            32:'interest in converting AI productivity/time savings into actual cash income and measurable ROI',
+            37:'interest in agentic software engineering for a non-coder with verification, permissions, observability and rollback',
+          }
+          by_number={row[0]:row for row in items}
+          follow_results=[]
+          for number,note in followups.items():
+              url=by_number[number][4]
+              render_id=f'chat-followup:2026-09-09:rss08:{number}:1'
+              payload={'item_id':url,'event_type':'follow_up','render_id':render_id,
+                       'context':{'origin':'chatgpt','manifest_date':'2026-09-08','manifest_number':number,
+                                  'depth':1,'substantive':True,'interpretation':note}}
+              result=call('/content-intelligence/events',payload,allow_duplicate=True)
+              if not (result.get('ok') and result.get('durable')):
+                  raise RuntimeError(f'follow-up #{number} not durable: {result}')
+              follow_results.append((number,result.get('event_applied',0),bool(result.get('duplicate'))))
+          recompute=call('/content-intelligence/profile/recompute',{'model_version':'personal-v3'})
+          profile=call('/content-intelligence/profile?limit=5')
+          print('INTEREST_RESULTS='+json.dumps(interest_results,separators=(',',':')))
+          print('FOLLOWUP_RESULTS='+json.dumps(follow_results,separators=(',',':')))
+          print('RECOMPUTE='+json.dumps(recompute,separators=(',',':')))
+          print('PROFILE_POLICY='+str(profile.get('policy_version')))
+          if len(interest_results)!=9: raise RuntimeError('interest count mismatch')
+          if len(follow_results)!=4: raise RuntimeError('follow-up count mismatch')
+          if profile.get('policy_version')!='compressed-profile-bounded-rank-v3-followup-depth':
+              raise RuntimeError('live policy mismatch')
+          print('E2E_INTEREST_SAVE=PASS')
+          PY
