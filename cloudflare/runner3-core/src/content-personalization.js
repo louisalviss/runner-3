@@ -4,11 +4,12 @@ export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-re
 export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
 export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
 export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
-export const PERSONAL_POLICY_VERSION = "compressed-profile-bounded-rank-v3";
+export const PERSONAL_POLICY_VERSION = "compressed-profile-bounded-rank-v3-followup-depth";
 export const EVENT_WEIGHTS = {
   shown: 0,
   selected: 1,
   deep_read: 2,
+  follow_up: 0.5,
   saved: 3,
   interest_saved: 3.5,
   liked: 5,
@@ -108,6 +109,7 @@ const ITEM_SIGNAL_CTE = `
       MAX(CASE WHEN event_type='saved' THEN 1 ELSE 0 END) AS saved,
       MAX(CASE WHEN event_type='deep_read' THEN 1 ELSE 0 END) AS deep_read,
       MAX(CASE WHEN event_type='selected' THEN 1 ELSE 0 END) AS selected,
+      SUM(CASE WHEN event_type='follow_up' THEN 1 ELSE 0 END) AS follow_up_count,
       MAX(event_at) AS last_event_at
     FROM user_content_events
     WHERE event_type <> 'shown'
@@ -117,10 +119,15 @@ const ITEM_SIGNAL_CTE = `
       CASE
         WHEN disliked_at IS NOT NULL AND (liked_at IS NULL OR disliked_at >= liked_at) THEN -5.0
         WHEN liked_at IS NOT NULL THEN 5.0
-        WHEN interest_saved=1 THEN 3.5
-        WHEN saved=1 THEN 3.0
-        WHEN deep_read=1 THEN 2.0
-        WHEN selected=1 THEN 1.0
+        WHEN interest_saved=1 OR saved=1 OR deep_read=1 OR selected=1 THEN
+          MIN(3.5,
+            CASE
+              WHEN interest_saved=1 THEN 3.5
+              WHEN saved=1 THEN 3.0
+              WHEN deep_read=1 THEN 2.0
+              ELSE 1.0
+            END + MIN(1.5, 0.5 * follow_up_count)
+          )
         ELSE 0.0
       END AS signal,
       CASE
@@ -339,9 +346,9 @@ export async function snapshotRecommendationRun(env, snapshotId, {sourceRenderId
   return {ok:true,idempotent:false,snapshot_id:sid,model_version:modelVersion,item_count:rows.length,...metadata};
 }
 
-function gradeEvents(events){let latest=null,positive=0;for(const e of events){if(e.event_type==='liked'||e.event_type==='disliked')latest=e.event_type;if(e.event_type==='interest_saved'||e.event_type==='saved')positive=Math.max(positive,3);else if(e.event_type==='deep_read')positive=Math.max(positive,2);else if(e.event_type==='selected')positive=Math.max(positive,1);}if(latest==='disliked')return 0;if(latest==='liked')return 3;return positive;}
+function gradeEvents(events){let latest=null,positive=0,followUps=0;for(const e of events){if(e.event_type==='liked'||e.event_type==='disliked')latest=e.event_type;if(e.event_type==='interest_saved'||e.event_type==='saved')positive=Math.max(positive,3);else if(e.event_type==='deep_read')positive=Math.max(positive,2);else if(e.event_type==='selected')positive=Math.max(positive,1);else if(e.event_type==='follow_up')followUps+=1;}if(latest==='disliked')return 0;if(latest==='liked')return 3;return Math.min(3,positive+(positive>0?Math.min(1,0.5*followUps):0));}
 function rankingMetrics(list,grades,positives,k){const n=Math.min(k,list.length);let hits=0,dcg=0;for(let i=0;i<n;i++){const g=Number(grades.get(list[i].item_id)||0);if(g>0)hits++;dcg+=(Math.pow(2,g)-1)/Math.log2(i+2);}const ideal=[...grades.values()].filter(x=>x>0).sort((a,b)=>b-a).slice(0,n);const idcg=ideal.reduce((s,g,i)=>s+(Math.pow(2,g)-1)/Math.log2(i+2),0);return {precision_at_k:n?hits/n:null,recall_at_k:positives?hits/positives:null,ndcg_at_k:idcg?dcg/idcg:null,hits_at_k:hits};}
-export async function evaluateRecommendationRun(env,snapshotId){if(!env?.DB)return {ok:false,error:'D1_NOT_BOUND'};const sid=String(snapshotId||'').trim();if(!sid)return {ok:false,error:'snapshot_id_required'};const run=await env.DB.prepare('SELECT * FROM recommendation_runs WHERE render_id=?').bind(sid).first();if(!run)return {ok:false,error:'recommendation_snapshot_not_found',snapshot_id:sid};let meta={};try{meta=JSON.parse(run.metadata_json||'{}');}catch{}const baseline=Array.isArray(meta.baseline)?meta.baseline:[],personalized=Array.isArray(meta.personalized)?meta.personalized:[],rid=String(meta.source_render_id||'');const shown=await env.DB.prepare("SELECT DISTINCT item_id FROM user_content_events WHERE render_id=? AND event_type='shown'").bind(rid).all();const ids=(shown.results||[]).map(r=>String(r.item_id));if(!ids.length)return {ok:false,error:'source_render_not_found',source_render_id:rid};const ph=ids.map(()=>'?').join(',');const events=await env.DB.prepare(`SELECT item_id,event_type,event_at,id FROM user_content_events WHERE item_id IN (${ph}) AND event_type IN ('selected','deep_read','saved','interest_saved','liked','disliked') AND event_at>=? ORDER BY event_at,id`).bind(...ids,run.created_at).all();const by=new Map(ids.map(id=>[id,[]]));for(const e of events.results||[])if(by.has(String(e.item_id)))by.get(String(e.item_id)).push(e);const grades=new Map();for(const [id,es] of by)grades.set(id,gradeEvents(es));const positives=[...grades.values()].filter(x=>x>0).length,k=clampTopK(meta.top_k||run.recommended_count||10),b=rankingMetrics(baseline,grades,positives,k),p=rankingMetrics(personalized,grades,positives,k),lift=(x,y)=>(x==null||y==null)?null:x-y;return {ok:true,snapshot_id:sid,source_render_id:rid,model_version:run.model_version,policy_version:meta.policy_version||null,top_k:k,judged_positive_count:positives,feedback_event_count:(events.results||[]).length,evaluable:positives>0,baseline:b,personalized:p,lift:{precision_at_k:lift(p.precision_at_k,b.precision_at_k),recall_at_k:lift(p.recall_at_k,b.recall_at_k),ndcg_at_k:lift(p.ndcg_at_k,b.ndcg_at_k)},snapshot_created_at:run.created_at,evaluated_at:new Date().toISOString()};}
+export async function evaluateRecommendationRun(env,snapshotId){if(!env?.DB)return {ok:false,error:'D1_NOT_BOUND'};const sid=String(snapshotId||'').trim();if(!sid)return {ok:false,error:'snapshot_id_required'};const run=await env.DB.prepare('SELECT * FROM recommendation_runs WHERE render_id=?').bind(sid).first();if(!run)return {ok:false,error:'recommendation_snapshot_not_found',snapshot_id:sid};let meta={};try{meta=JSON.parse(run.metadata_json||'{}');}catch{}const baseline=Array.isArray(meta.baseline)?meta.baseline:[],personalized=Array.isArray(meta.personalized)?meta.personalized:[],rid=String(meta.source_render_id||'');const shown=await env.DB.prepare("SELECT DISTINCT item_id FROM user_content_events WHERE render_id=? AND event_type='shown'").bind(rid).all();const ids=(shown.results||[]).map(r=>String(r.item_id));if(!ids.length)return {ok:false,error:'source_render_not_found',source_render_id:rid};const ph=ids.map(()=>'?').join(',');const events=await env.DB.prepare(`SELECT item_id,event_type,event_at,id FROM user_content_events WHERE item_id IN (${ph}) AND event_type IN ('selected','deep_read','follow_up','saved','interest_saved','liked','disliked') AND event_at>=? ORDER BY event_at,id`).bind(...ids,run.created_at).all();const by=new Map(ids.map(id=>[id,[]]));for(const e of events.results||[])if(by.has(String(e.item_id)))by.get(String(e.item_id)).push(e);const grades=new Map();for(const [id,es] of by)grades.set(id,gradeEvents(es));const positives=[...grades.values()].filter(x=>x>0).length,k=clampTopK(meta.top_k||run.recommended_count||10),b=rankingMetrics(baseline,grades,positives,k),p=rankingMetrics(personalized,grades,positives,k),lift=(x,y)=>(x==null||y==null)?null:x-y;return {ok:true,snapshot_id:sid,source_render_id:rid,model_version:run.model_version,policy_version:meta.policy_version||null,top_k:k,judged_positive_count:positives,feedback_event_count:(events.results||[]).length,evaluable:positives>0,baseline:b,personalized:p,lift:{precision_at_k:lift(p.precision_at_k,b.precision_at_k),recall_at_k:lift(p.recall_at_k,b.recall_at_k),ndcg_at_k:lift(p.ndcg_at_k,b.ndcg_at_k)},snapshot_created_at:run.created_at,evaluated_at:new Date().toISOString()};}
 
 export async function recomputePersonalization(env, modelVersion = PERSONAL_MODEL_VERSION) {
   const profile = await recomputeInterestProfile(env, modelVersion);

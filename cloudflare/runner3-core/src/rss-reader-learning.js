@@ -79,6 +79,31 @@ async function recordEventOnce(env, article, eventType, context = null) {
   return changed;
 }
 
+async function recordFollowUpEvent(env, article, articleId, interactionId, context = null) {
+  if (!isSupportedContentEvent("follow_up")) return 0;
+  const ensured = await ensureContentItem(env, article);
+  if (!ensured.itemId) return 0;
+  const interaction = String(interactionId || "").trim().slice(0, 200);
+  if (!interaction) return 0;
+  const renderId = `rss-reader:follow_up:${interaction}`;
+  const result = await env.DB.prepare(`
+    INSERT INTO user_content_events (
+      item_id, render_id, event_type, assistant_recommended, assistant_rank,
+      explicit_feedback, context_json, event_at
+    )
+    SELECT ?, ?, 'follow_up', 0, NULL, NULL, ?, CURRENT_TIMESTAMP
+    WHERE NOT EXISTS (
+      SELECT 1 FROM user_content_events WHERE item_id = ? AND event_type = 'follow_up' AND render_id = ?
+    )
+  `).bind(
+    ensured.itemId, renderId, JSON.stringify({ source: "rss_reader_follow_up", article_id: articleId, ...(context || {}) }),
+    ensured.itemId, renderId
+  ).run();
+  const changed = Number(result.meta?.changes || 0);
+  if (changed) await markProfileDirty(env, "rss_follow_up");
+  return changed;
+}
+
 async function replaceReaderPreference(env, article, preference, articleId) {
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
@@ -139,7 +164,7 @@ export async function reconcileLibraryLearning(response, env) {
 
 export async function handleRssReaderLearning(request, env, url, authorize) {
   if (request.method !== "POST") return null;
-  const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/deep-read$/);
+  const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/(deep-read|follow-up)$/);
   if (!match) return null;
   if (!env.DB) return Response.json({ ok: false, error: "D1_NOT_BOUND" }, { status: 503 });
   let articleId;
@@ -150,8 +175,27 @@ export async function handleRssReaderLearning(request, env, url, authorize) {
   const article = auth.payload?.article || await loadArticle(env, articleId);
   if (!article) return Response.json({ ok: false, error: "ARTICLE_NOT_FOUND" }, { status: 404 });
 
-  const selected = await recordEventOnce(env, article, "selected", { source: "rss_reader_deep_read", article_id: articleId });
+  const action = match[2];
+  let followUpBody = null;
+  if (action === "follow-up") {
+    followUpBody = await request.json().catch(() => ({}));
+    const interactionId = String(followUpBody?.interaction_id || followUpBody?.interactionId || "").trim();
+    if (!interactionId) return Response.json({ ok: false, error: "interaction_id_required" }, { status: 400 });
+  }
+
+  const selected = await recordEventOnce(env, article, "selected", { source: "rss_reader_" + action, article_id: articleId });
   const deepRead = await recordEventOnce(env, article, "deep_read", { source: "rss_reader_threshold_v2", article_id: articleId });
+  if (action === "follow-up") {
+    const interactionId = String(followUpBody?.interaction_id || followUpBody?.interactionId || "").trim();
+    const substantive = followUpBody?.substantive !== false;
+    const followUp = substantive ? await recordFollowUpEvent(env, article, articleId, interactionId, {
+      depth: Math.max(1, Math.min(99, Number.parseInt(String(followUpBody?.depth || 1), 10) || 1)),
+      substantive: true,
+    }) : 0;
+    const recompute = (selected || deepRead || followUp) ? await maybeRecomputePersonalShared(env) : { recomputed: false };
+    return Response.json({ ok: true, selected_applied: selected, deep_read_applied: deepRead, follow_up_applied: followUp, substantive, profile_recomputed: Boolean(recompute.recomputed) });
+  }
+
   const recompute = (selected || deepRead) ? await maybeRecomputePersonalShared(env) : { recomputed: false };
   return Response.json({ ok: true, selected_applied: selected, deep_read_applied: deepRead, profile_recomputed: Boolean(recompute.recomputed) });
 }

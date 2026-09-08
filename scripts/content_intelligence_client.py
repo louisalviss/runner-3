@@ -235,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.set_defaults(func=cmd_ingest_manifest)
     e = sub.add_parser("event")
     e.add_argument("--item-id", required=True)
-    e.add_argument("--event-type", required=True, choices=["shown", "selected", "deep_read", "liked", "disliked", "saved", "interest_saved"])
+    e.add_argument("--event-type", required=True, choices=["shown", "selected", "deep_read", "follow_up", "liked", "disliked", "saved", "interest_saved"])
     e.add_argument("--render-id")
     e.add_argument("--assistant-recommended", action="store_true")
     e.add_argument("--assistant-rank", type=int)

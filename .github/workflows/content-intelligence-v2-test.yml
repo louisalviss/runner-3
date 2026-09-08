@@ -53,6 +53,9 @@ jobs:
           python3 -m py_compile scripts/content_intelligence_client.py
           node scripts/verify_runner3_d1_quota_guards.mjs
           grep -q 'interest_saved' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'follow_up' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'follow_up_count' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'interaction_id_required' cloudflare/runner3-core/src/rss-reader-learning.js
           grep -q 'latest-explicit-wins' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'freshness_bonus' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'novelty_bonus' cloudflare/runner3-core/src/content-personalization.js
@@ -85,11 +88,12 @@ jobs:
           const keys = new Set(a.map((x) => `${x.feature_type}:${x.feature_key}`));
           if (FEATURE_MODEL_VERSION !== 'semantic-bridge-v3') throw new Error('feature model marker mismatch');
           if (PERSONAL_MODEL_VERSION !== 'personal-v3') throw new Error('personal model marker mismatch');
-          if (PERSONAL_POLICY_VERSION !== 'compressed-profile-bounded-rank-v3') throw new Error('personal policy marker mismatch');
+          if (PERSONAL_POLICY_VERSION !== 'compressed-profile-bounded-rank-v3-followup-depth') throw new Error('personal policy marker mismatch');
           if (PROFILE_RECOMPUTE_CLOCK_KEY !== 'content-intelligence-profile-last-recompute') throw new Error('recompute clock marker mismatch');
           if (!keys.has('topic:ai-agents')) throw new Error('AI-agent topic missing');
           if (!keys.has('concept:agent-orchestration')) throw new Error('agent-orchestration concept missing');
           if (!isSupportedContentEvent('interest_saved') || EVENT_WEIGHTS.interest_saved <= EVENT_WEIGHTS.deep_read) throw new Error('interest_saved priority incorrect');
+          if (!isSupportedContentEvent('follow_up') || EVENT_WEIGHTS.follow_up !== 0.5) throw new Error('follow_up weight incorrect');
           if (!(EVENT_WEIGHTS.disliked < 0) || Math.abs(EVENT_WEIGHTS.disliked) < EVENT_WEIGHTS.selected) throw new Error('negative preference strength incorrect');
 
           const b = extractSemanticFeatures({
@@ -126,5 +130,13 @@ jobs:
           assert row[0]==1 and row[1] is not None, row
           ranks=db.execute('WITH x(v) AS (VALUES(1),(2),(3)) SELECT percent_rank() OVER (ORDER BY v) FROM x').fetchall()
           assert ranks == [(0.0,), (0.5,), (1.0,)], ranks
-          print('Content Intelligence v3 idempotency/window regression PASS')
+          def effective(base, followups):
+              return min(3.5, base + min(1.5, 0.5 * followups)) if base > 0 else 0.0
+          assert effective(2.0, 0) == 2.0
+          assert effective(2.0, 1) == 2.5
+          assert effective(2.0, 3) == 3.5
+          assert effective(2.0, 9) == 3.5
+          assert effective(3.0, 1) == 3.5
+          assert effective(0.0, 3) == 0.0
+          print('Content Intelligence v3 idempotency/window/follow-up-depth regression PASS')
           PY

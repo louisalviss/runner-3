@@ -158,3 +158,9 @@ Direct Substack profile-feed access is attempted first. When GitHub-hosted egres
 ## Never use
 
 Do not use `louisalviss/rss-proxy` for runtime freshness, mirrors, cursor, state, or health. It is historical only.
+
+### Follow-up depth learning
+
+Substantive user follow-ups on an article are durable learning events, not aliases for `liked` or `saved`. Record one idempotent `follow_up` event per user interaction using a stable interaction id. Scoring adds `+0.5` per follow-up, capped at `+1.5`, and caps implicit positive engagement at `3.5`; explicit `liked=5` remains stronger and a newer explicit `disliked=-5` still overrides positive engagement. A follow-up without a prior positive article signal does not create positive preference by itself.
+
+Canonical chat semantics: `selected -> deep_read -> follow_up depth`. Questions about mechanism, consequences, applicability, objections, or second-order effects count when they materially continue the same article. Trivial formatting requests, accidental repeats, and assistant-generated continuations do not count.
