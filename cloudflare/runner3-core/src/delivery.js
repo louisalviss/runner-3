@@ -120,7 +120,9 @@ function objectHeaders(object, artifact) {
   if (object.httpEtag) headers.set("etag", object.httpEtag);
   if (Number.isFinite(object.size)) headers.set("content-length", String(object.size));
   headers.set("cache-control", "private, no-store, max-age=0");
-  headers.set("content-disposition", `attachment; filename="${attachmentFilename(artifact.name)}"`);
+  const contentType = String(headers.get("content-type") || "").toLowerCase();
+  const disposition = contentType.startsWith("video/") ? "inline" : "attachment";
+  headers.set("content-disposition", `${disposition}; filename="${attachmentFilename(artifact.name)}"`);
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "no-referrer");
   headers.set("x-runner3-delivery-project", artifact.project);
