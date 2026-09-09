@@ -34,7 +34,7 @@ ARCHIVE_BASE = "https://arctic-shift.photon-reddit.com"
 
 LISTING_RE = re.compile(r"^/r/([A-Za-z0-9_]+)/(top|new|hot)\.json$")
 THREAD_RE = re.compile(r"^/comments/([A-Za-z0-9]+)\.json$")
-POST_RE = re.compile(r"/comments/([A-Za-z0-9]+)/", re.I)
+POST_RE = re.compile(r"/comments/([A-Za-z0-9]+)(?:/|$)", re.I)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
