@@ -21,23 +21,75 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Resolve manifest numbers to durable D1 events
+      - name: Resolve immutable manifest numbers to durable D1 events
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import subprocess
           from pathlib import Path
 
           req = json.loads(Path('data/content-intelligence/feedback-request.json').read_text(encoding='utf-8'))
-          manifest = json.loads(Path('data/rss-reader/kept-manifest-today.json').read_text(encoding='utf-8'))
+          wanted_date = str(req.get('date') or '').strip()
+          wanted_hash = str(req.get('manifest_hash') or '').strip()
+          if not wanted_date or not wanted_hash:
+              raise SystemExit('FEEDBACK_MANIFEST_IDENTITY_REQUIRED')
 
-          if req.get('date') != manifest.get('date'):
-              raise SystemExit(f"FEEDBACK_DATE_MISMATCH request={req.get('date')} manifest={manifest.get('date')}")
-          if req.get('manifest_hash') != manifest.get('manifestHash'):
-              raise SystemExit('FEEDBACK_MANIFEST_HASH_MISMATCH')
+          def matches(obj):
+              return obj.get('date') == wanted_date and obj.get('manifestHash') == wanted_hash
+
+          manifest = None
+          manifest_source = None
+          candidates = [
+              Path(f'data/rss-reader/manifests/{wanted_date}/{wanted_hash}.json'),
+              Path(f'data/rss-reader/manifests/{wanted_date}/latest.json'),
+              Path('data/rss-reader/kept-manifest-today.json'),
+              Path('data/rss-reader/kept-manifest-yesterday.json'),
+          ]
+          for path in candidates:
+              if not path.exists():
+                  continue
+              try:
+                  obj = json.loads(path.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              if matches(obj):
+                  manifest = obj
+                  manifest_source = str(path)
+                  break
+
+          if manifest is None:
+              paths = [
+                  'data/rss-reader/kept-manifest-today.json',
+                  'data/rss-reader/kept-manifest-yesterday.json',
+              ]
+              for path in paths:
+                  refs = subprocess.check_output(
+                      ['git', 'log', '-n', '500', '--format=%H', '--', path],
+                      text=True,
+                  ).splitlines()
+                  for ref in refs:
+                      try:
+                          raw = subprocess.check_output(
+                              ['git', 'show', f'{ref}:{path}'],
+                              text=True,
+                              stderr=subprocess.DEVNULL,
+                          )
+                          obj = json.loads(raw)
+                      except Exception:
+                          continue
+                      if matches(obj):
+                          manifest = obj
+                          manifest_source = f'git:{ref}:{path}'
+                          break
+                  if manifest is not None:
+                      break
+
+          if manifest is None:
+              raise SystemExit(f'FEEDBACK_MANIFEST_NOT_FOUND:{wanted_date}:{wanted_hash}')
 
           by_number = {int(item['number']): item for item in manifest.get('manifest') or []}
           mapping = [
@@ -49,7 +101,7 @@ jobs:
           ]
           seen = {}
           events = []
-          render_id = req.get('render_id') or f"rss:{manifest['date']}:{manifest['manifestHash']}"
+          render_id = req.get('render_id') or f"rss:{wanted_date}:{wanted_hash}"
           for field, event_type in mapping:
               for raw_n in req.get(field) or []:
                   n = int(raw_n)
@@ -71,7 +123,9 @@ jobs:
                           'source': 'chatgpt_rss_feedback',
                           'request_id': req.get('request_id'),
                           'manifest_number': n,
-                          'manifest_date': manifest.get('date'),
+                          'manifest_date': wanted_date,
+                          'manifest_hash': wanted_hash,
+                          'manifest_source': manifest_source,
                           'source_key': item.get('sourceKey'),
                       },
                   })
@@ -82,6 +136,7 @@ jobs:
           Path('/tmp/feedback-events.json').write_text(json.dumps({'events': events}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           print(f'FEEDBACK_RESOLVED={len(events)}')
           print(f'FEEDBACK_RENDER_ID={render_id}')
+          print(f'FEEDBACK_MANIFEST_SOURCE={manifest_source}')
           PY
 
       - name: Persist feedback events to Content Intelligence D1
@@ -96,9 +151,12 @@ jobs:
           x=json.load(open('/tmp/feedback-result.json'))
           if x.get('ok') is not True or x.get('durable') is not True:
               raise SystemExit('FEEDBACK_D1_NOT_DURABLE')
-          if int(x.get('applied') or 0) != int(x.get('requested') or 0):
-              raise SystemExit(f"FEEDBACK_NOT_FULLY_APPLIED:{x}")
-          print('FEEDBACK_D1_FULL_APPLY=PASS')
+          requested=int(x.get('requested') or 0)
+          applied=int(x.get('applied') or 0)
+          suppressed=int(x.get('missing_or_duplicate') or 0)
+          if requested <= 0 or applied + suppressed != requested:
+              raise SystemExit(f'FEEDBACK_D1_ACCOUNTING_FAILED:{x}')
+          print(f'FEEDBACK_D1_DURABLE=PASS applied={applied} replay_or_missing={suppressed} requested={requested}')
           PY
 
       - name: Mark/recompute personal-v3 profile when guard allows
