@@ -12,5 +12,10 @@ new="""    const R3_LIBRARY_META_SAFE_INDEX_V71='v71';
 if old not in text:
     raise SystemExit('V71_FAST_INDEX_MAP_ANCHOR_MISSING')
 text=text.replace(old,new,1)
+old_cache="const R3_LIBRARY_FAST_CLIENT_CACHE_V65='r3-library-fast-list-v65';"
+new_cache="const R3_LIBRARY_FAST_CLIENT_CACHE_V65='r3-library-fast-list-v71';"
+if old_cache not in text:
+    raise SystemExit('V71_CLIENT_CACHE_KEY_ANCHOR_MISSING')
+text=text.replace(old_cache,new_cache,1)
 SIMPLE.write_text(text,encoding='utf-8')
 print('READER_V71_META_SAFE_INDEX=PASS')
