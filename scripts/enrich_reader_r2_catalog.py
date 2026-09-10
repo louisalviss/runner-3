@@ -42,6 +42,18 @@ def get_object_bytes(key):
         return response.read()
 
 
+def object_exists(key):
+    if not key:
+        return False
+    try:
+        req = urllib.request.Request(object_url(key), headers=auth_headers({'Range': 'bytes=0-0'}))
+        with urllib.request.urlopen(req, timeout=60) as response:
+            response.read(1)
+            return 200 <= response.status < 300
+    except Exception:
+        return False
+
+
 def put_object_bytes(key, data, content_type):
     req = urllib.request.Request(object_url(key), data=data, method='PUT', headers=auth_headers({'Content-Type': content_type}))
     with urllib.request.urlopen(req, timeout=180) as response:
@@ -109,6 +121,67 @@ def first_local(root, local):
     return ''
 
 
+def read_existing_catalog():
+    try:
+        raw = get_object_bytes(INDEX_KEY)
+        data = json.loads(raw.decode('utf-8'))
+        if isinstance(data, dict) and isinstance(data.get('books'), dict):
+            return data
+    except Exception as exc:
+        print(f'WARN existing catalog unavailable: {exc}', flush=True)
+    return {'version': 1, 'books': {}}
+
+
+def merge_text(existing, extracted):
+    existing = str(existing or '').strip()
+    return existing if existing else str(extracted or '').strip()
+
+
+def merge_entry(existing, extracted, key):
+    previous = dict(existing or {})
+    entry = dict(previous)
+    entry['epub_key'] = key
+    entry['title'] = merge_text(previous.get('title'), extracted.get('title'))
+    entry['creator'] = merge_text(previous.get('creator'), extracted.get('creator'))
+    return entry
+
+
+def first_image_from_spine(zf, opf, rootfile, manifest):
+    first_idref = ''
+    for node in opf.iter():
+        if node.tag.split('}')[-1] == 'itemref':
+            first_idref = str(node.attrib.get('idref', '')).strip()
+            if first_idref:
+                break
+    if not first_idref or first_idref not in manifest:
+        return '', ''
+    href, media, _ = manifest[first_idref]
+    if not href:
+        return '', ''
+    opf_dir = posixpath.dirname(rootfile)
+    page_path = posixpath.normpath(posixpath.join(opf_dir, urllib.parse.unquote(href)))
+    try:
+        page = ET.fromstring(zf.read(page_path))
+    except Exception:
+        return '', ''
+    image_href = ''
+    for node in page.iter():
+        if node.tag.split('}')[-1].lower() == 'img':
+            image_href = str(node.attrib.get('src', '')).strip()
+            if image_href:
+                break
+    if not image_href:
+        return '', ''
+    image_path = posixpath.normpath(posixpath.join(posixpath.dirname(page_path), urllib.parse.unquote(image_href)))
+    for _, (candidate_href, candidate_media, _) in manifest.items():
+        candidate_path = posixpath.normpath(posixpath.join(opf_dir, urllib.parse.unquote(candidate_href)))
+        if candidate_path == image_path and candidate_media.startswith('image/'):
+            return candidate_href, candidate_media
+    ext = pathlib.PurePosixPath(image_path).suffix.lower()
+    media = {'.png':'image/png','.webp':'image/webp','.gif':'image/gif'}.get(ext, 'image/jpeg')
+    return posixpath.relpath(image_path, opf_dir or '.'), media
+
+
 def epub_metadata(epub_path: pathlib.Path):
     with zipfile.ZipFile(epub_path) as zf:
         container = ET.fromstring(zf.read('META-INF/container.xml'))
@@ -147,6 +220,9 @@ def epub_metadata(epub_path: pathlib.Path):
             cover_href, cover_media, _ = manifest[cover_id]
 
         if not cover_href:
+            cover_href, cover_media = first_image_from_spine(zf, opf, rootfile, manifest)
+
+        if not cover_href:
             ranked = []
             for item_id, (href, media, props) in manifest.items():
                 if not href or not media.startswith('image/'):
@@ -157,10 +233,16 @@ def epub_metadata(epub_path: pathlib.Path):
                     score += 10
                 if media in ('image/jpeg', 'image/png', 'image/webp'):
                     score += 2
-                ranked.append((score, href, media))
+                try:
+                    opf_dir = posixpath.dirname(rootfile)
+                    image_path = posixpath.normpath(posixpath.join(opf_dir, urllib.parse.unquote(href)))
+                    size = zf.getinfo(image_path).file_size
+                except Exception:
+                    size = 0
+                ranked.append((score, size, href, media))
             if ranked:
                 ranked.sort(reverse=True)
-                cover_href, cover_media = ranked[0][1], ranked[0][2]
+                cover_href, cover_media = ranked[0][2], ranked[0][3]
 
         cover_bytes = None
         if cover_href:
@@ -192,32 +274,72 @@ def main():
         raise SystemExit('NO_EPUB_OBJECTS')
 
     from datetime import datetime, timezone
-    catalog = {'version': 1, 'generated_at': datetime.now(timezone.utc).isoformat(), 'books': {}}
+    previous_catalog = read_existing_catalog()
+    previous_books = previous_catalog.get('books') if isinstance(previous_catalog.get('books'), dict) else {}
+    now = datetime.now(timezone.utc)
+    backup_key = f"core/ebook/_system/catalog-v72/pre-enrich-{now.strftime('%Y%m%dT%H%M%SZ')}.json"
+    if previous_books:
+        put_object_bytes(backup_key, (json.dumps(previous_catalog, ensure_ascii=False, indent=2) + '\n').encode('utf-8'), 'application/json')
+        print(f'R3_R2_CATALOG_BACKUP={backup_key}', flush=True)
+    catalog = {'version': max(2, int(previous_catalog.get('version') or 1) + 1), 'generated_at': now.isoformat(), 'recovered_by': 'metadata-preserve-v72', 'books': {}}
     with tempfile.TemporaryDirectory(prefix='r3-epub-catalog-') as tmp:
         root = pathlib.Path(tmp)
         for i, obj in enumerate(objects, 1):
             key = obj['key']
             scope = obj['scope']
             print(f'[{i}/{len(objects)}] {scope}: {key}', flush=True)
-            epub_path = root / f'{i:03d}.epub'
-            epub_path.write_bytes(get_object_bytes(key))
-            meta = epub_metadata(epub_path)
-            entry = {'title': meta.get('title') or '', 'creator': meta.get('creator') or '', 'epub_key': key}
-            cover = meta.get('cover_bytes')
-            if cover:
-                ext, media = extension_for(meta.get('cover_media') or '', cover)
-                cover_key = f'core/ebook/{scope}/meta/cover{ext}'
-                put_object_bytes(cover_key, cover, media)
-                entry['cover_key'] = cover_key
-                entry['cover_type'] = media
-                entry['cover_bytes'] = len(cover)
+            existing = previous_books.get(scope) if isinstance(previous_books.get(scope), dict) else {}
+            existing_cover_key = str(existing.get('cover_key') or '').strip()
+            cover_ok = bool(existing_cover_key and object_exists(existing_cover_key))
+            no_cover_expected = str(existing.get('cover_missing_reason') or '') == 'epub-no-image'
+            complete = bool(str(existing.get('title') or '').strip() and str(existing.get('creator') or '').strip() and (cover_ok or no_cover_expected))
+            if complete:
+                entry = dict(existing)
+                entry['epub_key'] = key
+                print(f'PRESERVE {scope}: metadata complete', flush=True)
             else:
-                print(f'WARN no cover found: {scope}', flush=True)
+                epub_path = root / f'{i:03d}.epub'
+                epub_path.write_bytes(get_object_bytes(key))
+                meta = epub_metadata(epub_path)
+                entry = merge_entry(existing, meta, key)
+                if cover_ok:
+                    entry['cover_key'] = existing_cover_key
+                    if existing.get('cover_type'):
+                        entry['cover_type'] = existing.get('cover_type')
+                    if existing.get('cover_bytes'):
+                        entry['cover_bytes'] = existing.get('cover_bytes')
+                    entry.pop('cover_missing_reason', None)
+                else:
+                    cover = meta.get('cover_bytes')
+                    if cover:
+                        ext, media = extension_for(meta.get('cover_media') or '', cover)
+                        cover_key = f'core/ebook/{scope}/meta/cover{ext}'
+                        put_object_bytes(cover_key, cover, media)
+                        entry['cover_key'] = cover_key
+                        entry['cover_type'] = media
+                        entry['cover_bytes'] = len(cover)
+                        entry.pop('cover_missing_reason', None)
+                    else:
+                        entry.pop('cover_key', None)
+                        entry.pop('cover_type', None)
+                        entry.pop('cover_bytes', None)
+                        entry['cover_missing_reason'] = 'epub-no-image'
+                        print(f'WARN no cover found: {scope}', flush=True)
             catalog['books'][scope] = entry
+            sidecar = {
+                'bookKey': key,
+                'display_title': entry.get('title') or '',
+                'author': entry.get('creator') or '',
+                'cover_key': entry.get('cover_key') or '',
+                'updated_at': catalog['generated_at'],
+                'source': 'metadata-preserve-v72',
+            }
+            put_object_bytes(f'core/ebook/{scope}/meta/book.json', (json.dumps(sidecar, ensure_ascii=False, indent=2) + '\n').encode('utf-8'), 'application/json')
 
         index_bytes = (json.dumps(catalog, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
         put_object_bytes(INDEX_KEY, index_bytes, 'application/json')
-        print('R3_R2_CATALOG_ENRICH=PASS books=%d covers=%d' % (len(catalog['books']), sum(1 for x in catalog['books'].values() if x.get('cover_key'))))
+        put_object_bytes('core/ebook/_system/catalog-v72/latest.json', index_bytes, 'application/json')
+        print('R3_R2_CATALOG_ENRICH=PASS books=%d covers=%d mode=preserve' % (len(catalog['books']), sum(1 for x in catalog['books'].values() if x.get('cover_key'))))
 
 
 if __name__ == '__main__':

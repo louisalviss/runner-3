@@ -1,1 +1,1 @@
-ebook-library-metadata-index-cache-v71 2026-09-10
+ebook-library-unified-state-v72 2026-09-10

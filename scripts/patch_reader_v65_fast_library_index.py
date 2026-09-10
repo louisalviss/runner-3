@@ -64,10 +64,20 @@ async function r3LibraryObjectsFastV65(env,forceRebuild=false){
 '''
 text = replace_once(text, 'async function publicList(request, env) {', server_helpers + 'async function publicList(request, env) {', 'fast index server helpers')
 
-public_list_re = re.compile(r"async function publicList\(request, env\) \{\n.*?\n\}\n\nasync function publicUpload", re.S)
+# IMPORTANT: replace ONLY publicList. v56 may have inserted server helpers such as
+# publicEnrichUpload/readCatalogDocumentV56 between publicList and publicUpload.
+# A broad replacement here previously deleted those handlers while leaving their routes alive.
+V65_PRESERVE_INTERMEDIATE_HANDLERS = True
+public_list_re = re.compile(
+    r"(async function publicList\(request, env\) \{\n.*?\n\})(\n\n.*?)(async function publicUpload)",
+    re.S,
+)
 m = public_list_re.search(text)
 if not m:
     raise SystemExit('fast index publicList block missing')
+intermediate = m.group(2)
+if 'publicEnrichUpload' not in intermediate or 'readCatalogDocumentV56' not in intermediate:
+    raise SystemExit('fast index would lose v56 intermediate handlers')
 new_public_list = r'''async function publicList(request, env) {
   if (request.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
   try {
@@ -78,10 +88,8 @@ new_public_list = r'''async function publicList(request, env) {
   } catch (error) {
     return json({ ok: false, error: "LIBRARY_LIST_FAILED", detail: String(error?.message || error) }, 503);
   }
-}
-
-async function publicUpload'''
-text = text[:m.start()] + new_public_list + text[m.end():]
+}'''
+text = text[:m.start()] + new_public_list + intermediate + m.group(3) + text[m.end():]
 
 # Raw upload changes the canonical object set. Invalidate only after R2 put has
 # succeeded; the following normal Library load will rebuild exactly once.

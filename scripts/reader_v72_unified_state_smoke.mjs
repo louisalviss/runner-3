@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+const simple=fs.readFileSync('cloudflare/runner3-core/artifact-library-simple-entry.js','utf8');
+const reader=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v2-entry.js','utf8');
+const must=(ok,msg)=>{if(!ok)throw new Error(msg)};
+must(simple.includes("scope TEXT PRIMARY KEY"),'scope canonical key missing');
+must(simple.includes("data.schema!==R3_LIBRARY_FAST_INDEX_SCHEMA_V72"),'index schema guard missing');
+must(simple.includes("r3-library-fast-list-v72"),'client cache generation missing');
+must(simple.includes("legacy_seed:true"),'legacy seed path missing');
+must(reader.includes("window.__R3_BASE_READER_BOOT_DONE!==true"),'boot write suppression missing');
+must(reader.includes("if(remote){r3ApplyRemoteProgressV65(key,remote,true)"),'server-first boot missing');
+must(reader.includes("window.addEventListener('focus',()=>r3SyncReaderVisibleV72())"),'foreground sync missing');
+console.log('READER_V72_UNIFIED_STATE_SMOKE=PASS');

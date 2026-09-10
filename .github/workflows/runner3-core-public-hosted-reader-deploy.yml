@@ -182,6 +182,40 @@ jobs:
           done
           if [ "$ok" != 1 ]; then cat /tmp/h.clean; head -c 1200 /tmp/reader; exit 1; fi
 
+          # Ebook Library v72 live contract: deployed runtime, rich metadata on both
+          # rebuild and fast-index paths, and a real enrich handler behind auth.
+          vcode="$(curl -sS -D /tmp/client-version.h -o /tmp/client-version.json -w '%{http_code}' "$core/artifact-library/api/client-version")"
+          tr -d '\r' </tmp/client-version.h >/tmp/client-version.h.clean
+          vheader="$(grep -i '^x-r3-reader-client-version:' /tmp/client-version.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "EBOOK_V72_VERSION http=$vcode header=$vheader body=$(cat /tmp/client-version.json)"
+          test "$vcode" = 200
+          test "$vheader" = v72
+          grep -q '"reader_client_version":"v72"' /tmp/client-version.json
+
+          rcode="$(curl -sS -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
+          icode="$(curl -sS -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"
+          test "$rcode" = 200
+          test "$icode" = 200
+          python3 - <<'PY'
+          import json
+          refresh=json.load(open('/tmp/library-refresh.json',encoding='utf-8'))
+          index=json.load(open('/tmp/library-index.json',encoding='utf-8'))
+          assert refresh.get('ok') is True and index.get('ok') is True
+          a=refresh.get('objects') or []; b=index.get('objects') or []
+          assert len(a)==len(b) and len(a)>0, (len(a),len(b))
+          def norm(rows):
+              return {x['scope']:(x.get('key'),x.get('title'),x.get('creator'),x.get('cover_key')) for x in rows}
+          assert norm(a)==norm(b), 'refresh/index metadata mismatch'
+          assert all(str(x.get('title') or '').strip() for x in a), 'missing title'
+          assert all(str(x.get('creator') or '').strip() for x in a), 'missing creator'
+          print('EBOOK_V72_LIST=PASS books=%d covers=%d source=%s' % (len(a),sum(bool(x.get('cover_key')) for x in a),index.get('source')))
+          PY
+
+          ecode="$(curl -sS -X POST -H 'x-runner3-library: 1' -o /tmp/enrich-auth.json -w '%{http_code}' "$core/artifact-library/api/enrich-upload")"
+          echo "EBOOK_V72_ENRICH_HANDLER http=$ecode body=$(head -c 160 /tmp/enrich-auth.json | tr '\n' ' ')"
+          test "$ecode" = 401
+          grep -q 'UNAUTHORIZED' /tmp/enrich-auth.json
+
           fcode="$(curl -sS -D /tmp/fast.h -o /tmp/fast.json -w '%{http_code}' "$core/reader/rss/categories")"
           tr -d '\r' </tmp/fast.h >/tmp/fast.h.clean
           fastpath="$(grep -i '^x-r3-rss-read-fastpath:' /tmp/fast.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
