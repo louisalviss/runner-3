@@ -1,4 +1,4 @@
-import { FEATURE_MODEL_VERSION, replaceAutoSemanticFeatures } from "./content-feature-enrichment.js";
+import { FEATURE_MODEL_VERSION, canonicalizeFeatureKey, replaceAutoSemanticFeatures } from "./content-feature-enrichment.js";
 import {
   PERSONAL_MODEL_VERSION,
   RECOMPUTE_DEBOUNCE_MS,
@@ -74,7 +74,7 @@ async function handleItems(request,env){
 }
 
 function featureStatement(env,row){
-  const itemId=text(row.item_id,4096)?.trim(),type=text(row.feature_type,100)?.trim(),key=text(row.feature_key,300)?.trim(); if(!itemId||!type||!key)throw new Error("item_id_feature_type_feature_key_required");
+  const itemId=text(row.item_id,4096)?.trim(),type=text(row.feature_type,100)?.trim().toLowerCase(); const key=canonicalizeFeatureKey(type,text(row.feature_key,300)); if(!itemId||!type||!key)throw new Error("item_id_feature_type_feature_key_required");
   return env.DB.prepare(`INSERT INTO content_features(item_id,feature_type,feature_key,feature_value,weight,confidence,model_version,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
     ON CONFLICT(item_id,feature_type,feature_key) DO UPDATE SET feature_value=excluded.feature_value,weight=excluded.weight,confidence=excluded.confidence,model_version=excluded.model_version,updated_at=CURRENT_TIMESTAMP
     WHERE content_features.feature_value IS NOT excluded.feature_value

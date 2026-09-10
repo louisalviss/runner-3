@@ -4,7 +4,7 @@ export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-re
 export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
 export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
 export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
-export const PERSONAL_POLICY_VERSION = "shared-feature-promotion-v4";
+export const PERSONAL_POLICY_VERSION = "canonical-interest-ontology-v5";
 export const EVENT_WEIGHTS = {
   shown: 0,
   selected: 1,
@@ -160,9 +160,8 @@ function profileProjectionCte() {
       ELSE 0.62
     END AS evidence_factor
     FROM feature_evidence
-    WHERE evidence_count>=2
-      AND feature_type NOT IN ('keyword','domain','language')
-      AND NOT (feature_type='source' AND evidence_count<3)
+    WHERE feature_type IN ('topic','mechanism','concept','source')
+      AND evidence_count >= CASE WHEN feature_type='source' THEN 5 ELSE 2 END
   ), scored AS (
     SELECT *,
       (raw_weight/MAX(1.0,SQRT(evidence_count)))*evidence_factor AS projected_weight,
@@ -177,11 +176,10 @@ function profileProjectionCte() {
     WHERE ABS(projected_weight)>=0.05
   ), projected AS (
     SELECT * FROM ranked WHERE type_rank <= CASE
-      WHEN feature_type='topic' THEN 60
-      WHEN feature_type='mechanism' THEN 60
-      WHEN feature_type='concept' THEN 100
-      WHEN feature_type='entity' THEN 40
-      WHEN feature_type='source' THEN 20
+      WHEN feature_type='topic' THEN 40
+      WHEN feature_type='mechanism' THEN 30
+      WHEN feature_type='concept' THEN 40
+      WHEN feature_type='source' THEN 10
       ELSE 20 END
   )`;
 }
@@ -229,9 +227,9 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
       SELECT i.item_id,f.feature_type,
         COALESCE(SUM(p.weight*f.weight*f.confidence),0) AS type_signal,
         SUM(CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END) AS matched_features,
-        SUM(CASE WHEN p.feature_key IS NOT NULL AND f.feature_type IN ('topic','concept','entity','mechanism') THEN 1 ELSE 0 END) AS semantic_matches,
-        COALESCE(SUM(CASE WHEN f.feature_type IN ('topic','concept','entity','mechanism') THEN f.weight*f.confidence ELSE 0 END),0) AS semantic_weight,
-        COALESCE(SUM(CASE WHEN f.feature_type IN ('topic','concept','entity','mechanism') AND (p.feature_key IS NULL OR p.evidence_count<=1) THEN f.weight*f.confidence ELSE 0 END),0) AS novel_semantic_weight,
+        SUM(CASE WHEN p.feature_key IS NOT NULL AND f.feature_type IN ('topic','concept','mechanism') THEN 1 ELSE 0 END) AS semantic_matches,
+        COALESCE(SUM(CASE WHEN f.feature_type IN ('topic','concept','mechanism') THEN f.weight*f.confidence ELSE 0 END),0) AS semantic_weight,
+        COALESCE(SUM(CASE WHEN f.feature_type IN ('topic','concept','mechanism') AND (p.feature_key IS NULL OR p.evidence_count<=1) THEN f.weight*f.confidence ELSE 0 END),0) AS novel_semantic_weight,
         COALESCE(MAX(p.confidence),0) AS profile_confidence
       FROM content_items i
       LEFT JOIN content_features f ON f.item_id=i.item_id
@@ -311,7 +309,7 @@ async function scoreShownItems(env, sourceRenderId){
     const perType=new Map();let semanticWeight=0,novelWeight=0,semanticMatches=0,matched=0,profileConfidence=0;
     for(const f of byItem.get(row.item_id)||[]){const fw=Number(f.feature_weight||0),fc=Number(f.feature_confidence||0),pw=numberOrNull(f.profile_weight);const t=String(f.feature_type||'other');
       if(pw!=null){perType.set(t,(perType.get(t)||0)+pw*fw*fc);matched+=1;profileConfidence=Math.max(profileConfidence,Number(f.profile_confidence||0));}
-      if(['topic','concept','entity','mechanism'].includes(t)){const sw=fw*fc;semanticWeight+=sw;if(pw!=null)semanticMatches+=1;if(pw==null||Number(f.evidence_count||0)<=1)novelWeight+=sw;}
+      if(['topic','concept','mechanism'].includes(t)){const sw=fw*fc;semanticWeight+=sw;if(pw!=null)semanticMatches+=1;if(pw==null||Number(f.evidence_count||0)<=1)novelWeight+=sw;}
     }
     const relevance=[...perType.entries()].reduce((s,[t,v])=>s+typeCap(t,v),0);const novelty=semanticMatches>0&&semanticWeight>0?Math.min(2,2*novelWeight/semanticWeight):0;
     row.relevance_signal=relevance;row.freshness_bonus=freshnessBonus(row.published_at);row.novelty_bonus=novelty;row.profile_confidence=profileConfidence;
