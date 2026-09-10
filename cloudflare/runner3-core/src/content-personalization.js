@@ -4,7 +4,7 @@ export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-re
 export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
 export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
 export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
-export const PERSONAL_POLICY_VERSION = "compressed-profile-bounded-rank-v3-followup-depth";
+export const PERSONAL_POLICY_VERSION = "shared-feature-promotion-v4";
 export const EVENT_WEIGHTS = {
   shown: 0,
   selected: 1,
@@ -15,8 +15,6 @@ export const EVENT_WEIGHTS = {
   liked: 5,
   disliked: -5,
 };
-
-const AUTO_FEATURE_MODELS = new Set(["semantic-bridge-v3", "reader-bridge-v2", "rules-v1"]);
 
 export function isSupportedContentEvent(eventType) {
   return Object.prototype.hasOwnProperty.call(EVENT_WEIGHTS, String(eventType || ""));
@@ -143,20 +141,14 @@ const ITEM_SIGNAL_CTE = `
   )
 `;
 
-function autoModelSql() {
-  return [...AUTO_FEATURE_MODELS].map((x) => `'${x.replaceAll("'", "''")}'`).join(",");
-}
-
 function profileProjectionCte() {
-  const autoModels = autoModelSql();
   return `${ITEM_SIGNAL_CTE}, feature_evidence AS (
     SELECT f.feature_type,f.feature_key,
       COUNT(*) AS evidence_count,
       SUM(CASE WHEN s.signal>0 THEN 1 ELSE 0 END) AS positive_count,
       SUM(CASE WHEN s.signal<0 THEN 1 ELSE 0 END) AS negative_count,
       SUM(s.signal*s.recency_factor*f.weight*f.confidence) AS raw_weight,
-      AVG(f.confidence) AS avg_feature_confidence,
-      MAX(CASE WHEN COALESCE(f.model_version,'') IN (${autoModels}) THEN 0 ELSE 1 END) AS has_explicit_feature
+      AVG(f.confidence) AS avg_feature_confidence
     FROM item_signal s
     JOIN content_features f ON f.item_id=s.item_id
     WHERE s.signal<>0
@@ -165,17 +157,12 @@ function profileProjectionCte() {
     SELECT *, CASE
       WHEN evidence_count>=4 THEN 1.00
       WHEN evidence_count=3 THEN 0.82
-      WHEN evidence_count=2 THEN 0.62
-      WHEN has_explicit_feature=1 THEN 0.40
-      WHEN feature_type IN ('topic','mechanism') THEN 0.30
-      WHEN feature_type='concept' AND avg_feature_confidence>=0.80 THEN 0.25
-      ELSE 0.15
+      ELSE 0.62
     END AS evidence_factor
     FROM feature_evidence
-    WHERE (evidence_count>=2 OR has_explicit_feature=1 OR feature_type IN ('topic','mechanism') OR (feature_type='concept' AND avg_feature_confidence>=0.80))
-      AND NOT (has_explicit_feature=0 AND feature_type IN ('keyword','domain','language'))
-      AND NOT (has_explicit_feature=0 AND feature_type='entity' AND evidence_count<2)
-      AND NOT (has_explicit_feature=0 AND feature_type='source' AND evidence_count<3)
+    WHERE evidence_count>=2
+      AND feature_type NOT IN ('keyword','domain','language')
+      AND NOT (feature_type='source' AND evidence_count<3)
   ), scored AS (
     SELECT *,
       (raw_weight/MAX(1.0,SQRT(evidence_count)))*evidence_factor AS projected_weight,
