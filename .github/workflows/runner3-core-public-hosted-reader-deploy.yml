@@ -205,7 +205,7 @@ jobs:
           for attempt in $(seq 1 20); do
             ulist="$(curl -sS -o /tmp/library-unauth.json -w '%{http_code}' "$core/artifact-library/api/list")"
             ureader="$(curl -sS -D /tmp/reader-unauth.h -o /tmp/reader-unauth.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
-            tr -d '' </tmp/reader-unauth.h >/tmp/reader-unauth.h.clean
+            tr -d '\r' </tmp/reader-unauth.h >/tmp/reader-unauth.h.clean
             uboundary="$(grep -i '^x-r3-session-bound-sync:' /tmp/reader-unauth.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             echo "EBOOK_V75_OWNER_BOUNDARY attempt=$attempt list=$ulist reader=$ureader boundary=$uboundary"
             if [ "$ulist" = 401 ] && [ "$ureader" = 303 ] && [ "$uboundary" = 'v75-login-required' ] && grep -q 'UNAUTHORIZED' /tmp/library-unauth.json; then
