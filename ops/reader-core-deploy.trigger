@@ -1,1 +1,1 @@
-ebook-library-single-owner-sync-v73 2026-09-10
+ebook-library-session-bound-sync-v74 2026-09-10

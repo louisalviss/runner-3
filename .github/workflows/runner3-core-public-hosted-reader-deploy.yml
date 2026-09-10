@@ -26,12 +26,13 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
     steps:
       - name: Validate Cloudflare deploy credentials
         shell: bash
         run: |
           set -euo pipefail
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID RUNNER3_CORE_TOKEN; do
             test -n "${!name:-}" || { echo "MISSING:$name" >&2; exit 2; }
             echo "PRESENT:$name"
           done
@@ -192,8 +193,24 @@ jobs:
           test "$vheader" = v72
           grep -q '"reader_client_version":"v72"' /tmp/client-version.json
 
-          rcode="$(curl -sS -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
-          icode="$(curl -sS -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"
+          # Owner boundary must be real: unauthenticated list + reader are rejected/redirected.
+          ulist="$(curl -sS -o /tmp/library-unauth.json -w '%{http_code}' "$core/artifact-library/api/list")"
+          ureader="$(curl -sS -o /tmp/reader-unauth.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+          echo "EBOOK_V74_OWNER_BOUNDARY list=$ulist reader=$ureader"
+          test "$ulist" = 401
+          test "$ureader" = 303
+          grep -q 'UNAUTHORIZED' /tmp/library-unauth.json
+
+          # Derive the browser session cookie exactly as the Worker does, without printing the secret/cookie.
+          owner_cookie="$(python3 - <<'PYCOOKIE'
+          import hashlib,os
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          print(hashlib.sha256(('runner3-artifact-library-v1:'+token).encode()).hexdigest())
+          PYCOOKIE
+          )"
+          cookie="r3_artifact_library=$owner_cookie"
+          rcode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
+          icode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"
           test "$rcode" = 200
           test "$icode" = 200
           python3 - <<'PY'
