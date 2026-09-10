@@ -1,6 +1,10 @@
+import { createHash } from 'node:crypto';
 import app from '../cloudflare/runner3-core/artifact-library-simple-entry.js';
 
-const response = await app.fetch(new Request('https://reader-smoke.invalid/artifact-library'), {}, {});
+const token='reader-inline-syntax-smoke-token';
+const session=createHash('sha256').update(`runner3-artifact-library-v1:${token}`).digest('hex');
+const request=new Request('https://reader-smoke.invalid/artifact-library',{headers:{Cookie:`r3_artifact_library=${session}`}});
+const response=await app.fetch(request,{RUNNER3_CORE_TOKEN:token},{});
 if (response.status !== 200) throw new Error(`LIBRARY_HTML_HTTP_${response.status}`);
 const html = await response.text();
 const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]

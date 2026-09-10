@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const text=fs.readFileSync('cloudflare/runner3-core/artifact-library-simple-entry.js','utf8');
+assert.match(text,/R3_PROGRESS_RECOVERY_V70='v70'/);
+assert.match(text,/r3CollectLocalProgressV70/);
+assert.match(text,/r3ScopeFromBookKeyV70/);
+assert.match(text,/body:JSON\.stringify\(\{items:upload,client_version:R3_PROGRESS_RECOVERY_V70\}\)/);
+assert.match(text,/ON CONFLICT\(book_key\) DO UPDATE SET/);
+assert.match(text,/progress-v70\/latest\.json/);
+assert.match(text,/hasBrowserLibrarySession\(request, env\)/);
+console.log('READER_V70_PROGRESS_RECOVERY_SMOKE=PASS');
