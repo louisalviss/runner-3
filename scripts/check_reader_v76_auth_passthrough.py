@@ -4,5 +4,5 @@ assert "R3_AUTH_PASSTHROUGH_V76='v76'" in s
 assert 'includes(p)) return redirectHome();' not in s
 for route in ['/artifact-library/login','/artifact-library/setup-pin','/artifact-library/reset-pin','/artifact-library/api/magic-link']:
     assert route in s, route
-assert 'return app.fetch(request, env, ctx);' in s
+assert 'return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);' in s
 print('READER_V76_AUTH_PASSTHROUGH_CHECK=PASS')

@@ -9,7 +9,7 @@ old='    if (["/artifact-library/login","/artifact-library/logout","/artifact-li
 new='''    // v76: auth endpoints must reach the canonical hardening/auth app. Redirecting
     // them here caused Create/Reset PIN forms to loop back to the Library root.
     if (["/artifact-library/login","/artifact-library/logout","/artifact-library/setup-pin","/artifact-library/change-pin","/artifact-library/reset-pin","/artifact-library/magic","/artifact-library/api/magic-link"].includes(p)) {
-      return app.fetch(request, env, ctx);
+      return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
     }'''
 if old not in s:
     raise SystemExit("V76_AUTH_REDIRECT_ANCHOR_MISSING")
