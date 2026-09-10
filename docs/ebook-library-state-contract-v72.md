@@ -99,3 +99,15 @@ Do not repeat these patterns:
 3. D1/R2 state readback.
 4. Browser/runtime smoke.
 5. Source markers only.
+
+## Single-owner authentication contract (v73)
+
+- This Library is intentionally single-owner. Do not add `user_id` or multi-account namespaces unless the product becomes multi-user.
+- Safari and iOS Home Screen are separate WebKit storage contexts; they converge through the same D1/R2 canonical state rather than shared localStorage.
+- A valid Library visit refreshes the HttpOnly/Secure/SameSite=Strict owner cookie to 90 days (sliding).
+- A context whose cookie is missing/expired authenticates once; authenticating Safari does not directly write the Home Screen cookie or vice versa.
+- Never make progress/catalog endpoints public merely to avoid re-authentication.
+
+## D1 migration invariant
+
+`ebook_reader_state_v72` must be created by tracked migration `0013_ebook_reader_state_v72.sql`; lazy runtime initialization remains fallback only.
