@@ -4,7 +4,7 @@ export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-re
 export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
 export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
 export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
-export const PERSONAL_POLICY_VERSION = "canonical-interest-ontology-v5";
+export const PERSONAL_POLICY_VERSION = "canonical-interest-ontology-v6";
 export const EVENT_WEIGHTS = {
   shown: 0,
   selected: 1,
@@ -160,8 +160,8 @@ function profileProjectionCte() {
       ELSE 0.62
     END AS evidence_factor
     FROM feature_evidence
-    WHERE feature_type IN ('topic','mechanism','concept','source')
-      AND evidence_count >= CASE WHEN feature_type='source' THEN 5 ELSE 2 END
+    WHERE feature_type IN ('topic','mechanism','concept')
+      AND evidence_count>=2
   ), scored AS (
     SELECT *,
       (raw_weight/MAX(1.0,SQRT(evidence_count)))*evidence_factor AS projected_weight,
@@ -179,7 +179,6 @@ function profileProjectionCte() {
       WHEN feature_type='topic' THEN 40
       WHEN feature_type='mechanism' THEN 30
       WHEN feature_type='concept' THEN 40
-      WHEN feature_type='source' THEN 10
       ELSE 20 END
   )`;
 }
