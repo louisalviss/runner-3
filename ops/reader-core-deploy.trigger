@@ -1,1 +1,1 @@
-ebook-library-session-bound-sync-v74 2026-09-10
+ebook-library-reader-ingress-owner-session-v75 2026-09-10

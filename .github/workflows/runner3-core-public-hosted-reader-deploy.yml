@@ -167,9 +167,16 @@ jobs:
           set -euo pipefail
           core='https://runner3-core.ducduy2411.workers.dev'
           encoded="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub", safe=""))')"
+          owner_cookie="$(python3 - <<'PYCOOKIE'
+          import hashlib,os
+          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
+          print(hashlib.sha256(('runner3-artifact-library-v1:'+token).encode()).hexdigest())
+          PYCOOKIE
+          )"
+          cookie="r3_artifact_library=$owner_cookie"
           ok=0
           for attempt in $(seq 1 20); do
-            code="$(curl -sS -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+            code="$(curl -sS -H "Cookie: $cookie" -D /tmp/h -o /tmp/reader -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
             tr -d '\r' </tmp/h >/tmp/h.clean
             runtime="$(grep -i '^x-r3-reader-runtime:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             proof="$(grep -i '^x-r3-reader-patch-proof:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
@@ -201,14 +208,6 @@ jobs:
           test "$ureader" = 303
           grep -q 'UNAUTHORIZED' /tmp/library-unauth.json
 
-          # Derive the browser session cookie exactly as the Worker does, without printing the secret/cookie.
-          owner_cookie="$(python3 - <<'PYCOOKIE'
-          import hashlib,os
-          token=os.environ['RUNNER3_CORE_TOKEN'].strip()
-          print(hashlib.sha256(('runner3-artifact-library-v1:'+token).encode()).hexdigest())
-          PYCOOKIE
-          )"
-          cookie="r3_artifact_library=$owner_cookie"
           rcode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
           icode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"
           test "$rcode" = 200
