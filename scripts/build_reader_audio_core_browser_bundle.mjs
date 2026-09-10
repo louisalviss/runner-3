@@ -76,6 +76,7 @@ execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reade
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v5-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/audio-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/opportunity-router-entry.js'], { stdio: 'inherit' });
+execFileSync('node', ['scripts/reader_library_inline_syntax_smoke.mjs'], { stdio: 'inherit' });
 
 const entry = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-integration.js');
 const output = path.resolve('cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js');
