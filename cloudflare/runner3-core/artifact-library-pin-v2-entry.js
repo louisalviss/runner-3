@@ -6,6 +6,7 @@ const PIN_MAX_FAILURES = 5;
 const PIN_LOCK_SECONDS = 15 * 60;
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 const HMAC_MARKER = -1;
+const R3_PIN_FORM_V77 = "v77";
 
 function serverSecret(env) {
   return typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
@@ -39,6 +40,15 @@ function cookie(value, maxAge = REMEMBER_SECONDS) {
   return `${LIBRARY_COOKIE}=${value}; Path=/artifact-library; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`;
 }
 
+async function formParamsV77(request) {
+  try {
+    const raw = await request.text();
+    return new URLSearchParams(raw);
+  } catch (error) {
+    throw new Error(`PIN_FORM_PARSE_FAILED:${String(error?.message || error)}`);
+  }
+}
+
 function headers(base = {}) {
   const h = new Headers(base);
   h.set("X-Robots-Tag", ROBOTS);
@@ -46,6 +56,7 @@ function headers(base = {}) {
   h.set("Pragma", "no-cache");
   h.set("Referrer-Policy", "no-referrer");
   h.set("X-Frame-Options", "DENY");
+  h.set("X-R3-PIN-Form", R3_PIN_FORM_V77);
   return h;
 }
 
@@ -168,7 +179,9 @@ async function home(request, env, ctx) {
 
 async function login(request, env) {
   if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
-  const row = await record(env);
+  let row;
+  try { row = await record(env); }
+  catch (error) { return json({ ok:false, error:"PIN_STATE_READ_FAILED", detail:String(error?.message || error) }, 503); }
   if (!row) return html(setupPage("Create a Library PIN first."), 409);
   if (Number(row.iterations) !== HMAC_MARKER) return html(loginPage("PIN storage needs a private backend reset before login can continue."), 409);
   let state;
@@ -178,7 +191,9 @@ async function login(request, env) {
     return json({ ok: false, error: "PIN_RATE_STATE_FAILED", detail: String(error?.message || error) }, 503);
   }
   if (state.blocked) return html(loginPage("", state.remaining), 429);
-  const form = await request.formData();
+  let form;
+  try { form = await formParamsV77(request); }
+  catch (error) { return json({ ok:false, error:"PIN_FORM_PARSE_FAILED", detail:String(error?.message || error) }, 400); }
   const pin = String(form.get("pin") || "").trim();
   if (!/^\d{6}$/.test(pin) || !(await verifyPin(env, pin, row))) {
     let blockedUntil;
@@ -197,8 +212,13 @@ async function login(request, env) {
 async function setup(request, env) {
   if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
   if (!env.DB || !serverSecret(env)) return html(setupPage("Library authentication is unavailable."), 503);
-  if (await record(env)) return html(loginPage("A Library PIN already exists. Enter that PIN to continue."), 409);
-  const form = await request.formData();
+  let existing;
+  try { existing = await record(env); }
+  catch (error) { return json({ ok:false, error:"PIN_STATE_READ_FAILED", detail:String(error?.message || error) }, 503); }
+  if (existing) return html(loginPage("A Library PIN already exists. Enter that PIN to continue."), 409);
+  let form;
+  try { form = await formParamsV77(request); }
+  catch (error) { return json({ ok:false, error:"PIN_FORM_PARSE_FAILED", detail:String(error?.message || error) }, 400); }
   const pin = String(form.get("pin") || "").trim();
   const confirm = String(form.get("pin_confirm") || "").trim();
   if (!/^\d{6}$/.test(pin)) return html(setupPage("PIN must contain exactly 6 digits."), 400);

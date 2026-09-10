@@ -216,12 +216,15 @@ jobs:
           done
           test "$owner_ok" = 1
 
-          # Auth form routing must reach the real handler, never 303-loop to root.
-          # Intentionally invalid Core token: handled 401 proves POST reached handleSetupPin.
-          scode="$(curl -sS -X POST -H 'content-type: application/x-www-form-urlencoded' --data 'core_token=invalid-canary-token&pin=123456&pin_confirm=123456' -o /tmp/setup-pin-canary.html -w '%{http_code}' "$core/artifact-library/setup-pin")"
-          echo "EBOOK_V76_SETUP_PIN_ROUTE http=$scode"
-          test "$scode" = 401
-          grep -q 'Core token is incorrect' /tmp/setup-pin-canary.html
+          # Auth form routing must reach the real handler, never 303-loop/Worker-1101.
+          # Empty form is mutation-free and must be handled as a validation error.
+          scode="$(curl -sS -X POST -H 'content-type: application/x-www-form-urlencoded' --data '' -D /tmp/setup-pin-canary.h -o /tmp/setup-pin-canary.html -w '%{http_code}' "$core/artifact-library/setup-pin")"
+          tr -d '\r' </tmp/setup-pin-canary.h >/tmp/setup-pin-canary.h.clean
+          pform="$(grep -i '^x-r3-pin-form:' /tmp/setup-pin-canary.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "EBOOK_V77_SETUP_PIN_ROUTE http=$scode form=$pform"
+          test "$scode" = 400
+          test "$pform" = v77
+          grep -q 'PIN must contain exactly 6 digits' /tmp/setup-pin-canary.html
 
           rcode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
           icode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"

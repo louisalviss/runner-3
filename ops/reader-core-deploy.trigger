@@ -1,1 +1,1 @@
-ebook-library-auth-passthrough-v76 2026-09-10
+ebook-library-pin-form-v77 2026-09-10
