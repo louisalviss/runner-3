@@ -7,6 +7,7 @@ implementation remains canonical in ebook_reader_audio_tts[_v2].py.
 """
 
 import argparse
+import base64
 import asyncio
 import fcntl
 import json
@@ -26,10 +27,23 @@ import ebook_reader_audio_tts_v2 as timing_worker
 base = timing_worker.base
 
 CORE_URL = os.environ.get("RUNNER3_CORE_URL", "https://runner3-core.ducduy2411.workers.dev").rstrip("/")
+CANONICAL_TOKEN = ""
+_encoded = os.environ.get("RUNNER3_CORE_TOKEN_B64", "").strip()
+if _encoded:
+    try:
+        CANONICAL_TOKEN = base64.b64decode(_encoded, validate=True).decode("utf-8").strip()
+    except Exception:
+        CANONICAL_TOKEN = ""
 TOKEN_FILE = os.environ.get("EBOOK_AUDIO_VPS_TOKEN_FILE", "").strip()
-FILE_TOKEN = Path(TOKEN_FILE).read_text(encoding="utf-8").rstrip("\r\n") if TOKEN_FILE else ""
+FILE_TOKEN = ""
+if not CANONICAL_TOKEN and TOKEN_FILE:
+    try:
+        FILE_TOKEN = Path(TOKEN_FILE).read_text(encoding="utf-8").rstrip("\r\n")
+    except OSError:
+        FILE_TOKEN = ""
 CORE_TOKEN = (
-    FILE_TOKEN
+    CANONICAL_TOKEN
+    or FILE_TOKEN
     or os.environ.get("EBOOK_AUDIO_VPS_TOKEN", "").strip()
     or os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
 )
