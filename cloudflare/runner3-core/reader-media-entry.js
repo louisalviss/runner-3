@@ -158,13 +158,29 @@ function buildReaderContent(value, images, meta = {}) {
   return { body, blocks };
 }
 
+function selectFacebookImportedImages(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of [...value].sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0))) {
+    const url = String(item?.url || item?.source_url || "").trim();
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ ...item, url, source_url: String(item?.source_url || url) });
+    if (out.length >= 80) break;
+  }
+  return out;
+}
+
 async function sanitizeReaderView(response, url) {
   if (!response?.ok || !readerViewArticleId(url)) return response;
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return response;
   const payload = await response.json().catch(() => null);
   if (!payload?.artifact) return Response.json(payload ?? { ok: false, error: "READER_PAYLOAD_INVALID" }, { status: response.status });
-  const images = selectContentImages(Array.isArray(payload.artifact.images) ? payload.artifact.images : []);
+  const rawImages = Array.isArray(payload.artifact.images) ? payload.artifact.images : [];
+  const isFacebookPost = payload.article?.item_type === "facebook_post" || String(payload.article?.source_key || "").startsWith("facebook:");
+  const images = isFacebookPost ? selectFacebookImportedImages(rawImages) : selectContentImages(rawImages);
   payload.artifact.images = images;
   payload.artifact.imageCount = images.length;
   if (typeof payload.artifact.body === "string") {

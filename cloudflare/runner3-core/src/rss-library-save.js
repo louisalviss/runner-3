@@ -4,7 +4,7 @@ import { markProfileDirty } from "./content-personalization.js";
 const VERSION = "rss-library-save-v1";
 const IMPORT_VERSION = "rss-library-import-v1";
 const ALLOWED = new Set(["article", "render_id", "context"]);
-const IMPORT_ALLOWED = new Set(["article", "context", "content"]);
+const IMPORT_ALLOWED = new Set(["article", "context", "content", "media"]);
 const ARTICLE_ALLOWED = new Set([
   "article_id", "stable_key", "canonical_url", "source_key", "source_name",
   "source_language", "item_type", "title", "published_at"
@@ -28,6 +28,99 @@ function bounded(value, name, limit = 4096, required = false) {
   if (required && !out) throw new Error(`${name}_required`);
   if (out.length > limit) throw new Error(`${name}_too_long`);
   return out || null;
+}
+
+function normalizeImportMedia(value) {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) throw new Error("media_must_be_array");
+  if (value.length > 80) throw new Error("media_too_many_items");
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`media_${index}_invalid`);
+    const sourceObjectKey = bounded(item.source_object_key, `media_${index}_source_object_key`, 1200, true);
+    if (!sourceObjectKey.startsWith("core/facebook-archive/") || sourceObjectKey.includes("..")) {
+      throw new Error(`media_${index}_source_object_key_invalid`);
+    }
+    const contentType = bounded(item.content_type, `media_${index}_content_type`, 120, true).toLowerCase();
+    if (!contentType.startsWith("image/") || contentType === "image/svg+xml") throw new Error(`media_${index}_content_type_invalid`);
+    const sha256 = bounded(item.sha256, `media_${index}_sha256`, 64, true).toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error(`media_${index}_sha256_invalid`);
+    const bytes = Math.max(0, Number.parseInt(item.bytes || 0, 10) || 0);
+    if (!bytes || bytes > 12 * 1024 * 1024) throw new Error(`media_${index}_bytes_invalid`);
+    return {
+      source_object_key: sourceObjectKey,
+      content_type: contentType,
+      sha256,
+      bytes,
+      width: Math.max(0, Number.parseInt(item.width || 0, 10) || 0),
+      height: Math.max(0, Number.parseInt(item.height || 0, 10) || 0),
+      alt: bounded(item.alt, `media_${index}_alt`, 2000, false) || "",
+      order: Number.isFinite(Number(item.order)) ? Number(item.order) : index,
+      kind: bounded(item.kind || "photo", `media_${index}_kind`, 40, false) || "photo",
+    };
+  }).sort((a, b) => a.order - b.order);
+}
+
+async function sha256Bytes(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function readerPublicOrigin(env) {
+  return String(env.RSS_READER_PUBLIC_ORIGIN || "https://runner3-core.ducduy2411.workers.dev").trim().replace(/\/$/, "");
+}
+
+async function attachImportedMedia(env, article, row, media) {
+  if (media === null) return { attached: null, count: null, readback: null };
+  const totalExpected = media.reduce((sum, item) => sum + item.bytes, 0);
+  if (totalExpected > 96 * 1024 * 1024) throw new Error("media_total_bytes_exceeded");
+  const images = [];
+  for (const item of media) {
+    const source = await env.ARTIFACTS.get(item.source_object_key);
+    if (!source) throw new Error(`media_source_missing:${item.source_object_key}`);
+    const bytes = await source.arrayBuffer();
+    if (bytes.byteLength !== item.bytes) throw new Error(`media_source_size_mismatch:${item.source_object_key}`);
+    const hash = await sha256Bytes(bytes);
+    if (hash !== item.sha256) throw new Error(`media_source_hash_mismatch:${item.source_object_key}`);
+    const token = hash.slice(0, 32);
+    const targetKey = `rss-media/${encodeURIComponent(article.article_id)}/${token}`;
+    const existing = await env.ARTIFACTS.head(targetKey);
+    if (!existing || Number(existing.size || 0) !== bytes.byteLength) {
+      await env.ARTIFACTS.put(targetKey, bytes, {
+        httpMetadata: { contentType: item.content_type, cacheControl: "public, max-age=31536000, immutable" },
+        customMetadata: { articleId: article.article_id.slice(0, 160), sourceKey: article.source_key.slice(0, 80), sourceHash: hash, kind: "facebook-import" },
+      });
+    }
+    const verify = await env.ARTIFACTS.head(targetKey);
+    if (!verify || Number(verify.size || 0) !== bytes.byteLength) throw new Error(`media_target_readback_failed:${targetKey}`);
+    const url = `${readerPublicOrigin(env)}/rss/media/${encodeURIComponent(article.article_id)}/${token}`;
+    images.push({
+      url, source_url: url, alt: item.alt, caption: item.alt,
+      width: item.width, height: item.height, kind: item.kind === "video_poster" ? "photo" : "photo",
+      score: 10, inFigure: true, cache_status: "cached", cache_token: token,
+      imported_from: item.source_object_key, order: item.order,
+    });
+  }
+  const current = await env.ARTIFACTS.get(row.original_object_key);
+  if (!current) throw new Error("article_artifact_missing_before_media_attach");
+  const artifact = JSON.parse(await current.text());
+  artifact.images = images;
+  artifact.imageCount = images.length;
+  artifact.mediaImport = { version: 1, source: "facebook-r2-verified", readbackVerified: true };
+  await env.ARTIFACTS.put(row.original_object_key, JSON.stringify(artifact), {
+    httpMetadata: { contentType: "application/json; charset=utf-8" },
+    customMetadata: {
+      articleId: String(article.article_id).slice(0, 160), sourceKey: String(article.source_key || "").slice(0, 80),
+      checksum: String(row.source_checksum || "").slice(0, 64), kind: "rss-original",
+      imageCount: String(images.length), cachedImageCount: String(images.length),
+    },
+  });
+  const readback = await env.ARTIFACTS.get(row.original_object_key);
+  if (!readback) throw new Error("article_artifact_media_readback_missing");
+  const checked = JSON.parse(await readback.text());
+  if (!Array.isArray(checked.images) || checked.images.length !== images.length || checked.mediaImport?.readbackVerified !== true) {
+    throw new Error("article_artifact_media_readback_failed");
+  }
+  return { attached: true, count: images.length, readback: true };
 }
 
 function normalize(body, importMode = false) {
@@ -59,6 +152,7 @@ function normalize(body, importMode = false) {
     render_id: bounded(body.render_id || `rss-save:${article.stable_key}`, "render_id", 300, true),
     context: body.context && typeof body.context === "object" && !Array.isArray(body.context) ? body.context : {},
     content: importMode ? bounded(body.content, "content", 500000, true) : null,
+    media: importMode ? normalizeImportMedia(body.media) : null,
   };
 }
 
@@ -169,6 +263,7 @@ export async function handleRssLibrarySave(request, env, url) {
     }
     const object = await env.ARTIFACTS.head(row.original_object_key);
     if (!object) throw new Error("durable_r2_readback_failed");
+    const mediaResult = importMode ? await attachImportedMedia(env, canonicalArticle, row, normalized.media) : { attached: null, count: null, readback: null };
     const selectedApplied = importMode ? 0 : await recordSelected(env, canonicalArticle, normalized.render_id, normalized.context, row.source_checksum);
     const versionCount = await env.DB.prepare("SELECT COUNT(*) AS n FROM rss_article_versions WHERE article_id=? AND source_checksum=?")
       .bind(identity.articleId, row.source_checksum).first();
@@ -185,6 +280,9 @@ export async function handleRssLibrarySave(request, env, url) {
       original_object_key: row.original_object_key,
       r2_readback: true,
       d1_readback: true,
+      media_attached: mediaResult.attached,
+      media_count: mediaResult.count,
+      media_readback: mediaResult.readback,
       logical_version_count: Number(versionCount?.n || 0),
       selected_event_applied: selectedApplied,
       profile_status: importMode ? "unchanged" : "dirty",
