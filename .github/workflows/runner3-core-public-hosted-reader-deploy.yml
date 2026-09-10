@@ -216,6 +216,13 @@ jobs:
           done
           test "$owner_ok" = 1
 
+          # Auth form routing must reach the real handler, never 303-loop to root.
+          # Intentionally invalid Core token: handled 401 proves POST reached handleSetupPin.
+          scode="$(curl -sS -X POST -H 'content-type: application/x-www-form-urlencoded' --data 'core_token=invalid-canary-token&pin=123456&pin_confirm=123456' -o /tmp/setup-pin-canary.html -w '%{http_code}' "$core/artifact-library/setup-pin")"
+          echo "EBOOK_V76_SETUP_PIN_ROUTE http=$scode"
+          test "$scode" = 401
+          grep -q 'Core token is incorrect' /tmp/setup-pin-canary.html
+
           rcode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
           icode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"
           test "$rcode" = 200
