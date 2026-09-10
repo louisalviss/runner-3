@@ -1,8 +1,10 @@
-import { handleRssLibrary } from "./rss-library.js";
+import { handleRssLibrary, persistFetchedArticle } from "./rss-library.js";
 import { markProfileDirty } from "./content-personalization.js";
 
 const VERSION = "rss-library-save-v1";
+const IMPORT_VERSION = "rss-library-import-v1";
 const ALLOWED = new Set(["article", "render_id", "context"]);
+const IMPORT_ALLOWED = new Set(["article", "context", "content"]);
 const ARTICLE_ALLOWED = new Set([
   "article_id", "stable_key", "canonical_url", "source_key", "source_name",
   "source_language", "item_type", "title", "published_at"
@@ -28,9 +30,10 @@ function bounded(value, name, limit = 4096, required = false) {
   return out || null;
 }
 
-function normalize(body) {
+function normalize(body, importMode = false) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("body_must_be_object");
-  const unknown = Object.keys(body).filter((k) => !ALLOWED.has(k));
+  const allowed = importMode ? IMPORT_ALLOWED : ALLOWED;
+  const unknown = Object.keys(body).filter((k) => !allowed.has(k));
   if (unknown.length) throw new Error(`unsupported_fields:${unknown.join(",")}`);
   const a = body.article;
   if (!a || typeof a !== "object" || Array.isArray(a)) throw new Error("article_required");
@@ -55,6 +58,7 @@ function normalize(body) {
     article,
     render_id: bounded(body.render_id || `rss-save:${article.stable_key}`, "render_id", 300, true),
     context: body.context && typeof body.context === "object" && !Array.isArray(body.context) ? body.context : {},
+    content: importMode ? bounded(body.content, "content", 500000, true) : null,
   };
 }
 
@@ -134,15 +138,27 @@ async function recordSelected(env, article, renderId, context, checksum) {
 }
 
 export async function handleRssLibrarySave(request, env, url) {
-  if (url.pathname !== "/api/rss/library/save") return null;
+  const importMode = url.pathname === "/api/rss/library/import";
+  if (!importMode && url.pathname !== "/api/rss/library/save") return null;
   if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
   if (!env.DB || !env.ARTIFACTS) return json({ ok: false, error: "RSS_BINDINGS_MISSING" }, 503);
   const auth = authError(request, env); if (auth) return auth;
 
   try {
-    const normalized = normalize(await request.json());
+    const normalized = normalize(await request.json(), importMode);
     const identity = await upsertArticle(env, normalized.article);
-    const fetched = await fetchThroughCanonicalHandler(env, identity.articleId);
+    const canonicalArticle = { ...normalized.article, article_id: identity.articleId };
+    const fetched = importMode
+      ? await persistFetchedArticle(env, canonicalArticle, {
+          rawText: normalized.content,
+          route: "facebook-r2-import",
+          resolvedUrl: canonicalArticle.canonical_url,
+          coverage: "full",
+          truncated: false,
+          chars: normalized.content.length,
+          extractedTitle: canonicalArticle.title,
+        })
+      : await fetchThroughCanonicalHandler(env, identity.articleId);
     const row = await env.DB.prepare(`
       SELECT article_id,stable_key,canonical_url,fetch_status,translation_status,current_version_id,
              source_checksum,original_object_key,vi_object_key,qa_state,last_error
@@ -153,13 +169,14 @@ export async function handleRssLibrarySave(request, env, url) {
     }
     const object = await env.ARTIFACTS.head(row.original_object_key);
     if (!object) throw new Error("durable_r2_readback_failed");
-    const selectedApplied = await recordSelected(env, { ...normalized.article, article_id: identity.articleId }, normalized.render_id, normalized.context, row.source_checksum);
+    const selectedApplied = importMode ? 0 : await recordSelected(env, canonicalArticle, normalized.render_id, normalized.context, row.source_checksum);
     const versionCount = await env.DB.prepare("SELECT COUNT(*) AS n FROM rss_article_versions WHERE article_id=? AND source_checksum=?")
       .bind(identity.articleId, row.source_checksum).first();
     return json({
       ok: true,
       durable: true,
-      version: VERSION,
+      version: importMode ? IMPORT_VERSION : VERSION,
+      imported: importMode,
       article_id: identity.articleId,
       article_created: identity.created,
       canonical_url: row.canonical_url,
@@ -170,7 +187,7 @@ export async function handleRssLibrarySave(request, env, url) {
       d1_readback: true,
       logical_version_count: Number(versionCount?.n || 0),
       selected_event_applied: selectedApplied,
-      profile_status: "dirty",
+      profile_status: importMode ? "unchanged" : "dirty",
       fetch: { chars: fetched.chars ?? null, native_vi: fetched.nativeVi ?? null },
       reader_path: `/rss/article/${encodeURIComponent(identity.articleId)}`,
       audio: "persistent-reader-audio-on-demand",
@@ -178,6 +195,6 @@ export async function handleRssLibrarySave(request, env, url) {
       qa_state: row.qa_state,
     });
   } catch (error) {
-    return json({ ok: false, durable: false, version: VERSION, error: String(error?.message || error).slice(0, 1000) }, 400);
+    return json({ ok: false, durable: false, version: importMode ? IMPORT_VERSION : VERSION, error: String(error?.message || error).slice(0, 1000) }, 400);
   }
 }

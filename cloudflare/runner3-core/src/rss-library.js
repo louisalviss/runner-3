@@ -118,7 +118,7 @@ function articleArtifact(article, fetched, checksum) {
   };
 }
 
-async function persistFetchedArticle(env, article, fetched) {
+export async function persistFetchedArticle(env, article, fetched) {
   const body = String(fetched.rawText || "").trim();
   if (!body) throw new Error("EMPTY_FETCH_BODY");
 
