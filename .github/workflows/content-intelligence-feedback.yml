@@ -43,6 +43,7 @@ jobs:
           mapping = [
               ('selected_numbers', 'selected'),
               ('deep_read_numbers', 'deep_read'),
+              ('interest_saved_numbers', 'interest_saved'),
               ('liked_numbers', 'liked'),
               ('disliked_numbers', 'disliked'),
           ]
@@ -65,7 +66,7 @@ jobs:
                       'item_id': item_id,
                       'event_type': event_type,
                       'render_id': render_id,
-                      'explicit_feedback': event_type if event_type in ('liked', 'disliked') else None,
+                      'explicit_feedback': event_type if event_type in ('liked', 'disliked', 'interest_saved') else None,
                       'context': {
                           'source': 'chatgpt_rss_feedback',
                           'request_id': req.get('request_id'),
