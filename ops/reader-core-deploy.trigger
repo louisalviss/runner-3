@@ -1,1 +1,1 @@
-ebook-home-screen-stable-v79 2026-09-10
+ebook-layout-audio-first-load-v80 2026-09-10
