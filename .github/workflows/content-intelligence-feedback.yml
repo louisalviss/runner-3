@@ -1,0 +1,120 @@
+name: Content Intelligence · Explicit Feedback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/content-intelligence-feedback.yml"
+      - "data/content-intelligence/feedback-request.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply-feedback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve manifest numbers to durable D1 events
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          req = json.loads(Path('data/content-intelligence/feedback-request.json').read_text(encoding='utf-8'))
+          manifest = json.loads(Path('data/rss-reader/kept-manifest-today.json').read_text(encoding='utf-8'))
+
+          if req.get('date') != manifest.get('date'):
+              raise SystemExit(f"FEEDBACK_DATE_MISMATCH request={req.get('date')} manifest={manifest.get('date')}")
+          if req.get('manifest_hash') != manifest.get('manifestHash'):
+              raise SystemExit('FEEDBACK_MANIFEST_HASH_MISMATCH')
+
+          by_number = {int(item['number']): item for item in manifest.get('manifest') or []}
+          mapping = [
+              ('selected_numbers', 'selected'),
+              ('deep_read_numbers', 'deep_read'),
+              ('liked_numbers', 'liked'),
+              ('disliked_numbers', 'disliked'),
+          ]
+          seen = {}
+          events = []
+          render_id = req.get('render_id') or f"rss:{manifest['date']}:{manifest['manifestHash']}"
+          for field, event_type in mapping:
+              for raw_n in req.get(field) or []:
+                  n = int(raw_n)
+                  if n not in by_number:
+                      raise SystemExit(f'FEEDBACK_NUMBER_NOT_FOUND:{n}')
+                  if n in seen:
+                      raise SystemExit(f'FEEDBACK_NUMBER_OVERLAP:{n}:{seen[n]}:{event_type}')
+                  seen[n] = event_type
+                  item = by_number[n]
+                  item_id = item.get('canonicalUrl')
+                  if not item_id:
+                      raise SystemExit(f'FEEDBACK_ITEM_ID_MISSING:{n}')
+                  events.append({
+                      'item_id': item_id,
+                      'event_type': event_type,
+                      'render_id': render_id,
+                      'explicit_feedback': event_type if event_type in ('liked', 'disliked') else None,
+                      'context': {
+                          'source': 'chatgpt_rss_feedback',
+                          'request_id': req.get('request_id'),
+                          'manifest_number': n,
+                          'manifest_date': manifest.get('date'),
+                          'source_key': item.get('sourceKey'),
+                      },
+                  })
+
+          expected = sum(len(req.get(field) or []) for field, _ in mapping)
+          if len(events) != expected or expected == 0:
+              raise SystemExit(f'FEEDBACK_EVENT_COUNT_INVALID:{len(events)}:{expected}')
+          Path('/tmp/feedback-events.json').write_text(json.dumps({'events': events}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(f'FEEDBACK_RESOLVED={len(events)}')
+          print(f'FEEDBACK_RENDER_ID={render_id}')
+          PY
+
+      - name: Persist feedback events to Content Intelligence D1
+        id: persist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
+          python3 scripts/content_intelligence_client.py event-batch --file /tmp/feedback-events.json | tee /tmp/feedback-result.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/feedback-result.json'))
+          if x.get('ok') is not True or x.get('durable') is not True:
+              raise SystemExit('FEEDBACK_D1_NOT_DURABLE')
+          if int(x.get('applied') or 0) != int(x.get('requested') or 0):
+              raise SystemExit(f"FEEDBACK_NOT_FULLY_APPLIED:{x}")
+          print('FEEDBACK_D1_FULL_APPLY=PASS')
+          PY
+
+      - name: Mark/recompute personal-v3 profile when guard allows
+        id: recompute
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/content_intelligence_client.py recompute --model-version personal-v3
+
+      - name: Upload feedback proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-intelligence-feedback-${{ github.run_id }}
+          path: |
+            /tmp/feedback-events.json
+            /tmp/feedback-result.json
+          if-no-files-found: warn
+          retention-days: 7

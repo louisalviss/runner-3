@@ -13,6 +13,32 @@ from pathlib import Path
 import rss_kept_manifest as legacy
 
 
+APPLE_TOPIC_RULES = [
+    # One keynote overview may survive, but duplicate recap posts should not.
+    ("apple-keynote-2026-overview", [
+        r"(?:tom tat su kien apple|apple event|su kien apple)",
+        r"(?:iphone duo|airpods 5|apple watch|john ternus)",
+    ]),
+    # Preserve the genuinely distinct manufacturing/industrial angle.
+    ("apple-iphone-duo-manufacturing", [
+        r"(?:iphone duo|folding iphone|foldable iphone|iphone man hinh gap|iphone gap)",
+        r"(?:ban le|hinge)",
+        r"(?:3d|additive|in 3d|\bai\b)",
+    ]),
+    # Collapse repetitive launch/spec/reaction posts about the same iPhone Duo event.
+    ("apple-iphone-duo-launch", [
+        r"(?:iphone duo|folding iphone|foldable iphone|iphone man hinh gap|iphone gap)",
+        r"(?:ra mat|launch|chinh thuc|can anh|animation|anh dong|nep gap|crease|magsafe|camera duoi man hinh|under.?display|wow|samsung|fold8|mo man hinh|thiet ke moi la|tai dinh nghia)",
+    ]),
+    ("apple-airpods5-launch", [
+        r"airpods 5",
+        r"(?:ra mat|chinh thuc|anc|chong on|129|3[.,]4|gia)",
+    ]),
+    ("apple-watch-ultra4-launch", [r"apple watch ultra 4"]),
+    ("apple-watch-series12-launch", [r"apple watch series 12"]),
+]
+
+
 def normalize_runner15(obj):
     rows = obj.get("sourceRows") or []
     problems = list(obj.get("problems") or [])
@@ -24,9 +50,9 @@ def normalize_runner15(obj):
         if row.get("rawCount") is None or row.get("keptCount") is None or row.get("filteredCount") is None:
             problems.append(f"{row.get('sourceKey')}: incomplete accounting counts")
 
-    obj["version"] = max(int(obj.get("version") or 0), 7)
+    obj["version"] = max(int(obj.get("version") or 0), 8)
     obj["scope"] = "rss-kept-manifest-runner15"
-    obj["filterPolicyVersion"] = "2026-08-31-canonical-source-policy-v7-runner15"
+    obj["filterPolicyVersion"] = "2026-09-11-canonical-source-policy-v8-apple-event-dedupe"
     obj["logicalSourceCount"] = 15
     obj["runnerSourceCount"] = 15
     obj["directSourceCount"] = 0
@@ -39,6 +65,7 @@ def normalize_runner15(obj):
         "finalRenderRequiresDirectVerification": False,
         "all15SourcesBackedByRunnerMirrors": True,
         "complete15SourceAccountingRequired": True,
+        "appleLaunchEventDedupRequired": True,
     })
     obj["contract"] = contract
     render = dict(obj.get("renderContract") or {})
@@ -46,19 +73,30 @@ def normalize_runner15(obj):
         "all15SourcesBackedByRunnerMirrors": True,
         "directVerificationRequired": False,
         "sourceOmissionFailsClosed": True,
+        "appleLaunchEventDedupRequired": True,
     })
     obj["renderContract"] = render
     return obj
 
 
-def build(root, inventory_path):
+def install_runner15_overrides():
     legacy.DIRECT_KEYS = set()
     legacy.SOURCE_PRIORITY.update({"hoquoctuan": 93, "vnhacker": 91})
+
+    # Explicit event rules run before generic title-similarity dedupe. Replace any
+    # rule with the same key so repeated invocations remain idempotent.
+    replacement_keys = {key for key, _ in APPLE_TOPIC_RULES}
+    legacy.TOPIC_RULES = APPLE_TOPIC_RULES + [
+        rule for rule in legacy.TOPIC_RULES if rule[0] not in replacement_keys
+    ]
+
     # Article keys are not guaranteed to be globally unique across sources
     # (for example date-derived IDs such as id:20260903). Canonical URLs are.
-    # Prefer URL identity so distinct articles cannot collide merely because
-    # two collectors emitted the same source-local key.
     legacy.stable_id = lambda item: item.get("canonicalUrl") or item.get("key")
+
+
+def build(root, inventory_path):
+    install_runner15_overrides()
     obj = legacy.build(root, inventory_path)
     return normalize_runner15(obj)
 
@@ -81,6 +119,7 @@ def main():
         "runnerFilteredCount": obj["runnerFilteredCount"],
         "runnerManifestCount": obj["runnerManifestCount"],
         "runnerSourceCount": obj["runnerSourceCount"],
+        "topicDuplicateFilteredCount": obj["topicDuplicateFilteredCount"],
         "summaryEvidenceMissingCount": obj["summaryEvidenceMissingCount"],
         "runnerAccountingOk": obj["runnerAccountingOk"],
         "complete15SourceRenderReady": obj["complete15SourceRenderReady"],
