@@ -32,6 +32,10 @@ jobs:
           set -u
           rm -rf evidence
           mkdir -p evidence
+          if grep -q '^SEARCH:' .runner/tiktok-url.txt; then
+            python3 .runner/tiktok-search.py
+            exit $?
+          fi
           URL="$(head -n1 .runner/tiktok-url.txt | tr -d '\r')"
           printf '%s\n' "$URL" > evidence/request_url.txt
 
