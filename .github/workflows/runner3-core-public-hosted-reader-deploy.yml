@@ -10,6 +10,7 @@ on:
       - 'ops/reader-core-deploy.trigger'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/verify_interest_profile_promotion.mjs'
+      - 'scripts/verify_interest_ontology.mjs'
   workflow_dispatch:
 
 permissions:
@@ -145,6 +146,7 @@ jobs:
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-fast-entry.js
           node scripts/verify_runner3_d1_quota_guards.mjs
           node scripts/verify_interest_profile_promotion.mjs
+          node scripts/verify_interest_ontology.mjs
 
       - name: Apply Core D1 migrations
         shell: bash

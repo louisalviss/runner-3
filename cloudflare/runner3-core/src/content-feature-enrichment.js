@@ -1,6 +1,6 @@
-export const FEATURE_MODEL_VERSION = "semantic-bridge-v3";
+export const FEATURE_MODEL_VERSION = "semantic-bridge-v4";
 
-const AUTO_MODELS = new Set(["reader-bridge-v2", FEATURE_MODEL_VERSION]);
+const AUTO_MODELS = new Set(["reader-bridge-v2", "semantic-bridge-v3", FEATURE_MODEL_VERSION]);
 const STOP = new Set([
   "the","a","an","and","or","but","for","to","of","in","on","at","by","from","with","as","is","are","was","were","be","been","being","this","that","these","those","it","its","into","after","before","over","under","new","how","why","what","when","who","will","can","could","would","should","about","more","than","via",
   "và","hoặc","nhưng","của","cho","trong","trên","tại","từ","với","là","được","bị","có","một","những","các","này","đó","sau","trước","về","khi","như","đang","mới","sẽ","đã","để","vì","sao","thế","nào","vào","ra","theo","giữa","không"
@@ -47,6 +47,33 @@ const CONCEPT_RULES = [
 function fold(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
+
+const FEATURE_KEY_ALIASES = new Map([
+  ["topic\u0000ai_economics", "ai-economics"],
+  ["topic\u0000political_institutions", "political-institutions"],
+  ["topic\u0000macro_finance", "macro-finance"],
+  ["topic\u0000structural_business", "structural-business"],
+  ["topic\u0000regulation_policy", "regulation-policy"],
+  ["topic\u0000explanatory_science", "explanatory-science"],
+  ["topic\u0000vietnam_sea", "vietnam-sea"],
+  ["topic\u0000security_auth_ux", "security-auth-ux"],
+  ["mechanism\u0000causal_mechanism", "causal-mechanism"],
+  ["mechanism\u0000second_order_effect", "second-order-effect"],
+  ["mechanism\u0000economics_unit", "economics-unit"],
+  ["mechanism\u0000system_design", "system-design"],
+]);
+
+export function canonicalizeFeatureKey(featureType, value) {
+  const type = String(featureType || "").trim().toLowerCase();
+  const raw = String(value || "").trim();
+  if (!type || !raw) return "";
+  const aliased = FEATURE_KEY_ALIASES.get(`${type}\u0000${raw.toLowerCase()}`) || raw;
+  if (["topic","concept","mechanism","story_attribute","method","workflow","trend","product"].includes(type)) {
+    return fold(aliased).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 300);
+  }
+  if (type === "entity") return fold(aliased).replace(/\s+/g, " ").trim().slice(0, 300);
+  return aliased.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 300);
+}
 function normalizedText(value) {
   return ` ${fold(value).replace(/[^a-z0-9$+.-]+/g, " ").replace(/\s+/g, " ").trim()} `;
 }
@@ -62,20 +89,6 @@ function uniqPush(out, seen, key, limit) {
 function contentTokens(title) {
   const raw = fold(title).match(/[\p{L}\p{N}][\p{L}\p{N}._+-]{1,}/gu) || [];
   return raw.filter((t) => t.length >= 3 && !STOP.has(t) && !/^\d+$/.test(t));
-}
-function keywordFeatures(title) {
-  const out = [], seen = new Set();
-  for (const token of contentTokens(title)) uniqPush(out, seen, token, 8);
-  return out;
-}
-function conceptNgrams(title) {
-  const tokens = contentTokens(title).slice(0, 14);
-  const out = [], seen = new Set();
-  for (let i = 0; i < tokens.length - 1; i += 1) {
-    uniqPush(out, seen, `${tokens[i]} ${tokens[i + 1]}`, 6);
-    if (i + 2 < tokens.length && out.length < 6) uniqPush(out, seen, `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]}`, 6);
-  }
-  return out;
 }
 function matchedRules(title, rules, limit) {
   const text = normalizedText(title);
@@ -113,8 +126,9 @@ export function extractSemanticFeatures(item = {}) {
   const domain = hostname(canonicalUrl);
   const features = [];
   const add = (feature_type, feature_key, weight, confidence, feature_value = null) => {
-    if (!feature_key) return;
-    features.push({ feature_type, feature_key: String(feature_key).slice(0, 300), feature_value, weight, confidence, model_version: FEATURE_MODEL_VERSION });
+    const canonicalKey = canonicalizeFeatureKey(feature_type, feature_key);
+    if (!canonicalKey) return;
+    features.push({ feature_type, feature_key: canonicalKey, feature_value, weight, confidence, model_version: FEATURE_MODEL_VERSION });
   };
 
   add("source", sourceKey || fold(sourceName), 0.14, 1.0);
@@ -123,8 +137,6 @@ export function extractSemanticFeatures(item = {}) {
   for (const topic of matchedRules(title, TOPIC_RULES, 5)) add("topic", topic, 0.42, 0.90);
   for (const concept of matchedRules(title, CONCEPT_RULES, 5)) add("concept", concept, 0.34, 0.88);
   for (const entity of entityFeatures(title)) add("entity", fold(entity), 0.28, 0.76, entity);
-  for (const concept of conceptNgrams(title)) add("concept", concept, 0.20, 0.62);
-  for (const keyword of keywordFeatures(title)) add("keyword", keyword, 0.09, 0.58);
 
   const deduped = new Map();
   for (const f of features) {

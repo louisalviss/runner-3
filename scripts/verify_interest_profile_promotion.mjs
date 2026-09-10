@@ -1,30 +1,18 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const sourcePath = path.join(repoRoot, 'cloudflare/runner3-core/src/content-personalization.js');
-const text = fs.readFileSync(sourcePath, 'utf8');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourcePath = path.join(repoRoot, "cloudflare/runner3-core/src/content-personalization.js");
+const text = fs.readFileSync(sourcePath, "utf8");
 
-function requireText(needle, message) {
-  if (!text.includes(needle)) throw new Error(message);
-}
-function forbidText(needle, message) {
-  if (text.includes(needle)) throw new Error(message);
-}
+function requireText(needle, message) { if (!text.includes(needle)) throw new Error(message); }
+function forbidText(needle, message) { if (text.includes(needle)) throw new Error(message); }
 
-requireText('PERSONAL_POLICY_VERSION = "shared-feature-promotion-v4"', 'policy marker mismatch');
-requireText('WHERE evidence_count>=2', 'repeated-evidence promotion gate missing');
-requireText("feature_type NOT IN ('keyword','domain','language')", 'noisy auto feature filter missing');
-requireText("NOT (feature_type='source' AND evidence_count<3)", 'source repetition gate missing');
-forbidText("OR feature_type IN ('topic','mechanism')", 'singleton topic/mechanism bypass reintroduced');
-forbidText("OR (feature_type='concept' AND avg_feature_confidence>=0.80)", 'singleton concept bypass reintroduced');
-forbidText('OR has_explicit_feature=1', 'feature-source singleton bypass reintroduced');
-forbidText('OR has_explicit_feedback=1', 'item feedback singleton bypass reintroduced');
+requireText("PERSONAL_POLICY_VERSION = \"canonical-interest-ontology-v5\"", "policy marker mismatch");
+requireText("feature_type IN (\x27topic\x27,\x27mechanism\x27,\x27concept\x27,\x27source\x27)", "durable profile type allowlist missing");
+requireText("evidence_count >= CASE WHEN feature_type=\x27source\x27 THEN 5 ELSE 2 END", "repeated-evidence gate missing");
+forbidText("feature_type=\x27entity\x27 THEN 40", "entity profile promotion reintroduced");
+forbidText("OR has_explicit_feedback=1", "item feedback singleton bypass reintroduced");
 
-console.log(JSON.stringify({
-  ok: true,
-  policy_version: 'shared-feature-promotion-v4',
-  item_derived_profile_min_independent_items: 2,
-  item_feedback_changes_signal_not_promotion_gate: true,
-}));
+console.log(JSON.stringify({ok:true,policy_version:"canonical-interest-ontology-v5",item_derived_profile_min_independent_items:2,source_min_independent_items:5,entity_profile_promotion:false}));
