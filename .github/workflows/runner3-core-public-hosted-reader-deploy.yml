@@ -200,13 +200,21 @@ jobs:
           test "$vheader" = v72
           grep -q '"reader_client_version":"v72"' /tmp/client-version.json
 
-          # Owner boundary must be real: unauthenticated list + reader are rejected/redirected.
-          ulist="$(curl -sS -o /tmp/library-unauth.json -w '%{http_code}' "$core/artifact-library/api/list")"
-          ureader="$(curl -sS -o /tmp/reader-unauth.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
-          echo "EBOOK_V74_OWNER_BOUNDARY list=$ulist reader=$ureader"
-          test "$ulist" = 401
-          test "$ureader" = 303
-          grep -q 'UNAUTHORIZED' /tmp/library-unauth.json
+          # Owner boundary must be real. Retry briefly because Workers edge propagation can lag deploy completion.
+          owner_ok=0
+          for attempt in $(seq 1 20); do
+            ulist="$(curl -sS -o /tmp/library-unauth.json -w '%{http_code}' "$core/artifact-library/api/list")"
+            ureader="$(curl -sS -D /tmp/reader-unauth.h -o /tmp/reader-unauth.html -w '%{http_code}' "$core/artifact-library/read?key=$encoded")"
+            tr -d '' </tmp/reader-unauth.h >/tmp/reader-unauth.h.clean
+            uboundary="$(grep -i '^x-r3-session-bound-sync:' /tmp/reader-unauth.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            echo "EBOOK_V75_OWNER_BOUNDARY attempt=$attempt list=$ulist reader=$ureader boundary=$uboundary"
+            if [ "$ulist" = 401 ] && [ "$ureader" = 303 ] && [ "$uboundary" = 'v75-login-required' ] && grep -q 'UNAUTHORIZED' /tmp/library-unauth.json; then
+              owner_ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$owner_ok" = 1
 
           rcode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-refresh.json -w '%{http_code}' "$core/artifact-library/api/list?refresh=1")"
           icode="$(curl -sS -H "Cookie: $cookie" -o /tmp/library-index.json -w '%{http_code}' "$core/artifact-library/api/list")"
