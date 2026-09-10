@@ -71,7 +71,7 @@ helper = r'''  function r3IosV68(){
   function r3ApplyFullBleedV68(reason='apply',resizeStage=false){
     try{
       if(!r3IosV68())return false;
-      const vv=window.visualViewport||null;
+      const vv=r3StandaloneV68()?null:(window.visualViewport||null);
       const w=Math.max(1,Math.round(Number(vv&&vv.width||window.innerWidth||document.documentElement.clientWidth||0)));
       const h=Math.max(1,Math.round(Number(vv&&vv.height||window.innerHeight||document.documentElement.clientHeight||0)));
       const x=Math.round(Number(vv&&vv.offsetLeft||0));
@@ -105,9 +105,9 @@ helper = r'''  function r3IosV68(){
     if(state.installed){r3ApplyFullBleedV68('reinstall',false);return true;}
     state.installed=true;
     r3ApplyFullBleedV68('install',false);
-    try{window.visualViewport&&window.visualViewport.addEventListener('resize',()=>r3ScheduleFullBleedV68('visualViewport.resize'),{passive:true});}catch{}
-    try{window.visualViewport&&window.visualViewport.addEventListener('scroll',()=>r3ScheduleFullBleedV68('visualViewport.scroll'),{passive:true});}catch{}
-    window.addEventListener('resize',()=>r3ScheduleFullBleedV68('window.resize'),{passive:true});
+    try{!r3StandaloneV68()&&window.visualViewport&&window.visualViewport.addEventListener('resize',()=>r3ScheduleFullBleedV68('visualViewport.resize'),{passive:true});}catch{}
+    try{!r3StandaloneV68()&&window.visualViewport&&window.visualViewport.addEventListener('scroll',()=>r3ScheduleFullBleedV68('visualViewport.scroll'),{passive:true});}catch{}
+    window.addEventListener('resize',()=>{if(!r3StandaloneV68())r3ScheduleFullBleedV68('window.resize');},{passive:true});
     window.addEventListener('orientationchange',()=>setTimeout(()=>r3ScheduleFullBleedV68('orientationchange'),180),{passive:true});
     return true;
   }

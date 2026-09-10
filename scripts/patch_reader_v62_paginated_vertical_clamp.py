@@ -17,6 +17,9 @@ if anchor not in v2:
     raise SystemExit('V62_MISSING_V61_CURRENT_CFI_ANCHOR')
 
 helper = anchor + r'''
+      function r3StandalonePaginatedV79(){
+        try{return Boolean((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true);}catch{return false;}
+      }
       function r3ClampPaginatedVerticalV62(reason=''){
         let fixed=0;
         const zero=node=>{
@@ -46,7 +49,7 @@ helper = anchor + r'''
 v2 = v2.replace(anchor, helper, 1)
 
 render_old = "rendition.on('rendered',()=>{bindEpubContents();});"
-render_new = "rendition.on('rendered',()=>{bindEpubContents();setTimeout(()=>r3ClampPaginatedVerticalV62('rendered'),0);});"
+render_new = "rendition.on('rendered',()=>{bindEpubContents();if(!r3StandalonePaginatedV79())setTimeout(()=>r3ClampPaginatedVerticalV62('rendered'),0);});"
 if render_old in v2:
     v2 = v2.replace(render_old, render_new, 1)
 elif render_new not in v2:
@@ -106,12 +109,11 @@ reveal_new2 = reveal_new + r'''
             if(clampStateV62)clampStateV62.coldBootGuardActive=false;
           }
         };
-        runColdBootGuardV62();
-        coldBootGuardTimer=setInterval(runColdBootGuardV62,100);
+        if(!r3StandalonePaginatedV79()){runColdBootGuardV62();coldBootGuardTimer=setInterval(runColdBootGuardV62,100);}
         const onBootViewportV62=()=>{clearTimeout(clampTimer);clampTimer=setTimeout(()=>r3ClampPaginatedVerticalV62('visual-viewport'),80);};
-        if(vv)vv.addEventListener('resize',onBootViewportV62,{passive:true});
+        if(vv&&!r3StandalonePaginatedV79())vv.addEventListener('resize',onBootViewportV62,{passive:true});
         setTimeout(()=>{
-          try{if(vv)vv.removeEventListener('resize',onBootViewportV62);}catch{}
+          try{if(vv&&!r3StandalonePaginatedV79())vv.removeEventListener('resize',onBootViewportV62);}catch{}
           clearTimeout(clampTimer);
           if(coldBootGuardTimer){clearInterval(coldBootGuardTimer);coldBootGuardTimer=0;}
           if(clampStateV62){clampStateV62.coldBootGuardActive=false;clampStateV62.coldBootGuardEndedAt=Date.now();}

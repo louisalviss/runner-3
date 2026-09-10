@@ -75,6 +75,13 @@ helper = r'''  function r3AudioDockV69(){
     try{
       if(!r3IosV68())return false;
       const root=document.documentElement;
+      if(r3StandaloneV68()){
+        root.classList.add('r3-audio-dock-inset-v69');
+        root.style.setProperty('--r3-reading-bottom-v69','calc(76px + env(safe-area-inset-bottom,0px))');
+        const stable=window.__r3AudioDockInsetV69||(window.__r3AudioDockInsetV69={owner:'audio-dock-reading-inset-v69',installed:true,inset:76,applyCalls:0,resizeCalls:0,stageW:0,stageH:0,lastReason:'',lastResizeReason:'',observedDock:null,resizeObserver:null,mutationObserver:null});
+        stable.installed=true;stable.inset=76;stable.applyCalls++;stable.lastReason='standalone-fixed:'+String(reason||'');
+        return false;
+      }
       const inset=r3MeasureAudioDockInsetV69();
       const state=window.__r3AudioDockInsetV69||(window.__r3AudioDockInsetV69={owner:'audio-dock-reading-inset-v69',installed:false,inset:-1,applyCalls:0,resizeCalls:0,stageW:0,stageH:0,lastReason:'',lastResizeReason:'',observedDock:null,resizeObserver:null,mutationObserver:null});
       const changed=Math.abs(Number(state.inset||0)-inset)>1;
@@ -93,6 +100,14 @@ helper = r'''  function r3AudioDockV69(){
   }
   function r3InstallAudioDockInsetV69(){
     if(!r3IosV68())return false;
+    if(r3StandaloneV68()){
+      const root=document.documentElement;
+      root.classList.add('r3-audio-dock-inset-v69');
+      root.style.setProperty('--r3-reading-bottom-v69','calc(76px + env(safe-area-inset-bottom,0px))');
+      const stable=window.__r3AudioDockInsetV69||(window.__r3AudioDockInsetV69={owner:'audio-dock-reading-inset-v69',installed:true,inset:76,applyCalls:0,resizeCalls:0,stageW:0,stageH:0,lastReason:'',lastResizeReason:'',observedDock:null,resizeObserver:null,mutationObserver:null});
+      stable.installed=true;stable.inset=76;stable.lastReason='standalone-fixed-install';
+      return true;
+    }
     const state=window.__r3AudioDockInsetV69||(window.__r3AudioDockInsetV69={owner:'audio-dock-reading-inset-v69',installed:false,inset:-1,applyCalls:0,resizeCalls:0,stageW:0,stageH:0,lastReason:'',lastResizeReason:'',observedDock:null,resizeObserver:null,mutationObserver:null});
     if(state.installed){r3ApplyAudioDockInsetV69('reinstall',false);return true;}
     state.installed=true;

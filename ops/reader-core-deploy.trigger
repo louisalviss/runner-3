@@ -1,1 +1,1 @@
-ebook-library-auth-lazy-backend-v78 2026-09-10
+ebook-home-screen-stable-v79 2026-09-10

@@ -13,7 +13,7 @@ assert.ok(v28.indexOf("if(previous)") < v28.indexOf("localStorage.setItem(baseKe
 assert.match(v34,/Intl\.Segmenter\('vi',\{granularity:'sentence'\}\)/);
 assert.match(v34,/cfiFromRange\(followRange\)/);
 assert.match(v35,/data-r3-reader-audio-reserve-v40/);
-assert.match(v35,/#viewer\{bottom:calc\(210px/);
+assert.match(v35,/#viewer\{bottom:calc\(76px/);
 assert.match(v35,/localStorage\.getItem\('r3-reader-position:'\+bookKey\)/);
 assert.match(core,/READER_POSITION_KEY/);
 assert.match(core,/const restoreCfi = readerCfi \|\| saved\.cfi/);
