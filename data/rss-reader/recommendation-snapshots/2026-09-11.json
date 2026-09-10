@@ -1,0 +1,125 @@
+{
+  "ok": true,
+  "idempotent": false,
+  "snapshot_id": "rss-v3-2026-09-11-cdce44bcead5",
+  "model_version": "personal-v3",
+  "item_count": 8,
+  "schema_version": 2,
+  "policy_version": "canonical-interest-ontology-v6",
+  "source_render_id": "rss:2026-09-11:cdce44bcead5dd8b1dadcf1ffe6b1107f4b727763e5f03f9ab127c6383e9a452",
+  "top_k": 10,
+  "baseline_policy": "canonical-manifest-order",
+  "personalized_policy": "bounded-personal-relevance-live",
+  "baseline": [
+    {
+      "item_id": "https://nghiencuuquocte.org/2026/09/11/buoc-ngoat-chien-luoc-cua-nhat-ban/",
+      "rank": 1,
+      "manifest_number": 1
+    },
+    {
+      "item_id": "https://www.theatlantic.com/newsletters/2026/09/charlie-kirk-one-year-maga-movement/688588/",
+      "rank": 2,
+      "manifest_number": 2
+    },
+    {
+      "item_id": "https://www.theatlantic.com/newsletters/2026/09/tenis-history-greatest-games-sport/688587/",
+      "rank": 3,
+      "manifest_number": 3
+    },
+    {
+      "item_id": "https://www.theatlantic.com/ideas/2026/09/bush-trump-mamdani-giuliani-islam/688582/",
+      "rank": 4,
+      "manifest_number": 4
+    },
+    {
+      "item_id": "https://www.theatlantic.com/health/2026/09/nfl-australia-jet-lag-49ers-rams/688577/",
+      "rank": 5,
+      "manifest_number": 5
+    },
+    {
+      "item_id": "https://www.theatlantic.com/national-security/2026/09/colin-powell-911-democracy/688566/",
+      "rank": 6,
+      "manifest_number": 6
+    },
+    {
+      "item_id": "https://www.theatlantic.com/ideas/2026/09/ai-destroy-world-apocalypse/688575/",
+      "rank": 7,
+      "manifest_number": 7
+    },
+    {
+      "item_id": "https://www.theatlantic.com/ideas/2026/09/9-11-lessons-bush-trump/688572/",
+      "rank": 8,
+      "manifest_number": 8
+    }
+  ],
+  "personalized": [
+    {
+      "item_id": "https://www.theatlantic.com/health/2026/09/nfl-australia-jet-lag-49ers-rams/688577/",
+      "rank": 1,
+      "score": 77.7133,
+      "manifest_number": 5
+    },
+    {
+      "item_id": "https://www.theatlantic.com/ideas/2026/09/ai-destroy-world-apocalypse/688575/",
+      "rank": 2,
+      "score": 74.6922,
+      "manifest_number": 7
+    },
+    {
+      "item_id": "https://www.theatlantic.com/ideas/2026/09/bush-trump-mamdani-giuliani-islam/688582/",
+      "rank": 3,
+      "score": 71.9789,
+      "manifest_number": 4
+    },
+    {
+      "item_id": "https://www.theatlantic.com/newsletters/2026/09/charlie-kirk-one-year-maga-movement/688588/",
+      "rank": 4,
+      "score": 65.9033,
+      "manifest_number": 2
+    },
+    {
+      "item_id": "https://www.theatlantic.com/national-security/2026/09/colin-powell-911-democracy/688566/",
+      "rank": 5,
+      "score": 61.8998,
+      "manifest_number": 6
+    },
+    {
+      "item_id": "https://www.theatlantic.com/ideas/2026/09/9-11-lessons-bush-trump/688572/",
+      "rank": 6,
+      "score": 58.9845,
+      "manifest_number": 8
+    },
+    {
+      "item_id": "https://nghiencuuquocte.org/2026/09/11/buoc-ngoat-chien-luoc-cua-nhat-ban/",
+      "rank": 7,
+      "score": 54.6199,
+      "manifest_number": 1
+    },
+    {
+      "item_id": "https://www.theatlantic.com/newsletters/2026/09/tenis-history-greatest-games-sport/688587/",
+      "rank": 8,
+      "score": 48.0084,
+      "manifest_number": 3
+    }
+  ],
+  "score_distribution": {
+    "count": 8,
+    "min": 48.00836382818621,
+    "p50": 65.90327490824592,
+    "p90": 74.6922077922078,
+    "p99": 77.71328553406414,
+    "max": 77.71328553406414,
+    "score_99_plus": 0
+  },
+  "profile_state": "dirty",
+  "created_at": "2026-09-10T23:04:50.931Z",
+  "materialization": {
+    "ok": true,
+    "recomputed": false,
+    "status": "dirty_debounced",
+    "model_version": "personal-v3",
+    "guarded": true,
+    "debounce_ms": 14400000,
+    "force_allowed": false
+  }
+}
