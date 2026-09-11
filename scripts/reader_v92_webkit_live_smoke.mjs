@@ -104,10 +104,14 @@ try{
 
   const moveBefore=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
   const cfiBefore=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
-  await page.evaluate(()=>{
+  const gestureDiag=await page.evaluate(()=>{
     const doc=document.querySelector('#viewer iframe')?.contentDocument;
     const win=doc?.defaultView;
     if(!doc||!win?.PointerEvent) throw new Error('EPUB_POINTER_EVENT_UNAVAILABLE');
+    const seen=[];
+    for(const type of ['pointerdown','pointermove','pointerup','pointercancel']){
+      doc.addEventListener(type,e=>seen.push({type,pointerType:e.pointerType,button:e.button,x:e.clientX,y:e.clientY,target:String(e.target?.tagName||'')}),{capture:true,once:false});
+    }
     const target=[...doc.querySelectorAll('p,div,span')].find(el=>{
       try{
         if(el.closest('a,button,input,select,textarea,label,[contenteditable=\"true\"]'))return false;
@@ -119,12 +123,22 @@ try{
     const y=Math.max(20,Math.min((win.innerHeight||600)-20,rect.top+Math.min(24,Math.max(8,rect.height/2))));
     const x0=Math.max(260,Math.min((win.innerWidth||390)-24,rect.right-20));
     const x1=Math.max(30,x0-230);
+    const beforeSel=String(doc.getSelection?.()||'').trim();
     const fire=(type,x)=>target.dispatchEvent(new win.PointerEvent(type,{bubbles:true,cancelable:true,pointerId:77,pointerType:'touch',clientX:x,clientY:y,button:0}));
     fire('pointerdown',x0); fire('pointermove',(x0+x1)/2); fire('pointerup',x1);
+    return {seen,target:String(target.tagName||''),interactive:Boolean(target.closest?.('a,button,input,select,textarea,label,[contenteditable=\"true\"]')),beforeSel,afterSel:String(doc.getSelection?.()||'').trim(),owner:String(doc.documentElement?.dataset?.r3GestureOwnerV94||'')};
   });
-  await page.waitForFunction(old=>Number(window.__r3StableRuntimeV82?.navMoves||0)===old+1,moveBefore,{timeout:8000});
+  await page.waitForTimeout(600);
+  let moveAfter=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
+  if(moveAfter!==moveBefore+1){
+    const direct=await page.evaluate(async()=>{
+      const before=Number(window.__r3StableRuntimeV82?.navMoves||0);
+      const ok=await window.__r3V82MovePage?.(1);
+      return {before,after:Number(window.__r3StableRuntimeV82?.navMoves||0),ok};
+    });
+    throw new Error('WEBKIT_GESTURE_NO_MOVE '+safe({moveBefore,moveAfter,gestureDiag,direct}));
+  }
   await page.waitForTimeout(500);
-  const moveAfter=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
   const cfiAfter=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
   if(moveAfter!==moveBefore+1) throw new Error(`SWIPE_NOT_SINGLE ${moveBefore}->${moveAfter}`);
   if(!cfiAfter||cfiAfter===cfiBefore) throw new Error('SWIPE_CFI_UNCHANGED');
