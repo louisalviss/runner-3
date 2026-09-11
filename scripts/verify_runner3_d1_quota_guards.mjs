@@ -18,6 +18,8 @@ requireText(personalization, "interestFamilySql", "family-aware materialized sco
 requireText(personalization, "materialization_identity_mismatch", "model/policy/ontology materialization identity guard missing");
 requireText(personalization, "json_extract(reason_json,'$.profile_policy')", "profile policy materialization proof check missing");
 requireText(personalization, "json_extract(reason_json,'$.ontology_version')", "ontology materialization proof check missing");
+requireText(personalization, "const materializationMismatch = !materialized?.ok", "dirty-state materialization mismatch detection missing");
+requireText(personalization, "priorityExplicit || materializationMismatch", "materialization repair must bypass debounce");
 requireText(personalization, "status='recomputing'", "recompute lease state missing");
 requireText(personalization, "run_id=?", "lease token missing");
 requireText(personalization, "status='recomputing' AND run_id=?", "CAS lease completion missing");
