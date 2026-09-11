@@ -7,7 +7,20 @@ export function r3StableEarlyV82() {
   if (standalone) root.classList.add('r3-v82-home');
   const text = fn => { try { return Function.prototype.toString.call(fn); } catch { return ''; } };
   const geometryFn = fn => /r3ScheduleFullBleedV68|r3ScheduleAudioDockInsetV69|r3ClampPaginatedVerticalV62/.test(text(fn));
-  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0 };
+  const nativeSetTimeoutV88 = window.setTimeout.bind(window);
+  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'fail-safe-v88', restoreShieldReleased: '', restoreWatchdogFired: false };
+  const releaseRestoreShieldV88 = reason => {
+    state.restoreShieldReleased = state.restoreShieldReleased || String(reason || 'released');
+    root.classList.remove('r3-restore-pending-v45');
+    root.classList.remove('r3-v82-restoring');
+  };
+  state.releaseRestoreShield = releaseRestoreShieldV88;
+  nativeSetTimeoutV88(() => {
+    if (root.classList.contains('r3-v82-restoring') || root.classList.contains('r3-restore-pending-v45')) {
+      state.restoreWatchdogFired = true;
+      releaseRestoreShieldV88('watchdog-8000ms');
+    }
+  }, 8000);
 
   try {
     const vv = window.visualViewport;
@@ -58,10 +71,16 @@ export function r3StableEarlyV82() {
 
 export function r3StableRuntimeV82() {
   if (window.__r3StableRuntimeV82) return;
-  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false };
+  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'fail-safe-v88', chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
+  const releaseRestoreShield = reason => {
+    debug.restoreReleasedBy = debug.restoreReleasedBy || String(reason || 'released');
+    try { window.__r3StableEarlyV82?.releaseRestoreShield?.(reason); } catch {}
+    document.documentElement.classList.remove('r3-restore-pending-v45');
+    document.documentElement.classList.remove('r3-v82-restoring');
+  };
   const params = new URLSearchParams(location.search);
   const bookKey = params.get('key') || '';
-  if (!bookKey) return;
+  if (!bookKey) { releaseRestoreShield('missing-book-key'); return; }
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const cleanHref = value => { let raw = String(value || '').split('#')[0]; try { raw = decodeURIComponent(raw); } catch {} while (raw.startsWith('./')) raw = raw.slice(2); return raw.toLowerCase(); };
@@ -90,12 +109,15 @@ export function r3StableRuntimeV82() {
   }
 
   async function remoteProgress() {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort('v88-progress-timeout'), 2500) : 0;
     try {
-      const response = await fetch('/artifact-library/api/progress?key=' + encodeURIComponent(bookKey), { cache: 'no-store', headers: { accept: 'application/json', 'x-runner3-library': '1' } });
+      const response = await fetch('/artifact-library/api/progress?key=' + encodeURIComponent(bookKey), { cache: 'no-store', headers: { accept: 'application/json', 'x-runner3-library': '1' }, ...(controller ? { signal: controller.signal } : {}) });
       if (!response.ok) return null;
       const data = await response.json();
       return data && data.ok === true ? data.progress : null;
     } catch { return null; }
+    finally { if (timer) clearTimeout(timer); }
   }
 
   function writeCanonicalLocal(remote) {
@@ -213,12 +235,15 @@ export function r3StableRuntimeV82() {
     const remote = await remoteProgress();
     const target = String(remote && remote.cfi || localStorage.getItem('r3-reader-position:' + bookKey) || '');
     debug.restoreTarget = target;
-    if (!target) { document.documentElement.classList.remove('r3-restore-pending-v45'); document.documentElement.classList.remove('r3-v82-restoring'); return; }
+    if (!target) { releaseRestoreShield('no-target'); return; }
     const priorBoot = window.__R3_BASE_READER_BOOT_DONE;
     window.__R3_BASE_READER_BOOT_DONE = false;
     window.__R3_READER_RESTORE_PENDING = true;
     try {
-      await Promise.resolve(bridge.display(target));
+      await Promise.race([
+        Promise.resolve(bridge.display(target)),
+        delay(4500).then(() => { throw new Error('RESTORE_DISPLAY_TIMEOUT_V88'); }),
+      ]);
       await paint(); await delay(90); await paint();
       debug.restoreAfter = String(bridge.current && bridge.current()?.start?.cfi || '');
       debug.restoreOk = Boolean(debug.restoreAfter);
@@ -227,8 +252,7 @@ export function r3StableRuntimeV82() {
     finally {
       window.__R3_BASE_READER_BOOT_DONE = priorBoot !== false;
       window.__R3_READER_RESTORE_PENDING = false;
-      document.documentElement.classList.remove('r3-restore-pending-v45');
-      document.documentElement.classList.remove('r3-v82-restoring');
+      releaseRestoreShield(debug.restoreOk ? 'restore-complete' : (debug.restoreError ? 'restore-error' : 'restore-finally'));
     }
     refreshChapterUi(bridge);
     const prepare = window.__r3AudioCorePrepareCurrent;
@@ -240,7 +264,7 @@ export function r3StableRuntimeV82() {
 
   (async () => {
     const bridge = await waitBridge();
-    if (!bridge) return;
+    if (!bridge) { debug.restoreError = 'READER_BRIDGE_TIMEOUT_V88'; releaseRestoreShield('bridge-timeout'); return; }
     patchChapterInfo(bridge);
     installNavigation(bridge);
     await waitBoot();
@@ -248,7 +272,7 @@ export function r3StableRuntimeV82() {
     await finalRestore(bridge);
     refreshChapterUi(bridge);
     setInterval(() => refreshChapterUi(bridge), 1200);
-  })().catch(error => { debug.error = String(error && error.message || error).slice(0, 200); document.documentElement.classList.remove('r3-restore-pending-v45'); document.documentElement.classList.remove('r3-v82-restoring'); });
+  })().catch(error => { debug.error = String(error && error.message || error).slice(0, 200); releaseRestoreShield('runtime-error'); });
 }
 
 const STYLE = `<style data-r3-stable-shell-v82="1">

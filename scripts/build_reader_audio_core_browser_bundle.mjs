@@ -106,6 +106,7 @@ execFileSync('python3', ['scripts/check_reader_v80_dock_and_first_audio.py'], { 
 execFileSync('python3', ['scripts/check_reader_v82_stable_shell.py'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v82_runtime_smoke.mjs'], { stdio: 'inherit' });
+execFileSync('node', ['scripts/reader_v88_restore_failsafe_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v82_outer_composition_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v83_fastpath_v82_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/src/ebook-reader-audio.js'], { stdio: 'inherit' });
