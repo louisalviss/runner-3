@@ -14,8 +14,13 @@ const context=await browser.newContext({viewport:{width:390,height:844},isMobile
 await context.addCookies([{name:'r3_artifact_library',value:cookieValue,domain:host,path:'/artifact-library',httpOnly:true,secure:true,sameSite:'Lax'}]);
 const page=await context.newPage();
 const consoleErrors=[];
+const failedRequests=[];
+const badResponses=[];
+const redactUrl=value=>{try{const u=new URL(String(value));return u.hostname+u.pathname}catch{return String(value||'').split('?')[0]}};
 page.on('pageerror',error=>consoleErrors.push(String(error?.stack||error)));
 page.on('console',msg=>{if(msg.type()==='error')consoleErrors.push(msg.text())});
+page.on('requestfailed',request=>failedRequests.push({url:redactUrl(request.url()),error:String(request.failure()?.errorText||'failed')}));
+page.on('response',response=>{if(response.status()>=400)badResponses.push({status:response.status(),url:redactUrl(response.url())})});
 
 function safe(obj){return JSON.stringify(obj);}
 
@@ -31,10 +36,45 @@ try{
 
   await page.waitForSelector('#viewer iframe',{timeout:30000});
   await page.waitForFunction(()=>Boolean(window.r3ReaderBridge),null,{timeout:30000});
-  await page.waitForFunction(()=>{
-    const frame=document.querySelector('#viewer iframe');
-    try{return String(frame?.contentDocument?.body?.innerText||'').trim().length>80}catch{return false}
-  },null,{timeout:30000});
+  try{
+    await page.waitForFunction(()=>{
+      const frame=document.querySelector('#viewer iframe');
+      try{return String(frame?.contentDocument?.body?.innerText||'').trim().length>80}catch{return false}
+    },null,{timeout:30000});
+  }catch(error){
+    const diagnostic=await page.evaluate(()=>{
+      const safeFrameSrc=value=>{
+        const raw=String(value||'');
+        if(!raw)return '';
+        if(raw.startsWith('blob:'))return 'blob:';
+        try{const u=new URL(raw,location.href);return u.protocol+'//'+u.host+u.pathname}catch{return raw.split('?')[0].slice(0,240)}
+      };
+      const frames=[...document.querySelectorAll('#viewer iframe')].map(frame=>{
+        try{
+          const doc=frame.contentDocument;
+          return {src:safeFrameSrc(frame.getAttribute('src')||frame.src),contentDocument:Boolean(doc),readyState:doc?.readyState||'',body:Boolean(doc?.body),textLength:String(doc?.body?.innerText||'').trim().length,htmlLength:String(doc?.body?.innerHTML||'').length,title:String(doc?.title||'').slice(0,120)};
+        }catch(frameError){return {src:safeFrameSrc(frame.getAttribute('src')||frame.src),accessError:String(frameError?.message||frameError).slice(0,180)}}
+      });
+      let current=null;
+      try{const loc=window.r3ReaderBridge?.current?.();current={cfi:String(loc?.start?.cfi||''),href:String(loc?.start?.href||'').split('?')[0].slice(0,240)}}catch{}
+      return {
+        href:location.pathname,
+        title:String(document.title||'').slice(0,180),
+        loading:{text:String(document.getElementById('loading')?.textContent||'').slice(0,300),className:String(document.getElementById('loading')?.className||'')},
+        epubType:typeof window.ePub,
+        bridge:Boolean(window.r3ReaderBridge),
+        current,
+        baseBoot:window.__r3BaseReaderBootV47||null,
+        basePending:Boolean(window.__R3_BASE_READER_BOOT_PENDING),
+        baseDone:Boolean(window.__R3_BASE_READER_BOOT_DONE),
+        restorePending:Boolean(window.__R3_READER_RESTORE_PENDING),
+        stableRuntime:window.__r3StableRuntimeV82?{restoreTarget:String(window.__r3StableRuntimeV82.restoreTarget||''),restoreAfter:String(window.__r3StableRuntimeV82.restoreAfter||''),restoreOk:Boolean(window.__r3StableRuntimeV82.restoreOk),restoreReleasedBy:String(window.__r3StableRuntimeV82.restoreReleasedBy||''),restoreError:String(window.__r3StableRuntimeV82.restoreError||''),navMoves:Number(window.__r3StableRuntimeV82.navMoves||0)}:null,
+        frames,
+      };
+    }).catch(diagError=>({diagnosticError:String(diagError?.message||diagError).slice(0,240)}));
+    console.error('WEBKIT_BOOT_DIAGNOSTIC='+safe({diagnostic,consoleErrors:consoleErrors.slice(0,8),failedRequests:failedRequests.slice(0,12),badResponses:badResponses.slice(0,12)}));
+    throw error;
+  }
   await page.waitForTimeout(1200);
 
   const before=await page.evaluate(()=>{
