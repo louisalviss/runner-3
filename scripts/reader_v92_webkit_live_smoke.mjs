@@ -4,7 +4,7 @@ import { webkit } from 'playwright';
 const token=String(process.env.RUNNER3_CORE_TOKEN||'').trim();
 if(!token) throw new Error('RUNNER3_CORE_TOKEN_MISSING');
 const core=String(process.env.RUNNER3_CORE_URL||'https://runner3-core.ducduy2411.workers.dev').replace(/\/$/,'');
-const bookKey=String(process.env.EBOOK_WEBKIT_BOOK_KEY||'core/ebook/skeleton-crew/final/Skeleton-Crew-Stephen-King-VI-v2.epub');
+const bookKey=String(process.env.EBOOK_WEBKIT_BOOK_KEY||'core/ebook/tha-nu-phu-thuy-kia-ra-nhi-muc-1lwhn39/final/Thả Nữ Phù Thủy Kia Ra - Nhị Mục.epub');
 const cookieValue=crypto.createHash('sha256').update('runner3-artifact-library-v1:'+token).digest('hex');
 const url=core+'/artifact-library/read?key='+encodeURIComponent(bookKey);
 const host=new URL(core).hostname;
@@ -108,9 +108,19 @@ try{
     const doc=document.querySelector('#viewer iframe')?.contentDocument;
     const win=doc?.defaultView;
     if(!doc||!win?.PointerEvent) throw new Error('EPUB_POINTER_EVENT_UNAVAILABLE');
-    const target=doc.elementFromPoint(300,300)||doc.body;
-    const fire=(type,x,y)=>target.dispatchEvent(new win.PointerEvent(type,{bubbles:true,cancelable:true,pointerId:77,pointerType:'touch',clientX:x,clientY:y,button:0}));
-    fire('pointerdown',300,300); fire('pointermove',180,302); fire('pointerup',70,303);
+    const target=[...doc.querySelectorAll('p,div,span')].find(el=>{
+      try{
+        if(el.closest('a,button,input,select,textarea,label,[contenteditable=\"true\"]'))return false;
+        const r=el.getBoundingClientRect();
+        return String(el.textContent||'').trim().length>30&&r.width>80&&r.height>10;
+      }catch{return false}
+    })||doc.body;
+    const rect=target.getBoundingClientRect();
+    const y=Math.max(20,Math.min((win.innerHeight||600)-20,rect.top+Math.min(24,Math.max(8,rect.height/2))));
+    const x0=Math.max(260,Math.min((win.innerWidth||390)-24,rect.right-20));
+    const x1=Math.max(30,x0-230);
+    const fire=(type,x)=>target.dispatchEvent(new win.PointerEvent(type,{bubbles:true,cancelable:true,pointerId:77,pointerType:'touch',clientX:x,clientY:y,button:0}));
+    fire('pointerdown',x0); fire('pointermove',(x0+x1)/2); fire('pointerup',x1);
   });
   await page.waitForFunction(old=>Number(window.__r3StableRuntimeV82?.navMoves||0)===old+1,moveBefore,{timeout:8000});
   await page.waitForTimeout(500);
