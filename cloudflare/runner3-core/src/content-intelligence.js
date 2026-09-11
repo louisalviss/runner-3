@@ -6,6 +6,7 @@ import {
   snapshotRecommendationRun,
   evaluateRecommendationRun,
   isSupportedContentEvent,
+  eventAffectsProfile,
   markProfileDirty,
   maybeRecomputePersonal,
 } from "./content-personalization.js";
@@ -116,8 +117,9 @@ async function handleEvent(request,env){
   try{
     const body=await request.json(); const result=await eventStatement(env,body).run();
     if((result.meta?.changes??0)<1)return Response.json({ok:false,error:"CONTENT_ITEM_NOT_FOUND_OR_DUPLICATE"},{status:404});
-    await markProfileDirty(env,`event_${text(body.event_type,100)}`);
-    return Response.json({ok:true,durable:true,id:result.meta?.last_row_id??null,event_applied:1,materialization_status:"dirty"});
+    const affectsProfile=eventAffectsProfile(body.event_type);
+    if(affectsProfile) await markProfileDirty(env,`event_${text(body.event_type,100)}`);
+    return Response.json({ok:true,durable:true,id:result.meta?.last_row_id??null,event_applied:1,profile_affecting:affectsProfile,materialization_status:affectsProfile?"dirty":"unchanged"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 async function handleEventBatch(request,env){
@@ -125,14 +127,16 @@ async function handleEventBatch(request,env){
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
     const list=rows(await request.json()); const results=await env.DB.batch(list.map(r=>eventStatement(env,r))); const applied=results.reduce((n,r)=>n+(r.meta?.changes??0),0);
-    const explicitFeedbackBatch=list.some(r=>["liked","disliked","interest_saved"].includes(String(r.event_type||"")));
-    if(applied) await markProfileDirty(env,"event_batch");
-    const recompute=(applied&&explicitFeedbackBatch)
+    const appliedRows=list.filter((_,index)=>Number(results[index]?.meta?.changes||0)>0);
+    const profileAffectingBatch=appliedRows.some(r=>eventAffectsProfile(r.event_type));
+    const explicitFeedbackBatch=appliedRows.some(r=>["liked","disliked","interest_saved"].includes(String(r.event_type||"")));
+    if(profileAffectingBatch) await markProfileDirty(env,"event_batch");
+    const recompute=(profileAffectingBatch&&explicitFeedbackBatch)
       ? await maybeRecomputePersonal(env,{priorityExplicit:true})
-      : {recomputed:false,status:applied?"dirty":"unchanged"};
+      : {recomputed:false,status:profileAffectingBatch?"dirty":"unchanged"};
     return Response.json({ok:true,durable:true,applied,requested:list.length,missing_or_duplicate:list.length-applied,
-      explicit_feedback_batch:explicitFeedbackBatch,profile_recomputed:Boolean(recompute.recomputed),
-      materialization_status:recompute.recomputed?(recompute.status||"clean"):(recompute.status||(applied?"dirty":"unchanged")),
+      explicit_feedback_batch:explicitFeedbackBatch,profile_affecting_batch:profileAffectingBatch,profile_recomputed:Boolean(recompute.recomputed),
+      materialization_status:recompute.recomputed?(recompute.status||"clean"):(recompute.status||(profileAffectingBatch?"dirty":"unchanged")),
       model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }

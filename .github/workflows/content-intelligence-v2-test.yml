@@ -61,6 +61,7 @@ jobs:
           node scripts/verify_personal_score_sql_size.mjs
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_ontology.mjs
+          node scripts/verify_zero_weight_event_dirty_guard.mjs
           grep -q 'interest_saved' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'follow_up' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'follow_up_count' cloudflare/runner3-core/src/content-personalization.js
@@ -92,7 +93,7 @@ jobs:
           ! grep -q 'body.lifecycle === "archived".*saved' cloudflare/runner3-core/src/rss-reader-learning.js
           node --input-type=module - <<'NODE'
           import { extractSemanticFeatures, FEATURE_MODEL_VERSION } from './cloudflare/runner3-core/src/content-feature-enrichment.js';
-          import { EVENT_WEIGHTS, PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION, PROFILE_RECOMPUTE_CLOCK_KEY, isSupportedContentEvent } from './cloudflare/runner3-core/src/content-personalization.js';
+          import { EVENT_WEIGHTS, PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION, PROFILE_RECOMPUTE_CLOCK_KEY, isSupportedContentEvent, eventAffectsProfile } from './cloudflare/runner3-core/src/content-personalization.js';
 
           const a = extractSemanticFeatures({
             canonical_url: 'https://rasa.com/blog/agent-orchestration-tools',
@@ -108,6 +109,7 @@ jobs:
           if (!keys.has('concept:agent-orchestration')) throw new Error('agent-orchestration concept missing');
           if (!isSupportedContentEvent('interest_saved') || EVENT_WEIGHTS.interest_saved <= EVENT_WEIGHTS.deep_read) throw new Error('interest_saved priority incorrect');
           if (!isSupportedContentEvent('follow_up') || EVENT_WEIGHTS.follow_up !== 0.5) throw new Error('follow_up weight incorrect');
+          if (eventAffectsProfile('shown') || !eventAffectsProfile('selected')) throw new Error('zero-weight event invalidation contract incorrect');
           if (!(EVENT_WEIGHTS.disliked < 0) || Math.abs(EVENT_WEIGHTS.disliked) < EVENT_WEIGHTS.selected) throw new Error('negative preference strength incorrect');
 
           const b = extractSemanticFeatures({
