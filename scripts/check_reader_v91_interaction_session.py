@@ -9,8 +9,9 @@ v7=(ROOT/'artifact-library-reader-v7-github-audio-entry.js').read_text(encoding=
 # The interaction owner itself is intentionally superseded by v92 single-owner,
 # so this compatibility check must not force the runtime back to v91.
 assert ("interactionOwner: 'v91'" in v82 or "interactionOwner: 'v92'" in v82), 'interaction owner v91/v92'
-for marker in ['window.__r3BindReaderFramesV91','bindReaderDocument(frame.contentDocument)','pointer-events:none!important','interactiveTarget(event.target)']:
+for marker in ['window.__r3BindReaderFramesV91','bindReaderDocument(frame.contentDocument)','pointer-events:none!important']:
     assert marker in v82, marker
+assert ('interactiveTarget(event.target)' in v82 or 'interactiveTarget(target)' in v82), 'interactive target bypass'
 assert "layer.addEventListener('pointerdown'" not in v82
 for marker in ['data-r3-pin-autofill-v91="1"','autocomplete="username"','SameSite=Lax','Expires=${expires}']:
     assert marker in pin, marker

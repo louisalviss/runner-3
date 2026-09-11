@@ -4,7 +4,7 @@ const pin=fs.readFileSync('cloudflare/runner3-core/artifact-library-pin-v2-entry
 if(!v82.includes('pointer-events:none!important'))throw new Error('gesture overlay still interactive');
 if(v82.includes("layer.addEventListener('pointerdown'"))throw new Error('full-screen gesture catcher still active');
 if(!v82.includes('bindReaderDocument(frame.contentDocument)'))throw new Error('EPUB frame interaction binding missing');
-if(!v82.includes("interactiveTarget(event.target)"))throw new Error('interactive element bypass missing');
+if(!v82.includes("interactiveTarget(event.target)")&&!v82.includes("interactiveTarget(target)"))throw new Error('interactive element bypass missing');
 if(!pin.includes('data-r3-pin-autofill-v91="1"'))throw new Error('PIN autofill runtime missing');
 if(!pin.includes('autocomplete="username"'))throw new Error('password manager username field missing');
 if(!pin.includes('SameSite=Lax')||!pin.includes('Expires=${expires}'))throw new Error('WebKit persistent cookie hardening missing');
