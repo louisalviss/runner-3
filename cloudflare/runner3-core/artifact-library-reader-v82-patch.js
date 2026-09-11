@@ -3,12 +3,11 @@ export function r3StableEarlyV82() {
   const root = document.documentElement;
   const standalone = Boolean((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true);
   root.classList.add('r3-v82-stable');
-  root.classList.add('r3-v82-restoring');
   if (standalone) root.classList.add('r3-v82-home');
   const text = fn => { try { return Function.prototype.toString.call(fn); } catch { return ''; } };
   const geometryFn = fn => /r3ScheduleFullBleedV68|r3ScheduleAudioDockInsetV69|r3ClampPaginatedVerticalV62/.test(text(fn));
   const nativeSetTimeoutV88 = window.setTimeout.bind(window);
-  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'fail-safe-v88', restoreShieldReleased: '', restoreWatchdogFired: false };
+  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', restoreShieldReleased: '', restoreWatchdogFired: false };
   const releaseRestoreShieldV88 = reason => {
     state.restoreShieldReleased = state.restoreShieldReleased || String(reason || 'released');
     root.classList.remove('r3-restore-pending-v45');
@@ -71,7 +70,7 @@ export function r3StableEarlyV82() {
 
 export function r3StableRuntimeV82() {
   if (window.__r3StableRuntimeV82) return;
-  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'fail-safe-v88', chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
+  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
   const releaseRestoreShield = reason => {
     debug.restoreReleasedBy = debug.restoreReleasedBy || String(reason || 'released');
     try { window.__r3StableEarlyV82?.releaseRestoreShield?.(reason); } catch {}
@@ -275,15 +274,16 @@ export function r3StableRuntimeV82() {
   })().catch(error => { debug.error = String(error && error.message || error).slice(0, 200); releaseRestoreShield('runtime-error'); });
 }
 
-const STYLE = `<style data-r3-stable-shell-v82="1">
+const STYLE = `<style data-r3-stable-shell-v82="1" data-r3-nonblocking-restore-v89="1">
 html.r3-v82-stable #r3GestureLayer,html.r3-v82-stable .r3-hit-zone{pointer-events:none!important}
 html.r3-v82-stable body.r3-audio-ui #viewer,html.r3-v82-stable body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
 html.r3-v82-stable body.r3-audio-ui .bottom-status,html.r3-v82-stable body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
-html.r3-v82-restoring body::after{content:'Đang mở đúng trang đọc…';position:fixed;z-index:2147483601;inset:0;background:var(--bg,#0b0d10);color:var(--muted,#8f98a3);display:grid;place-items:center;font:600 13px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;pointer-events:auto}
+html.r3-v82-stable.r3-restore-pending-v45 #viewer{visibility:visible!important;opacity:1!important}
+html.r3-v82-stable.r3-restore-pending-v45 #r3AudioDock{opacity:1!important;pointer-events:auto!important}
+html.r3-v82-stable.r3-restore-pending-v45 body::before,html.r3-v82-stable.r3-v82-restoring body::after{content:none!important;display:none!important;pointer-events:none!important}
 html.r3-v82-home #viewer{top:calc(max(env(safe-area-inset-top,0px),44px) + 54px)!important}
 html.r3-v82-home .topbar{top:0!important;padding-top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important}
 html.r3-v82-home #r3ReaderChapterBadge{top:calc(max(env(safe-area-inset-top,0px),44px) + 58px)!important}
-html.r3-v82-stable.r3-restore-pending-v45 body::before{content:'Đang mở đúng trang đọc…'!important;display:grid!important;place-items:center!important;color:var(--muted,#8f98a3)!important;font:600 13px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif!important}
 #r3V82GestureLayer{position:fixed;z-index:1000;left:0;right:0;top:94px;bottom:82px;background:rgba(0,0,0,.001);touch-action:none;-webkit-user-select:none;user-select:none}
 body.r3-audio-expanded #r3V82GestureLayer{bottom:216px}
 #r3AudioDock{z-index:1200!important}

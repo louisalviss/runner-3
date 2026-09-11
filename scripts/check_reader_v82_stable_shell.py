@@ -12,7 +12,7 @@ for marker in [
     'heading-label',
     'r3V82GestureLayer',
     'body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(76px',
-    'html.r3-v82-restoring body::after',
+    'data-r3-nonblocking-restore-v89="1"',
     '__r3AudioCorePrepareCurrent',
     "window.__R3_BASE_READER_BOOT_DONE = false",
     "r3-reader-position:' + bookKey",

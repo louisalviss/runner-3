@@ -52,7 +52,7 @@ if(store.get(key)!==cfi)throw new Error('canonical local CFI mismatch key='+key+
 await Promise.all([globalThis.r3ReaderBridge.next(),globalThis.r3ReaderBridge.next()]);
 if(rawNextCalls!==1)throw new Error('double navigation was not serialized: '+rawNextCalls);
 if(classes.has('r3-restore-pending-v45'))throw new Error('restore shield still active');
-if(globalThis.__r3StableRuntimeV82?.restoreGuard!=='fail-safe-v88')throw new Error('v88 runtime restore guard missing');
+if(globalThis.__r3StableRuntimeV82?.restoreGuard!=='nonblocking-v89')throw new Error('v89 nonblocking restore guard missing');
 if(globalThis.__r3StableRuntimeV82?.restoreReleasedBy!=='restore-complete')throw new Error('restore completion release proof missing: '+JSON.stringify(globalThis.__r3StableRuntimeV82));
 console.log(`READER_V82_RUNTIME_SMOKE=PASS index=${info.index} total=${info.total} source=${info.r3Source} nextCalls=${rawNextCalls}`);
 globalThis.setInterval=realSetInterval;

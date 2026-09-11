@@ -18,7 +18,7 @@ export default {
       headers.set('X-Robots-Tag', ROBOTS);
       headers.set('X-R3-Reader-Stable-Shell', 'v82');
       headers.set('X-R3-Reader-Pagination-Owner', 'v82');
-      headers.set('X-R3-Reader-Restore-Guard', 'fail-safe-v88');
+      headers.set('X-R3-Reader-Restore-Guard', 'nonblocking-v89');
       return new Response(updated, { status: 200, headers });
     } catch (error) {
       return new Response('Reader stable shell v82 patch failed', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-R3-Reader-Stable-Shell': 'v82-patch-failed', 'X-R3-Reader-Patch-Error': String(error && error.message || error).slice(0, 200) } });

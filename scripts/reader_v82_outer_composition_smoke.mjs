@@ -14,7 +14,7 @@ for(const marker of [
   'data-r3-audio-continuity-v35="1"',
   'cfiFromRange(range)',
   "owner: 'stable-shell-v82'",
-  'html.r3-v82-restoring body::after',
+  'data-r3-nonblocking-restore-v89="1"',
   'body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(76px',
 ]) if(!html.includes(marker))throw new Error('missing composed marker '+marker);
 console.log('READER_V82_OUTER_COMPOSITION_SMOKE=PASS bytes='+html.length);
