@@ -247,7 +247,10 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
   const stale = await env.DB.prepare("DELETE FROM content_scores WHERE score_type='personal_relevance' AND model_version<>?").bind(modelVersion).run();
   const canonicalKey = canonicalInterestKeySql("f.feature_type", "f.feature_key");
   const familyId = interestFamilySql("nb.feature_type", "nb.feature_key");
-  const upsert = await env.DB.prepare(`
+
+  await env.DB.prepare("DELETE FROM personal_score_stage WHERE model_version=?").bind(modelVersion).run();
+
+  const staged = await env.DB.prepare(`
     WITH normalized_base AS (
       SELECT f.item_id,f.feature_type,${canonicalKey} AS feature_key,
         MAX(f.weight) AS weight,MAX(f.confidence) AS confidence
@@ -326,8 +329,26 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
       FROM content_items i JOIN feature_rollup r ON r.item_id=i.item_id
     ), base_scores AS (
       SELECT *,50.0+(38.0*relevance_signal/(6.0+ABS(relevance_signal)))+freshness_bonus+novelty_bonus AS base_score FROM components
-    ), ranked AS (
-      SELECT *,PERCENT_RANK() OVER (ORDER BY base_score) AS rank_percentile FROM base_scores
+    )
+    INSERT INTO personal_score_stage(
+      model_version,item_id,relevance_signal,matched_features,semantic_matches,semantic_weight,
+      novel_semantic_weight,profile_confidence,matched_families,freshness_bonus,novelty_bonus,base_score,staged_at
+    )
+    SELECT ?,item_id,relevance_signal,matched_features,semantic_matches,semantic_weight,
+      novel_semantic_weight,profile_confidence,matched_families,freshness_bonus,novelty_bonus,base_score,CURRENT_TIMESTAMP
+    FROM base_scores WHERE 1=1
+    ON CONFLICT(model_version,item_id) DO UPDATE SET
+      relevance_signal=excluded.relevance_signal,matched_features=excluded.matched_features,
+      semantic_matches=excluded.semantic_matches,semantic_weight=excluded.semantic_weight,
+      novel_semantic_weight=excluded.novel_semantic_weight,profile_confidence=excluded.profile_confidence,
+      matched_families=excluded.matched_families,freshness_bonus=excluded.freshness_bonus,
+      novelty_bonus=excluded.novelty_bonus,base_score=excluded.base_score,staged_at=CURRENT_TIMESTAMP
+  `).bind(modelVersion).run();
+
+  const upsert = await env.DB.prepare(`
+    WITH ranked AS (
+      SELECT *,PERCENT_RANK() OVER (ORDER BY base_score) AS rank_percentile
+      FROM personal_score_stage WHERE model_version=?
     )
     INSERT INTO content_scores(item_id,score_type,score,confidence,reason_json,model_version,scored_at)
     SELECT item_id,'personal_relevance',MIN(99.5,MAX(0.5,0.82*base_score+18.0*rank_percentile)),
@@ -340,12 +361,15 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
     ON CONFLICT(item_id,score_type,model_version) DO UPDATE SET
       score=excluded.score,confidence=excluded.confidence,reason_json=excluded.reason_json,scored_at=CURRENT_TIMESTAMP
     WHERE content_scores.score IS NOT excluded.score OR content_scores.confidence IS NOT excluded.confidence OR content_scores.reason_json IS NOT excluded.reason_json
-  `).bind(PERSONAL_POLICY_VERSION,INTEREST_ONTOLOGY_VERSION,modelVersion,modelVersion).run();
+  `).bind(modelVersion,PERSONAL_POLICY_VERSION,INTEREST_ONTOLOGY_VERSION,modelVersion,modelVersion).run();
+
+  await env.DB.prepare("DELETE FROM personal_score_stage WHERE model_version=?").bind(modelVersion).run();
+
   const dist = await env.DB.prepare(`SELECT COUNT(*) AS n,MIN(score) AS min_score,MAX(score) AS max_score,AVG(score) AS avg_score,
     SUM(CASE WHEN score>=99 THEN 1 ELSE 0 END) AS score_99_plus,SUM(CASE WHEN score>=95 THEN 1 ELSE 0 END) AS score_95_plus
     FROM content_scores WHERE score_type='personal_relevance' AND model_version=?`).bind(modelVersion).first();
   return {ok:true,model_version:modelVersion,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,scored_items:Number(dist?.n||0),
-    changed:Number(stale.meta?.changes||0)+Number(upsert.meta?.changes||0),distribution:{min:Number(dist?.min_score||0),max:Number(dist?.max_score||0),
+    changed:Number(stale.meta?.changes||0)+Number(upsert.meta?.changes||0),staged_items:Number(staged.meta?.changes||0),distribution:{min:Number(dist?.min_score||0),max:Number(dist?.max_score||0),
     avg:Number(dist?.avg_score||0),score_99_plus:Number(dist?.score_99_plus||0),score_95_plus:Number(dist?.score_95_plus||0)}};
 }
 
