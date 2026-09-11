@@ -7,6 +7,7 @@ const html=await response.text();
 if(response.status!==200)throw new Error('compose status '+response.status+': '+html.slice(0,240));
 if(response.headers.get('x-r3-reader-stable-shell')!=='v82')throw new Error('missing stable-shell header');
 if(response.headers.get('x-r3-reader-pagination-owner')!=='v82')throw new Error('missing pagination-owner header');
+if(response.headers.get('x-r3-reader-layout-owner')!=='converged-v90')throw new Error('missing v90 layout-owner header');
 for(const marker of [
   'data-r3-stable-shell-early-v82="1"',
   'data-r3-stable-shell-runtime-v82="1"',
@@ -15,6 +16,7 @@ for(const marker of [
   'cfiFromRange(range)',
   "owner: 'stable-shell-v82'",
   'data-r3-nonblocking-restore-v89="1"',
-  'body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(76px',
+  'r3-v90-browser body.r3-audio-ui.r3-audio-expanded #viewer{bottom:210px!important}',
+  'r3-v90-home body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}',
 ]) if(!html.includes(marker))throw new Error('missing composed marker '+marker);
 console.log('READER_V82_OUTER_COMPOSITION_SMOKE=PASS bytes='+html.length);
