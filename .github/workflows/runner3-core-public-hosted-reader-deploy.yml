@@ -139,7 +139,7 @@ jobs:
           grep -q '"database_name": "runner3-opportunity-radar"' cloudflare/runner3-core/wrangler.jsonc
           grep -q 'import("./artifact-library-reader-v7-github-audio-entry.js")' cloudflare/runner3-core/audio-entry.js
           grep -q 'handleAudioMedia' cloudflare/runner3-core/audio-entry.js
-          grep -q 'artifact-library-reader-v36-home-screen-safe-area-entry.js' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          ! grep -q 'import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
           grep -q 'data-r3-home-screen-safe-area-v36' cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
           grep -q 'data-r3-audio-continuity-v35' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
           grep -q 'singleAudioListenerOwner:true' cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
