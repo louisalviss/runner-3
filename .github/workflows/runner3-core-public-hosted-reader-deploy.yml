@@ -57,7 +57,7 @@ jobs:
           node scripts/build_reader_audio_core_browser_bundle.mjs
           node --check cloudflare/runner3-core/reader-audio-core/browser-production-bundle.generated.js
 
-      - name: Compose latest Core with Reader v36 Home Screen safe area, mailbox, and Opportunity Radar router
+      - name: Compose latest Core with Reader v82 stable shell, mailbox, and Opportunity Radar router
         shell: bash
         run: |
           set -euo pipefail
@@ -69,7 +69,7 @@ jobs:
           text=wrapper.read_text(encoding='utf-8')
           text,count=re.subn(
             r'import app from "\./artifact-library-reader-v\d+[^\"]*-entry\.js";',
-            'import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";',
+            'import app from "./artifact-library-reader-v82-stable-shell-entry.js";',
             text,
             count=1,
           )
@@ -118,6 +118,11 @@ jobs:
           node --check cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v35-continuity-single-owner-entry.js
           node --check cloudflare/runner3-core/artifact-library-reader-v36-home-screen-safe-area-entry.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v82-patch.js
+          node --check cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js
+          grep -q 'import app from "./artifact-library-reader-v82-stable-shell-entry.js";' cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js
+          node scripts/reader_v82_outer_composition_smoke.mjs
+          node scripts/reader_v83_fastpath_v82_smoke.mjs
           node --check cloudflare/runner3-core/reader-audio-core/audio-controller.js
           node --check cloudflare/runner3-core/reader-audio-core/playback-queue.js
           node --check cloudflare/runner3-core/reader-audio-core/reader-audio-adapter.js
