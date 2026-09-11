@@ -23,8 +23,10 @@ await context.route('**/artifact-library/audio**',async route=>{
 });
 const page=await context.newPage();
 const consoleErrors=[];
+const httpErrors=[];
 page.on('pageerror',error=>consoleErrors.push(String(error?.stack||error)));
 page.on('console',msg=>{if(msg.type()==='error')consoleErrors.push(msg.text())});
+page.on('response',response=>{if(response.status()>=400)httpErrors.push({status:response.status(),url:response.url()});});
 
 function safe(obj){return JSON.stringify(obj);}
 
@@ -144,7 +146,7 @@ try{
   await closeSettings.click({timeout:10000});
   await page.waitForFunction(()=>!document.body.classList.contains('settings'),null,{timeout:5000});
 
-  if(consoleErrors.length) throw new Error('WEBKIT_CONSOLE_ERRORS '+consoleErrors.slice(0,6).join(' | '));
+  if(consoleErrors.length||httpErrors.length) throw new Error('WEBKIT_RESOURCE_ERRORS '+safe({console:consoleErrors.slice(0,6),http:httpErrors.slice(0,12)}));
   console.log(safe({
     ok:true,
     engine:'webkit',
