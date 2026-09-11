@@ -374,6 +374,31 @@ async function fallbackSourceForMissingMedia(env, articleId, token) {
   return source || null;
 }
 
+export async function serveImportedFacebookMedia(request, env, url) {
+  const match = url.pathname.match(/^\/rss\/facebook-media\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  if (!match) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405 });
+  let scope, postId, filename;
+  try {
+    scope = decodeURIComponent(match[1]);
+    postId = decodeURIComponent(match[2]);
+    filename = decodeURIComponent(match[3]);
+  } catch { return new Response("Bad Request", { status: 400 }); }
+  if (!/^[A-Za-z0-9._-]+$/.test(scope) || !/^[A-Za-z0-9._-]+$/.test(postId) || !/^[A-Za-z0-9._-]+$/.test(filename)) {
+    return new Response("Bad Request", { status: 400 });
+  }
+  const key = `core/facebook-archive/${scope}/media/${postId}/${filename}`;
+  const object = request.method === "HEAD" ? await env.ARTIFACTS.head(key) : await env.ARTIFACTS.get(key);
+  if (!object) return new Response("Not Found", { status: 404, headers: { "cache-control": "no-store", "x-r3-facebook-media": "source-missing" } });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("etag", object.httpEtag);
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-r3-facebook-media", "verified-r2-source");
+  return new Response(request.method === "HEAD" ? null : object.body, { headers });
+}
+
 export async function serveCachedReaderImage(request, env, url) {
   const match = url.pathname.match(/^\/rss\/media\/([^/]+)\/([a-f0-9]{16,64})$/i);
   if (!match) return null;

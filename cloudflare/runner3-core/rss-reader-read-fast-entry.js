@@ -2,7 +2,7 @@ import { handleRssReader } from "./src/rss-reader.js";
 import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { handleRssReaderLearning, recordReaderStateLearning, reconcileLibraryLearning } from "./src/rss-reader-learning.js";
-import { preserveArticleImages, serveCachedReaderImage } from "./src/rss-image-enrich.js";
+import { preserveArticleImages, serveCachedReaderImage, serveImportedFacebookMedia } from "./src/rss-image-enrich.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
 const VERSION = "rss-reader-read-fast-v3-isolated-stream";
@@ -319,7 +319,10 @@ async function routeRssPage(request, env, url) {
   if (request.method === "GET" && url.pathname === "/rss/library") {
     return handleRssReaderPlus(request, env, url);
   }
-  if (request.method === "GET" && url.pathname.startsWith("/rss/media/")) {
+  if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/rss/facebook-media/")) {
+    return serveImportedFacebookMedia(request, env, url);
+  }
+  if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/rss/media/")) {
     return serveCachedReaderImage(request, env, url);
   }
   return null;
