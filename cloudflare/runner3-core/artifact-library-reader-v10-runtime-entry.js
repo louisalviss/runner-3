@@ -1,7 +1,7 @@
 import app from "./artifact-library-reader-v9-runtime-entry.js";
 
 const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
-const READER_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline' blob:; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: blob:; font-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self' blob:; child-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+const READER_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline' blob:; script-src 'self' 'unsafe-inline'; connect-src 'self' https: blob:; img-src 'self' data: blob:; font-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self' blob:; child-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 const OLD_HIGHLIGHT = '[data-r3-audio-reading="1"]{font-weight:800!important}';
 const NEW_HIGHLIGHT = '[data-r3-audio-reading="1"],[data-r3-audio-reading="1"] *{font-weight:800!important}';
 
