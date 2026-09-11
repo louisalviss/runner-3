@@ -116,7 +116,12 @@ try{
   const cfiBefore=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
   await page.keyboard.press('ArrowRight');
   await page.waitForFunction(old=>Number(window.__r3StableRuntimeV82?.navMoves||0)===old+1,moveBefore,{timeout:8000});
-  await page.waitForTimeout(500);
+  // navMoves increments at move start; EPUB.js updates the visible location/CFI later.
+  // Wait for the relocation itself instead of sampling CFI after an arbitrary 500ms.
+  await page.waitForFunction(before=>{
+    const now=String(window.r3ReaderBridge?.current?.()?.start?.cfi||'');
+    return Boolean(now&&now!==before);
+  },cfiBefore,{timeout:6000});
   const moveAfter=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
   const cfiAfter=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
   if(moveAfter!==moveBefore+1) throw new Error(`KEYBOARD_NAV_NOT_SINGLE ${moveBefore}->${moveAfter}`);
