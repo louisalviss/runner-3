@@ -14,7 +14,7 @@ if(response.headers.get('x-r3-reader-fastpath')!=='v83-v82')throw new Error('mis
 for(const marker of [
   'data-r3-stable-shell-early-v82="1"',
   'data-r3-stable-shell-runtime-v82="1"',
-  'html.r3-v82-restoring body::after',
+  'data-r3-nonblocking-restore-v89="1"',
 ]) if(!html.includes(marker))throw new Error('missing fastpath marker '+marker);
 if(html.includes('data-r3-iframe-swipe="1"'))throw new Error('legacy iframe swipe owner still injected');
 console.log('READER_V83_FASTPATH_V82_SMOKE=PASS bytes='+html.length);
