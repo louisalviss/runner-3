@@ -93,6 +93,10 @@ execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v76_auth_pass
 execFileSync('python3', ['scripts/patch_reader_v76_auth_passthrough.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v76_auth_passthrough.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v77_pin_form.py'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v87_persistent_owner_session.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v87_persistent_owner_session.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v87_persistent_owner_session.py'], { stdio: 'inherit' });
+execFileSync('node', ['scripts/reader_v87_persistent_owner_session_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });

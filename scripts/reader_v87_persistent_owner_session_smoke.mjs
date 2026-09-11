@@ -1,0 +1,12 @@
+import crypto from 'node:crypto';
+const token='v87-persistent-owner-smoke';
+const owner=crypto.createHash('sha256').update('runner3-artifact-library-v1:'+token).digest('hex');
+const mod=await import('../cloudflare/runner3-core/artifact-library-simple-entry.js?v87='+Date.now());
+const request=new Request('https://example.test/artifact-library',{headers:{Cookie:'r3_artifact_library='+owner}});
+const response=await mod.default.fetch(request,{RUNNER3_CORE_TOKEN:token},{});
+if(response.status!==200)throw new Error('root status '+response.status);
+const cookie=response.headers.get('set-cookie')||'';
+if(!cookie.includes('Max-Age=315360000'))throw new Error('persistent max-age missing: '+cookie);
+if(response.headers.get('x-r3-owner-session')!=='single-owner-v87-persistent')throw new Error('v87 owner marker missing');
+if(response.headers.get('x-r3-owner-session-max-age')!=='315360000')throw new Error('v87 max-age marker missing');
+console.log('READER_V87_PERSISTENT_OWNER_SESSION_SMOKE=PASS maxAge=315360000');
