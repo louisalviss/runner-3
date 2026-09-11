@@ -10,9 +10,9 @@ import rss_manifest_finalize as legacy
 
 
 def normalize_runner15(obj):
-    obj["version"] = max(int(obj.get("version") or 0), 7)
+    obj["version"] = max(int(obj.get("version") or 0), 8)
     obj["scope"] = "rss-kept-manifest-runner15"
-    obj["filterPolicyVersion"] = "2026-08-31-canonical-source-policy-v7-runner15-replay-safe"
+    obj["filterPolicyVersion"] = "2026-09-11-canonical-source-policy-v8-apple-event-dedupe-runner15-replay-safe"
     obj["logicalSourceCount"] = 15
     obj["runnerSourceCount"] = 15
     obj["directSourceCount"] = 0
@@ -44,6 +44,7 @@ def normalize_runner15(obj):
         "directVerificationRequired": False,
         "all15SourcesBackedByRunnerMirrors": True,
         "sourceOmissionFailsClosed": True,
+        "appleLaunchEventDedupRequired": True,
         "replayRule": "Use the immutable Runner15 date/hash manifest; render exact source titles with summaries; freeze served render when available.",
     })
     obj["renderContract"] = render
@@ -54,6 +55,7 @@ def normalize_runner15(obj):
         "finalRenderRequiresDirectVerification": False,
         "all15SourcesBackedByRunnerMirrors": True,
         "complete15SourceAccountingRequired": True,
+        "appleLaunchEventDedupRequired": True,
     })
     obj["contract"] = contract
     return obj
@@ -75,6 +77,11 @@ def finalize(obj):
 def self_test():
     _configure_runner15_legacy()
     legacy.self_test()
+    probe = normalize_runner15({"version": 8, "sourceRows": []})
+    assert probe["version"] >= 8
+    assert probe["filterPolicyVersion"] == "2026-09-11-canonical-source-policy-v8-apple-event-dedupe-runner15-replay-safe"
+    assert probe["renderContract"]["appleLaunchEventDedupRequired"] is True
+    assert probe["contract"]["appleLaunchEventDedupRequired"] is True
     return True
 
 
