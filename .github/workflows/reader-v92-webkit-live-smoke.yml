@@ -1,0 +1,36 @@
+name: Reader v92 WebKit Live Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  webkit-live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install WebKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps webkit
+
+      - name: Verify production Reader interactions in WebKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/reader_v92_webkit_live_smoke.mjs
