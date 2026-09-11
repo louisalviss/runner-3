@@ -200,7 +200,33 @@ jobs:
             persistent_max_age="$(grep -i '^x-r3-owner-session-max-age:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof home_safe=$home_safe home_layout=$home_layout startup=$startup_viewport dock_audio=$dock_audio stable_shell=$stable_shell pagination_owner=$pagination_owner restore_guard=$restore_guard layout_owner=$layout_owner reader_fastpath=$reader_fastpath owner_session=$persistent_owner owner_max_age=$persistent_max_age"
             # Canonical /artifact-library/read uses the full Reader chain; reader_fastpath is diagnostic for the fallback path only.
-            if [ "$code" = 200 ] && [ "$runtime" = 'v35-continuity-single-owner' ] && [ "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' ] && [ "$home_safe" = 'v36' ] && [ "$home_layout" = 'stable-v79' ] && [ "$startup_viewport" = 'stable-opaque-v79' ] && [ "$dock_audio" = 'stable-v80' ] && [ "$stable_shell" = 'v82' ] && [ "$pagination_owner" = 'v82' ] && [ "$restore_guard" = 'nonblocking-v89' ] && [ "$layout_owner" = 'converged-v90' ] && [ "$persistent_owner" = 'single-owner-v87-persistent' ] && [ "$persistent_max_age" = '315360000' ] && grep -qi 'set-cookie: r3_artifact_library=.*Max-Age=315360000' /tmp/h.clean && grep -q 'body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px' /tmp/reader && grep -q 'reader-audio-v80-warm-current-foreground' /tmp/reader && grep -q 'data-r3-home-screen-safe-area-v36="1"' /tmp/reader && grep -q "owner:'home-screen-stable-v79'" /tmp/reader && grep -q 'data-r3-audio-continuity-v35="1"' /tmp/reader && grep -q 'data-r3-audio-continuity-v34="1"' /tmp/reader && grep -q 'data-r3-audio-core-owner-v33="1"' /tmp/reader && grep -q 'data-r3-audio-core-runtime-v33="1"' /tmp/reader && grep -q '__r3AudioLegacyV11Suppressed=true' /tmp/reader && grep -q '__r3AudioLegacyV31ClockSuppressed=true' /tmp/reader && grep -q 'data-r3-stable-shell-early-v82="1"' /tmp/reader && grep -q 'data-r3-stable-shell-runtime-v82="1"' /tmp/reader && grep -q 'data-r3-nonblocking-restore-v89="1"' /tmp/reader && grep -q 'r3-restore-pending-v45 #viewer{visibility:visible!important;opacity:1!important}' /tmp/reader && grep -q 'r3-v90-browser body.r3-audio-ui.r3-audio-expanded #viewer{bottom:210px!important}' /tmp/reader && grep -q 'r3-v90-home body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}' /tmp/reader && grep -q "owner: 'layout-convergence-v90'" /tmp/reader; then
+            marker_ok=1
+            while IFS='|' read -r marker_name marker_text; do
+              [ -z "$marker_name" ] && continue
+              if ! grep -Fq -- "$marker_text" /tmp/reader; then
+                echo "READER_MARKER_MISSING attempt=$attempt marker=$marker_name"
+                marker_ok=0
+              fi
+            done <<'R3MARKERS'
+          expanded-v80|body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px
+          warm-current-v80|reader-audio-v80-warm-current-foreground
+          home-safe-v36|data-r3-home-screen-safe-area-v36="1"
+          home-layout-v79|owner:'home-screen-stable-v79'
+          audio-v35|data-r3-audio-continuity-v35="1"
+          audio-v34|data-r3-audio-continuity-v34="1"
+          audio-owner-v33|data-r3-audio-core-owner-v33="1"
+          audio-runtime-v33|data-r3-audio-core-runtime-v33="1"
+          legacy-v11-suppressed|__r3AudioLegacyV11Suppressed=true
+          legacy-v31-suppressed|__r3AudioLegacyV31ClockSuppressed=true
+          stable-early-v82|data-r3-stable-shell-early-v82="1"
+          stable-runtime-v82|data-r3-stable-shell-runtime-v82="1"
+          nonblocking-v89|data-r3-nonblocking-restore-v89="1"
+          legacy-shield-neutralized|r3-restore-pending-v45 #viewer{visibility:visible!important;opacity:1!important}
+          v90-browser-expanded|r3-v90-browser body.r3-audio-ui.r3-audio-expanded #viewer{bottom:210px!important}
+          v90-home-expanded|r3-v90-home body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}
+          v90-owner|owner: 'layout-convergence-v90'
+          R3MARKERS
+            if [ "$code" = 200 ] && [ "$runtime" = 'v35-continuity-single-owner' ] && [ "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' ] && [ "$home_safe" = 'v36' ] && [ "$home_layout" = 'stable-v79' ] && [ "$startup_viewport" = 'stable-opaque-v79' ] && [ "$dock_audio" = 'stable-v80' ] && [ "$stable_shell" = 'v82' ] && [ "$pagination_owner" = 'v82' ] && [ "$restore_guard" = 'nonblocking-v89' ] && [ "$layout_owner" = 'converged-v90' ] && [ "$persistent_owner" = 'single-owner-v87-persistent' ] && [ "$persistent_max_age" = '315360000' ] && [ "$marker_ok" = 1 ] && grep -qi 'set-cookie: r3_artifact_library=.*Max-Age=315360000' /tmp/h.clean; then
               ok=1
               break
             fi
