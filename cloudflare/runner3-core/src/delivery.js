@@ -1,5 +1,5 @@
 const MIN_TTL_SECONDS = 60;
-const MAX_TTL_SECONDS = 3600;
+const MAX_TTL_SECONDS = 259200; // 72 hours
 const MAX_ARTIFACT_KEY_CHARS = 900;
 const textEncoder = new TextEncoder();
 const PERMANENT_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
