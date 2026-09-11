@@ -423,13 +423,14 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   if (!env?.DB) return { ok: false, recomputed: false };
   const before = await profileState(env);
   if (!before) return { ok: true, recomputed: false, status: "missing" };
-  let materializationMismatch = false;
+
+  const materialized = await env.DB.prepare(
+    "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
+  ).bind(modelVersion, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
+  const materializationMismatch = !materialized?.ok;
+
   if (before.status === "clean") {
-    const materialized = await env.DB.prepare(
-      "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
-    ).bind(modelVersion, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
-    if (materialized?.ok) return { ok: true, recomputed: false, status: "clean" };
-    materializationMismatch = true;
+    if (!materializationMismatch) return { ok: true, recomputed: false, status: "clean" };
     await env.DB.prepare(`
       UPDATE workflow_state
       SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
