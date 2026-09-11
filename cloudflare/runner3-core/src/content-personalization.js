@@ -1,6 +1,7 @@
 import { canonicalInterestKey, canonicalInterestKeySql, familyDiminishingWeight, familySignalCap, interestFamily, interestFamilySql, INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
 
 export const PERSONAL_MODEL_VERSION = "personal-v4";
+export const CONTENT_INTELLIGENCE_CONTRACT_VERSION = "content-intelligence-v4";
 export const PROFILE_STATE_KEY = "content-intelligence-profile";
 export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-recompute";
 export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
@@ -61,7 +62,7 @@ function agoModifier(ms) {
 
 async function acquireRecomputeLease(env, modelVersion, priorityExplicit = false) {
   const token = leaseToken();
-  const detail = JSON.stringify({ model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION, lease_acquired_at: new Date().toISOString() });
+  const detail = JSON.stringify({ model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION, lease_acquired_at: new Date().toISOString() });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='recomputing', run_id=?, detail=?, updated_at=CURRENT_TIMESTAMP
@@ -84,7 +85,7 @@ async function acquireRecomputeLease(env, modelVersion, priorityExplicit = false
 
 async function finishRecomputeLease(env, token, modelVersion) {
   const recomputedAt = new Date().toISOString();
-  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION });
+  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='clean', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
@@ -248,7 +249,7 @@ export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODE
     SUM(CASE WHEN evidence_count>=2 THEN 1 ELSE 0 END) AS repeated_features,
     AVG(confidence) AS avg_confidence FROM interest_profile`).first();
   return {
-    ok:true,model_version:modelVersion,policy_version:PERSONAL_POLICY_VERSION,
+    ok:true,model_version:modelVersion,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,
     profile_features:Number(stats?.n||0),singleton_features:Number(stats?.singleton_features||0),
     repeated_features:Number(stats?.repeated_features||0),avg_confidence:Number(stats?.avg_confidence||0),
     changed:Number(upsert.meta?.changes||0)+Number(removed.meta?.changes||0),
@@ -441,7 +442,7 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
         rank_percentile:Number(row.rank_percentile.toFixed(4)),matched_features:row.matched_features,
         semantic_matches:row.semantic_matches,matched_families:row.matched_families,
         freshness_bonus:row.freshness_bonus,novelty_bonus:Number(row.novelty_bonus.toFixed(3)),
-        signal_policy:'latest-explicit-wins',profile_policy:PERSONAL_POLICY_VERSION,
+        signal_policy:'latest-explicit-wins',contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,profile_policy:PERSONAL_POLICY_VERSION,
         ontology_version:INTEREST_ONTOLOGY_VERSION,model:modelVersion,
       });
       return env.DB.prepare(upsertSql).bind(row.item_id,row.score,confidence,reason,modelVersion);
@@ -463,7 +464,7 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
 
   const values = scoreRows.map((row) => row.score).filter(Number.isFinite);
   return {
-    ok:true,model_version:modelVersion,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,
+    ok:true,model_version:modelVersion,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,
     scored_items:values.length,changed,read_features:readFeatures,
     distribution:{
       min:values.length ? Math.min(...values) : 0,max:values.length ? Math.max(...values) : 0,
@@ -524,14 +525,14 @@ export async function snapshotRecommendationRun(env, snapshotId, {sourceRenderId
   const k=clampTopK(topK),rows=await scoreShownItems(env,rid);if(!rows.length)return {ok:false,error:'render_not_found_or_no_shown_items',source_render_id:rid};
   const baseline=[...rows].sort((a,b)=>(a.manifest_number??1e12)-(b.manifest_number??1e12)||a.id-b.id).slice(0,k).map((r,i)=>({item_id:r.item_id,rank:i+1,manifest_number:r.manifest_number}));
   const personalized=[...rows].sort((a,b)=>b.score-a.score||(a.manifest_number??1e12)-(b.manifest_number??1e12)).slice(0,k).map((r,i)=>({item_id:r.item_id,rank:i+1,score:Number(r.score.toFixed(4)),manifest_number:r.manifest_number}));
-  const state=await profileState(env);const metadata={schema_version:3,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,source_render_id:rid,top_k:k,baseline_policy:'canonical-manifest-order',personalized_policy:'bounded-personal-relevance-live',baseline,personalized,score_distribution:scoreDistribution(rows),profile_state:state?.status||'missing',created_at:new Date().toISOString()};
+  const state=await profileState(env);const metadata={schema_version:3,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,source_render_id:rid,top_k:k,baseline_policy:'canonical-manifest-order',personalized_policy:'bounded-personal-relevance-live',baseline,personalized,score_distribution:scoreDistribution(rows),profile_state:state?.status||'missing',created_at:new Date().toISOString()};
   await env.DB.prepare(`INSERT INTO recommendation_runs(render_id,source_scope,item_count,recommended_count,exploration_ratio,model_version,created_at,metadata_json) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,?)`).bind(sid,'rss',rows.length,k,0,modelVersion,JSON.stringify(metadata)).run();
   return {ok:true,idempotent:false,snapshot_id:sid,model_version:modelVersion,item_count:rows.length,...metadata};
 }
 
 function gradeEvents(events){let latest=null,positive=0,followUps=0;for(const e of events){if(e.event_type==='liked'||e.event_type==='disliked')latest=e.event_type;if(e.event_type==='interest_saved'||e.event_type==='saved')positive=Math.max(positive,3);else if(e.event_type==='deep_read')positive=Math.max(positive,2);else if(e.event_type==='selected')positive=Math.max(positive,1);else if(e.event_type==='follow_up')followUps+=1;}if(latest==='disliked')return 0;if(latest==='liked')return 3;return Math.min(3,positive+(positive>0?Math.min(1,0.5*followUps):0));}
 function rankingMetrics(list,grades,positives,k){const n=Math.min(k,list.length);let hits=0,dcg=0;for(let i=0;i<n;i++){const g=Number(grades.get(list[i].item_id)||0);if(g>0)hits++;dcg+=(Math.pow(2,g)-1)/Math.log2(i+2);}const ideal=[...grades.values()].filter(x=>x>0).sort((a,b)=>b-a).slice(0,n);const idcg=ideal.reduce((s,g,i)=>s+(Math.pow(2,g)-1)/Math.log2(i+2),0);return {precision_at_k:n?hits/n:null,recall_at_k:positives?hits/positives:null,ndcg_at_k:idcg?dcg/idcg:null,hits_at_k:hits};}
-export async function evaluateRecommendationRun(env,snapshotId){if(!env?.DB)return {ok:false,error:'D1_NOT_BOUND'};const sid=String(snapshotId||'').trim();if(!sid)return {ok:false,error:'snapshot_id_required'};const run=await env.DB.prepare('SELECT * FROM recommendation_runs WHERE render_id=?').bind(sid).first();if(!run)return {ok:false,error:'recommendation_snapshot_not_found',snapshot_id:sid};let meta={};try{meta=JSON.parse(run.metadata_json||'{}');}catch{}const baseline=Array.isArray(meta.baseline)?meta.baseline:[],personalized=Array.isArray(meta.personalized)?meta.personalized:[],rid=String(meta.source_render_id||'');const shown=await env.DB.prepare("SELECT DISTINCT item_id FROM user_content_events WHERE render_id=? AND event_type='shown'").bind(rid).all();const ids=(shown.results||[]).map(r=>String(r.item_id));if(!ids.length)return {ok:false,error:'source_render_not_found',source_render_id:rid};const ph=ids.map(()=>'?').join(',');const events=await env.DB.prepare(`SELECT item_id,event_type,event_at,id FROM user_content_events WHERE item_id IN (${ph}) AND event_type IN ('selected','deep_read','follow_up','saved','interest_saved','liked','disliked') AND event_at>=? ORDER BY event_at,id`).bind(...ids,run.created_at).all();const by=new Map(ids.map(id=>[id,[]]));for(const e of events.results||[])if(by.has(String(e.item_id)))by.get(String(e.item_id)).push(e);const grades=new Map();for(const [id,es] of by)grades.set(id,gradeEvents(es));const positives=[...grades.values()].filter(x=>x>0).length,k=clampTopK(meta.top_k||run.recommended_count||10),b=rankingMetrics(baseline,grades,positives,k),p=rankingMetrics(personalized,grades,positives,k),lift=(x,y)=>(x==null||y==null)?null:x-y;return {ok:true,snapshot_id:sid,source_render_id:rid,model_version:run.model_version,policy_version:meta.policy_version||null,top_k:k,judged_positive_count:positives,feedback_event_count:(events.results||[]).length,evaluable:positives>0,baseline:b,personalized:p,lift:{precision_at_k:lift(p.precision_at_k,b.precision_at_k),recall_at_k:lift(p.recall_at_k,b.recall_at_k),ndcg_at_k:lift(p.ndcg_at_k,b.ndcg_at_k)},snapshot_created_at:run.created_at,evaluated_at:new Date().toISOString()};}
+export async function evaluateRecommendationRun(env,snapshotId){if(!env?.DB)return {ok:false,error:'D1_NOT_BOUND'};const sid=String(snapshotId||'').trim();if(!sid)return {ok:false,error:'snapshot_id_required'};const run=await env.DB.prepare('SELECT * FROM recommendation_runs WHERE render_id=?').bind(sid).first();if(!run)return {ok:false,error:'recommendation_snapshot_not_found',snapshot_id:sid};let meta={};try{meta=JSON.parse(run.metadata_json||'{}');}catch{}const baseline=Array.isArray(meta.baseline)?meta.baseline:[],personalized=Array.isArray(meta.personalized)?meta.personalized:[],rid=String(meta.source_render_id||'');const shown=await env.DB.prepare("SELECT DISTINCT item_id FROM user_content_events WHERE render_id=? AND event_type='shown'").bind(rid).all();const ids=(shown.results||[]).map(r=>String(r.item_id));if(!ids.length)return {ok:false,error:'source_render_not_found',source_render_id:rid};const ph=ids.map(()=>'?').join(',');const events=await env.DB.prepare(`SELECT item_id,event_type,event_at,id FROM user_content_events WHERE item_id IN (${ph}) AND event_type IN ('selected','deep_read','follow_up','saved','interest_saved','liked','disliked') AND event_at>=? ORDER BY event_at,id`).bind(...ids,run.created_at).all();const by=new Map(ids.map(id=>[id,[]]));for(const e of events.results||[])if(by.has(String(e.item_id)))by.get(String(e.item_id)).push(e);const grades=new Map();for(const [id,es] of by)grades.set(id,gradeEvents(es));const positives=[...grades.values()].filter(x=>x>0).length,k=clampTopK(meta.top_k||run.recommended_count||10),b=rankingMetrics(baseline,grades,positives,k),p=rankingMetrics(personalized,grades,positives,k),lift=(x,y)=>(x==null||y==null)?null:x-y;return {ok:true,snapshot_id:sid,source_render_id:rid,model_version:run.model_version,contract_version:meta.contract_version||null,policy_version:meta.policy_version||null,ontology_version:meta.ontology_version||null,top_k:k,judged_positive_count:positives,feedback_event_count:(events.results||[]).length,evaluable:positives>0,baseline:b,personalized:p,lift:{precision_at_k:lift(p.precision_at_k,b.precision_at_k),recall_at_k:lift(p.recall_at_k,b.recall_at_k),ndcg_at_k:lift(p.ndcg_at_k,b.ndcg_at_k)},snapshot_created_at:run.created_at,evaluated_at:new Date().toISOString()};}
 
 export async function recomputePersonalization(env, modelVersion = PERSONAL_MODEL_VERSION) {
   const profile = await recomputeInterestProfile(env, modelVersion);
@@ -539,7 +540,9 @@ export async function recomputePersonalization(env, modelVersion = PERSONAL_MODE
   return {
     ok: true,
     model_version: modelVersion,
+    contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION,
     policy_version: PERSONAL_POLICY_VERSION,
+    ontology_version: INTEREST_ONTOLOGY_VERSION,
     profile_features: profile.profile_features,
     scored_items: scores.scored_items,
     changed: Number(profile.changed || 0) + Number(scores.changed || 0),
@@ -552,8 +555,8 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   if (!before) return { ok: true, recomputed: false, status: "missing" };
 
   const materialized = await env.DB.prepare(
-    "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
-  ).bind(modelVersion, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
+    "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.contract_version')=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
+  ).bind(modelVersion, CONTENT_INTELLIGENCE_CONTRACT_VERSION, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
   const materializationMismatch = !materialized?.ok;
   let dirtyReason = "";
   if (before.status === "dirty") {
@@ -582,6 +585,7 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
         `).bind(JSON.stringify({
           reason:"zero_weight_event_dirty_repaired",
           model:modelVersion,
+          contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,
           policy_version:PERSONAL_POLICY_VERSION,
           ontology_version:INTEREST_ONTOLOGY_VERSION,
         }), PROFILE_STATE_KEY).run();
@@ -598,7 +602,7 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
       UPDATE workflow_state
       SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
       WHERE source=? AND status='clean'
-    `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
+    `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
   }
 
   const semanticDirtyPriority = before.status === "dirty" && dirtyReasonAllowsPriorityMaterialization(dirtyReason);

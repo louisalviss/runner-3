@@ -74,6 +74,8 @@ jobs:
           grep -q 'PERSONAL_SCORE_WRITE_BATCH = 50' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'type_rank' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'canonical-interest-ontology-v7-family-aware' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'content-intelligence-v4' cloudflare/runner3-core/src/content-personalization.js
+          grep -q "json_extract(reason_json,'$.contract_version')" cloudflare/runner3-core/src/content-personalization.js
           grep -q 'PROFILE_RECOMPUTE_CLOCK_KEY' cloudflare/runner3-core/src/content-personalization.js
           grep -q "NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)" cloudflare/runner3-core/src/content-personalization.js
           ! grep -q "status='dirty' AND updated_at <= datetime('now',?)" cloudflare/runner3-core/src/content-personalization.js
@@ -95,7 +97,8 @@ jobs:
           ! grep -q 'body.lifecycle === "archived".*saved' cloudflare/runner3-core/src/rss-reader-learning.js
           node --input-type=module - <<'NODE'
           import { extractSemanticFeatures, FEATURE_MODEL_VERSION } from './cloudflare/runner3-core/src/content-feature-enrichment.js';
-          import { EVENT_WEIGHTS, PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION, PROFILE_RECOMPUTE_CLOCK_KEY, isSupportedContentEvent, eventAffectsProfile } from './cloudflare/runner3-core/src/content-personalization.js';
+          import { INTEREST_ONTOLOGY_VERSION, familyDiminishingWeight, familySignalCap } from './cloudflare/runner3-core/src/content-interest-ontology.js';
+          import { CONTENT_INTELLIGENCE_CONTRACT_VERSION, EVENT_WEIGHTS, PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION, PROFILE_RECOMPUTE_CLOCK_KEY, isSupportedContentEvent, eventAffectsProfile } from './cloudflare/runner3-core/src/content-personalization.js';
 
           const a = extractSemanticFeatures({
             canonical_url: 'https://rasa.com/blog/agent-orchestration-tools',
@@ -105,7 +108,11 @@ jobs:
           const keys = new Set(a.map((x) => `${x.feature_type}:${x.feature_key}`));
           if (FEATURE_MODEL_VERSION !== 'semantic-bridge-v4') throw new Error('feature model marker mismatch');
           if (PERSONAL_MODEL_VERSION !== 'personal-v4') throw new Error('personal model marker mismatch');
+          if (CONTENT_INTELLIGENCE_CONTRACT_VERSION !== 'content-intelligence-v4') throw new Error('contract marker mismatch');
           if (PERSONAL_POLICY_VERSION !== 'canonical-interest-ontology-v7-family-aware') throw new Error('personal policy marker mismatch');
+          if (INTEREST_ONTOLOGY_VERSION !== 'interest-family-v1') throw new Error('ontology marker mismatch');
+          if (familyDiminishingWeight(1)!==1 || familyDiminishingWeight(2)!==0.35 || familyDiminishingWeight(3)!==0.15) throw new Error('family diminishing contract mismatch');
+          if (familySignalCap('analysis-style')!==3 || familySignalCap('ai-economics')!==5) throw new Error('family cap contract mismatch');
           if (PROFILE_RECOMPUTE_CLOCK_KEY !== 'content-intelligence-profile-last-recompute') throw new Error('recompute clock marker mismatch');
           if (!keys.has('topic:ai-agents')) throw new Error('AI-agent topic missing');
           if (!keys.has('concept:agent-orchestration')) throw new Error('agent-orchestration concept missing');
@@ -121,7 +128,7 @@ jobs:
           const bkeys = new Set(b.map((x) => `${x.feature_type}:${x.feature_key}`));
           if (!bkeys.has('topic:markets')) throw new Error('Vietnam capital-market topic missing');
           if (!bkeys.has('concept:capital-market-reform')) throw new Error('capital-market reform concept missing');
-          console.log('Content Intelligence v3 semantic/ranking regression PASS');
+          console.log('Content Intelligence v4 semantic/ranking regression PASS');
           NODE
           python3 - <<'PY'
           import sqlite3
@@ -156,5 +163,5 @@ jobs:
           assert effective(2.0, 9) == 3.5
           assert effective(3.0, 1) == 3.5
           assert effective(0.0, 3) == 0.0
-          print('Content Intelligence v3 idempotency/window/follow-up-depth regression PASS')
+          print('Content Intelligence v4 idempotency/window/follow-up-depth regression PASS')
           PY
