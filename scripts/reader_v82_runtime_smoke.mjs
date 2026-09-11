@@ -4,7 +4,15 @@ const cfi='epubcfi(/6/2294!/4/2/4/12/1:278)';
 const store=new Map();
 const classes=new Set(['r3-restore-pending-v45']);
 const fakeHeading={textContent:'Chương 1145'};
-const fakeDoc={title:'Chương 1145',querySelector:sel=>/h1|h2|h3|chapter-title/.test(sel)?fakeHeading:null};
+const docListeners=new Map();
+const fakeDoc={
+  title:'Chương 1145',
+  documentElement:{dataset:{},clientWidth:390},
+  defaultView:{innerWidth:390},
+  querySelector:sel=>/h1|h2|h3|chapter-title/.test(sel)?fakeHeading:null,
+  getSelection:()=>'',
+  addEventListener(type,fn){const arr=docListeners.get(type)||[];arr.push(fn);docListeners.set(type,arr);},
+};
 const fakeFrame={contentDocument:fakeDoc};
 const listeners=new Map();
 const body={dataset:{nav:'swipe'},classList:{toggle(){},contains(){return false}},appendChild(){}};
@@ -49,12 +57,25 @@ if(info.index!==1144||info.total!==1498||info.r3Source!=='heading-label')throw n
 if(displayed!==cfi)throw new Error('server CFI not restored: '+displayed);
 const key='r3-reader-position:core/ebook/tha-nu-phu-thuy-kia-ra-nhi-muc-1lwhn39/final/Book.epub';
 if(store.get(key)!==cfi)throw new Error('canonical local CFI mismatch key='+key+' got='+String(store.get(key))+' debug='+JSON.stringify(globalThis.__r3StableRuntimeV82));
-await Promise.all([globalThis.r3ReaderBridge.next(),globalThis.r3ReaderBridge.next()]);
-if(rawNextCalls!==1)throw new Error('double navigation was not serialized: '+rawNextCalls);
 if(classes.has('r3-restore-pending-v45'))throw new Error('restore shield still active');
 if(globalThis.__r3StableRuntimeV82?.restoreGuard!=='nonblocking-v89')throw new Error('v89 nonblocking restore guard missing');
 if(globalThis.__r3StableRuntimeV82?.layoutOwner!=='v90')throw new Error('v90 runtime layout owner missing');
+if(globalThis.__r3StableRuntimeV82?.touchOwner!=='v96')throw new Error('v96 touch owner missing');
+if(fakeDoc.documentElement.dataset.r3TouchOwnerV96!=='hybrid')throw new Error('v96 EPUB touch marker missing');
+const touchTarget={closest:()=>null};
+const fireDoc=(type,event)=>{for(const fn of docListeners.get(type)||[])fn(event);};
+const touch=(x,y)=>({clientX:x,clientY:y});
+const navBeforeTouch=rawNextCalls;
+fireDoc('touchstart',{touches:[touch(320,280)],target:touchTarget});
+fireDoc('touchmove',{touches:[touch(180,282)],target:touchTarget,cancelable:true,preventDefault(){this.prevented=true;}});
+fireDoc('touchend',{changedTouches:[touch(70,283)],target:touchTarget});
+await new Promise(r=>setTimeout(r,320));
+if(rawNextCalls!==navBeforeTouch+1)throw new Error('v96 touch swipe did not navigate exactly once: '+rawNextCalls+' before='+navBeforeTouch);
+await new Promise(r=>setTimeout(r,180));
+rawNextCalls=0;
+await Promise.all([globalThis.r3ReaderBridge.next(),globalThis.r3ReaderBridge.next()]);
+if(rawNextCalls!==1)throw new Error('double navigation was not serialized: '+rawNextCalls);
 if(globalThis.__r3GeometryOwnerV90?.signature!=='browser:collapsed')throw new Error('v90 browser geometry signature mismatch '+JSON.stringify(globalThis.__r3GeometryOwnerV90));
 if(globalThis.__r3StableRuntimeV82?.restoreReleasedBy!=='restore-complete')throw new Error('restore completion release proof missing: '+JSON.stringify(globalThis.__r3StableRuntimeV82));
-console.log(`READER_V82_RUNTIME_SMOKE=PASS index=${info.index} total=${info.total} source=${info.r3Source} nextCalls=${rawNextCalls}`);
+console.log(`READER_V82_RUNTIME_SMOKE=PASS index=${info.index} total=${info.total} source=${info.r3Source} nextCalls=${rawNextCalls} touch=v96`);
 globalThis.setInterval=realSetInterval;

@@ -11,6 +11,7 @@ export function r3StableEarlyV82() {
   const nativeSetTimeoutV88 = window.setTimeout.bind(window);
   const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v92', restoreShieldReleased: '', restoreWatchdogFired: false };
   window.__R3_INTERACTION_OWNER_V92 = 'single-owner-v92';
+  window.__R3_TOUCH_OWNER_V96 = 'hybrid-v96';
   const releaseRestoreShieldV88 = reason => {
     state.restoreShieldReleased = state.restoreShieldReleased || String(reason || 'released');
     root.classList.remove('r3-restore-pending-v45');
@@ -73,7 +74,7 @@ export function r3StableEarlyV82() {
 
 export function r3StableRuntimeV82() {
   if (window.__r3StableRuntimeV82) return;
-  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v92', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
+  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v92', touchOwner: 'v96', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
   const releaseRestoreShield = reason => {
     debug.restoreReleasedBy = debug.restoreReleasedBy || String(reason || 'released');
     try { window.__r3StableEarlyV82?.releaseRestoreShield?.(reason); } catch {}
@@ -313,37 +314,78 @@ export function r3StableRuntimeV82() {
     function bindReaderDocument(doc) {
       if (!doc || boundDocs.has(doc)) return;
       boundDocs.add(doc);
-      try { if (doc.documentElement) doc.documentElement.dataset.r3GestureOwnerV94 = '1'; } catch {}
-      let sx = 0, sy = 0, st = 0, active = false, horizontal = false;
-      doc.addEventListener('pointerdown', event => {
-        if (event.pointerType === 'mouse' && event.button !== 0) return;
-        if (interactiveTarget(event.target)) return;
-        sx = event.clientX; sy = event.clientY; st = Date.now(); active = true; horizontal = false;
-      }, { passive: true });
-      doc.addEventListener('pointermove', event => {
-        if (!active) return;
-        const dx = event.clientX - sx, dy = event.clientY - sy;
+      try {
+        if (doc.documentElement) {
+          doc.documentElement.dataset.r3GestureOwnerV94 = '1';
+          doc.documentElement.dataset.r3TouchOwnerV96 = 'hybrid';
+        }
+      } catch {}
+      let sx = 0, sy = 0, st = 0, active = false, horizontal = false, source = '';
+      const begin = (x, y, target, kind) => {
+        if (interactiveTarget(target)) return false;
+        sx = Number(x) || 0; sy = Number(y) || 0; st = Date.now(); active = true; horizontal = false; source = kind;
+        return true;
+      };
+      const update = (x, y, event, kind) => {
+        if (!active || source !== kind) return;
+        const dx = (Number(x) || 0) - sx, dy = (Number(y) || 0) - sy;
         if (!horizontal && Math.abs(dx) >= 18 && Math.abs(dx) > Math.abs(dy) * 1.12) horizontal = true;
-        if (horizontal && event.cancelable) event.preventDefault();
-      }, { passive: false });
-      doc.addEventListener('pointerup', event => {
-        if (!active) return;
-        const dx = event.clientX - sx, dy = event.clientY - sy, dt = Date.now() - st;
-        active = false;
-        if (interactiveTarget(event.target) || selectionActive(doc)) return;
+        if (horizontal && event && event.cancelable) event.preventDefault();
+      };
+      const finish = (x, y, target, kind) => {
+        if (!active || source !== kind) return;
+        const dx = (Number(x) || 0) - sx, dy = (Number(y) || 0) - sy, dt = Date.now() - st;
+        active = false; source = '';
+        if (interactiveTarget(target)) return;
         if ((horizontal || Math.abs(dx) >= 34) && Math.abs(dx) >= 34 && Math.abs(dx) > Math.abs(dy) * 1.08) {
           move(dx < 0 ? 1 : -1);
           return;
         }
+        if (selectionActive(doc)) return;
         if (Math.abs(dx) < 18 && Math.abs(dy) < 18 && dt < 650) {
           const width = Math.max(1, Number(doc.defaultView && doc.defaultView.innerWidth || doc.documentElement && doc.documentElement.clientWidth || window.innerWidth));
-          const ratio = event.clientX / width;
+          const ratio = (Number(x) || 0) / width;
           if (document.body.dataset.nav === 'tap' && ratio < .28) move(-1);
           else if (document.body.dataset.nav === 'tap' && ratio > .72) move(1);
           else if (ratio >= .28 && ratio <= .72) document.body.classList.toggle('controls');
         }
-      }, { passive: true });
-      doc.addEventListener('pointercancel', () => { active = false; horizontal = false; }, { passive: true });
+      };
+      const cancel = kind => { if (source === kind) { active = false; horizontal = false; source = ''; } };
+
+      // iPhone/iOS: touch events are the sole finger owner. Ignore pointerType=touch
+      // below so Safari cannot double-trigger one physical gesture.
+      doc.addEventListener('touchstart', event => {
+        if (!event.touches || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        begin(touch.clientX, touch.clientY, event.target, 'touch');
+      }, { passive: true, capture: true });
+      doc.addEventListener('touchmove', event => {
+        if (!event.touches || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        update(touch.clientX, touch.clientY, event, 'touch');
+      }, { passive: false, capture: true });
+      doc.addEventListener('touchend', event => {
+        const touch = event.changedTouches && event.changedTouches[0];
+        if (!touch) { cancel('touch'); return; }
+        finish(touch.clientX, touch.clientY, event.target, 'touch');
+      }, { passive: true, capture: true });
+      doc.addEventListener('touchcancel', () => cancel('touch'), { passive: true, capture: true });
+
+      // Desktop/trackpad/pen fallback. Finger pointers are ignored because touch owns them.
+      doc.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'touch') return;
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        begin(event.clientX, event.clientY, event.target, 'pointer');
+      }, { passive: true, capture: true });
+      doc.addEventListener('pointermove', event => {
+        if (event.pointerType === 'touch') return;
+        update(event.clientX, event.clientY, event, 'pointer');
+      }, { passive: false, capture: true });
+      doc.addEventListener('pointerup', event => {
+        if (event.pointerType === 'touch') return;
+        finish(event.clientX, event.clientY, event.target, 'pointer');
+      }, { passive: true, capture: true });
+      doc.addEventListener('pointercancel', event => { if (event.pointerType !== 'touch') cancel('pointer'); }, { passive: true, capture: true });
     }
     function bindReaderFrames() {
       for (const frame of document.querySelectorAll('#viewer iframe')) {
