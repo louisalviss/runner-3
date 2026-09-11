@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+const v2=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v2-entry.js','utf8');
+const v3=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v3-entry.js','utf8');
+const v4=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v4-entry.js','utf8');
+const v82=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v82-patch.js','utf8');
+const shell=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js','utf8');
+if(!v2.includes("if(window.__R3_INTERACTION_OWNER_V92){window.__r3LegacyGestureV2Suppressed=true;return;}")) throw new Error('v2 gesture guard missing');
+if(!v3.includes("if(window.__R3_INTERACTION_OWNER_V92){window.__r3LegacyGestureV3Suppressed=true;return;}")) throw new Error('v3 gesture guard missing');
+if(!v4.includes("if(window.__R3_INTERACTION_OWNER_V92){window.__r3LegacyHitZonesV4Suppressed=true;return;}")) throw new Error('v4 hit-zone guard missing');
+if(!v82.includes("window.__R3_INTERACTION_OWNER_V92 = 'single-owner-v92'")) throw new Error('v92 early owner missing');
+if(!v82.includes("interactionOwner: 'v92'")) throw new Error('v92 runtime owner missing');
+if(!v82.includes("#r3SettingsBackdrop{display:none!important;pointer-events:none!important}")) throw new Error('legacy backdrop still active');
+if(!shell.includes("X-R3-Reader-Interaction-Owner', 'single-v92'")) throw new Error('v92 live header missing');
+console.log('READER_V92_SINGLE_INTERACTION_OWNER_SMOKE=PASS');
