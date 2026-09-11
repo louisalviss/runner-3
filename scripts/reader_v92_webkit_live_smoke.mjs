@@ -104,14 +104,11 @@ try{
 
   const moveBefore=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
   const cfiBefore=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
-  const gestureDiag=await page.evaluate(()=>{
-    const doc=document.querySelector('#viewer iframe')?.contentDocument;
+  const swipePoint=await page.evaluate(()=>{
+    const frame=document.querySelector('#viewer iframe');
+    const doc=frame?.contentDocument;
     const win=doc?.defaultView;
-    if(!doc||!win?.PointerEvent) throw new Error('EPUB_POINTER_EVENT_UNAVAILABLE');
-    const seen=[];
-    for(const type of ['pointerdown','pointermove','pointerup','pointercancel']){
-      doc.addEventListener(type,e=>seen.push({type,pointerType:e.pointerType,button:e.button,x:e.clientX,y:e.clientY,target:String(e.target?.tagName||'')}),{capture:true,once:false});
-    }
+    if(!frame||!doc||!win)throw new Error('EPUB_FRAME_UNAVAILABLE');
     const target=[...doc.querySelectorAll('p,div,span')].find(el=>{
       try{
         if(el.closest('a,button,input,select,textarea,label,[contenteditable=\"true\"]'))return false;
@@ -119,26 +116,25 @@ try{
         return String(el.textContent||'').trim().length>30&&r.width>80&&r.height>10;
       }catch{return false}
     })||doc.body;
-    const rect=target.getBoundingClientRect();
-    const y=Math.max(20,Math.min((win.innerHeight||600)-20,rect.top+Math.min(24,Math.max(8,rect.height/2))));
-    const x0=Math.max(260,Math.min((win.innerWidth||390)-24,rect.right-20));
-    const x1=Math.max(30,x0-230);
-    const beforeSel=String(doc.getSelection?.()||'').trim();
-    const fire=(type,x)=>target.dispatchEvent(new win.PointerEvent(type,{bubbles:true,cancelable:true,pointerId:77,pointerType:'touch',clientX:x,clientY:y,button:0}));
-    fire('pointerdown',x0); fire('pointermove',(x0+x1)/2); fire('pointerup',x1);
-    return {seen,target:String(target.tagName||''),interactive:Boolean(target.closest?.('a,button,input,select,textarea,label,[contenteditable=\"true\"]')),beforeSel,afterSel:String(doc.getSelection?.()||'').trim(),owner:String(doc.documentElement?.dataset?.r3GestureOwnerV94||'')};
+    const r=target.getBoundingClientRect();
+    return {
+      x0:Math.max(260,Math.min((win.innerWidth||390)-24,r.right-20)),
+      x1:Math.max(30,Math.max(260,Math.min((win.innerWidth||390)-24,r.right-20))-230),
+      y:Math.max(20,Math.min((win.innerHeight||600)-20,r.top+Math.min(24,Math.max(8,r.height/2)))),
+      target:String(target.tagName||''),
+      owner:String(doc.documentElement?.dataset?.r3GestureOwnerV94||''),
+    };
   });
-  await page.waitForTimeout(600);
-  let moveAfter=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
-  if(moveAfter!==moveBefore+1){
-    const direct=await page.evaluate(async()=>{
-      const before=Number(window.__r3StableRuntimeV82?.navMoves||0);
-      const ok=await window.__r3V82MovePage?.(1);
-      return {before,after:Number(window.__r3StableRuntimeV82?.navMoves||0),ok};
-    });
-    throw new Error('WEBKIT_GESTURE_NO_MOVE '+safe({moveBefore,moveAfter,gestureDiag,direct}));
-  }
+  const frameBox=await page.locator('#viewer iframe').boundingBox();
+  if(!frameBox)throw new Error('EPUB_FRAME_BOX_MISSING');
+  await page.mouse.move(frameBox.x+swipePoint.x0,frameBox.y+swipePoint.y);
+  await page.mouse.down();
+  await page.mouse.move(frameBox.x+(swipePoint.x0+swipePoint.x1)/2,frameBox.y+swipePoint.y,{steps:4});
+  await page.mouse.move(frameBox.x+swipePoint.x1,frameBox.y+swipePoint.y,{steps:4});
+  await page.mouse.up();
+  await page.waitForFunction(old=>Number(window.__r3StableRuntimeV82?.navMoves||0)===old+1,moveBefore,{timeout:8000});
   await page.waitForTimeout(500);
+  const moveAfter=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
   const cfiAfter=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
   if(moveAfter!==moveBefore+1) throw new Error(`SWIPE_NOT_SINGLE ${moveBefore}->${moveAfter}`);
   if(!cfiAfter||cfiAfter===cfiBefore) throw new Error('SWIPE_CFI_UNCHANGED');
