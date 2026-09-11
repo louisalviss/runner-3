@@ -68,7 +68,9 @@ jobs:
           grep -q 'latest-explicit-wins' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'freshness_bonus' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'novelty_bonus' cloudflare/runner3-core/src/content-personalization.js
-          grep -q 'PERCENT_RANK()' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'rank_percentile' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'sorted.length-1' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'PERSONAL_SCORE_WRITE_BATCH = 50' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'type_rank' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'canonical-interest-ontology-v7-family-aware' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'PROFILE_RECOMPUTE_CLOCK_KEY' cloudflare/runner3-core/src/content-personalization.js
