@@ -1,0 +1,93 @@
+{
+  "ok": true,
+  "idempotent": false,
+  "snapshot_id": "rss-v3-2026-09-12-2ab251f75690",
+  "model_version": "personal-v4",
+  "item_count": 5,
+  "schema_version": 3,
+  "policy_version": "canonical-interest-ontology-v7-family-aware",
+  "ontology_version": "interest-family-v1",
+  "source_render_id": "rss:2026-09-12:2ab251f7569082da935d195580750527f0046f8874dba9a204ce51069574daad",
+  "top_k": 10,
+  "baseline_policy": "canonical-manifest-order",
+  "personalized_policy": "bounded-personal-relevance-live",
+  "baseline": [
+    {
+      "item_id": "https://www.theatlantic.com/health/2026/09/ai-virus-nature-pandemic/688569/",
+      "rank": 1,
+      "manifest_number": 1
+    },
+    {
+      "item_id": "https://www.theatlantic.com/photography/2026/09/photos-911-memorials/688574/",
+      "rank": 2,
+      "manifest_number": 2
+    },
+    {
+      "item_id": "https://www.economist.com/science-and-technology/2026/09/11/top-mathematicians-are-outraged-by-openais-methods",
+      "rank": 3,
+      "manifest_number": 3
+    },
+    {
+      "item_id": "https://www.economist.com/science-and-technology/2026/09/11/hot-coffee-could-cause-oesophageal-cancer",
+      "rank": 4,
+      "manifest_number": 4
+    },
+    {
+      "item_id": "https://www.theatlantic.com/podcasts/2026/09/is-ai-writing-inevitable/688578/",
+      "rank": 5,
+      "manifest_number": 5
+    }
+  ],
+  "personalized": [
+    {
+      "item_id": "https://www.theatlantic.com/health/2026/09/ai-virus-nature-pandemic/688569/",
+      "rank": 1,
+      "score": 77.7979,
+      "manifest_number": 1
+    },
+    {
+      "item_id": "https://www.theatlantic.com/podcasts/2026/09/is-ai-writing-inevitable/688578/",
+      "rank": 2,
+      "score": 72.6008,
+      "manifest_number": 5
+    },
+    {
+      "item_id": "https://www.economist.com/science-and-technology/2026/09/11/hot-coffee-could-cause-oesophageal-cancer",
+      "rank": 3,
+      "score": 65.2793,
+      "manifest_number": 4
+    },
+    {
+      "item_id": "https://www.economist.com/science-and-technology/2026/09/11/top-mathematicians-are-outraged-by-openais-methods",
+      "rank": 4,
+      "score": 54.7308,
+      "manifest_number": 3
+    },
+    {
+      "item_id": "https://www.theatlantic.com/photography/2026/09/photos-911-memorials/688574/",
+      "rank": 5,
+      "score": 33.7002,
+      "manifest_number": 2
+    }
+  ],
+  "score_distribution": {
+    "count": 5,
+    "min": 33.70023954827228,
+    "p50": 65.2792764112119,
+    "p90": 77.79793293396128,
+    "p99": 77.79793293396128,
+    "max": 77.79793293396128,
+    "score_99_plus": 0
+  },
+  "profile_state": "dirty",
+  "created_at": "2026-09-11T18:09:28.700Z",
+  "materialization": {
+    "ok": true,
+    "recomputed": false,
+    "status": "dirty_debounced",
+    "model_version": "personal-v4",
+    "guarded": true,
+    "debounce_ms": 14400000,
+    "force_allowed": false
+  }
+}
