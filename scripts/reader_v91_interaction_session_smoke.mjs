@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+const v82=fs.readFileSync('cloudflare/runner3-core/artifact-library-reader-v82-patch.js','utf8');
+const pin=fs.readFileSync('cloudflare/runner3-core/artifact-library-pin-v2-entry.js','utf8');
+if(!v82.includes('pointer-events:none!important'))throw new Error('gesture overlay still interactive');
+if(v82.includes("layer.addEventListener('pointerdown'"))throw new Error('full-screen gesture catcher still active');
+if(!v82.includes('bindReaderDocument(frame.contentDocument)'))throw new Error('EPUB frame interaction binding missing');
+if(!v82.includes("interactiveTarget(event.target)"))throw new Error('interactive element bypass missing');
+if(!pin.includes('data-r3-pin-autofill-v91="1"'))throw new Error('PIN autofill runtime missing');
+if(!pin.includes('autocomplete="username"'))throw new Error('password manager username field missing');
+if(!pin.includes('SameSite=Lax')||!pin.includes('Expires=${expires}'))throw new Error('WebKit persistent cookie hardening missing');
+console.log('READER_V91_INTERACTION_SESSION_SMOKE=PASS');

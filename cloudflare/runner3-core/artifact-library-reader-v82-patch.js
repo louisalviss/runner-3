@@ -9,7 +9,7 @@ export function r3StableEarlyV82() {
   const text = fn => { try { return Function.prototype.toString.call(fn); } catch { return ''; } };
   const geometryFn = fn => /r3ScheduleFullBleedV68|r3ScheduleAudioDockInsetV69|r3ClampPaginatedVerticalV62/.test(text(fn));
   const nativeSetTimeoutV88 = window.setTimeout.bind(window);
-  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', restoreShieldReleased: '', restoreWatchdogFired: false };
+  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v91', restoreShieldReleased: '', restoreWatchdogFired: false };
   const releaseRestoreShieldV88 = reason => {
     state.restoreShieldReleased = state.restoreShieldReleased || String(reason || 'released');
     root.classList.remove('r3-restore-pending-v45');
@@ -72,7 +72,7 @@ export function r3StableEarlyV82() {
 
 export function r3StableRuntimeV82() {
   if (window.__r3StableRuntimeV82) return;
-  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
+  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v91', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
   const releaseRestoreShield = reason => {
     debug.restoreReleasedBy = debug.restoreReleasedBy || String(reason || 'released');
     try { window.__r3StableEarlyV82?.releaseRestoreShield?.(reason); } catch {}
@@ -298,24 +298,67 @@ export function r3StableRuntimeV82() {
     const layer = document.createElement('div');
     layer.id = 'r3V82GestureLayer';
     layer.setAttribute('aria-hidden', 'true');
+    layer.style.setProperty('pointer-events', 'none', 'important');
     document.body.appendChild(layer);
-    let sx = 0, sy = 0, st = 0, active = false;
-    const begin = (x, y) => { sx = x; sy = y; st = Date.now(); active = true; };
-    const finish = (x, y) => {
-      if (!active) return; active = false;
-      const dx = x - sx, dy = y - sy, dt = Date.now() - st;
-      if (Math.abs(dx) >= 34 && Math.abs(dx) > Math.abs(dy) * 1.08) { move(dx < 0 ? 1 : -1); return; }
-      if (Math.abs(dx) < 18 && Math.abs(dy) < 18 && dt < 650) {
-        const ratio = x / Math.max(1, window.innerWidth);
-        if (document.body.dataset.nav === 'tap' && ratio < .28) move(-1);
-        else if (document.body.dataset.nav === 'tap' && ratio > .72) move(1);
-        else if (ratio >= .28 && ratio <= .72) document.body.classList.toggle('controls');
-      }
+
+    const boundFrames = new WeakSet();
+    const boundDocs = new WeakSet();
+    const interactiveTarget = target => {
+      try { return Boolean(target && target.closest && target.closest('a,button,input,select,textarea,label,[contenteditable="true"]')); } catch { return false; }
     };
-    layer.addEventListener('pointerdown', event => { if (event.pointerType === 'mouse' && event.button !== 0) return; begin(event.clientX, event.clientY); try { layer.setPointerCapture(event.pointerId); } catch {} event.preventDefault(); }, { passive: false });
-    layer.addEventListener('pointermove', event => { if (active) event.preventDefault(); }, { passive: false });
-    layer.addEventListener('pointerup', event => { event.preventDefault(); finish(event.clientX, event.clientY); try { layer.releasePointerCapture(event.pointerId); } catch {} }, { passive: false });
-    layer.addEventListener('pointercancel', () => { active = false; });
+    const selectionActive = doc => {
+      try { return Boolean(String(doc && doc.getSelection && doc.getSelection() || '').trim()); } catch { return false; }
+    };
+    function bindReaderDocument(doc) {
+      if (!doc || boundDocs.has(doc)) return;
+      boundDocs.add(doc);
+      let sx = 0, sy = 0, st = 0, active = false, horizontal = false;
+      doc.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        if (interactiveTarget(event.target)) return;
+        sx = event.clientX; sy = event.clientY; st = Date.now(); active = true; horizontal = false;
+      }, { passive: true });
+      doc.addEventListener('pointermove', event => {
+        if (!active) return;
+        const dx = event.clientX - sx, dy = event.clientY - sy;
+        if (!horizontal && Math.abs(dx) >= 18 && Math.abs(dx) > Math.abs(dy) * 1.12) horizontal = true;
+        if (horizontal && event.cancelable) event.preventDefault();
+      }, { passive: false });
+      doc.addEventListener('pointerup', event => {
+        if (!active) return;
+        const dx = event.clientX - sx, dy = event.clientY - sy, dt = Date.now() - st;
+        active = false;
+        if (interactiveTarget(event.target) || selectionActive(doc)) return;
+        if ((horizontal || Math.abs(dx) >= 34) && Math.abs(dx) >= 34 && Math.abs(dx) > Math.abs(dy) * 1.08) {
+          move(dx < 0 ? 1 : -1);
+          return;
+        }
+        if (Math.abs(dx) < 18 && Math.abs(dy) < 18 && dt < 650) {
+          const width = Math.max(1, Number(doc.defaultView && doc.defaultView.innerWidth || doc.documentElement && doc.documentElement.clientWidth || window.innerWidth));
+          const ratio = event.clientX / width;
+          if (document.body.dataset.nav === 'tap' && ratio < .28) move(-1);
+          else if (document.body.dataset.nav === 'tap' && ratio > .72) move(1);
+          else if (ratio >= .28 && ratio <= .72) document.body.classList.toggle('controls');
+        }
+      }, { passive: true });
+      doc.addEventListener('pointercancel', () => { active = false; horizontal = false; }, { passive: true });
+    }
+    function bindReaderFrames() {
+      for (const frame of document.querySelectorAll('#viewer iframe')) {
+        if (!boundFrames.has(frame)) {
+          boundFrames.add(frame);
+          try { frame.addEventListener('load', () => { try { bindReaderDocument(frame.contentDocument); } catch {} }, { passive: true }); } catch {}
+        }
+        try { bindReaderDocument(frame.contentDocument); } catch {}
+      }
+    }
+    bindReaderFrames();
+    try {
+      const viewer = document.getElementById('viewer');
+      if (viewer) new MutationObserver(bindReaderFrames).observe(viewer, { childList: true, subtree: true });
+    } catch {}
+    try { window.addEventListener('pageshow', bindReaderFrames, { passive: true }); } catch {}
+    window.__r3BindReaderFramesV91 = bindReaderFrames;
     document.addEventListener('keydown', event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); event.stopImmediatePropagation(); move(event.key === 'ArrowRight' ? 1 : -1); } }, true);
   }
 
@@ -383,7 +426,7 @@ html.r3-v82-stable.r3-restore-pending-v45 #r3AudioDock{opacity:1!important;point
 html.r3-v82-stable.r3-restore-pending-v45 body::before,html.r3-v82-stable.r3-v82-restoring body::after{content:none!important;display:none!important;pointer-events:none!important}
 html.r3-v82-stable.r3-v90-home .topbar{top:0!important;padding-top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important}
 html.r3-v82-stable.r3-v90-home #r3ReaderChapterBadge{top:calc(max(env(safe-area-inset-top,0px),44px) + 18px)!important}
-#r3V82GestureLayer{position:fixed;z-index:1000;left:0;right:0;top:0;bottom:82px;background:rgba(0,0,0,.001);touch-action:none;-webkit-user-select:none;user-select:none}
+#r3V82GestureLayer{position:fixed;z-index:1000;left:0;right:0;top:0;bottom:82px;background:transparent;pointer-events:none!important;touch-action:auto;-webkit-user-select:none;user-select:none}
 html.r3-v82-stable.r3-v90-home #r3V82GestureLayer{top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important;bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
 html.r3-v82-stable.r3-v90-browser body.r3-audio-expanded #r3V82GestureLayer{bottom:216px!important}
 html.r3-v82-stable.r3-v90-home body.r3-audio-expanded #r3V82GestureLayer{bottom:calc(216px + env(safe-area-inset-bottom,0px))!important}
