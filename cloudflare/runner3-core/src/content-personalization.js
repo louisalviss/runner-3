@@ -22,6 +22,15 @@ export function isSupportedContentEvent(eventType) {
   return Object.prototype.hasOwnProperty.call(EVENT_WEIGHTS, String(eventType || ""));
 }
 
+export function eventAffectsProfile(eventType) {
+  const key = String(eventType || "");
+  return isSupportedContentEvent(key) && Number(EVENT_WEIGHTS[key] || 0) !== 0;
+}
+
+export const PROFILE_AFFECTING_EVENT_TYPES = Object.freeze(
+  Object.keys(EVENT_WEIGHTS).filter((eventType) => eventAffectsProfile(eventType)),
+);
+
 export async function markProfileDirty(env, reason = "content_intelligence_event") {
   if (!env?.DB) return 0;
   const result = await env.DB.prepare(`
@@ -542,6 +551,40 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
     "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
   ).bind(modelVersion, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
   const materializationMismatch = !materialized?.ok;
+
+  // Legacy readers used to mark the profile dirty for `shown`, even though
+  // `shown` has preference weight 0. If the dirty reason came only from an
+  // event batch/shown event and there has been no profile-affecting event
+  // since the last successful recompute, restore clean state without doing
+  // expensive materialization work. Feature-driven dirty reasons are never
+  // auto-cleared here.
+  if (before.status === "dirty" && !materializationMismatch) {
+    let reason = "";
+    try { reason = String(JSON.parse(before.detail || "{}").reason || ""); } catch {}
+    if (reason === "event_batch" || reason === "event_shown") {
+      const placeholders = PROFILE_AFFECTING_EVENT_TYPES.map(() => "?").join(",");
+      const meaningful = await env.DB.prepare(`
+        SELECT COUNT(*) AS n FROM user_content_events
+        WHERE event_type IN (${placeholders})
+          AND event_at >= COALESCE((SELECT updated_at FROM workflow_state WHERE source=?),'1970-01-01 00:00:00')
+      `).bind(...PROFILE_AFFECTING_EVENT_TYPES, PROFILE_RECOMPUTE_CLOCK_KEY).first();
+      if (Number(meaningful?.n || 0) === 0) {
+        const repaired = await env.DB.prepare(`
+          UPDATE workflow_state
+          SET status='clean',run_id=NULL,detail=?,updated_at=CURRENT_TIMESTAMP
+          WHERE source=? AND status='dirty'
+        `).bind(JSON.stringify({
+          reason:"zero_weight_event_dirty_repaired",
+          model:modelVersion,
+          policy_version:PERSONAL_POLICY_VERSION,
+          ontology_version:INTEREST_ONTOLOGY_VERSION,
+        }), PROFILE_STATE_KEY).run();
+        if (Number(repaired.meta?.changes || 0) === 1) {
+          return { ok:true,recomputed:false,status:"clean",zero_weight_dirty_repaired:true };
+        }
+      }
+    }
+  }
 
   if (before.status === "clean") {
     if (!materializationMismatch) return { ok: true, recomputed: false, status: "clean" };
