@@ -58,6 +58,21 @@ def normalize_runner15(obj):
         "appleLaunchEventDedupRequired": True,
     })
     obj["contract"] = contract
+
+    # Immutable archive identity must include the active filtering/dedupe policy.
+    # The legacy hash covers only manifest rows, so a policy-only upgrade (v7->v8)
+    # could otherwise reuse the same <date>/<hash>.json path with different payload
+    # and correctly trip the immutable-collision guard.
+    content_hash = str(obj.get("manifestHash") or "")
+    if content_hash:
+        obj["contentManifestHash"] = content_hash
+        obj["manifestHash"] = legacy.sha256_obj({
+            "contentManifestHash": content_hash,
+            "filterPolicyVersion": obj["filterPolicyVersion"],
+            "scope": obj["scope"],
+            "version": obj["version"],
+        })
+        obj["manifestArchiveKey"] = f"{obj.get('date')}/{obj['manifestHash']}.json"
     return obj
 
 
@@ -77,11 +92,16 @@ def finalize(obj):
 def self_test():
     _configure_runner15_legacy()
     legacy.self_test()
-    probe = normalize_runner15({"version": 8, "sourceRows": []})
+    probe = normalize_runner15({"version": 8, "sourceRows": [], "manifestHash": "content-hash", "date": "2026-09-11"})
     assert probe["version"] >= 8
     assert probe["filterPolicyVersion"] == "2026-09-11-canonical-source-policy-v8-apple-event-dedupe-runner15-replay-safe"
     assert probe["renderContract"]["appleLaunchEventDedupRequired"] is True
     assert probe["contract"]["appleLaunchEventDedupRequired"] is True
+    assert probe["contentManifestHash"] == "content-hash"
+    assert probe["manifestHash"] != probe["contentManifestHash"]
+    assert probe["manifestArchiveKey"] == f"2026-09-11/{probe['manifestHash']}.json"
+    again = normalize_runner15({"version": 8, "sourceRows": [], "manifestHash": "content-hash", "date": "2026-09-11"})
+    assert again["manifestHash"] == probe["manifestHash"]
     return True
 
 
