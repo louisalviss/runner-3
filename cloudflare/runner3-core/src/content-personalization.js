@@ -32,7 +32,7 @@ export const PROFILE_AFFECTING_EVENT_TYPES = Object.freeze(
 );
 
 export function dirtyReasonAllowsPriorityMaterialization(reason) {
-  return ["content_items_or_features_changed","content_features_changed"].includes(String(reason || ""));
+  return ["content_items_or_features_changed","content_features_changed","explicit_interest_ingest"].includes(String(reason || ""));
 }
 
 export async function markProfileDirty(env, reason = "content_intelligence_event") {
@@ -562,12 +562,12 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
 
   // Legacy readers used to mark the profile dirty for `shown`, even though
   // `shown` has preference weight 0. If the dirty reason came only from an
-  // event batch/shown event and there has been no profile-affecting event
+  // zero-weight/legacy append ingest and there has been no profile-affecting event
   // since the last successful recompute, restore clean state without doing
   // expensive materialization work. Feature-driven dirty reasons are never
   // auto-cleared here.
   if (before.status === "dirty" && !materializationMismatch) {
-    if (dirtyReason === "event_batch" || dirtyReason === "event_shown") {
+    if (["event_batch","event_shown","append_only_learning_ingest"].includes(dirtyReason)) {
       const placeholders = PROFILE_AFFECTING_EVENT_TYPES.map(() => "?").join(",");
       const meaningful = await env.DB.prepare(`
         SELECT COUNT(*) AS n FROM user_content_events
