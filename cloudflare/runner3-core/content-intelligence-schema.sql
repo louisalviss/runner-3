@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS interest_profile (
   PRIMARY KEY (feature_type, feature_key)
 );
 
+-- Derived family aggregation used only for bounded scoring. Durable semantic
+-- interests remain exclusively in interest_profile as topic/mechanism/concept.
+CREATE TABLE IF NOT EXISTS interest_family_profile (
+  family_key TEXT PRIMARY KEY,
+  weight REAL NOT NULL DEFAULT 0,
+  evidence_count INTEGER NOT NULL DEFAULT 0,
+  positive_count INTEGER NOT NULL DEFAULT 0,
+  negative_count INTEGER NOT NULL DEFAULT 0,
+  confidence REAL NOT NULL DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS recommendation_runs (
   render_id TEXT PRIMARY KEY,
   source_scope TEXT,

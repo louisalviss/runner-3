@@ -214,20 +214,16 @@ function profileProjectionCte() {
       (raw_weight/MAX(1.0,SQRT(evidence_count)))*evidence_factor AS projected_weight,
       MIN(1.0,(evidence_count/(evidence_count+2.0))*MAX(0.35,avg_feature_confidence)) AS projected_confidence
     FROM family_eligible
-  ), projected AS (
-    SELECT * FROM leaf_projected
-    UNION ALL
-    SELECT * FROM family_scored WHERE ABS(projected_weight)>=0.05
   )`;
 }
 
 export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODEL_VERSION) {
   if (!env?.DB) return { ok:false,model_version:modelVersion,profile_features:0,changed:0 };
   const projection = profileProjectionCte();
-  const upsert = await env.DB.prepare(`${projection}
+  const leafUpsert = await env.DB.prepare(`${projection}
     INSERT INTO interest_profile(feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at)
     SELECT feature_type,feature_key,projected_weight,evidence_count,positive_count,negative_count,projected_confidence,CURRENT_TIMESTAMP
-    FROM projected WHERE 1=1
+    FROM leaf_projected WHERE 1=1
     ON CONFLICT(feature_type,feature_key) DO UPDATE SET
       weight=excluded.weight,evidence_count=excluded.evidence_count,positive_count=excluded.positive_count,
       negative_count=excluded.negative_count,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP
@@ -237,22 +233,43 @@ export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODE
        OR interest_profile.negative_count IS NOT excluded.negative_count
        OR interest_profile.confidence IS NOT excluded.confidence
   `).run();
-  const removed = await env.DB.prepare(`${projection}
+  const leafRemoved = await env.DB.prepare(`${projection}
     DELETE FROM interest_profile
     WHERE NOT EXISTS (
-      SELECT 1 FROM projected p
+      SELECT 1 FROM leaf_projected p
       WHERE p.feature_type=interest_profile.feature_type AND p.feature_key=interest_profile.feature_key
+    )
+  `).run();
+  const familyUpsert = await env.DB.prepare(`${projection}
+    INSERT INTO interest_family_profile(family_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at)
+    SELECT feature_key,projected_weight,evidence_count,positive_count,negative_count,projected_confidence,CURRENT_TIMESTAMP
+    FROM family_scored WHERE ABS(projected_weight)>=0.05
+    ON CONFLICT(family_key) DO UPDATE SET
+      weight=excluded.weight,evidence_count=excluded.evidence_count,positive_count=excluded.positive_count,
+      negative_count=excluded.negative_count,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP
+    WHERE interest_family_profile.weight IS NOT excluded.weight
+       OR interest_family_profile.evidence_count IS NOT excluded.evidence_count
+       OR interest_family_profile.positive_count IS NOT excluded.positive_count
+       OR interest_family_profile.negative_count IS NOT excluded.negative_count
+       OR interest_family_profile.confidence IS NOT excluded.confidence
+  `).run();
+  const familyRemoved = await env.DB.prepare(`${projection}
+    DELETE FROM interest_family_profile
+    WHERE NOT EXISTS (
+      SELECT 1 FROM family_scored p
+      WHERE ABS(p.projected_weight)>=0.05 AND p.feature_key=interest_family_profile.family_key
     )
   `).run();
   const stats = await env.DB.prepare(`SELECT COUNT(*) AS n,
     SUM(CASE WHEN evidence_count=1 THEN 1 ELSE 0 END) AS singleton_features,
     SUM(CASE WHEN evidence_count>=2 THEN 1 ELSE 0 END) AS repeated_features,
     AVG(confidence) AS avg_confidence FROM interest_profile`).first();
+  const familyStats = await env.DB.prepare(`SELECT COUNT(*) AS n FROM interest_family_profile`).first();
   return {
     ok:true,model_version:modelVersion,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,
     profile_features:Number(stats?.n||0),singleton_features:Number(stats?.singleton_features||0),
-    repeated_features:Number(stats?.repeated_features||0),avg_confidence:Number(stats?.avg_confidence||0),
-    changed:Number(upsert.meta?.changes||0)+Number(removed.meta?.changes||0),
+    repeated_features:Number(stats?.repeated_features||0),avg_confidence:Number(stats?.avg_confidence||0),family_features:Number(familyStats?.n||0),
+    changed:Number(leafUpsert.meta?.changes||0)+Number(leafRemoved.meta?.changes||0)+Number(familyUpsert.meta?.changes||0)+Number(familyRemoved.meta?.changes||0),
   };
 }
 
@@ -268,12 +285,21 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
   const profileResult = await env.DB.prepare(`
     SELECT feature_type,feature_key,weight,confidence
     FROM interest_profile
-    WHERE feature_type IN ('family','topic','mechanism','concept')
+    WHERE feature_type IN ('topic','mechanism','concept')
+  `).all();
+  const familyProfileResult = await env.DB.prepare(`
+    SELECT family_key,weight,confidence FROM interest_family_profile
   `).all();
   const profileRows = Array.isArray(profileResult?.results) ? profileResult.results : [];
   const profile = new Map();
   for (const row of profileRows) {
     profile.set(`${String(row.feature_type)}::${String(row.feature_key)}`, {
+      weight: Number(row.weight || 0),
+      confidence: Number(row.confidence || 0),
+    });
+  }
+  for (const row of familyProfileResult?.results || []) {
+    profile.set(`family::${String(row.family_key)}`, {
       weight: Number(row.weight || 0),
       confidence: Number(row.confidence || 0),
     });
@@ -494,8 +520,8 @@ async function scoreShownItems(env, sourceRenderId){
     p.weight AS profile_weight,p.evidence_count,p.confidence AS profile_confidence
     FROM content_features f LEFT JOIN interest_profile p ON p.feature_type=f.feature_type AND p.feature_key=${canonicalKeySql}
     WHERE f.item_id IN (${placeholders}) AND f.feature_type IN ('topic','concept','mechanism')`).bind(...ids).all();
-  const families=await env.DB.prepare("SELECT feature_key,weight,evidence_count,confidence FROM interest_profile WHERE feature_type='family'").all();
-  const familyProfile=new Map((families.results||[]).map(x=>[String(x.feature_key),x]));
+  const families=await env.DB.prepare("SELECT family_key,weight,evidence_count,confidence FROM interest_family_profile").all();
+  const familyProfile=new Map((families.results||[]).map(x=>[String(x.family_key),x]));
   const byItem=new Map(rows.map(x=>[x.item_id,new Map()]));
   for(const f of features.results||[]){if(!byItem.has(f.item_id))continue;const key=`${f.feature_type}::${canonicalInterestKey(f.feature_type,f.feature_key)}`;const prior=byItem.get(f.item_id).get(key);const strength=Number(f.feature_weight||0)*Number(f.feature_confidence||0);if(!prior||strength>prior.__strength)byItem.get(f.item_id).set(key,{...f,__strength:strength});}
   for(const row of rows){
