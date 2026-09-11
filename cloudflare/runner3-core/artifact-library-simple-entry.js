@@ -176,9 +176,18 @@ async function publicReader(request, env, ctx) {
   const type = response.headers.get("Content-Type") || "";
   if (!type.toLowerCase().includes("text/html")) return response;
   const original = await response.text();
-  const updated = injectIframeSwipe(original);
+  let updated;
+  try {
+    const { patchReaderV82 } = await import("./artifact-library-reader-v82-patch.js");
+    updated = patchReaderV82(original);
+  } catch (error) {
+    return new Response("Reader fast-path v82 patch failed", { status: 503, headers: headers({ "Content-Type": "text/plain; charset=utf-8", "X-R3-Reader-Stable-Shell": "v82-patch-failed", "X-R3-Reader-Patch-Error": String(error && error.message || error).slice(0, 200) }) });
+  }
   const h = new Headers(response.headers);
   h.delete("Content-Length");
+  h.set("X-R3-Reader-Stable-Shell", "v82");
+  h.set("X-R3-Reader-Pagination-Owner", "v82");
+  h.set("X-R3-Reader-Fastpath", "v83-v82");
   return new Response(updated, { status: response.status, headers: h });
 }
 

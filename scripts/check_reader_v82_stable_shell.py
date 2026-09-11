@@ -1,5 +1,7 @@
 from pathlib import Path
-v82=Path('cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js').read_text(encoding='utf-8')
+v82_wrapper=Path('cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js').read_text(encoding='utf-8')
+v82_helper=Path('cloudflare/runner3-core/artifact-library-reader-v82-patch.js').read_text(encoding='utf-8')
+v82=v82_wrapper+'\n'+v82_helper
 v7=Path('cloudflare/runner3-core/artifact-library-reader-v7-github-audio-entry.js').read_text(encoding='utf-8')
 for marker in [
     "owner: 'stable-shell-v82'",
@@ -17,5 +19,7 @@ for marker in [
 ]:
     assert marker in v82, marker
 assert 'artifact-library-reader-v82-stable-shell-entry.js' in v7
+assert 'artifact-library-reader-v82-patch.js' in v82_wrapper
+assert 'patchReaderV82' in v82_wrapper
 assert 'artifact-library-reader-v36-home-screen-safe-area-entry.js' not in v7.splitlines()[0]
 print('READER_V82_STABLE_SHELL_CHECK=PASS')

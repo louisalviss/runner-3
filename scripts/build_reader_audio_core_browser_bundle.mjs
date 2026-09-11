@@ -103,6 +103,7 @@ execFileSync('python3', ['scripts/check_reader_v82_stable_shell.py'], { stdio: '
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v82_runtime_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v82_outer_composition_smoke.mjs'], { stdio: 'inherit' });
+execFileSync('node', ['scripts/reader_v83_fastpath_v82_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/src/ebook-reader-audio.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-reader-v34-continuous-range-sync-entry.js'], { stdio: 'inherit' });
 execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-simple-entry.js'], { stdio: 'inherit' });
