@@ -19,7 +19,11 @@ await context.route('**/artifact-library/api/progress**',async route=>{
   return route.continue();
 });
 await context.route('**/artifact-library/audio**',async route=>{
-  if(route.request().method()==='POST') return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({ok:true,id:'ebook-00000000000000000000000000000000',status:'pending',smoke:true})});
+  const req=route.request();
+  const fakeId='ebook-00000000000000000000000000000000';
+  if(req.method()==='POST') return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({ok:true,id:fakeId,status:'pending',smoke:true})});
+  const requestedId=new URL(req.url()).searchParams.get('id')||'';
+  if(requestedId===fakeId) return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true,id:fakeId,status:'pending',smoke:true})});
   return route.continue();
 });
 const page=await context.newPage();
