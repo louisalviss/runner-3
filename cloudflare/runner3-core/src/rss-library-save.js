@@ -235,8 +235,9 @@ async function recordSelected(env, article, renderId, context, checksum) {
       SELECT 1 FROM user_content_events WHERE item_id=? AND event_type='selected' AND COALESCE(render_id,'')=COALESCE(?,'')
     )
   `).bind(itemId, renderId, JSON.stringify({ source: "rss_library_save", ...context }), itemId, renderId).run();
-  await markProfileDirty(env, "rss_library_selected");
-  return Number(result.meta?.changes || 0);
+  const changed = Number(result.meta?.changes || 0);
+  if (changed) await markProfileDirty(env, "rss_library_selected");
+  return changed;
 }
 
 export async function handleRssLibrarySave(request, env, url) {
