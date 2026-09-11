@@ -9,7 +9,8 @@ export function r3StableEarlyV82() {
   const text = fn => { try { return Function.prototype.toString.call(fn); } catch { return ''; } };
   const geometryFn = fn => /r3ScheduleFullBleedV68|r3ScheduleAudioDockInsetV69|r3ClampPaginatedVerticalV62/.test(text(fn));
   const nativeSetTimeoutV88 = window.setTimeout.bind(window);
-  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v91', restoreShieldReleased: '', restoreWatchdogFired: false };
+  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v92', restoreShieldReleased: '', restoreWatchdogFired: false };
+  window.__R3_INTERACTION_OWNER_V92 = 'single-owner-v92';
   const releaseRestoreShieldV88 = reason => {
     state.restoreShieldReleased = state.restoreShieldReleased || String(reason || 'released');
     root.classList.remove('r3-restore-pending-v45');
@@ -72,7 +73,7 @@ export function r3StableEarlyV82() {
 
 export function r3StableRuntimeV82() {
   if (window.__r3StableRuntimeV82) return;
-  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v91', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
+  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', interactionOwner: 'v92', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
   const releaseRestoreShield = reason => {
     debug.restoreReleasedBy = debug.restoreReleasedBy || String(reason || 'released');
     try { window.__r3StableEarlyV82?.releaseRestoreShield?.(reason); } catch {}
@@ -283,7 +284,7 @@ export function r3StableRuntimeV82() {
       try {
         await Promise.resolve(fn());
         for (let n = 0; n < 20; n++) { await delay(n ? 45 : 80); const after = String(bridge.current && bridge.current()?.start?.cfi || ''); if (after && after !== before) break; }
-        await paint(); refreshChapterUi(bridge); return true;
+        await paint(); bindReaderFrames(); setTimeout(bindReaderFrames, 80); refreshChapterUi(bridge); return true;
       } catch { return false; }
       finally { setTimeout(() => { busy = false; }, 140); }
     }
@@ -312,6 +313,7 @@ export function r3StableRuntimeV82() {
     function bindReaderDocument(doc) {
       if (!doc || boundDocs.has(doc)) return;
       boundDocs.add(doc);
+      try { if (doc.documentElement) doc.documentElement.dataset.r3GestureOwnerV94 = '1'; } catch {}
       let sx = 0, sy = 0, st = 0, active = false, horizontal = false;
       doc.addEventListener('pointerdown', event => {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -356,6 +358,17 @@ export function r3StableRuntimeV82() {
     try {
       const viewer = document.getElementById('viewer');
       if (viewer) new MutationObserver(bindReaderFrames).observe(viewer, { childList: true, subtree: true });
+    } catch {}
+    try {
+      if (typeof bridge.onRelocated === 'function') {
+        let rebindTimer = 0;
+        const off = bridge.onRelocated(() => {
+          clearTimeout(rebindTimer);
+          bindReaderFrames();
+          rebindTimer = setTimeout(bindReaderFrames, 80);
+        });
+        window.__r3FrameRebindOffV94 = off;
+      }
     } catch {}
     try { window.addEventListener('pageshow', bindReaderFrames, { passive: true }); } catch {}
     window.__r3BindReaderFramesV91 = bindReaderFrames;
@@ -410,7 +423,8 @@ export function r3StableRuntimeV82() {
 }
 
 const STYLE = `<style data-r3-stable-shell-v82="1" data-r3-nonblocking-restore-v89="1">
-html.r3-v82-stable #r3GestureLayer,html.r3-v82-stable .r3-hit-zone{pointer-events:none!important}
+html.r3-v82-stable #r3GestureLayer,html.r3-v82-stable .r3-hit-zone{display:none!important;pointer-events:none!important}
+html.r3-v82-stable #r3SettingsBackdrop{display:none!important;pointer-events:none!important}
 html.r3-v82-stable.r3-v90-browser body.r3-audio-ui #viewer{top:0!important;right:0!important;bottom:76px!important;left:0!important;width:auto!important;height:auto!important}
 html.r3-v82-stable.r3-v90-browser body.r3-audio-ui.r3-audio-expanded #viewer{bottom:210px!important}
 html.r3-v82-stable.r3-v90-home body.r3-audio-ui #viewer{top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important;right:0!important;bottom:calc(76px + env(safe-area-inset-bottom,0px))!important;left:0!important;width:auto!important;height:auto!important}
