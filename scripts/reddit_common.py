@@ -28,7 +28,11 @@ import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-STATUS_PATH = ROOT / "ops/audio-library/chatgpt-bridge-status.json"
+STATUS_PATH = Path(os.environ.get("REDDIT_BRIDGE_STATUS_PATH", str(ROOT / "ops/audio-library/chatgpt-bridge-status.json")))
+if not STATUS_PATH.exists():
+    _shared_status = Path("/opt/rss-scan-runtime/code/ops/audio-library/chatgpt-bridge-status.json")
+    if _shared_status.exists():
+        STATUS_PATH = _shared_status
 UA = "runner3-reddit-read/2.0 (+public read-only research)"
 ARCHIVE_BASE = "https://arctic-shift.photon-reddit.com"
 
@@ -397,6 +401,66 @@ def resilient_request_json(path: str, query: dict | None = None, tries: int = 2)
         errors.append("public_fallback_failed:" + str(exc))
         raise RuntimeError(" | ".join(errors)) from exc
 
+
+
+def read_live_comment_scores(comment_ids: list[str]) -> dict:
+    """Fetch current Reddit scores for a bounded selected comment set.
+
+    This intentionally never falls back to Arctic Shift: archive scores are not
+    current-enough to be displayed as public social proof.
+    """
+    if not isinstance(comment_ids, list) or not comment_ids:
+        return {"status": "not_requested", "items": []}
+    if len(comment_ids) > 25:
+        raise ValueError("selected_comment_ids max 25")
+    clean: list[str] = []
+    for value in comment_ids:
+        cid = str(value or "").strip()
+        if cid.startswith("t1_"):
+            cid = cid[3:]
+        if not re.fullmatch(r"[A-Za-z0-9]{3,16}", cid):
+            raise ValueError("invalid Reddit comment id")
+        if cid not in clean:
+            clean.append(cid)
+    if not clean:
+        return {"status": "not_requested", "items": []}
+
+    path = "/api/info.json"
+    query = {"id": ",".join("t1_" + cid for cid in clean), "raw_json": 1}
+    errors: list[str] = []
+    payload = None
+    meta = None
+    for name, reader in (("direct", direct_request_json), ("bridge", bridge_request_json)):
+        try:
+            payload, meta = reader(path, query)
+            break
+        except Exception as exc:
+            errors.append(f"{name}:{type(exc).__name__}:{str(exc)[:240]}")
+    if payload is None or meta is None:
+        return {"status": "unavailable", "items": [], "errors": errors[-2:]}
+
+    children = ((payload.get("data") or {}).get("children") or []) if isinstance(payload, dict) else []
+    found: dict[str, dict] = {}
+    for child in children:
+        data = (child or {}).get("data") if isinstance(child, dict) else None
+        if not isinstance(data, dict):
+            continue
+        cid = str(data.get("id") or "")
+        if cid not in clean:
+            continue
+        score = data.get("score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            continue
+        found[cid] = {
+            "id": cid,
+            "author": data.get("author"),
+            "score": int(score),
+            "score_verified": True,
+            "score_source": str(meta.get("via") or "reddit-json"),
+        }
+    items = [found[cid] for cid in clean if cid in found]
+    status = "verified" if len(items) == len(clean) else ("partial" if items else "unavailable")
+    return {"status": status, "items": items, "requested": len(clean), "verified": len(items), "source": str(meta.get("via") or "reddit-json")}
 
 def _flatten_live_comment(child: dict, out: list[dict], depth: int = 0):
     if not isinstance(child, dict) or child.get("kind") != "t1":

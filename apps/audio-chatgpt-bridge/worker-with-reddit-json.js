@@ -2,7 +2,7 @@ import baseWorker from './worker.js';
 
 const encoder = new TextEncoder();
 const REDDIT_UA = 'runner3-reddit-deep-sweep/1.0 (+public read-only research)';
-const ALLOWED_QUERY_KEYS = new Set(['limit', 'raw_json', 't', 'after', 'depth', 'sort']);
+const ALLOWED_QUERY_KEYS = new Set(['limit', 'raw_json', 't', 'after', 'depth', 'sort', 'id']);
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -37,7 +37,8 @@ function parseAllowedRedditJsonUrl(value) {
 
   const listing = /^\/r\/[A-Za-z0-9_]+\/(?:top|new|hot)\.json$/i.test(url.pathname);
   const thread = /^\/comments\/[A-Za-z0-9]+\.json$/i.test(url.pathname);
-  if (!listing && !thread) return null;
+  const info = url.pathname === '/api/info.json';
+  if (!listing && !thread && !info) return null;
 
   for (const key of url.searchParams.keys()) {
     if (!ALLOWED_QUERY_KEYS.has(key)) return null;
@@ -48,6 +49,10 @@ function parseAllowedRedditJsonUrl(value) {
   if (url.searchParams.get('t') && !['hour', 'day', 'week', 'month', 'year', 'all'].includes(url.searchParams.get('t'))) return null;
   if (url.searchParams.get('sort') && !['top', 'new', 'hot', 'best', 'confidence'].includes(url.searchParams.get('sort'))) return null;
   if ((url.searchParams.get('after') || '').length > 128) return null;
+  if (url.searchParams.get('id')) {
+    const ids = url.searchParams.get('id').split(',');
+    if (ids.length < 1 || ids.length > 25 || ids.some((id) => !/^t1_[A-Za-z0-9]{3,16}$/.test(id))) return null;
+  }
   return url;
 }
 
