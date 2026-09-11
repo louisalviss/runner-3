@@ -58,6 +58,7 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
           python3 -m py_compile scripts/content_intelligence_client.py
           node scripts/verify_runner3_d1_quota_guards.mjs
+          node scripts/verify_personal_score_sql_size.mjs
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_ontology.mjs
           grep -q 'interest_saved' cloudflare/runner3-core/src/content-personalization.js

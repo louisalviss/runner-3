@@ -246,17 +246,20 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
   if (!env?.DB) return { ok:false,model_version:modelVersion,scored_items:0,changed:0 };
   const stale = await env.DB.prepare("DELETE FROM content_scores WHERE score_type='personal_relevance' AND model_version<>?").bind(modelVersion).run();
   const canonicalKey = canonicalInterestKeySql("f.feature_type", "f.feature_key");
-  const familyId = interestFamilySql("nf.feature_type", "nf.feature_key");
+  const familyId = interestFamilySql("nb.feature_type", "nb.feature_key");
   const upsert = await env.DB.prepare(`
-    WITH normalized_features AS (
+    WITH normalized_base AS (
       SELECT f.item_id,f.feature_type,${canonicalKey} AS feature_key,
         MAX(f.weight) AS weight,MAX(f.confidence) AS confidence
       FROM content_features f
       WHERE f.feature_type IN ('topic','mechanism','concept')
       GROUP BY f.item_id,f.feature_type,${canonicalKey}
+    ), normalized_features AS (
+      SELECT nb.*,${familyId} AS family_id
+      FROM normalized_base nb
     ), item_family_ranked AS (
-      SELECT nf.*,${familyId} AS family_id,
-        ROW_NUMBER() OVER (PARTITION BY nf.item_id,${familyId} ORDER BY nf.weight*nf.confidence DESC,nf.feature_type,nf.feature_key) AS family_rank
+      SELECT nf.*,
+        ROW_NUMBER() OVER (PARTITION BY nf.item_id,nf.family_id ORDER BY nf.weight*nf.confidence DESC,nf.feature_type,nf.feature_key) AS family_rank
       FROM normalized_features nf
     ), item_family AS (
       SELECT item_id,family_id,
@@ -265,7 +268,7 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
       WHERE instr(family_id,':')=0
       GROUP BY item_id,family_id
     ), leaf_matches AS (
-      SELECT nf.item_id,nf.feature_type,nf.feature_key,${familyId} AS family_id,
+      SELECT nf.item_id,nf.feature_type,nf.feature_key,nf.family_id,
         COALESCE(p.weight*nf.weight*nf.confidence,0) AS contribution,
         CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END AS matched_feature,
         CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END AS semantic_match,
@@ -274,7 +277,7 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
         MAX(COALESCE(p.confidence,0),COALESCE(pf.confidence,0)) AS profile_confidence
       FROM normalized_features nf
       LEFT JOIN interest_profile p ON p.feature_type=nf.feature_type AND p.feature_key=nf.feature_key
-      LEFT JOIN interest_profile pf ON pf.feature_type='family' AND pf.feature_key=${familyId}
+      LEFT JOIN interest_profile pf ON pf.feature_type='family' AND pf.feature_key=nf.family_id
     ), family_matches AS (
       SELECT x.item_id,'family' AS feature_type,x.family_id AS feature_key,x.family_id,
         COALESCE(p.weight*x.family_feature_strength,0) AS contribution,
