@@ -18,13 +18,19 @@ await context.route('**/artifact-library/api/progress**',async route=>{
   return route.continue();
 });
 await context.route('**/artifact-library/audio**',async route=>{
-  if(route.request().method()==='POST') return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({ok:true,id:'ebook-00000000000000000000000000000000',status:'pending',smoke:true})});
+  const req=route.request();
+  const fakeId='ebook-00000000000000000000000000000000';
+  if(req.method()==='POST') return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({ok:true,id:fakeId,status:'pending',smoke:true})});
+  const requestedId=new URL(req.url()).searchParams.get('id')||'';
+  if(requestedId===fakeId) return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true,id:fakeId,status:'pending',smoke:true})});
   return route.continue();
 });
 const page=await context.newPage();
 const consoleErrors=[];
+const httpErrors=[];
 page.on('pageerror',error=>consoleErrors.push(String(error?.stack||error)));
 page.on('console',msg=>{if(msg.type()==='error')consoleErrors.push(msg.text())});
+page.on('response',response=>{if(response.status()>=400)httpErrors.push({status:response.status(),url:response.url()});});
 
 function safe(obj){return JSON.stringify(obj);}
 
@@ -116,7 +122,12 @@ try{
   const cfiBefore=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
   await page.keyboard.press('ArrowRight');
   await page.waitForFunction(old=>Number(window.__r3StableRuntimeV82?.navMoves||0)===old+1,moveBefore,{timeout:8000});
-  await page.waitForTimeout(500);
+  // navMoves increments at move start; EPUB.js updates the visible location/CFI later.
+  // Wait for the relocation itself instead of sampling CFI after an arbitrary 500ms.
+  await page.waitForFunction(before=>{
+    const now=String(window.r3ReaderBridge?.current?.()?.start?.cfi||'');
+    return Boolean(now&&now!==before);
+  },cfiBefore,{timeout:6000});
   const moveAfter=await page.evaluate(()=>Number(window.__r3StableRuntimeV82?.navMoves||0));
   const cfiAfter=await page.evaluate(()=>String(window.r3ReaderBridge?.current?.()?.start?.cfi||''));
   if(moveAfter!==moveBefore+1) throw new Error(`KEYBOARD_NAV_NOT_SINGLE ${moveBefore}->${moveAfter}`);
@@ -139,7 +150,7 @@ try{
   await closeSettings.click({timeout:10000});
   await page.waitForFunction(()=>!document.body.classList.contains('settings'),null,{timeout:5000});
 
-  if(consoleErrors.length) throw new Error('WEBKIT_CONSOLE_ERRORS '+consoleErrors.slice(0,6).join(' | '));
+  if(consoleErrors.length||httpErrors.length) throw new Error('WEBKIT_RESOURCE_ERRORS '+safe({console:consoleErrors.slice(0,6),http:httpErrors.slice(0,12)}));
   console.log(safe({
     ok:true,
     engine:'webkit',
