@@ -29,13 +29,38 @@ try{
     await page.waitForTimeout(1000);
   }
 
+  const csp=String(response?.headers()?.['content-security-policy']||'');
+  if(!/connect-src[^;]*\bblob:/.test(csp)) throw new Error('WEBKIT_CSP_BLOB_CONNECT_MISSING '+csp);
   await page.waitForSelector('#viewer iframe',{timeout:30000});
   await page.waitForFunction(()=>Boolean(window.r3ReaderBridge),null,{timeout:30000});
-  await page.waitForFunction(()=>{
-    const frame=document.querySelector('#viewer iframe');
-    try{return String(frame?.contentDocument?.body?.innerText||'').trim().length>80}catch{return false}
-  },null,{timeout:30000});
-  await page.waitForTimeout(1200);
+  await page.waitForFunction(()=>window.__R3_BASE_READER_BOOT_DONE===true,null,{timeout:30000});
+  // Some EPUBs legitimately open on a cover/title page with no text. Advance through
+  // a few spine positions until a readable page is rendered, then test interactions.
+  let readable=false;
+  for(let step=0;step<12;step++){
+    readable=await page.evaluate(()=>{
+      const frame=document.querySelector('#viewer iframe');
+      try{return String(frame?.contentDocument?.body?.innerText||'').trim().length>80}catch{return false}
+    });
+    if(readable)break;
+    const moved=await page.evaluate(async()=>{
+      const bridge=window.r3ReaderBridge;
+      if(!bridge||typeof bridge.next!=='function')return false;
+      try{await bridge.next();return true}catch{return false}
+    });
+    if(!moved)break;
+    await page.waitForTimeout(350);
+  }
+  if(!readable){
+    const state=await page.evaluate(()=>({
+      boot:window.__r3BaseReaderBootV47||null,
+      runtime:window.__r3StableRuntimeV82||null,
+      frameText:String(document.querySelector('#viewer iframe')?.contentDocument?.body?.innerText||'').trim().length,
+      current:String(window.r3ReaderBridge?.current?.()?.start?.cfi||''),
+    }));
+    throw new Error('WEBKIT_NO_READABLE_SPINE '+safe(state));
+  }
+  await page.waitForTimeout(900);
 
   const before=await page.evaluate(()=>{
     const style=id=>{const el=document.getElementById(id);return el?{display:getComputedStyle(el).display,pointerEvents:getComputedStyle(el).pointerEvents}:null};

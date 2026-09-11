@@ -106,6 +106,7 @@ execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v92_single_in
 execFileSync('python3', ['scripts/patch_reader_v92_single_interaction_owner.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v92_single_interaction_owner.py'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v92_single_interaction_owner_smoke.mjs'], { stdio: 'inherit' });
+execFileSync('node', ['scripts/reader_v93_webkit_runtime_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });

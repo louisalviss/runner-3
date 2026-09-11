@@ -438,7 +438,8 @@ export function patchReaderV82(html) {
   let out = String(html || '');
   if (out.includes('data-r3-stable-shell-runtime-v82="1"')) return out;
   if (!out.includes('id="viewer"') || !out.includes('</head>') || !out.includes('</body>')) throw new Error('V82_READER_HTML_ANCHOR_MISSING');
-  const early = STYLE + `<script data-r3-stable-shell-early-v82="1">(${r3StableEarlyV82.toString()})();</script>`;
+  const compat = `<script data-r3-webkit-inline-compat-v93="1">globalThis.__name=globalThis.__name||((target,value)=>target);</script>`;
+  const early = STYLE + compat + `<script data-r3-stable-shell-early-v82="1">(${r3StableEarlyV82.toString()})();</script>`;
   const late = `<script data-r3-stable-shell-runtime-v82="1">(${r3StableRuntimeV82.toString()})();</script>`;
   out = out.replace('</head>', early + '</head>');
   out = out.replace('</body>', late + '</body>');
