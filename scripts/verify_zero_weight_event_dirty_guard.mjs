@@ -2,11 +2,14 @@ import {
   PERSONAL_MODEL_VERSION,
   PERSONAL_POLICY_VERSION,
   eventAffectsProfile,
+  dirtyReasonAllowsPriorityMaterialization,
   maybeRecomputePersonal,
 } from '../cloudflare/runner3-core/src/content-personalization.js';
 import { INTEREST_ONTOLOGY_VERSION } from '../cloudflare/runner3-core/src/content-interest-ontology.js';
 
 if (eventAffectsProfile('shown')) throw new Error('shown must remain zero-weight and non-invalidating');
+if (!dirtyReasonAllowsPriorityMaterialization('content_items_or_features_changed') || !dirtyReasonAllowsPriorityMaterialization('content_features_changed')) throw new Error('semantic dirty reasons must get guarded priority repair');
+if (dirtyReasonAllowsPriorityMaterialization('event_batch')) throw new Error('generic event dirty must not bypass debounce');
 for (const t of ['selected','deep_read','follow_up','saved','interest_saved','liked','disliked']) {
   if (!eventAffectsProfile(t)) throw new Error(`${t} must affect the profile`);
 }
