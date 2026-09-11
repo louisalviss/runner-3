@@ -41,6 +41,8 @@ OUT_DIR = ROOT / "data" / "opportunity-radar"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 SIGNALS_OUT = OUT_DIR / "market-signals.json"
 HEALTH_OUT = OUT_DIR / "market-health.json"
+PREFILTER_OUT = OUT_DIR / "market-prefilter.json"
+SCANNER_VERSION = "2.1-prefilter-v1"
 
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 NASDAQ_LISTED = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
@@ -402,7 +404,7 @@ def build_anomalies(
     snapshot: dict[str, dict[str, Any]],
     history: dict[str, pd.DataFrame],
     previous_packet: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, int], list[dict[str, Any]]]:
     records: dict[str, dict[str, Any]] = {}
     for symbol, df in history.items():
         if symbol in listings:
@@ -530,7 +532,8 @@ def build_anomalies(
         ),
         reverse=True,
     )
-    return merged, stats
+    prefilter_records = sorted(records.values(), key=lambda x: str(x.get("symbol") or ""))
+    return merged, stats, prefilter_records
 
 
 def signal_from(rec: dict[str, Any], generated_at: str, prior: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -696,7 +699,7 @@ def main() -> None:
             raise RuntimeError(f"history coverage too low: {len(history)}/{len(eligible)} ({coverage:.1%})")
 
         print("[4/4] Building V2 raw pricing signals")
-        anomalies, guard_stats = build_anomalies(commons, snapshot, history, previous_packet)
+        anomalies, guard_stats, prefilter_records = build_anomalies(commons, snapshot, history, previous_packet)
         previous = previous_by_symbol(previous_packet)
         signals = [signal_from(x, generated_at, previous.get(str(x.get("symbol") or "").upper())) for x in anomalies]
         source_session_date = latest_valid_market_session(history)
@@ -705,6 +708,27 @@ def main() -> None:
         expected_session_date = expected_latest_completed_us_session(generated_at_dt)
         market_status, market_complete, reason_code = classify_source_session(
             source_session_date, expected_session_date
+        )
+
+        prefilter_payload = {
+            "schema": "opportunity-radar-market-prefilter-v1",
+            "generated_at": generated_at,
+            "source_session_date": source_session_date,
+            "expected_latest_completed_us_session": expected_session_date,
+            "status": market_status,
+            "reason_code": reason_code,
+            "complete": market_complete,
+            "scanner_version": SCANNER_VERSION,
+            "universe_count": len(prefilter_records),
+            "history_requested": len(eligible),
+            "history_returned": len(history),
+            "history_coverage": coverage,
+            "config_snapshot": dict(CFG),
+            "records": prefilter_records,
+        }
+        PREFILTER_OUT.write_text(
+            json.dumps(prefilter_payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
         )
 
         payload = {
@@ -747,6 +771,9 @@ def main() -> None:
             reason_code=reason_code,
             complete=market_complete,
             signal_count=len(signals),
+            prefilter_count=len(prefilter_records),
+            prefilter_schema="opportunity-radar-market-prefilter-v1",
+            scanner_version=SCANNER_VERSION,
             history_requested=len(eligible),
             history_returned=len(history),
             history_coverage=coverage,
@@ -761,6 +788,7 @@ def main() -> None:
             buy_gate_unchanged=True,
         )
         print(f"Wrote {SIGNALS_OUT} ({len(signals)} signals)")
+        print(f"Wrote {PREFILTER_OUT} ({len(prefilter_records)} pre-filter records)")
         print(f"Wrote {HEALTH_OUT}")
     except Exception as exc:
         write_health(
