@@ -1,9 +1,6 @@
-name: Manual guarded interest recompute 2026-08-31
+name: Content Intelligence · Guarded Personalization Audit
 
 on:
-  push:
-    paths:
-      - '.github/workflows/manual-interest-recompute-20260831.yml'
   workflow_dispatch:
 
 permissions:
@@ -12,11 +9,12 @@ permissions:
 jobs:
   recompute-profile:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       CORE_URL: https://runner3-core.ducduy2411.workers.dev
       CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
     steps:
-      - name: Request guarded profile recompute
+      - name: Request guarded personal-v4 recompute
         shell: bash
         run: |
           set -euo pipefail
@@ -31,38 +29,82 @@ jobs:
           import json
           x=json.load(open('recompute.json'))
           if not x.get('ok'): raise SystemExit('guarded recompute request failed')
+          if x.get('model_version') != 'personal-v4': raise SystemExit(f"unexpected model: {x.get('model_version')}")
           status=x.get('status')
+          if status not in ('clean','dirty_debounced','recompute_in_progress') and not x.get('recomputed'):
+              raise SystemExit(f'unexpected recompute state: {x}')
           print(f'GUARDED_RECOMPUTE status={status} recomputed={bool(x.get("recomputed"))}')
-          open('/tmp/verify-profile','w').write('1' if x.get('recomputed') or status == 'clean' else '0')
           PY
 
-      - name: Verify representative interest features in profile when materialized
+      - name: Audit family hierarchy and score distribution
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$(cat /tmp/verify-profile 2>/dev/null || echo 0)" != 1 ]; then
-            echo "SKIP_PROFILE_VERIFY: recompute is guarded/debounced"
-            exit 0
-          fi
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer ${CORE_TOKEN}" \
-            "${CORE_URL}/content-intelligence/profile?limit=500" > profile.json
+          auth=(-H "Authorization: Bearer ${CORE_TOKEN}")
+          curl --fail-with-body --silent --show-error "${auth[@]}" "${CORE_URL}/content-intelligence/profile?limit=500" > profile.json
+          curl --fail-with-body --silent --show-error "${auth[@]}" "${CORE_URL}/content-intelligence/scores/top?limit=200" > scores.json
+          curl --fail-with-body --silent --show-error "${auth[@]}" "${CORE_URL}/content-intelligence/synthesis?profile_limit=100&score_limit=100" > synthesis.json
           python3 - <<'PY'
           import json
-          x=json.load(open('profile.json'))
-          keys={(r.get('feature_type'),r.get('feature_key')):r for r in x.get('rows',[])}
-          expected=[
-            ('topic','submarine-cable'),
-            ('topic','ai-forecasting'),
-            ('topic','national-resilience'),
-            ('topic','rent-vs-own'),
-            ('topic','rail-infrastructure'),
-          ]
-          missing=[k for k in expected if k not in keys]
-          if missing:
-              raise SystemExit(f'missing representative profile features: {missing}')
-          print('VERIFIED_PROFILE_FEATURES=5')
-          for k in expected:
-              r=keys[k]
-              print(f"{k[1]} weight={r.get('weight')} positive={r.get('positive_count')} evidence={r.get('evidence_count')} confidence={r.get('confidence')}")
+          profile=json.load(open('profile.json'))
+          scores=json.load(open('scores.json'))
+          synth=json.load(open('synthesis.json'))
+          model='personal-v4'
+          policy='canonical-interest-ontology-v7-family-aware'
+          for name,obj in [('profile',profile),('scores',scores),('synthesis',synth)]:
+              if not obj.get('ok'): raise SystemExit(f'{name} endpoint failed: {obj}')
+              if obj.get('model_version') != model: raise SystemExit(f'{name} model mismatch: {obj.get("model_version")}')
+              if name != 'scores' and obj.get('policy_version') != policy: raise SystemExit(f'{name} policy mismatch: {obj.get("policy_version")}')
+          rows=profile.get('rows') or []
+          if not rows: raise SystemExit('empty interest profile')
+          allowed={'family','topic','mechanism','concept'}
+          bad_types=sorted({r.get('feature_type') for r in rows if r.get('feature_type') not in allowed})
+          if bad_types: raise SystemExit(f'non-semantic profile types remain: {bad_types}')
+          singleton=[r for r in rows if int(r.get('evidence_count') or 0)<2]
+          if singleton: raise SystemExit(f'singleton profile rows remain: {len(singleton)}')
+          families=[r for r in rows if r.get('feature_type')=='family']
+          if not families: raise SystemExit('family parent rows missing')
+          fallback=[r.get('feature_key') for r in families if ':' in str(r.get('feature_key') or '')]
+          if fallback: raise SystemExit(f'fallback pseudo-families leaked: {fallback[:10]}')
+          counts=synth.get('counts') or {}
+          dist=synth.get('score_distribution') or {}
+          if int(counts.get('family_features') or 0) != len(families):
+              raise SystemExit(f'family count mismatch endpoint={counts.get("family_features")} profile={len(families)}')
+          if int(counts.get('profile_features') or 0) != len(rows):
+              raise SystemExit(f'profile count mismatch endpoint={counts.get("profile_features")} profile={len(rows)}')
+          if int(dist.get('count') or 0) != int(counts.get('scored_items') or 0):
+              raise SystemExit('score distribution count mismatch')
+          if int(dist.get('count') or 0) <= 0: raise SystemExit('personal-v4 scores missing')
+          reasons=[]
+          for r in scores.get('rows') or []:
+              if r.get('model_version') != model: raise SystemExit('legacy score model leaked')
+              try: reason=json.loads(r.get('reason_json') or '{}')
+              except Exception: reason={}
+              reasons.append(reason)
+          if reasons and not any(x.get('ontology_version')=='interest-family-v1' and 'matched_families' in x for x in reasons):
+              raise SystemExit('family-aware score reason proof missing')
+          saturation95=(int(dist.get('score_95_plus') or 0)/max(1,int(dist.get('count') or 0)))
+          saturation99=(int(dist.get('score_99_plus') or 0)/max(1,int(dist.get('count') or 0)))
+          summary={
+              'ok':True,'model_version':model,'policy_version':policy,
+              'profile_features':len(rows),'family_features':len(families),'leaf_features':len(rows)-len(families),
+              'families':[{'key':r.get('feature_key'),'weight':r.get('weight'),'evidence':r.get('evidence_count'),'positive':r.get('positive_count'),'negative':r.get('negative_count')} for r in families],
+              'score_distribution':dist,'score_95_ratio':round(saturation95,6),'score_99_ratio':round(saturation99,6),
+          }
+          json.dump(summary,open('audit-summary.json','w'),ensure_ascii=False,indent=2)
+          print(json.dumps(summary,ensure_ascii=False,sort_keys=True))
           PY
+
+      - name: Upload audit proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-intelligence-personal-v4-audit-${{ github.run_id }}
+          path: |
+            recompute.json
+            profile.json
+            scores.json
+            synthesis.json
+            audit-summary.json
+          if-no-files-found: warn
+          retention-days: 14

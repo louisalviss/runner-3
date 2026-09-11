@@ -240,19 +240,21 @@ async function handleSynthesis(request,env,url){
   if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   const profileLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("profile_limit")||"30",10)||30));
   const scoreLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("score_limit")||"20",10)||20));
-  const [counts,eventTypes,profile,topScores,recentFeedback,recentEvents]=await Promise.all([
-    env.DB.prepare(`SELECT (SELECT COUNT(*) FROM content_items) AS items,(SELECT COUNT(*) FROM user_content_events) AS events,(SELECT COUNT(*) FROM content_scores WHERE score_type='personal_relevance' AND model_version=?) AS scored_items,(SELECT COUNT(*) FROM interest_profile) AS profile_features,(SELECT MAX(event_at) FROM user_content_events) AS last_event_at`).bind(PERSONAL_MODEL_VERSION).first(),
+  const [counts,eventTypes,profile,topScores,recentFeedback,recentEvents,scoreStats]=await Promise.all([
+    env.DB.prepare(`SELECT (SELECT COUNT(*) FROM content_items) AS items,(SELECT COUNT(*) FROM user_content_events) AS events,(SELECT COUNT(*) FROM content_scores WHERE score_type='personal_relevance' AND model_version=?) AS scored_items,(SELECT COUNT(*) FROM interest_profile) AS profile_features,(SELECT COUNT(*) FROM interest_profile WHERE feature_type='family') AS family_features,(SELECT COUNT(*) FROM interest_profile WHERE feature_type<>'family') AS leaf_features,(SELECT MAX(event_at) FROM user_content_events) AS last_event_at`).bind(PERSONAL_MODEL_VERSION).first(),
     env.DB.prepare(`SELECT event_type,COUNT(*) AS count FROM user_content_events GROUP BY event_type ORDER BY count DESC`).all(),
     env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(profileLimit).all(),
     env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.source_key,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,scoreLimit).all(),
     env.DB.prepare(`SELECT e.id,e.item_id,e.event_type,e.explicit_feedback,e.event_at,i.title,i.canonical_url,i.source_type,i.source_name FROM user_content_events e JOIN content_items i ON i.item_id=e.item_id WHERE e.explicit_feedback IS NOT NULL AND TRIM(e.explicit_feedback)<>'' ORDER BY e.event_at DESC LIMIT 20`).all(),
-    env.DB.prepare(`SELECT e.id,e.item_id,e.event_type,e.event_at,e.render_id,i.title,i.canonical_url,i.source_type,i.source_name FROM user_content_events e JOIN content_items i ON i.item_id=e.item_id WHERE e.event_type<>'shown' ORDER BY e.event_at DESC LIMIT 30`).all()
+    env.DB.prepare(`SELECT e.id,e.item_id,e.event_type,e.event_at,e.render_id,i.title,i.canonical_url,i.source_type,i.source_name FROM user_content_events e JOIN content_items i ON i.item_id=e.item_id WHERE e.event_type<>'shown' ORDER BY e.event_at DESC LIMIT 30`).all(),
+    env.DB.prepare(`SELECT COUNT(*) AS count,MIN(score) AS min_score,MAX(score) AS max_score,AVG(score) AS avg_score,SUM(CASE WHEN score>=95 THEN 1 ELSE 0 END) AS score_95_plus,SUM(CASE WHEN score>=99 THEN 1 ELSE 0 END) AS score_99_plus FROM content_scores WHERE score_type='personal_relevance' AND model_version=?`).bind(PERSONAL_MODEL_VERSION).first()
   ]);
   return Response.json({
-    ok:true,generated_at:new Date().toISOString(),model_version:PERSONAL_MODEL_VERSION,feature_model:FEATURE_MODEL_VERSION,
+    ok:true,generated_at:new Date().toISOString(),model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION,feature_model:FEATURE_MODEL_VERSION,
     signal_policy:"latest-explicit-wins + interaction-recency-decay",
-    scoring_policy:"semantic relevance + freshness + bounded novelty",
-    counts:{items:Number(counts?.items||0),events:Number(counts?.events||0),scored_items:Number(counts?.scored_items||0),profile_features:Number(counts?.profile_features||0),last_event_at:counts?.last_event_at||null},
+    scoring_policy:"family-aware semantic relevance + freshness + bounded novelty",
+    counts:{items:Number(counts?.items||0),events:Number(counts?.events||0),scored_items:Number(counts?.scored_items||0),profile_features:Number(counts?.profile_features||0),family_features:Number(counts?.family_features||0),leaf_features:Number(counts?.leaf_features||0),last_event_at:counts?.last_event_at||null},
+    score_distribution:{count:Number(scoreStats?.count||0),min:Number(scoreStats?.min_score||0),max:Number(scoreStats?.max_score||0),avg:Number(scoreStats?.avg_score||0),score_95_plus:Number(scoreStats?.score_95_plus||0),score_99_plus:Number(scoreStats?.score_99_plus||0)},
     event_types:eventTypes.results||[],profile:profile.results||[],top_scores:topScores.results||[],recent_feedback:recentFeedback.results||[],recent_interest_events:recentEvents.results||[]
   });
 }
