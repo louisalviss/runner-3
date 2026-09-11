@@ -159,13 +159,13 @@ jobs:
           print(f'FEEDBACK_D1_DURABLE=PASS applied={applied} replay_or_missing={suppressed} requested={requested}')
           PY
 
-      - name: Mark/recompute personal-v3 profile when guard allows
+      - name: Verify personal-v4 profile is materialized after explicit feedback
         id: recompute
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/content_intelligence_client.py recompute --model-version personal-v3
+          python3 scripts/content_intelligence_client.py recompute --model-version personal-v4
 
       - name: Upload feedback proof
         if: always()

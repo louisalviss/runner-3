@@ -9,9 +9,12 @@ const text = fs.readFileSync(sourcePath, "utf8");
 function requireText(needle, message) { if (!text.includes(needle)) throw new Error(message); }
 function forbidText(needle, message) { if (text.includes(needle)) throw new Error(message); }
 
-requireText("PERSONAL_POLICY_VERSION = \"canonical-interest-ontology-v6\"", "policy marker mismatch");
+requireText("PERSONAL_POLICY_VERSION = \"canonical-interest-ontology-v7-family-aware\"", "policy marker mismatch");
+requireText("interestFamilySql", "family-aware SQL scoring missing");
+requireText("familyDiminishingWeight", "family diminishing-return scoring missing");
+requireText("matched_families", "family scoring proof missing");
 requireText("feature_type IN (\x27topic\x27,\x27mechanism\x27,\x27concept\x27)", "durable profile type allowlist missing");
 requireText("evidence_count>=2", "repeated-evidence gate missing");
 forbidText("OR has_explicit_feedback=1", "item feedback singleton bypass reintroduced");
 
-console.log(JSON.stringify({ok:true,policy_version:"canonical-interest-ontology-v6",item_derived_profile_min_independent_items:2,source_profile_promotion:false,entity_profile_promotion:false}));
+console.log(JSON.stringify({ok:true,policy_version:"canonical-interest-ontology-v7-family-aware",item_derived_profile_min_independent_items:2,source_profile_promotion:false,entity_profile_promotion:false,family_aware_scoring:true}));
