@@ -91,6 +91,24 @@ try{
   }
   if(before.v82Gesture&&before.v82Gesture.pointerEvents!=='none') throw new Error('V82_OVERLAY_INTERCEPTS_POINTERS '+safe(before.v82Gesture));
 
+  const touchDiag=await page.evaluate(()=>{
+    const doc=document.querySelector('#viewer iframe')?.contentDocument;
+    const win=doc?.defaultView;
+    if(!doc||!win)return {error:'no-frame'};
+    const target=[...doc.querySelectorAll('p,div,span')].find(el=>{try{const r=el.getBoundingClientRect();return String(el.textContent||'').trim().length>30&&r.width>80&&r.height>10&&!el.closest('a,button,input,select,textarea,label')}catch{return false}})||doc.body;
+    const seen=[];
+    for(const type of ['touchstart','touchmove','touchend'])doc.addEventListener(type,e=>seen.push({type,touches:e.touches?.length||0,changed:e.changedTouches?.length||0}),{capture:true});
+    try{
+      const makeTouch=(x,y)=>new win.Touch({identifier:91,target,clientX:x,clientY:y,pageX:x,pageY:y,screenX:x,screenY:y});
+      const a=makeTouch(300,260), b=makeTouch(180,262), c=makeTouch(70,263);
+      target.dispatchEvent(new win.TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[a],targetTouches:[a],changedTouches:[a]}));
+      target.dispatchEvent(new win.TouchEvent('touchmove',{bubbles:true,cancelable:true,touches:[b],targetTouches:[b],changedTouches:[b]}));
+      target.dispatchEvent(new win.TouchEvent('touchend',{bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[c]}));
+      return {seen,maxTouchPoints:Number(win.navigator?.maxTouchPoints||0),hasTouchEvent:typeof win.TouchEvent==='function',hasTouch:typeof win.Touch==='function'};
+    }catch(error){return {seen,error:String(error?.message||error),maxTouchPoints:Number(win.navigator?.maxTouchPoints||0),hasTouchEvent:typeof win.TouchEvent==='function',hasTouch:typeof win.Touch==='function'};}
+  });
+  console.log('WEBKIT_TOUCH_DIAG='+safe(touchDiag));
+
   const expand=page.locator('#r3AudioExpand');
   await expand.waitFor({state:'visible',timeout:15000});
   await expand.click({timeout:10000});
