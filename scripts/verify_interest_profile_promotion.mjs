@@ -15,6 +15,8 @@ requireText("familyDiminishingWeight", "family diminishing-return scoring missin
 requireText("matched_families", "family scoring proof missing");
 requireText("feature_type IN (\x27topic\x27,\x27mechanism\x27,\x27concept\x27)", "durable profile type allowlist missing");
 requireText("evidence_count>=2", "repeated-evidence gate missing");
+requireText("instr(feature_key, ':')=0", "family fallback filter must quote colon literal");
+forbidText("instr(feature_key, :)", "invalid unquoted family fallback SQL reintroduced");
 forbidText("OR has_explicit_feedback=1", "item feedback singleton bypass reintroduced");
 
 console.log(JSON.stringify({ok:true,policy_version:"canonical-interest-ontology-v7-family-aware",item_derived_profile_min_independent_items:2,source_profile_promotion:false,entity_profile_promotion:false,family_aware_scoring:true}));
