@@ -89,6 +89,7 @@ jobs:
           path: |
             data/opportunity-radar/market-signals.json
             data/opportunity-radar/market-health.json
+            data/opportunity-radar/market-prefilter.json
           if-no-files-found: error
           retention-days: 1
 
@@ -115,7 +116,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json
+          git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json data/opportunity-radar/market-prefilter.json
           if git diff --cached --quiet; then
             echo 'No market output changes.'
             exit 0
