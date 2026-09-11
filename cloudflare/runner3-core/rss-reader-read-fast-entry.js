@@ -3,6 +3,7 @@ import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { handleRssReaderLearning, recordReaderStateLearning, reconcileLibraryLearning } from "./src/rss-reader-learning.js";
 import { preserveArticleImages, serveCachedReaderImage } from "./src/rss-image-enrich.js";
+import { handleRssLibrarySave } from "./src/rss-library-save.js";
 
 const VERSION = "rss-reader-read-fast-v3-isolated-stream";
 const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
@@ -348,6 +349,14 @@ export default {
     const url = new URL(request.url);
     const deliveryResponse = await routeDelivery(request, env, url);
     if (deliveryResponse) return deliveryResponse;
+    if (url.pathname === "/api/rss/library/import") {
+      const imported = await handleRssLibrarySave(request, env, url);
+      if (imported) {
+        const headers = new Headers(imported.headers);
+        headers.set("x-r3-rss-import-entry", VERSION);
+        return new Response(imported.body, { status: imported.status, statusText: imported.statusText, headers });
+      }
+    }
     const pageResponse = await routeRssPage(request, env, url);
     if (pageResponse) return pageResponse;
     const response = await routeRead(request, env, url, ctx);

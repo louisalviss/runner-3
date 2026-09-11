@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data" / "opportunity-radar"
 HEALTH_PATH = DATA_DIR / "market-health.json"
 SIGNALS_PATH = DATA_DIR / "market-signals.json"
+PREFILTER_PATH = DATA_DIR / "market-prefilter.json"
 
 PROJECT = "opportunity-radar-v2"
 SCOPE = "market-pricing"
@@ -44,7 +45,7 @@ def sha256_json(value: Any) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def validate_packet(health: dict[str, Any], packet: dict[str, Any]) -> list[str]:
+def validate_packet(health: dict[str, Any], packet: dict[str, Any], prefilter: dict[str, Any]) -> list[str]:
     if health.get("status") != "COMPLETE" or health.get("complete") is not True:
         raise RuntimeError("market-health is not COMPLETE")
     if packet.get("complete") is not True:
@@ -74,6 +75,20 @@ def validate_packet(health: dict[str, Any], packet: dict[str, Any]) -> list[str]
     if health_count != len(ids):
         raise RuntimeError(f"signal_count mismatch: health={health_count} packet={len(ids)}")
 
+    if prefilter.get("schema") != "opportunity-radar-market-prefilter-v1":
+        raise RuntimeError("market-prefilter schema invalid")
+    if prefilter.get("complete") is not True or prefilter.get("status") != "COMPLETE":
+        raise RuntimeError("market-prefilter is not COMPLETE")
+    if prefilter.get("source_session_date") != health_session:
+        raise RuntimeError("market-prefilter source_session_date mismatch")
+    records = prefilter.get("records")
+    if not isinstance(records, list):
+        raise RuntimeError("market-prefilter.records must be a list")
+    if int(prefilter.get("universe_count") or -1) != len(records):
+        raise RuntimeError("market-prefilter universe_count mismatch")
+    if int(health.get("prefilter_count") or -1) != len(records):
+        raise RuntimeError("market-health prefilter_count mismatch")
+
     return sorted(ids)
 
 
@@ -84,12 +99,15 @@ def run_meta(name: str, fallback: str) -> str | None:
 def main() -> None:
     health = load_json(HEALTH_PATH)
     packet = load_json(SIGNALS_PATH)
-    intake_ids = validate_packet(health, packet)
+    prefilter = load_json(PREFILTER_PATH)
+    intake_ids = validate_packet(health, packet, prefilter)
 
     session = str(health["source_session_date"])
     intake_ids_sha256 = sha256_json(intake_ids)
     signals_sha256 = sha256_file(SIGNALS_PATH)
     health_sha256 = sha256_file(HEALTH_PATH)
+    prefilter_sha256 = sha256_file(PREFILTER_PATH)
+    prefilter_count = len(prefilter.get("records") or [])
     run_id = run_meta("RADAR_RUN_ID", "GITHUB_RUN_ID")
     run_attempt = run_meta("RADAR_RUN_ATTEMPT", "GITHUB_RUN_ATTEMPT")
     trigger_sha = run_meta("RADAR_TRIGGER_SHA", "GITHUB_SHA")
@@ -115,6 +133,10 @@ def main() -> None:
         "intake_ids_sha256": intake_ids_sha256,
         "signals_sha256": signals_sha256,
         "health_sha256": health_sha256,
+        "prefilter_sha256": prefilter_sha256,
+        "prefilter_count": prefilter_count,
+        "prefilter_schema": prefilter.get("schema"),
+        "scanner_version": prefilter.get("scanner_version"),
         "run_id": run_id,
         "run_attempt": run_attempt,
         "trigger_sha": trigger_sha,
@@ -139,6 +161,8 @@ def main() -> None:
             "lane": "MARKET_PRICING",
             "source_session_date": session,
             "signal_count": len(intake_ids),
+            "prefilter_count": prefilter_count,
+            "prefilter_sha256": prefilter_sha256,
             "checkpoint_project": PROJECT,
             "checkpoint_scope": SCOPE,
         },
@@ -153,6 +177,8 @@ def main() -> None:
                 "source": SOURCE,
                 "source_session_date": session,
                 "signal_count": len(intake_ids),
+                "prefilter_count": prefilter_count,
+                "prefilter_sha256": prefilter_sha256,
                 "same_session_as_previous": same_session,
                 "same_packet_identity_as_previous": same_identity,
                 "checkpoint": checkpoint,

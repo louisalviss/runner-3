@@ -72,6 +72,8 @@ function normalizeCandidate(item, index) {
     cache_status: isCached ? "cached" : "remote",
     cache_token: text(item?.cache_token, 80) || null,
     cached_at: text(item?.cached_at, 80) || null,
+    imported_from: text(item?.imported_from, 6000) || null,
+    order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index,
   };
 }
 
@@ -84,6 +86,14 @@ export function selectContentImages(value) {
     if (!candidate || seen.has(candidate.source_url)) continue;
     seen.add(candidate.source_url);
     candidates.push(candidate);
+  }
+
+  const facebookImported = candidates.filter((x) => String(x.imported_from || "").startsWith("core/facebook-archive/"));
+  if (facebookImported.length) {
+    return facebookImported
+      .sort((a, b) => a.order - b.order || a.index - b.index)
+      .slice(0, 80)
+      .map(({ index, ...item }) => item);
   }
 
   const essential = candidates
@@ -325,6 +335,32 @@ export async function preserveArticleImages(env, articleId) {
   };
 }
 
+
+async function fallbackImportedObjectForMissingMedia(env, articleId, token, headOnly = false) {
+  if (!env?.DB || !env?.ARTIFACTS) return { object: null, reason: "binding-missing" };
+  const article = await articleForImages(env, articleId);
+  if (!article?.original_object_key) return { object: null, reason: "article-missing" };
+  const sourceKey = String(article.source_key || "");
+  if (!sourceKey.startsWith("facebook:")) return { object: null, reason: "not-facebook" };
+  const scope = sourceKey.slice("facebook:".length);
+  if (!scope || !/^[A-Za-z0-9._-]+$/.test(scope)) return { object: null, reason: "scope-invalid" };
+  const articleObject = await env.ARTIFACTS.get(article.original_object_key);
+  if (!articleObject) return { object: null, reason: "article-object-missing" };
+  let artifact;
+  try { artifact = JSON.parse(await articleObject.text()); } catch { return { object: null, reason: "article-json-invalid" }; }
+  if (!Array.isArray(artifact.images)) return { object: null, reason: "images-missing" };
+  const image = artifact.images.find((x) => x?.cache_token === token);
+  if (!image) return { object: null, reason: "token-not-in-artifact" };
+  const key = String(image.imported_from || "").trim();
+  if (!key) return { object: null, reason: "imported-from-missing" };
+  const expectedPrefix = `core/facebook-archive/${scope}/media/`;
+  if (!key.startsWith(expectedPrefix) || !/^core\/facebook-archive\/[A-Za-z0-9._-]+\/media\/[A-Za-z0-9._\/-]+$/.test(key)) {
+    return { object: null, reason: "imported-from-invalid" };
+  }
+  const object = headOnly ? await env.ARTIFACTS.head(key) : await env.ARTIFACTS.get(key);
+  return { object: object || null, reason: object ? "source-hit" : "source-object-missing" };
+}
+
 async function fallbackSourceForMissingMedia(env, articleId, token) {
   if (!env?.DB || !env?.ARTIFACTS) return null;
   const article = await articleForImages(env, articleId);
@@ -347,17 +383,27 @@ export async function serveCachedReaderImage(request, env, url) {
   const token = match[2].toLowerCase();
   const key = mediaKey(articleId, token);
   const object = request.method === "HEAD" ? await env.ARTIFACTS.head(key) : await env.ARTIFACTS.get(key);
-  if (!object) {
+  let resolved = object;
+  let sourceKind = "rss-cache";
+  let fallbackReason = "not-needed";
+  if (!resolved) {
+    const fallback = await fallbackImportedObjectForMissingMedia(env, articleId, token, request.method === "HEAD");
+    resolved = fallback.object;
+    fallbackReason = fallback.reason;
+    if (resolved) sourceKind = "facebook-r2-source";
+  }
+  if (!resolved) {
     const source = await fallbackSourceForMissingMedia(env, articleId, token);
     if (source) return Response.redirect(source, 302);
-    return new Response("Not Found", { status: 404, headers: { "cache-control": "no-store" } });
+    return new Response("Not Found", { status: 404, headers: { "cache-control": "no-store", "x-r3-rss-media-fallback": fallbackReason } });
   }
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
+  resolved.writeHttpMetadata(headers);
+  headers.set("etag", resolved.httpEtag);
   headers.set("cache-control", "public, max-age=31536000, immutable");
   headers.set("x-content-type-options", "nosniff");
-  return new Response(request.method === "HEAD" ? null : object.body, { headers });
+  headers.set("x-r3-rss-media-source", sourceKind);
+  return new Response(request.method === "HEAD" ? null : resolved.body, { headers });
 }
 
 function articleIdFromMediaKey(key) {

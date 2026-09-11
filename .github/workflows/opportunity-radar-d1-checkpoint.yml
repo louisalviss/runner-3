@@ -24,16 +24,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      RUNNER3_CORE_URL: https://runner3-core.ducduy2411.workers.dev
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
       UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion || 'success' }}
       RADAR_RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
       RADAR_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || github.run_attempt }}
       RADAR_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       RADAR_WORKFLOW: Runner3 Opportunity Radar Market V2
+      RADAR_CHECKOUT_REF: ${{ github.event.workflow_run.head_branch || github.ref_name || 'main' }}
     steps:
       - name: Checkout current persisted runtime
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ env.RADAR_CHECKOUT_REF }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -107,6 +110,9 @@ jobs:
               and position.get('phase')=='persisted'
               and position.get('source_session_date')==health.get('source_session_date')
               and int(position.get('signal_count') or -1)==int(health.get('signal_count') or -2)
+              and int(position.get('prefilter_count') or -1)==int(health.get('prefilter_count') or -2)
+              and position.get('prefilter_sha256')
+              and position.get('prefilter_sha256')==__import__('hashlib').sha256(Path('data/opportunity-radar/market-prefilter.json').read_bytes()).hexdigest()
               and isinstance(state,dict)
               and state.get('status')=='success'
           )
@@ -115,6 +121,8 @@ jobs:
               'radarRunId':os.environ.get('RADAR_RUN_ID'),
               'sourceSessionDate':health.get('source_session_date'),
               'signalCount':health.get('signal_count'),
+              'prefilterCount':health.get('prefilter_count'),
+              'prefilterSha256':position.get('prefilter_sha256') if isinstance(position,dict) else None,
               'phase':position.get('phase') if isinstance(position,dict) else None,
               'intakeIdsSha256':position.get('intake_ids_sha256') if isinstance(position,dict) else None,
               'stateStatus':state.get('status') if isinstance(state,dict) else None,
@@ -145,8 +153,8 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Persist Opportunity Radar D1 checkpoint: ${RADAR_RUN_ID} [skip ci]"
           for attempt in 1 2 3 4; do
-            git pull --rebase origin main || true
-            git push origin HEAD:main && exit 0
+            git pull --rebase origin "$RADAR_CHECKOUT_REF" || true
+            git push origin HEAD:"$RADAR_CHECKOUT_REF" && exit 0
             sleep 2
           done
           exit 3
