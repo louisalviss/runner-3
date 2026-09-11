@@ -194,7 +194,7 @@ function profileProjectionCte() {
     FROM family_item GROUP BY family_key
   ), family_eligible AS (
     SELECT *,CASE WHEN evidence_count>=4 THEN 1.00 WHEN evidence_count=3 THEN 0.82 ELSE 0.62 END AS evidence_factor
-    FROM family_evidence WHERE evidence_count>=2 AND instr(feature_key, :)=0
+    FROM family_evidence WHERE evidence_count>=2 AND instr(feature_key, ':')=0
   ), family_scored AS (
     SELECT feature_type,feature_key,evidence_count,positive_count,negative_count,
       (raw_weight/MAX(1.0,SQRT(evidence_count)))*evidence_factor AS projected_weight,
