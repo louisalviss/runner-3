@@ -125,8 +125,15 @@ async function handleEventBatch(request,env){
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
     const list=rows(await request.json()); const results=await env.DB.batch(list.map(r=>eventStatement(env,r))); const applied=results.reduce((n,r)=>n+(r.meta?.changes??0),0);
+    const explicitFeedbackBatch=list.some(r=>["liked","disliked","interest_saved"].includes(String(r.event_type||"")));
     if(applied) await markProfileDirty(env,"event_batch");
-    return Response.json({ok:true,durable:true,applied,requested:list.length,missing_or_duplicate:list.length-applied,materialization_status:applied?"dirty":"unchanged"});
+    const recompute=(applied&&explicitFeedbackBatch)
+      ? await maybeRecomputePersonal(env,{priorityExplicit:true})
+      : {recomputed:false,status:applied?"dirty":"unchanged"};
+    return Response.json({ok:true,durable:true,applied,requested:list.length,missing_or_duplicate:list.length-applied,
+      explicit_feedback_batch:explicitFeedbackBatch,profile_recomputed:Boolean(recompute.recomputed),
+      materialization_status:recompute.recomputed?(recompute.status||"clean"):(recompute.status||(applied?"dirty":"unchanged")),
+      model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
@@ -150,6 +157,7 @@ async function handleInterestIngest(request,env){
     if(readback.count!==1)return Response.json({ok:false,durable:false,d1_readback:false,error:"INTEREST_EVENT_READBACK_FAILED",item_id:item.item_id,render_id:renderId,event_count:readback.count},{status:500});
     const changed=Number(itemResult.meta?.changes||0)+featureChanges+Number(result.meta?.changes||0);
     if(changed)await markProfileDirty(env,"explicit_interest_ingested");
+    const recompute=changed?await maybeRecomputePersonal(env,{priorityExplicit:true}):{recomputed:false,status:"unchanged"};
     return Response.json({
       ok:true,
       durable:true,
@@ -165,7 +173,8 @@ async function handleInterestIngest(request,env){
       feature_model:FEATURE_MODEL_VERSION,
       model_version:PERSONAL_MODEL_VERSION,
       semantic_enrichment:"deferred",
-      materialization_status:changed?"dirty":"unchanged"
+      profile_recomputed:Boolean(recompute.recomputed),
+      materialization_status:recompute.recomputed?recompute.status:(recompute.status||(changed?"dirty":"unchanged"))
     });
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
@@ -191,7 +200,7 @@ async function handleInterestSave(request,env){
     const result=await eventStatement(env,event).run();
     const changed=Number(itemResult.meta?.changes||0)+semantic.applied+featureChanges+Number(result.meta?.changes||0);
     if(changed) await markProfileDirty(env,"explicit_interest_saved");
-    const recompute=changed?await maybeRecomputePersonal(env):{recomputed:false,status:"unchanged"};
+    const recompute=changed?await maybeRecomputePersonal(env,{priorityExplicit:true}):{recomputed:false,status:"unchanged"};
     return Response.json({ok:true,item_id:item.item_id,event_applied:Number(result.meta?.changes||0),item_changes:Number(itemResult.meta?.changes||0),heartbeat_changes:Number(heartbeatResult.meta?.changes||0),feature_changes:featureChanges,semantic_features:semantic.applied,feature_model:FEATURE_MODEL_VERSION,model_version:PERSONAL_MODEL_VERSION,profile_recomputed:Boolean(recompute.recomputed),materialization_status:recompute.recomputed?recompute.status:(changed?"dirty":"unchanged")});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }

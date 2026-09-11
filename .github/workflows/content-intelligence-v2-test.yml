@@ -1,4 +1,4 @@
-name: Content Intelligence v3 Regression
+name: Content Intelligence v4 Regression
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
+      - 'cloudflare/runner3-core/src/content-interest-ontology.js'
       - 'cloudflare/runner3-core/src/content-personalization.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
@@ -20,6 +21,7 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
+      - 'cloudflare/runner3-core/src/content-interest-ontology.js'
       - 'cloudflare/runner3-core/src/content-personalization.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
@@ -50,6 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check cloudflare/runner3-core/src/content-feature-enrichment.js
+          node --check cloudflare/runner3-core/src/content-interest-ontology.js
           node --check cloudflare/runner3-core/src/content-personalization.js
           node --check cloudflare/runner3-core/src/content-intelligence.js
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
@@ -66,12 +69,12 @@ jobs:
           grep -q 'novelty_bonus' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'PERCENT_RANK()' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'type_rank' cloudflare/runner3-core/src/content-personalization.js
-          grep -q 'canonical-interest-ontology-v6' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'canonical-interest-ontology-v7-family-aware' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'PROFILE_RECOMPUTE_CLOCK_KEY' cloudflare/runner3-core/src/content-personalization.js
           grep -q "NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)" cloudflare/runner3-core/src/content-personalization.js
           ! grep -q "status='dirty' AND updated_at <= datetime('now',?)" cloudflare/runner3-core/src/content-personalization.js
           grep -q 'result\["materialization"\] = materialization' scripts/content_intelligence_client.py
-          grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v3"' scripts/content_intelligence_client.py
+          grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v4"' scripts/content_intelligence_client.py
           grep -q 'model_materialization_missing' cloudflare/runner3-core/src/content-personalization.js
           grep -q '/content-intelligence/interests/save' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/snapshot' cloudflare/runner3-core/src/content-intelligence.js
@@ -92,8 +95,8 @@ jobs:
           });
           const keys = new Set(a.map((x) => `${x.feature_type}:${x.feature_key}`));
           if (FEATURE_MODEL_VERSION !== 'semantic-bridge-v4') throw new Error('feature model marker mismatch');
-          if (PERSONAL_MODEL_VERSION !== 'personal-v3') throw new Error('personal model marker mismatch');
-          if (PERSONAL_POLICY_VERSION !== 'canonical-interest-ontology-v6') throw new Error('personal policy marker mismatch');
+          if (PERSONAL_MODEL_VERSION !== 'personal-v4') throw new Error('personal model marker mismatch');
+          if (PERSONAL_POLICY_VERSION !== 'canonical-interest-ontology-v7-family-aware') throw new Error('personal policy marker mismatch');
           if (PROFILE_RECOMPUTE_CLOCK_KEY !== 'content-intelligence-profile-last-recompute') throw new Error('recompute clock marker mismatch');
           if (!keys.has('topic:ai-agents')) throw new Error('AI-agent topic missing');
           if (!keys.has('concept:agent-orchestration')) throw new Error('agent-orchestration concept missing');

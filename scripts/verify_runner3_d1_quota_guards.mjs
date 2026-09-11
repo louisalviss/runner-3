@@ -12,6 +12,9 @@ const requireText = (text, needle, message) => { if (!text.includes(needle)) fai
 const forbidText = (text, needle, message) => { if (text.includes(needle)) fail(message); };
 
 requireText(personalization, "RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000", "4h debounce missing");
+requireText(personalization, "priorityExplicit", "bounded explicit-feedback priority recompute missing");
+requireText(personalization, "familyDiminishingWeight", "family diminishing-return scoring missing");
+requireText(personalization, "interestFamilySql", "family-aware materialized scoring missing");
 requireText(personalization, "status='recomputing'", "recompute lease state missing");
 requireText(personalization, "run_id=?", "lease token missing");
 requireText(personalization, "status='recomputing' AND run_id=?", "CAS lease completion missing");
@@ -20,6 +23,8 @@ forbidText(personalization, 'prepare("DELETE FROM interest_profile")', "full pro
 forbidText(personalization, 'prepare("DELETE FROM content_scores WHERE score_type=\'personal_relevance\'")', "full score delete reintroduced");
 
 requireText(intelligence, "handleGuardedRecompute", "direct recompute guard missing");
+requireText(intelligence, "explicit_feedback_batch", "explicit feedback batch result marker missing");
+requireText(intelligence, "priorityExplicit:true", "explicit feedback must trigger one priority recompute");
 forbidText(intelligence, "recomputeInterestProfile,", "raw profile recompute import reintroduced");
 forbidText(intelligence, "recomputePersonalScores,", "raw score recompute import reintroduced");
 requireText(intelligence, "heartbeat_changes", "heartbeat/material-change separation missing");
