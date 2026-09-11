@@ -197,10 +197,11 @@ jobs:
             layout_owner="$(grep -i '^x-r3-reader-layout-owner:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             interaction_owner="$(grep -i '^x-r3-reader-interaction-owner:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             webkit_runtime="$(grep -i '^x-r3-reader-webkit-runtime:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+            frame_bind="$(grep -i '^x-r3-reader-frame-bind:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             reader_fastpath="$(grep -i '^x-r3-reader-fastpath:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             persistent_owner="$(grep -i '^x-r3-owner-session:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             persistent_max_age="$(grep -i '^x-r3-owner-session-max-age:' /tmp/h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-            echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof home_safe=$home_safe home_layout=$home_layout startup=$startup_viewport dock_audio=$dock_audio stable_shell=$stable_shell pagination_owner=$pagination_owner restore_guard=$restore_guard layout_owner=$layout_owner interaction_owner=$interaction_owner webkit_runtime=$webkit_runtime reader_fastpath=$reader_fastpath owner_session=$persistent_owner owner_max_age=$persistent_max_age"
+            echo "READER_CHECK attempt=$attempt http=$code runtime=$runtime proof=$proof home_safe=$home_safe home_layout=$home_layout startup=$startup_viewport dock_audio=$dock_audio stable_shell=$stable_shell pagination_owner=$pagination_owner restore_guard=$restore_guard layout_owner=$layout_owner interaction_owner=$interaction_owner webkit_runtime=$webkit_runtime frame_bind=$frame_bind reader_fastpath=$reader_fastpath owner_session=$persistent_owner owner_max_age=$persistent_max_age"
             # Canonical /artifact-library/read uses the full Reader chain; reader_fastpath is diagnostic for the fallback path only.
             marker_ok=1
             while IFS='|' read -r marker_name marker_text; do
@@ -234,8 +235,10 @@ jobs:
           v92-backdrop-disabled|#r3SettingsBackdrop{display:none!important;pointer-events:none!important}
           v93-inline-compat|data-r3-webkit-inline-compat-v93="1"
           v93-name-helper|globalThis.__name=globalThis.__name||((target,value)=>target)
+          v94-frame-doc-marker|r3GestureOwnerV94
+          v94-relocated-hook|window.__r3FrameRebindOffV94 = off
           R3MARKERS
-            if [ "$code" = 200 ] && [ "$runtime" = 'v35-continuity-single-owner' ] && [ "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' ] && [ "$home_safe" = 'v36' ] && [ "$home_layout" = 'stable-v79' ] && [ "$startup_viewport" = 'stable-opaque-v79' ] && [ "$dock_audio" = 'stable-v80' ] && [ "$stable_shell" = 'v82' ] && [ "$pagination_owner" = 'v82' ] && [ "$restore_guard" = 'nonblocking-v89' ] && [ "$layout_owner" = 'converged-v90' ] && [ "$interaction_owner" = 'single-v92' ] && [ "$webkit_runtime" = 'compat-v93' ] && [ "$persistent_owner" = 'single-owner-v87-persistent' ] && [ "$persistent_max_age" = '315360000' ] && [ "$marker_ok" = 1 ] && grep -qi 'set-cookie: r3_artifact_library=.*Max-Age=315360000' /tmp/h.clean && grep -qi 'set-cookie: r3_artifact_library=.*Expires=' /tmp/h.clean && grep -qi 'set-cookie: r3_artifact_library=.*SameSite=Lax' /tmp/h.clean && grep -Eqi '^content-security-policy:.*connect-src[^;]*blob:' /tmp/h.clean; then
+            if [ "$code" = 200 ] && [ "$runtime" = 'v35-continuity-single-owner' ] && [ "$proof" = 'v34+v35:ahead-prefetch+range-follow+single-audio-owner' ] && [ "$home_safe" = 'v36' ] && [ "$home_layout" = 'stable-v79' ] && [ "$startup_viewport" = 'stable-opaque-v79' ] && [ "$dock_audio" = 'stable-v80' ] && [ "$stable_shell" = 'v82' ] && [ "$pagination_owner" = 'v82' ] && [ "$restore_guard" = 'nonblocking-v89' ] && [ "$layout_owner" = 'converged-v90' ] && [ "$interaction_owner" = 'single-v92' ] && [ "$webkit_runtime" = 'compat-v93' ] && [ "$frame_bind" = 'relocated-v94' ] && [ "$persistent_owner" = 'single-owner-v87-persistent' ] && [ "$persistent_max_age" = '315360000' ] && [ "$marker_ok" = 1 ] && grep -qi 'set-cookie: r3_artifact_library=.*Max-Age=315360000' /tmp/h.clean && grep -qi 'set-cookie: r3_artifact_library=.*Expires=' /tmp/h.clean && grep -qi 'set-cookie: r3_artifact_library=.*SameSite=Lax' /tmp/h.clean && grep -Eqi '^content-security-policy:.*connect-src[^;]*blob:' /tmp/h.clean; then
               ok=1
               break
             fi

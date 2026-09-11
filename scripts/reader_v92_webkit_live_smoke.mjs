@@ -60,7 +60,12 @@ try{
     }));
     throw new Error('WEBKIT_NO_READABLE_SPINE '+safe(state));
   }
-  await page.waitForTimeout(900);
+  await page.evaluate(()=>{ try{window.__r3BindReaderFramesV91?.();}catch{} });
+  await page.waitForFunction(()=>{
+    const doc=document.querySelector('#viewer iframe')?.contentDocument;
+    return doc?.documentElement?.dataset?.r3GestureOwnerV94==='1';
+  },null,{timeout:5000});
+  await page.waitForTimeout(400);
 
   const before=await page.evaluate(()=>{
     const style=id=>{const el=document.getElementById(id);return el?{display:getComputedStyle(el).display,pointerEvents:getComputedStyle(el).pointerEvents}:null};
