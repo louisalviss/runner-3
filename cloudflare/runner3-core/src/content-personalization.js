@@ -31,6 +31,10 @@ export const PROFILE_AFFECTING_EVENT_TYPES = Object.freeze(
   Object.keys(EVENT_WEIGHTS).filter((eventType) => eventAffectsProfile(eventType)),
 );
 
+export function dirtyReasonAllowsPriorityMaterialization(reason) {
+  return ["content_items_or_features_changed","content_features_changed"].includes(String(reason || ""));
+}
+
 export async function markProfileDirty(env, reason = "content_intelligence_event") {
   if (!env?.DB) return 0;
   const result = await env.DB.prepare(`
@@ -551,6 +555,10 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
     "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
   ).bind(modelVersion, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
   const materializationMismatch = !materialized?.ok;
+  let dirtyReason = "";
+  if (before.status === "dirty") {
+    try { dirtyReason = String(JSON.parse(before.detail || "{}").reason || ""); } catch {}
+  }
 
   // Legacy readers used to mark the profile dirty for `shown`, even though
   // `shown` has preference weight 0. If the dirty reason came only from an
@@ -559,9 +567,7 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   // expensive materialization work. Feature-driven dirty reasons are never
   // auto-cleared here.
   if (before.status === "dirty" && !materializationMismatch) {
-    let reason = "";
-    try { reason = String(JSON.parse(before.detail || "{}").reason || ""); } catch {}
-    if (reason === "event_batch" || reason === "event_shown") {
+    if (dirtyReason === "event_batch" || dirtyReason === "event_shown") {
       const placeholders = PROFILE_AFFECTING_EVENT_TYPES.map(() => "?").join(",");
       const meaningful = await env.DB.prepare(`
         SELECT COUNT(*) AS n FROM user_content_events
@@ -595,7 +601,8 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
     `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
   }
 
-  const token = await acquireRecomputeLease(env, modelVersion, priorityExplicit || materializationMismatch);
+  const semanticDirtyPriority = before.status === "dirty" && dirtyReasonAllowsPriorityMaterialization(dirtyReason);
+  const token = await acquireRecomputeLease(env, modelVersion, priorityExplicit || materializationMismatch || semanticDirtyPriority);
   if (!token) {
     const current = await profileState(env);
     if (current?.status === "dirty") return { ok: true, recomputed: false, status: "dirty_debounced" };
