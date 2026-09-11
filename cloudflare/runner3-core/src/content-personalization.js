@@ -242,135 +242,222 @@ export async function recomputeInterestProfile(env, modelVersion = PERSONAL_MODE
   };
 }
 
+export const PERSONAL_SCORE_READ_PAGE = 1000;
+export const PERSONAL_SCORE_WRITE_BATCH = 50;
+
 export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL_VERSION) {
   if (!env?.DB) return { ok:false,model_version:modelVersion,scored_items:0,changed:0 };
-  const stale = await env.DB.prepare("DELETE FROM content_scores WHERE score_type='personal_relevance' AND model_version<>?").bind(modelVersion).run();
-  const canonicalKey = canonicalInterestKeySql("f.feature_type", "f.feature_key");
-  const familyId = interestFamilySql("nb.feature_type", "nb.feature_key");
 
+  const stale = await env.DB.prepare("DELETE FROM content_scores WHERE score_type='personal_relevance' AND model_version<>?").bind(modelVersion).run();
   await env.DB.prepare("DELETE FROM personal_score_stage WHERE model_version=?").bind(modelVersion).run();
 
-  const staged = await env.DB.prepare(`
-    WITH normalized_base AS (
-      SELECT f.item_id,f.feature_type,${canonicalKey} AS feature_key,
-        MAX(f.weight) AS weight,MAX(f.confidence) AS confidence
-      FROM content_features f
-      WHERE f.feature_type IN ('topic','mechanism','concept')
-      GROUP BY f.item_id,f.feature_type,${canonicalKey}
-    ), normalized_features AS (
-      SELECT nb.*,${familyId} AS family_id
-      FROM normalized_base nb
-    ), item_family_ranked AS (
-      SELECT nf.*,
-        ROW_NUMBER() OVER (PARTITION BY nf.item_id,nf.family_id ORDER BY nf.weight*nf.confidence DESC,nf.feature_type,nf.feature_key) AS family_rank
-      FROM normalized_features nf
-    ), item_family AS (
-      SELECT item_id,family_id,
-        SUM(weight*confidence*CASE WHEN family_rank=1 THEN 1.0 WHEN family_rank=2 THEN 0.35 ELSE 0.15 END) AS family_feature_strength
-      FROM item_family_ranked
-      WHERE instr(family_id,':')=0
-      GROUP BY item_id,family_id
-    ), leaf_matches AS (
-      SELECT nf.item_id,nf.feature_type,nf.feature_key,nf.family_id,
-        COALESCE(p.weight*nf.weight*nf.confidence,0) AS contribution,
-        CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END AS matched_feature,
-        CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END AS semantic_match,
-        nf.weight*nf.confidence AS semantic_weight,
-        CASE WHEN p.feature_key IS NULL AND pf.feature_key IS NULL THEN nf.weight*nf.confidence ELSE 0 END AS novel_semantic_weight,
-        MAX(COALESCE(p.confidence,0),COALESCE(pf.confidence,0)) AS profile_confidence
-      FROM normalized_features nf
-      LEFT JOIN interest_profile p ON p.feature_type=nf.feature_type AND p.feature_key=nf.feature_key
-      LEFT JOIN interest_profile pf ON pf.feature_type='family' AND pf.feature_key=nf.family_id
-    ), family_matches AS (
-      SELECT x.item_id,'family' AS feature_type,x.family_id AS feature_key,x.family_id,
-        COALESCE(p.weight*x.family_feature_strength,0) AS contribution,
-        CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END AS matched_feature,
-        CASE WHEN p.feature_key IS NOT NULL THEN 1 ELSE 0 END AS semantic_match,
-        0.0 AS semantic_weight,0.0 AS novel_semantic_weight,COALESCE(p.confidence,0) AS profile_confidence
-      FROM item_family x
-      LEFT JOIN interest_profile p ON p.feature_type='family' AND p.feature_key=x.family_id
-    ), combined_matches AS (
-      SELECT * FROM leaf_matches
-      UNION ALL
-      SELECT * FROM family_matches
-    ), ranked_matches AS (
-      SELECT *,ROW_NUMBER() OVER (
-        PARTITION BY item_id,family_id
-        ORDER BY ABS(contribution) DESC,feature_type,feature_key
-      ) AS family_rank
-      FROM combined_matches
-    ), family_rollup AS (
-      SELECT item_id,family_id,
-        SUM(contribution*CASE WHEN family_rank=1 THEN 1.0 WHEN family_rank=2 THEN 0.35 ELSE 0.15 END) AS family_signal,
-        SUM(matched_feature) AS matched_features,SUM(semantic_match) AS semantic_matches,
-        SUM(semantic_weight) AS semantic_weight,SUM(novel_semantic_weight) AS novel_semantic_weight,
-        MAX(profile_confidence) AS profile_confidence
-      FROM ranked_matches GROUP BY item_id,family_id
-    ), feature_rollup AS (
-      SELECT item_id,
-        SUM(CASE WHEN family_id='analysis-style' THEN MAX(-3.0,MIN(3.0,family_signal)) ELSE MAX(-5.0,MIN(5.0,family_signal)) END) AS relevance_signal,
-        SUM(matched_features) AS matched_features,SUM(semantic_matches) AS semantic_matches,
-        SUM(semantic_weight) AS semantic_weight,SUM(novel_semantic_weight) AS novel_semantic_weight,
-        MAX(profile_confidence) AS profile_confidence,
-        SUM(CASE WHEN ABS(family_signal)>0.0001 THEN 1 ELSE 0 END) AS matched_families
-      FROM family_rollup GROUP BY item_id
-    ), components AS (
-      SELECT i.item_id,r.*,
-        CASE
-          WHEN i.published_at IS NULL OR julianday(i.published_at) IS NULL THEN 0.0
-          WHEN julianday('now')-julianday(i.published_at)<0 THEN 0.0
-          WHEN julianday('now')-julianday(i.published_at)<=2 THEN 5.0
-          WHEN julianday('now')-julianday(i.published_at)<=7 THEN 3.5
-          WHEN julianday('now')-julianday(i.published_at)<=30 THEN 1.5
-          WHEN julianday('now')-julianday(i.published_at)<=90 THEN 0.5
-          WHEN julianday('now')-julianday(i.published_at)>365 THEN -2.0
-          WHEN julianday('now')-julianday(i.published_at)>180 THEN -1.0 ELSE 0.0 END AS freshness_bonus,
-        CASE WHEN r.semantic_matches>0 AND r.semantic_weight>0 THEN MIN(2.0,2.0*r.novel_semantic_weight/r.semantic_weight) ELSE 0.0 END AS novelty_bonus
-      FROM content_items i JOIN feature_rollup r ON r.item_id=i.item_id
-    ), base_scores AS (
-      SELECT *,50.0+(38.0*relevance_signal/(6.0+ABS(relevance_signal)))+freshness_bonus+novelty_bonus AS base_score FROM components
-    )
-    INSERT INTO personal_score_stage(
-      model_version,item_id,relevance_signal,matched_features,semantic_matches,semantic_weight,
-      novel_semantic_weight,profile_confidence,matched_families,freshness_bonus,novelty_bonus,base_score,staged_at
-    )
-    SELECT ?,item_id,relevance_signal,matched_features,semantic_matches,semantic_weight,
-      novel_semantic_weight,profile_confidence,matched_families,freshness_bonus,novelty_bonus,base_score,CURRENT_TIMESTAMP
-    FROM base_scores WHERE 1=1
-    ON CONFLICT(model_version,item_id) DO UPDATE SET
-      relevance_signal=excluded.relevance_signal,matched_features=excluded.matched_features,
-      semantic_matches=excluded.semantic_matches,semantic_weight=excluded.semantic_weight,
-      novel_semantic_weight=excluded.novel_semantic_weight,profile_confidence=excluded.profile_confidence,
-      matched_families=excluded.matched_families,freshness_bonus=excluded.freshness_bonus,
-      novelty_bonus=excluded.novelty_bonus,base_score=excluded.base_score,staged_at=CURRENT_TIMESTAMP
-  `).bind(modelVersion).run();
+  const profileResult = await env.DB.prepare(`
+    SELECT feature_type,feature_key,weight,confidence
+    FROM interest_profile
+    WHERE feature_type IN ('family','topic','mechanism','concept')
+  `).all();
+  const profileRows = Array.isArray(profileResult?.results) ? profileResult.results : [];
+  const profile = new Map();
+  for (const row of profileRows) {
+    profile.set(`${String(row.feature_type)}::${String(row.feature_key)}`, {
+      weight: Number(row.weight || 0),
+      confidence: Number(row.confidence || 0),
+    });
+  }
 
-  const upsert = await env.DB.prepare(`
-    WITH ranked AS (
-      SELECT *,PERCENT_RANK() OVER (ORDER BY base_score) AS rank_percentile
-      FROM personal_score_stage WHERE model_version=?
-    )
+  const items = new Map();
+  let offset = 0;
+  let readFeatures = 0;
+  while (true) {
+    const pageResult = await env.DB.prepare(`
+      SELECT f.item_id,f.feature_type,f.feature_key,f.weight,f.confidence,i.published_at
+      FROM content_features f
+      JOIN content_items i ON i.item_id=f.item_id
+      WHERE f.feature_type IN ('topic','mechanism','concept')
+      ORDER BY f.item_id,f.feature_type,f.feature_key
+      LIMIT ? OFFSET ?
+    `).bind(PERSONAL_SCORE_READ_PAGE, offset).all();
+    const page = Array.isArray(pageResult?.results) ? pageResult.results : [];
+    readFeatures += page.length;
+    for (const row of page) {
+      const itemId = String(row.item_id || '');
+      const featureType = String(row.feature_type || '').toLowerCase();
+      const featureKey = canonicalInterestKey(featureType, row.feature_key);
+      if (!itemId || !featureType || !featureKey) continue;
+      let item = items.get(itemId);
+      if (!item) {
+        item = { item_id:itemId,published_at:row.published_at || null,features:new Map() };
+        items.set(itemId, item);
+      }
+      const mapKey = `${featureType}::${featureKey}`;
+      const weight = Number(row.weight || 0);
+      const confidence = Number(row.confidence || 0);
+      const prev = item.features.get(mapKey);
+      if (!prev) {
+        item.features.set(mapKey, { feature_type:featureType,feature_key:featureKey,weight,confidence });
+      } else {
+        prev.weight = Math.max(prev.weight, weight);
+        prev.confidence = Math.max(prev.confidence, confidence);
+      }
+    }
+    if (page.length < PERSONAL_SCORE_READ_PAGE) break;
+    offset += page.length;
+  }
+
+  const scoreRows = [];
+  const cmpText = (a,b) => a < b ? -1 : a > b ? 1 : 0;
+  for (const item of items.values()) {
+    const familyFeatures = new Map();
+    for (const feature of item.features.values()) {
+      const familyId = interestFamily(feature.feature_type, feature.feature_key);
+      feature.family_id = familyId;
+      const bucket = familyFeatures.get(familyId) || [];
+      bucket.push(feature);
+      familyFeatures.set(familyId, bucket);
+    }
+
+    const familyStrength = new Map();
+    for (const [familyId, features] of familyFeatures.entries()) {
+      if (familyId.includes(':')) continue;
+      features.sort((a,b) => {
+        const strength = (b.weight*b.confidence) - (a.weight*a.confidence);
+        if (strength) return strength;
+        return cmpText(a.feature_type,b.feature_type) || cmpText(a.feature_key,b.feature_key);
+      });
+      let total = 0;
+      for (let i=0;i<features.length;i++) total += features[i].weight*features[i].confidence*familyDiminishingWeight(i+1);
+      familyStrength.set(familyId,total);
+    }
+
+    const candidates = new Map();
+    const pushCandidate = (familyId, row) => {
+      const bucket = candidates.get(familyId) || [];
+      bucket.push(row);
+      candidates.set(familyId,bucket);
+    };
+
+    for (const feature of item.features.values()) {
+      const leaf = profile.get(`${feature.feature_type}::${feature.feature_key}`);
+      const parent = profile.get(`family::${feature.family_id}`);
+      const strength = feature.weight*feature.confidence;
+      pushCandidate(feature.family_id, {
+        feature_type:feature.feature_type,
+        feature_key:feature.feature_key,
+        contribution:leaf ? leaf.weight*strength : 0,
+        matched_feature:leaf ? 1 : 0,
+        semantic_match:leaf ? 1 : 0,
+        semantic_weight:strength,
+        novel_semantic_weight:!leaf && !parent ? strength : 0,
+        profile_confidence:Math.max(leaf?.confidence || 0,parent?.confidence || 0),
+      });
+    }
+
+    for (const [familyId, strength] of familyStrength.entries()) {
+      const parent = profile.get(`family::${familyId}`);
+      pushCandidate(familyId, {
+        feature_type:'family',feature_key:familyId,
+        contribution:parent ? parent.weight*strength : 0,
+        matched_feature:parent ? 1 : 0,
+        semantic_match:parent ? 1 : 0,
+        semantic_weight:0,novel_semantic_weight:0,
+        profile_confidence:parent?.confidence || 0,
+      });
+    }
+
+    let relevanceSignal = 0;
+    let matchedFeatures = 0;
+    let semanticMatches = 0;
+    let semanticWeight = 0;
+    let novelSemanticWeight = 0;
+    let profileConfidence = 0;
+    let matchedFamilies = 0;
+
+    for (const [familyId, rows] of candidates.entries()) {
+      rows.sort((a,b) => {
+        const contribution = Math.abs(b.contribution)-Math.abs(a.contribution);
+        if (contribution) return contribution;
+        return cmpText(a.feature_type,b.feature_type) || cmpText(a.feature_key,b.feature_key);
+      });
+      let familySignal = 0;
+      for (let i=0;i<rows.length;i++) {
+        const row = rows[i];
+        familySignal += row.contribution*familyDiminishingWeight(i+1);
+        matchedFeatures += row.matched_feature;
+        semanticMatches += row.semantic_match;
+        semanticWeight += row.semantic_weight;
+        novelSemanticWeight += row.novel_semantic_weight;
+        profileConfidence = Math.max(profileConfidence,row.profile_confidence);
+      }
+      relevanceSignal += clamp(familySignal,-familySignalCap(familyId),familySignalCap(familyId));
+      if (Math.abs(familySignal) > 0.0001) matchedFamilies += 1;
+    }
+
+    const fresh = freshnessBonus(item.published_at);
+    const novelty = semanticMatches > 0 && semanticWeight > 0 ? Math.min(2,2*novelSemanticWeight/semanticWeight) : 0;
+    const baseScore = 50 + (38*relevanceSignal/(6+Math.abs(relevanceSignal))) + fresh + novelty;
+    scoreRows.push({
+      item_id:item.item_id,relevance_signal:relevanceSignal,matched_features:matchedFeatures,
+      semantic_matches:semanticMatches,semantic_weight:semanticWeight,novel_semantic_weight:novelSemanticWeight,
+      profile_confidence:profileConfidence,matched_families:matchedFamilies,freshness_bonus:fresh,
+      novelty_bonus:novelty,base_score:baseScore,rank_percentile:0,score:0,
+    });
+  }
+
+  const sorted = [...scoreRows].sort((a,b) => a.base_score-b.base_score || cmpText(a.item_id,b.item_id));
+  let rank = 1;
+  for (let i=0;i<sorted.length;i++) {
+    if (i > 0 && sorted[i].base_score !== sorted[i-1].base_score) rank = i+1;
+    sorted[i].rank_percentile = sorted.length <= 1 ? 0 : (rank-1)/(sorted.length-1);
+  }
+
+  let changed = Number(stale.meta?.changes || 0);
+  const upsertSql = `
     INSERT INTO content_scores(item_id,score_type,score,confidence,reason_json,model_version,scored_at)
-    SELECT item_id,'personal_relevance',MIN(99.5,MAX(0.5,0.82*base_score+18.0*rank_percentile)),
-      MIN(1.0,MAX(profile_confidence,CASE WHEN semantic_matches>0 THEN 0.30 ELSE 0.0 END)),
-      json_object('relevance_signal',ROUND(relevance_signal,4),'base_score',ROUND(base_score,3),
-        'rank_percentile',ROUND(rank_percentile,4),'matched_features',matched_features,'semantic_matches',semantic_matches,
-        'matched_families',matched_families,'freshness_bonus',freshness_bonus,'novelty_bonus',ROUND(novelty_bonus,3),
-        'signal_policy','latest-explicit-wins','profile_policy',?,'ontology_version',?,'model',?),?,CURRENT_TIMESTAMP
-    FROM ranked WHERE 1=1
+    VALUES(?,'personal_relevance',?,?,?,?,CURRENT_TIMESTAMP)
     ON CONFLICT(item_id,score_type,model_version) DO UPDATE SET
       score=excluded.score,confidence=excluded.confidence,reason_json=excluded.reason_json,scored_at=CURRENT_TIMESTAMP
     WHERE content_scores.score IS NOT excluded.score OR content_scores.confidence IS NOT excluded.confidence OR content_scores.reason_json IS NOT excluded.reason_json
-  `).bind(modelVersion,PERSONAL_POLICY_VERSION,INTEREST_ONTOLOGY_VERSION,modelVersion,modelVersion).run();
+  `;
+  for (let i=0;i<scoreRows.length;i+=PERSONAL_SCORE_WRITE_BATCH) {
+    const chunk = scoreRows.slice(i,i+PERSONAL_SCORE_WRITE_BATCH);
+    const statements = chunk.map((row) => {
+      row.score = clamp(0.82*row.base_score+18*row.rank_percentile,0.5,99.5);
+      const confidence = clamp(Math.max(row.profile_confidence,row.semantic_matches>0 ? 0.30 : 0),0,1);
+      const reason = JSON.stringify({
+        relevance_signal:Number(row.relevance_signal.toFixed(4)),base_score:Number(row.base_score.toFixed(3)),
+        rank_percentile:Number(row.rank_percentile.toFixed(4)),matched_features:row.matched_features,
+        semantic_matches:row.semantic_matches,matched_families:row.matched_families,
+        freshness_bonus:row.freshness_bonus,novelty_bonus:Number(row.novelty_bonus.toFixed(3)),
+        signal_policy:'latest-explicit-wins',profile_policy:PERSONAL_POLICY_VERSION,
+        ontology_version:INTEREST_ONTOLOGY_VERSION,model:modelVersion,
+      });
+      return env.DB.prepare(upsertSql).bind(row.item_id,row.score,confidence,reason,modelVersion);
+    });
+    const results = statements.length ? await env.DB.batch(statements) : [];
+    changed += results.reduce((sum,result) => sum + Number(result?.meta?.changes || 0),0);
+  }
 
-  await env.DB.prepare("DELETE FROM personal_score_stage WHERE model_version=?").bind(modelVersion).run();
+  const liveIds = new Set(scoreRows.map((row) => row.item_id));
+  const existing = await env.DB.prepare("SELECT item_id FROM content_scores WHERE score_type='personal_relevance' AND model_version=?").bind(modelVersion).all();
+  const obsolete = (existing?.results || []).map((row) => String(row.item_id || '')).filter((itemId) => itemId && !liveIds.has(itemId));
+  for (let i=0;i<obsolete.length;i+=PERSONAL_SCORE_WRITE_BATCH) {
+    const statements = obsolete.slice(i,i+PERSONAL_SCORE_WRITE_BATCH).map((itemId) =>
+      env.DB.prepare("DELETE FROM content_scores WHERE item_id=? AND score_type='personal_relevance' AND model_version=?").bind(itemId,modelVersion)
+    );
+    const results = statements.length ? await env.DB.batch(statements) : [];
+    changed += results.reduce((sum,result) => sum + Number(result?.meta?.changes || 0),0);
+  }
 
-  const dist = await env.DB.prepare(`SELECT COUNT(*) AS n,MIN(score) AS min_score,MAX(score) AS max_score,AVG(score) AS avg_score,
-    SUM(CASE WHEN score>=99 THEN 1 ELSE 0 END) AS score_99_plus,SUM(CASE WHEN score>=95 THEN 1 ELSE 0 END) AS score_95_plus
-    FROM content_scores WHERE score_type='personal_relevance' AND model_version=?`).bind(modelVersion).first();
-  return {ok:true,model_version:modelVersion,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,scored_items:Number(dist?.n||0),
-    changed:Number(stale.meta?.changes||0)+Number(upsert.meta?.changes||0),staged_items:Number(staged.meta?.changes||0),distribution:{min:Number(dist?.min_score||0),max:Number(dist?.max_score||0),
-    avg:Number(dist?.avg_score||0),score_99_plus:Number(dist?.score_99_plus||0),score_95_plus:Number(dist?.score_95_plus||0)}};
+  const values = scoreRows.map((row) => row.score).filter(Number.isFinite);
+  return {
+    ok:true,model_version:modelVersion,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,
+    scored_items:values.length,changed,read_features:readFeatures,
+    distribution:{
+      min:values.length ? Math.min(...values) : 0,max:values.length ? Math.max(...values) : 0,
+      avg:values.length ? values.reduce((a,b)=>a+b,0)/values.length : 0,
+      score_99_plus:values.filter((x)=>x>=99).length,score_95_plus:values.filter((x)=>x>=95).length,
+    },
+  };
 }
 
 function clamp(value,min,max){ return Math.min(max,Math.max(min,value)); }
