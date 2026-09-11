@@ -15,6 +15,9 @@ requireText(personalization, "RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000", "4h d
 requireText(personalization, "priorityExplicit", "bounded explicit-feedback priority recompute missing");
 requireText(personalization, "familyDiminishingWeight", "family diminishing-return scoring missing");
 requireText(personalization, "interestFamilySql", "family-aware materialized scoring missing");
+requireText(personalization, "materialization_identity_mismatch", "model/policy/ontology materialization identity guard missing");
+requireText(personalization, "json_extract(reason_json,'$.profile_policy')", "profile policy materialization proof check missing");
+requireText(personalization, "json_extract(reason_json,'$.ontology_version')", "ontology materialization proof check missing");
 requireText(personalization, "status='recomputing'", "recompute lease state missing");
 requireText(personalization, "run_id=?", "lease token missing");
 requireText(personalization, "status='recomputing' AND run_id=?", "CAS lease completion missing");
@@ -25,6 +28,7 @@ forbidText(personalization, 'prepare("DELETE FROM content_scores WHERE score_typ
 requireText(intelligence, "handleGuardedRecompute", "direct recompute guard missing");
 requireText(intelligence, "explicit_feedback_batch", "explicit feedback batch result marker missing");
 requireText(intelligence, "priorityExplicit:true", "explicit feedback must trigger one priority recompute");
+requireText(intelligence, "PERSONAL_MODEL_VERSION_MISMATCH", "non-canonical recompute model rejection missing");
 forbidText(intelligence, "recomputeInterestProfile,", "raw profile recompute import reintroduced");
 forbidText(intelligence, "recomputePersonalScores,", "raw score recompute import reintroduced");
 requireText(intelligence, "heartbeat_changes", "heartbeat/material-change separation missing");

@@ -75,7 +75,10 @@ jobs:
           ! grep -q "status='dirty' AND updated_at <= datetime('now',?)" cloudflare/runner3-core/src/content-personalization.js
           grep -q 'result\["materialization"\] = materialization' scripts/content_intelligence_client.py
           grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v4"' scripts/content_intelligence_client.py
-          grep -q 'model_materialization_missing' cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'materialization_identity_mismatch' cloudflare/runner3-core/src/content-personalization.js
+          grep -q "json_extract(reason_json,'$.profile_policy')" cloudflare/runner3-core/src/content-personalization.js
+          grep -q "json_extract(reason_json,'$.ontology_version')" cloudflare/runner3-core/src/content-personalization.js
+          grep -q 'PERSONAL_MODEL_VERSION_MISMATCH' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/interests/save' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/snapshot' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/evaluate' cloudflare/runner3-core/src/content-intelligence.js

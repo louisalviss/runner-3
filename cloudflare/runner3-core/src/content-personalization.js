@@ -48,7 +48,7 @@ function agoModifier(ms) {
 
 async function acquireRecomputeLease(env, modelVersion, priorityExplicit = false) {
   const token = leaseToken();
-  const detail = JSON.stringify({ model: modelVersion, lease_acquired_at: new Date().toISOString() });
+  const detail = JSON.stringify({ model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION, lease_acquired_at: new Date().toISOString() });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='recomputing', run_id=?, detail=?, updated_at=CURRENT_TIMESTAMP
@@ -71,7 +71,7 @@ async function acquireRecomputeLease(env, modelVersion, priorityExplicit = false
 
 async function finishRecomputeLease(env, token, modelVersion) {
   const recomputedAt = new Date().toISOString();
-  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion });
+  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='clean', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
@@ -423,19 +423,21 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   if (!env?.DB) return { ok: false, recomputed: false };
   const before = await profileState(env);
   if (!before) return { ok: true, recomputed: false, status: "missing" };
+  let materializationMismatch = false;
   if (before.status === "clean") {
     const materialized = await env.DB.prepare(
-      "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? LIMIT 1"
-    ).bind(modelVersion).first();
+      "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
+    ).bind(modelVersion, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
     if (materialized?.ok) return { ok: true, recomputed: false, status: "clean" };
+    materializationMismatch = true;
     await env.DB.prepare(`
       UPDATE workflow_state
       SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
       WHERE source=? AND status='clean'
-    `).bind(JSON.stringify({ reason: "model_materialization_missing", model: modelVersion }), PROFILE_STATE_KEY).run();
+    `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
   }
 
-  const token = await acquireRecomputeLease(env, modelVersion, priorityExplicit);
+  const token = await acquireRecomputeLease(env, modelVersion, priorityExplicit || materializationMismatch);
   if (!token) {
     const current = await profileState(env);
     if (current?.status === "dirty") return { ok: true, recomputed: false, status: "dirty_debounced" };

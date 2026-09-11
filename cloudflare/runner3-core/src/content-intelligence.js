@@ -208,7 +208,11 @@ async function handleInterestSave(request,env){
 async function handleGuardedRecompute(request,env){
   const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   const body=await request.json().catch(()=>({}));
-  const modelVersion=text(body.model_version,200)||PERSONAL_MODEL_VERSION;
+  const requestedModel=text(body.model_version,200)?.trim()||null;
+  if(requestedModel&&requestedModel!==PERSONAL_MODEL_VERSION){
+    return Response.json({ok:false,error:"PERSONAL_MODEL_VERSION_MISMATCH",requested_model:requestedModel,model_version:PERSONAL_MODEL_VERSION},{status:409});
+  }
+  const modelVersion=PERSONAL_MODEL_VERSION;
   const recompute=await maybeRecomputePersonal(env,{modelVersion});
   return Response.json({
     ...recompute,
