@@ -65,6 +65,14 @@ async function sha256Bytes(bytes) {
   return [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+function importedFacebookMediaUrl(env, sourceObjectKey) {
+  const key = String(sourceObjectKey || "").trim();
+  const match = key.match(/^core\/facebook-archive\/([A-Za-z0-9._-]+)\/media\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/);
+  if (!match) throw new Error(`media_source_key_invalid:${key.slice(0, 160)}`);
+  const origin = readerPublicOrigin(env);
+  return `${origin}/rss/facebook-media/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}/${encodeURIComponent(match[3])}`;
+}
+
 function readerPublicOrigin(env) {
   return String(env.RSS_READER_PUBLIC_ORIGIN || "https://runner3-core.ducduy2411.workers.dev").trim().replace(/\/$/, "");
 }
@@ -92,7 +100,7 @@ async function attachImportedMedia(env, article, row, media) {
     }
     const verify = await env.ARTIFACTS.head(targetKey);
     if (!verify || Number(verify.size || 0) !== bytes.byteLength) throw new Error(`media_target_readback_failed:${targetKey}`);
-    const url = `${readerPublicOrigin(env)}/rss/media/${encodeURIComponent(article.article_id)}/${token}`;
+    const url = importedFacebookMediaUrl(env, item.source_object_key);
     images.push({
       url, source_url: url, alt: item.alt, caption: item.alt,
       width: item.width, height: item.height, kind: item.kind === "video_poster" ? "photo" : "photo",
