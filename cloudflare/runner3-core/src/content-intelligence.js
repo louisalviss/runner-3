@@ -7,6 +7,7 @@ import {
   evaluateRecommendationRun,
   isSupportedContentEvent,
   eventAffectsProfile,
+  PROFILE_AFFECTING_EVENT_TYPES,
   markProfileDirty,
   maybeRecomputePersonal,
 } from "./content-personalization.js";
@@ -57,6 +58,15 @@ async function enrichItem(env,row){
   const r=normalizedItem(row);
   return replaceAutoSemanticFeatures(env,r.item_id,r);
 }
+async function itemsHavePreferenceSignals(env,itemIds){
+  const ids=[...new Set((itemIds||[]).map(x=>String(x||'').trim()).filter(Boolean))];
+  if(!ids.length)return false;
+  const idPlaceholders=ids.map(()=>'?').join(',');
+  const typePlaceholders=PROFILE_AFFECTING_EVENT_TYPES.map(()=>'?').join(',');
+  const row=await env.DB.prepare(`SELECT 1 AS ok FROM user_content_events WHERE item_id IN (${idPlaceholders}) AND event_type IN (${typePlaceholders}) LIMIT 1`)
+    .bind(...ids,...PROFILE_AFFECTING_EVENT_TYPES).first();
+  return Boolean(row?.ok);
+}
 async function handleItems(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
@@ -66,11 +76,12 @@ async function handleItems(request,env){
     const itemChanges=itemResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
     const heartbeatResults=await env.DB.batch(list.map(r=>heartbeatStatement(env,r)));
     const heartbeatChanges=heartbeatResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
-    let semanticFeatures=0;
-    for(const r of list) semanticFeatures+=(await enrichItem(env,r)).applied;
-    const changed=itemChanges+semanticFeatures;
-    if(changed) await markProfileDirty(env,"content_items_or_features_changed");
-    return Response.json({ok:true,applied:list.length,item_changes:itemChanges,heartbeat_changes:heartbeatChanges,semantic_features:semanticFeatures,feature_model:FEATURE_MODEL_VERSION,materialization_status:changed?"dirty":"unchanged"});
+    let semanticFeatures=0; const semanticChangedIds=[];
+    for(const r of list){ const semantic=await enrichItem(env,r); semanticFeatures+=semantic.applied; if(semantic.applied>0)semanticChangedIds.push(r.item_id); }
+    const profileAffectingSemanticChanges=await itemsHavePreferenceSignals(env,semanticChangedIds);
+    if(profileAffectingSemanticChanges) await markProfileDirty(env,"content_items_or_features_changed");
+    return Response.json({ok:true,applied:list.length,item_changes:itemChanges,heartbeat_changes:heartbeatChanges,semantic_features:semanticFeatures,
+      profile_affecting_semantic_changes:profileAffectingSemanticChanges,feature_model:FEATURE_MODEL_VERSION,materialization_status:profileAffectingSemanticChanges?"dirty":"unchanged"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
@@ -91,8 +102,10 @@ async function handleFeatures(request,env){
     const list=rows(await request.json());
     const results=await env.DB.batch(list.map(r=>featureStatement(env,r)));
     const changed=results.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
-    if(changed) await markProfileDirty(env,"content_features_changed");
-    return Response.json({ok:true,applied:list.length,changed,materialization_status:changed?"dirty":"unchanged"});
+    const changedItemIds=list.filter((_,index)=>Number(results[index]?.meta?.changes||0)>0).map(r=>r.item_id);
+    const profileAffectingFeatureChanges=await itemsHavePreferenceSignals(env,changedItemIds);
+    if(profileAffectingFeatureChanges) await markProfileDirty(env,"content_features_changed");
+    return Response.json({ok:true,applied:list.length,changed,profile_affecting_feature_changes:profileAffectingFeatureChanges,materialization_status:profileAffectingFeatureChanges?"dirty":"unchanged"});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
