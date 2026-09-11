@@ -122,8 +122,9 @@ jobs:
             exit 0
           fi
           git commit -m 'Update Opportunity Radar V2 market signals [skip ci]'
+          target_branch="${GITHUB_REF_NAME}"
           for attempt in 1 2 3; do
-            git pull --rebase origin main && git push origin main && exit 0
+            git pull --rebase origin "$target_branch" && git push origin "HEAD:$target_branch" && exit 0
             echo "Push attempt $attempt failed; retrying..."
             sleep $((attempt * 3))
           done
