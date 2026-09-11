@@ -97,6 +97,11 @@ execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v87_persisten
 execFileSync('python3', ['scripts/patch_reader_v87_persistent_owner_session.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v87_persistent_owner_session.py'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v87_persistent_owner_session_smoke.mjs'], { stdio: 'inherit' });
+execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v91_session_compat.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/patch_reader_v91_session_compat.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v91_interaction_session.py'], { stdio: 'inherit' });
+execFileSync('node', ['scripts/reader_v91_interaction_session_smoke.mjs'], { stdio: 'inherit' });
+execFileSync('node', ['--check', 'cloudflare/runner3-core/artifact-library-pin-v2-entry.js'], { stdio: 'inherit' });
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
