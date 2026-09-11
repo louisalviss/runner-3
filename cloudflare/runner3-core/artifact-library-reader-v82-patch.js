@@ -3,11 +3,13 @@ export function r3StableEarlyV82() {
   const root = document.documentElement;
   const standalone = Boolean((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true);
   root.classList.add('r3-v82-stable');
+  if (standalone) { root.classList.add('r3-v90-home'); root.classList.remove('r3-v90-browser'); }
+  else { root.classList.add('r3-v90-browser'); root.classList.remove('r3-v90-home'); }
   if (standalone) root.classList.add('r3-v82-home');
   const text = fn => { try { return Function.prototype.toString.call(fn); } catch { return ''; } };
   const geometryFn = fn => /r3ScheduleFullBleedV68|r3ScheduleAudioDockInsetV69|r3ClampPaginatedVerticalV62/.test(text(fn));
   const nativeSetTimeoutV88 = window.setTimeout.bind(window);
-  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', restoreShieldReleased: '', restoreWatchdogFired: false };
+  const state = window.__r3StableEarlyV82 = { owner: 'stable-shell-v82', standalone, blockedListeners: 0, blockedTimers: 0, blockedObservers: 0, restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', restoreShieldReleased: '', restoreWatchdogFired: false };
   const releaseRestoreShieldV88 = reason => {
     state.restoreShieldReleased = state.restoreShieldReleased || String(reason || 'released');
     root.classList.remove('r3-restore-pending-v45');
@@ -70,7 +72,7 @@ export function r3StableEarlyV82() {
 
 export function r3StableRuntimeV82() {
   if (window.__r3StableRuntimeV82) return;
-  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
+  const debug = window.__r3StableRuntimeV82 = { owner: 'stable-shell-v82', version: 'v82', restoreGuard: 'nonblocking-v89', layoutOwner: 'v90', geometryMode: '', geometryApplies: 0, geometryRestores: 0, chapterSource: '', chapterIndex: -1, navMoves: 0, navDrops: 0, restoreTarget: '', restoreAfter: '', restoreOk: false, restoreReleasedBy: '', restoreError: '' };
   const releaseRestoreShield = reason => {
     debug.restoreReleasedBy = debug.restoreReleasedBy || String(reason || 'released');
     try { window.__r3StableEarlyV82?.releaseRestoreShield?.(reason); } catch {}
@@ -180,6 +182,93 @@ export function r3StableRuntimeV82() {
     }).catch(() => {});
   }
 
+  function installGeometryV90(bridge) {
+    if (window.__r3GeometryOwnerV90) return window.__r3GeometryOwnerV90;
+    const root = document.documentElement;
+    const body = document.body;
+    const viewer = document.getElementById('viewer');
+    if (!body || !viewer) return null;
+    const standalone = Boolean((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true);
+    const state = window.__r3GeometryOwnerV90 = { owner: 'layout-convergence-v90', standalone, expanded: false, signature: '', applies: 0, restores: 0, lastReason: '', lastCfi: '' };
+    if (standalone) { root.classList.add('r3-v90-home'); root.classList.remove('r3-v90-browser'); }
+    else { root.classList.add('r3-v90-browser'); root.classList.remove('r3-v90-home'); }
+    debug.geometryMode = standalone ? 'home' : 'browser';
+
+    const set = (node, prop, value) => { try { node && node.style && node.style.setProperty(prop, value, 'important'); } catch {} };
+    const currentCfi = () => { try { return String(bridge.current && bridge.current()?.start?.cfi || ''); } catch { return ''; } };
+    let restoreTimer = 0;
+    let restoring = false;
+
+    function styleGeometry(reason='apply') {
+      const expanded = Boolean(body.classList && body.classList.contains('r3-audio-expanded'));
+      const signature = (standalone ? 'home' : 'browser') + ':' + (expanded ? 'expanded' : 'collapsed');
+      const top = standalone ? 'calc(max(env(safe-area-inset-top,0px),44px) + 8px)' : '0px';
+      const bottom = expanded
+        ? (standalone ? 'calc(210px + env(safe-area-inset-bottom,0px))' : '210px')
+        : (standalone ? 'calc(76px + env(safe-area-inset-bottom,0px))' : '76px');
+      const statusBottom = expanded
+        ? (standalone ? 'calc(216px + env(safe-area-inset-bottom,0px))' : '216px')
+        : (standalone ? 'calc(82px + env(safe-area-inset-bottom,0px))' : '82px');
+      set(body, 'position', 'fixed'); set(body, 'inset', '0px'); set(body, 'width', '100%'); set(body, 'height', '100%');
+      set(viewer, 'top', top); set(viewer, 'right', '0px'); set(viewer, 'bottom', bottom); set(viewer, 'left', '0px'); set(viewer, 'width', 'auto'); set(viewer, 'height', 'auto');
+      const dock = document.getElementById('r3AudioDock');
+      if (dock) set(dock, 'bottom', standalone ? 'max(6px,env(safe-area-inset-bottom,0px))' : '6px');
+      const badge = document.getElementById('r3ReaderChapterBadge');
+      if (badge) set(badge, 'top', standalone ? 'calc(max(env(safe-area-inset-top,0px),44px) + 18px)' : '40px');
+      const topbar = document.querySelector && document.querySelector('.topbar');
+      if (topbar) { set(topbar, 'top', '0px'); set(topbar, 'padding-top', standalone ? 'calc(max(env(safe-area-inset-top,0px),44px) + 8px)' : '10px'); }
+      const bottomStatus = document.querySelector && document.querySelector('.bottom-status');
+      if (bottomStatus) set(bottomStatus, 'bottom', statusBottom);
+      const layer = document.getElementById('r3V82GestureLayer');
+      if (layer) { set(layer, 'top', top); set(layer, 'bottom', statusBottom); }
+      state.expanded = expanded; state.signature = signature; state.applies++; state.lastReason = String(reason || '');
+      debug.geometryApplies = state.applies;
+      return signature;
+    }
+
+    async function restoreAfterGeometry(anchor, reason) {
+      if (!anchor || restoring || typeof bridge.display !== 'function') return;
+      restoring = true;
+      const priorPending = window.__R3_READER_RESTORE_PENDING;
+      window.__R3_READER_RESTORE_PENDING = true;
+      try {
+        await paint();
+        await Promise.race([Promise.resolve(bridge.display(anchor)), delay(1800)]);
+        await paint();
+        state.restores++; state.lastCfi = anchor; debug.geometryRestores = state.restores;
+        refreshChapterUi(bridge);
+      } catch {}
+      finally { window.__R3_READER_RESTORE_PENDING = priorPending === true; restoring = false; }
+    }
+
+    function apply(reason='apply', preserve=false) {
+      const beforeSig = state.signature;
+      const anchor = preserve ? currentCfi() : '';
+      const nextSig = styleGeometry(reason);
+      if (preserve && anchor && nextSig !== beforeSig) {
+        clearTimeout(restoreTimer);
+        restoreTimer = setTimeout(() => restoreAfterGeometry(anchor, reason), 80);
+      }
+      return nextSig;
+    }
+
+    apply('install', false);
+    try {
+      const observer = new MutationObserver(records => {
+        for (const record of records) {
+          if (record.type === 'attributes' && record.attributeName === 'class') { apply('body-class', true); break; }
+        }
+      });
+      observer.observe(body, { attributes: true, attributeFilter: ['class'] });
+      state.observer = observer;
+    } catch {}
+    try { window.addEventListener('pageshow', () => apply('pageshow', false), { passive: true }); } catch {}
+    try { window.addEventListener('orientationchange', () => setTimeout(() => apply('orientationchange', true), 220), { passive: true }); } catch {}
+    try { document.addEventListener('visibilitychange', () => { if (!document.hidden) apply('visible', false); }); } catch {}
+    state.apply = apply;
+    return state;
+  }
+
   function installNavigation(bridge) {
     if (window.__r3V82MovePage) return;
     const rawNext = bridge.next && bridge.next.bind(bridge);
@@ -266,9 +355,12 @@ export function r3StableRuntimeV82() {
     if (!bridge) { debug.restoreError = 'READER_BRIDGE_TIMEOUT_V88'; releaseRestoreShield('bridge-timeout'); return; }
     patchChapterInfo(bridge);
     installNavigation(bridge);
+    const geometry = installGeometryV90(bridge);
     await waitBoot();
+    geometry && geometry.apply && geometry.apply('pre-restore', false);
     await delay(120);
     await finalRestore(bridge);
+    geometry && geometry.apply && geometry.apply('post-restore', false);
     refreshChapterUi(bridge);
     setInterval(() => refreshChapterUi(bridge), 1200);
   })().catch(error => { debug.error = String(error && error.message || error).slice(0, 200); releaseRestoreShield('runtime-error'); });
@@ -276,16 +368,25 @@ export function r3StableRuntimeV82() {
 
 const STYLE = `<style data-r3-stable-shell-v82="1" data-r3-nonblocking-restore-v89="1">
 html.r3-v82-stable #r3GestureLayer,html.r3-v82-stable .r3-hit-zone{pointer-events:none!important}
-html.r3-v82-stable body.r3-audio-ui #viewer,html.r3-v82-stable body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
-html.r3-v82-stable body.r3-audio-ui .bottom-status,html.r3-v82-stable body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
+html.r3-v82-stable.r3-v90-browser body.r3-audio-ui #viewer{top:0!important;right:0!important;bottom:76px!important;left:0!important;width:auto!important;height:auto!important}
+html.r3-v82-stable.r3-v90-browser body.r3-audio-ui.r3-audio-expanded #viewer{bottom:210px!important}
+html.r3-v82-stable.r3-v90-home body.r3-audio-ui #viewer{top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important;right:0!important;bottom:calc(76px + env(safe-area-inset-bottom,0px))!important;left:0!important;width:auto!important;height:auto!important}
+html.r3-v82-stable.r3-v90-home body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}
+html.r3-v82-stable.r3-v90-browser body.r3-audio-ui .bottom-status{bottom:82px!important}
+html.r3-v82-stable.r3-v90-browser body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:216px!important}
+html.r3-v82-stable.r3-v90-home body.r3-audio-ui .bottom-status{bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
+html.r3-v82-stable.r3-v90-home body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(216px + env(safe-area-inset-bottom,0px))!important}
+html.r3-v82-stable.r3-v90-browser #r3AudioDock{bottom:6px!important}
+html.r3-v82-stable.r3-v90-home #r3AudioDock{bottom:max(6px,env(safe-area-inset-bottom,0px))!important}
 html.r3-v82-stable.r3-restore-pending-v45 #viewer{visibility:visible!important;opacity:1!important}
 html.r3-v82-stable.r3-restore-pending-v45 #r3AudioDock{opacity:1!important;pointer-events:auto!important}
 html.r3-v82-stable.r3-restore-pending-v45 body::before,html.r3-v82-stable.r3-v82-restoring body::after{content:none!important;display:none!important;pointer-events:none!important}
-html.r3-v82-home #viewer{top:calc(max(env(safe-area-inset-top,0px),44px) + 54px)!important}
-html.r3-v82-home .topbar{top:0!important;padding-top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important}
-html.r3-v82-home #r3ReaderChapterBadge{top:calc(max(env(safe-area-inset-top,0px),44px) + 58px)!important}
-#r3V82GestureLayer{position:fixed;z-index:1000;left:0;right:0;top:94px;bottom:82px;background:rgba(0,0,0,.001);touch-action:none;-webkit-user-select:none;user-select:none}
-body.r3-audio-expanded #r3V82GestureLayer{bottom:216px}
+html.r3-v82-stable.r3-v90-home .topbar{top:0!important;padding-top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important}
+html.r3-v82-stable.r3-v90-home #r3ReaderChapterBadge{top:calc(max(env(safe-area-inset-top,0px),44px) + 18px)!important}
+#r3V82GestureLayer{position:fixed;z-index:1000;left:0;right:0;top:0;bottom:82px;background:rgba(0,0,0,.001);touch-action:none;-webkit-user-select:none;user-select:none}
+html.r3-v82-stable.r3-v90-home #r3V82GestureLayer{top:calc(max(env(safe-area-inset-top,0px),44px) + 8px)!important;bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
+html.r3-v82-stable.r3-v90-browser body.r3-audio-expanded #r3V82GestureLayer{bottom:216px!important}
+html.r3-v82-stable.r3-v90-home body.r3-audio-expanded #r3V82GestureLayer{bottom:calc(216px + env(safe-area-inset-bottom,0px))!important}
 #r3AudioDock{z-index:1200!important}
 body.settings #r3V82GestureLayer,body.r3-live-library-open #r3V82GestureLayer{display:none!important}
 </style>`;

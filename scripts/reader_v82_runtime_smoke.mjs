@@ -43,7 +43,7 @@ globalThis.r3ReaderBridge={
 };
 
 r3StableRuntimeV82();
-await new Promise(r=>setTimeout(r,520));
+await new Promise(r=>setTimeout(r,1200));
 const info=await globalThis.r3ReaderBridge.chapterInfo();
 if(info.index!==1144||info.total!==1498||info.r3Source!=='heading-label')throw new Error('chapter identity mismatch '+JSON.stringify(info));
 if(displayed!==cfi)throw new Error('server CFI not restored: '+displayed);
@@ -53,6 +53,8 @@ await Promise.all([globalThis.r3ReaderBridge.next(),globalThis.r3ReaderBridge.ne
 if(rawNextCalls!==1)throw new Error('double navigation was not serialized: '+rawNextCalls);
 if(classes.has('r3-restore-pending-v45'))throw new Error('restore shield still active');
 if(globalThis.__r3StableRuntimeV82?.restoreGuard!=='nonblocking-v89')throw new Error('v89 nonblocking restore guard missing');
+if(globalThis.__r3StableRuntimeV82?.layoutOwner!=='v90')throw new Error('v90 runtime layout owner missing');
+if(globalThis.__r3GeometryOwnerV90?.signature!=='browser:collapsed')throw new Error('v90 browser geometry signature mismatch '+JSON.stringify(globalThis.__r3GeometryOwnerV90));
 if(globalThis.__r3StableRuntimeV82?.restoreReleasedBy!=='restore-complete')throw new Error('restore completion release proof missing: '+JSON.stringify(globalThis.__r3StableRuntimeV82));
 console.log(`READER_V82_RUNTIME_SMOKE=PASS index=${info.index} total=${info.total} source=${info.r3Source} nextCalls=${rawNextCalls}`);
 globalThis.setInterval=realSetInterval;
