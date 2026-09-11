@@ -1,6 +1,7 @@
 import { FEATURE_MODEL_VERSION, canonicalizeFeatureKey, replaceAutoSemanticFeatures } from "./content-feature-enrichment.js";
 import {
   PERSONAL_MODEL_VERSION,
+  CONTENT_INTELLIGENCE_CONTRACT_VERSION,
   RECOMPUTE_DEBOUNCE_MS,
   PERSONAL_POLICY_VERSION,
   snapshotRecommendationRun,
@@ -11,6 +12,7 @@ import {
   markProfileDirty,
   maybeRecomputePersonal,
 } from "./content-personalization.js";
+import { INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
 
 const MAX_ROWS = 100;
 const MAX_JSON = 200000;
@@ -218,7 +220,7 @@ async function handleInterestSave(request,env){
     const changed=Number(itemResult.meta?.changes||0)+semantic.applied+featureChanges+Number(result.meta?.changes||0);
     if(changed) await markProfileDirty(env,"explicit_interest_saved");
     const recompute=changed?await maybeRecomputePersonal(env,{priorityExplicit:true}):{recomputed:false,status:"unchanged"};
-    return Response.json({ok:true,item_id:item.item_id,event_applied:Number(result.meta?.changes||0),item_changes:Number(itemResult.meta?.changes||0),heartbeat_changes:Number(heartbeatResult.meta?.changes||0),feature_changes:featureChanges,semantic_features:semantic.applied,feature_model:FEATURE_MODEL_VERSION,model_version:PERSONAL_MODEL_VERSION,profile_recomputed:Boolean(recompute.recomputed),materialization_status:recompute.recomputed?recompute.status:(changed?"dirty":"unchanged")});
+    return Response.json({ok:true,item_id:item.item_id,event_applied:Number(result.meta?.changes||0),item_changes:Number(itemResult.meta?.changes||0),heartbeat_changes:Number(heartbeatResult.meta?.changes||0),feature_changes:featureChanges,semantic_features:semantic.applied,feature_model:FEATURE_MODEL_VERSION,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,profile_recomputed:Boolean(recompute.recomputed),materialization_status:recompute.recomputed?recompute.status:(changed?"dirty":"unchanged")});
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }
 
@@ -227,7 +229,7 @@ async function handleGuardedRecompute(request,env){
   const body=await request.json().catch(()=>({}));
   const requestedModel=text(body.model_version,200)?.trim()||null;
   if(requestedModel&&requestedModel!==PERSONAL_MODEL_VERSION){
-    return Response.json({ok:false,error:"PERSONAL_MODEL_VERSION_MISMATCH",requested_model:requestedModel,model_version:PERSONAL_MODEL_VERSION},{status:409});
+    return Response.json({ok:false,error:"PERSONAL_MODEL_VERSION_MISMATCH",requested_model:requestedModel,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION},{status:409});
   }
   const modelVersion=PERSONAL_MODEL_VERSION;
   const recompute=await maybeRecomputePersonal(env,{modelVersion});
@@ -235,6 +237,9 @@ async function handleGuardedRecompute(request,env){
     ...recompute,
     ok:recompute.ok!==false,
     model_version:modelVersion,
+    contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,
+    policy_version:PERSONAL_POLICY_VERSION,
+    ontology_version:INTEREST_ONTOLOGY_VERSION,
     guarded:true,
     debounce_ms:RECOMPUTE_DEBOUNCE_MS,
     force_allowed:false,
@@ -253,8 +258,8 @@ async function handleRecommendationEvaluation(request,env,url){
   return Response.json(result,{status:result.ok?200:404});
 }
 async function handleScoresRecompute(request,env){ return handleGuardedRecompute(request,env); }
-async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION,rows:result.results||[]}); }
-async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION,rows:result.results||[]}); }
+async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,rows:result.results||[]}); }
+async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,rows:result.results||[]}); }
 
 async function handleSynthesis(request,env,url){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
@@ -271,7 +276,7 @@ async function handleSynthesis(request,env,url){
     env.DB.prepare(`SELECT COUNT(*) AS count,MIN(score) AS min_score,MAX(score) AS max_score,AVG(score) AS avg_score,SUM(CASE WHEN score>=95 THEN 1 ELSE 0 END) AS score_95_plus,SUM(CASE WHEN score>=99 THEN 1 ELSE 0 END) AS score_99_plus FROM content_scores WHERE score_type='personal_relevance' AND model_version=?`).bind(PERSONAL_MODEL_VERSION).first()
   ]);
   return Response.json({
-    ok:true,generated_at:new Date().toISOString(),model_version:PERSONAL_MODEL_VERSION,policy_version:PERSONAL_POLICY_VERSION,feature_model:FEATURE_MODEL_VERSION,
+    ok:true,generated_at:new Date().toISOString(),model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,feature_model:FEATURE_MODEL_VERSION,
     signal_policy:"latest-explicit-wins + interaction-recency-decay",
     scoring_policy:"family-aware semantic relevance + freshness + bounded novelty",
     counts:{items:Number(counts?.items||0),events:Number(counts?.events||0),scored_items:Number(counts?.scored_items||0),profile_features:Number(counts?.profile_features||0),family_features:Number(counts?.family_features||0),leaf_features:Number(counts?.leaf_features||0),last_event_at:counts?.last_event_at||null},
