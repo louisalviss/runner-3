@@ -1,4 +1,4 @@
-import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";
+import app from "./artifact-library-reader-v82-stable-shell-entry.js";
 import core from "./src/index.js";
 import readerMedia from "./reader-media-entry.js";
 import legacyAudio from "./artifact-library-reader-v6-audio-entry.js";
