@@ -89,6 +89,8 @@ jobs:
           grep -q 'NOT EXISTS(SELECT 1 FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?)' cloudflare/runner3-core/src/content-intelligence.js
           grep -q 'd1_readback:true' cloudflare/runner3-core/src/content-intelligence.js
           grep -q 'event_idempotent' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q 'itemsHavePreferenceSignals' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q 'profile_affecting_semantic_changes' cloudflare/runner3-core/src/content-intelligence.js
           grep -q 'featured_only' cloudflare/runner3-core/src/rss-reader-learning.js
           ! grep -q 'body.lifecycle === "archived".*saved' cloudflare/runner3-core/src/rss-reader-learning.js
           node --input-type=module - <<'NODE'
