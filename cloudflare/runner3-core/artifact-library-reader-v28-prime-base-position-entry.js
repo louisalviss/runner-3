@@ -28,10 +28,10 @@ const PRIME = `<script data-r3-audio-prime-base-position-v28="1" data-r3-direct-
   const style=document.createElement('style');
   style.id='r3ReaderDirectRestoreV45Style';
   style.textContent=[
-    "html.r3-restore-pending-v45 #viewer{visibility:hidden!important;opacity:0!important;transition:none!important;animation:none!important;scroll-behavior:auto!important}",
+    "html.r3-restore-pending-v45 #viewer{visibility:visible!important;opacity:1!important;transition:none!important;animation:none!important;scroll-behavior:auto!important}",
     "html.r3-restore-pending-v45 #viewer .epub-container,html.r3-restore-pending-v45 #viewer .epub-view,html.r3-restore-pending-v45 #viewer iframe{transition:none!important;animation:none!important;scroll-behavior:auto!important;will-change:auto!important}",
-    "html.r3-restore-pending-v45 #r3AudioDock{opacity:0!important;pointer-events:none!important;transition:none!important;animation:none!important}",
-    "html.r3-restore-pending-v45 body::before{content:'';position:fixed;z-index:2147483600;inset:0;background:var(--bg,#fff);pointer-events:auto}"
+    "html.r3-restore-pending-v45 #r3AudioDock{opacity:1!important;pointer-events:auto!important;transition:none!important;animation:none!important}",
+    "html.r3-restore-pending-v45 body::before{content:none!important;display:none!important;pointer-events:none!important}"
   ].join('');
   (document.head||document.documentElement).appendChild(style);
   window.__r3ReaderDirectRestoreV45={phase:'primed',bookKey,target,source,startedAt:Date.now(),after:'',error:'',owner:'fast-reveal-v50'};
