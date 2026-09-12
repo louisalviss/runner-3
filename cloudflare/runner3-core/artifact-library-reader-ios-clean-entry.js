@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v114';
+const CLEAN_VERSION='v115';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -48,6 +48,9 @@ html[data-r3-clean-ios="v112"] #viewer{bottom:calc(70px + env(safe-area-inset-bo
 html[data-r3-clean-ios="v112"] .bottom-status{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
 html[data-r3-clean-ios="v112"] .chrome{opacity:1!important}
 html[data-r3-clean-ios="v112"] .topbar>*{pointer-events:auto!important}
+#r3CleanPrev,#r3CleanNext{position:fixed;top:50%;transform:translateY(-50%);z-index:10020;width:44px;height:56px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:14px;background:var(--panel,rgba(252,251,248,.92));color:var(--fg,inherit);box-shadow:0 8px 24px rgba(0,0,0,.16);font:700 22px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#r3CleanPrev{left:6px}#r3CleanNext{right:6px}
+body.settings #r3CleanPrev,body.settings #r3CleanNext{visibility:hidden;pointer-events:none}
 #r3CleanAudio{position:fixed;left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom,0px));z-index:10000;min-height:58px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:16px;background:var(--panel,rgba(252,251,248,.97));color:var(--fg,inherit);box-shadow:0 12px 36px rgba(0,0,0,.22);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);font:13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;grid-template-columns:46px minmax(0,1fr) 48px 42px;gap:7px;align-items:center;padding:7px 8px;touch-action:manipulation}
 #r3CleanAudio *{box-sizing:border-box}
 #r3CleanAudio button{appearance:none;-webkit-appearance:none;border:1px solid var(--line,rgba(127,127,127,.2));background:transparent;color:inherit;border-radius:11px;height:42px;font:inherit;font-weight:750;touch-action:manipulation}
@@ -76,6 +79,11 @@ const CLEAN_SCRIPT=`<script data-r3-clean-ios-runtime-v112="1">
   const dock=document.createElement('section');dock.id='r3CleanAudio';dock.setAttribute('aria-label','Audio chương hiện tại');
   dock.innerHTML='<button id="r3CleanPlay" type="button" aria-label="Phát audio">▶</button><div id="r3CleanAudioCopy"><div id="r3CleanAudioTitle">Audio chương hiện tại</div><div id="r3CleanAudioStatus">Nam Minh · nhấn phát</div></div><button id="r3CleanSpeed" type="button" aria-label="Tốc độ">1×</button><button id="r3CleanExpand" type="button" aria-label="Mở rộng">⌃</button><div id="r3CleanTransport"><button id="r3CleanBack" type="button">↶ 15 giây</button><button id="r3CleanForward" type="button">15 giây ↷</button></div><audio id="r3CleanAudioElement" preload="metadata"></audio>';
   document.body.appendChild(dock);
+  const prevButton=document.createElement('button');prevButton.id='r3CleanPrev';prevButton.type='button';prevButton.setAttribute('aria-label','Trang trước');prevButton.textContent='‹';
+  const nextButton=document.createElement('button');nextButton.id='r3CleanNext';nextButton.type='button';nextButton.setAttribute('aria-label','Trang sau');nextButton.textContent='›';
+  document.body.append(prevButton,nextButton);
+  const sendNav=key=>{debug.lastAction=key==='ArrowRight'?'next':'prev';try{window.__r3PhysicalTraceV113?.emit?.('nav.button.'+(key==='ArrowRight'?'next':'prev'),{})}catch{}document.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}))};
+  prevButton.addEventListener('click',()=>sendNav('ArrowLeft'));nextButton.addEventListener('click',()=>sendNav('ArrowRight'));
   const play=dock.querySelector('#r3CleanPlay'),speed=dock.querySelector('#r3CleanSpeed'),expand=dock.querySelector('#r3CleanExpand'),back=dock.querySelector('#r3CleanBack'),forward=dock.querySelector('#r3CleanForward'),status=dock.querySelector('#r3CleanAudioStatus'),title=dock.querySelector('#r3CleanAudioTitle'),audio=dock.querySelector('#r3CleanAudioElement');
   const rates=[1,1.25,1.5,1.75,2];let rateIndex=0,currentId='',loadedSignature='',requestSeq=0;
   function setStatus(v){status.textContent=String(v||'Nam Minh').slice(0,100)}
@@ -195,7 +203,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v114');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v115');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
