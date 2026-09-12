@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v120';
+const CLEAN_VERSION='v121';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -189,10 +189,11 @@ export function patchCleanIosV110(html){
   if(gestureStart<0||gestureEnd<0)throw new Error('CLEAN_IOS_GESTURE_RANGE_MISSING');
   out=out.slice(0,gestureStart)+`  function bindGestureTarget(doc, widthFn){
     if(!doc||doc.documentElement?.dataset?.r3GestureV2==='1')return;
-    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='center-toggle-v120';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
+    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='center-toggle-v121';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
     try{if(doc.body){doc.body.style.touchAction='pan-y';doc.body.style.overscrollBehaviorX='none';doc.body.style.overflowX='hidden'}}catch{}
     let sx=0,sy=0,st=0;
-    const centerTap=x=>{const ratio=x/Math.max(1,widthFn());if(ratio>.28&&ratio<.72){try{window.__r3PhysicalTraceV113?.emit?.('chrome.center.toggle',{ratio:Number(ratio.toFixed(3))})}catch{};toggleControls();return true}return false};
+    const visibleWidth=()=>{try{for(const frame of document.querySelectorAll('#viewer iframe')){if(frame.contentDocument===doc){const w=frame.getBoundingClientRect().width;if(w>0)return w}}}catch{}return Math.max(1,Number(widthFn())||1)};
+    const centerTap=x=>{const width=visibleWidth(),ratio=x/Math.max(1,width);if(ratio>.28&&ratio<.72){try{window.__r3PhysicalTraceV113?.emit?.('chrome.center.toggle',{ratio:Number(ratio.toFixed(3)),width:Math.round(width)})}catch{};toggleControls();return true}return false};
     doc.addEventListener('touchstart',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;sx=t.clientX;sy=t.clientY;st=Date.now();},{passive:true});
     doc.addEventListener('touchmove',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;const dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>=8&&Math.abs(dx)>Math.abs(dy)*1.08)e.preventDefault();},{passive:false});
     doc.addEventListener('touchend',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;lastTouchAt=Date.now();const dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;if(Math.abs(dx)<18&&Math.abs(dy)<18&&dt<650)centerTap(t.clientX);},{passive:true});
@@ -287,7 +288,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v120');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v121');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
