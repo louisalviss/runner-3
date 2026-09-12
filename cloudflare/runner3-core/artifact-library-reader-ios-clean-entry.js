@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v118';
+const CLEAN_VERSION='v119';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -44,14 +44,14 @@ const EARLY_TRACE_V113=`<script data-r3-physical-trace-v113="1">
 
 const CLEAN_STYLE=`<style data-r3-clean-ios-v112="1">
 html[data-r3-clean-ios="v112"],html[data-r3-clean-ios="v112"] body{overscroll-behavior:none}
-html[data-r3-clean-ios="v112"] #viewer{bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
+html[data-r3-clean-ios="v112"] #viewer{top:max(28px,env(safe-area-inset-top,0px))!important;bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
 html[data-r3-clean-ios="v112"] .bottom-status{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
-html[data-r3-clean-ios="v112"] .topbar{top:12px!important}
+html[data-r3-clean-ios="v112"] .topbar{top:20px!important}
 html[data-r3-clean-ios="v112"] .topbar>*{pointer-events:auto!important}
 html[data-r3-clean-ios="v112"] .nav-choice[data-nav="swipe"]{display:none!important}
 /* v118: broad invisible edge hit-zones. Keep navigation outside the EPUB iframe
    without covering the topbar or audio dock. */
-#r3CleanPrev,#r3CleanNext{position:fixed;top:88px;bottom:calc(132px + env(safe-area-inset-bottom,0px));z-index:10020;width:34vw;max-width:180px;border:0!important;border-radius:0!important;background:transparent!important;color:transparent!important;box-shadow:none!important;opacity:0!important;padding:0!important;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#r3CleanPrev,#r3CleanNext{position:fixed;top:96px;bottom:calc(132px + env(safe-area-inset-bottom,0px));z-index:10020;width:28vw;max-width:150px;border:0!important;border-radius:0!important;background:transparent!important;color:transparent!important;box-shadow:none!important;opacity:0!important;padding:0!important;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #r3CleanPrev{left:0}#r3CleanNext{right:0}
 body.settings #r3CleanPrev,body.settings #r3CleanNext{visibility:hidden;pointer-events:none}
 #r3CleanAudio{position:fixed;left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom,0px));z-index:10000;min-height:58px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:16px;background:var(--panel,rgba(252,251,248,.97));color:var(--fg,inherit);box-shadow:0 12px 36px rgba(0,0,0,.22);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);font:13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;grid-template-columns:46px minmax(0,1fr) 48px 42px;gap:7px;align-items:center;padding:7px 8px;touch-action:manipulation}
@@ -99,26 +99,43 @@ const CLEAN_SCRIPT=`<script data-r3-clean-ios-runtime-v112="1">
   const rates=[1,1.25,1.5,1.75,2];let rateIndex=0,currentId='',loadedSignature='',requestSeq=0;
   function setStatus(v){status.textContent=String(v||'Nam Minh').slice(0,100)}
   function setPlay(mode){play.disabled=mode==='loading';play.textContent=mode==='loading'?'…':mode==='pause'?'Ⅱ':'▶'}
-  function framePayload(){let best=null;for(const frame of document.querySelectorAll('#viewer iframe')){try{const doc=frame.contentDocument,body=doc&&doc.body,text=String(body&&body.innerText||'').trim();if(text.length<80)continue;if(!best||text.length>best.text.length){const h=doc.querySelector('h1,h2,h3,.chapter-title');best={text,chapterTitle:String(h&&h.textContent||doc.title||'').trim().slice(0,240),chapterHref:String(frame.getAttribute('src')||'').slice(0,600)}}}catch{}}if(!best)return null;best.signature=best.text.length+'|'+best.text.slice(0,160)+'|'+best.text.slice(-160);return best}
+  const followName='r3-audio-follow-v119';
+  let timingWords=[],mappedWords=[],timingKey='',activeDoc=null,activeSignature='',followTimer=0,followBusy=false,lastFollowIndex=-1,lastAutoPageAt=0;
+  const followDebug=window.__r3CleanAudioFollowV119={owner:'event-driven-v119',mapped:0,lastIndex:-1,lastPageAt:0,lastError:'',installTestTiming(words){timingKey='test';timingWords=Array.isArray(words)?words:[];return buildWordMap(true)},syncTest(ms){return syncFollowAt(Number(ms)||0,true)}};
+  const norm=v=>String(v||'').normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/g,'').replace(/\s+/g,' ').trim().toLocaleLowerCase('vi-VN');
+  const tokenRe=()=>{try{return /[\p{L}\p{M}\p{N}]+/gu}catch{return /[A-Za-z0-9À-ỹ]+/g}};
+  function ensureFollowStyle(doc){try{if(doc.getElementById('r3AudioFollowStyleV119'))return;const style=doc.createElement('style');style.id='r3AudioFollowStyleV119';style.textContent='::highlight('+followName+'){background:rgba(245,196,67,.30);color:inherit;text-decoration:underline rgba(245,196,67,.85) 1px}';(doc.head||doc.documentElement).appendChild(style)}catch{}}
+  function textRanges(payload){const out=[];try{const blocks=[...payload.doc.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote')];const roots=blocks.length?blocks:[payload.body];for(const root of roots){const walker=payload.doc.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){const raw=String(node.nodeValue||''),re=tokenRe();let m;while((m=re.exec(raw))){const t=norm(m[0]);if(!t)continue;const range=payload.doc.createRange();range.setStart(node,m.index);range.setEnd(node,m.index+m[0].length);out.push({token:t,range})}}}}catch{}return out}
+  function buildWordMap(force=false){const payload=framePayload();if(!payload||!timingWords.length)return 0;if(!force&&activeDoc===payload.doc&&activeSignature===payload.signature&&mappedWords.some(Boolean))return mappedWords.filter(Boolean).length;activeDoc=payload.doc;activeSignature=payload.signature;ensureFollowStyle(payload.doc);mappedWords=new Array(timingWords.length).fill(null);const tt=[];for(let wi=0;wi<timingWords.length;wi++){const re=tokenRe(),raw=String(timingWords[wi]?.text||'');let m;while((m=re.exec(raw)))tt.push({token:norm(m[0]),wi})}let ti=0;for(const item of textRanges(payload)){if(ti>=tt.length)break;let found=-1;if(tt[ti].token===item.token)found=ti;else for(let p=ti+1;p<Math.min(tt.length,ti+19);p++){if(tt[p].token===item.token){found=p;break}}if(found<0)continue;const wi=tt[found].wi;if(!mappedWords[wi])mappedWords[wi]=item.range;ti=found+1}followDebug.mapped=mappedWords.filter(Boolean).length;return followDebug.mapped}
+  function wordIndexAt(ms){if(!timingWords.length)return-1;let lo=0,hi=timingWords.length-1,ans=0;while(lo<=hi){const mid=(lo+hi)>>1,start=Number(timingWords[mid]?.startMs)||0;if(start<=ms){ans=mid;lo=mid+1}else hi=mid-1}return ans}
+  function nearestRange(index){if(mappedWords[index])return mappedWords[index];for(let r=1;r<40;r++){if(mappedWords[index-r])return mappedWords[index-r];if(mappedWords[index+r])return mappedWords[index+r]}return null}
+  function clearFollow(){for(const frame of document.querySelectorAll('#viewer iframe')){try{frame.contentDocument?.defaultView?.CSS?.highlights?.delete(followName)}catch{}}}
+  function applyFollow(range){if(!range)return false;try{const doc=range.startContainer.ownerDocument,win=doc.defaultView;ensureFollowStyle(doc);if(win?.CSS?.highlights&&typeof win.Highlight==='function'){for(const frame of document.querySelectorAll('#viewer iframe')){try{if(frame.contentDocument!==doc)frame.contentDocument?.defaultView?.CSS?.highlights?.delete(followName)}catch{}}win.CSS.highlights.set(followName,new win.Highlight(range));return true}}catch{}return false}
+  function rangeState(range){try{const doc=range.startContainer.ownerDocument,viewer=document.getElementById('viewer');let frame=null;for(const f of document.querySelectorAll('#viewer iframe')){if(f.contentDocument===doc){frame=f;break}}if(!frame||!viewer)return{visible:true,dir:0};const vr=viewer.getBoundingClientRect(),fr=frame.getBoundingClientRect(),rects=[...range.getClientRects()];if(!rects.length)return{visible:false,dir:0};let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(const r of rects){left=Math.min(left,fr.left+r.left);right=Math.max(right,fr.left+r.right);top=Math.min(top,fr.top+r.top);bottom=Math.max(bottom,fr.top+r.bottom)}const visible=right>vr.left+4&&left<vr.right-4&&bottom>vr.top+4&&top<vr.bottom-4;let dir=0;if(left>=vr.right-4||top>=vr.bottom-4)dir=1;else if(right<=vr.left+4||bottom<=vr.top+4)dir=-1;return{visible,dir}}catch{return{visible:true,dir:0}}}
+  async function syncFollowAt(ms,force=false){if(!timingWords.length)return false;buildWordMap(false);const index=wordIndexAt(ms);if(index<0)return false;if(!force&&index===lastFollowIndex)return true;lastFollowIndex=index;followDebug.lastIndex=index;const range=nearestRange(index);if(!range)return false;applyFollow(range);const state=rangeState(range);if(!force&&!state.visible&&state.dir&&Date.now()-lastAutoPageAt>280&&!followBusy){followBusy=true;lastAutoPageAt=Date.now();followDebug.lastPageAt=lastAutoPageAt;try{const fn=state.dir>0?window.__r3IosPageNextV117:window.__r3IosPagePrevV117;if(typeof fn==='function'){await fn();try{window.__r3PhysicalTraceV113?.emit?.('audio.follow.page',{dir:state.dir,index})}catch{};await new Promise(r=>setTimeout(r,60));applyFollow(range)}}catch(error){followDebug.lastError=String(error&&error.message||error).slice(0,160)}finally{followBusy=false}}return true}
+  function stopFollowLoop(){if(followTimer){clearTimeout(followTimer);followTimer=0}}
+  function runFollowLoop(){stopFollowLoop();if(audio.paused||audio.ended)return;syncFollowAt((Number(audio.currentTime)||0)*1000,false).finally(()=>{if(!audio.paused&&!audio.ended)followTimer=setTimeout(runFollowLoop,90)})}
+  async function loadTiming(state,payload){timingWords=[];mappedWords=[];timingKey='';lastFollowIndex=-1;clearFollow();if(!state?.timingUrl)return 0;try{const r=await fetch(state.timingUrl,{cache:'no-store'}),data=await r.json().catch(()=>({}));if(!r.ok||!Array.isArray(data.words))return 0;timingKey=state.timingUrl;timingWords=data.words;const n=buildWordMap(true);try{window.__r3PhysicalTraceV113?.emit?.('audio.timing.ready',{words:timingWords.length,mapped:n})}catch{};return n}catch(error){followDebug.lastError=String(error&&error.message||error).slice(0,160);return 0}}
+  function framePayload(){let best=null;for(const frame of document.querySelectorAll('#viewer iframe')){try{const doc=frame.contentDocument,body=doc&&doc.body,text=String(body&&body.innerText||'').trim();if(text.length<80)continue;if(!best||text.length>best.text.length){const h=doc.querySelector('h1,h2,h3,.chapter-title');best={frame,doc,body,text,chapterTitle:String(h&&h.textContent||doc.title||'').trim().slice(0,240),chapterHref:String(frame.getAttribute('src')||'').slice(0,600)}}}catch{}}if(!best)return null;best.signature=best.text.length+'|'+best.text.slice(0,160)+'|'+best.text.slice(-160);return best}
   async function readState(id){const q=new URLSearchParams({id,bookKey});const r=await fetch('/artifact-library/audio?'+q,{cache:'no-store'});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||('HTTP '+r.status));return data}
   async function waitReady(id,seq){for(let n=0;n<240;n++){if(seq!==requestSeq)return null;const data=await readState(id);if(data.status==='ready')return data;if(data.status==='error')throw new Error(data.error||'Tạo audio thất bại');setStatus(data.status==='processing'?'Nam Minh · đang tổng hợp…':'Nam Minh · đang xếp hàng…');await new Promise(r=>setTimeout(r,1500))}throw new Error('Audio chưa sẵn sàng')}
   async function toggleAudio(){
     debug.lastAction='audio';const payload=framePayload();if(!payload){setStatus('Chưa lấy được nội dung chương');return}
     title.textContent=payload.chapterTitle||'Chương hiện tại';
-    if(audio.src&&loadedSignature===payload.signature){if(audio.paused)await audio.play().catch(()=>{});else audio.pause();return}
+    if(audio.src&&loadedSignature===payload.signature){if(audio.paused){await audio.play().catch(()=>{});runFollowLoop()}else{audio.pause();stopFollowLoop()}return}
     const seq=++requestSeq;debug.audioRequests++;setPlay('loading');setStatus('Nam Minh · đang chuẩn bị…');
-    try{const r=await fetch('/artifact-library/audio',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',clientVersion:'reader-clean-ios-v112'})});let data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||('HTTP '+r.status));currentId=data.id||'';if(!currentId)throw new Error('AUDIO_ID_MISSING');if(data.status!=='ready')data=await waitReady(currentId,seq);if(!data||seq!==requestSeq)return;if(!data.mediaUrl)throw new Error('AUDIO_MEDIA_URL_MISSING');loadedSignature=payload.signature;audio.src=data.mediaUrl;audio.playbackRate=rates[rateIndex];await audio.play()}catch(error){debug.lastError=String(error&&error.message||error);setPlay('play');setStatus(debug.lastError.slice(0,90))}
+    try{const r=await fetch('/artifact-library/audio',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bookKey,text:payload.text,chapterTitle:payload.chapterTitle,chapterHref:payload.chapterHref,bookTitle:document.title||'Ebook',clientVersion:'reader-clean-ios-v112'})});let data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||('HTTP '+r.status));currentId=data.id||'';if(!currentId)throw new Error('AUDIO_ID_MISSING');if(data.status!=='ready')data=await waitReady(currentId,seq);if(!data||seq!==requestSeq)return;if(!data.mediaUrl)throw new Error('AUDIO_MEDIA_URL_MISSING');loadedSignature=payload.signature;audio.src=data.mediaUrl;audio.playbackRate=rates[rateIndex];await loadTiming(data,payload);await audio.play();runFollowLoop()}catch(error){debug.lastError=String(error&&error.message||error);setPlay('play');setStatus(debug.lastError.slice(0,90))}
   }
   play.addEventListener('click',toggleAudio);
   speed.addEventListener('click',()=>{rateIndex=(rateIndex+1)%rates.length;audio.playbackRate=rates[rateIndex];speed.textContent=rates[rateIndex]+'×';debug.lastAction='speed'});
   expand.addEventListener('click',()=>{dock.classList.toggle('r3-expanded');const on=dock.classList.contains('r3-expanded');expand.textContent=on?'⌄':'⌃';debug.lastAction='expand'});
   back.addEventListener('click',()=>{if(Number.isFinite(audio.duration))audio.currentTime=Math.max(0,(audio.currentTime||0)-15)});
   forward.addEventListener('click',()=>{if(Number.isFinite(audio.duration))audio.currentTime=Math.min(audio.duration||Infinity,(audio.currentTime||0)+15)});
-  audio.addEventListener('play',()=>{setPlay('pause');setStatus('Nam Minh · đang phát')});
-  audio.addEventListener('pause',()=>{if(audio.src&&!audio.ended){setPlay('play');setStatus('Nam Minh · tạm dừng')}});
-  audio.addEventListener('ended',()=>{setPlay('play');setStatus('Nam Minh · hết chương')});
+  audio.addEventListener('play',()=>{setPlay('pause');setStatus('Nam Minh · đang phát');runFollowLoop()});
+  audio.addEventListener('pause',()=>{stopFollowLoop();if(audio.src&&!audio.ended){setPlay('play');setStatus('Nam Minh · tạm dừng')}});
+  audio.addEventListener('ended',()=>{stopFollowLoop();clearFollow();setPlay('play');setStatus('Nam Minh · hết chương')});
   audio.addEventListener('loadedmetadata',()=>setStatus('Nam Minh · sẵn sàng'));
-  window.addEventListener('pagehide',()=>{try{audio.pause()}catch{}},{once:true});
+  window.addEventListener('pagehide',()=>{stopFollowLoop();try{audio.pause()}catch{}},{once:true});
 })();
 </script>`;
 
@@ -147,21 +164,22 @@ export function patchCleanIosV110(html){
   if(!out.includes(navOld))throw new Error('CLEAN_IOS_NAV_OWNER_RANGE_MISSING');
   out=out.replace(navOld,navNew);
 
-  // iOS physical-client owner: horizontal swipe is intentionally disabled.
-  // Chrome iOS showed stable top-level buttons but horizontal iframe swipe could
-  // disturb paginated geometry. Keep tap gestures only and prevent horizontal pan.
+  // v119 product interaction contract: horizontal swipe is disabled on iPhone.
+  // The outer 28% zones are top-level navigation owners; the middle 44% is the
+  // only iframe tap owner and toggles Reader chrome/settings access.
   const gestureStart=out.indexOf('  function bindGestureTarget(doc, widthFn){');
   const gestureEnd=out.indexOf('\n\n  function bindEpubContents(){',gestureStart);
   if(gestureStart<0||gestureEnd<0)throw new Error('CLEAN_IOS_GESTURE_RANGE_MISSING');
   out=out.slice(0,gestureStart)+`  function bindGestureTarget(doc, widthFn){
     if(!doc||doc.documentElement?.dataset?.r3GestureV2==='1')return;
-    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='tap-only-v116';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
+    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='center-toggle-v119';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
     try{if(doc.body){doc.body.style.touchAction='pan-y';doc.body.style.overscrollBehaviorX='none';doc.body.style.overflowX='hidden'}}catch{}
-    let sx=0,sy=0,st=0,target=null;
-    doc.addEventListener('touchstart',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;sx=t.clientX;sy=t.clientY;st=Date.now();target=e.target;},{passive:true});
+    let sx=0,sy=0,st=0;
+    const centerTap=x=>{const ratio=x/Math.max(1,widthFn());if(ratio>.28&&ratio<.72){try{window.__r3PhysicalTraceV113?.emit?.('chrome.center.toggle',{ratio:Number(ratio.toFixed(3))})}catch{};toggleControls();return true}return false};
+    doc.addEventListener('touchstart',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;sx=t.clientX;sy=t.clientY;st=Date.now();},{passive:true});
     doc.addEventListener('touchmove',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;const dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>=8&&Math.abs(dx)>Math.abs(dy)*1.08)e.preventDefault();},{passive:false});
-    doc.addEventListener('touchend',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;lastTouchAt=Date.now();const dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;if(Math.abs(dx)<18&&Math.abs(dy)<18&&dt<650)actTap(t.clientX,widthFn(),target);},{passive:true});
-    doc.addEventListener('click',e=>{if(Date.now()-lastTouchAt<700)return;actTap(e.clientX,widthFn(),e.target);});
+    doc.addEventListener('touchend',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;lastTouchAt=Date.now();const dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;if(Math.abs(dx)<18&&Math.abs(dy)<18&&dt<650)centerTap(t.clientX);},{passive:true});
+    doc.addEventListener('click',e=>{if(Date.now()-lastTouchAt<700)return;centerTap(e.clientX);});
   }`+out.slice(gestureEnd);
 
   // Physical iPhone must never pre-generate EPUB locations. On very large books
@@ -252,7 +270,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v118');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v119');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
