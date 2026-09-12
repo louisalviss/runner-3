@@ -10,37 +10,47 @@
     "f33_after_midnight_grace_hours": 3,
     "forum_min_local_hour": 20
   },
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
   "close_quality": false,
-  "blocking_reasons": [
-    "f33_history_missing"
-  ],
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-09-12.json",
       "present": true,
-      "sha256": "8196c0aed5819fa3c2ca53d85e0a5c78295501df2a495ce632de71ea74b47e78",
+      "sha256": "74f24a8c1c99d452fdb05ff265926d5ca0a6f3ea2bace9e922f16915bf25f617",
       "status": "HEALTHY",
       "vietnam_date": "2026-09-12",
-      "captured_at": "2026-09-11T17:17:02.311643+00:00",
+      "captured_at": "2026-09-12T13:42:34.235072+00:00",
       "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-09-12.json",
-      "present": false
+      "present": true,
+      "sha256": "4f2ef4e286fa8d9caf6b704e0e140740cecb3d75075a469ded6709ba158b3d7c",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-09-12",
+      "generated_at": "2026-09-12T13:41:39.583Z",
+      "run_id": 34697017413,
+      "artifact_id": 10299450491,
+      "threads_discovered": 20,
+      "expected_pages_total": 88,
+      "fetched_pages_total": 88,
+      "missing_pages_total": 0,
+      "posts_total": 1425,
+      "target_date_source": "workflow_dispatch_input"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-09-12.json",
       "present": true,
-      "sha256": "c1341751e1fa47e9dd0cd7bab599c7bf416f5c99f1d91498a77bcde0cfd3e47a",
+      "sha256": "285fc26b1215a6e5719787bb592b228f7f8ae04321793f9eb4b0ebe3e03c61fc",
       "status": "HEALTHY",
       "vietnam_date": "2026-09-12",
-      "generated_at": "2026-09-11T17:13:50.136Z",
-      "run_id": 34625821791,
-      "artifact_id": 10273553857,
-      "posts_total": 910,
+      "generated_at": "2026-09-12T11:48:34.351Z",
+      "run_id": 34691709892,
+      "artifact_id": 10297440841,
+      "posts_total": 931,
       "crawl_outcome": "success"
     }
   }
