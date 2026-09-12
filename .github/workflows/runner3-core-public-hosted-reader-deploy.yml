@@ -262,7 +262,7 @@ jobs:
             iclean="$(grep -i '^x-r3-reader-ios-clean:' /tmp/ios.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             ilegacy="$(grep -i '^x-r3-reader-legacy-chain:' /tmp/ios.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
             echo "EBOOK_V110_IOS_CLEAN attempt=$attempt http=$icode clean=$iclean legacy=$ilegacy"
-            if [ "$icode" = 200 ] && [ "$iclean" = v113 ] && [ "$ilegacy" = bypassed-v113 ] && grep -Fq 'data-r3-clean-ios-v112="1"' /tmp/ios.reader && grep -Fq 'data-r3-clean-ios-runtime-v112="1"' /tmp/ios.reader && grep -Fq 'data-r3-physical-trace-v113="1"' /tmp/ios.reader && grep -Fq "owner:'minimal-ios-v112'" /tmp/ios.reader && ! grep -Fq 'book.locations.generate(1600)' /tmp/ios.reader && ! grep -Fq 'setInterval(runColdBootGuardV62,100)' /tmp/ios.reader && ! grep -Fq 'data-r3-audio-continuity-v35="1"' /tmp/ios.reader && ! grep -Fq 'data-r3-stable-shell-runtime-v82="1"' /tmp/ios.reader && grep -Eqi '^content-security-policy:.*connect-src[^;]*blob:' /tmp/ios.h.clean && grep -Eqi '^content-security-policy:.*style-src[^;]*blob:' /tmp/ios.h.clean && grep -Eqi "^content-security-policy:.*base-uri[[:space:]]+'self'" /tmp/ios.h.clean; then
+            if [ "$icode" = 200 ] && [ "$iclean" = v114 ] && [ "$ilegacy" = bypassed-v114 ] && grep -Fq 'data-r3-clean-ios-v112="1"' /tmp/ios.reader && grep -Fq 'data-r3-clean-ios-runtime-v112="1"' /tmp/ios.reader && grep -Fq 'data-r3-physical-trace-v113="1"' /tmp/ios.reader && grep -Fq "owner:'minimal-ios-v112'" /tmp/ios.reader && ! grep -Fq 'book.locations.generate(1600)' /tmp/ios.reader && ! grep -Fq 'setInterval(runColdBootGuardV62,100)' /tmp/ios.reader && ! grep -Fq 'data-r3-audio-continuity-v35="1"' /tmp/ios.reader && ! grep -Fq 'data-r3-stable-shell-runtime-v82="1"' /tmp/ios.reader && grep -Eqi '^content-security-policy:.*connect-src[^;]*blob:' /tmp/ios.h.clean && grep -Eqi '^content-security-policy:.*style-src[^;]*blob:' /tmp/ios.h.clean && grep -Eqi "^content-security-policy:.*base-uri[[:space:]]+'self'" /tmp/ios.h.clean; then
               ios_ok=1
               break
             fi
@@ -271,7 +271,7 @@ jobs:
           if [ "$ios_ok" != 1 ]; then cat /tmp/ios.h.clean; head -c 1200 /tmp/ios.reader; exit 1; fi
 
           # Physical-client telemetry endpoint must be reachable with the owner session.
-          trace_payload='{"trace_id":"deploysmokev1130001","seq":0,"created_at":1,"book_key":"core/ebook/smoke/final/Smoke.epub","mode":"deploy","event":"deploy.smoke","payload":{"ok":true}}'
+          trace_payload='{"trace_id":"deploysmokev1140001","seq":0,"created_at":1,"book_key":"core/ebook/smoke/final/Smoke.epub","mode":"deploy","event":"deploy.smoke","payload":{"ok":true}}'
           tcode="$(curl -sS -H "Cookie: $cookie" -H 'content-type: application/json' -D /tmp/trace.h -o /tmp/trace.json -w '%{http_code}' -X POST --data "$trace_payload" "$core/artifact-library/api/client-trace")"
           tr -d '\r' </tmp/trace.h >/tmp/trace.h.clean
           echo "EBOOK_V113_TRACE http=$tcode body=$(cat /tmp/trace.json)"

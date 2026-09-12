@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v113';
+const CLEAN_VERSION='v114';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -18,8 +18,11 @@ const EARLY_TRACE_V113=`<script data-r3-physical-trace-v113="1">
   const key=new URLSearchParams(location.search).get('key')||'';
   let traceId='';try{traceId=(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36)).replace(/-/g,'')}catch{traceId=Math.random().toString(36).slice(2)+Date.now().toString(36)}
   let seq=0,lastBeat=performance.now(),stopped=false;
-  const state=window.__r3PhysicalTraceV113={version:'v113',traceId,seq:0,lastEvent:'init',lastBeatAt:Date.now(),maxLagMs:0};
+  const state=window.__r3PhysicalTraceV113={version:'v114',traceId,seq:0,lastEvent:'init',lastBeatAt:Date.now(),maxLagMs:0};
   function cleanTarget(target){try{return {tag:String(target&&target.tagName||'').slice(0,20),id:String(target&&target.id||'').slice(0,60),cls:String(target&&target.className||'').slice(0,80)}}catch{return {}}}
+  function box(id){try{const el=document.getElementById(id);if(!el)return null;const r=el.getBoundingClientRect(),cs=getComputedStyle(el);return {x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),display:cs.display,visibility:cs.visibility,opacity:cs.opacity,pointer:cs.pointerEvents}}catch{return null}}
+  function bindFrameTrace(doc){try{if(!doc||doc.documentElement?.dataset?.r3PhysicalTraceV114==='1')return;doc.documentElement.dataset.r3PhysicalTraceV114='1';emit('frame.bound',{gesture:String(doc.documentElement.dataset.r3GestureV2||''),ready:doc.readyState});for(const type of ['touchstart','touchend','pointerdown','pointerup','click'])doc.addEventListener(type,e=>emit('frame.input.'+type,{target:cleanTarget(e.target),x:Math.round(Number(e.clientX||e.changedTouches&&e.changedTouches[0]&&e.changedTouches[0].clientX||0)),y:Math.round(Number(e.clientY||e.changedTouches&&e.changedTouches[0]&&e.changedTouches[0].clientY||0)),gesture:String(doc.documentElement.dataset.r3GestureV2||'')}),true)}catch{}}
+  state.bindFrame=bindFrameTrace;
   function emit(event,payload={}){
     if(stopped)return;const n=seq++;state.seq=n;state.lastEvent=event;state.lastBeatAt=Date.now();
     const body={trace_id:traceId,seq:n,created_at:Date.now(),book_key:key,mode:navigator.standalone===true?'home-screen':'browser',event,payload};
@@ -35,7 +38,7 @@ const EARLY_TRACE_V113=`<script data-r3-physical-trace-v113="1">
   addEventListener('error',e=>emit('window.error',{message:String(e.message||'').slice(0,180),src:String(e.filename||'').slice(-100),line:Number(e.lineno||0)}));
   addEventListener('unhandledrejection',e=>emit('promise.reject',{reason:String(e.reason&&e.reason.message||e.reason||'').slice(0,180)}));
   for(const type of ['touchstart','touchend','pointerdown','pointerup','click'])document.addEventListener(type,e=>emit('input.'+type,{target:cleanTarget(e.target),x:Math.round(Number(e.clientX||e.changedTouches&&e.changedTouches[0]&&e.changedTouches[0].clientX||0)),y:Math.round(Number(e.clientY||e.changedTouches&&e.changedTouches[0]&&e.changedTouches[0].clientY||0))}),true);
-  setInterval(()=>{const now=performance.now(),lag=Math.max(0,Math.round(now-lastBeat-1500));lastBeat=now;state.maxLagMs=Math.max(state.maxLagMs,lag);let frameText=-1,iframes=0;try{const frames=[...document.querySelectorAll('#viewer iframe')];iframes=frames.length;for(const f of frames){try{frameText=Math.max(frameText,String(f.contentDocument&&f.contentDocument.body&&f.contentDocument.body.innerText||'').trim().length)}catch{}}}catch{}emit('heartbeat',{lag,iframes,frameText,boot:String(window.__r3IosMinimalBootV112&&window.__r3IosMinimalBootV112.phase||''),baseDone:window.__R3_BASE_READER_BOOT_DONE===true,controls:!!(document.body&&document.body.classList.contains('controls')),settings:!!(document.body&&document.body.classList.contains('settings'))})},1500);
+  setInterval(()=>{const now=performance.now(),lag=Math.max(0,Math.round(now-lastBeat-1500));lastBeat=now;state.maxLagMs=Math.max(state.maxLagMs,lag);let frameText=-1,iframes=0,frameGesture='';try{const frames=[...document.querySelectorAll('#viewer iframe')];iframes=frames.length;for(const f of frames){try{const d=f.contentDocument;bindFrameTrace(d);frameText=Math.max(frameText,String(d&&d.body&&d.body.innerText||'').trim().length);frameGesture=String(d&&d.documentElement&&d.documentElement.dataset.r3GestureV2||frameGesture)}catch{}}}catch{}emit('heartbeat',{lag,iframes,frameText,frameGesture,boot:String(window.__r3IosMinimalBootV112&&window.__r3IosMinimalBootV112.phase||''),baseDone:window.__R3_BASE_READER_BOOT_DONE===true,controls:!!(document.body&&document.body.classList.contains('controls')),settings:!!(document.body&&document.body.classList.contains('settings')),sheet:box('settingsSheet'),dock:box('r3CleanAudio')})},1500);
 })();
 </script>`;
 
@@ -43,6 +46,8 @@ const CLEAN_STYLE=`<style data-r3-clean-ios-v112="1">
 html[data-r3-clean-ios="v112"],html[data-r3-clean-ios="v112"] body{overscroll-behavior:none}
 html[data-r3-clean-ios="v112"] #viewer{bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
 html[data-r3-clean-ios="v112"] .bottom-status{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
+html[data-r3-clean-ios="v112"] .chrome{opacity:1!important}
+html[data-r3-clean-ios="v112"] .topbar>*{pointer-events:auto!important}
 #r3CleanAudio{position:fixed;left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom,0px));z-index:10000;min-height:58px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:16px;background:var(--panel,rgba(252,251,248,.97));color:var(--fg,inherit);box-shadow:0 12px 36px rgba(0,0,0,.22);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);font:13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;grid-template-columns:46px minmax(0,1fr) 48px 42px;gap:7px;align-items:center;padding:7px 8px;touch-action:manipulation}
 #r3CleanAudio *{box-sizing:border-box}
 #r3CleanAudio button{appearance:none;-webkit-appearance:none;border:1px solid var(--line,rgba(127,127,127,.2));background:transparent;color:inherit;border-radius:11px;height:42px;font:inherit;font-weight:750;touch-action:manipulation}
@@ -137,12 +142,14 @@ export function patchCleanIosV110(html){
       boot.fetchMs=Math.round(performance.now()-fetchStarted);boot.bytes=buffer.byteLength;
       book=window.ePub(buffer);try{trace&&trace.emit&&trace.emit('boot.epub.constructed',{})}catch{}
       rendition=book.renderTo('viewer',{width:'100%',height:'100%',spread:'none',flow:'paginated',manager:'default'});try{trace&&trace.emit&&trace.emit('boot.rendition.created',{})}catch{}
+      try{if(rendition&&rendition.hooks&&rendition.hooks.content&&typeof rendition.hooks.content.register==='function')rendition.hooks.content.register(contents=>{try{bindGestureTarget(contents.document,()=>contents.window?.innerWidth||contents.document?.documentElement?.clientWidth||window.innerWidth);trace&&trace.bindFrame&&trace.bindFrame(contents.document);trace&&trace.emit&&trace.emit('frame.hook.bound',{gesture:String(contents.document?.documentElement?.dataset?.r3GestureV2||'')})}catch(error){try{trace&&trace.emit&&trace.emit('frame.hook.error',{message:String(error&&error.message||error).slice(0,160)})}catch{}}})}catch(error){try{trace&&trace.emit&&trace.emit('frame.hook.install.error',{message:String(error&&error.message||error).slice(0,160)})}catch{}}
       registerThemes();applyReaderSettings();
       rendition.on('rendered',()=>{bindEpubContents();try{$('loading').classList.add('hidden')}catch{}});
       rendition.on('relocated',loc=>{
         const cfi=String(loc&&loc.start&&loc.start.cfi||'');
         if(cfi)persist(keys.position,cfi);
         const pct=r3PercentFromCfiV55(cfi,loc);
+        try{trace&&trace.emit&&trace.emit('reader.relocated',{index:Number(loc&&loc.start&&loc.start.index||-1),page:Number(loc&&loc.start&&loc.start.displayed&&loc.start.displayed.page||0),total:Number(loc&&loc.start&&loc.start.displayed&&loc.start.displayed.total||0),pct:pct})}catch{}
         r3WriteProgressV55(pct,cfi);
         $('position').textContent=pct===null?'Đã lưu vị trí':pct+'% · đã lưu';
         setTimeout(bindEpubContents,0);
@@ -188,7 +195,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v113');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v114');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
