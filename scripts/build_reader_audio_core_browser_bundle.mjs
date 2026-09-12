@@ -109,6 +109,7 @@ execFileSync('node', ['scripts/reader_v92_single_interaction_owner_smoke.mjs'], 
 execFileSync('node', ['scripts/reader_v93_webkit_runtime_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('node', ['scripts/reader_v94_frame_rebind_smoke.mjs'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v98_nonblocking_restore_source.py'], { stdio: 'inherit' });
+execFileSync('python3', ['scripts/check_reader_v100_event_driven_responsiveness.py'], { stdio: 'inherit' });
 execFileSync('python3', ['-m', 'py_compile', 'scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/patch_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
 execFileSync('python3', ['scripts/check_reader_v79_home_screen_stable_viewport.py'], { stdio: 'inherit' });
