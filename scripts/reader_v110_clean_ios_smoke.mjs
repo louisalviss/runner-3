@@ -1,0 +1,18 @@
+const mod=await import('../cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js?cleanv110='+Date.now());
+const key='core/ebook/smoke/final/Smoke.epub';
+const env={ARTIFACTS:{head:async value=>value===key?{key:value}:null}};
+const iphone='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
+const req=new Request('https://example.test/artifact-library/read?key='+encodeURIComponent(key),{headers:{'user-agent':iphone}});
+const res=await mod.default.fetch(req,env,{});const html=await res.text();
+if(res.status!==200)throw new Error('clean ios status '+res.status+': '+html.slice(0,180));
+if(res.headers.get('x-r3-reader-ios-clean')!=='v110')throw new Error('clean ios header missing');
+if(res.headers.get('x-r3-reader-legacy-chain')!=='bypassed-v110')throw new Error('legacy bypass header missing');
+for(const marker of ['data-r3-clean-ios-v110="1"','data-r3-clean-ios-runtime-v110="1"','reader-clean-ios-v110','id="viewer"'])if(!html.includes(marker))throw new Error('clean marker missing '+marker);
+for(const forbidden of ['data-r3-audio-continuity-v35="1"','data-r3-audio-continuity-v34="1"','data-r3-stable-shell-runtime-v82="1"','data-r3-ebook-audio-v6="2"'])if(html.includes(forbidden))throw new Error('legacy marker leaked '+forbidden);
+const csp=String(res.headers.get('content-security-policy')||'');if(!/connect-src[^;]*\bblob:/.test(csp))throw new Error('clean CSP blob missing '+csp);
+const desktop=new Request('https://example.test/artifact-library/read?key='+encodeURIComponent(key),{headers:{'user-agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'}});
+const dres=await mod.default.fetch(desktop,env,{});const dhtml=await dres.text();
+if(dres.status!==200||dres.headers.get('x-r3-reader-stable-shell')!=='v82')throw new Error('desktop legacy fallback broken '+dres.status);
+if(dres.headers.get('x-r3-reader-ios-clean'))throw new Error('desktop incorrectly clean');
+if(!dhtml.includes('data-r3-stable-shell-runtime-v82="1"'))throw new Error('desktop stable shell missing');
+console.log('READER_V110_CLEAN_IOS_SMOKE=PASS iosBytes='+html.length+' desktopBytes='+dhtml.length);
