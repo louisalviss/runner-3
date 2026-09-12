@@ -28,11 +28,10 @@ const HIGHLIGHT_SCRIPT = `<script data-r3-audio-dark-highlight-v30="1">
   const themeObserver=new MutationObserver(sync);
   if(document.body)themeObserver.observe(document.body,{attributes:true,attributeFilter:['data-theme']});
   const viewer=document.getElementById('viewer');
-  if(viewer)new MutationObserver(sync).observe(viewer,{childList:true,subtree:true});
+  const viewerObserver=viewer?new MutationObserver(sync):null;
+  if(viewer&&viewerObserver)viewerObserver.observe(viewer,{childList:true,subtree:true});
   sync();
-  let ticks=0;
-  const timer=setInterval(()=>{sync();if(++ticks>120)clearInterval(timer);},500);
-  window.addEventListener('pagehide',()=>{clearInterval(timer);themeObserver.disconnect();},{once:true});
+  window.addEventListener('pagehide',()=>{themeObserver.disconnect();try{viewerObserver&&viewerObserver.disconnect();}catch{}},{once:true});
 })();
 </script>`;
 

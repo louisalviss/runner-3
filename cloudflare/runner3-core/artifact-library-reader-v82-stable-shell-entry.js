@@ -25,6 +25,7 @@ export default {
       headers.set('X-R3-Reader-Frame-Bind', 'relocated-v94');
       headers.set('X-R3-Reader-Touch-Owner', 'hybrid-v96');
       headers.set('X-R3-Reader-Input-Unblock', 'source-v98');
+      headers.set('X-R3-Reader-Responsiveness', 'event-driven-v100');
       return new Response(updated, { status: 200, headers });
     } catch (error) {
       return new Response('Reader stable shell v82 patch failed', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-R3-Reader-Stable-Shell': 'v82-patch-failed', 'X-R3-Reader-Patch-Error': String(error && error.message || error).slice(0, 200) } });

@@ -43,20 +43,28 @@ const CLOCK_SCRIPT = `<script data-r3-audio-high-speed-v31="1">
   const audio=document.getElementById('r3AudioElement');
   if(!audio)return;
   const debug=window.__r3AudioHighSpeedV31Debug||(window.__r3AudioHighSpeedV31Debug={ticks:0,followRuns:0,queued:0,currentConcurrent:0,maxConcurrent:0,lastTickAt:0,lastRate:1});
-  let raf=0,lastWall=0;
-  function tick(wall){
+  let timer=0;
+  function stopClock(){if(timer){clearInterval(timer);timer=0;}}
+  function syncClock(){
+    stopClock();
     const rate=Number(audio.playbackRate)||1;
     debug.lastRate=rate;
-    if(!audio.paused&&!audio.ended&&rate>1.05&&wall-lastWall>=75){
-      lastWall=wall;
+    if(audio.paused||audio.ended||rate<=1.05)return;
+    timer=setInterval(()=>{
+      const currentRate=Number(audio.playbackRate)||1;
+      debug.lastRate=currentRate;
+      if(audio.paused||audio.ended||currentRate<=1.05){stopClock();return;}
       debug.ticks++;
       debug.lastTickAt=Number(audio.currentTime)||0;
       try{audio.dispatchEvent(new Event('timeupdate'));}catch{}
-    }
-    raf=requestAnimationFrame(tick);
+    },75);
   }
-  raf=requestAnimationFrame(tick);
-  window.addEventListener('pagehide',()=>{if(raf)cancelAnimationFrame(raf);},{once:true});
+  audio.addEventListener('play',syncClock);
+  audio.addEventListener('pause',stopClock);
+  audio.addEventListener('ended',stopClock);
+  audio.addEventListener('ratechange',syncClock);
+  syncClock();
+  window.addEventListener('pagehide',stopClock,{once:true});
 })();
 </script>`;
 

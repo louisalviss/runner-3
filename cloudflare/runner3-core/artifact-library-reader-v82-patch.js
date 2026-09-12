@@ -460,7 +460,16 @@ export function r3StableRuntimeV82() {
     await finalRestore(bridge);
     geometry && geometry.apply && geometry.apply('post-restore', false);
     refreshChapterUi(bridge);
-    setInterval(() => refreshChapterUi(bridge), 1200);
+    try {
+      if (typeof bridge.onRelocated === 'function') {
+        let chapterTimer = 0;
+        const offChapterUi = bridge.onRelocated(() => {
+          clearTimeout(chapterTimer);
+          chapterTimer = setTimeout(() => refreshChapterUi(bridge), 120);
+        });
+        window.__r3ChapterUiOffV100 = offChapterUi;
+      }
+    } catch {}
   })().catch(error => { debug.error = String(error && error.message || error).slice(0, 200); releaseRestoreShield('runtime-error'); });
 }
 

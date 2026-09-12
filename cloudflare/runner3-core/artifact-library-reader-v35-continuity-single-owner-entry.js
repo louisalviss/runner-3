@@ -129,8 +129,10 @@ const V35_PLAYER_CHAPTERS = `<style data-r3-player-chapters-v38="1">
 #r3AudioChapterSelect{min-width:0;width:100%;padding:0 9px;text-overflow:ellipsis}
 #r3ReaderChapterBadge{position:fixed;z-index:21;left:76px;right:76px;top:calc(max(10px,env(safe-area-inset-top)) + 30px);text-align:center;color:var(--muted,#888);font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transition:opacity .16s ease}
 body.controls #r3ReaderChapterBadge{opacity:1}
-body.r3-audio-ui #viewer,body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
-body.r3-audio-ui .bottom-status,body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui #viewer{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui.r3-audio-expanded #viewer{bottom:calc(210px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui .bottom-status{bottom:calc(82px + env(safe-area-inset-bottom,0px))!important}
+body.r3-audio-ui.r3-audio-expanded .bottom-status{bottom:calc(216px + env(safe-area-inset-bottom,0px))!important}
 </style>
 <script data-r3-player-chapters-v38="1">
 (()=>{
@@ -234,7 +236,14 @@ body.r3-audio-ui .bottom-status,body.r3-audio-ui.r3-audio-expanded .bottom-statu
   select.addEventListener('change',event=>{event.stopImmediatePropagation();moveChapter(Number(select.value),'index');},true);
 
   const hook=()=>{const b=bridge();if(b&&typeof b.onRelocated==='function'&&!offRelocated){offRelocated=b.onRelocated(()=>setTimeout(()=>refreshChapters(false),100));return true;}return false;};
-  let tries=0;const boot=setInterval(()=>{hook();refreshChapters(false);if(++tries>40){clearInterval(boot);}},150);
+  let tries=0;const boot=setInterval(()=>{
+    if(hook()){
+      clearInterval(boot);
+      refreshChapters(false);
+      return;
+    }
+    if(++tries>40)clearInterval(boot);
+  },250);
   window.addEventListener('pagehide',()=>{clearInterval(boot);try{offRelocated&&offRelocated();}catch{}},{once:true});
 })();
 </script>`;
@@ -285,20 +294,16 @@ function patchSingleAudioOwner(html) {
   const boot=setInterval(()=>{
     if(installBridgeHooks()){
       clearInterval(boot);
-      setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);
+      warmCurrentChapter();setTimeout(()=>warmCurrentChapter(),180);setTimeout(()=>warmCurrentChapter(),420);setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);
     }
   },100);`;
 
   const newRuntime = `  let tickBusy=false;
   let armedMediaId='';
   let wasEnded=Boolean(audio.ended);
-  let rafId=0;
-  let lastRafAt=0;
 
   function clearRangeHighlight(){
-    for(const doc of [...document.querySelectorAll('#viewer iframe')].map(f=>{try{return f.contentDocument;}catch{return null;}}).filter(Boolean)){
-      try{doc.defaultView&&doc.defaultView.CSS&&doc.defaultView.CSS.highlights&&doc.defaultView.CSS.highlights.delete(highlightName);}catch{}
-    }
+    try{window.__r3SentenceHighlightV44?.clear?.();}catch{}
   }
 
   const tick=async()=>{
@@ -327,23 +332,24 @@ function patchSingleAudioOwner(html) {
   const srcObserver=new MutationObserver(()=>armCurrentMedia());
   try{srcObserver.observe(audio,{attributes:true,attributeFilter:['src']});}catch{}
 
-  const continuityFrame=stamp=>{
-    if(stamp-lastRafAt>=100){
-      lastRafAt=stamp;
-      armCurrentMedia();
-      tick();
-      const endedNow=Boolean(audio.ended);
-      if(endedNow&&!wasEnded)clearRangeHighlight();
-      wasEnded=endedNow;
-    }
-    rafId=requestAnimationFrame(continuityFrame);
-  };
-  rafId=requestAnimationFrame(continuityFrame);
+  const onMediaReady=()=>{armCurrentMedia();tick();schedulePrefetch();};
+  const onMediaTick=()=>{if(!audio.paused&&!audio.ended)tick();};
+  const onSeeked=()=>tick();
+  const onEnded=()=>{wasEnded=true;clearRangeHighlight();};
+  audio.addEventListener('loadedmetadata',onMediaReady);
+  audio.addEventListener('play',onMediaReady);
+  audio.addEventListener('timeupdate',onMediaTick);
+  audio.addEventListener('seeked',onSeeked);
+  audio.addEventListener('ended',onEnded);
 
   window.addEventListener('pagehide',()=>{
     try{relocatedOff&&relocatedOff();}catch{}
     try{srcObserver.disconnect();}catch{}
-    try{cancelAnimationFrame(rafId);}catch{}
+    audio.removeEventListener('loadedmetadata',onMediaReady);
+    audio.removeEventListener('play',onMediaReady);
+    audio.removeEventListener('timeupdate',onMediaTick);
+    audio.removeEventListener('seeked',onSeeked);
+    audio.removeEventListener('ended',onEnded);
   },{once:true});
 
   const boot=setInterval(()=>{
@@ -375,6 +381,7 @@ export default {
       headers.set('X-Robots-Tag', ROBOTS);
       headers.set('X-R3-Reader-Runtime', 'v35-continuity-single-owner');
       headers.set('X-R3-Reader-Patch-Proof', 'v34+v35:ahead-prefetch+range-follow+single-audio-owner');
+      headers.set('X-R3-Reader-Dock-Audio', 'stable-v80');
       return new Response(updated, { status: 200, headers });
     } catch (error) {
       return new Response('Reader runtime v35 patch failed', {
