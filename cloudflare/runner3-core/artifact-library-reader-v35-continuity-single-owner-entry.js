@@ -294,7 +294,7 @@ function patchSingleAudioOwner(html) {
   const boot=setInterval(()=>{
     if(installBridgeHooks()){
       clearInterval(boot);
-      warmCurrentChapter();setTimeout(()=>warmCurrentChapter(),180);setTimeout(()=>warmCurrentChapter(),420);setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);
+      warmCurrentChapter();setTimeout(()=>warmCurrentChapter(),180);setTimeout(()=>warmCurrentChapter(),420);warmCurrentChapter();setTimeout(()=>warmCurrentChapter(),180);setTimeout(()=>warmCurrentChapter(),420);setTimeout(()=>{manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();},700);
     }
   },100);`;
 
@@ -359,7 +359,13 @@ function patchSingleAudioOwner(html) {
     }
   },100);`;
 
-  out = replaceScoped(out, V34_MARKER, oldRuntime, newRuntime, 'single-audio-owner');
+  const runtimeMarkerAt = out.indexOf(V34_MARKER);
+  if (runtimeMarkerAt < 0) throw new Error('READER_V35_PATCH_MISSING:single-audio-owner:marker');
+  const runtimeStart = out.indexOf('  const tick=async()=>{', runtimeMarkerAt);
+  const runtimeEnd = out.indexOf('\n})();\n</script>', runtimeStart);
+  const nextScript = out.indexOf('<script ', runtimeMarkerAt + V34_MARKER.length);
+  if (runtimeStart < 0 || runtimeEnd < 0 || (nextScript >= 0 && runtimeEnd > nextScript)) throw new Error('READER_V35_PATCH_MISSING:single-audio-owner:range');
+  out = out.slice(0, runtimeStart) + newRuntime + out.slice(runtimeEnd);
   if (!out.includes('</head>')) throw new Error('READER_V35_HEAD_MARKER_MISSING');
   out = out.replace('</head>', V35_EARLY_AUDIO_RESERVE + '</head>');
   if (!out.includes('</body>')) throw new Error('READER_V35_BODY_MARKER_MISSING');

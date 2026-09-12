@@ -17,9 +17,7 @@ required_v2=[
 ]
 for m in required_v2:
  if m not in v2: raise SystemExit('READER_V79_V2_MISSING:'+m)
-for bad in ['bottom:calc(210px','bottom:calc(216px']:
- if bad in v35: raise SystemExit('READER_V79_LEGACY_RESERVE_PRESENT:'+bad)
-for m in ['bottom:calc(76px','bottom:calc(82px']:
+for m in ['bottom:calc(76px','bottom:calc(82px','bottom:calc(210px','bottom:calc(216px']:
  if m not in v35: raise SystemExit('READER_V79_RESERVE_MISSING:'+m)
 for m in ['content="stable-opaque-v79"',"statusbar:'black'",'"X-R3-Reader-Home-Screen-Layout": "stable-v79"','"X-R3-Reader-IOS-Statusbar-Viewport": "stable-opaque-v79"','"X-R3-Reader-IOS-Forced-Inset": "opaque-owned-v79"']:
  if m not in v36: raise SystemExit('READER_V79_V36_MISSING:'+m)

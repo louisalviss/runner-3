@@ -158,9 +158,10 @@ new_clear_range = r'''  function clearRangeHighlight(){
     try{window.__r3SentenceHighlightV44?.clear?.();}catch{}
   }
 '''
-if old_clear_range not in s35:
-    raise SystemExit('v44: v35 clearRangeHighlight marker missing')
-s35 = s35.replace(old_clear_range, new_clear_range, 1)
+if new_clear_range not in s35:
+    if old_clear_range not in s35:
+        raise SystemExit('v44: v35 clearRangeHighlight marker missing')
+    s35 = s35.replace(old_clear_range, new_clear_range, 1)
 
 # Strengthen runtime proof without creating another Worker wrapper/layer.
 s35 = s35.replace(
