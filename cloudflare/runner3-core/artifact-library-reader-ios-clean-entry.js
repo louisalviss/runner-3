@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v115';
+const CLEAN_VERSION='v116';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -46,8 +46,8 @@ const CLEAN_STYLE=`<style data-r3-clean-ios-v112="1">
 html[data-r3-clean-ios="v112"],html[data-r3-clean-ios="v112"] body{overscroll-behavior:none}
 html[data-r3-clean-ios="v112"] #viewer{bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
 html[data-r3-clean-ios="v112"] .bottom-status{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
-html[data-r3-clean-ios="v112"] .chrome{opacity:1!important}
 html[data-r3-clean-ios="v112"] .topbar>*{pointer-events:auto!important}
+html[data-r3-clean-ios="v112"] .nav-choice[data-nav="swipe"]{display:none!important}
 #r3CleanPrev,#r3CleanNext{position:fixed;top:50%;transform:translateY(-50%);z-index:10020;width:44px;height:56px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:14px;background:var(--panel,rgba(252,251,248,.92));color:var(--fg,inherit);box-shadow:0 8px 24px rgba(0,0,0,.16);font:700 22px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #r3CleanPrev{left:6px}#r3CleanNext{right:6px}
 body.settings #r3CleanPrev,body.settings #r3CleanNext{visibility:hidden;pointer-events:none}
@@ -82,8 +82,16 @@ const CLEAN_SCRIPT=`<script data-r3-clean-ios-runtime-v112="1">
   const prevButton=document.createElement('button');prevButton.id='r3CleanPrev';prevButton.type='button';prevButton.setAttribute('aria-label','Trang trước');prevButton.textContent='‹';
   const nextButton=document.createElement('button');nextButton.id='r3CleanNext';nextButton.type='button';nextButton.setAttribute('aria-label','Trang sau');nextButton.textContent='›';
   document.body.append(prevButton,nextButton);
-  const sendNav=key=>{debug.lastAction=key==='ArrowRight'?'next':'prev';try{window.__r3PhysicalTraceV113?.emit?.('nav.button.'+(key==='ArrowRight'?'next':'prev'),{})}catch{}document.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}))};
+  let chromeTimer=0,settingsIdleTimer=0;
+  const pulseChrome=()=>{clearTimeout(chromeTimer);document.body.classList.add('controls');chromeTimer=setTimeout(()=>{if(!document.body.classList.contains('settings'))document.body.classList.remove('controls')},3000)};
+  const scheduleSettingsIdleClose=()=>{clearTimeout(settingsIdleTimer);settingsIdleTimer=setTimeout(()=>{if(document.body.classList.contains('settings'))document.getElementById('closeSettings')?.click()},6000)};
+  const sendNav=key=>{debug.lastAction=key==='ArrowRight'?'next':'prev';try{window.__r3PhysicalTraceV113?.emit?.('nav.button.'+(key==='ArrowRight'?'next':'prev'),{})}catch{}document.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));setTimeout(pulseChrome,0)};
   prevButton.addEventListener('click',()=>sendNav('ArrowLeft'));nextButton.addEventListener('click',()=>sendNav('ArrowRight'));
+  document.getElementById('settingsButton')?.addEventListener('click',scheduleSettingsIdleClose);
+  document.getElementById('settingsSheet')?.addEventListener('pointerdown',scheduleSettingsIdleClose,{passive:true});
+  document.getElementById('settingsSheet')?.addEventListener('click',scheduleSettingsIdleClose);
+  document.getElementById('closeSettings')?.addEventListener('click',()=>clearTimeout(settingsIdleTimer));
+  addEventListener('r3-base-reader-boot-done-v47',pulseChrome,{once:true});
   const play=dock.querySelector('#r3CleanPlay'),speed=dock.querySelector('#r3CleanSpeed'),expand=dock.querySelector('#r3CleanExpand'),back=dock.querySelector('#r3CleanBack'),forward=dock.querySelector('#r3CleanForward'),status=dock.querySelector('#r3CleanAudioStatus'),title=dock.querySelector('#r3CleanAudioTitle'),audio=dock.querySelector('#r3CleanAudioElement');
   const rates=[1,1.25,1.5,1.75,2];let rateIndex=0,currentId='',loadedSignature='',requestSeq=0;
   function setStatus(v){status.textContent=String(v||'Nam Minh').slice(0,100)}
@@ -116,6 +124,23 @@ export function patchCleanIosV110(html){
   if(out.includes('data-r3-clean-ios-v112="1"'))return out;
   if(!out.includes('id="viewer"')||!out.includes('</head>')||!out.includes('</body>'))throw new Error('CLEAN_IOS_BASE_MARKERS_MISSING');
 
+  // iOS physical-client owner: horizontal swipe is intentionally disabled.
+  // Chrome iOS showed stable top-level buttons but horizontal iframe swipe could
+  // disturb paginated geometry. Keep tap gestures only and prevent horizontal pan.
+  const gestureStart=out.indexOf('  function bindGestureTarget(doc, widthFn){');
+  const gestureEnd=out.indexOf('\n\n  function bindEpubContents(){',gestureStart);
+  if(gestureStart<0||gestureEnd<0)throw new Error('CLEAN_IOS_GESTURE_RANGE_MISSING');
+  out=out.slice(0,gestureStart)+`  function bindGestureTarget(doc, widthFn){
+    if(!doc||doc.documentElement?.dataset?.r3GestureV2==='1')return;
+    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='tap-only-v116';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
+    try{if(doc.body){doc.body.style.touchAction='pan-y';doc.body.style.overscrollBehaviorX='none';doc.body.style.overflowX='hidden'}}catch{}
+    let sx=0,sy=0,st=0,target=null;
+    doc.addEventListener('touchstart',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;sx=t.clientX;sy=t.clientY;st=Date.now();target=e.target;},{passive:true});
+    doc.addEventListener('touchmove',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;const dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>=8&&Math.abs(dx)>Math.abs(dy)*1.08)e.preventDefault();},{passive:false});
+    doc.addEventListener('touchend',e=>{const t=e.changedTouches&&e.changedTouches[0];if(!t)return;lastTouchAt=Date.now();const dx=t.clientX-sx,dy=t.clientY-sy,dt=Date.now()-st;if(Math.abs(dx)<18&&Math.abs(dy)<18&&dt<650)actTap(t.clientX,widthFn(),target);},{passive:true});
+    doc.addEventListener('click',e=>{if(Date.now()-lastTouchAt<700)return;actTap(e.clientX,widthFn(),e.target);});
+  }`+out.slice(gestureEnd);
+
   // Physical iPhone must never pre-generate EPUB locations. On very large books
   // (1498 chapters in the affected case), epub.js locations.generate(1600) can
   // monopolize WebKit's main thread for a long time. Structural spine/page
@@ -137,6 +162,7 @@ export function patchCleanIosV110(html){
   if(openStart<0||openEnd<0)throw new Error('CLEAN_IOS_OPENBOOK_RANGE_MISSING');
   const minimalOpenBook=`  async function openBook(){
     window.__r3IosLocationsV112={disabled:true,reason:'large-book-main-thread',at:Date.now()};
+    nav='tap';persist(keys.nav,nav);syncUi();
     const boot=window.__r3IosMinimalBootV112={version:'v112',phase:'start',startedAt:Date.now(),fetchMs:0,displayMs:0,target:'',after:'',error:''};
     let loadingTimer=0;
     try{
@@ -203,7 +229,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v115');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v116');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
