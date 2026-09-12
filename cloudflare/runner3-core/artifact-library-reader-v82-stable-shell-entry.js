@@ -1,4 +1,5 @@
 import app from "./artifact-library-reader-v36-home-screen-safe-area-entry.js";
+import cleanIosApp from "./artifact-library-reader-ios-clean-entry.js";
 import { patchReaderV82 } from "./artifact-library-reader-v82-patch.js";
 export { r3StableEarlyV82, r3StableRuntimeV82, patchReaderV82 } from "./artifact-library-reader-v82-patch.js";
 
@@ -7,8 +8,10 @@ const ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const response = await app.fetch(request, env, ctx);
-    if (request.method !== 'GET' || url.pathname !== '/artifact-library/read') return response;
+    const ua = String(request.headers.get('user-agent') || '');
+    const cleanIos = request.method === 'GET' && url.pathname === '/artifact-library/read' && url.searchParams.get('legacy') !== '1' && (url.searchParams.get('clean') === '1' || /iPhone|iPad|iPod/i.test(ua));
+    const response = cleanIos ? await cleanIosApp.fetch(request, env, ctx) : await app.fetch(request, env, ctx);
+    if (request.method !== 'GET' || url.pathname !== '/artifact-library/read' || cleanIos) return response;
     const type = response.headers.get('Content-Type') || '';
     if (response.status !== 200 || !type.toLowerCase().includes('text/html')) return response;
     try {

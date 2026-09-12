@@ -1,0 +1,28 @@
+import crypto from 'node:crypto';
+import { webkit } from 'playwright';
+const token=String(process.env.RUNNER3_CORE_TOKEN||'').trim();if(!token)throw new Error('RUNNER3_CORE_TOKEN_MISSING');
+const core=String(process.env.RUNNER3_CORE_URL||'https://runner3-core.ducduy2411.workers.dev').replace(/\/$/,'');
+const bookKey=String(process.env.EBOOK_WEBKIT_BOOK_KEY||'core/ebook/tha-nu-phu-thuy-kia-ra-nhi-muc-1lwhn39/final/Thả Nữ Phù Thủy Kia Ra - Nhị Mục.epub');
+const cookieValue=crypto.createHash('sha256').update('runner3-artifact-library-v1:'+token).digest('hex');const host=new URL(core).hostname;
+const iphone='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
+const browser=await webkit.launch({headless:true});
+const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,userAgent:iphone});
+await context.addCookies([{name:'r3_artifact_library',value:cookieValue,domain:host,path:'/artifact-library',httpOnly:true,secure:true,sameSite:'Lax'}]);
+await context.route('**/artifact-library/api/progress**',async route=>{if(route.request().method()==='POST')return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true,items:[],smoke:true})});return route.continue();});
+const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e?.stack||e)));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+const url=core+'/artifact-library/read?key='+encodeURIComponent(bookKey);
+try{
+ let response=null;for(let attempt=1;attempt<=20;attempt++){response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});if(response?.status()===200&&response.headers()['x-r3-reader-ios-clean']==='v110')break;if(attempt===20)throw new Error('V110_NOT_LIVE '+JSON.stringify({status:response?.status(),headers:response?.headers()}));await page.waitForTimeout(1000)}
+ if(response.headers()['x-r3-reader-legacy-chain']!=='bypassed-v110')throw new Error('V110_LEGACY_NOT_BYPASSED');
+ await page.waitForFunction(()=>window.__R3_BASE_READER_BOOT_DONE===true,null,{timeout:30000});
+ await page.waitForSelector('#viewer iframe',{timeout:30000});
+ await page.waitForFunction(()=>{const f=document.querySelector('#viewer iframe');try{return String(f?.contentDocument?.body?.innerText||'').trim().length>80}catch{return false}},null,{timeout:30000});
+ const state=await page.evaluate(()=>({clean:document.documentElement.dataset.r3CleanIos||'',debug:window.__r3CleanIosV110||null,legacy35:Boolean(document.querySelector('script[data-r3-audio-continuity-v35]')),legacy82:Boolean(document.querySelector('script[data-r3-stable-shell-runtime-v82]')),frameText:String(document.querySelector('#viewer iframe')?.contentDocument?.body?.innerText||'').trim().length,controls:document.body.classList.contains('controls')}));
+ if(state.clean!=='v110'||state.legacy35||state.legacy82||state.frameText<80)throw new Error('V110_BAD_RUNTIME '+JSON.stringify(state));
+ const settings=page.locator('#settingsButton');await settings.waitFor({state:'visible',timeout:10000});await settings.click({timeout:10000});await page.waitForFunction(()=>document.body.classList.contains('settings'),null,{timeout:5000});await page.locator('#closeSettings').click({timeout:10000});await page.waitForFunction(()=>!document.body.classList.contains('settings'),null,{timeout:5000});
+ const expand=page.locator('#r3CleanExpand');await expand.click({timeout:10000});await page.waitForFunction(()=>document.getElementById('r3CleanAudio')?.classList.contains('r3-expanded'),null,{timeout:5000});
+ const speed=page.locator('#r3CleanSpeed');const speedBefore=String(await speed.textContent()||'');await speed.click({timeout:10000});const speedAfter=String(await speed.textContent()||'');if(speedAfter===speedBefore)throw new Error('V110_SPEED_DEAD');
+ const positionKey='r3-reader-position:'+bookKey;const before=await page.evaluate(k=>String(localStorage.getItem(k)||''),positionKey);await page.keyboard.press('ArrowRight');await page.waitForFunction(({k,b})=>{const n=String(localStorage.getItem(k)||'');return Boolean(n&&n!==b)},{k:positionKey,b:before},{timeout:8000});const after=await page.evaluate(k=>String(localStorage.getItem(k)||''),positionKey);if(!after||after===before)throw new Error('V110_NAV_DEAD');
+ if(errors.length)throw new Error('V110_CONSOLE_ERRORS '+JSON.stringify(errors.slice(0,8)));
+ console.log(JSON.stringify({ok:true,mode:'iphone-clean-v110',frameText:state.frameText,settings:true,audioControls:{expand:true,speedBefore,speedAfter},navigation:{cfiChanged:true},legacyBypassed:true}));
+}finally{await browser.close()}
