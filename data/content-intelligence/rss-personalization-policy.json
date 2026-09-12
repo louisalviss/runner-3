@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-13T02:00:00+07:00",
+  "status": "active",
+  "scope": "rss-render-personalization",
+  "mode": "recall-first",
+  "goal": "Reduce low-interest RSS clutter without missing articles the user would have liked.",
+  "canonical_invariants": {
+    "canonical_manifest_remains_complete": true,
+    "canonical_numbering_remains_immutable": true,
+    "personalization_must_not_hard_delete_items": true,
+    "personalization_must_not_change_ingestion_or_dedupe_accounting": true
+  },
+  "default_render_policy": {
+    "primary_personalized_target": 20,
+    "exploration_target_min": 5,
+    "exploration_target_max": 10,
+    "remaining_items": "collapsed_not_deleted",
+    "show_full_manifest_on_request": true,
+    "priority": "recall_over_precision"
+  },
+  "exploration_policy": {
+    "purpose": "Protect against filter bubbles and unseen-interest false negatives.",
+    "include_items_with_novel_or_unseen_interest_families": true,
+    "do_not_treat_unmatched_profile_as_dislike": true,
+    "prefer_novelty_when_relevance_confidence_is_low": true
+  },
+  "negative_signal_policy": {
+    "explicit_dislike_required_for_strong_negative": true,
+    "low_score_alone_must_not_hide": true,
+    "collapse_aggressively_only_when": [
+      "low_personal_relevance_score",
+      "matches_repeated_negative_interest_family",
+      "negative_confidence_is_high"
+    ]
+  },
+  "miss_detection": {
+    "track_selected_or_deep_read_items_from_collapsed_section": true,
+    "if_collapsed_items_are_selected_repeatedly": "reduce_filtering_and_expand_exploration",
+    "key_metrics": [
+      "recall_at_k",
+      "precision_at_k",
+      "ndcg_at_k",
+      "collapsed_section_miss_rate"
+    ]
+  },
+  "rollout": {
+    "current_stage": "soft_personalization_ready",
+    "next_5_to_7_days": "Use personalized shortlist plus exploration while preserving full canonical manifest.",
+    "stronger_collapse_gate": "Top-10 should repeatedly contain at least 7 selected/deep-read items and at most 1 explicit dislike, with low collapsed-section miss rate.",
+    "hard_filter_gate": "Do not enable hard filtering merely from profile score; require substantially more explicit judgments across days and stable empirical recall metrics."
+  },
+  "user_preference": {
+    "primary_risk_to_avoid": "missing_articles_the_user_would_like",
+    "acceptable_tradeoff": "show_some_extra_low-value_articles_if_that_improves_recall"
+  }
+}
