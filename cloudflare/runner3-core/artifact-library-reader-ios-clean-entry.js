@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v119';
+const CLEAN_VERSION='v120';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -44,9 +44,9 @@ const EARLY_TRACE_V113=`<script data-r3-physical-trace-v113="1">
 
 const CLEAN_STYLE=`<style data-r3-clean-ios-v112="1">
 html[data-r3-clean-ios="v112"],html[data-r3-clean-ios="v112"] body{overscroll-behavior:none}
-html[data-r3-clean-ios="v112"] #viewer{top:max(28px,env(safe-area-inset-top,0px))!important;bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
+html[data-r3-clean-ios="v112"] #viewer{top:max(44px,calc(env(safe-area-inset-top,0px) + 16px))!important;bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
 html[data-r3-clean-ios="v112"] .bottom-status{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
-html[data-r3-clean-ios="v112"] .topbar{top:20px!important}
+html[data-r3-clean-ios="v112"] .topbar{top:28px!important}
 html[data-r3-clean-ios="v112"] .topbar>*{pointer-events:auto!important}
 html[data-r3-clean-ios="v112"] .nav-choice[data-nav="swipe"]{display:none!important}
 /* v118: broad invisible edge hit-zones. Keep navigation outside the EPUB iframe
@@ -99,20 +99,37 @@ const CLEAN_SCRIPT=`<script data-r3-clean-ios-runtime-v112="1">
   const rates=[1,1.25,1.5,1.75,2];let rateIndex=0,currentId='',loadedSignature='',requestSeq=0;
   function setStatus(v){status.textContent=String(v||'Nam Minh').slice(0,100)}
   function setPlay(mode){play.disabled=mode==='loading';play.textContent=mode==='loading'?'…':mode==='pause'?'Ⅱ':'▶'}
-  const followName='r3-audio-follow-v119';
+  const followName='r3-audio-follow-v120';
   let timingWords=[],mappedWords=[],timingKey='',activeDoc=null,activeSignature='',followTimer=0,followBusy=false,lastFollowIndex=-1,lastAutoPageAt=0;
-  const followDebug=window.__r3CleanAudioFollowV119={owner:'event-driven-v119',mapped:0,lastIndex:-1,lastPageAt:0,lastError:'',installTestTiming(words){timingKey='test';timingWords=Array.isArray(words)?words:[];return buildWordMap(true)},syncTest(ms){return syncFollowAt(Number(ms)||0,true)}};
+  const followDebug=window.__r3CleanAudioFollowV120={owner:'sentence-follow-v120',mapped:0,lastIndex:-1,lastPageAt:0,lastError:'',installTestTiming(words){timingKey='test';timingWords=Array.isArray(words)?words:[];return buildWordMap(true)},syncTest(ms){return syncFollowAt(Number(ms)||0,true)}};
   const norm=v=>String(v||'').normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/g,'').replace(/\s+/g,' ').trim().toLocaleLowerCase('vi-VN');
   const tokenRe=()=>{try{return /[\p{L}\p{M}\p{N}]+/gu}catch{return /[A-Za-z0-9À-ỹ]+/g}};
-  function ensureFollowStyle(doc){try{if(doc.getElementById('r3AudioFollowStyleV119'))return;const style=doc.createElement('style');style.id='r3AudioFollowStyleV119';style.textContent='::highlight('+followName+'){background:rgba(245,196,67,.30);color:inherit;text-decoration:underline rgba(245,196,67,.85) 1px}';(doc.head||doc.documentElement).appendChild(style)}catch{}}
+  function ensureFollowStyle(doc){try{if(doc.getElementById('r3AudioFollowStyleV120'))return;const style=doc.createElement('style');style.id='r3AudioFollowStyleV120';style.textContent='::highlight('+followName+'){background:rgba(245,196,67,.30);color:inherit;text-decoration:underline rgba(245,196,67,.85) 1px}';(doc.head||doc.documentElement).appendChild(style)}catch{}}
   function textRanges(payload){const out=[];try{const blocks=[...payload.doc.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote')];const roots=blocks.length?blocks:[payload.body];for(const root of roots){const walker=payload.doc.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){const raw=String(node.nodeValue||''),re=tokenRe();let m;while((m=re.exec(raw))){const t=norm(m[0]);if(!t)continue;const range=payload.doc.createRange();range.setStart(node,m.index);range.setEnd(node,m.index+m[0].length);out.push({token:t,range})}}}}catch{}return out}
   function buildWordMap(force=false){const payload=framePayload();if(!payload||!timingWords.length)return 0;if(!force&&activeDoc===payload.doc&&activeSignature===payload.signature&&mappedWords.some(Boolean))return mappedWords.filter(Boolean).length;activeDoc=payload.doc;activeSignature=payload.signature;ensureFollowStyle(payload.doc);mappedWords=new Array(timingWords.length).fill(null);const tt=[];for(let wi=0;wi<timingWords.length;wi++){const re=tokenRe(),raw=String(timingWords[wi]?.text||'');let m;while((m=re.exec(raw)))tt.push({token:norm(m[0]),wi})}let ti=0;for(const item of textRanges(payload)){if(ti>=tt.length)break;let found=-1;if(tt[ti].token===item.token)found=ti;else for(let p=ti+1;p<Math.min(tt.length,ti+19);p++){if(tt[p].token===item.token){found=p;break}}if(found<0)continue;const wi=tt[found].wi;if(!mappedWords[wi])mappedWords[wi]=item.range;ti=found+1}followDebug.mapped=mappedWords.filter(Boolean).length;return followDebug.mapped}
   function wordIndexAt(ms){if(!timingWords.length)return-1;let lo=0,hi=timingWords.length-1,ans=0;while(lo<=hi){const mid=(lo+hi)>>1,start=Number(timingWords[mid]?.startMs)||0;if(start<=ms){ans=mid;lo=mid+1}else hi=mid-1}return ans}
   function nearestRange(index){if(mappedWords[index])return mappedWords[index];for(let r=1;r<40;r++){if(mappedWords[index-r])return mappedWords[index-r];if(mappedWords[index+r])return mappedWords[index+r]}return null}
+  function sentenceRange(index){
+    const wordRange=nearestRange(index);if(!wordRange)return null;
+    try{
+      const doc=wordRange.startContainer.ownerDocument;
+      const el=wordRange.startContainer.nodeType===1?wordRange.startContainer:wordRange.startContainer.parentElement;
+      const block=el?.closest?.('p,li,h1,h2,h3,h4,h5,h6,blockquote');if(!block)return wordRange;
+      const text=String(block.textContent||'');if(!text.trim())return wordRange;
+      let center=0,found=false;const w=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT);let node;
+      while((node=w.nextNode())){if(node===wordRange.startContainer){center+=wordRange.startOffset;found=true;break}center+=String(node.nodeValue||'').length}
+      if(!found)return wordRange;
+      let a=0,b=text.length;for(let i=Math.max(0,center-1);i>=0;i--){if(/[.!?…]/.test(text[i]||'')){a=i+1;break}}for(let i=Math.max(0,center);i<text.length;i++){if(/[.!?…]/.test(text[i]||'')){b=i+1;while(b<text.length&&/[\"'”’»)]/.test(text[b]||''))b++;break}}
+      while(a<b&&/\s/.test(text[a]||''))a++;while(b>a&&/\s/.test(text[b-1]||''))b--;if(b<=a)return wordRange;
+      let cursor=0,sn=null,so=0,en=null,eo=0;const w2=doc.createTreeWalker(block,NodeFilter.SHOW_TEXT);
+      while((node=w2.nextNode())){const len=String(node.nodeValue||'').length;if(!sn&&a<=cursor+len){sn=node;so=Math.max(0,a-cursor)}if(b<=cursor+len){en=node;eo=Math.max(0,b-cursor);break}cursor+=len}
+      if(!sn||!en)return wordRange;const range=doc.createRange();range.setStart(sn,so);range.setEnd(en,eo);return range;
+    }catch{return wordRange}
+  }
   function clearFollow(){for(const frame of document.querySelectorAll('#viewer iframe')){try{frame.contentDocument?.defaultView?.CSS?.highlights?.delete(followName)}catch{}}}
   function applyFollow(range){if(!range)return false;try{const doc=range.startContainer.ownerDocument,win=doc.defaultView;ensureFollowStyle(doc);if(win?.CSS?.highlights&&typeof win.Highlight==='function'){for(const frame of document.querySelectorAll('#viewer iframe')){try{if(frame.contentDocument!==doc)frame.contentDocument?.defaultView?.CSS?.highlights?.delete(followName)}catch{}}win.CSS.highlights.set(followName,new win.Highlight(range));return true}}catch{}return false}
   function rangeState(range){try{const doc=range.startContainer.ownerDocument,viewer=document.getElementById('viewer');let frame=null;for(const f of document.querySelectorAll('#viewer iframe')){if(f.contentDocument===doc){frame=f;break}}if(!frame||!viewer)return{visible:true,dir:0};const vr=viewer.getBoundingClientRect(),fr=frame.getBoundingClientRect(),rects=[...range.getClientRects()];if(!rects.length)return{visible:false,dir:0};let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(const r of rects){left=Math.min(left,fr.left+r.left);right=Math.max(right,fr.left+r.right);top=Math.min(top,fr.top+r.top);bottom=Math.max(bottom,fr.top+r.bottom)}const visible=right>vr.left+4&&left<vr.right-4&&bottom>vr.top+4&&top<vr.bottom-4;let dir=0;if(left>=vr.right-4||top>=vr.bottom-4)dir=1;else if(right<=vr.left+4||bottom<=vr.top+4)dir=-1;return{visible,dir}}catch{return{visible:true,dir:0}}}
-  async function syncFollowAt(ms,force=false){if(!timingWords.length)return false;buildWordMap(false);const index=wordIndexAt(ms);if(index<0)return false;if(!force&&index===lastFollowIndex)return true;lastFollowIndex=index;followDebug.lastIndex=index;const range=nearestRange(index);if(!range)return false;applyFollow(range);const state=rangeState(range);if(!force&&!state.visible&&state.dir&&Date.now()-lastAutoPageAt>280&&!followBusy){followBusy=true;lastAutoPageAt=Date.now();followDebug.lastPageAt=lastAutoPageAt;try{const fn=state.dir>0?window.__r3IosPageNextV117:window.__r3IosPagePrevV117;if(typeof fn==='function'){await fn();try{window.__r3PhysicalTraceV113?.emit?.('audio.follow.page',{dir:state.dir,index})}catch{};await new Promise(r=>setTimeout(r,60));applyFollow(range)}}catch(error){followDebug.lastError=String(error&&error.message||error).slice(0,160)}finally{followBusy=false}}return true}
+  async function syncFollowAt(ms,force=false){if(!timingWords.length)return false;buildWordMap(false);const index=wordIndexAt(ms);if(index<0)return false;if(!force&&index===lastFollowIndex)return true;lastFollowIndex=index;followDebug.lastIndex=index;const word=nearestRange(index);if(!word)return false;const phrase=sentenceRange(index)||word;applyFollow(phrase);const state=rangeState(word);if(!force&&!state.visible&&state.dir&&Date.now()-lastAutoPageAt>280&&!followBusy){followBusy=true;lastAutoPageAt=Date.now();followDebug.lastPageAt=lastAutoPageAt;try{const fn=state.dir>0?window.__r3IosPageNextV117:window.__r3IosPagePrevV117;if(typeof fn==='function'){await fn();try{window.__r3PhysicalTraceV113?.emit?.('audio.follow.page',{dir:state.dir,index})}catch{};await new Promise(r=>setTimeout(r,60));applyFollow(sentenceRange(index)||word)}}catch(error){followDebug.lastError=String(error&&error.message||error).slice(0,160)}finally{followBusy=false}}return true}
   function stopFollowLoop(){if(followTimer){clearTimeout(followTimer);followTimer=0}}
   function runFollowLoop(){stopFollowLoop();if(audio.paused||audio.ended)return;syncFollowAt((Number(audio.currentTime)||0)*1000,false).finally(()=>{if(!audio.paused&&!audio.ended)followTimer=setTimeout(runFollowLoop,90)})}
   async function loadTiming(state,payload){timingWords=[];mappedWords=[];timingKey='';lastFollowIndex=-1;clearFollow();if(!state?.timingUrl)return 0;try{const r=await fetch(state.timingUrl,{cache:'no-store'}),data=await r.json().catch(()=>({}));if(!r.ok||!Array.isArray(data.words))return 0;timingKey=state.timingUrl;timingWords=data.words;const n=buildWordMap(true);try{window.__r3PhysicalTraceV113?.emit?.('audio.timing.ready',{words:timingWords.length,mapped:n})}catch{};return n}catch(error){followDebug.lastError=String(error&&error.message||error).slice(0,160);return 0}}
@@ -172,7 +189,7 @@ export function patchCleanIosV110(html){
   if(gestureStart<0||gestureEnd<0)throw new Error('CLEAN_IOS_GESTURE_RANGE_MISSING');
   out=out.slice(0,gestureStart)+`  function bindGestureTarget(doc, widthFn){
     if(!doc||doc.documentElement?.dataset?.r3GestureV2==='1')return;
-    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='center-toggle-v119';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
+    if(doc.documentElement){doc.documentElement.dataset.r3GestureV2='1';doc.documentElement.dataset.r3IosGesture='center-toggle-v120';try{doc.documentElement.style.touchAction='pan-y';doc.documentElement.style.overscrollBehaviorX='none'}catch{}}
     try{if(doc.body){doc.body.style.touchAction='pan-y';doc.body.style.overscrollBehaviorX='none';doc.body.style.overflowX='hidden'}}catch{}
     let sx=0,sy=0,st=0;
     const centerTap=x=>{const ratio=x/Math.max(1,widthFn());if(ratio>.28&&ratio<.72){try{window.__r3PhysicalTraceV113?.emit?.('chrome.center.toggle',{ratio:Number(ratio.toFixed(3))})}catch{};toggleControls();return true}return false};
@@ -270,7 +287,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v119');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v120');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
