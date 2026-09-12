@@ -5,9 +5,9 @@ const iphone='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit
 const req=new Request('https://example.test/artifact-library/read?key='+encodeURIComponent(key),{headers:{'user-agent':iphone}});
 const res=await mod.default.fetch(req,env,{});const html=await res.text();
 if(res.status!==200)throw new Error('clean ios status '+res.status+': '+html.slice(0,180));
-if(res.headers.get('x-r3-reader-ios-clean')!=='v112')throw new Error('clean ios header missing');
-if(res.headers.get('x-r3-reader-legacy-chain')!=='bypassed-v112')throw new Error('legacy bypass header missing');
-for(const marker of ['data-r3-clean-ios-v112="1"','data-r3-clean-ios-runtime-v112="1"','reader-clean-ios-v112','id="viewer"'])if(!html.includes(marker))throw new Error('clean marker missing '+marker);
+if(res.headers.get('x-r3-reader-ios-clean')!=='v113')throw new Error('clean ios header missing');
+if(res.headers.get('x-r3-reader-legacy-chain')!=='bypassed-v113')throw new Error('legacy bypass header missing');
+for(const marker of ['data-r3-clean-ios-v112="1"','data-r3-clean-ios-runtime-v112="1"','data-r3-physical-trace-v113="1"','reader-clean-ios-v112','id="viewer"'])if(!html.includes(marker))throw new Error('clean marker missing '+marker);
 for(const forbidden of ['data-r3-audio-continuity-v35="1"','data-r3-audio-continuity-v34="1"','data-r3-stable-shell-runtime-v82="1"','data-r3-ebook-audio-v6="2"'])if(html.includes(forbidden))throw new Error('legacy marker leaked '+forbidden);
 for(const heavy of ['book.locations.generate(1600)','setInterval(runColdBootGuardV62,100)',"owner:'safari-boot-geometry-v61'"])if(html.includes(heavy))throw new Error('heavy ios boot leaked '+heavy);
 for(const marker of ["owner:'minimal-ios-v112'","reason:'large-book-main-thread'",'window.__r3IosMinimalBootV112'])if(!html.includes(marker))throw new Error('minimal boot marker missing '+marker);
