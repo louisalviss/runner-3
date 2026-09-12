@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "provider": "cloudflare-r2",
+  "bucket": "runner3-reddit-opportunity-raw",
+  "public_access": false,
+  "root_prefix": "v1/runs",
+  "latest_pointer": "v1/LATEST.json",
+  "policy": {
+    "dedicated_bucket": true,
+    "allow_unrelated_artifacts": false,
+    "run_paths_immutable": true,
+    "compression": "gzip",
+    "retention": "indefinite"
+  }
+}
