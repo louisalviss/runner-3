@@ -38,7 +38,10 @@ for marker in required_reader:
 required_v35 = [
     'manualArmedAt=Date.now();tick();warmCurrentChapter();if(currentId())schedulePrefetch();',
     'manualArmedAt=Date.now();tick();warmCurrentChapter();armCurrentMedia();',
-    "out = replaceScoped(out, V34_MARKER, oldRuntime, newRuntime, 'single-audio-owner');",
+    "const runtimeStart = out.indexOf('  const tick=async()=>{', runtimeMarkerAt);",
+    "const runtimeEnd = out.indexOf(",
+    "const nextScript = out.indexOf('<script ', runtimeMarkerAt + V34_MARKER.length);",
+    "out = out.slice(0, runtimeStart) + newRuntime + out.slice(runtimeEnd);",
 ]
 for marker in required_v35:
     if marker not in v35:
