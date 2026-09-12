@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v116';
+const CLEAN_VERSION='v117';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -85,7 +85,7 @@ const CLEAN_SCRIPT=`<script data-r3-clean-ios-runtime-v112="1">
   let chromeTimer=0,settingsIdleTimer=0;
   const pulseChrome=()=>{clearTimeout(chromeTimer);document.body.classList.add('controls');chromeTimer=setTimeout(()=>{if(!document.body.classList.contains('settings'))document.body.classList.remove('controls')},3000)};
   const scheduleSettingsIdleClose=()=>{clearTimeout(settingsIdleTimer);settingsIdleTimer=setTimeout(()=>{if(document.body.classList.contains('settings'))document.getElementById('closeSettings')?.click()},6000)};
-  const sendNav=key=>{debug.lastAction=key==='ArrowRight'?'next':'prev';try{window.__r3PhysicalTraceV113?.emit?.('nav.button.'+(key==='ArrowRight'?'next':'prev'),{})}catch{}document.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));setTimeout(pulseChrome,0)};
+  const sendNav=async key=>{const dir=key==='ArrowRight'?'next':'prev';debug.lastAction=dir;const fn=dir==='next'?window.__r3IosPageNextV117:window.__r3IosPagePrevV117;try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.start',{dir})}catch{}if(typeof fn!=='function'){try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.missing',{dir})}catch{};return false}try{const result=await fn();try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.done',{dir,before:String(result?.before||''),after:String(result?.after||''),changed:Boolean(result?.changed)})}catch{};setTimeout(pulseChrome,0);return true}catch(error){try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.error',{dir,message:String(error&&error.message||error).slice(0,160)})}catch{};return false}};
   prevButton.addEventListener('click',()=>sendNav('ArrowLeft'));nextButton.addEventListener('click',()=>sendNav('ArrowRight'));
   document.getElementById('settingsButton')?.addEventListener('click',scheduleSettingsIdleClose);
   document.getElementById('settingsSheet')?.addEventListener('pointerdown',scheduleSettingsIdleClose,{passive:true});
@@ -123,6 +123,26 @@ export function patchCleanIosV110(html){
   let out=String(html||'');
   if(out.includes('data-r3-clean-ios-v112="1"'))return out;
   if(!out.includes('id="viewer"')||!out.includes('</head>')||!out.includes('</body>'))throw new Error('CLEAN_IOS_BASE_MARKERS_MISSING');
+
+  // Physical-client navigation owner: expose direct rendition navigation so top-level
+  // controls do not depend on synthetic KeyboardEvent delivery in iOS browsers.
+  const navOld=`  function pagePrev(){if(rendition)rendition.prev();hideControls();}
+  function pageNext(){if(rendition)rendition.next();hideControls();}`;
+  const navNew=`  async function r3DirectPageV117(direction){
+    if(!rendition)return {before:'',after:'',changed:false};
+    let before='';try{before=String(rendition.currentLocation()?.start?.cfi||'')}catch{}
+    direction==='next'?await rendition.next():await rendition.prev();
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    let after='';try{after=String(rendition.currentLocation()?.start?.cfi||'')}catch{}
+    hideControls();
+    return {before,after,changed:Boolean(after&&after!==before)};
+  }
+  function pagePrev(){return r3DirectPageV117('prev')}
+  function pageNext(){return r3DirectPageV117('next')}
+  window.__r3IosPagePrevV117=pagePrev;
+  window.__r3IosPageNextV117=pageNext;`;
+  if(!out.includes(navOld))throw new Error('CLEAN_IOS_NAV_OWNER_RANGE_MISSING');
+  out=out.replace(navOld,navNew);
 
   // iOS physical-client owner: horizontal swipe is intentionally disabled.
   // Chrome iOS showed stable top-level buttons but horizontal iframe swipe could
@@ -229,7 +249,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v116');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v117');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}

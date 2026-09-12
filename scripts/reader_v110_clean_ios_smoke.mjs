@@ -5,8 +5,8 @@ const iphone='Mozilla/5.0 (iPhone; CPU iPhone OS 26_4 like Mac OS X) AppleWebKit
 const req=new Request('https://example.test/artifact-library/read?key='+encodeURIComponent(key),{headers:{'user-agent':iphone}});
 const res=await mod.default.fetch(req,env,{});const html=await res.text();
 if(res.status!==200)throw new Error('clean ios status '+res.status+': '+html.slice(0,180));
-if(res.headers.get('x-r3-reader-ios-clean')!=='v116')throw new Error('clean ios header missing');
-if(res.headers.get('x-r3-reader-legacy-chain')!=='bypassed-v116')throw new Error('legacy bypass header missing');
+if(res.headers.get('x-r3-reader-ios-clean')!=='v117')throw new Error('clean ios header missing');
+if(res.headers.get('x-r3-reader-legacy-chain')!=='bypassed-v117')throw new Error('legacy bypass header missing');
 for(const marker of ['data-r3-clean-ios-v112="1"','data-r3-clean-ios-runtime-v112="1"','data-r3-physical-trace-v113="1"','reader-clean-ios-v112','id="viewer"'])if(!html.includes(marker))throw new Error('clean marker missing '+marker);
 for(const forbidden of ['data-r3-audio-continuity-v35="1"','data-r3-audio-continuity-v34="1"','data-r3-stable-shell-runtime-v82="1"','data-r3-ebook-audio-v6="2"'])if(html.includes(forbidden))throw new Error('legacy marker leaked '+forbidden);
 for(const heavy of ['book.locations.generate(1600)','setInterval(runColdBootGuardV62,100)',"owner:'safari-boot-geometry-v61'"])if(html.includes(heavy))throw new Error('heavy ios boot leaked '+heavy);
@@ -16,6 +16,7 @@ if(!html.includes("rendition.hooks.content.register"))throw new Error('v116 cont
 if(!html.includes("frame.hook.bound"))throw new Error('v116 frame trace missing');
 if(html.includes(".chrome{opacity:1!important}"))throw new Error('v116 chrome must auto-hide');
 if(!html.includes("tap-only-v116"))throw new Error('v116 tap-only gesture missing');
+if(!html.includes('__r3IosPageNextV117')||!html.includes('nav.direct.done')||!html.includes("r3DirectPageV117('next')"))throw new Error('v117 direct navigation owner missing');
 if(!html.includes("scheduleSettingsIdleClose"))throw new Error('v116 settings idle close missing');
 if(!html.includes("prevButton.id='r3CleanPrev'")||!html.includes("nextButton.id='r3CleanNext'"))throw new Error('v116 top nav missing');
 const desktop=new Request('https://example.test/artifact-library/read?key='+encodeURIComponent(key),{headers:{'user-agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'}});
