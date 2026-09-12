@@ -15,13 +15,14 @@ These labels never alter BUY/REVIEW gates or deploy capital.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import math
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -43,6 +44,12 @@ SIGNALS_OUT = OUT_DIR / "market-signals.json"
 HEALTH_OUT = OUT_DIR / "market-health.json"
 PREFILTER_OUT = OUT_DIR / "market-prefilter.json"
 SCANNER_VERSION = "2.1-prefilter-v1"
+PREFILTER_SOURCE = "data/opportunity-radar/market-prefilter.json"
+D1_CHECKPOINT_BINDING = {
+    "project": "opportunity-radar-v2",
+    "scope": "market-pricing",
+    "source": "opportunity-radar-market-v2",
+}
 
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 NASDAQ_LISTED = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
@@ -730,6 +737,8 @@ def main() -> None:
             json.dumps(prefilter_payload, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
+        prefilter_sha256 = hashlib.sha256(PREFILTER_OUT.read_bytes()).hexdigest()
+        prefilter_built_utc = generated_at_dt.astimezone(timezone.utc).isoformat()
 
         payload = {
             "schema_version": 2.0,
@@ -773,7 +782,14 @@ def main() -> None:
             signal_count=len(signals),
             prefilter_count=len(prefilter_records),
             prefilter_schema="opportunity-radar-market-prefilter-v1",
+            prefilter_sha256=prefilter_sha256,
+            prefilter_built_utc=prefilter_built_utc,
+            prefilter_source=PREFILTER_SOURCE,
             scanner_version=SCANNER_VERSION,
+            d1_checkpoint_binding=dict(D1_CHECKPOINT_BINDING),
+            checkpoint_project=D1_CHECKPOINT_BINDING["project"],
+            checkpoint_scope=D1_CHECKPOINT_BINDING["scope"],
+            checkpoint_source=D1_CHECKPOINT_BINDING["source"],
             history_requested=len(eligible),
             history_returned=len(history),
             history_coverage=coverage,

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,8 @@ PREFILTER_PATH = DATA_DIR / "market-prefilter.json"
 PROJECT = "opportunity-radar-v2"
 SCOPE = "market-pricing"
 SOURCE = "opportunity-radar-market-v2"
+PREFILTER_SOURCE = "data/opportunity-radar/market-prefilter.json"
+D1_CHECKPOINT_BINDING = {"project": PROJECT, "scope": SCOPE, "source": SOURCE}
 
 sys.path.insert(0, str(ROOT / ".github" / "scripts"))
 from runner3_core import get_checkpoint, report_status, save_checkpoint  # noqa: E402
@@ -88,6 +91,29 @@ def validate_packet(health: dict[str, Any], packet: dict[str, Any], prefilter: d
         raise RuntimeError("market-prefilter universe_count mismatch")
     if int(health.get("prefilter_count") or -1) != len(records):
         raise RuntimeError("market-health prefilter_count mismatch")
+
+    actual_prefilter_sha256 = sha256_file(PREFILTER_PATH)
+    if health.get("prefilter_sha256") != actual_prefilter_sha256:
+        raise RuntimeError("market-health prefilter_sha256 mismatch")
+    if health.get("prefilter_source") != PREFILTER_SOURCE:
+        raise RuntimeError("market-health prefilter_source mismatch")
+    built_utc = health.get("prefilter_built_utc")
+    try:
+        built_dt = datetime.fromisoformat(str(built_utc).replace("Z", "+00:00"))
+    except Exception as exc:
+        raise RuntimeError("market-health prefilter_built_utc invalid") from exc
+    if built_dt.utcoffset() != timezone.utc.utcoffset(built_dt):
+        raise RuntimeError("market-health prefilter_built_utc must be UTC")
+
+    binding = health.get("d1_checkpoint_binding")
+    if binding != D1_CHECKPOINT_BINDING:
+        raise RuntimeError("market-health D1 checkpoint binding mismatch")
+    if health.get("checkpoint_project") != PROJECT:
+        raise RuntimeError("market-health checkpoint_project mismatch")
+    if health.get("checkpoint_scope") != SCOPE:
+        raise RuntimeError("market-health checkpoint_scope mismatch")
+    if health.get("checkpoint_source") != SOURCE:
+        raise RuntimeError("market-health checkpoint_source mismatch")
 
     return sorted(ids)
 

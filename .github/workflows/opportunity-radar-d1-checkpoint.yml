@@ -101,6 +101,12 @@ jobs:
           checkpoint=get_checkpoint('opportunity-radar-v2','market-pricing')
           state=get_state('opportunity-radar-market-v2')
           position=checkpoint.get('position') if isinstance(checkpoint,dict) else None
+          prefilter_sha256=__import__('hashlib').sha256(Path('data/opportunity-radar/market-prefilter.json').read_bytes()).hexdigest()
+          expected_binding={
+              'project':'opportunity-radar-v2',
+              'scope':'market-pricing',
+              'source':'opportunity-radar-market-v2',
+          }
           ok=bool(
               isinstance(checkpoint,dict)
               and checkpoint.get('status')=='success'
@@ -111,8 +117,14 @@ jobs:
               and position.get('source_session_date')==health.get('source_session_date')
               and int(position.get('signal_count') or -1)==int(health.get('signal_count') or -2)
               and int(position.get('prefilter_count') or -1)==int(health.get('prefilter_count') or -2)
-              and position.get('prefilter_sha256')
-              and position.get('prefilter_sha256')==__import__('hashlib').sha256(Path('data/opportunity-radar/market-prefilter.json').read_bytes()).hexdigest()
+              and position.get('prefilter_sha256')==prefilter_sha256
+              and health.get('prefilter_sha256')==prefilter_sha256
+              and health.get('prefilter_source')=='data/opportunity-radar/market-prefilter.json'
+              and health.get('prefilter_built_utc')
+              and health.get('d1_checkpoint_binding')==expected_binding
+              and health.get('checkpoint_project')==expected_binding['project']
+              and health.get('checkpoint_scope')==expected_binding['scope']
+              and health.get('checkpoint_source')==expected_binding['source']
               and isinstance(state,dict)
               and state.get('status')=='success'
           )
@@ -123,6 +135,8 @@ jobs:
               'signalCount':health.get('signal_count'),
               'prefilterCount':health.get('prefilter_count'),
               'prefilterSha256':position.get('prefilter_sha256') if isinstance(position,dict) else None,
+              'healthPrefilterSha256':health.get('prefilter_sha256'),
+              'd1CheckpointBinding':health.get('d1_checkpoint_binding'),
               'phase':position.get('phase') if isinstance(position,dict) else None,
               'intakeIdsSha256':position.get('intake_ids_sha256') if isinstance(position,dict) else None,
               'stateStatus':state.get('status') if isinstance(state,dict) else None,
