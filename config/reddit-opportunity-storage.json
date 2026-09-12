@@ -11,5 +11,8 @@
     "run_paths_immutable": true,
     "compression": "gzip",
     "retention": "indefinite"
-  }
+  },
+  "canonical_runner": "scripts/reddit_opportunity_run.py",
+  "auto_archive_after_curate": true,
+  "archive_verification": "manifest + LATEST + raw logical SHA-256"
 }

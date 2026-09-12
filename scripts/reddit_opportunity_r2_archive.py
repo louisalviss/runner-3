@@ -21,11 +21,18 @@ def r2_put(bucket: str, key: str, path: Path, content_type: str, encoded=False):
     subprocess.check_call(cmd, cwd=ROOT, stdout=subprocess.DEVNULL)
 
 
+def r2_get(bucket: str, key: str, path: Path):
+    cmd = ["npx", "-y", f"wrangler@{WRANGLER}", "r2", "object", "get",
+           f"{bucket}/{key}", f"--file={path}", "--remote"]
+    subprocess.check_call(cmd, cwd=ROOT, stdout=subprocess.DEVNULL)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir", type=Path)
     ap.add_argument("--run-id")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-verify", action="store_true")
     args = ap.parse_args()
     cfg = json.loads(CFG.read_text())
     bucket = cfg["bucket"]
