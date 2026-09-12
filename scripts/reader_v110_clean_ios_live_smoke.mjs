@@ -12,8 +12,8 @@ await context.route('**/artifact-library/api/progress**',async route=>{if(route.
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e?.stack||e)));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
 const url=core+'/artifact-library/read?key='+encodeURIComponent(bookKey);
 try{
- let response=null;for(let attempt=1;attempt<=20;attempt++){response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});if(response?.status()===200&&response.headers()['x-r3-reader-ios-clean']==='v112')break;if(attempt===20)throw new Error('V112_NOT_LIVE '+JSON.stringify({status:response?.status(),headers:response?.headers()}));await page.waitForTimeout(1000)}
- if(response.headers()['x-r3-reader-legacy-chain']!=='bypassed-v112')throw new Error('V112_LEGACY_NOT_BYPASSED');
+ let response=null;for(let attempt=1;attempt<=20;attempt++){response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});if(response?.status()===200&&response.headers()['x-r3-reader-ios-clean']==='v113')break;if(attempt===20)throw new Error('V112_NOT_LIVE '+JSON.stringify({status:response?.status(),headers:response?.headers()}));await page.waitForTimeout(1000)}
+ if(response.headers()['x-r3-reader-legacy-chain']!=='bypassed-v113')throw new Error('V112_LEGACY_NOT_BYPASSED');
  await page.waitForFunction(()=>window.__R3_BASE_READER_BOOT_DONE===true,null,{timeout:30000});
  await page.waitForSelector('#viewer iframe',{timeout:30000});
  await page.waitForFunction(()=>{const f=document.querySelector('#viewer iframe');try{return String(f?.contentDocument?.body?.innerText||'').trim().length>80}catch{return false}},null,{timeout:30000});
@@ -24,5 +24,5 @@ try{
  const speed=page.locator('#r3CleanSpeed');const speedBefore=String(await speed.textContent()||'');await speed.click({timeout:10000});const speedAfter=String(await speed.textContent()||'');if(speedAfter===speedBefore)throw new Error('V112_SPEED_DEAD');
  const positionKey='r3-reader-position:'+bookKey;const before=await page.evaluate(k=>String(localStorage.getItem(k)||''),positionKey);await page.keyboard.press('ArrowRight');await page.waitForFunction(({k,b})=>{const n=String(localStorage.getItem(k)||'');return Boolean(n&&n!==b)},{k:positionKey,b:before},{timeout:8000});const after=await page.evaluate(k=>String(localStorage.getItem(k)||''),positionKey);if(!after||after===before)throw new Error('V112_NAV_DEAD');
  if(errors.length)throw new Error('V112_CONSOLE_ERRORS '+JSON.stringify(errors.slice(0,8)));
- console.log(JSON.stringify({ok:true,mode:'iphone-minimal-v112',frameText:state.frameText,settings:true,audioControls:{expand:true,speedBefore,speedAfter},navigation:{cfiChanged:true},legacyBypassed:true,minimalBoot:{totalMs:state.boot?.totalMs||0,fetchMs:state.boot?.fetchMs||0,displayMs:state.boot?.displayMs||0},locationsDisabled:state.locations?.disabled===true}));
+ console.log(JSON.stringify({ok:true,mode:'iphone-traced-v113',frameText:state.frameText,settings:true,audioControls:{expand:true,speedBefore,speedAfter},navigation:{cfiChanged:true},legacyBypassed:true,minimalBoot:{totalMs:state.boot?.totalMs||0,fetchMs:state.boot?.fetchMs||0,displayMs:state.boot?.displayMs||0},locationsDisabled:state.locations?.disabled===true}));
 }finally{await browser.close()}

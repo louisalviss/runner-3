@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v112';
+const CLEAN_VERSION='v113';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -11,6 +11,33 @@ function cleanIosCsp(csp){
   if(/base-uri[^;]*/.test(value))value=value.replace(/base-uri[^;]*/,`base-uri 'self'`);else value+=`; base-uri 'self'`;
   return value;
 }
+
+const EARLY_TRACE_V113=`<script data-r3-physical-trace-v113="1">
+(()=>{
+  if(window.__r3PhysicalTraceV113)return;
+  const key=new URLSearchParams(location.search).get('key')||'';
+  let traceId='';try{traceId=(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36)).replace(/-/g,'')}catch{traceId=Math.random().toString(36).slice(2)+Date.now().toString(36)}
+  let seq=0,lastBeat=performance.now(),stopped=false;
+  const state=window.__r3PhysicalTraceV113={version:'v113',traceId,seq:0,lastEvent:'init',lastBeatAt:Date.now(),maxLagMs:0};
+  function cleanTarget(target){try{return {tag:String(target&&target.tagName||'').slice(0,20),id:String(target&&target.id||'').slice(0,60),cls:String(target&&target.className||'').slice(0,80)}}catch{return {}}}
+  function emit(event,payload={}){
+    if(stopped)return;const n=seq++;state.seq=n;state.lastEvent=event;state.lastBeatAt=Date.now();
+    const body={trace_id:traceId,seq:n,created_at:Date.now(),book_key:key,mode:navigator.standalone===true?'home-screen':'browser',event,payload};
+    try{fetch('/artifact-library/api/client-trace',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',keepalive:true,body:JSON.stringify(body)}).catch(()=>{})}catch{}
+  }
+  state.emit=emit;
+  emit('early.head',{ready:document.readyState,ua:String(navigator.userAgent||'').slice(0,180),standalone:navigator.standalone===true,w:innerWidth,h:innerHeight,dpr:devicePixelRatio||1});
+  addEventListener('DOMContentLoaded',()=>emit('dom.content',{ready:document.readyState}),{once:true});
+  addEventListener('load',()=>emit('window.load',{ready:document.readyState}),{once:true});
+  addEventListener('pageshow',e=>emit('page.show',{persisted:!!e.persisted}));
+  addEventListener('pagehide',e=>{emit('page.hide',{persisted:!!e.persisted});stopped=true},{once:true});
+  document.addEventListener('visibilitychange',()=>emit('visibility',{hidden:document.hidden}));
+  addEventListener('error',e=>emit('window.error',{message:String(e.message||'').slice(0,180),src:String(e.filename||'').slice(-100),line:Number(e.lineno||0)}));
+  addEventListener('unhandledrejection',e=>emit('promise.reject',{reason:String(e.reason&&e.reason.message||e.reason||'').slice(0,180)}));
+  for(const type of ['touchstart','touchend','pointerdown','pointerup','click'])document.addEventListener(type,e=>emit('input.'+type,{target:cleanTarget(e.target),x:Math.round(Number(e.clientX||e.changedTouches&&e.changedTouches[0]&&e.changedTouches[0].clientX||0)),y:Math.round(Number(e.clientY||e.changedTouches&&e.changedTouches[0]&&e.changedTouches[0].clientY||0))}),true);
+  setInterval(()=>{const now=performance.now(),lag=Math.max(0,Math.round(now-lastBeat-1500));lastBeat=now;state.maxLagMs=Math.max(state.maxLagMs,lag);let frameText=-1,iframes=0;try{const frames=[...document.querySelectorAll('#viewer iframe')];iframes=frames.length;for(const f of frames){try{frameText=Math.max(frameText,String(f.contentDocument&&f.contentDocument.body&&f.contentDocument.body.innerText||'').trim().length)}catch{}}}catch{}emit('heartbeat',{lag,iframes,frameText,boot:String(window.__r3IosMinimalBootV112&&window.__r3IosMinimalBootV112.phase||''),baseDone:window.__R3_BASE_READER_BOOT_DONE===true,controls:!!(document.body&&document.body.classList.contains('controls')),settings:!!(document.body&&document.body.classList.contains('settings'))})},1500);
+})();
+</script>`;
 
 const CLEAN_STYLE=`<style data-r3-clean-ios-v112="1">
 html[data-r3-clean-ios="v112"],html[data-r3-clean-ios="v112"] body{overscroll-behavior:none}
@@ -85,6 +112,7 @@ export function patchCleanIosV110(html){
   if(locationsStart<0||locationsEnd<0)throw new Error('CLEAN_IOS_LOCATIONS_RANGE_MISSING');
   out=out.slice(0,locationsStart)+`  async function r3EnsureLocationsV55(){
     window.__r3IosLocationsV112={disabled:true,reason:'large-book-main-thread',at:Date.now()};
+    const trace=window.__r3PhysicalTraceV113;try{trace&&trace.emit&&trace.emit('boot.start',{phase:'start'})}catch{}
     return false;
   }`+out.slice(locationsEnd);
 
@@ -102,13 +130,13 @@ export function patchCleanIosV110(html){
       if(typeof window.ePub!=='function')throw new Error('Reader engine failed to load');
       loadingTimer=setTimeout(()=>{try{$('loading').classList.remove('hidden')}catch{}},250);
       const fetchStarted=performance.now();
-      const url=await signedUrl();
+      const url=await signedUrl();try{trace&&trace.emit&&trace.emit('boot.delivery',{ok:true})}catch{}
       const response=await fetch(url,{cache:'no-store'});
       if(!response.ok)throw new Error('EPUB HTTP '+response.status);
-      const buffer=await response.arrayBuffer();
+      const buffer=await response.arrayBuffer();try{trace&&trace.emit&&trace.emit('boot.epub.bytes',{bytes:buffer.byteLength})}catch{}
       boot.fetchMs=Math.round(performance.now()-fetchStarted);boot.bytes=buffer.byteLength;
-      book=window.ePub(buffer);
-      rendition=book.renderTo('viewer',{width:'100%',height:'100%',spread:'none',flow:'paginated',manager:'default'});
+      book=window.ePub(buffer);try{trace&&trace.emit&&trace.emit('boot.epub.constructed',{})}catch{}
+      rendition=book.renderTo('viewer',{width:'100%',height:'100%',spread:'none',flow:'paginated',manager:'default'});try{trace&&trace.emit&&trace.emit('boot.rendition.created',{})}catch{}
       registerThemes();applyReaderSettings();
       rendition.on('rendered',()=>{bindEpubContents();try{$('loading').classList.add('hidden')}catch{}});
       rendition.on('relocated',loc=>{
@@ -125,26 +153,28 @@ export function patchCleanIosV110(html){
       window.__R3_BASE_READER_BOOT_PENDING=true;window.__R3_BASE_READER_BOOT_DONE=false;
       window.__r3BaseReaderBootV47={phase:'display',target:saved,startedAt:Date.now(),after:'',error:'',owner:'minimal-ios-v112'};
       const displayStarted=performance.now();
+      try{trace&&trace.emit&&trace.emit('boot.display.start',{hasTarget:!!saved})}catch{}
       try{await rendition.display(saved||undefined)}catch(error){
         window.__r3BaseReaderBootV47.error=String(error&&error.message||error||'display failed').slice(0,180);
         try{localStorage.removeItem(keys.position)}catch{}
         await rendition.display();
       }
-      boot.displayMs=Math.round(performance.now()-displayStarted);
+      boot.displayMs=Math.round(performance.now()-displayStarted);try{trace&&trace.emit&&trace.emit('boot.display.done',{ms:boot.displayMs})}catch{}
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       try{boot.after=String(rendition.currentLocation()?.start?.cfi||'')}catch{}
       window.__r3BaseReaderBootV47.after=boot.after;window.__r3BaseReaderBootV47.phase='done';window.__r3BaseReaderBootV47.finishedAt=Date.now();
       window.__R3_BASE_READER_BOOT_PENDING=false;window.__R3_BASE_READER_BOOT_DONE=true;
       boot.phase='done';boot.finishedAt=Date.now();boot.totalMs=boot.finishedAt-boot.startedAt;
       bindEpubContents();clearTimeout(loadingTimer);$('loading').classList.add('hidden');document.body.classList.add('controls');
+      try{trace&&trace.emit&&trace.emit('boot.revealed',{totalMs:boot.totalMs,frameCount:document.querySelectorAll('#viewer iframe').length})}catch{}
       try{window.dispatchEvent(new CustomEvent('r3-base-reader-boot-done-v47',{detail:{target:saved,cfi:boot.after,owner:'minimal-ios-v112'}}))}catch{}
     }catch(error){
-      clearTimeout(loadingTimer);boot.phase='error';boot.error=String(error&&error.message||error);boot.finishedAt=Date.now();
+      clearTimeout(loadingTimer);boot.phase='error';boot.error=String(error&&error.message||error);boot.finishedAt=Date.now();try{trace&&trace.emit&&trace.emit('boot.error',{message:boot.error.slice(0,180)})}catch{}
       $('loading').classList.remove('hidden');$('loading').textContent='Không mở được EPUB: '+boot.error;$('position').textContent='Reader error';showControls();
     }
   }`;
   out=out.slice(0,openStart)+minimalOpenBook+out.slice(openEnd);
-  out=out.replace('</head>',CLEAN_STYLE+'</head>');
+  out=out.replace('</head>',EARLY_TRACE_V113+CLEAN_STYLE+'</head>');
   out=out.replace('</body>',CLEAN_SCRIPT+'</body>');
   return out;
 }
@@ -158,7 +188,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v112');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v113');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
