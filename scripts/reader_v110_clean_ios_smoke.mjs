@@ -9,7 +9,7 @@ if(res.headers.get('x-r3-reader-ios-clean')!=='v110')throw new Error('clean ios 
 if(res.headers.get('x-r3-reader-legacy-chain')!=='bypassed-v110')throw new Error('legacy bypass header missing');
 for(const marker of ['data-r3-clean-ios-v110="1"','data-r3-clean-ios-runtime-v110="1"','reader-clean-ios-v110','id="viewer"'])if(!html.includes(marker))throw new Error('clean marker missing '+marker);
 for(const forbidden of ['data-r3-audio-continuity-v35="1"','data-r3-audio-continuity-v34="1"','data-r3-stable-shell-runtime-v82="1"','data-r3-ebook-audio-v6="2"'])if(html.includes(forbidden))throw new Error('legacy marker leaked '+forbidden);
-const csp=String(res.headers.get('content-security-policy')||'');if(!/connect-src[^;]*\bblob:/.test(csp))throw new Error('clean CSP blob missing '+csp);
+const csp=String(res.headers.get('content-security-policy')||'');if(!/connect-src[^;]*\bblob:/.test(csp)||!/style-src[^;]*\bblob:/.test(csp)||!/base-uri\s+'self'/.test(csp))throw new Error('clean CSP v111 missing '+csp);
 const desktop=new Request('https://example.test/artifact-library/read?key='+encodeURIComponent(key),{headers:{'user-agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'}});
 const dres=await mod.default.fetch(desktop,env,{});const dhtml=await dres.text();
 if(dres.status!==200||dres.headers.get('x-r3-reader-stable-shell')!=='v82')throw new Error('desktop legacy fallback broken '+dres.status);

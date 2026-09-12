@@ -3,12 +3,13 @@ import app from './artifact-library-reader-v2-entry.js';
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
 const CLEAN_VERSION='v110';
 
-function ensureBlobConnect(csp){
-  const value=String(csp||'');
+function cleanIosCsp(csp){
+  let value=String(csp||'');
   if(!value)return value;
-  if(/connect-src[^;]*\bblob:/.test(value))return value;
-  if(/connect-src[^;]*/.test(value))return value.replace(/connect-src([^;]*)/,(_m,rest)=>`connect-src${rest} blob:`);
-  return value+'; connect-src \'self\' https: blob:';
+  if(!/connect-src[^;]*\bblob:/.test(value))value=/connect-src[^;]*/.test(value)?value.replace(/connect-src([^;]*)/,(_m,rest)=>`connect-src${rest} blob:`):value+`; connect-src 'self' https: blob:`;
+  if(!/style-src[^;]*\bblob:/.test(value))value=/style-src[^;]*/.test(value)?value.replace(/style-src([^;]*)/,(_m,rest)=>`style-src${rest} blob:`):value+`; style-src 'self' 'unsafe-inline' blob:`;
+  if(/base-uri[^;]*/.test(value))value=value.replace(/base-uri[^;]*/,`base-uri 'self'`);else value+=`; base-uri 'self'`;
+  return value;
 }
 
 const CLEAN_STYLE=`<style data-r3-clean-ios-v110="1">
@@ -89,7 +90,7 @@ export default {
     try{
       const updated=patchCleanIosV110(await response.text());
       const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v110');
-      const csp=ensureBlobConnect(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
+      const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
   },
