@@ -1,7 +1,7 @@
 import app from './artifact-library-reader-v2-entry.js';
 
 const ROBOTS='noindex, nofollow, noarchive, nosnippet, noimageindex';
-const CLEAN_VERSION='v117';
+const CLEAN_VERSION='v118';
 
 function cleanIosCsp(csp){
   let value=String(csp||'');
@@ -46,10 +46,13 @@ const CLEAN_STYLE=`<style data-r3-clean-ios-v112="1">
 html[data-r3-clean-ios="v112"],html[data-r3-clean-ios="v112"] body{overscroll-behavior:none}
 html[data-r3-clean-ios="v112"] #viewer{bottom:calc(70px + env(safe-area-inset-bottom,0px))!important}
 html[data-r3-clean-ios="v112"] .bottom-status{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
+html[data-r3-clean-ios="v112"] .topbar{top:12px!important}
 html[data-r3-clean-ios="v112"] .topbar>*{pointer-events:auto!important}
 html[data-r3-clean-ios="v112"] .nav-choice[data-nav="swipe"]{display:none!important}
-#r3CleanPrev,#r3CleanNext{position:fixed;top:50%;transform:translateY(-50%);z-index:10020;width:44px;height:56px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:14px;background:var(--panel,rgba(252,251,248,.92));color:var(--fg,inherit);box-shadow:0 8px 24px rgba(0,0,0,.16);font:700 22px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-#r3CleanPrev{left:6px}#r3CleanNext{right:6px}
+/* v118: broad invisible edge hit-zones. Keep navigation outside the EPUB iframe
+   without covering the topbar or audio dock. */
+#r3CleanPrev,#r3CleanNext{position:fixed;top:88px;bottom:calc(132px + env(safe-area-inset-bottom,0px));z-index:10020;width:34vw;max-width:180px;border:0!important;border-radius:0!important;background:transparent!important;color:transparent!important;box-shadow:none!important;opacity:0!important;padding:0!important;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#r3CleanPrev{left:0}#r3CleanNext{right:0}
 body.settings #r3CleanPrev,body.settings #r3CleanNext{visibility:hidden;pointer-events:none}
 #r3CleanAudio{position:fixed;left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom,0px));z-index:10000;min-height:58px;border:1px solid var(--line,rgba(127,127,127,.24));border-radius:16px;background:var(--panel,rgba(252,251,248,.97));color:var(--fg,inherit);box-shadow:0 12px 36px rgba(0,0,0,.22);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);font:13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;grid-template-columns:46px minmax(0,1fr) 48px 42px;gap:7px;align-items:center;padding:7px 8px;touch-action:manipulation}
 #r3CleanAudio *{box-sizing:border-box}
@@ -85,7 +88,7 @@ const CLEAN_SCRIPT=`<script data-r3-clean-ios-runtime-v112="1">
   let chromeTimer=0,settingsIdleTimer=0;
   const pulseChrome=()=>{clearTimeout(chromeTimer);document.body.classList.add('controls');chromeTimer=setTimeout(()=>{if(!document.body.classList.contains('settings'))document.body.classList.remove('controls')},3000)};
   const scheduleSettingsIdleClose=()=>{clearTimeout(settingsIdleTimer);settingsIdleTimer=setTimeout(()=>{if(document.body.classList.contains('settings'))document.getElementById('closeSettings')?.click()},6000)};
-  const sendNav=async key=>{const dir=key==='ArrowRight'?'next':'prev';debug.lastAction=dir;const fn=dir==='next'?window.__r3IosPageNextV117:window.__r3IosPagePrevV117;try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.start',{dir})}catch{}if(typeof fn!=='function'){try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.missing',{dir})}catch{};return false}try{const result=await fn();try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.done',{dir,before:String(result?.before||''),after:String(result?.after||''),changed:Boolean(result?.changed)})}catch{};setTimeout(pulseChrome,0);return true}catch(error){try{window.__r3PhysicalTraceV113?.emit?.('nav.direct.error',{dir,message:String(error&&error.message||error).slice(0,160)})}catch{};return false}};
+  const sendNav=async key=>{const dir=key==='ArrowRight'?'next':'prev';debug.lastAction=dir;const fn=dir==='next'?window.__r3IosPageNextV117:window.__r3IosPagePrevV117;try{window.__r3PhysicalTraceV113?.emit?.('nav.edge.start',{dir})}catch{}if(typeof fn!=='function'){try{window.__r3PhysicalTraceV113?.emit?.('nav.edge.missing',{dir})}catch{};return false}try{const result=await fn();document.body.classList.remove('controls');clearTimeout(chromeTimer);try{window.__r3PhysicalTraceV113?.emit?.('nav.edge.done',{dir,before:String(result?.before||''),after:String(result?.after||''),changed:Boolean(result?.changed)})}catch{};return true}catch(error){try{window.__r3PhysicalTraceV113?.emit?.('nav.edge.error',{dir,message:String(error&&error.message||error).slice(0,160)})}catch{};return false}};
   prevButton.addEventListener('click',()=>sendNav('ArrowLeft'));nextButton.addEventListener('click',()=>sendNav('ArrowRight'));
   document.getElementById('settingsButton')?.addEventListener('click',scheduleSettingsIdleClose);
   document.getElementById('settingsSheet')?.addEventListener('pointerdown',scheduleSettingsIdleClose,{passive:true});
@@ -249,7 +252,7 @@ export default {
     if(response.status!==200||!type.toLowerCase().includes('text/html'))return response;
     try{
       const updated=patchCleanIosV110(await response.text());
-      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v117');
+      const headers=new Headers(response.headers);headers.delete('Content-Length');headers.set('X-Robots-Tag',ROBOTS);headers.set('X-R3-Reader-IOS-Clean',CLEAN_VERSION);headers.set('X-R3-Reader-Legacy-Chain','bypassed-v118');
       const csp=cleanIosCsp(headers.get('Content-Security-Policy'));if(csp)headers.set('Content-Security-Policy',csp);
       return new Response(updated,{status:200,headers});
     }catch(error){return new Response('Clean iOS Reader patch failed',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-R3-Reader-IOS-Clean':'failed','X-R3-Reader-Patch-Error':String(error&&error.message||error).slice(0,180)}})}
