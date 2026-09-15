@@ -92,6 +92,14 @@ def validate_packet(health: dict[str, Any], packet: dict[str, Any], prefilter: d
     if int(health.get("prefilter_count") or -1) != len(records):
         raise RuntimeError("market-health prefilter_count mismatch")
 
+    health_scanner_version = str(health.get("scanner_version") or "")
+    prefilter_scanner_version = str(prefilter.get("scanner_version") or "")
+    if not health_scanner_version or health_scanner_version != prefilter_scanner_version:
+        raise RuntimeError(
+            "scanner_version mismatch: "
+            f"health={health_scanner_version!r} prefilter={prefilter_scanner_version!r}"
+        )
+
     actual_prefilter_sha256 = sha256_file(PREFILTER_PATH)
     if health.get("prefilter_sha256") != actual_prefilter_sha256:
         raise RuntimeError("market-health prefilter_sha256 mismatch")
