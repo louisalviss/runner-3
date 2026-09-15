@@ -1,10 +1,10 @@
 {
-  "schema_version": 1,
-  "updated_at": "2026-09-13T02:00:00+07:00",
+  "schema_version": 2,
+  "updated_at": "2026-09-15T23:05:00+07:00",
   "status": "active",
   "scope": "rss-render-personalization",
   "mode": "recall-first",
-  "goal": "Reduce low-interest RSS clutter without missing articles the user would have liked.",
+  "goal": "Reduce low-interest RSS clutter without missing articles the user would have wanted to deep-read.",
   "canonical_invariants": {
     "canonical_manifest_remains_complete": true,
     "canonical_numbering_remains_immutable": true,
@@ -12,9 +12,10 @@
     "personalization_must_not_change_ingestion_or_dedupe_accounting": true
   },
   "default_render_policy": {
-    "primary_personalized_target": 20,
-    "exploration_target_min": 5,
-    "exploration_target_max": 10,
+    "primary_personalized_target": 26,
+    "exploration_target_min": 8,
+    "exploration_target_max": 12,
+    "visible_target_range": [34, 38],
     "remaining_items": "collapsed_not_deleted",
     "show_full_manifest_on_request": true,
     "priority": "recall_over_precision"
@@ -23,7 +24,30 @@
     "purpose": "Protect against filter bubbles and unseen-interest false negatives.",
     "include_items_with_novel_or_unseen_interest_families": true,
     "do_not_treat_unmatched_profile_as_dislike": true,
-    "prefer_novelty_when_relevance_confidence_is_low": true
+    "prefer_novelty_when_relevance_confidence_is_low": true,
+    "boost_exploration_families": [
+      "social_mechanisms_and_demographic_behavior",
+      "science_or_medical_oddities_with_explanatory_value",
+      "vietnam_institutions_and_generation_change",
+      "ai_culture_language_and_human_authorship",
+      "macro_policy_and_data_quality_mechanisms",
+      "automation_labor_and_symbolic_adoption_signals",
+      "china_vietnam_soft_power_and_structural_relations"
+    ],
+    "retain_penalty_families": [
+      "routine_gadget_specs",
+      "shopping_only",
+      "celebrity_filler",
+      "generic_lifestyle",
+      "duplicated_event_coverage"
+    ]
+  },
+  "signal_semantics": {
+    "deep_read": "medium_positive_interest_signal_not_equivalent_to_like",
+    "selected": "attention_signal_not_equivalent_to_like",
+    "liked": "strong_positive_signal",
+    "disliked": "strong_negative_signal",
+    "non_selection": "no_negative_inference"
   },
   "negative_signal_policy": {
     "explicit_dislike_required_for_strong_negative": true,
@@ -42,16 +66,30 @@
       "precision_at_k",
       "ndcg_at_k",
       "collapsed_section_miss_rate"
-    ]
+    ],
+    "latest_audit": {
+      "date": "2026-09-14",
+      "canonical_kept": 67,
+      "initial_personalized_shortlist": 18,
+      "initial_shortlist_deep_read": 18,
+      "collapsed_items": 49,
+      "collapsed_items_rescued_as_deep_read": 14,
+      "total_deep_read": 32,
+      "shortlist_precision_against_observed_deep_read": 1.0,
+      "shortlist_recall_against_observed_deep_read": 0.5625,
+      "collapsed_selected_share_of_observed_deep_read": 0.4375,
+      "collapsed_rescue_rate": 0.2857142857,
+      "diagnosis": "precision_high_recall_too_low"
+    }
   },
   "rollout": {
-    "current_stage": "soft_personalization_ready",
-    "next_5_to_7_days": "Use personalized shortlist plus exploration while preserving full canonical manifest.",
-    "stronger_collapse_gate": "Top-10 should repeatedly contain at least 7 selected/deep-read items and at most 1 explicit dislike, with low collapsed-section miss rate.",
+    "current_stage": "soft_personalization_recall_expanded",
+    "next_5_to_7_days": "Use a larger personalized shortlist plus explicit exploration while preserving the full canonical manifest and audit collapsed misses.",
+    "stronger_collapse_gate": "Do not tighten again until multiple recent days show recall_at_visible_target >= 0.80 with low collapsed-section rescue rate.",
     "hard_filter_gate": "Do not enable hard filtering merely from profile score; require substantially more explicit judgments across days and stable empirical recall metrics."
   },
   "user_preference": {
-    "primary_risk_to_avoid": "missing_articles_the_user_would_like",
-    "acceptable_tradeoff": "show_some_extra_low-value_articles_if_that_improves_recall"
+    "primary_risk_to_avoid": "missing_articles_the_user_would_like_or_deep_read",
+    "acceptable_tradeoff": "show_extra_borderline_or_exploratory_articles_if_that_improves_recall"
   }
 }
