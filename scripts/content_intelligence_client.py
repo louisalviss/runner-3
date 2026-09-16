@@ -61,7 +61,7 @@ def load_json(path: str) -> Any:
         return json.load(fh)
 
 
-def batches(rows: list[dict[str, Any]], n: int = 100):
+def batches(rows: list[dict[str, Any]], n: int = 50):
     for i in range(0, len(rows), n):
         yield rows[i:i+n]
 

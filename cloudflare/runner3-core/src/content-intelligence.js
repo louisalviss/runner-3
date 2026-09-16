@@ -61,14 +61,19 @@ async function enrichItem(env,row){
   const r=normalizedItem(row);
   return replaceAutoSemanticFeatures(env,r.item_id,r);
 }
+const PREFERENCE_SIGNAL_ID_CHUNK = 50;
 async function itemsHavePreferenceSignals(env,itemIds){
-  const ids=[...new Set((itemIds||[]).map(x=>String(x||'').trim()).filter(Boolean))];
+  const ids=[...new Set((itemIds||[]).map(x=>String(x||"").trim()).filter(Boolean))];
   if(!ids.length)return false;
-  const idPlaceholders=ids.map(()=>'?').join(',');
-  const typePlaceholders=PROFILE_AFFECTING_EVENT_TYPES.map(()=>'?').join(',');
-  const row=await env.DB.prepare(`SELECT 1 AS ok FROM user_content_events WHERE item_id IN (${idPlaceholders}) AND event_type IN (${typePlaceholders}) LIMIT 1`)
-    .bind(...ids,...PROFILE_AFFECTING_EVENT_TYPES).first();
-  return Boolean(row?.ok);
+  const typePlaceholders=PROFILE_AFFECTING_EVENT_TYPES.map(()=>"?").join(",");
+  for(let i=0;i<ids.length;i+=PREFERENCE_SIGNAL_ID_CHUNK){
+    const chunk=ids.slice(i,i+PREFERENCE_SIGNAL_ID_CHUNK);
+    const idPlaceholders=chunk.map(()=>"?").join(",");
+    const row=await env.DB.prepare(`SELECT 1 AS ok FROM user_content_events WHERE item_id IN (${idPlaceholders}) AND event_type IN (${typePlaceholders}) LIMIT 1`)
+      .bind(...chunk,...PROFILE_AFFECTING_EVENT_TYPES).first();
+    if(row?.ok)return true;
+  }
+  return false;
 }
 async function handleItems(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
