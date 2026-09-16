@@ -125,12 +125,13 @@ const ITEM_SIGNAL_CTE = `
       MAX(CASE WHEN event_type='deep_read' THEN 1 ELSE 0 END) AS deep_read,
       MAX(CASE WHEN event_type='selected' THEN 1 ELSE 0 END) AS selected,
       SUM(CASE WHEN event_type='follow_up' THEN 1 ELSE 0 END) AS follow_up_count,
+      MIN(event_at) AS first_event_at,
       MAX(event_at) AS last_event_at
     FROM user_content_events
     WHERE event_type <> 'shown'
     GROUP BY item_id
   ), item_signal AS (
-    SELECT item_id,liked_at,disliked_at,interest_saved,saved,deep_read,selected,follow_up_count,last_event_at,
+    SELECT item_id,liked_at,disliked_at,interest_saved,saved,deep_read,selected,follow_up_count,first_event_at,last_event_at,
       CASE
         WHEN disliked_at IS NOT NULL AND (liked_at IS NULL OR disliked_at >= liked_at) THEN -5.0
         WHEN liked_at IS NOT NULL THEN 5.0
