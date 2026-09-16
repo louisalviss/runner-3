@@ -4,6 +4,7 @@ const read = (path) => fs.readFileSync(path, "utf8");
 const personalization = read("cloudflare/runner3-core/src/content-personalization.js");
 const intelligence = read("cloudflare/runner3-core/src/content-intelligence.js");
 const enrichment = read("cloudflare/runner3-core/src/content-feature-enrichment.js");
+const client = read("scripts/content_intelligence_client.py");
 const audio = read("cloudflare/runner3-core/audio-entry.js");
 const wrangler = JSON.parse(read("cloudflare/runner3-core/wrangler.jsonc"));
 
@@ -34,6 +35,9 @@ requireText(intelligence, "PERSONAL_MODEL_VERSION_MISMATCH", "non-canonical reco
 forbidText(intelligence, "recomputeInterestProfile,", "raw profile recompute import reintroduced");
 forbidText(intelligence, "recomputePersonalScores,", "raw score recompute import reintroduced");
 requireText(intelligence, "heartbeat_changes", "heartbeat/material-change separation missing");
+requireText(intelligence, "PREFERENCE_SIGNAL_ID_CHUNK = 50", "D1-safe preference-signal chunk missing");
+requireText(intelligence, "ids.slice(i,i+PREFERENCE_SIGNAL_ID_CHUNK)", "preference-signal IDs are not chunked");
+requireText(client, "def batches(rows: list[dict[str, Any]], n: int = 50)", "content intelligence client batch exceeds D1-safe size");
 
 forbidText(enrichment, "await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN", "delete-all semantic rewrite reintroduced");
 forbidText(audio, "force: true", "scheduled force bypass reintroduced");
