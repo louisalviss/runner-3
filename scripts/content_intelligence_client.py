@@ -197,6 +197,17 @@ def cmd_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_profile_evidence(args: argparse.Namespace) -> int:
+    path = (
+        "/content-intelligence/profile/evidence"
+        f"?profile_limit={args.profile_limit}&family_limit={args.family_limit}"
+        f"&evidence_per_node={args.evidence_per_node}"
+    )
+    result = request_json("GET", path, core_url=args.core_url)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0 if result.get("ok") else 1
+
+
 def cmd_recommendation_snapshot(args: argparse.Namespace) -> int:
     materialization: dict[str, Any]
     try:
@@ -257,6 +268,11 @@ def build_parser() -> argparse.ArgumentParser:
     g = sub.add_parser("profile")
     g.add_argument("--limit", type=int, default=100)
     g.set_defaults(func=cmd_profile)
+    ge = sub.add_parser("profile-evidence")
+    ge.add_argument("--profile-limit", type=int, default=30)
+    ge.add_argument("--family-limit", type=int, default=20)
+    ge.add_argument("--evidence-per-node", type=int, default=6)
+    ge.set_defaults(func=cmd_profile_evidence)
     rs = sub.add_parser("recommendation-snapshot")
     rs.add_argument("--render-id", required=True)
     rs.add_argument("--snapshot-id", required=True)

@@ -65,6 +65,7 @@ jobs:
           node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_personal_score_sql_size.mjs
           node scripts/verify_interest_profile_promotion.mjs
+          node scripts/verify_interest_evidence_projection.mjs
           node scripts/verify_interest_ontology.mjs
           node scripts/verify_zero_weight_event_dirty_guard.mjs
           grep -q 'interest_saved' cloudflare/runner3-core/src/content-personalization.js

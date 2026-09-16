@@ -34,6 +34,8 @@ function evidenceItem(row) {
     signal_reason: signalReason(row),
     recency_factor: Number(row.recency_factor || 0),
     contribution: Number(row.contribution || 0),
+    decayed_contribution: Number(row.contribution || 0),
+    first_event_at: row.first_event_at || null,
     last_event_at: row.last_event_at || null,
     follow_up_count: Number(row.follow_up_count || 0),
     feature_weight: row.feature_weight == null ? null : Number(row.feature_weight),
@@ -53,10 +55,14 @@ function groupRows(rows, kind) {
     if (!node) {
       const base = {
         weight: Number(row.weight || 0),
+        decayed_weight: Number(row.weight || 0),
         evidence_count: Number(row.evidence_count || 0),
+        independent_item_count: Number(row.evidence_count || 0),
         positive_count: Number(row.positive_count || 0),
         negative_count: Number(row.negative_count || 0),
         confidence: Number(row.confidence || 0),
+        first_evidence_at: row.first_evidence_at || null,
+        last_evidence_at: row.last_evidence_at || null,
         updated_at: row.updated_at || null,
         evidence: [],
       };
@@ -79,7 +85,7 @@ export async function buildInterestEvidenceSnapshot(env, options = {}) {
   const evidencePerNode = bounded(options.evidencePerNode, 6, 12);
   const projection = profileProjectionCte();
   const signalColumns = [
-    "s.signal", "s.recency_factor", "s.last_event_at", "s.liked_at", "s.disliked_at",
+    "s.signal", "s.recency_factor", "s.first_event_at", "s.last_event_at", "s.liked_at", "s.disliked_at",
     "s.interest_saved", "s.saved", "s.deep_read", "s.selected", "s.follow_up_count",
   ].join(",");
 
@@ -94,6 +100,8 @@ export async function buildInterestEvidenceSnapshot(env, options = {}) {
         f.weight AS feature_weight,f.confidence AS feature_confidence,
         (s.signal*s.recency_factor*f.weight*f.confidence) AS contribution,
         i.canonical_url,i.title,i.source_type,i.source_name,
+        MIN(s.first_event_at) OVER (PARTITION BY p.feature_type,p.feature_key) AS first_evidence_at,
+        MAX(s.last_event_at) OVER (PARTITION BY p.feature_type,p.feature_key) AS last_evidence_at,
         ROW_NUMBER() OVER (
           PARTITION BY p.feature_type,p.feature_key
           ORDER BY ABS(s.signal*s.recency_factor*f.weight*f.confidence) DESC,
@@ -107,10 +115,10 @@ export async function buildInterestEvidenceSnapshot(env, options = {}) {
     )
     SELECT p.feature_type,p.feature_key,p.weight,p.evidence_count,p.positive_count,
       p.negative_count,p.confidence,p.updated_at,
-      e.item_id,e.signal,e.recency_factor,e.last_event_at,e.liked_at,e.disliked_at,
+      e.item_id,e.signal,e.recency_factor,e.first_event_at,e.last_event_at,e.liked_at,e.disliked_at,
       e.interest_saved,e.saved,e.deep_read,e.selected,e.follow_up_count,
       e.feature_weight,e.feature_confidence,e.contribution,
-      e.canonical_url,e.title,e.source_type,e.source_name
+      e.canonical_url,e.title,e.source_type,e.source_name,e.first_evidence_at,e.last_evidence_at
     FROM leaf_nodes p
     LEFT JOIN leaf_evidence e
       ON e.feature_type=p.feature_type AND e.feature_key=p.feature_key
@@ -124,11 +132,13 @@ export async function buildInterestEvidenceSnapshot(env, options = {}) {
       FROM interest_family_profile
       ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?
     ),
-    family_evidence AS (
+    family_evidence_rows AS (
       SELECT p.family_key,fi.item_id,${signalColumns},
         fi.item_raw_weight AS contribution,
         fi.family_confidence AS feature_confidence,
         i.canonical_url,i.title,i.source_type,i.source_name,
+        MIN(s.first_event_at) OVER (PARTITION BY p.family_key) AS first_evidence_at,
+        MAX(s.last_event_at) OVER (PARTITION BY p.family_key) AS last_evidence_at,
         ROW_NUMBER() OVER (
           PARTITION BY p.family_key
           ORDER BY ABS(fi.item_raw_weight) DESC,s.last_event_at DESC,fi.item_id
@@ -140,12 +150,12 @@ export async function buildInterestEvidenceSnapshot(env, options = {}) {
     )
     SELECT p.family_key,p.weight,p.evidence_count,p.positive_count,p.negative_count,
       p.confidence,p.updated_at,
-      e.item_id,e.signal,e.recency_factor,e.last_event_at,e.liked_at,e.disliked_at,
+      e.item_id,e.signal,e.recency_factor,e.first_event_at,e.last_event_at,e.liked_at,e.disliked_at,
       e.interest_saved,e.saved,e.deep_read,e.selected,e.follow_up_count,
       NULL AS feature_weight,e.feature_confidence,e.contribution,
-      e.canonical_url,e.title,e.source_type,e.source_name
+      e.canonical_url,e.title,e.source_type,e.source_name,e.first_evidence_at,e.last_evidence_at
     FROM family_nodes p
-    LEFT JOIN family_evidence e ON e.family_key=p.family_key AND e.evidence_rank<=?
+    LEFT JOIN family_evidence_rows e ON e.family_key=p.family_key AND e.evidence_rank<=?
     ORDER BY ABS(p.weight) DESC,p.confidence DESC,p.evidence_count DESC,e.evidence_rank
   `).bind(familyLimit,evidencePerNode).all();
 
