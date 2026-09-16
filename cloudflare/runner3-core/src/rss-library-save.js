@@ -222,6 +222,16 @@ async function recordSelected(env, article, renderId, context, checksum) {
       canonical_url=excluded.canonical_url,source_name=excluded.source_name,source_key=excluded.source_key,
       title=excluded.title,published_at=COALESCE(excluded.published_at,content_items.published_at),
       language=excluded.language,content_hash=excluded.content_hash,metadata_json=excluded.metadata_json,last_seen_at=CURRENT_TIMESTAMP
+    WHERE content_items.canonical_url IS NOT excluded.canonical_url
+       OR content_items.source_name IS NOT excluded.source_name
+       OR content_items.source_key IS NOT excluded.source_key
+       OR content_items.title IS NOT excluded.title
+       OR content_items.published_at IS NOT COALESCE(excluded.published_at,content_items.published_at)
+       OR content_items.language IS NOT excluded.language
+       OR content_items.content_hash IS NOT excluded.content_hash
+       OR content_items.metadata_json IS NOT excluded.metadata_json
+       OR content_items.last_seen_at IS NULL
+       OR datetime(content_items.last_seen_at) <= datetime('now','-6 hours')
   `).bind(
     itemId, article.canonical_url, article.source_name, article.source_key, article.title,
     article.published_at, article.source_language, `rss-library:${article.article_id}`, checksum,
@@ -229,7 +239,7 @@ async function recordSelected(env, article, renderId, context, checksum) {
   ).run();
 
   const result = await env.DB.prepare(`
-    INSERT INTO user_content_events(item_id,render_id,event_type,explicit_feedback,context_json,event_at)
+    INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,explicit_feedback,context_json,event_at)
     SELECT ?,?,'selected',NULL,?,CURRENT_TIMESTAMP
     WHERE NOT EXISTS(
       SELECT 1 FROM user_content_events WHERE item_id=? AND event_type='selected' AND COALESCE(render_id,'')=COALESCE(?,'')

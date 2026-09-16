@@ -9,6 +9,7 @@ on:
       - '!cloudflare/runner3-core/reader-audio-core/**'
       - 'ops/reader-core-deploy.trigger'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
+      - 'scripts/verify_recommendation_chunking.mjs'
       - 'scripts/verify_interest_profile_promotion.mjs'
       - 'scripts/verify_interest_ontology.mjs'
   workflow_dispatch:
@@ -150,6 +151,7 @@ jobs:
           grep -q '__r3AudioLegacyV31ClockSuppressed=true' cloudflare/runner3-core/artifact-library-reader-v33-audio-core-entry.js
           grep -q 'VPS_MAILBOX_KEY_FINGERPRINT' cloudflare/runner3-core/mailbox-fast-entry.js
           node scripts/verify_runner3_d1_quota_guards.mjs
+          node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_ontology.mjs
 

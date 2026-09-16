@@ -3,6 +3,9 @@ import fs from "node:fs";
 const read = (path) => fs.readFileSync(path, "utf8");
 const personalization = read("cloudflare/runner3-core/src/content-personalization.js");
 const intelligence = read("cloudflare/runner3-core/src/content-intelligence.js");
+const readerLearning = read("cloudflare/runner3-core/src/rss-reader-learning.js");
+const librarySave = read("cloudflare/runner3-core/src/rss-library-save.js");
+const eventMigration = read("cloudflare/runner3-core/migrations/0017_user_content_event_idempotency.sql");
 const enrichment = read("cloudflare/runner3-core/src/content-feature-enrichment.js");
 const client = read("scripts/content_intelligence_client.py");
 const audio = read("cloudflare/runner3-core/audio-entry.js");
@@ -13,6 +16,8 @@ const requireText = (text, needle, message) => { if (!text.includes(needle)) fai
 const forbidText = (text, needle, message) => { if (text.includes(needle)) fail(message); };
 
 requireText(personalization, "RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000", "4h debounce missing");
+requireText(personalization, "RECOMMENDATION_ID_CHUNK = 50", "recommendation D1-safe chunk size missing");
+requireText(personalization, "for(const batch of idChunks(ids))", "recommendation shown IDs are not chunked");
 requireText(personalization, "priorityExplicit", "bounded explicit-feedback priority recompute missing");
 requireText(personalization, "familyDiminishingWeight", "family diminishing-return scoring missing");
 requireText(personalization, "interestFamilySql", "family-aware materialized scoring missing");
@@ -38,6 +43,12 @@ requireText(intelligence, "heartbeat_changes", "heartbeat/material-change separa
 requireText(intelligence, "PREFERENCE_SIGNAL_ID_CHUNK = 50", "D1-safe preference-signal chunk missing");
 requireText(intelligence, "ids.slice(i,i+PREFERENCE_SIGNAL_ID_CHUNK)", "preference-signal IDs are not chunked");
 requireText(client, "def batches(rows: list[dict[str, Any]], n: int = 50)", "content intelligence client batch exceeds D1-safe size");
+requireText(readerLearning, "datetime(content_items.last_seen_at) <= datetime('now','-6 hours')", "reader item heartbeat guard missing");
+requireText(readerLearning, "if (currentEvent === targetEvent) return 0", "reader preference no-op guard missing");
+requireText(readerLearning, "if (Boolean(current?.present) === targetFeatured) return 0", "reader featured no-op guard missing");
+requireText(librarySave, "datetime(content_items.last_seen_at) <= datetime('now','-6 hours')", "library-save item heartbeat guard missing");
+requireText(eventMigration, "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_content_events_identity", "event identity unique index missing");
+requireText(intelligence, "INSERT OR IGNORE INTO user_content_events", "core event insert is not race-safe");
 
 forbidText(enrichment, "await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN", "delete-all semantic rewrite reintroduced");
 forbidText(audio, "force: true", "scheduled force bypass reintroduced");

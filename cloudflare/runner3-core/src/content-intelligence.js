@@ -120,7 +120,7 @@ async function handleFeatures(request,env){
 function eventStatement(env,row){
   const itemId=text(row.item_id,4096)?.trim(),eventType=text(row.event_type,100)?.trim(),renderId=text(row.render_id,300)?.trim()||null;
   if(!itemId||!eventType)throw new Error("item_id_event_type_required"); if(!isSupportedContentEvent(eventType))throw new Error("unsupported_event_type");
-  return env.DB.prepare(`INSERT INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
+  return env.DB.prepare(`INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
     SELECT ?,?,?,?,?,?,?,CURRENT_TIMESTAMP
     WHERE EXISTS(SELECT 1 FROM content_items WHERE item_id=?)
       AND (? IS NULL OR NOT EXISTS(SELECT 1 FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?))`)

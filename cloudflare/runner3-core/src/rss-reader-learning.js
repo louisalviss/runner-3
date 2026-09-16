@@ -40,6 +40,15 @@ async function ensureContentItem(env, article) {
       language = COALESCE(excluded.language, content_items.language),
       metadata_json = excluded.metadata_json,
       last_seen_at = CURRENT_TIMESTAMP
+    WHERE content_items.canonical_url IS NOT excluded.canonical_url
+       OR content_items.source_name IS NOT COALESCE(excluded.source_name, content_items.source_name)
+       OR content_items.source_key IS NOT COALESCE(excluded.source_key, content_items.source_key)
+       OR content_items.title IS NOT COALESCE(excluded.title, content_items.title)
+       OR content_items.published_at IS NOT COALESCE(excluded.published_at, content_items.published_at)
+       OR content_items.language IS NOT COALESCE(excluded.language, content_items.language)
+       OR content_items.metadata_json IS NOT excluded.metadata_json
+       OR content_items.last_seen_at IS NULL
+       OR datetime(content_items.last_seen_at) <= datetime('now','-6 hours')
   `).bind(
     itemId, itemId, sourceName, sourceKey, title, publishedAt, language,
     JSON.stringify({ rss_reader_article_id: article.article_id || null, selection_gate: true, feature_model: FEATURE_MODEL_VERSION })
@@ -62,7 +71,7 @@ async function recordEventOnce(env, article, eventType, context = null) {
   if (!ensured.itemId) return 0;
   const renderId = `rss-reader:${eventType}:v3`;
   const result = await env.DB.prepare(`
-    INSERT INTO user_content_events (
+    INSERT OR IGNORE INTO user_content_events (
       item_id, render_id, event_type, assistant_recommended, assistant_rank,
       explicit_feedback, context_json, event_at
     )
@@ -87,7 +96,7 @@ async function recordFollowUpEvent(env, article, articleId, interactionId, conte
   if (!interaction) return 0;
   const renderId = `rss-reader:follow_up:${interaction}`;
   const result = await env.DB.prepare(`
-    INSERT INTO user_content_events (
+    INSERT OR IGNORE INTO user_content_events (
       item_id, render_id, event_type, assistant_recommended, assistant_rank,
       explicit_feedback, context_json, event_at
     )
@@ -107,12 +116,16 @@ async function recordFollowUpEvent(env, article, articleId, interactionId, conte
 async function replaceReaderPreference(env, article, preference, articleId) {
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
+  const targetEvent = preference === "like" ? "liked" : preference === "dislike" ? "disliked" : null;
+  const current = await env.DB.prepare(`SELECT event_type FROM user_content_events WHERE item_id=? AND event_type IN ('liked','disliked') ORDER BY id DESC LIMIT 1`).bind(ensured.itemId).first();
+  const currentEvent = current?.event_type || null;
+  if (currentEvent === targetEvent) return 0;
   const removed = await env.DB.prepare(`DELETE FROM user_content_events WHERE item_id=? AND event_type IN ('liked','disliked')`).bind(ensured.itemId).run();
   let changed = Number(removed.meta?.changes || 0);
-  if (preference === "like" || preference === "dislike") {
-    const eventType = preference === "like" ? "liked" : "disliked";
+  if (targetEvent) {
+    const eventType = targetEvent;
     const inserted = await env.DB.prepare(`
-      INSERT INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
+      INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
       VALUES(?,?,?,0,NULL,?, ?,CURRENT_TIMESTAMP)
     `).bind(
       ensured.itemId,
@@ -130,11 +143,14 @@ async function replaceReaderPreference(env, article, preference, articleId) {
 async function replaceReaderFeatured(env, article, featured, articleId) {
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
+  const current = await env.DB.prepare(`SELECT 1 AS present FROM user_content_events WHERE item_id=? AND event_type='saved' AND render_id='rss-reader:saved:featured-v3' LIMIT 1`).bind(ensured.itemId).first();
+  const targetFeatured = featured === true;
+  if (Boolean(current?.present) === targetFeatured) return 0;
   const removed = await env.DB.prepare(`DELETE FROM user_content_events WHERE item_id=? AND event_type='saved' AND render_id LIKE 'rss-reader:saved:%'`).bind(ensured.itemId).run();
   let changed = Number(removed.meta?.changes || 0);
-  if (featured === true) {
+  if (targetFeatured) {
     const inserted = await env.DB.prepare(`
-      INSERT INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
+      INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
       VALUES(?,?,'saved',0,NULL,'featured',?,CURRENT_TIMESTAMP)
     `).bind(
       ensured.itemId,

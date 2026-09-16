@@ -15,6 +15,7 @@ on:
       - 'cloudflare/runner3-core/wrangler.jsonc'
       - 'scripts/content_intelligence_client.py'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
+      - 'scripts/verify_recommendation_chunking.mjs'
       - 'scripts/verify_interest_profile_promotion.mjs'
       - 'scripts/verify_interest_ontology.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
@@ -61,6 +62,7 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
           python3 -m py_compile scripts/content_intelligence_client.py
           node scripts/verify_runner3_d1_quota_guards.mjs
+          node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_personal_score_sql_size.mjs
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_ontology.mjs
