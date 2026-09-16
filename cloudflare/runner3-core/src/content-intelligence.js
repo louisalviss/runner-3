@@ -13,6 +13,7 @@ import {
   maybeRecomputePersonal,
 } from "./content-personalization.js";
 import { INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
+import { buildInterestEvidenceSnapshot } from "./content-interest-evidence.js";
 
 const MAX_ROWS = 100;
 const MAX_JSON = 200000;
@@ -259,6 +260,16 @@ async function handleRecommendationEvaluation(request,env,url){
 }
 async function handleScoresRecompute(request,env){ return handleGuardedRecompute(request,env); }
 async function handleProfile(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(500,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"100",10)||100));const result=await env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,rows:result.results||[]}); }
+async function handleProfileEvidence(request,env,url){
+  const e=requireDb(env)||requireAuth(request,env);if(e)return e;
+  if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
+  const result=await buildInterestEvidenceSnapshot(env,{
+    profileLimit:url.searchParams.get("profile_limit"),
+    familyLimit:url.searchParams.get("family_limit"),
+    evidencePerNode:url.searchParams.get("evidence_per_node"),
+  });
+  return Response.json(result,{status:result.ok?200:500});
+}
 async function handleTopScores(request,env,url){ const e=requireDb(env)||requireAuth(request,env);if(e)return e;if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});const limit=Math.min(200,Math.max(1,Number.parseInt(url.searchParams.get("limit")||"30",10)||30));const result=await env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,limit).all();return Response.json({ok:true,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,rows:result.results||[]}); }
 
 async function handleSynthesis(request,env,url){
@@ -292,6 +303,7 @@ export async function handleContentIntelligence(request,env,url){
   if(url.pathname==="/content-intelligence/events/batch")return handleEventBatch(request,env);
   if(url.pathname==="/content-intelligence/interests/ingest")return handleInterestIngest(request,env);
   if(url.pathname==="/content-intelligence/interests/save")return handleInterestSave(request,env);
+  if(url.pathname==="/content-intelligence/profile/evidence")return handleProfileEvidence(request,env,url);
   if(url.pathname==="/content-intelligence/profile")return handleProfile(request,env,url);
   if(url.pathname==="/content-intelligence/profile/recompute")return handleProfileRecompute(request,env);
   if(url.pathname==="/content-intelligence/scores/recompute")return handleScoresRecompute(request,env);

@@ -8,6 +8,7 @@ on:
       - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
       - 'cloudflare/runner3-core/src/content-interest-ontology.js'
       - 'cloudflare/runner3-core/src/content-personalization.js'
+      - 'cloudflare/runner3-core/src/content-interest-evidence.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
@@ -23,6 +24,7 @@ on:
       - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
       - 'cloudflare/runner3-core/src/content-interest-ontology.js'
       - 'cloudflare/runner3-core/src/content-personalization.js'
+      - 'cloudflare/runner3-core/src/content-interest-evidence.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
@@ -54,6 +56,7 @@ jobs:
           node --check cloudflare/runner3-core/src/content-feature-enrichment.js
           node --check cloudflare/runner3-core/src/content-interest-ontology.js
           node --check cloudflare/runner3-core/src/content-personalization.js
+          node --check cloudflare/runner3-core/src/content-interest-evidence.js
           node --check cloudflare/runner3-core/src/content-intelligence.js
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
           python3 -m py_compile scripts/content_intelligence_client.py
@@ -88,6 +91,12 @@ jobs:
           grep -q '/content-intelligence/interests/save' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/snapshot' cloudflare/runner3-core/src/content-intelligence.js
           grep -q '/content-intelligence/recommendations/evaluate' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q '/content-intelligence/profile/evidence' cloudflare/runner3-core/src/content-intelligence.js
+          grep -q 'profileProjectionCte' cloudflare/runner3-core/src/content-interest-evidence.js
+          grep -q 'projection_consistent' cloudflare/runner3-core/src/content-interest-evidence.js
+          grep -q 'minimum_independent_signaled_items: 2' cloudflare/runner3-core/src/content-interest-evidence.js
+          grep -q 'derived: true' cloudflare/runner3-core/src/content-interest-evidence.js
+          grep -q 'source_of_truth: "cloudflare-d1:user_content_events"' cloudflare/runner3-core/src/content-interest-evidence.js
           grep -q 'NOT EXISTS(SELECT 1 FROM user_content_events WHERE item_id=? AND event_type=? AND render_id=?)' cloudflare/runner3-core/src/content-intelligence.js
           grep -q 'd1_readback:true' cloudflare/runner3-core/src/content-intelligence.js
           grep -q 'event_idempotent' cloudflare/runner3-core/src/content-intelligence.js

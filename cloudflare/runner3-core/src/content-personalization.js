@@ -130,7 +130,7 @@ const ITEM_SIGNAL_CTE = `
     WHERE event_type <> 'shown'
     GROUP BY item_id
   ), item_signal AS (
-    SELECT item_id,
+    SELECT item_id,liked_at,disliked_at,interest_saved,saved,deep_read,selected,follow_up_count,last_event_at,
       CASE
         WHEN disliked_at IS NOT NULL AND (liked_at IS NULL OR disliked_at >= liked_at) THEN -5.0
         WHEN liked_at IS NOT NULL THEN 5.0
@@ -158,7 +158,7 @@ const ITEM_SIGNAL_CTE = `
   )
 `;
 
-function profileProjectionCte() {
+export function profileProjectionCte() {
   const canonicalKey = canonicalInterestKeySql("f.feature_type", "f.feature_key");
   const familyId = interestFamilySql("f.feature_type", "f.feature_key");
   return `${ITEM_SIGNAL_CTE}, normalized_features AS (
