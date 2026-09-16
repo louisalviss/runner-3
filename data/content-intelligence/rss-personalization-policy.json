@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-09-15T23:05:00+07:00",
+  "updated_at": "2026-09-17T06:55:00+07:00",
   "status": "active",
   "scope": "rss-render-personalization",
   "mode": "recall-first",
@@ -56,7 +56,8 @@
       "low_personal_relevance_score",
       "matches_repeated_negative_interest_family",
       "negative_confidence_is_high"
-    ]
+    ],
+    "single_day_dislike_guard": "Do not hard-exclude an entire interest family from one disliked article; accumulate repeated evidence across days."
   },
   "miss_detection": {
     "track_selected_or_deep_read_items_from_collapsed_section": true,
@@ -80,6 +81,23 @@
       "collapsed_selected_share_of_observed_deep_read": 0.4375,
       "collapsed_rescue_rate": 0.2857142857,
       "diagnosis": "precision_high_recall_too_low"
+    },
+    "latest_shortlist_evaluation": {
+      "date": "2026-09-15",
+      "canonical_kept": 103,
+      "visible_shortlist": 38,
+      "accepted_selected": 35,
+      "explicit_disliked": 3,
+      "accepted_share": 0.9210526316,
+      "disliked_user_facing_ids": [10, 15, 25],
+      "disliked_canonical_numbers": [25, 40, 74],
+      "disliked_topics_observed": [
+        "pure_fundamental_particle_physics_exploration",
+        "un_multilateral_governance",
+        "us_election_administration_legal_process"
+      ],
+      "interpretation": "Expanded recall-first shortlist retained high observed acceptance; keep breadth, add only soft penalties for the three disliked topic patterns until repeated evidence accumulates.",
+      "collapsed_section_audit_complete": false
     }
   },
   "rollout": {
