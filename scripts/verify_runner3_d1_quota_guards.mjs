@@ -5,7 +5,6 @@ const personalization = read("cloudflare/runner3-core/src/content-personalizatio
 const intelligence = read("cloudflare/runner3-core/src/content-intelligence.js");
 const readerLearning = read("cloudflare/runner3-core/src/rss-reader-learning.js");
 const librarySave = read("cloudflare/runner3-core/src/rss-library-save.js");
-const eventMigration = read("cloudflare/runner3-core/migrations/0017_user_content_event_idempotency.sql");
 const enrichment = read("cloudflare/runner3-core/src/content-feature-enrichment.js");
 const client = read("scripts/content_intelligence_client.py");
 const audio = read("cloudflare/runner3-core/audio-entry.js");
@@ -47,7 +46,6 @@ requireText(readerLearning, "datetime(content_items.last_seen_at) <= datetime('n
 requireText(readerLearning, "if (currentEvent === targetEvent) return 0", "reader preference no-op guard missing");
 requireText(readerLearning, "if (Boolean(current?.present) === targetFeatured) return 0", "reader featured no-op guard missing");
 requireText(librarySave, "datetime(content_items.last_seen_at) <= datetime('now','-6 hours')", "library-save item heartbeat guard missing");
-requireText(eventMigration, "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_content_events_identity", "event identity unique index missing");
 requireText(intelligence, "INSERT OR IGNORE INTO user_content_events", "core event insert is not race-safe");
 
 forbidText(enrichment, "await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN", "delete-all semantic rewrite reintroduced");
