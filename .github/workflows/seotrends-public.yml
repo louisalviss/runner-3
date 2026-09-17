@@ -24,8 +24,6 @@ jobs:
     env:
       SEOTRENDS_PUBLIC_HOME: /tmp/seotrends-public
       GH_TOKEN: ${{ github.token }}
-      SEMRUSH_API_KEY: ${{ secrets.SEMRUSH_API_KEY }}
-      SEMRUSH_DATABASE: us
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -58,9 +56,6 @@ jobs:
       - name: Scan newly added domains
         run: python jobs/seotrends/daily_scan.py --max 300 --workers 16 --timeout 5
 
-      - name: Enrich shortlist with Semrush when API is configured
-        run: python jobs/seotrends/semrush_enrich.py --max 25 --database "$SEMRUSH_DATABASE"
-
       - name: Build heartbeat
         shell: bash
         run: |
@@ -78,12 +73,7 @@ jobs:
           if md.exists():
               q=re.search(r'- shortlist: (\d+)',md.read_text(encoding='utf-8'))
               shortlist=int(q.group(1)) if q else 0
-          semrush={}
-          sp=base/'scans'/f'{day}-semrush-status.json'
-          if sp.exists():
-              try: semrush=json.loads(sp.read_text())
-              except Exception: semrush={}
-          hb={'ok':True,'date':day,'generated_at':datetime.now(timezone.utc).isoformat(),'fingerprint':fp,'domains':m.get('unique_domains'),'added':m.get('added'),'removed':m.get('removed'),'shortlist':shortlist,'semrush':semrush,'source':'github-actions','repository':os.environ.get('GITHUB_REPOSITORY'),'run_id':os.environ.get('GITHUB_RUN_ID')}
+          hb={'ok':True,'date':day,'generated_at':datetime.now(timezone.utc).isoformat(),'fingerprint':fp,'domains':m.get('unique_domains'),'added':m.get('added'),'removed':m.get('removed'),'shortlist':shortlist,'source':'github-actions','repository':os.environ.get('GITHUB_REPOSITORY'),'run_id':os.environ.get('GITHUB_RUN_ID')}
           (base/'heartbeat.json').write_text(json.dumps(hb,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(hb))
           PY
