@@ -1,0 +1,92 @@
+name: SeoTrends Public Daily Primary
+
+on:
+  schedule:
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'jobs/seotrends/**'
+      - '.github/workflows/seotrends-public.yml'
+
+concurrency:
+  group: seotrends-public-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SEOTRENDS_PUBLIC_HOME: ${{ runner.temp }}/seotrends-public
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore prior successful state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$SEOTRENDS_PUBLIC_HOME/data"
+          prev_run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow seotrends-public.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)"
+          if [[ -n "$prev_run" ]]; then
+            prev_dir="$RUNNER_TEMP/seotrends-prev"
+            mkdir -p "$prev_dir"
+            if gh run download "$prev_run" --repo "$GITHUB_REPOSITORY" -n seotrends-state -D "$prev_dir"; then
+              if [[ -s "$prev_dir/data/domains-current.csv.gz" ]]; then
+                cp "$prev_dir/data/domains-current.csv.gz" "$SEOTRENDS_PUBLIC_HOME/data/domains-current.csv.gz"
+                echo "Restored state from run $prev_run"
+              fi
+            fi
+          fi
+
+      - name: Refresh public sitemap corpus
+        run: python jobs/seotrends/refresh.py
+
+      - name: Scan newly added domains
+        run: python jobs/seotrends/daily_scan.py --max 300 --workers 16 --timeout 5
+
+      - name: Build heartbeat
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+          base=Path(os.environ['SEOTRENDS_PUBLIC_HOME'])
+          m=json.loads((base/'data/manifest.json').read_text())
+          payload={'unique_domains':m.get('unique_domains'),'sitemaps':[(x.get('part'),x.get('sha256'),x.get('count')) for x in m.get('sitemaps',[])]}
+          fp=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+          day=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+          shortlist=0
+          md=base/'scans'/f'{day}-shortlist.md'
+          if md.exists():
+              q=re.search(r'- shortlist: (\d+)',md.read_text(encoding='utf-8'))
+              shortlist=int(q.group(1)) if q else 0
+          hb={'ok':True,'date':day,'generated_at':datetime.now(timezone.utc).isoformat(),'fingerprint':fp,'domains':m.get('unique_domains'),'added':m.get('added'),'removed':m.get('removed'),'shortlist':shortlist,'source':'github-actions','repository':os.environ.get('GITHUB_REPOSITORY'),'run_id':os.environ.get('GITHUB_RUN_ID')}
+          (base/'heartbeat.json').write_text(json.dumps(hb,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(hb))
+          PY
+
+      - name: Upload durable state
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: seotrends-state
+          path: |
+            ${{ env.SEOTRENDS_PUBLIC_HOME }}/data/domains-current.csv.gz
+            ${{ env.SEOTRENDS_PUBLIC_HOME }}/data/manifest.json
+            ${{ env.SEOTRENDS_PUBLIC_HOME }}/changes/
+            ${{ env.SEOTRENDS_PUBLIC_HOME }}/scans/
+            ${{ env.SEOTRENDS_PUBLIC_HOME }}/heartbeat.json
+          if-no-files-found: error
+          retention-days: 7
