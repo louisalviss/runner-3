@@ -81,7 +81,7 @@ if domains:
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1,min(a.workers,32))) as ex:
         rows=[score(r) for r in ex.map(fetch_site,domains)]
 rows.sort(key=lambda r:(r['score'],r['ok'],r['domain']),reverse=True)
-jsonl=SCANS/f'{day}-candidates.jsonl'; csvp=SCANS/f'{day}-candidates.csv'; md=SCANS/f'{day}-shortlist.md'
+jsonl=SCANS/f'{day}-candidates.jsonl'; csvp=SCANS/f'{day}-candidates.csv'; md=SCANS/f'{day}-shortlist.md'; semq=SCANS/f'{day}-semrush-queue.json'
 with jsonl.open('w',encoding='utf-8') as f:
     for r in rows: f.write(json.dumps(r,ensure_ascii=False)+'\n')
 with csvp.open('w',encoding='utf-8',newline='') as f:
@@ -95,4 +95,6 @@ lines=[f'# SeoTrends daily shortlist — {day}','',f'- mode: added-only',f'- sca
 for i,r in enumerate(short,1):
     lines += [f'## {i}. {r["domain"]} — score {r["score"]}',f'- {r["title"] or "(no title)"}',f'- signals: {", ".join(r["signals"][:8]) or "-"}',f'- url: {r.get("final_url") or "-"}','']
 md.write_text('\n'.join(lines)+'\n',encoding='utf-8')
-print(json.dumps({'ok':True,'date':day,'mode':'added-only','scanned':len(rows),'shortlist':len(short),'jsonl':str(jsonl),'csv':str(csvp),'md':str(md)},ensure_ascii=False))
+queue={'date':day,'source':'seotrends-public-daily','count':len(short),'items':[{'domain':r['domain'],'discovery_score':r['score'],'title':r.get('title',''),'description':r.get('description',''),'signals':r.get('signals',[]),'url':r.get('final_url','')} for r in short]}
+semq.write_text(json.dumps(queue,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'ok':True,'date':day,'mode':'added-only','scanned':len(rows),'shortlist':len(short),'jsonl':str(jsonl),'csv':str(csvp),'md':str(md),'semrush_queue':str(semq)},ensure_ascii=False))
