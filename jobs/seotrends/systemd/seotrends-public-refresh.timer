@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SeoTrends GitHub-primary mirror / VPS fallback
+
+[Timer]
+OnCalendar=*-*-* 01:05:00 UTC
+RandomizedDelaySec=600
+Persistent=true
+Unit=seotrends-public-refresh.service
+
+[Install]
+WantedBy=timers.target

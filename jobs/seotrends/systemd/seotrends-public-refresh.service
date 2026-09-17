@@ -1,0 +1,13 @@
+[Unit]
+Description=SeoTrends GitHub-primary daily mirror with VPS fallback
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seotrends-github-fallback
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=20min

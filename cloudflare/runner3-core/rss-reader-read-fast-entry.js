@@ -9,6 +9,70 @@ const VERSION = "rss-reader-read-fast-v3-isolated-stream";
 const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
 const READER_CATEGORIES = ["AI", "Tech", "Kinh tế", "Chính trị", "Khoa học", "Trading", "WordPress", "Khác"];
 
+const SEOTRENDS_GH_RUNS = "https://api.github.com/repos/louisalviss/runner-3/actions/workflows/seotrends-public.yml/runs?per_page=10";
+const SEOTRENDS_INDEX = "https://seotrends.pro/sitemap.xml";
+const SEOTRENDS_WATCHDOG_UA = "SeoTrendsWatchdog/1.0";
+
+async function seotrendsGithubState() {
+  const response = await fetch(SEOTRENDS_GH_RUNS, {
+    headers: { "User-Agent": SEOTRENDS_WATCHDOG_UA, "Accept": "application/vnd.github+json" },
+  });
+  if (!response.ok) throw new Error(`github_${response.status}`);
+  const data = await response.json();
+  const day = new Date().toISOString().slice(0, 10);
+  const runs = (data.workflow_runs || []).filter((run) => String(run.created_at || "").startsWith(day));
+  const good = runs.find((run) => run.status === "completed" && run.conclusion === "success");
+  return {
+    day,
+    ok: Boolean(good),
+    good_run_id: good?.id || null,
+    runs: runs.map((run) => ({ id: run.id, status: run.status, conclusion: run.conclusion, event: run.event, created_at: run.created_at })),
+  };
+}
+
+function seotrendsDatabaseSitemaps(xml) {
+  const urls = [];
+  const regex = /<loc>(https:\/\/seotrends\.pro\/sitemaps\/database-\d+\.xml)<\/loc>/g;
+  for (const match of xml.matchAll(regex)) urls.push(match[1]);
+  return urls;
+}
+
+async function seotrendsEmergencyArchive(env, state) {
+  if (!env.ARTIFACTS) throw new Error("R2_ARTIFACTS_NOT_BOUND");
+  const indexResponse = await fetch(SEOTRENDS_INDEX, { headers: { "User-Agent": SEOTRENDS_WATCHDOG_UA } });
+  if (!indexResponse.ok) throw new Error(`index_${indexResponse.status}`);
+  const indexXml = await indexResponse.text();
+  const urls = seotrendsDatabaseSitemaps(indexXml);
+  const prefix = `seotrends-watchdog/emergency/${state.day}`;
+  await env.ARTIFACTS.put(`${prefix}/sitemap.xml`, indexXml, { httpMetadata: { contentType: "application/xml" } });
+  const results = await Promise.all(urls.map(async (url) => {
+    const response = await fetch(url, { headers: { "User-Agent": SEOTRENDS_WATCHDOG_UA } });
+    if (!response.ok) return { url, ok: false, status: response.status };
+    const name = url.split("/").pop();
+    await env.ARTIFACTS.put(`${prefix}/${name}`, response.body, { httpMetadata: { contentType: "application/xml" } });
+    return { url, ok: true, status: response.status };
+  }));
+  const manifest = { ...state, archived_at: new Date().toISOString(), source_index: SEOTRENDS_INDEX, sitemap_count: urls.length, results };
+  await env.ARTIFACTS.put(`${prefix}/manifest.json`, JSON.stringify(manifest, null, 2), { httpMetadata: { contentType: "application/json" } });
+  return manifest;
+}
+
+async function runSeotrendsWatchdog(env) {
+  let state;
+  try {
+    state = await seotrendsGithubState();
+  } catch (error) {
+    state = { day: new Date().toISOString().slice(0, 10), ok: false, github_error: String(error?.message || error) };
+  }
+  let emergency = null;
+  if (!state.ok) emergency = await seotrendsEmergencyArchive(env, state);
+  const status = { ...state, checked_at: new Date().toISOString(), emergency_archived: Boolean(emergency) };
+  if (env.ARTIFACTS) {
+    await env.ARTIFACTS.put(`seotrends-watchdog/status/${state.day}.json`, JSON.stringify(status, null, 2), { httpMetadata: { contentType: "application/json" } });
+  }
+  return status;
+}
+
 function json(value, status = 200, route = "read") {
   return Response.json(value, {
     status,
@@ -371,6 +435,13 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     const app = await loadFallbackApp();
+    const scheduledAt = new Date(controller.scheduledTime);
+    if (scheduledAt.getUTCHours() === 2) {
+      const task = runSeotrendsWatchdog(env)
+        .then((status) => console.log("seotrends watchdog", status))
+        .catch((error) => console.error("seotrends watchdog failed", String(error?.message || error)));
+      if (ctx?.waitUntil) ctx.waitUntil(task); else await task;
+    }
     if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },
 };
