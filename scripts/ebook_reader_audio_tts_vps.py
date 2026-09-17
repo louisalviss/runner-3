@@ -49,7 +49,7 @@ CORE_TOKEN = (
 )
 SOURCE = os.environ.get("RUNNER3_SOURCE", "linveo-vps1").strip() or "linveo-vps1"
 POLL_SECONDS = max(0.25, min(float(os.environ.get("EBOOK_AUDIO_VPS_POLL_SECONDS", "1")), 30.0))
-IDLE_HEARTBEAT_SECONDS = max(10.0, min(float(os.environ.get("EBOOK_AUDIO_VPS_HEARTBEAT_SECONDS", "30")), 300.0))
+IDLE_HEARTBEAT_SECONDS = max(30.0, min(float(os.environ.get("EBOOK_AUDIO_VPS_HEARTBEAT_SECONDS", "1800")), 21600.0))
 LOCK_PATH = os.environ.get("EBOOK_AUDIO_VPS_LOCK", "/run/ebook-reader-audio-consumer.lock")
 WORKER_NAME = os.environ.get("EBOOK_AUDIO_VPS_WORKER", "linveo-vps1-ebook-audio").strip() or "linveo-vps1-ebook-audio"
 try:
@@ -323,6 +323,7 @@ def daemon_loop():
                 "event": "consumer-start",
                 "worker": WORKER_NAME,
                 "pollSeconds": POLL_SECONDS,
+                "heartbeatSeconds": IDLE_HEARTBEAT_SECONDS,
                 "concurrency": MAX_CONCURRENCY,
                 "chunkConcurrency": TTS_CHUNK_CONCURRENCY,
                 "pid": os.getpid(),
@@ -398,7 +399,7 @@ def main():
     if not CORE_URL.startswith("https://"):
         raise RuntimeError("RUNNER3_CORE_URL must be HTTPS")
     if args.check_config:
-        print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "concurrency": MAX_CONCURRENCY}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "coreUrl": CORE_URL, "worker": WORKER_NAME, "pollSeconds": POLL_SECONDS, "heartbeatSeconds": IDLE_HEARTBEAT_SECONDS, "concurrency": MAX_CONCURRENCY}, ensure_ascii=False))
         return 0
 
     signal.signal(signal.SIGTERM, handle_signal)
