@@ -40,6 +40,7 @@ function bootReaderAudioCore() {
     lastError: '',
     iosFirstPlayFix: 'v70',
     currentChapterPrewarm: true,
+    crossBrowserSpeechBlocks: 'v1',
     blockingWarmAhead: false,
     stateKey: STATE_KEY,
   };
@@ -147,6 +148,22 @@ function bootReaderAudioCore() {
     try { return text.match(/[\p{L}\p{M}\p{N}]+/gu) || []; } catch { return text.split(/[^A-Za-z0-9À-ỹ]+/).filter(Boolean); }
   }
 
+  function collectSpeechBlocks(doc, body) {
+    if (!doc || !body) return [];
+    let blocks = [...doc.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote')].filter((el) => normalizeText(el.innerText || el.textContent).length > 0);
+    blocks = blocks.filter((el) => String(el.tagName || '').toUpperCase() !== 'BLOCKQUOTE' || !el.querySelector('p,li,h1,h2,h3,h4,h5,h6'));
+    if (!blocks.length) blocks = [...body.children].filter((el) => normalizeText(el.innerText || el.textContent).length > 0);
+    if (!blocks.length) blocks = [body];
+    return blocks;
+  }
+
+  function canonicalSpeechText(doc, body) {
+    return collectSpeechBlocks(doc, body)
+      .map((el) => normalizeText(el.innerText || el.textContent))
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
   function framePayload() {
     const frames = [...document.querySelectorAll('#viewer iframe')];
     let best = null;
@@ -154,7 +171,7 @@ function bootReaderAudioCore() {
       try {
         const doc = frame.contentDocument;
         const body = doc?.body;
-        const text = String(body?.innerText || '').trim();
+        const text = canonicalSpeechText(doc, body);
         if (text.length < 80) continue;
         if (!best || text.length > best.text.length) {
           const heading = doc.querySelector('h1,h2,h3');
@@ -171,11 +188,7 @@ function bootReaderAudioCore() {
   }
 
   function collectBlocks(payload) {
-    let blocks = [...payload.doc.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote')].filter((el) => normalizeText(el.innerText || el.textContent).length > 0);
-    blocks = blocks.filter((el) => String(el.tagName || '').toUpperCase() !== 'BLOCKQUOTE' || !el.querySelector('p,li,h1,h2,h3,h4,h5,h6'));
-    if (!blocks.length) blocks = [...payload.body.children].filter((el) => normalizeText(el.innerText || el.textContent).length > 0);
-    if (!blocks.length) blocks = [payload.body];
-    return blocks;
+    return collectSpeechBlocks(payload.doc, payload.body);
   }
 
   function blockVisible(el) {
@@ -308,7 +321,7 @@ function bootReaderAudioCore() {
     const response = await fetch('/artifact-library/audio', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bookKey, text: payload.text, chapterTitle: payload.chapterTitle, chapterHref: payload.chapterHref, bookTitle: document.title || 'Ebook', clientVersion: 'reader-audio-core-v33' }),
+      body: JSON.stringify({ bookKey, text: payload.text, chapterTitle: payload.chapterTitle, chapterHref: payload.chapterHref, bookTitle: document.title || 'Ebook', clientVersion: 'reader-audio-core-v33-blocktext-v1' }),
     });
     let state = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(state.error || `HTTP_${response.status}`);
