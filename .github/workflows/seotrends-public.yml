@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      SEOTRENDS_PUBLIC_HOME: ${{ runner.temp }}/seotrends-public
+      SEOTRENDS_PUBLIC_HOME: /tmp/seotrends-public
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
@@ -83,10 +83,10 @@ jobs:
         with:
           name: seotrends-state
           path: |
-            ${{ env.SEOTRENDS_PUBLIC_HOME }}/data/domains-current.csv.gz
-            ${{ env.SEOTRENDS_PUBLIC_HOME }}/data/manifest.json
-            ${{ env.SEOTRENDS_PUBLIC_HOME }}/changes/
-            ${{ env.SEOTRENDS_PUBLIC_HOME }}/scans/
-            ${{ env.SEOTRENDS_PUBLIC_HOME }}/heartbeat.json
+            /tmp/seotrends-public/data/domains-current.csv.gz
+            /tmp/seotrends-public/data/manifest.json
+            /tmp/seotrends-public/changes/
+            /tmp/seotrends-public/scans/
+            /tmp/seotrends-public/heartbeat.json
           if-no-files-found: error
           retention-days: 7
