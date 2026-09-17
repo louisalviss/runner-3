@@ -21,7 +21,7 @@ async function seotrendsGithubState() {
   const data = await response.json();
   const day = new Date().toISOString().slice(0, 10);
   const runs = (data.workflow_runs || []).filter((run) => String(run.created_at || "").startsWith(day));
-  const good = runs.find((run) => run.status === "completed" && run.conclusion === "success");
+  const good = runs.find((run) => ["schedule", "workflow_dispatch"].includes(run.event) && run.status === "completed" && run.conclusion === "success");
   return {
     day,
     ok: Boolean(good),

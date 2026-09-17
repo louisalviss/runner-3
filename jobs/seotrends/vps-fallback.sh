@@ -23,9 +23,9 @@ open(t,'w').write(json.dumps({'date':day,'source':'vps-fallback'},indent=2)+'\n'
 os.replace(t,p)
 PY
 }
-latest=$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --limit 10 \
+latest=$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --limit 20 \
   --json databaseId,status,conclusion,createdAt,event,url \
-  --jq ".[] | select(.createdAt | startswith(\"$DAY\")) | @json" | head -1 || true)
+  --jq ".[] | select((.createdAt | startswith(\"$DAY\")) and .event == \"schedule\" and .status == \"completed\" and .conclusion == \"success\") | @json" | head -1 || true)
 
 if [[ -z "$latest" ]]; then
   run_local
