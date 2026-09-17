@@ -1,5 +1,6 @@
 const MIN_TTL_SECONDS = 60;
-const MAX_TTL_SECONDS = 259200; // 72 hours
+const DEFAULT_TTL_SECONDS = 2592000; // 30 days
+const MAX_TTL_SECONDS = 2592000; // 30 days
 const MAX_ARTIFACT_KEY_CHARS = 900;
 const textEncoder = new TextEncoder();
 const PERMANENT_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -221,8 +222,8 @@ export async function handleDelivery(request, env, url) {
     }
     const artifact = cleanArtifact(body?.project, body?.scope, body?.name);
     if (!artifact) return json({ ok: false, error: "INVALID_ARTIFACT" }, 400);
-    const requestedTtl = Number(body?.ttl_seconds || 900);
-    const ttl = Number.isFinite(requestedTtl) ? Math.floor(requestedTtl) : 900;
+    const requestedTtl = Number(body?.ttl_seconds || DEFAULT_TTL_SECONDS);
+    const ttl = Number.isFinite(requestedTtl) ? Math.floor(requestedTtl) : DEFAULT_TTL_SECONDS;
     if (ttl < MIN_TTL_SECONDS || ttl > MAX_TTL_SECONDS) {
       return json({ ok: false, error: `TTL_OUT_OF_RANGE_${MIN_TTL_SECONDS}_${MAX_TTL_SECONDS}` }, 400);
     }

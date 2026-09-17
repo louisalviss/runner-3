@@ -150,11 +150,12 @@ def main():
     artifact_put = request_json(base, token, artifact_path, 'PUT', artifact_payload)
     artifact_get = request_json(base, token, artifact_path, 'GET')
 
+    delivery_ttl_seconds = 30 * 24 * 60 * 60
     delivery_unauth_create = request_json(base, token, '/delivery-links', 'POST', {
-        'project': artifact_project, 'scope': artifact_scope, 'name': artifact_name, 'ttl_seconds': 120,
+        'project': artifact_project, 'scope': artifact_scope, 'name': artifact_name, 'ttl_seconds': delivery_ttl_seconds,
     }, authenticated=False)
     delivery_create = request_json(base, token, '/delivery-links', 'POST', {
-        'project': artifact_project, 'scope': artifact_scope, 'name': artifact_name, 'ttl_seconds': 120,
+        'project': artifact_project, 'scope': artifact_scope, 'name': artifact_name, 'ttl_seconds': delivery_ttl_seconds,
     })
     delivery_json = delivery_create.get('json') if isinstance(delivery_create.get('json'), dict) else {}
     delivery_record = delivery_json.get('delivery') if isinstance(delivery_json.get('delivery'), dict) else {}
@@ -218,6 +219,7 @@ def main():
         delivery_unauth_create.get('http') == 401
         and delivery_create.get('http') == 200
         and delivery_json.get('ok') is True
+        and delivery_record.get('ttl_seconds') == delivery_ttl_seconds
         and signed_url.startswith(base + '/delivery/')
         and delivery_get.get('http') == 200
         and delivery_get.get('bytes') == artifact_raw
