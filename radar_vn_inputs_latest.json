@@ -1,18 +1,16 @@
 {
-  "generated_at": "2026-09-17T22:26:51.347399+00:00",
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
-  "blocking_reasons": [
-    "forum_signal_not_usable_fresh"
-  ],
+  "generated_at": "2026-09-17T22:31:49.339135+00:00",
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_latest.json",
       "ok": true,
       "status": "HEALTHY",
       "captured_at": "2026-09-17T22:26:38.129026+00:00",
-      "age_minutes": 0.2,
+      "age_minutes": 5.2,
       "top10_count": 10
     },
     "f33": {
@@ -20,7 +18,7 @@
       "ok": true,
       "status": "HEALTHY",
       "generated_at": "2026-09-17T19:16:24.844Z",
-      "age_minutes": 190.4,
+      "age_minutes": 195.4,
       "run_id": 35263742984,
       "artifact_id": 10515153467,
       "threads_discovered": 20,
@@ -31,13 +29,13 @@
     },
     "forum_signal": {
       "path": "forum_signal_latest.json",
-      "ok": false,
-      "status": "RUNNING",
-      "generated_at": "2026-09-17T22:23:09.932Z",
-      "age_minutes": 3.7,
+      "ok": true,
+      "status": "HEALTHY",
+      "generated_at": "2026-09-17T22:31:32.717Z",
+      "age_minutes": 0.3,
       "run_id": 35281730107,
-      "artifact_id": 0,
-      "crawl_outcome": null
+      "artifact_id": 10523185560,
+      "crawl_outcome": "success"
     }
   }
 }
