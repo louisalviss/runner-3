@@ -15,7 +15,7 @@ def call(i,fn,inputs,timeout=40):
  payload={'language':'javascript','script':sc,'ip':IP,'root':str(i),'input':[str(x) for x in inputs]}
  hdr={'data':base64.b64encode(json.dumps(payload,ensure_ascii=False).encode()).decode()}
  t=time.time(); last=None
- for attempt in range(2):
+ for attempt in range(1):
   try:
    rr=S.get(END,headers=hdr,timeout=timeout); outer=rr.json(); sec=round(time.time()-t,2); break
   except Exception as e:

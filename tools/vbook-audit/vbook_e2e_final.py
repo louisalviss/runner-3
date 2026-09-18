@@ -51,14 +51,16 @@ def textlen(v):
 def discover(i):
     tr=[]; home=script(i,'home')
     if home:
-        x=invoke(i,home,''); aa=listdata(x); tr.append(['home',x.get('ok'),x.get('kind'),len(aa)])
+        x=invoke(i,home,''); aa=listdata(x); tr.append(['home',x.get('ok'),x.get('kind'),len(aa)]);
+        if x.get('kind')=='transport': return None,tr
         for z in aa:
             if looks_item(z): return z,tr
         for z in aa[:10]:
             if not isinstance(z,dict): continue
             fn=z.get('script'); seed=z.get('input','')
             if fn and b.main_script(i,fn) and sig(i,fn) is not None:
-                y=invoke(i,fn,seed); yy=listdata(y); tr.append([fn,y.get('ok'),y.get('kind'),len(yy)])
+                y=invoke(i,fn,seed); yy=listdata(y); tr.append([fn,y.get('ok'),y.get('kind'),len(yy)]);
+                if y.get('kind')=='transport': return None,tr
                 for q in yy:
                     if looks_item(q): return q,tr
     sr=script(i,'search')
@@ -66,7 +68,8 @@ def discover(i):
         typ=META[i].get('type')
         qs=['a','truyện','tình'] if typ in ('novel','video','comic','audio') else ['的','仙','爱']
         for q in qs:
-            x=invoke(i,sr,q); aa=listdata(x); tr.append(['search:'+q,x.get('ok'),x.get('kind'),len(aa)])
+            x=invoke(i,sr,q); aa=listdata(x); tr.append(['search:'+q,x.get('ok'),x.get('kind'),len(aa)]);
+            if x.get('kind')=='transport': return None,tr
             for z in aa:
                 if looks_item(z): return z,tr
     return None,tr
@@ -209,6 +212,6 @@ if __name__=='__main__':
         row['wall']=round(time.time()-t,2); out.append(row)
         print(json.dumps(row,ensure_ascii=False),flush=True)
         with open('/tmp/vbook-audit/e2e-final.json','w',encoding='utf-8') as f: json.dump(out,f,ensure_ascii=False,indent=2)
-        if row['class'] in ('HARNESS_ERROR',):
+        if row['class'] in ('HARNESS_ERROR',) or 'transport' in json.dumps(row):
             try: reset_engine()
             except: pass
