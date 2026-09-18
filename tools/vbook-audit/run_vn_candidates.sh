@@ -28,7 +28,8 @@ for i in range(30):
     time.sleep(2)
 else: raise SystemExit("VBook engine did not become ready")
 PY
-VBOOK_BATCH=/tmp/vbook_batch_plain.py python3 tools/vbook-audit/vbook_e2e_final.py "0,1,2,3"
+IDS=$(python3 -c 'import json; j=json.load(open("tools/vbook-audit/vbook_vn_candidates_meta.json")); print(",".join(map(str,range(len(j)))))')
+VBOOK_BATCH=/tmp/vbook_batch_plain.py python3 tools/vbook-audit/vbook_e2e_final.py "$IDS"
 cp /tmp/vbook-audit/e2e-final.json out/vn-candidates-e2e.json
 END=$(date +%s)
 python3 - "$START" "$END" <<'PY'
