@@ -1,4 +1,5 @@
 import importlib.util,json,sys,time,os,re,subprocess,html
+from urllib.parse import urljoin
 sp=importlib.util.spec_from_file_location('b','/tmp/vbook_batch_plain.py')
 b=importlib.util.module_from_spec(sp); sp.loader.exec_module(b)
 META=b.META
@@ -116,6 +117,7 @@ def audit(i):
     if not chfn: out['class']='NO_CHAP'; return out
     tries=[]
     for ch,u in cands:
+        u=abslink(ch,r.get(source))
         cx=invoke(i,chfn,u); good,info=validate_content(i,typ,cx)
         tries.append({'name':ch.get('name') or ch.get('title'),'url':u,'ok':cx.get('ok'),'kind':cx.get('kind'),'info':info,'err':str(cx.get('err',''))[:160]})
         if good:
