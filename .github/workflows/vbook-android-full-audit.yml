@@ -1,0 +1,117 @@
+name: VBook Android Full E2E Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: "Number of Android emulator shards (fixed matrix supports 6)"
+        required: false
+        default: "6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vbook-android-full-e2e
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install host dependencies
+        run: |
+          python -m pip install requests
+          npm install --no-save cheerio@1.0.0
+          python tools/vbook-audit/download_vbook_apk.py vbook.apk
+          sha256sum vbook.apk | tee vbook.apk.sha256
+
+      - name: Select shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: "6"
+        run: |
+          python - <<'PY'
+          import json, os
+          rows=json.load(open("tools/vbook-audit/vbook171_meta.json",encoding="utf-8"))
+          shard=int(os.environ["SHARD"]); shards=int(os.environ["SHARDS"])
+          ids=[str(i) for i in range(len(rows)) if i % shards == shard]
+          print({"shard":shard,"count":len(ids),"ids":ids})
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as f:
+              f.write("VBOOK_IDS="+",".join(ids)+"\n")
+          PY
+
+      - name: Enable KVM
+        run: |
+          sudo chmod 666 /dev/kvm || true
+          ls -l /dev/kvm || true
+
+
+      - name: Run VBook E2E shard on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 25
+          target: default
+          arch: x86_64
+          profile: Nexus 5
+          ram-size: 2048M
+          heap-size: 384M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/vbook-audit/run_benchmark.sh
+
+      - name: Upload shard artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbook-e2e-shard-${{ matrix.shard }}
+          path: |
+            out/
+            vbook.apk.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  merge:
+    needs: audit
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vbook-e2e-shard-*
+          path: shard-artifacts
+
+      - name: Merge and validate full audit
+        run: |
+          python tools/vbook-audit/merge_full_audit.py \
+            --input shard-artifacts \
+            --meta tools/vbook-audit/vbook171_meta.json \
+            --out full-audit
+
+      - name: Upload merged audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbook-e2e-full-${{ github.run_id }}
+          path: full-audit/
+          if-no-files-found: error
+          retention-days: 7
