@@ -3,6 +3,7 @@ import fs from "node:fs";
 const read = (path) => fs.readFileSync(path, "utf8");
 const personalization = read("cloudflare/runner3-core/src/content-personalization.js");
 const intelligence = read("cloudflare/runner3-core/src/content-intelligence.js");
+const eventMigration = read("cloudflare/runner3-core/migrations/0017_user_content_event_idempotency.sql");
 const readerLearning = read("cloudflare/runner3-core/src/rss-reader-learning.js");
 const librarySave = read("cloudflare/runner3-core/src/rss-library-save.js");
 const enrichment = read("cloudflare/runner3-core/src/content-feature-enrichment.js");
@@ -47,6 +48,7 @@ requireText(readerLearning, "if (currentEvent === targetEvent) return 0", "reade
 requireText(readerLearning, "if (Boolean(current?.present) === targetFeatured) return 0", "reader featured no-op guard missing");
 requireText(librarySave, "datetime(content_items.last_seen_at) <= datetime('now','-6 hours')", "library-save item heartbeat guard missing");
 requireText(intelligence, "INSERT OR IGNORE INTO user_content_events", "core event insert is not race-safe");
+requireText(eventMigration, "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_content_events_identity", "event identity unique index missing");
 
 forbidText(enrichment, "await env.DB.prepare(`DELETE FROM content_features WHERE item_id=? AND model_version IN", "delete-all semantic rewrite reintroduced");
 forbidText(audio, "force: true", "scheduled force bypass reintroduced");
