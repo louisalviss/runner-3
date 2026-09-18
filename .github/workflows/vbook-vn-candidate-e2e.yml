@@ -1,6 +1,11 @@
 name: VBook VN Novel Candidate E2E
 on:
   workflow_dispatch:
+    inputs:
+      ids:
+        description: "Comma-separated candidate IDs; blank = all"
+        required: false
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -24,6 +29,8 @@ jobs:
         run: sudo chmod 666 /dev/kvm || true
       - name: Run VN novel candidate E2E
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          VBOOK_IDS: ${{ inputs.ids }}
         with:
           api-level: 25
           target: default
