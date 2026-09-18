@@ -176,11 +176,31 @@ def audit(i):
     if not det: out['class']='NO_DETAIL'; return out
     x=invoke(i,det,url); dd=data(x); out['detail']={'ok':x.get('ok'),'kind':x.get('kind'),'shape':type(dd).__name__,'err':str(x.get('err',''))[:180]}
     if not x.get('ok') or not isinstance(dd,dict): out['class']='DETAIL_FAIL'; return out
-    toc=script(i,'toc')
-    if not toc: out['class']='NO_TOC'; return out
-    x=invoke(i,toc,url); td=data(x); out['toc']={'ok':x.get('ok'),'kind':x.get('kind'),'n':len(td) if isinstance(td,list) else None,'err':str(x.get('err',''))[:180]}
+    toc=script(i,"toc")
+    if not toc: out["class"]="NO_TOC"; return out
+    # Some VBook extensions expose page.js as an intermediate resolver:
+    # book URL -> TOC page inputs -> toc.js -> chapters.
+    toc_inputs=[url]
+    pg=script(i,"page")
+    if pg:
+        px=invoke(i,pg,url); pd=data(px)
+        out["page"]={"ok":px.get("ok"),"kind":px.get("kind"),"n":len(pd) if isinstance(pd,list) else None,"err":str(px.get("err",""))[:180]}
+        if px.get("ok") and isinstance(pd,list) and pd:
+            resolved=[]
+            for z in pd[:5]:
+                if isinstance(z,str) and z: resolved.append(z)
+                elif isinstance(z,dict) and linkof(z): resolved.append(abslink(z,r.get("source")))
+            if resolved: toc_inputs=resolved
+    td=[]; toc_tries=[]; x={"ok":False,"kind":"not_run"}
+    for ti in toc_inputs:
+        x=invoke(i,toc,ti); cur=data(x)
+        toc_tries.append({"input":str(ti)[:180],"ok":x.get("ok"),"kind":x.get("kind"),"n":len(cur) if isinstance(cur,list) else None,"err":str(x.get("err",""))[:180]})
+        if x.get("ok") and usable_chapters(cur):
+            td=cur; break
+        if isinstance(cur,list) and len(cur)>len(td): td=cur
+    out["toc"]={"ok":x.get("ok"),"kind":x.get("kind"),"n":len(td) if isinstance(td,list) else None,"tries":toc_tries,"err":str(x.get("err",""))[:180]}
     cands=usable_chapters(td)
-    if not x.get('ok') or not cands: out['class']='TOC_FAIL'; return out
+    if not cands: out["class"]="TOC_FAIL"; return out
     chfn=script(i,'chap')
     if not chfn: out['class']='NO_CHAP'; return out
     tries=[]
