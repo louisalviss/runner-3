@@ -1,1 +1,21 @@
-function execute(url){var b=null,d=null;try{b=Engine.newBrowser();try{b.setUserAgent(UserAgent.chrome());}catch(e){}d=b.launch(url,15000);for(var i=0;i<12;i++){try{if(d&&d.select('.reader-chapter-body').size()>0)break;}catch(e1){}sleep(600);d=b.html();}var e=d?d.select('.reader-chapter-body').first():null;if(!e)return Response.error('CONTENT_NOT_FOUND');var h=e.html();return h&&h.length>120?Response.success(h):Response.error('CONTENT_EMPTY');}catch(ex){return Response.error('BROWSER '+ex);}finally{try{if(b)b.close();}catch(e2){}}}
+function execute(url){
+    var r=fetch(url);
+    if(!r.ok)return Response.error('HTTP '+r.status);
+    var d=r.html(), es=d.select('script'), best='';
+    for(var i=0;i<es.size();i++){
+        var s=String(es.get(i).html()||es.get(i).text()||'');
+        if(s.indexOf('self.__next_f.push(')<0)continue;
+        var p=s.indexOf('self.__next_f.push(')+19;
+        var q=s.lastIndexOf(')');
+        if(q<=p)continue;
+        try{
+            var a=JSON.parse(s.substring(p,q));
+            if(a&&a.length>1&&typeof a[1]==='string'){
+                var v=a[1];
+                if(v.indexOf('<p')>=0&&v.length>best.length)best=v;
+            }
+        }catch(e){}
+    }
+    if(best&&best.length>120)return Response.success(best);
+    return Response.error('RSC_CONTENT_NOT_FOUND');
+}
