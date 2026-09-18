@@ -13,15 +13,12 @@ def script(i,k):
     return fn if fn and b.main_script(i,fn) else None
 def sig(i,fn): return b.sig(b.main_script(i,fn)) if fn else None
 
-def invoke(i,fn,seed='',timeout=10):
+def invoke(i,fn,seed="",timeout=10):
     sg=sig(i,fn)
-    if sg is None:return {'ok':False,'kind':'nosig'}
-    vals=[]
-    for n,a in enumerate(sg):
-        al=a.lower()
-        if 'page' in al or 'start' in al: vals.append('1')
-        elif n==0: vals.append(str(seed))
-        else: vals.append('')
+    if sg is None:return {"ok":False,"kind":"nosig"}
+    # Preserve discovery seed in arg0; optional page/cursor args stay empty.
+    # For execute(url, page)/execute(key, page), page=1 overrides the seed.
+    vals=[str(seed) if n==0 else "" for n,_ in enumerate(sg)]
     return b.call(i,fn,vals,timeout)
 
 def data(x): return (x.get('inner') or {}).get('data')
