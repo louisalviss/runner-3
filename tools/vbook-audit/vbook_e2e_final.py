@@ -88,7 +88,7 @@ def discover(i,limit=4):
                 fn=z.get('script'); seed=z.get('input','')
                 if fn and b.main_script(i,fn) and sig(i,fn) is not None:
                     y=invoke(i,fn,seed); yy=listdata(y)
-                    tr.append([fn,y.get('ok'),y.get('kind'),len(yy),trace_sample(yy) if yy and not any(looks_item(q) for q in yy) else None])
+                    tr.append([fn,y.get('ok'),y.get('kind'),len(yy),trace_sample(yy) if yy and not any(looks_item(q) for q in yy) else None,str(y.get('err',''))[:500]])
                     add(yy)
                     if len(found)>=limit: break
     sr=script(i,'search')
@@ -96,7 +96,7 @@ def discover(i,limit=4):
         typ=effective_type(i)
         qs=['a','truyện','tình'] if typ in ('novel','video','comic','audio') else ['的','仙','爱']
         for q in qs:
-            x=invoke(i,sr,q); aa=listdata(x); tr.append(['search:'+q,x.get('ok'),x.get('kind'),len(aa),trace_sample(aa) if aa and not any(looks_item(z) for z in aa) else None])
+            x=invoke(i,sr,q); aa=listdata(x); tr.append(['search:'+q,x.get('ok'),x.get('kind'),len(aa),trace_sample(aa) if aa and not any(looks_item(z) for z in aa) else None,str(x.get('err',''))[:500]])
             add(aa)
             if len(found)>=limit: break
     return found,tr
