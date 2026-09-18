@@ -13,13 +13,18 @@ def script(i,k):
     return fn if fn and b.main_script(i,fn) else None
 def sig(i,fn): return b.sig(b.main_script(i,fn)) if fn else None
 
-def invoke(i,fn,seed="",timeout=10):
+def invoke(i,fn,seed="",timeout=10,retries=2):
     sg=sig(i,fn)
     if sg is None:return {"ok":False,"kind":"nosig"}
-    # Preserve discovery seed in arg0; optional page/cursor args stay empty.
-    # For execute(url, page)/execute(key, page), page=1 overrides the seed.
     vals=[str(seed) if n==0 else "" for n,_ in enumerate(sg)]
-    return b.call(i,fn,vals,timeout)
+    last=None
+    for attempt in range(retries+1):
+        x=b.call(i,fn,vals,timeout); last=x
+        if x.get("kind")!="transport": return x
+        if attempt<retries:
+            try: reset_engine()
+            except Exception: time.sleep(1)
+    return last or {"ok":False,"kind":"transport"}
 
 def data(x): return (x.get('inner') or {}).get('data')
 def listdata(x):
@@ -31,8 +36,11 @@ def listdata(x):
     return []
 def linkof(x):
     if not isinstance(x,dict): return ''
-    return x.get('link') or x.get('url') or ''
-def looks_item(x): return bool(isinstance(x,dict) and linkof(x) and (x.get('name') or x.get('title')))
+    u=x.get('link') or x.get('url') or x.get('href') or ''
+    if not u and not x.get('script'): u=x.get('input') or ''
+    return u
+def looks_item(x):
+    return bool(isinstance(x,dict) and linkof(x) and (x.get('name') or x.get('title')))
 def abslink(x,fallback):
     u=linkof(x)
     if not u:return ''
@@ -40,36 +48,46 @@ def abslink(x,fallback):
     base=(x.get('host') if isinstance(x,dict) else '') or fallback or ''
     if base and not base.endswith('/'): base += '/'
     return urljoin(base,u)
+def effective_type(i):
+    return ((manifest(i).get('metadata') or {}).get('type') or META[i].get('type'))
+
 def textlen(v):
     if isinstance(v,str):
         t=re.sub(r'<[^>]+>',' ',html.unescape(v)); return len(re.sub(r'\s+',' ',t).strip())
     return 0
 
-def discover(i):
-    tr=[]; home=script(i,'home')
+def discover(i,limit=4):
+    tr=[]; found=[]; seen=set()
+    def add(seq):
+        for z in seq:
+            if not looks_item(z): continue
+            k=(linkof(z), z.get('name') or z.get('title'))
+            if k in seen: continue
+            seen.add(k); found.append(z)
+            if len(found)>=limit:return True
+        return False
+    home=script(i,'home')
     if home:
-        x=invoke(i,home,''); aa=listdata(x); tr.append(['home',x.get('ok'),x.get('kind'),len(aa)]);
-        if x.get('kind')=='transport': return None,tr
-        for z in aa:
-            if looks_item(z): return z,tr
-        for z in aa[:10]:
-            if not isinstance(z,dict): continue
-            fn=z.get('script'); seed=z.get('input','')
-            if fn and b.main_script(i,fn) and sig(i,fn) is not None:
-                y=invoke(i,fn,seed); yy=listdata(y); tr.append([fn,y.get('ok'),y.get('kind'),len(yy)]);
-                if y.get('kind')=='transport': return None,tr
-                for q in yy:
-                    if looks_item(q): return q,tr
+        x=invoke(i,home,''); aa=listdata(x); tr.append(['home',x.get('ok'),x.get('kind'),len(aa)])
+        add(aa)
+        if len(found)<limit:
+            for z in aa[:24]:
+                if not isinstance(z,dict): continue
+                fn=z.get('script'); seed=z.get('input','')
+                if fn and b.main_script(i,fn) and sig(i,fn) is not None:
+                    y=invoke(i,fn,seed); yy=listdata(y)
+                    tr.append([fn,y.get('ok'),y.get('kind'),len(yy)])
+                    add(yy)
+                    if len(found)>=limit: break
     sr=script(i,'search')
-    if sr:
-        typ=META[i].get('type')
+    if sr and len(found)<limit:
+        typ=effective_type(i)
         qs=['a','truyện','tình'] if typ in ('novel','video','comic','audio') else ['的','仙','爱']
         for q in qs:
-            x=invoke(i,sr,q); aa=listdata(x); tr.append(['search:'+q,x.get('ok'),x.get('kind'),len(aa)]);
-            if x.get('kind')=='transport': return None,tr
-            for z in aa:
-                if looks_item(z): return z,tr
-    return None,tr
+            x=invoke(i,sr,q); aa=listdata(x); tr.append(['search:'+q,x.get('ok'),x.get('kind'),len(aa)])
+            add(aa)
+            if len(found)>=limit: break
+    return found,tr
 
 def usable_chapters(td):
     if not isinstance(td,list): return []
@@ -167,40 +185,37 @@ def validate_content(i,typ,chap_x):
         return False,{'tracks':len(tracks),'probes':probes}
     return chap_x.get('ok') and bool(d), {'shape':type(d).__name__}
 
-def audit(i):
-    r=META[i]; typ=r.get('type'); out={'i':i,'name':r.get('name'),'type':typ,'source':r.get('source')}
-    item,tr=discover(i); out['discover']=tr
-    if not item: out['class']='NO_ITEM'; return out
-    url=abslink(item,r.get('source')); out['sample_item']={'name':item.get('name') or item.get('title'),'url':url,'raw_link':linkof(item),'host':item.get('host') if isinstance(item,dict) else None}
+def audit_candidate(i,r,typ,item):
+    out={}
+    url=abslink(item,r.get('source'))
+    out['sample_item']={'name':item.get('name') or item.get('title'),'url':url,'raw_link':linkof(item),'host':item.get('host') if isinstance(item,dict) else None}
     det=script(i,'detail')
     if not det: out['class']='NO_DETAIL'; return out
-    x=invoke(i,det,url); dd=data(x); out['detail']={'ok':x.get('ok'),'kind':x.get('kind'),'shape':type(dd).__name__,'err':str(x.get('err',''))[:180]}
+    x=invoke(i,det,url); dd=data(x)
+    out['detail']={'ok':x.get('ok'),'kind':x.get('kind'),'shape':type(dd).__name__,'err':str(x.get('err',''))[:180]}
     if not x.get('ok') or not isinstance(dd,dict): out['class']='DETAIL_FAIL'; return out
-    toc=script(i,"toc")
-    if not toc: out["class"]="NO_TOC"; return out
-    # Some VBook extensions expose page.js as an intermediate resolver:
-    # book URL -> TOC page inputs -> toc.js -> chapters.
+    toc=script(i,'toc')
+    if not toc: out['class']='NO_TOC'; return out
     toc_inputs=[url]
-    pg=script(i,"page")
+    pg=script(i,'page')
     if pg:
         px=invoke(i,pg,url); pd=data(px)
-        out["page"]={"ok":px.get("ok"),"kind":px.get("kind"),"n":len(pd) if isinstance(pd,list) else None,"err":str(px.get("err",""))[:180]}
-        if px.get("ok") and isinstance(pd,list) and pd:
+        out['page']={'ok':px.get('ok'),'kind':px.get('kind'),'n':len(pd) if isinstance(pd,list) else None,'err':str(px.get('err',''))[:180]}
+        if px.get('ok') and isinstance(pd,list) and pd:
             resolved=[]
-            for z in pd[:5]:
+            for z in pd[:8]:
                 if isinstance(z,str) and z: resolved.append(z)
-                elif isinstance(z,dict) and linkof(z): resolved.append(abslink(z,r.get("source")))
+                elif isinstance(z,dict) and linkof(z): resolved.append(abslink(z,r.get('source')))
             if resolved: toc_inputs=resolved
-    td=[]; toc_tries=[]; x={"ok":False,"kind":"not_run"}
+    td=[]; toc_tries=[]; x={'ok':False,'kind':'not_run'}
     for ti in toc_inputs:
         x=invoke(i,toc,ti); cur=data(x)
-        toc_tries.append({"input":str(ti)[:180],"ok":x.get("ok"),"kind":x.get("kind"),"n":len(cur) if isinstance(cur,list) else None,"err":str(x.get("err",""))[:180]})
-        if x.get("ok") and usable_chapters(cur):
-            td=cur; break
+        toc_tries.append({'input':str(ti)[:180],'ok':x.get('ok'),'kind':x.get('kind'),'n':len(cur) if isinstance(cur,list) else None,'err':str(x.get('err',''))[:180]})
+        if x.get('ok') and usable_chapters(cur): td=cur; break
         if isinstance(cur,list) and len(cur)>len(td): td=cur
-    out["toc"]={"ok":x.get("ok"),"kind":x.get("kind"),"n":len(td) if isinstance(td,list) else None,"tries":toc_tries,"err":str(x.get("err",""))[:180]}
+    out['toc']={'ok':x.get('ok'),'kind':x.get('kind'),'n':len(td) if isinstance(td,list) else None,'tries':toc_tries,'err':str(x.get('err',''))[:180]}
     cands=usable_chapters(td)
-    if not cands: out["class"]="TOC_FAIL"; return out
+    if not cands: out['class']='TOC_FAIL'; return out
     chfn=script(i,'chap')
     if not chfn: out['class']='NO_CHAP'; return out
     tries=[]
@@ -208,9 +223,24 @@ def audit(i):
         u=abslink(ch,r.get('source'))
         cx=invoke(i,chfn,u); good,info=validate_content(i,typ,cx)
         tries.append({'name':ch.get('name') or ch.get('title'),'url':u,'ok':cx.get('ok'),'kind':cx.get('kind'),'info':info,'err':str(cx.get('err',''))[:160]})
-        if good:
-            out['chap']=tries; out['class']='PASS_E2E'; return out
+        if good: out['chap']=tries; out['class']='PASS_E2E'; return out
     out['chap']=tries; out['class']='CHAP_FAIL'; return out
+
+def audit(i):
+    r=META[i]; typ=effective_type(i)
+    out={'i':i,'name':r.get('name'),'type':typ,'source':r.get('source')}
+    items,tr=discover(i); out['discover']=tr
+    if not items: out['class']='NO_ITEM'; return out
+    attempts=[]; best=None
+    rank={'NO_DETAIL':0,'DETAIL_FAIL':1,'NO_TOC':2,'TOC_FAIL':3,'NO_CHAP':4,'CHAP_FAIL':5,'PASS_E2E':6}
+    for item in items:
+        cur=audit_candidate(i,r,typ,item)
+        attempts.append({'name':(item.get('name') or item.get('title')) if isinstance(item,dict) else None,'url':abslink(item,r.get('source')),'class':cur.get('class')})
+        if best is None or rank.get(cur.get('class'),-1)>rank.get(best.get('class'),-1): best=cur
+        if cur.get('class')=='PASS_E2E': break
+    out.update(best or {'class':'NO_ITEM'})
+    out['candidate_attempts']=attempts
+    return out
 
 def reset_engine():
     adb=os.environ.get('ADB','adb')
