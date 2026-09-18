@@ -1,1 +1,1 @@
-function execute(url){let r=fetch(url); if(!r.ok)return Response.error('HTTP '+r.status); let d=r.html(); let e=d.select(".chapter-content").last(); let h=e?e.html():''; if(!h)return Response.error('NO_CONTENT'); return Response.success(h);}
+function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var d=r.html(),e=d.select('.chapter-content').last();if(!e)e=d.select('#chapter-content').first();var h=e?String(e.html()||''):'';return h?Response.success(h):Response.error('NO_CONTENT');}

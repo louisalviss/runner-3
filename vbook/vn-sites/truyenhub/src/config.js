@@ -1,1 +1,1 @@
-var BASE_URL="https://truyenhub.net";
+var BASE_URL='https://truyenhub.net';
