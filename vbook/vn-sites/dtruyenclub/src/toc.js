@@ -1,0 +1,1 @@
+function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var d=r.html(),es=d.select('#list-chapter a[href]'),out=[],seen={};for(var i=0;i<es.size();i++){var e=es.get(i),h=e.attr('href');if(!h||seen[h])continue;seen[h]=1;out.push({name:e.attr('title')||e.text()||('Chương '+(out.length+1)),url:h,lock:false,pay:false});}return Response.success(out);}

@@ -1,0 +1,1 @@
+function execute(){return Response.success([{title:'Mới cập nhật',input:'https://sstruyen.net/truyen',script:'gen.js'},{title:'Hoàn thành',input:'https://sstruyen.net/truyen-hoan-thanh',script:'gen.js'}]);}

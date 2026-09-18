@@ -1,0 +1,1 @@
+function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var d=r.html();var h=d.select('h1').first();var name=h?h.text():url;var md=d.select("meta[name='description']").first();var desc=md?md.attr('content'):'';return Response.success({name:name,author:'',cover:'',description:desc,detail:desc,url:url,type:'novel',format:'novel',ongoing:true});}
