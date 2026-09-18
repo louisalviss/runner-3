@@ -1,0 +1,1 @@
+function execute(url){let r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);let d=r.html();let e=d.select(".reader-content").last();let h=e?e.html():'';if(!h)return Response.error('NO_CONTENT');return Response.success(h);}

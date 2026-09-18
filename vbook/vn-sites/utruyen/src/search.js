@@ -1,0 +1,3 @@
+load('config.js');
+function abs(h){if(!h)return '';if(h.indexOf('http')===0)return h;return BASE_URL+(h.charAt(0)=='/'?h:'/'+h);}
+function execute(key,page){if(page&&String(page)!=='1')return Response.success([],null);let r=fetch("https://utruyen.com/?q="+encodeURIComponent(key||''));if(!r.ok)return Response.error('HTTP '+r.status);let d=r.html(),out=[],seen={};d.select("a[href*='/truyen/']").forEach(e=>{let h=abs(e.attr('href'));if(!/https?://utruyen\.com/truyen/[^/?#]+/?/.test(h)||seen[h])return;seen[h]=1;let img=e.select('img').first();let n=(e.attr('title')||e.text()||(img?img.attr('alt'):'')||'').trim();if(n)out.push({name:n,link:h,cover:img?(img.attr('data-src')||img.attr('src')||''):'',host:BASE_URL});});return Response.success(out,null);}
