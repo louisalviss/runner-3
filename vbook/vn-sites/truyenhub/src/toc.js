@@ -1,3 +1,3 @@
 load('config.js');
-function abs(h){if(!h)return ''; if(h.indexOf('http')===0)return h; return BASE_URL+(h.charAt(0)=='/'?h:'/'+h);}
-function execute(url){let r=fetch(url); if(!r.ok)return Response.error('HTTP '+r.status); let d=r.html(); let out=[],seen={}; d.select("a[href*='/chuong-']").forEach(e=>{let h=abs(e.attr('href')); if(!h||seen[h])return; seen[h]=1; let n=(e.text()||e.attr('title')||'Chương').trim(); out.push({name:n,url:h,host:BASE_URL,lock:false,pay:false});}); return Response.success(out);}
+function abs(h){if(!h)return '';h=String(h);if(h.indexOf('http://')===0||h.indexOf('https://')===0)return h;return BASE_URL+(h.charAt(0)=='/'?h:'/'+h);}
+function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var d=r.html(),es=d.select("a[href*='/chuong-']"),out=[],seen={};for(var i=0;i<es.size();i++){var e=es.get(i),h=abs(e.attr('href')||'');if(!h||seen[h])continue;seen[h]=1;var n=String(e.text()||e.attr('title')||('Chương '+(out.length+1))).trim();out.push({name:n,url:h,host:BASE_URL,lock:false,pay:false});}return out.length?Response.success(out):Response.error('NO_TOC');}
