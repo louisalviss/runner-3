@@ -11,6 +11,9 @@ python3 tools/vbook-audit/vbook_root_server.py >/tmp/vbook_root_server.log 2>&1 
 ROOT_PID=$!
 trap "kill $ROOT_PID 2>/dev/null || true" EXIT
 adb install -r vbook.apk
+adb root || true
+adb wait-for-device
+sleep 2
 adb shell am force-stop com.vbook.app || true
 adb shell am startservice -n com.vbook.app/.test.ExtensionTestService
 adb forward tcp:28080 tcp:8080
