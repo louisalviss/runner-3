@@ -1,4 +1,5 @@
 load('config.js');
 function abs(h){if(!h)return '';if(h.indexOf('http')===0)return h;return BASE_URL+(h.charAt(0)=='/'?h:'/'+h);}
+function isBook(h){let p=BASE_URL+'/truyen/';if(h.indexOf(p)!==0)return false;let t=h.substring(p.length);if(t.charAt(t.length-1)=='/')t=t.substring(0,t.length-1);return !!t&&t.indexOf('/')<0&&t.indexOf('?')<0&&t.indexOf('#')<0;}
 function parse(doc){let out=[],seen={};doc.select("a[href*='/truyen/']").forEach(e=>{let h=abs(e.attr('href'));if(!/https?://linktruyen\.com/truyen/[^/?#]+/?/.test(h))return;if(seen[h])return;seen[h]=1;let img=e.select('img').first();let n=(e.attr('title')||e.text()||(img?img.attr('alt'):'')||'').trim();if(!n&&img)n=(img.attr('alt')||'').trim();if(!n)return;let cv=img?(img.attr('data-src')||img.attr('src')||''):'';out.push({name:n,link:h,cover:cv,host:BASE_URL});});return out;}
 function execute(url,page){if(page&&String(page)!=='1')return Response.success([],null);let r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);return Response.success(parse(r.html()),null);}
