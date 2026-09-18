@@ -1,4 +1,4 @@
-import importlib.util,json,sys,time,os,re,subprocess,html
+import importlib.util,json,sys,time,os,re,subprocess,html,requests
 from urllib.parse import urljoin
 sp=importlib.util.spec_from_file_location('b',os.environ.get('VBOOK_BATCH','/tmp/vbook_batch_plain.py'))
 b=importlib.util.module_from_spec(sp); sp.loader.exec_module(b)
@@ -84,6 +84,43 @@ def usable_chapters(td):
             if isinstance(z,dict) and z.get('type')!='section' and linkof(z): out.append((z,linkof(z)))
     return out[:5]
 
+def _media_value(x):
+    if isinstance(x,str): return x,{}
+    if isinstance(x,dict):
+        return x.get('data') or x.get('url') or x.get('link') or '', x.get('headers') or {}
+    return '',{}
+
+def probe_media(url,headers=None,kind='binary',resolver_type=''):
+    if not isinstance(url,str) or not url.startswith(('http://','https://')):
+        return False,{'reason':'no_http_url','url':str(url)[:160]}
+    h=dict(headers or {})
+    h.setdefault('User-Agent','Mozilla/5.0 (Linux; Android 7.1.1) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36')
+    if kind!='manifest': h.setdefault('Range','bytes=0-8191')
+    try:
+        r=requests.get(url,headers=h,timeout=(5,10),allow_redirects=True,stream=True)
+        status=r.status_code; ct=(r.headers.get('content-type') or '').lower()
+        raw=r.raw.read(8192,decode_content=True) if 200 <= status < 400 else b''
+        info={'status':status,'ct':ct,'bytes':len(raw),'final':str(r.url)[:180]}
+        if not (200 <= status < 400): return False,info
+        rt=(resolver_type or '').lower()
+        if rt in ('webview','auto'):
+            return len(raw)>100,info
+        low=url.lower()
+        if kind=='manifest' or '.m3u8' in low or 'mpegurl' in ct:
+            ok=raw.lstrip().startswith(b'#EXTM3U')
+            info['m3u8']=ok
+            return ok,info
+        if kind=='image':
+            return ct.startswith('image/') or len(raw)>=512,info
+        if kind=='audio':
+            return ct.startswith('audio/') or len(raw)>=512,info
+        if kind=='video':
+            return ct.startswith('video/') or len(raw)>=512,info
+        return len(raw)>=256,info
+    except Exception as e:
+        return False,{'reason':'exception','err':repr(e)[:220]}
+
+
 def validate_content(i,typ,chap_x):
     d=data(chap_x)
     if typ in ('novel','chinese_novel'):
@@ -94,16 +131,40 @@ def validate_content(i,typ,chap_x):
         seed=first.get('data') or first.get('url') or first.get('link') or ''
         if track and seed:
             tx=invoke(i,track,seed); td=data(tx)
-            good=tx.get('ok') and isinstance(td,dict) and bool(td.get('data'))
-            return good, {'servers':len(d),'track_ok':tx.get('ok'),'track_type':td.get('type') if isinstance(td,dict) else None,'stream':str(td.get('data',''))[:120] if isinstance(td,dict) else ''}
-        return bool(seed), {'servers':len(d),'track':False,'seed':str(seed)[:120]}
+            if not (tx.get('ok') and isinstance(td,dict) and td.get('data')):
+                return False, {'servers':len(d),'track_ok':tx.get('ok'),'track_type':td.get('type') if isinstance(td,dict) else None}
+            stream=str(td.get('data')); rtype=str(td.get('type') or '')
+            kind='manifest' if '.m3u8' in stream.lower() or 'mpegurl' in str(td.get('mimeType') or '').lower() else 'video'
+            pok,pinfo=probe_media(stream,td.get('headers') or {},kind=kind,resolver_type=rtype)
+            return pok, {'servers':len(d),'track_ok':True,'track_type':rtype,'stream':stream[:180],'probe':pinfo}
+        if seed:
+            pok,pinfo=probe_media(seed,first.get('headers') or {},kind='video')
+            return pok, {'servers':len(d),'track':False,'seed':str(seed)[:180],'probe':pinfo}
+        return False, {'servers':len(d),'track':False,'seed':''}
     if typ=='comic':
-        if isinstance(d,list): return chap_x.get('ok') and len(d)>0, {'images':len(d)}
-        return chap_x.get('ok') and textlen(d)>20, {'len':textlen(d)}
+        if not chap_x.get('ok') or not isinstance(d,list) or not d:return False,{'images':len(d) if isinstance(d,list) else 0}
+        probes=[]
+        for im in d[:3]:
+            u,h=_media_value(im)
+            ok,info=probe_media(u,h,kind='image'); probes.append({'url':str(u)[:160],'ok':ok,'probe':info})
+            if ok:return True,{'images':len(d),'probes':probes}
+        return False,{'images':len(d),'probes':probes}
     if typ=='audio':
-        if isinstance(d,list): return chap_x.get('ok') and len(d)>0, {'tracks':len(d)}
-        if isinstance(d,dict): return chap_x.get('ok') and bool(d), {'keys':list(d)[:8]}
-        return chap_x.get('ok') and bool(d), {'shape':type(d).__name__}
+        if not chap_x.get('ok'): return False,{'shape':type(d).__name__}
+        tracks=d if isinstance(d,list) else ([d] if isinstance(d,dict) else [])
+        probes=[]
+        for tr in tracks[:3]:
+            u,h=_media_value(tr)
+            if not u: continue
+            trackfn=script(i,'track')
+            if trackfn:
+                tx=invoke(i,trackfn,u); td=data(tx)
+                if tx.get('ok') and isinstance(td,dict) and td.get('data'):
+                    u=str(td.get('data')); h=td.get('headers') or h
+            kind='manifest' if '.m3u8' in str(u).lower() else 'audio'
+            ok,info=probe_media(str(u),h,kind=kind); probes.append({'url':str(u)[:160],'ok':ok,'probe':info})
+            if ok:return True,{'tracks':len(tracks),'probes':probes}
+        return False,{'tracks':len(tracks),'probes':probes}
     return chap_x.get('ok') and bool(d), {'shape':type(d).__name__}
 
 def audit(i):
