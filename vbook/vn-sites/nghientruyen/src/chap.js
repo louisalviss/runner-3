@@ -1,0 +1,1 @@
+function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var e=r.html().select('#reader-body').first();if(!e)return Response.error('CONTENT_NOT_FOUND');return Response.success(e.html());}

@@ -1,0 +1,3 @@
+load('config.js');
+function meta(doc,k){var e=doc.select("meta["+k+"]").first();return e?e.attr('content'):'';}
+function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var d=r.html();var h=d.select('h1.story-title').first();if(!h)h=d.select('h1').first();var name=h?h.text():url;var cv=d.select("img[itemprop='image']").first();var cover=cv?cv.attr('src'):meta(d,"property='og:image'");var ds=d.select('.desc-text').first();var desc=ds?ds.text():meta(d,"name='description'");return Response.success({name:name,author:'',cover:cover,description:desc,detail:desc,url:url,type:'novel',format:'novel',ongoing:true});}

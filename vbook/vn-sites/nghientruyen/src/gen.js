@@ -1,0 +1,4 @@
+load('config.js');
+function isBook(h){var p=BASE_URL+'/doc-truyen/';if(h.indexOf(p)!==0)return false;var t=h.substring(p.length);if(t.charAt(t.length-1)=='/')t=t.substring(0,t.length-1);return t&&t.indexOf('/')<0&&t.indexOf('?')<0&&t.indexOf('#')<0;}
+function parse(doc){var es=doc.select("a[href*='/doc-truyen/']"),out=[],seen={};for(var i=0;i<es.size();i++){var e=es.get(i),h=e.attr('href');if(h.indexOf('http')!==0)h=BASE_URL+(h.charAt(0)=='/'?h:'/'+h);if(!isBook(h)||seen[h])continue;seen[h]=1;var n=e.text();if(!n)continue;out.push({name:n,link:h,cover:'',host:BASE_URL});}return out;}
+function execute(url,page){page=page||'1';if(String(page)!=='1')return Response.success([],null);var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);return Response.success(parse(r.html()),null);}

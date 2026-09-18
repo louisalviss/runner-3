@@ -1,0 +1,1 @@
+function execute(){return Response.success([{title:"Mới cập nhật",input:"https://truyenmoiss.org/danh-sach/truyen-moi",script:'gen.js'},{title:"Truyện hot",input:"https://truyenmoiss.org/danh-sach/truyen-hot",script:'gen.js'},{title:"Truyện full",input:"https://truyenmoiss.org/danh-sach/truyen-full",script:'gen.js'}]);}
