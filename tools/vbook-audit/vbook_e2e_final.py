@@ -1,6 +1,6 @@
 import importlib.util,json,sys,time,os,re,subprocess,html
 from urllib.parse import urljoin
-sp=importlib.util.spec_from_file_location('b','/tmp/vbook_batch_plain.py')
+sp=importlib.util.spec_from_file_location('b',os.environ.get('VBOOK_BATCH','/tmp/vbook_batch_plain.py'))
 b=importlib.util.module_from_spec(sp); sp.loader.exec_module(b)
 META=b.META
 
@@ -36,6 +36,13 @@ def linkof(x):
     if not isinstance(x,dict): return ''
     return x.get('link') or x.get('url') or ''
 def looks_item(x): return bool(isinstance(x,dict) and linkof(x) and (x.get('name') or x.get('title')))
+def abslink(x,fallback):
+    u=linkof(x)
+    if not u:return ''
+    if re.match(r'^https?://',u,re.I):return u
+    base=(x.get('host') if isinstance(x,dict) else '') or fallback or ''
+    if base and not base.endswith('/'): base += '/'
+    return urljoin(base,u)
 def textlen(v):
     if isinstance(v,str):
         t=re.sub(r'<[^>]+>',' ',html.unescape(v)); return len(re.sub(r'\s+',' ',t).strip())
@@ -103,7 +110,7 @@ def audit(i):
     r=META[i]; typ=r.get('type'); out={'i':i,'name':r.get('name'),'type':typ,'source':r.get('source')}
     item,tr=discover(i); out['discover']=tr
     if not item: out['class']='NO_ITEM'; return out
-    url=linkof(item); out['sample_item']={'name':item.get('name') or item.get('title'),'url':url}
+    url=abslink(item,r.get('source')); out['sample_item']={'name':item.get('name') or item.get('title'),'url':url,'raw_link':linkof(item),'host':item.get('host') if isinstance(item,dict) else None}
     det=script(i,'detail')
     if not det: out['class']='NO_DETAIL'; return out
     x=invoke(i,det,url); dd=data(x); out['detail']={'ok':x.get('ok'),'kind':x.get('kind'),'shape':type(dd).__name__,'err':str(x.get('err',''))[:180]}
@@ -117,7 +124,7 @@ def audit(i):
     if not chfn: out['class']='NO_CHAP'; return out
     tries=[]
     for ch,u in cands:
-        u=abslink(ch,r.get(source))
+        u=abslink(ch,r.get('source'))
         cx=invoke(i,chfn,u); good,info=validate_content(i,typ,cx)
         tries.append({'name':ch.get('name') or ch.get('title'),'url':u,'ok':cx.get('ok'),'kind':cx.get('kind'),'info':info,'err':str(cx.get('err',''))[:160]})
         if good:
@@ -125,7 +132,7 @@ def audit(i):
     out['chap']=tries; out['class']='CHAP_FAIL'; return out
 
 def reset_engine():
-    adb='/opt/android-sdk-local/platform-tools/adb'
+    adb=os.environ.get('ADB','adb')
     subprocess.run([adb,'-s','emulator-5554','shell','am','force-stop','com.vbook.app'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
     time.sleep(1)
     subprocess.run([adb,'-s','emulator-5554','shell','am','startservice','-n','com.vbook.app/.test.ExtensionTestService'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
