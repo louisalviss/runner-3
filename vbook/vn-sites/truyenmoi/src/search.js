@@ -1,3 +1,3 @@
-var BASE_URL='https://truyenmoiss.org';
+var BASE_URL='https://truyenmoiss.org';var H={'User-Agent':'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36','Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Referer':'https://truyenmoiss.org/'};
 function parseList(doc){var out=[],seen={};var es=doc.select('h3.truyen-title a');for(var i=0;i<es.size();i++){var e=es.get(i),h=e.attr('href'),n=e.text();if(!h||!n||seen[h])continue;seen[h]=1;out.push({name:n,link:h,cover:'',host:BASE_URL});}return out;}
-function execute(query,page){page=page||'1';if(String(page)!=='1')return Response.success([],null);var r=fetch(BASE_URL+'/tim-kiem',{queries:{tukhoa:query||''}});if(!r.ok)return Response.error('HTTP '+r.status);return Response.success(parseList(r.html()),null);}
+function execute(query,page){page=page||'1';if(String(page)!=='1')return Response.success([],null);var r=fetch(BASE_URL+'/tim-kiem',{queries:{tukhoa:query||''},headers:H});if(!r.ok)return Response.error('HTTP '+r.status);return Response.success(parseList(r.html()),null);}

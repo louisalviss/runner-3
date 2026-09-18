@@ -1,1 +1,2 @@
-function execute(url){var r=fetch(url);if(!r.ok)return Response.error('HTTP '+r.status);var e=r.html().select('article.chapter-content').first();if(!e)return Response.error('CONTENT_NOT_FOUND');return Response.success(e.html());}
+var H={'User-Agent':'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36','Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Referer':'https://truyenmoiss.org/'};
+function execute(url){var r=fetch(url,{headers:H});if(!r.ok)return Response.error('HTTP '+r.status);var e=r.html().select('article.chapter-content').first();if(!e)return Response.error('CONTENT_NOT_FOUND');return Response.success(e.html());}
