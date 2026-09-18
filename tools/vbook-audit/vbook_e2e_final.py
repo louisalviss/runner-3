@@ -13,7 +13,7 @@ def script(i,k):
     return fn if fn and b.main_script(i,fn) else None
 def sig(i,fn): return b.sig(b.main_script(i,fn)) if fn else None
 
-def invoke(i,fn,seed='',timeout=15):
+def invoke(i,fn,seed='',timeout=10):
     sg=sig(i,fn)
     if sg is None:return {'ok':False,'kind':'nosig'}
     vals=[]
