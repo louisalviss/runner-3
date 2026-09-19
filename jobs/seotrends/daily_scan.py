@@ -30,7 +30,7 @@ def fetch_site(domain):
     for scheme in ('https://','http://'):
         url=scheme+domain
         try:
-            cp=subprocess.run(['curl','-L','-sS','--compressed','--connect-timeout','2','--max-time',str(a.timeout),'-A',UA,'-o','-','-w','\n__META__%{http_code}\t%{url_effective}',url],capture_output=True,timeout=a.timeout+2)
+            cp=subprocess.run(['curl','-L','-sS','--compressed','--connect-timeout','2','--max-time',str(a.timeout),'--max-filesize','256000','--range','0-255999','-A',UA,'-o','-','-w','\n__META__%{http_code}\t%{url_effective}',url],capture_output=True,timeout=a.timeout+2)
             raw=cp.stdout.decode('utf-8','ignore')
             marker='\n__META__'; pos=raw.rfind(marker)
             meta=raw[pos+len(marker):].strip() if pos>=0 else ''
