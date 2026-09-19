@@ -1,1 +1,2 @@
-function execute(url){let r=fetch(url); if(!r.ok)return Response.error('HTTP '+r.status); let d=r.html(); let e=d.select(".static-reader-content").last(); let h=e?e.html():''; if(!h)return Response.error('NO_CONTENT'); return Response.success(h);}
+load('config.js');
+function execute(url){let r=fetch(url,{headers:HTTP_HEADERS}); if(!r.ok)return Response.error('HTTP '+r.status); let d=r.html(); let e=d.select(".static-reader-content").last(); let h=e?e.html():''; if(!h)return Response.error('NO_CONTENT'); return Response.success(h);}
