@@ -242,6 +242,8 @@ def audit_candidate(i,r,typ,item):
 def audit(i):
     r=META[i]; typ=effective_type(i)
     out={'i':i,'name':r.get('name'),'type':typ,'source':r.get('source')}
+    if typ in ('tts','translate'):
+        out['class']='SKIP_UTILITY'; return out
     items,tr=discover(i); out['discover']=tr
     if not items: out['class']='NO_ITEM'; return out
     attempts=[]; best=None

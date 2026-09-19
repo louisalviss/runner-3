@@ -38,13 +38,13 @@ Before runtime testing:
 1. ZIP downloads successfully and opens.
 2. `plugin.json` exists and parses.
 3. Registry version equals manifest version.
-4. Registry source/type is consistent with the manifest when declared.
+4. Registry type is consistent with the manifest. A registry `source` override that differs from the manifest is recorded as WARN and must be backed by runtime E2E; it is not a package hard-fail by itself.
 5. All manifest-referenced scripts exist in the package.
 6. Novel/chinese_novel packages declare search, detail, toc and chap scripts for new/maintained sources.
 7. Canonical registry has no duplicate exact source/name/path entries.
 8. Compatibility aliases remain synchronized with canonical.
 
-A package/registry mismatch is a hard FAIL; do not proceed to promotion.
+Version mismatch, type mismatch, missing package/script, malformed ZIP/manifest, or duplicate canonical identity is a hard FAIL. Legacy `source` override mismatch is WARN unless runtime evidence also fails.
 
 ## 4. VBook engine E2E gate — mandatory
 
@@ -53,7 +53,7 @@ Run the actual VBook JavaScript engine on Android/KVM, not a Node/browser imitat
 For text novels the required chain is:
 `discover/home -> real book -> detail -> toc -> real chapter -> chapter content`
 
-PASS requires meaningful chapter text (>=120 normalized text characters). For comic/video/audio, use the content-specific media probe rather than the text threshold.
+PASS requires meaningful chapter text (>=120 normalized text characters). For comic/video/audio, use the content-specific media probe rather than the text threshold. TTS/translate are utilities, not content sources: mark them `SKIP_UTILITY` in content E2E and exercise their actual voice/language + tts/translate scripts in the utility gate.
 
 Never call a source PASS merely because homepage/list parsing succeeds.
 
@@ -105,6 +105,7 @@ The full regression performs:
 - type-aware VBook engine E2E for every entry;
 - real-title NFC/NFD search identity for novel/chinese_novel entries;
 - accentless search capability reporting;
+- utility-script E2E for TTS/translate entries;
 - merged failure inventory with exact source and stage.
 
 Physical UI testing is intentionally not run concurrently across all entries because the one authorized device is stateful. Physical testing is queued for changed sources and for engine/identity anomalies requiring device discrimination.

@@ -36,6 +36,9 @@ else:
 PY
 VBOOK_BATCH=/tmp/vbook_batch_plain.py python3 tools/vbook-audit/vbook_e2e_final.py "$IDS"
 cp /tmp/vbook-audit/e2e-final.json out/e2e-benchmark.json
+# Utilities are not content sources. Exercise their actual VBook scripts separately.
+UTILITY_STATUS=0
+VBOOK_BATCH=/tmp/vbook_batch_plain.py python3 tools/vbook-audit/vbook_utility_audit.py "$IDS" || UTILITY_STATUS=$?
 # Generic/manual search probe remains useful for explicitly supplied queries.
 python3 /tmp/vbook_batch_plain.py "$IDS" || true
 cp /tmp/vbook-audit/plain-results.json out/search-probe.json 2>/dev/null || true
@@ -51,12 +54,18 @@ python3 - "$START" "$END" "$IDS" <<"PY"
 import json,sys,os
 s,e,ids=int(sys.argv[1]),int(sys.argv[2]),sys.argv[3]
 rows=json.load(open("out/e2e-benchmark.json"))
-out={"wall_seconds":e-s,"ids":ids,"count":len(rows),"classes":{},"search_identity_classes":{}}
+out={"wall_seconds":e-s,"ids":ids,"count":len(rows),"classes":{},"search_identity_classes":{},"utility_classes":{}}
 for r in rows: out["classes"][r["class"]]=out["classes"].get(r["class"],0)+1
 if os.path.exists("out/search-identity.json"):
     for r in json.load(open("out/search-identity.json")):
         c=r.get("class","UNKNOWN"); out["search_identity_classes"][c]=out["search_identity_classes"].get(c,0)+1
+if os.path.exists("out/utility-audit.json"):
+    for r in json.load(open("out/utility-audit.json")):
+        c=r.get("class","UNKNOWN"); out["utility_classes"][c]=out["utility_classes"].get(c,0)+1
 json.dump(out,open("out/benchmark-summary.json","w"),indent=2,ensure_ascii=False)
 print(json.dumps(out,ensure_ascii=False))
 PY
-exit "$SEARCH_IDENTITY_STATUS"
+FINAL_STATUS=0
+if [ "$SEARCH_IDENTITY_STATUS" -ne 0 ]; then FINAL_STATUS="$SEARCH_IDENTITY_STATUS"; fi
+if [ "$UTILITY_STATUS" -ne 0 ]; then FINAL_STATUS="$UTILITY_STATUS"; fi
+exit "$FINAL_STATUS"

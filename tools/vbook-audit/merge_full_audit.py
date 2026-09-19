@@ -13,6 +13,7 @@ def main():
     meta=json.loads(Path(a.meta).read_text(encoding="utf-8"))
     files=sorted(Path(a.input).glob("vbook-e2e-shard-*/out/e2e-benchmark.json"))
     search_files=sorted(Path(a.input).glob("vbook-e2e-shard-*/out/search-identity.json"))
+    utility_files=sorted(Path(a.input).glob("vbook-e2e-shard-*/out/utility-audit.json"))
     if not files:
         raise SystemExit("no shard result files found")
 
@@ -70,10 +71,22 @@ def main():
     search_classes=Counter(r.get('class','UNKNOWN') for r in search_ordered)
     search_fail=[r for r in search_ordered if str(r.get('class','')).startswith('FAIL_') or r.get('class')=='HARNESS_ERROR']
 
+    utility_rows=[]
+    for f in utility_files:
+        part=json.loads(f.read_text(encoding="utf-8"))
+        if isinstance(part,list): utility_rows.extend(part)
+    utility_by={}
+    for r in utility_rows:
+        if isinstance(r,dict) and 'i' in r: utility_by[int(r['i'])]=r
+    utility_ordered=[utility_by[i] for i in sorted(utility_by)]
+    utility_classes=Counter(r.get('class','UNKNOWN') for r in utility_ordered)
+    utility_fail=[r for r in utility_ordered if str(r.get('class','')).startswith('FAIL_') or r.get('class')=='HARNESS_ERROR']
+
     out=Path(a.out); out.mkdir(parents=True,exist_ok=True)
     (out/"vbook-e2e-full.json").write_text(json.dumps(ordered,ensure_ascii=False,indent=2),encoding="utf-8")
     (out/"vbook-e2e-pass.json").write_text(json.dumps(pass_entries,ensure_ascii=False,indent=2),encoding="utf-8")
     (out/"search-identity-full.json").write_text(json.dumps(search_ordered,ensure_ascii=False,indent=2),encoding="utf-8")
+    (out/"utility-full.json").write_text(json.dumps(utility_ordered,ensure_ascii=False,indent=2),encoding="utf-8")
     summary={
         "total":len(ordered),
         "pass_e2e":len(passes),
@@ -82,6 +95,9 @@ def main():
         "search_identity_classes":dict(sorted(search_classes.items())),
         "search_identity_fail":len(search_fail),
         "search_identity_fail_names":[r.get('name') for r in search_fail],
+        "utility_classes":dict(sorted(utility_classes.items())),
+        "utility_fail":len(utility_fail),
+        "utility_fail_names":[r.get('name') for r in utility_fail],
         "coverage":{"expected":len(meta),"received":len(ordered),"missing":0,"duplicates":0},
     }
     (out/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8")
