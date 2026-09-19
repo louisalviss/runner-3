@@ -1,12 +1,35 @@
 #!/usr/bin/env python3
 import argparse, concurrent.futures, csv, html, json, os, re, sqlite3, subprocess
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 
 BASE = Path(os.environ.get('SEOTRENDS_PUBLIC_HOME', '/var/lib/seotrends-public'))
 DATA, CHANGES, SCANS = BASE/'data', BASE/'changes', BASE/'scans'
 SCANS.mkdir(parents=True, exist_ok=True)
 UA='Mozilla/5.0 SeoTrendsPublicScanner/1.3'
+
+class HeadMetaParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.in_title=False
+        self.title_parts=[]
+        self.description=''
+    def handle_starttag(self, tag, attrs):
+        tag=tag.lower()
+        if tag=='title':
+            self.in_title=True
+        elif tag=='meta' and not self.description:
+            d={str(k).lower(): (v or '') for k,v in attrs}
+            if str(d.get('name','')).lower()=='description':
+                self.description=str(d.get('content',''))
+    def handle_endtag(self, tag):
+        if tag.lower()=='title':
+            self.in_title=False
+    def handle_data(self, data):
+        if self.in_title and len(self.title_parts)<16:
+            self.title_parts.append(data)
+
 GOOD={'ai':3,'saas':4,'software':3,'tool':3,'tools':3,'app':2,'api':2,'automation':3,'analytics':3,'seo':3,'generator':2,'editor':2,'converter':2,'calculator':2,'transcription':3,'image':2,'video':2,'data':2,'shop':1,'store':1,'travel':1,'affiliate':2}
 MONEY={'pricing':3,'subscription':3,'subscribe':2,'plans':2,'trial':2,'pro':1,'business':1,'enterprise':2,'buy':1,'checkout':1}
 RISK={'crack':-8,'torrent':-8,'casino':-7,'gambling':-7,'betting':-7,'porn':-9,'xxx':-9,'free spins':-7,'downloader':-3,'youtube downloader':-5,'tiktok downloader':-5,'soundcloud downloader':-5,'mod apk':-8,'hack':-5}
@@ -42,10 +65,12 @@ def fetch_site(domain):
                 out['error']=f'HTTP_{code or "ERR"}'
                 continue
             out['status']=code; out['final_url']=final
-            m=re.search(r'<title[^>]*>(.*?)</title>',body,re.I|re.S)
-            if m: out['title']=html.unescape(re.sub(r'\s+',' ',m.group(1)).strip())[:300]
-            m=(re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',body,re.I|re.S) or re.search(r'<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']',body,re.I|re.S))
-            if m: out['description']=html.unescape(re.sub(r'\s+',' ',m.group(1)).strip())[:500]
+            parser=HeadMetaParser()
+            try: parser.feed(body[:131072])
+            except Exception: pass
+            title=' '.join(parser.title_parts)
+            if title: out['title']=html.unescape(re.sub(r'\s+',' ',title).strip())[:300]
+            if parser.description: out['description']=html.unescape(re.sub(r'\s+',' ',parser.description).strip())[:500]
             out['ok']=True
             break
         except subprocess.TimeoutExpired:
