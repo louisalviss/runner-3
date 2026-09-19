@@ -1,73 +1,99 @@
 {
   "ok": true,
   "idempotent": false,
-  "snapshot_id": "rss-v3-2026-09-20-5c8f0d7b9be9",
+  "snapshot_id": "rss-v3-2026-09-20-d4fda0f85901",
   "model_version": "personal-v4",
-  "item_count": 3,
+  "item_count": 5,
   "schema_version": 3,
   "contract_version": "content-intelligence-v4",
   "policy_version": "canonical-interest-ontology-v7-family-aware",
   "ontology_version": "interest-family-v1",
-  "source_render_id": "rss:2026-09-20:5c8f0d7b9be9d1041c57ee0e39dc0f11cb2c6324d06d744646308977707665a1",
+  "source_render_id": "rss:2026-09-20:d4fda0f859010d71c21941148c5dceba0ca2dfdef301b906662a73eeec98cf54",
   "top_k": 10,
   "baseline_policy": "canonical-manifest-order",
   "personalized_policy": "bounded-personal-relevance-live",
   "baseline": [
     {
-      "item_id": "https://tinhte.vn/thread/dien-thoai-chinh-va-phu-tai-sao-may-cai-app-ngan-hang-lai-la-may-phu.4177852/",
+      "item_id": "https://nghiencuuquocte.org/2026/09/20/chi-co-trung-quoc-an-do-va-nga-moi-co-the-cham-dut-cuoc-chien-iran/",
       "rank": 1,
       "manifest_number": 1
     },
     {
-      "item_id": "https://www.theatlantic.com/technology/2026/09/how-to-navigate-ai-panic/688703/",
+      "item_id": "https://vnhacker.substack.com/p/q",
       "rank": 2,
       "manifest_number": 2
     },
     {
-      "item_id": "https://tinhte.vn/thread/mac-studio-hay-mac-mini-m6-bat-dau-dat-truoc-o-viet-nam-option-doc-qua-nam-moi-giao.4178220/",
+      "item_id": "https://tinhte.vn/thread/dien-thoai-chinh-va-phu-tai-sao-may-cai-app-ngan-hang-lai-la-may-phu.4177852/",
       "rank": 3,
       "manifest_number": 3
+    },
+    {
+      "item_id": "https://www.theatlantic.com/technology/2026/09/how-to-navigate-ai-panic/688703/",
+      "rank": 4,
+      "manifest_number": 4
+    },
+    {
+      "item_id": "https://tinhte.vn/thread/mac-studio-hay-mac-mini-m6-bat-dau-dat-truoc-o-viet-nam-option-doc-qua-nam-moi-giao.4178220/",
+      "rank": 5,
+      "manifest_number": 5
     }
   ],
   "personalized": [
     {
       "item_id": "https://tinhte.vn/thread/mac-studio-hay-mac-mini-m6-bat-dau-dat-truoc-o-viet-nam-option-doc-qua-nam-moi-giao.4178220/",
       "rank": 1,
-      "score": 74.911,
-      "manifest_number": 3
+      "score": 76.0617,
+      "manifest_number": 5
     },
     {
-      "item_id": "https://www.theatlantic.com/technology/2026/09/how-to-navigate-ai-panic/688703/",
+      "item_id": "https://vnhacker.substack.com/p/q",
       "rank": 2,
-      "score": 54.1464,
+      "score": 68.977,
       "manifest_number": 2
     },
     {
-      "item_id": "https://tinhte.vn/thread/dien-thoai-chinh-va-phu-tai-sao-may-cai-app-ngan-hang-lai-la-may-phu.4177852/",
+      "item_id": "https://www.theatlantic.com/technology/2026/09/how-to-navigate-ai-panic/688703/",
       "rank": 3,
-      "score": 40.173,
+      "score": 57.8342,
+      "manifest_number": 4
+    },
+    {
+      "item_id": "https://tinhte.vn/thread/dien-thoai-chinh-va-phu-tai-sao-may-cai-app-ngan-hang-lai-la-may-phu.4177852/",
+      "rank": 4,
+      "score": 47.4092,
+      "manifest_number": 3
+    },
+    {
+      "item_id": "https://nghiencuuquocte.org/2026/09/20/chi-co-trung-quoc-an-do-va-nga-moi-co-the-cham-dut-cuoc-chien-iran/",
+      "rank": 5,
+      "score": 39.3835,
       "manifest_number": 1
     }
   ],
   "score_distribution": {
-    "count": 3,
-    "min": 40.17297170034991,
-    "p50": 54.14636751460583,
-    "p90": 74.91100469242457,
-    "p99": 74.91100469242457,
-    "max": 74.91100469242457,
+    "count": 5,
+    "min": 39.383502767503174,
+    "p50": 57.83417468113933,
+    "p90": 76.0616597847202,
+    "p99": 76.0616597847202,
+    "max": 76.0616597847202,
     "score_99_plus": 0
   },
-  "profile_state": "dirty",
-  "created_at": "2026-09-19T22:14:46.680Z",
+  "profile_state": "clean",
+  "created_at": "2026-09-19T23:35:58.746Z",
   "materialization": {
     "ok": true,
-    "recomputed": false,
-    "status": "dirty_debounced",
     "model_version": "personal-v4",
     "contract_version": "content-intelligence-v4",
     "policy_version": "canonical-interest-ontology-v7-family-aware",
     "ontology_version": "interest-family-v1",
+    "profile_features": 25,
+    "scored_items": 1416,
+    "changed": 1414,
+    "recomputed": true,
+    "lease_committed": true,
+    "status": "clean",
     "guarded": true,
     "debounce_ms": 14400000,
     "force_allowed": false
