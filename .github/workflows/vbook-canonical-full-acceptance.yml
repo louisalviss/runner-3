@@ -1,0 +1,166 @@
+name: VBook Canonical Full Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vbook-canonical-full-acceptance
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      registry_sha: ${{ steps.ref.outputs.registry_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ref
+        name: Resolve immutable registry ref
+        run: |
+          SHA=$(git ls-remote https://github.com/louisalviss/runner-3.git refs/heads/vbook-sources | awk '{print $1}')
+          test -n "$SHA"
+          echo "registry_sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "REGISTRY_SHA=$SHA"
+      - name: Snapshot canonical registry
+        run: |
+          python tools/vbook-audit/vbook_registry_snapshot.py \
+            --ref '${{ steps.ref.outputs.registry_sha }}' \
+            --out registry-meta.json \
+            --registry-out registry.json
+      - name: Package and registry integrity
+        run: |
+          set +e
+          python tools/vbook-audit/vbook_registry_integrity.py --meta registry-meta.json --out registry-integrity.json
+          STATUS=$?
+          echo "$STATUS" > integrity-status.txt
+          # Keep the plan artifact even when integrity has failures; merge/reporting needs the evidence.
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbook-canonical-plan
+          path: |
+            registry-meta.json
+            registry.json
+            registry-integrity.json
+            integrity-status.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  audit:
+    needs: plan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vbook-canonical-plan
+          path: plan
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install host dependencies
+        run: |
+          python -m pip install requests
+          npm install --no-save cheerio@1.0.0
+          python tools/vbook-audit/download_vbook_apk.py vbook.apk
+          sha256sum vbook.apk | tee vbook.apk.sha256
+      - name: Select canonical shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: '6'
+        run: |
+          python - <<'PY'
+          import json,os
+          rows=json.load(open('plan/registry-meta.json',encoding='utf-8'))
+          shard=int(os.environ['SHARD']); shards=int(os.environ['SHARDS'])
+          ids=[str(i) for i in range(len(rows)) if i % shards == shard]
+          print({'shard':shard,'count':len(ids),'ids':ids})
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as f:
+              f.write('VBOOK_IDS='+','.join(ids)+'\n')
+              f.write('VBOOK_META_SOURCE=plan/registry-meta.json\n')
+          PY
+      - name: Enable KVM
+        run: |
+          sudo chmod 666 /dev/kvm || true
+          ls -l /dev/kvm || true
+      - name: Run type-aware E2E and search identity
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 25
+          target: default
+          arch: x86_64
+          profile: Nexus 5
+          ram-size: 2048M
+          heap-size: 384M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: VBOOK_META_SOURCE="$VBOOK_META_SOURCE" VBOOK_IDS="$VBOOK_IDS" bash tools/vbook-audit/run_benchmark.sh
+      - name: Upload shard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbook-e2e-shard-${{ matrix.shard }}
+          path: |
+            out/
+            vbook.apk.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  merge:
+    needs: [plan, audit]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vbook-canonical-plan
+          path: plan
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vbook-e2e-shard-*
+          path: shard-artifacts
+      - name: Merge full canonical evidence
+        run: |
+          set +e
+          python tools/vbook-audit/merge_full_audit.py \
+            --input shard-artifacts \
+            --meta plan/registry-meta.json \
+            --out full-audit
+          MERGE_STATUS=$?
+          cp plan/registry-integrity.json full-audit/registry-integrity.json
+          cp plan/registry.json full-audit/registry.json
+          cp plan/registry-meta.json full-audit/registry-meta.json
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('full-audit/summary.json')
+          if p.exists():
+              s=json.loads(p.read_text())
+          else:s={'merge_error':True}
+          integ=json.loads(pathlib.Path('plan/registry-integrity.json').read_text())
+          s['package_integrity']={k:integ.get(k) for k in ('total','pass_package','fail_package','global_errors','global_warnings')}
+          s['registry_sha']='${{ needs.plan.outputs.registry_sha }}'
+          p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(json.dumps(s,ensure_ascii=False,indent=2))
+          print(json.dumps(s,ensure_ascii=False,indent=2))
+          PY
+          echo "$MERGE_STATUS" > full-audit/merge-status.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbook-canonical-full-${{ github.run_id }}
+          path: full-audit/
+          if-no-files-found: error
+          retention-days: 14

@@ -3,9 +3,10 @@ set -euo pipefail
 IDS="${VBOOK_IDS:-5,7,8,10,11,12,15,16,17,18}"
 mkdir -p out
 START=$(date +%s)
-cp tools/vbook-audit/vbook171_meta.json /tmp/vbook171_meta.json
+META_SOURCE="${VBOOK_META_SOURCE:-tools/vbook-audit/vbook171_meta.json}"
+cp "$META_SOURCE" /tmp/vbook171_meta.json
 cp tools/vbook-audit/vbook_batch_plain.py /tmp/vbook_batch_plain.py
-python3 tools/vbook-audit/vbook_prepare.py
+VBOOK_META_FILE=/tmp/vbook171_meta.json VBOOK_IDS="$IDS" python3 tools/vbook-audit/vbook_prepare.py
 node tools/vbook-audit/decrypt_vbook_plugins.js
 python3 tools/vbook-audit/vbook_root_server.py >/tmp/vbook_root_server.log 2>&1 &
 ROOT_PID=$!

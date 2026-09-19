@@ -150,9 +150,12 @@ def chain_from_result(i,item,source):
 
 def audit_one(row):
     i=int(row['i']); source=META[i].get('source') or row.get('source') or ''
-    out={'i':i,'name':META[i].get('name') or row.get('name'),'source':source}
+    typ=(META[i].get('type') or ((manifest(i).get('metadata') or {}).get('type')) or row.get('type'))
+    out={'i':i,'name':META[i].get('name') or row.get('name'),'source':source,'type':typ}
+    if typ not in ('novel','chinese_novel'):
+        out['class']='SKIP_NON_TEXT_NOVEL'; return out
     if not script_name(i,'search'):
-        out['class']='SKIP_NO_SEARCH'; return out
+        out['class']='FAIL_NO_SEARCH'; return out
     sample=row.get('sample_item') or {}
     target_url=sample.get('url') or sample.get('raw_link') or ''
     if not target_url:
