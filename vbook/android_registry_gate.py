@@ -167,7 +167,7 @@ def classify(source: str, checker: dict[str, Any], registered: bool, repeats: in
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Fail-safe physical Android gate for VBook registry health")
-    ap.add_argument("--registry", default="vbook/louis-vbook-strict-20260918.json")
+    ap.add_argument("--registry", default="vbook/louis-vbook.json")
     ap.add_argument("--source", action="append", dest="sources", help="source name; repeat for multiple")
     ap.add_argument("--repeats", type=int, default=2)
     ap.add_argument("--guard-seconds", type=float, default=1.2)

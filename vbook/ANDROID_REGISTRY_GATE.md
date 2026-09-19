@@ -20,7 +20,7 @@ Run on `runner-vps1` through the privileged SentinelX/root lane because `/run/no
 ```bash
 cd /opt/vps-mailbox/vbook-sources-work
 python3 vbook/android_registry_gate.py \
-  --registry vbook/louis-vbook-strict-20260918.json \
+  --registry vbook/louis-vbook.json \
   --repeats 2
 ```
 
