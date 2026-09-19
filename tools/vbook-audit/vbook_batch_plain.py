@@ -56,14 +56,14 @@ def audit(i):
  # choose up to 4 unlocked chapters
  cands=[]
  for ch in td:
-  if isinstance(ch,dict) and ch.get('link') and not ch.get('lock',False) and not ch.get('pay',False): cands.append(ch)
+  if isinstance(ch,dict) and (ch.get('link') or ch.get('url')) and not ch.get('lock',False) and not ch.get('pay',False): cands.append(ch)
   if len(cands)>=4: break
  if not cands:
-  cands=[ch for ch in td[:4] if isinstance(ch,dict) and ch.get('link')]
+  cands=[ch for ch in td[:4] if isinstance(ch,dict) and (ch.get('link') or ch.get('url'))]
  if not cands: out['class']='TOC_NO_LINK'; return out
  chap_results=[]
  for ch in cands:
-  x=call(i,'chap.js',[ch['link']]); cd=(x.get('inner') or {}).get('data'); L=text_len(cd)
+  x=call(i,'chap.js',[ch.get('link') or ch.get('url')]); cd=(x.get('inner') or {}).get('data'); L=text_len(cd)
   chap_results.append({'ok':x.get('ok'),'kind':x.get('kind'),'sec':x.get('sec'),'len':L,'err':str(x.get('err',''))[:220]})
   if x.get('ok') and L>=120:
    out['stages']['chap']=chap_results; out['class']='PASS_E2E'; out['sample']={'book':item.get('name'),'chapter':ch.get('name'),'content_len':L}; return out
