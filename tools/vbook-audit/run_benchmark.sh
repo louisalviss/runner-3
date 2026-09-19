@@ -35,6 +35,10 @@ else:
 PY
 VBOOK_BATCH=/tmp/vbook_batch_plain.py python3 tools/vbook-audit/vbook_e2e_final.py "$IDS"
 cp /tmp/vbook-audit/e2e-final.json out/e2e-benchmark.json
+# Explicitly probe search.js as a separate acceptance dimension. The main E2E
+# path can PASS through home/gen without ever executing search.js.
+python3 /tmp/vbook_batch_plain.py "$IDS" || true
+cp /tmp/vbook-audit/plain-results.json out/search-probe.json 2>/dev/null || true
 END=$(date +%s)
 python3 - "$START" "$END" "$IDS" <<"PY"
 import json,sys,os
