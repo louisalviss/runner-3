@@ -34,14 +34,15 @@ def audit(i):
  r=META[i]; typ=r.get('type'); out={'i':i,'name':r['name'],'type':typ,'source':r.get('source'),'stages':{}}
  sc=main_script(i,'search.js'); sg=sig(sc)
  if not sg: out['class']='NO_SEARCH_OR_ENCRYPTED'; return out
- qs=['tiên','truyện','a'] if typ=='novel' else ['修仙','仙','的']
+
+ qenv=os.environ.get('VBOOK_SEARCH_QUERIES','').strip()
+ qs=[x for x in qenv.split('||') if x] if qenv else (['tiên','truyện','a'] if typ=='novel' else ['修仙','仙','的'])
  sr=None
  for q in qs:
   inputs=[]
   for a in sg:
    al=a.lower(); inputs.append(q if any(k in al for k in ['key','query','search','name','word']) else ('1' if 'page' in al else ''))
-  x=call(i,'search.js',inputs); out['stages']['search']={'q':q,'ok':x.get('ok'),'kind':x.get('kind'),'sec':x.get('sec'),'err':str(x.get('err',''))[:300]}
-  data=(x.get('inner') or {}).get('data')
+  x=call(i,'search.js',inputs); data=(x.get('inner') or {}).get('data'); out['stages']['search']={'q':q,'ok':x.get('ok'),'kind':x.get('kind'),'sec':x.get('sec'),'err':str(x.get('err',''))[:300],'n':len(data) if isinstance(data,list) else None,'sample':(data[0].get('name') if isinstance(data,list) and data and isinstance(data[0],dict) else None)}
   if x.get('ok') and nonempty_list(data): sr=(x,data[0]); break
  if not sr: out['class']='SEARCH_FAIL_OR_EMPTY'; return out
  item=sr[1]; link=item.get('link') if isinstance(item,dict) else None; host=item.get('host','') if isinstance(item,dict) else ''
