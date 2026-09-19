@@ -37,11 +37,11 @@ def is_defer_result(result: str) -> bool:
     )
 
 
-def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout: int) -> dict[str, Any]:
+def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: int) -> dict[str, Any]:
     cmd = [
         "/usr/local/bin/nokia",
         "vbook-check-sources",
-        *sources,
+        source,
         "--repeats", str(repeats),
         "--guard-seconds", str(guard_seconds),
     ]
@@ -71,6 +71,35 @@ def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout:
     return payload
 
 
+def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout: int) -> dict[str, Any]:
+    """Run one bounded Nokia process per source and merge evidence.
+
+    Long multi-source Nokia processes have been observed to receive external
+    SIGTERM despite healthy device control. Per-source processes isolate that
+    infrastructure failure so it cannot contaminate unrelated source verdicts.
+    """
+    merged: dict[str, Any] = {
+        "ok": True,
+        "summary": {},
+        "runs": [],
+        "attempts_log": [],
+        "per_source": {},
+        "per_source_errors": {},
+    }
+    for source in sources:
+        payload = _run_one_checker(source, repeats, guard_seconds, timeout)
+        merged["per_source"][source] = payload
+        summary = (payload.get("summary") or {}).get(source)
+        if isinstance(summary, dict):
+            merged["summary"][source] = summary
+        merged["runs"].extend(r for r in (payload.get("runs") or []) if r.get("source") == source)
+        merged["attempts_log"].extend(r for r in (payload.get("attempts_log") or []) if r.get("source") == source)
+        if payload.get("fatal") or not isinstance(summary, dict):
+            merged["ok"] = False
+            merged["per_source_errors"][source] = payload.get("fatal") or "NO_CHECKER_SUMMARY"
+    return merged
+
+
 def classify(source: str, checker: dict[str, Any], registered: bool, repeats: int) -> dict[str, Any]:
     summary = (checker.get("summary") or {}).get(source)
     runs = [r for r in checker.get("runs") or [] if r.get("source") == source]
@@ -79,7 +108,7 @@ def classify(source: str, checker: dict[str, Any], registered: bool, repeats: in
             "source": source,
             "registered": registered,
             "verdict": "DEFER",
-            "reason": checker.get("fatal") or "NO_CHECKER_SUMMARY",
+            "reason": (checker.get("per_source_errors") or {}).get(source) or checker.get("fatal") or "NO_CHECKER_SUMMARY",
             "drop_eligible": False,
             "runs": runs,
         }
@@ -188,6 +217,7 @@ def main() -> int:
             "SOURCE_FAIL_NO_CONTENT_CARD": "REVIEW",
             "transport_control_ui_unresolved": "DEFER_NEVER_DROP",
             "minimum_repeats_for_drop": 2,
+            "execution_isolation": "ONE_SOURCE_PER_NOKIA_PROCESS",
         },
         "checker_ok": bool(checker.get("ok")),
         "checker_fatal": checker.get("fatal"),

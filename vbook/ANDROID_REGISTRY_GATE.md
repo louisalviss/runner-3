@@ -41,7 +41,7 @@ python3 vbook/android_registry_gate.py \
   --output-registry /tmp/louis-vbook-strict-gated.json
 ```
 
-The default source set is Vietnamese `novel` entries in the strict registry. The JSON audit records checker output, per-source verdicts, transient anomalies, and `proposed_drop`.
+The default source set is Vietnamese `novel` entries in the strict registry. The gate launches **one bounded Nokia checker process per source** and merges the evidence afterward; it must not run the whole registry in one long Nokia process. This isolates runtime/SIGTERM/transport failures from unrelated source health. The JSON audit records checker output, per-source verdicts, transient anomalies, and `proposed_drop`.
 
 ## Regression test
 

@@ -50,6 +50,34 @@ class GatePolicyTest(unittest.TestCase):
         self.assertEqual(row["verdict"], "REVIEW")
         self.assertFalse(row["drop_eligible"])
 
+    def test_per_source_process_failure_is_isolated(self):
+        original = gate._run_one_checker
+        try:
+            def fake(source, repeats, guard_seconds, timeout):
+                if source == "bad":
+                    return {"ok": False, "fatal": "CHECKER_TIMEOUT"}
+                return {
+                    "ok": True,
+                    "summary": {source: {
+                        "results": {"PASS_READER": repeats},
+                        "transient_anomalies": {},
+                        "stable": repeats >= 2,
+                        "takeover_packages": {},
+                    }},
+                    "runs": [{"source": source, "result": "PASS_READER"}],
+                    "attempts_log": [],
+                }
+            gate._run_one_checker = fake
+            merged = gate.run_checker(["bad", "good"], 2, 1.2, 30)
+            self.assertFalse(merged["ok"])
+            self.assertEqual(merged["per_source_errors"]["bad"], "CHECKER_TIMEOUT")
+            self.assertIn("good", merged["summary"])
+            self.assertNotIn("bad", merged["summary"])
+            self.assertEqual(gate.classify("bad", merged, True, 2)["verdict"], "DEFER")
+            self.assertEqual(gate.classify("good", merged, True, 2)["verdict"], "KEEP")
+        finally:
+            gate._run_one_checker = original
+
 
 if __name__ == "__main__":
     unittest.main()
