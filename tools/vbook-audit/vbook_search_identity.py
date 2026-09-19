@@ -1,4 +1,4 @@
-import importlib.util, json, os, re, sys, unicodedata, html
+import importlib.util, json, os, re, sys, unicodedata, html, time
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 BATCH=os.environ.get('VBOOK_BATCH','/tmp/vbook_batch_plain.py')
@@ -64,6 +64,15 @@ def fold_title(s):
     return re.sub(r'\s+',' ',no_accent(s).lower()).strip()
 
 
+def _call_retry(i,fn,vals,timeout=40,retries=2):
+    last=None
+    for attempt in range(retries+1):
+        x=b.call(i,fn,vals,timeout); last=x
+        if x.get('kind')!='transport': return x
+        if attempt<retries: time.sleep(0.6*(attempt+1))
+    return last or {'ok':False,'kind':'transport','err':'unknown transport'}
+
+
 def invoke_search(i, q):
     fn=script_name(i,'search')
     if not fn: return {'ok':False,'kind':'missing_search'}, []
@@ -77,7 +86,7 @@ def invoke_search(i, q):
             vals.append('1')
         else:
             vals.append('')
-    x=b.call(i,fn,vals,40)
+    x=_call_retry(i,fn,vals,40)
     return x,listdata(x)
 
 
@@ -86,7 +95,7 @@ def invoke_url(i,key,url,timeout=40):
     if not fn:return {'ok':False,'kind':'missing_'+key}
     sg=b.sig(b.main_script(i,fn)) or []
     vals=[url if pos==0 else '' for pos,_ in enumerate(sg)]
-    return b.call(i,fn,vals,timeout)
+    return _call_retry(i,fn,vals,timeout)
 
 
 def text_len(v):
@@ -183,12 +192,16 @@ def audit_one(row):
         if key=='nfc' and m is not None:matched_nfc=m
         if required and (not x.get('ok') or m is None):required_fail.append(key)
     out['search']=results
+    transport_required=[k for k in required_fail if (results.get(k) or {}).get('kind')=='transport']
+    if transport_required:
+        out['class']='DEFER_TRANSPORT_SEARCH_'+('_'.join(k.upper() for k in transport_required));return out
     if required_fail:
         out['class']='FAIL_SEARCH_IDENTITY_'+('_'.join(k.upper() for k in required_fail));return out
     if matched_nfc is None:
         out['class']='FAIL_SEARCH_IDENTITY_NFC';return out
     good,chain=chain_from_result(i,matched_nfc,source);out['chain']=chain
     if not good:
+        if any(isinstance(v,dict) and v.get('kind')=='transport' for v in chain.values()): out['class']='DEFER_TRANSPORT_CHAIN';return out
         out['class']='FAIL_SEARCH_CHAIN';return out
     out['no_accent_supported']=bool((results.get('no_accent') or {}).get('matched')) if 'no_accent' in results else None
     out['class']='PASS_SEARCH_IDENTITY'
@@ -208,7 +221,7 @@ def main():
     dest=os.environ.get('VBOOK_SEARCH_IDENTITY_OUT','out/search-identity.json')
     os.makedirs(os.path.dirname(dest) or '.',exist_ok=True)
     json.dump(out,open(dest,'w',encoding='utf-8'),ensure_ascii=False,indent=2)
-    bad=[r for r in out if str(r.get('class','')).startswith('FAIL_') or r.get('class')=='HARNESS_ERROR']
+    bad=[r for r in out if str(r.get('class','')).startswith(('FAIL_','DEFER_')) or r.get('class')=='HARNESS_ERROR']
     return 2 if bad else 0
 
 if __name__=='__main__':
