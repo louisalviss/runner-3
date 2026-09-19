@@ -45,6 +45,20 @@ python3 vbook/android_registry_gate.py \
 
 The default source set is Vietnamese `novel` entries in the strict registry. The gate launches **one bounded Nokia checker process per source** and merges the evidence afterward; it must not run the whole registry in one long Nokia process. This isolates runtime/SIGTERM/transport failures from unrelated source health. The JSON audit records checker output, per-source verdicts, transient anomalies, and `proposed_drop`.
 
+## Pre-production candidate registry
+
+Changed/new sources must be physically validated before production promotion. Publish a non-canonical candidate registry file, then pass its exact raw URL explicitly:
+
+```bash
+python3 vbook/android_registry_gate.py \
+  --registry vbook/candidates/louis-vbook-candidate.json \
+  --registry-url "https://raw.githubusercontent.com/louisalviss/runner-3/vbook-sources/vbook/candidates/louis-vbook-candidate.json" \
+  --source "Nghiện Truyện" \
+  --repeats 1
+```
+
+The device checker uses `--registry-url` for source-manager self-heal/install. The production canonical URL remains the default when the option is omitted. A candidate registry must never replace `vbook/louis-vbook.json` merely to make pre-production physical testing possible.
+
 ## Regression test
 
 ```bash

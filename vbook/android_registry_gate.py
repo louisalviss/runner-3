@@ -38,7 +38,7 @@ def is_defer_result(result: str) -> bool:
     )
 
 
-def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: int) -> dict[str, Any]:
+def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: int, registry_url: str | None = None) -> dict[str, Any]:
     cmd = [
         "/usr/local/bin/nokia",
         "vbook-check-sources",
@@ -46,6 +46,8 @@ def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: i
         "--repeats", str(repeats),
         "--guard-seconds", str(guard_seconds),
     ]
+    if registry_url:
+        cmd.extend(["--registry-url", registry_url])
     try:
         proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
@@ -72,7 +74,7 @@ def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: i
     return payload
 
 
-def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout: int) -> dict[str, Any]:
+def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout: int, registry_url: str | None = None) -> dict[str, Any]:
     """Run one bounded Nokia process per source and merge evidence.
 
     Long multi-source Nokia processes have been observed to receive external
@@ -88,7 +90,7 @@ def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout:
         "per_source_errors": {},
     }
     for source in sources:
-        payload = _run_one_checker(source, repeats, guard_seconds, timeout)
+        payload = _run_one_checker(source, repeats, guard_seconds, timeout, registry_url) if registry_url else _run_one_checker(source, repeats, guard_seconds, timeout)
         merged["per_source"][source] = payload
         summary = (payload.get("summary") or {}).get(source)
         if isinstance(summary, dict):
@@ -168,6 +170,7 @@ def classify(source: str, checker: dict[str, Any], registered: bool, repeats: in
 def main() -> int:
     ap = argparse.ArgumentParser(description="Fail-safe physical Android gate for VBook registry health")
     ap.add_argument("--registry", default="vbook/louis-vbook.json")
+    ap.add_argument("--registry-url", default="https://raw.githubusercontent.com/louisalviss/runner-3/vbook-sources/vbook/louis-vbook.json", help="registry URL used by the physical VBook precondition/install path")
     ap.add_argument("--source", action="append", dest="sources", help="source name; repeat for multiple")
     ap.add_argument("--repeats", type=int, default=2)
     ap.add_argument("--guard-seconds", type=float, default=1.2)
@@ -195,7 +198,7 @@ def main() -> int:
     if not sources:
         raise SystemExit("no sources selected")
 
-    checker = run_checker(sources, repeats, args.guard_seconds, args.timeout)
+    checker = run_checker(sources, repeats, args.guard_seconds, args.timeout, args.registry_url)
     rows = [classify(name, checker, name in by_name, repeats) for name in sources]
     proposed_drop = [r["source"] for r in rows if r["drop_eligible"]]
     counts: dict[str, int] = {}
@@ -207,6 +210,7 @@ def main() -> int:
         "schema": "vbook-android-registry-gate-v1",
         "created_at": now,
         "registry": str(registry_path),
+        "registry_url": args.registry_url,
         "registry_entries": len(entries),
         "selected_sources": sources,
         "repeats": repeats,
