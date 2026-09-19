@@ -40,6 +40,8 @@ class GatePolicyTest(unittest.TestCase):
             "SOURCE_NOT_FOUND",
             "UNRESOLVED_SOURCE_SELECTOR",
             "SOURCE_PATH_PARTIAL_TOC_UNRESOLVED",
+            "DEVICE_PRECONDITION_SOURCE_NOT_IN_STRICT_REGISTRY",
+            "DEVICE_PRECONDITION_SOURCE_INSTALL_VERIFY_FAILED",
         ):
             row = self.classify({result: 2})
             self.assertEqual(row["verdict"], "DEFER")

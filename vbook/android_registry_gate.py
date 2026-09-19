@@ -34,6 +34,7 @@ def is_defer_result(result: str) -> bool:
         result in TRANSIENT_EXACT
         or result.startswith("UNRESOLVED_")
         or result.startswith("SOURCE_PATH_PARTIAL_")
+        or result.startswith("DEVICE_PRECONDITION_")
     )
 
 
