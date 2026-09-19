@@ -1,0 +1,9 @@
+var BASE_URL='https://truyenstory.com';
+function normQuery(s){s=String(s||'');try{if(s.normalize)s=s.normalize('NFC');}catch(e){}return s.replace(/^\s+|\s+$/g,'');}
+function ent(s){s=String(s||'');return s.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#0*39;|&apos;/gi,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#(\d+);/g,function(_,n){return String.fromCharCode(parseInt(n,10)||32);}).replace(/&#x([0-9a-f]+);/gi,function(_,n){return String.fromCharCode(parseInt(n,16)||32);});}
+function clean(s){return ent(String(s||'').replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ')).replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');}
+function av(s,n){var r=new RegExp(n+'\\s*=\\s*["\\\']([^"\\\']*)["\\\']','i'),m=r.exec(s||'');return m?ent(m[1]):'';}
+function abs(h){h=ent(h);if(/^https?:\/\//i.test(h))return h;return BASE_URL+(h.charAt(0)=='/'?h:'/'+h);}
+function book(h){var p=BASE_URL+'/truyen/';if(h.indexOf(p)!==0)return false;var t=h.substring(p.length);if(t.charAt(t.length-1)=='/')t=t.substring(0,t.length-1);return !!t&&t.indexOf('/')<0&&t.indexOf('?')<0&&t.indexOf('#')<0;}
+function parseHtml(h){var out=[],seen={},re=/<a\b([^>]*)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi,m;while((m=re.exec(h||''))){var u=abs(m[2]);if(!book(u)||seen[u])continue;var attrs=(m[1]||'')+' '+(m[3]||''),inside=m[4]||'';var im=/<img\b([^>]*)>/i.exec(inside),ia=im?im[1]:'';var name=av(attrs,'title')||av(ia,'alt')||clean(inside);if(!name)continue;var cover=av(ia,'data-src')||av(ia,'src');seen[u]=1;out.push({name:name,link:u,cover:cover,host:BASE_URL});}return out;}
+function execute(query,page){if(page&&String(page)!=='1')return Response.success([],null);var q=normQuery(query);if(!q)return Response.success([],null);var r=fetch('https://truyenstory.com/search',{queries:{q:q}});if(!r.ok)return Response.error('HTTP '+r.status);return Response.success(parseHtml(r.text()),null);}
