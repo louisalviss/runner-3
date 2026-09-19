@@ -9,9 +9,19 @@ def main_script(i,fn):
 def sig(script):
  m=re.search(r'function\s+execute\s*\(([^)]*)\)',script or '')
  return [x.strip() for x in m.group(1).split(',') if x.strip()] if m else None
+def expand_loads(i,sc,seen=None):
+ if seen is None: seen=set()
+ def repl(m):
+  fn=m.group(1)
+  if fn in seen:return ''
+  seen.add(fn)
+  dep=main_script(i,fn)
+  return expand_loads(i,dep,seen) if dep is not None else ''
+ return re.sub(r"load\(\s*['\"]([^'\"]+)['\"]\s*\)\s*;?",repl,sc or '')
 def call(i,fn,inputs,timeout=40):
  sc=main_script(i,fn)
  if sc is None:return {'ok':False,'kind':'missing_script'}
+ sc=expand_loads(i,sc)
  payload={'language':'javascript','script':sc,'ip':IP,'root':str(i),'input':[str(x) for x in inputs]}
  hdr={'data':base64.b64encode(json.dumps(payload,ensure_ascii=False).encode()).decode()}
  t=time.time(); last=None
