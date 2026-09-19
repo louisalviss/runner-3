@@ -1,6 +1,8 @@
 load('config.js'); load('gen.js');
-function execute(key,page){return executeSearch(key,page);}
+function normQuery(s){s=String(s||'');try{if(s.normalize)s=s.normalize('NFC');}catch(e){}return s;}
+function execute(key,page){return executeSearch(normQuery(key),page);}
 function executeSearch(key,page){
+  key=normQuery(key);
   let u="https://hibook.net/?s="+encodeURIComponent(key||'');
   if(page && String(page)!=='1')return Response.success([],null);
   let r=fetch(u); if(!r.ok)return Response.error('HTTP '+r.status); let d=r.html(); let out=[],seen={};
