@@ -35,17 +35,27 @@ else:
 PY
 VBOOK_BATCH=/tmp/vbook_batch_plain.py python3 tools/vbook-audit/vbook_e2e_final.py "$IDS"
 cp /tmp/vbook-audit/e2e-final.json out/e2e-benchmark.json
-# Explicitly probe search.js as a separate acceptance dimension. The main E2E
-# path can PASS through home/gen without ever executing search.js.
+# Generic/manual search probe remains useful for explicitly supplied queries.
 python3 /tmp/vbook_batch_plain.py "$IDS" || true
 cp /tmp/vbook-audit/plain-results.json out/search-probe.json 2>/dev/null || true
+# Required search identity gate: discover a real item, get its canonical title,
+# then prove NFC and NFD search find that same item and can traverse
+# search -> detail -> TOC -> chapter. Accentless/fuzzy support is recorded as
+# a warning dimension, not a hard requirement for every upstream site.
+SEARCH_IDENTITY_STATUS=0
+VBOOK_BATCH=/tmp/vbook_batch_plain.py VBOOK_E2E_RESULTS=out/e2e-benchmark.json \
+  python3 tools/vbook-audit/vbook_search_identity.py "$IDS" || SEARCH_IDENTITY_STATUS=$?
 END=$(date +%s)
 python3 - "$START" "$END" "$IDS" <<"PY"
 import json,sys,os
 s,e,ids=int(sys.argv[1]),int(sys.argv[2]),sys.argv[3]
 rows=json.load(open("out/e2e-benchmark.json"))
-out={"wall_seconds":e-s,"ids":ids,"count":len(rows),"classes":{}}
+out={"wall_seconds":e-s,"ids":ids,"count":len(rows),"classes":{},"search_identity_classes":{}}
 for r in rows: out["classes"][r["class"]]=out["classes"].get(r["class"],0)+1
+if os.path.exists("out/search-identity.json"):
+    for r in json.load(open("out/search-identity.json")):
+        c=r.get("class","UNKNOWN"); out["search_identity_classes"][c]=out["search_identity_classes"].get(c,0)+1
 json.dump(out,open("out/benchmark-summary.json","w"),indent=2,ensure_ascii=False)
 print(json.dumps(out,ensure_ascii=False))
 PY
+exit "$SEARCH_IDENTITY_STATUS"
