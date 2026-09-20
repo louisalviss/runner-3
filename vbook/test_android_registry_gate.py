@@ -52,6 +52,31 @@ class GatePolicyTest(unittest.TestCase):
         self.assertEqual(row["verdict"], "REVIEW")
         self.assertFalse(row["drop_eligible"])
 
+
+    def test_force_reinstall_reaches_checker(self):
+        original = gate._run_one_checker
+        calls = []
+        try:
+            def fake(source, repeats, guard_seconds, timeout, registry_url=None, force_reinstall=False):
+                calls.append((source, registry_url, force_reinstall))
+                return {
+                    "ok": True,
+                    "summary": {source: {
+                        "results": {"PASS_READER": repeats},
+                        "transient_anomalies": {},
+                        "stable": repeats >= 2,
+                        "takeover_packages": {},
+                    }},
+                    "runs": [{"source": source, "result": "PASS_READER"}],
+                    "attempts_log": [],
+                }
+            gate._run_one_checker = fake
+            merged = gate.run_checker(["S"], 1, 1.2, 30, "https://candidate.invalid/registry.json", True)
+            self.assertTrue(merged["ok"])
+            self.assertEqual(calls, [("S", "https://candidate.invalid/registry.json", True)])
+        finally:
+            gate._run_one_checker = original
+
     def test_per_source_process_failure_is_isolated(self):
         original = gate._run_one_checker
         try:

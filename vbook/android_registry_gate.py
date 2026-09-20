@@ -38,7 +38,7 @@ def is_defer_result(result: str) -> bool:
     )
 
 
-def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: int, registry_url: str | None = None) -> dict[str, Any]:
+def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: int, registry_url: str | None = None, force_reinstall: bool = False) -> dict[str, Any]:
     cmd = [
         "/usr/local/bin/nokia",
         "vbook-check-sources",
@@ -48,6 +48,8 @@ def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: i
     ]
     if registry_url:
         cmd.extend(["--registry-url", registry_url])
+    if force_reinstall:
+        cmd.append("--force-reinstall")
     try:
         proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
@@ -74,7 +76,7 @@ def _run_one_checker(source: str, repeats: int, guard_seconds: float, timeout: i
     return payload
 
 
-def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout: int, registry_url: str | None = None) -> dict[str, Any]:
+def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout: int, registry_url: str | None = None, force_reinstall: bool = False) -> dict[str, Any]:
     """Run one bounded Nokia process per source and merge evidence.
 
     Long multi-source Nokia processes have been observed to receive external
@@ -90,7 +92,10 @@ def run_checker(sources: list[str], repeats: int, guard_seconds: float, timeout:
         "per_source_errors": {},
     }
     for source in sources:
-        payload = _run_one_checker(source, repeats, guard_seconds, timeout, registry_url) if registry_url else _run_one_checker(source, repeats, guard_seconds, timeout)
+        if registry_url or force_reinstall:
+            payload = _run_one_checker(source, repeats, guard_seconds, timeout, registry_url, force_reinstall)
+        else:
+            payload = _run_one_checker(source, repeats, guard_seconds, timeout)
         merged["per_source"][source] = payload
         summary = (payload.get("summary") or {}).get(source)
         if isinstance(summary, dict):
@@ -176,6 +181,7 @@ def main() -> int:
     ap.add_argument("--guard-seconds", type=float, default=1.2)
     ap.add_argument("--timeout", type=int, default=3600)
     ap.add_argument("--audit-output", default=None)
+    ap.add_argument("--force-reinstall", action="store_true", help="uninstall and reinstall each selected extension before its first physical run; required for candidate version proof")
     ap.add_argument("--apply-drops", action="store_true", help="write a filtered COPY; never overwrites input")
     ap.add_argument("--output-registry", default=None)
     args = ap.parse_args()
@@ -198,7 +204,7 @@ def main() -> int:
     if not sources:
         raise SystemExit("no sources selected")
 
-    checker = run_checker(sources, repeats, args.guard_seconds, args.timeout, args.registry_url)
+    checker = run_checker(sources, repeats, args.guard_seconds, args.timeout, args.registry_url, args.force_reinstall)
     rows = [classify(name, checker, name in by_name, repeats) for name in sources]
     proposed_drop = [r["source"] for r in rows if r["drop_eligible"]]
     counts: dict[str, int] = {}
@@ -215,6 +221,7 @@ def main() -> int:
         "selected_sources": sources,
         "repeats": repeats,
         "guard_seconds": args.guard_seconds,
+        "force_reinstall": bool(args.force_reinstall),
         "policy": {
             "PASS_READER": "KEEP",
             "PASS_SOURCE_EXTERNAL_TAKEOVER": "KEEP_WITH_ANOMALY",

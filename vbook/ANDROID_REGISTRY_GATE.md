@@ -65,3 +65,7 @@ The device checker uses `--registry-url` for source-manager self-heal/install. T
 cd vbook
 python3 -m unittest -v test_android_registry_gate.py
 ```
+
+## Candidate version proof
+
+For pre-production candidate validation, isolate the candidate registry and pass `--force-reinstall`. Never treat an already-installed extension as proof of the candidate version.
