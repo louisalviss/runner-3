@@ -30,7 +30,7 @@ class HeadMetaParser(HTMLParser):
         if self.in_title and len(self.title_parts)<16:
             self.title_parts.append(data)
 
-GOOD={'ai':3,'saas':4,'software':3,'tool':3,'tools':3,'app':2,'api':2,'automation':3,'analytics':3,'seo':3,'generator':2,'editor':2,'converter':2,'calculator':2,'transcription':3,'image':2,'video':2,'data':2,'shop':1,'store':1,'travel':1,'affiliate':2}
+GOOD={'ai':3,'saas':4,'software':3,'tool':3,'tools':3,'app':2,'api':2,'automation':3,'analytics':3,'seo':3,'generator':2,'editor':2,'converter':2,'calculator':2,'transcription':3,'image':2,'video':2,'data':2,'shop':1,'store':1,'travel':1,'affiliate':2,'viewer':2,'resize':2,'screen':1,'rss':2,'compare':2,'checker':2,'lookup':2,'tracker':2,'validator':2,'compress':2,'pdf':1,'qr':1,'monitor':1}
 MONEY={'pricing':3,'subscription':3,'subscribe':2,'plans':2,'trial':2,'pro':1,'business':1,'enterprise':2,'buy':1,'checkout':1}
 RISK={'crack':-8,'torrent':-8,'casino':-7,'gambling':-7,'betting':-7,'porn':-9,'xxx':-9,'free spins':-7,'downloader':-3,'youtube downloader':-5,'tiktok downloader':-5,'soundcloud downloader':-5,'mod apk':-8,'hack':-5}
 PREFERRED_TLDS={'.com':2,'.ai':2,'.io':1,'.app':1,'.co':1,'.net':0}
