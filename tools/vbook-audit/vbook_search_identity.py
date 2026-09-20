@@ -83,7 +83,11 @@ def invoke_search(i, q):
         if any(k in al for k in ('key','query','search','name','word')) or pos==0:
             vals.append(q)
         elif 'page' in al:
-            vals.append('1')
+            # VBook search contract: first invocation receives an empty page token.
+            # The extension itself decides whether that means page 1, cursor start,
+            # or no continuation URL. Passing literal "1" breaks sources whose
+            # second argument is an opaque/full-URL continuation token.
+            vals.append('')
         else:
             vals.append('')
     x=_call_retry(i,fn,vals,40)
