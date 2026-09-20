@@ -76,7 +76,14 @@ When a user reports a specific failed title, add that exact query as a regressio
 ## 6. Physical-device gate — mandatory before publishing new/changed VN source
 
 After engine PASS, validate in the real VBook app/device:
-`canonical registry present -> extension installed -> source picker -> book -> detail -> TOC -> chapter -> reader stable`
+`candidate registry isolated -> exact candidate package reinstalled -> source picker -> book -> detail -> TOC -> chapter -> reader stable`
+
+Pre-production version-proof rules:
+- Never accept `extension installed` as proof that the device is running the candidate version; VBook can retain an older installed package while a newer registry entry is present.
+- While testing a changed extension, temporarily isolate the candidate registry from production aliases/registries that contain the same extension identity.
+- Force reinstall only the extension under test from the isolated candidate registry (uninstall -> library install), then run the physical reader path. Preserve unrelated installed extensions.
+- After the candidate verdict, restore the normal single canonical production registry and remove the temporary candidate registry. Do not leave `strict`, canonical, and candidate Louis registries active together.
+- The production steady state is one Louis registry URL: `vbook/louis-vbook.json`.
 
 Policy:
 - `PASS_READER` -> KEEP / eligible for publish.
