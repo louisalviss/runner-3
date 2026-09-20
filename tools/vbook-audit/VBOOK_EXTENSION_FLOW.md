@@ -4,6 +4,8 @@ Status: canonical operating flow for this repository.
 
 ## 0. Scope and invariants
 
+- **Project scope is text-story/novel extensions only:** registry `type` must be `novel` or `chinese_novel`.
+- Comics, video, audio, TTS, translate and other utility/media types are explicitly outside this project and must not be audited, fixed, promoted, or used to block this flow.
 - Production registry URL: `vbook/louis-vbook.json` on branch `vbook-sources`.
 - `louis-vbook-live.json` and `louis-vbook-strict-20260918.json` are compatibility aliases only and must remain byte-equivalent in data.
 - Every production audit resolves the `vbook-sources` branch to an immutable commit SHA first. All package and registry evidence in one run must come from that same snapshot.
@@ -53,7 +55,7 @@ Run the actual VBook JavaScript engine on Android/KVM, not a Node/browser imitat
 For text novels the required chain is:
 `discover/home -> real book -> detail -> toc -> real chapter -> chapter content`
 
-PASS requires meaningful chapter text (>=120 normalized text characters). For comic/video/audio, use the content-specific media probe rather than the text threshold. TTS/translate are utilities, not content sources: mark them `SKIP_UTILITY` in content E2E and exercise their actual voice/language + tts/translate scripts in the utility gate.
+PASS requires meaningful chapter text (>=120 normalized text characters). Non-text extension types are out of scope and are not admitted into this project audit set.
 
 Never call a source PASS merely because homepage/list parsing succeeds.
 
@@ -103,16 +105,15 @@ Only after required gates pass:
 4. Pin the exact tested package commit in audit/candidate metadata.
 5. Keep evidence: integrity report, VBook E2E artifact, search-identity artifact, and physical-device verdict for changed VN sources.
 
-## 8. Full-registry regression
+## 8. Full text-registry regression
 
-Use `VBook Canonical Full Acceptance` to audit the entire production registry from one immutable registry SHA.
+Use `VBook Text Novel Acceptance` to audit the complete **text-story subset** of production from one immutable registry SHA. The planner filters canonical entries to `novel` / `chinese_novel` before any package or runtime work begins. Non-text entries are absent from the audit set rather than reported as SKIP.
 
-The full regression performs:
-- package/manifest integrity for every registry entry;
-- type-aware VBook engine E2E for every entry;
-- real-title NFC/NFD search identity for novel/chinese_novel entries;
+The text regression performs:
+- package/manifest integrity for every text-story entry;
+- VBook engine `discover -> detail -> toc -> chapter` E2E for every text-story entry;
+- real-title NFC/NFD search identity for every maintained text-story entry;
 - accentless search capability reporting;
-- utility-script E2E for TTS/translate entries;
 - merged failure inventory with exact source and stage.
 
 Physical UI testing is intentionally not run concurrently across all entries because the one authorized device is stateful. Physical testing is queued for changed sources and for engine/identity anomalies requiring device discrimination.
