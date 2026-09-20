@@ -1,14 +1,13 @@
-load('config.js');
+load('gbk.js');
 function execute(key, page) {
     key = String(key || '');
     try { if (key.normalize) key = key.normalize('NFC'); } catch (e) {}
-    if (page && /^https?:\/\//i.test(String(page))) {
-        return parseResult(fetch(String(page)));
-    }
+    if (page && /^https?:\/\//i.test(String(page))) return parseResult(fetch(String(page)));
+    var body = 'keyboard=' + gbkFormEncode(key) + '&show=title%2Cwriter%2Ckeyboard&tempid=1&tbname=article';
     var response = fetch('https://www.fuxsb.com/e/search/index.php', {
         method: 'POST',
         headers: {'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.fuxsb.com/','User-Agent':'Mozilla/5.0'},
-        body: 'keyboard=' + encodeURIComponent(key) + '&show=title%2Cwriter%2Ckeyboard&tempid=1&tbname=article'
+        body: body
     });
     return parseResult(response);
 }
