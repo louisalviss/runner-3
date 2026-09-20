@@ -8,25 +8,36 @@ function execute(text, voice) {
     if (!tokenData) return Response.error('BING_TOKEN_NOT_FOUND');
     var ssml = generateSSML(text, voiceLang, voiceName, voiceGender);
     var ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
-    var response = fetch('https://www.bing.com/tfettts', {
+    var url = 'https://www.bing.com/tfettts?isVertical=1&IG=' + encodeURIComponent(tokenData.IG) + '&IID=' + encodeURIComponent(tokenData.IID);
+    var body = 'ssml=' + encodeURIComponent(ssml) + '&token=' + encodeURIComponent(tokenData.token) + '&key=' + encodeURIComponent(String(tokenData.key));
+    var response = fetch(url, {
         method: 'POST',
-        queries: { isVertical: '1', IG: tokenData.IG, IID: tokenData.IID },
         headers: {
             'User-Agent': ua,
+            'Accept': '*/*',
             'Referer': 'https://www.bing.com/translator',
             'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: 'ssml=' + encodeURIComponent(ssml) + '&token=' + encodeURIComponent(tokenData.token) + '&key=' + encodeURIComponent(String(tokenData.key))
+        body: body
     });
     if (!response.ok) return Response.error('BING_TTS_HTTP_' + response.status);
-    return Response.success(response.base64());
+    var b64 = '';
+    try { b64 = response.base64() + ''; } catch (e) {}
+    if (!b64 || b64.length < 64) {
+        try {
+            var blob = response.blob();
+            if (blob && blob.base64) b64 = blob.base64() + '';
+        } catch (e2) {}
+    }
+    if (!b64 || b64.length < 64) return Response.error('BING_TTS_EMPTY_AUDIO');
+    return Response.success(b64);
 }
 
 function findBingData() {
     var ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
     var res = fetch('https://www.bing.com/translator', {headers:{'User-Agent':ua,'Accept':'text/html,application/xhtml+xml'}});
     if (!res.ok) return null;
-    var html = res.text();
+    var html = res.text() + '';
     var m = /var params_AbusePreventionHelper\s*=\s*(\[.*?\]);/.exec(html);
     var ig = /IG:\"([A-Z0-9]+)\"/.exec(html);
     var iid = /data-iid=\"(translator\.\d+)\"/.exec(html);
