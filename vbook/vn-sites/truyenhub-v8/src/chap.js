@@ -1,0 +1,2 @@
+load('transport.js');
+function execute(url){var h=thBrowserGet(url);if(!h)return Response.error('browser transport');var re=/<article\b[^>]*class\s*=\s*(["'])[^"']*chapter-content[^"']*\1[^>]*>([\s\S]*?)<\/article>/gi,m,content='';while((m=re.exec(h))!==null)content=m[2];if(!content){var p=h.search(/<div\b[^>]*id\s*=\s*(["'])chapter-content\1[^>]*>/i);if(p>=0){var sub=h.substring(p),am=/<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(sub);if(am)content=am[1];}}return content?Response.success(content):Response.error('NO_CONTENT');}
