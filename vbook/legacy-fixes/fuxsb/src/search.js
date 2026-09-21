@@ -14,11 +14,17 @@ function itemsFrom(doc){
 function matchItems(a,key){var q=norm(key),out=[];for(var i=0;i<a.length;i++){var n=norm(a[i].name);if(n&&(n.indexOf(q)>=0||q.indexOf(n)>=0))out.push(a[i]);}return out;}
 function fallbackCatalog(key){
  var cats=['/xiandai/','/gudai/','/chuanyue/','/qihuan/','/wangyou/','/tongren/','/baihe/'];
- var out=[],seen={};
+ var q=norm(key),out=[],seen={};
  for(var i=0;i<cats.length;i++){
   var r=fetch(HOST+cats[i],{headers:{'User-Agent':'Mozilla/5.0'}}); if(!r||!r.ok)continue;
-  var a=matchItems(itemsFrom(r.html()),key);
-  for(var j=0;j<a.length;j++)if(!seen[a[j].link]){seen[a[j].link]=1;out.push(a[j]);}
+  var doc=r.html();
+  doc.select('.list_article ul li').forEach(function(e){
+   var h2=e.select('h2').first(),a=e.select('h2 a').first(); if(!h2||!a)return;
+   var name=(h2.text()||'').split('作者：')[0].trim();
+   var link=abs(a.attr('href')||''); if(!name||!link||seen[link])return;
+   var n=norm(name); if(!(n.indexOf(q)>=0||q.indexOf(n)>=0))return;
+   seen[link]=1; out.push({name:name,link:link,description:(h2.text()||'').split('作者：')[1]||'',host:HOST});
+  });
   if(out.length)break;
  }
  return Response.success(out,null);
