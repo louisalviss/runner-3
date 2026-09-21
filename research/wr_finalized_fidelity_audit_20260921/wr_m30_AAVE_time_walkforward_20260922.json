@@ -1,0 +1,108 @@
+{
+  "expanding": [
+    {
+      "test_year": 2022,
+      "chosen_from_past": "ALLTIME",
+      "prior_base_net": 3.5007795707565625,
+      "prior_alltime_net": 3.893022895686222,
+      "test_n": 23,
+      "test_net": -5.711033866271926,
+      "test_E": -0.24830582027269243,
+      "test_PF": 0.6758720930107736
+    },
+    {
+      "test_year": 2023,
+      "chosen_from_past": "BASE",
+      "prior_base_net": 6.216420836490395,
+      "prior_alltime_net": -1.818010970585704,
+      "test_n": 7,
+      "test_net": 0.1559817348578486,
+      "test_E": 0.02228310497969266,
+      "test_PF": 1.0314366538430662
+    },
+    {
+      "test_year": 2024,
+      "chosen_from_past": "BASE",
+      "prior_base_net": 6.3724025713482435,
+      "prior_alltime_net": 4.785308021970321,
+      "test_n": 5,
+      "test_net": 1.0735341985997207,
+      "test_E": 0.21470683971994414,
+      "test_PF": 1.315487689982591
+    },
+    {
+      "test_year": 2025,
+      "chosen_from_past": "BASE",
+      "prior_base_net": 7.445936769947965,
+      "prior_alltime_net": 6.807062464950263,
+      "test_n": 8,
+      "test_net": 0.5225425267386004,
+      "test_E": 0.06531781584232504,
+      "test_PF": 1.0944470910513395
+    },
+    {
+      "test_year": 2026,
+      "chosen_from_past": "ALLTIME",
+      "prior_base_net": 7.968479296686565,
+      "prior_alltime_net": 17.264875667162073,
+      "test_n": 5,
+      "test_net": 4.436212303750923,
+      "test_E": 0.8872424607501846,
+      "test_PF": 3.0414018257775903
+    }
+  ],
+  "rolling2": [
+    {
+      "test_year": 2023,
+      "train_years": [
+        "2021",
+        "2022"
+      ],
+      "chosen": "BASE",
+      "train_base": 6.216420836490395,
+      "train_alltime": -1.818010970585704,
+      "n": 7,
+      "net": 0.1559817348578486,
+      "E": 0.02228310497969266
+    },
+    {
+      "test_year": 2024,
+      "train_years": [
+        "2022",
+        "2023"
+      ],
+      "chosen": "BASE",
+      "train_base": 2.871623000591681,
+      "train_alltime": 0.892285126284099,
+      "n": 5,
+      "net": 1.0735341985997207,
+      "E": 0.21470683971994414
+    },
+    {
+      "test_year": 2025,
+      "train_years": [
+        "2023",
+        "2024"
+      ],
+      "chosen": "ALLTIME",
+      "train_base": 1.2295159334575692,
+      "train_alltime": 8.625073435535967,
+      "n": 14,
+      "net": 10.457813202211808,
+      "E": 0.7469866573008435
+    },
+    {
+      "test_year": 2026,
+      "train_years": [
+        "2024",
+        "2025"
+      ],
+      "chosen": "ALLTIME",
+      "train_base": 1.596076725338321,
+      "train_alltime": 12.47956764519175,
+      "n": 5,
+      "net": 4.436212303750923,
+      "E": 0.8872424607501846
+    }
+  ]
+}
