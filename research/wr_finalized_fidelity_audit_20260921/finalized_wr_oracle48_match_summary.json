@@ -1,0 +1,48 @@
+{
+  "oracle_source": "Backtest 2026 / Update 5m Wave Rider crypto",
+  "oracle_count": 48,
+  "recovery_rule": {
+    "assets": [
+      "SOL",
+      "ETH",
+      "XRP"
+    ],
+    "sheet_day_colors": {
+      "green": "T0",
+      "cyan": "T-1",
+      "orange": "cluster_other (T-2/T+2/T+3)",
+      "blue": "T+1",
+      "no_fill": "normal"
+    },
+    "cluster_hours_vn": [
+      "00:00-11:59",
+      "14:00-17:59",
+      "21:00-23:59"
+    ],
+    "normal_tplus1_hours_vn": [
+      "14:00-17:59",
+      "21:00-23:59"
+    ]
+  },
+  "feed_test": {
+    "binance_usdm_futures": {
+      "exact": 30,
+      "within_one_bar": 32,
+      "n": 48
+    },
+    "binance_spot": {
+      "exact": 2,
+      "within_one_bar": 2,
+      "n": 48
+    }
+  },
+  "futures_exact_misses": 18,
+  "futures_true_no_nearby_signal": 16,
+  "miss_gate_counts_overlapping": {
+    "signal_range": 10,
+    "break_retest": 7,
+    "regime_side": 5,
+    "chop": 1
+  },
+  "interpretation": "v2.5.13 is not an exact implementation of the legacy manual Finalized WR oracle; 30/48 exact signal-bar fidelity on the recovered oracle."
+}

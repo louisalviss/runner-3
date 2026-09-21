@@ -48,3 +48,29 @@ The original `Backtest 2026.xlsx` bytes / exact 48-trade oracle have not been re
 - `SOURCE314_46_4R_48_TRADES = HISTORICAL_CLAIM / NOT_CURRENTLY_INDEPENDENTLY_REPRODUCIBLE`
 
 Therefore run 35561572293 may be cited against the tested v2.5.13 + T + causal-volume formulation, but must NOT be cited as a rejection of Louis's legacy Finalized WR ruleset.
+
+
+## Recovered 48-trade Finalized WR entry oracle — 2026-09-21
+
+The original entry set is now recovered directly from the native Google Sheet `Backtest 2026`, tab `Update 5m Wave Rider crypto`. The 48 rows reproduce exactly when applying the pre-existing source-314 filters to the workbook's own date color coding:
+- SOL / ETH / XRP only;
+- green date = T0; cyan = T-1; orange = cluster-other (T-2/T+2/T+3); blue = T+1; unfilled = normal;
+- cluster entry hours VN: 00:00–11:59, 14:00–17:59, 21:00–23:59;
+- T+1/normal: 14:00–17:59 and 21:00–23:59 only.
+
+This yields exactly **48 entries**, matching source 314.
+
+### v2.5.13 setup fidelity against the recovered oracle
+Using the workbook time as the TradingView-displayed **signal candle open time**:
+- Binance USD-M futures: 30/48 exact same M5 signal bar; 32/48 within one 5-minute bar.
+- Binance spot: 2/48 exact / within one bar.
+
+Therefore futures is the compatible feed family, but v2.5.13 is **not** the exact legacy manual setup implementation. The 18 futures exact misses overlap mainly with v2.5.13-only gates: signal-range guard (10), pivot break/retest geometry (7), 12-candle regime-side requirement (5), CHOP (1). These gates are not stated in the historical workbook `Backtest Rules` or source-314 manual setup wording.
+
+Authority update:
+- `FINALIZED_WR_ENTRY_ORACLE_48 = RECOVERED`
+- `FINALIZED_WR_ENTRY_ORACLE_COUNT = 48`
+- `V2513_EXACT_SIGNAL_BAR_FIDELITY = 30/48`
+- `V2513_WITHIN_ONE_BAR_FIDELITY = 32/48`
+- `BINANCE_SPOT_FIDELITY = 2/48`
+- `V2513_IS_EXACT_FINALIZED_WR = FALSE`
