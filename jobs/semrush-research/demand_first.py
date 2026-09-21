@@ -442,7 +442,7 @@ def main() -> int:
     })
 
     lines = [
-        "# Semrush Demand-First — checkpoint",
+        "# Semrush Research — checkpoint",
         "",
         f"- source SHA256: `{source_sha}`",
         f"- input rows: {len(raw_rows)}",
