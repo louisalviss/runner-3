@@ -186,6 +186,16 @@ def project_metrics(rows: list[dict[str, Any]], max_kd: float, longtail_tokens: 
     }
 
 
+def scale_band(total_volume: int) -> str:
+    if total_volume < 10000:
+        return "REJECT_SCALE_LT10K"
+    if total_volume < 50000:
+        return "CONDITIONAL_10K_50K"
+    if total_volume < 200000:
+        return "VALID_TEST_50K_200K"
+    return "PRIORITY_200K_PLUS"
+
+
 def gate(metrics: dict[str, Any], cfg: dict[str, Any]) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     if metrics["total_volume"] < cfg["min_total_volume"]:
@@ -306,10 +316,10 @@ def main() -> int:
     ap.add_argument("--output-dir", required=True)
     ap.add_argument("--max-kd", type=float, default=29.0)
     ap.add_argument("--min-keyword-volume", type=int, default=20)
-    ap.add_argument("--min-total-volume", type=int, default=5000)
+    ap.add_argument("--min-total-volume", type=int, default=10000)
     ap.add_argument("--min-low-kd-volume", type=int, default=2000)
-    ap.add_argument("--min-keyword-count", type=int, default=10)
-    ap.add_argument("--min-longtail-count", type=int, default=6)
+    ap.add_argument("--min-keyword-count", type=int, default=20)
+    ap.add_argument("--min-longtail-count", type=int, default=10)
     ap.add_argument("--longtail-tokens", type=int, default=4)
     ap.add_argument("--max-median-kd", type=float, default=30.0)
     ap.add_argument("--max-head-share", type=float, default=0.60)
@@ -380,7 +390,7 @@ def main() -> int:
     for project, prows in sorted(by_project.items()):
         metrics = project_metrics(prows, args.max_kd, args.longtail_tokens)
         ok, fail_reasons = gate(metrics, cfg)
-        project_report.append({"project": project, "pass": ok, "fail_reasons": fail_reasons, **metrics})
+        project_report.append({"project": project, "pass": ok, "fail_reasons": fail_reasons, "scale_band": scale_band(metrics["total_volume"]), **metrics})
         if ok:
             passed_projects.append(project)
 
@@ -447,7 +457,7 @@ def main() -> int:
         for p in project_report:
             if p["pass"]:
                 lines.append(
-                    f"- {p['project']}: volume={p['total_volume']}; lowKD={p['low_kd_volume']}; medianKD={p['median_kd']}; "
+                    f"- {p['project']}: band={p['scale_band']}; volume={p['total_volume']}; lowKD={p['low_kd_volume']}; medianKD={p['median_kd']}; "
                     f"longtailLowKD={p['longtail_low_kd_count']}; headShare={p['head_share']}"
                 )
     else:
