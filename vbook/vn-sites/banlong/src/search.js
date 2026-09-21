@@ -1,0 +1,5 @@
+load("config.js");
+var API='https://api.blhvip.vn';
+function nfc(s){s=String(s||'');try{if(s.normalize)s=s.normalize('NFC');}catch(e){}return s.replace(/^\s+|\s+$/g,'');}
+function cleanQuery(s){s=nfc(s);s=s.replace(/^\s*\[[^\]]+\]\s*/,'');return s.replace(/^\s+|\s+$/g,'');}
+function execute(key,page){var p=parseInt(page||'1',10)||1,q=cleanQuery(key);if(!q)return Response.success([],null);var r=fetch(API+'/v1/search',{queries:{q:q,page:String(p)},headers:{'Accept':'application/json'}});if(!r||!r.ok)return Response.error('HTTP '+(r?r.status:'0'));var x;try{x=r.json()||{};}catch(e){return Response.error('BAD_JSON');}var a=x.data||[],out=[];for(var i=0;i<a.length;i++){var it=a[i]||{},slug=String(it.slug||''),name=String(it.name||'');if(!slug||!name)continue;var cat=String(it.category_name||'');if(cat)name='['+cat+'] '+name;out.push({name:name,link:BASE_URL+'/truyen/'+slug,cover:String(it.img_url||''),description:String(it.author_name||''),host:BASE_URL});}var next=(x.total_page&&p<parseInt(x.total_page,10))?String(p+1):null;return Response.success(out,next);}
