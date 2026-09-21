@@ -1,0 +1,30 @@
+{
+  "strategy": "Wave Rider v2.5.13 canonical lifecycle",
+  "mode": "SHADOW_ONLY_NO_EXCHANGE_ORDERS",
+  "symbols": ["SOLUSDT", "ETHUSDT", "XRPUSDT"],
+  "timeframe_minutes": 30,
+  "forward_start_utc": "2026-09-21T21:30:00Z",
+  "timezone_for_T": "Asia/Ho_Chi_Minh",
+  "day_rule": {
+    "weekends": "OFF",
+    "admit": ["NORMAL", "T-1", "T+1"],
+    "exclude_if_any_label": ["T0", "T-2", "T+2", "T+3"]
+  },
+  "events": ["CPI", "Employment Situation", "FOMC"],
+  "tick_size": {"SOLUSDT": 0.001, "ETHUSDT": 0.01, "XRPUSDT": 0.0001},
+  "fee_scenarios_bps": {
+    "equivalent_6bps": 6.0,
+    "regular_entry_tp_other": [5.0, 2.0, 5.0],
+    "bnb_discount_entry_tp_other": [4.5, 1.8, 4.5],
+    "maker_entry_tp_other": [2.0, 2.0, 2.0]
+  },
+  "promotion_gate": {
+    "minimum_closed_trades": 50,
+    "net_expectancy_R_min": 0.15,
+    "net_profit_factor_min": 1.25,
+    "break_even_equivalent_bps_min": 6.0
+  },
+  "data_source": "Binance USD-M public 1m daily archive -> deterministic M30 resample",
+  "archive_lag_note": "Shadow validation only; archive can lag by about one day. No live execution.",
+  "frozen_on": "2026-09-22"
+}

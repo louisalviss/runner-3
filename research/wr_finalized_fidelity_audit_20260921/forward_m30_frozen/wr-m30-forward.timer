@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Wave Rider M30 forward archive collector four times daily
+
+[Timer]
+OnCalendar=*-*-* 02,08,14,20:15:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=wr-m30-forward.service
+
+[Install]
+WantedBy=timers.target
