@@ -1,9 +1,6 @@
-load('config.js'); load('gen.js');
-function execute(key,page){return executeSearch(key,page);}
-function executeSearch(key,page){
-  let u="https://vtruyen.vn/kham-pha/tim-kiem?keyword="+encodeURIComponent(key||'');
-  if(page && String(page)!=='1')return Response.success([],null);
-  let r=fetch(u); if(!r.ok)return Response.error('HTTP '+r.status); let d=r.html(); let out=[],seen={};
-  d.select("a[href*='/tac-pham/']").forEach(e=>{let h=e.attr('href')||''; if(h.indexOf("/tac-pham/")<0||h.indexOf("/truyen-chu/")>=0)return; if(h.indexOf('http')!==0)h=BASE_URL+(h.charAt(0)=='/'?h:'/'+h); if(seen[h])return; seen[h]=1; let img=e.select('img').first(); let name=(e.attr('title')||e.text()||(img?img.attr('alt'):'')||'').trim(); if(!name&&img)name=(img.attr('alt')||'').trim(); if(name)out.push({name:name,link:h,cover:img?(img.attr('data-src')||img.attr('src')||''):'',host:BASE_URL});});
-  return Response.success(out,null);
-}
+load('config.js');
+function _nfc(s){s=String(s||'');try{if(s.normalize)s=s.normalize('NFC');}catch(e){}return s;}
+function _fold(s){s=_nfc(s).toLowerCase();try{if(s.normalize)s=s.normalize('NFD');}catch(e){}s=s.replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');return s.replace(/[^a-z0-9]+/g,' ').replace(/^\s+|\s+$/g,'').replace(/\s+/g,' ');}
+function _abs(h){h=String(h||'');if(!h)return '';if(h.indexOf('http')===0)return h;return BASE_URL+(h.charAt(0)==='/'?h:'/'+h);}
+function _parse(doc){var out=[],seen={};doc.select("a[href*='/tac-pham/']").forEach(function(e){var h=String(e.attr('href')||'');if(h.indexOf('/tac-pham/')<0||h.indexOf('/truyen-chu/')>=0)return;h=_abs(h);if(seen[h])return;var img=e.select('img').first();var n=(e.attr('title')||e.text()||(img?img.attr('alt'):'')||'').trim();if(!n&&img)n=(img.attr('alt')||'').trim();if(!n)return;seen[h]=1;out.push({name:n,link:h,cover:img?(img.attr('data-src')||img.attr('src')||''):'',host:BASE_URL});});return out;}
+function execute(query,page){if(page&&String(page)!=='1')return Response.success([],null);var q=_fold(query);if(!q)return Response.success([],null);var r=fetch(BASE_URL+'/kham-pha/tim-kiem');if(!r||!r.ok)return Response.error('HTTP '+(r?r.status:'0'));var all=_parse(r.html()),out=[];for(var i=0;i<all.length;i++){var n=_fold(all[i].name);if(n===q||n.indexOf(q)>=0||q.indexOf(n)>=0)out.push(all[i]);}return Response.success(out,null);}
