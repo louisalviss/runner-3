@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import bisect, csv, io, json, math, os, random, sys, time, zipfile
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from pathlib import Path
+from zoneinfo import ZoneInfo
+import requests
+
+ROOT=Path('/tmp/wr-tvol-oos')
+HARNESS=ROOT/'harness'
+sys.path.insert(0,str(HARNESS/'base'))
+sys.path.insert(0,str(HARNESS))
+import wr_tv_parity as base
+from close_confirm import Position, assert_canonical_parity, run_case as canonical_run_case
+base.TF='5'; base.TF_MS=300000
+ref=base.load_ref()
+
+VN=ZoneInfo('Asia/Ho_Chi_Minh')
+NY=ZoneInfo('America/New_York')
+REPORT_START=datetime(2026,8,15,tzinfo=timezone.utc)
+REPORT_END=datetime(2026,9,18,tzinfo=timezone.utc)
+HISTORY_START=datetime(2026,6,1,tzinfo=timezone.utc)
+LOAD_END=datetime(2026,9,20,tzinfo=timezone.utc)
+BINANCE='https://data.binance.vision'
+LIST_ENDPOINT='https://s3-ap-northeast-1.amazonaws.com/data.binance.vision'
+PREFIX='data/futures/um/monthly/klines/'
+OUT=ROOT/'batch'; OUT.mkdir(parents=True,exist_ok=True)
+SHARD=int(os.getenv('SHARD','0')); SHARDS=int(os.getenv('SHARDS','32'))
+
+# Frozen official release anchors converted to VN calendar dates.
+EVENT_T0={'NFP':'2026-09-04','CPI':'2026-09-11','FOMC':'2026-09-17'}
+T_LABELS={}
+for ev,t0s in EVENT_T0.items():
+    d0=date.fromisoformat(t0s)
+    for off,label in [(-2,'T-2'),(-1,'T-1'),(0,'T0'),(2,'T+2'),(3,'T+3')]:
+        d=d0+timedelta(days=off)
+        if d.weekday()>=5: continue
+        T_LABELS.setdefault(d.isoformat(),[]).append(label)
+ALLOWED_T=set(T_LABELS)
+
+@dataclass
+class K:
+    ot:int; ct:int; o:float; h:float; l:float; c:float; v:float; qv:float
+
+def sess():
+    s=requests.Session(); s.headers['User-Agent']='runner3-wr-tvol-tickfix/1.0'; return s
+
+def list_symbols(http):
+    params={'list-type':'2','delimiter':'/','prefix':PREFIX,'max-keys':'1000'}; out=[]; ns={'s':'http://s3.amazonaws.com/doc/2006-03-01/'}
+    import xml.etree.ElementTree as ET
+    while True:
+        r=http.get(LIST_ENDPOINT,params=params,timeout=60); r.raise_for_status(); root=ET.fromstring(r.content)
+        for p in root.findall('s:CommonPrefixes/s:Prefix',ns):
+            x=p.text or ''
+            if x.startswith(PREFIX):
+                sym=x[len(PREFIX):].strip('/')
+                if sym.endswith('USDT') and '_' not in sym: out.append(sym)
+        trunc=root.findtext('s:IsTruncated',default='false',namespaces=ns)=='true'
+        token=root.findtext('s:NextContinuationToken',default='',namespaces=ns)
+        if not trunc or not token: break
+        params['continuation-token']=token
+    return sorted(set(out))
+
+def current_tradifi(http):
+    for u in ('https://www.binance.com/fapi/v1/exchangeInfo','https://fapi.binance.com/fapi/v1/exchangeInfo'):
+        try:
+            r=http.get(u,timeout=30)
+            if r.ok:
+                x=r.json(); return {s.get('symbol') for s in x.get('symbols',[]) if s.get('contractType')=='TRADIFI_PERPETUAL'}
+        except Exception: pass
+    return set()
+
+def get_zip(http,url):
+    last=None
+    for k in range(4):
+        try:
+            r=http.get(url,timeout=60)
+            if r.status_code==404:return None
+            r.raise_for_status(); return r.content
+        except Exception as e:
+            last=e
+            if k==3: raise
+            time.sleep(.5*(k+1))
+    raise last
+
+def read_zip(data):
+    if not data:return []
+    out=[]
+    with zipfile.ZipFile(io.BytesIO(data)) as z: text=z.read(z.namelist()[0]).decode()
+    for row in csv.reader(io.StringIO(text)):
+        if not row or not row[0].isdigit():continue
+        out.append(K(int(row[0]),int(row[6]),float(row[1]),float(row[2]),float(row[3]),float(row[4]),float(row[5]),float(row[7])))
+    return out
+
+def load_symbol(http,sym):
+    bars=[]
+    for y,m in ((2026,6),(2026,7),(2026,8)):
+        fn=f'{sym}-5m-{y:04d}-{m:02d}.zip'; url=f'{BINANCE}/data/futures/um/monthly/klines/{sym}/5m/{fn}'
+        bars.extend(read_zip(get_zip(http,url)))
+    for d in range(1,20):
+        fn=f'{sym}-5m-2026-09-{d:02d}.zip'; url=f'{BINANCE}/data/futures/um/daily/klines/{sym}/5m/{fn}'
+        bars.extend(read_zip(get_zip(http,url)))
+    lo=int(HISTORY_START.timestamp()*1000); hi=int(LOAD_END.timestamp()*1000)
+    ded={b.ot:b for b in bars if lo<=b.ot<hi}
+    return [ded[k] for k in sorted(ded)]
+
+def checkpoint_times():
+    out=[]; d=date(2026,8,1); last=date(2026,9,17)
+    while d<=last:
+        for label,hh,mm,tz in [('refresh',15,30,VN),('main',10,0,NY),('final',12,45,NY),('preclose',15,45,NY)]:
+            dt=datetime(d.year,d.month,d.day,hh,mm,tzinfo=tz).astimezone(timezone.utc)
+            out.append((d.isoformat(),label,int(dt.timestamp()*1000)))
+        d+=timedelta(days=1)
+    return sorted(out,key=lambda x:x[2])
+CHECKPOINTS=checkpoint_times()
+
+def daily_agg(bars):
+    by=defaultdict(list)
+    for b in bars: by[datetime.fromtimestamp(b.ot/1000,tz=timezone.utc).date()].append(b)
+    out={}
+    for d,x in by.items():
+        x=sorted(x,key=lambda b:b.ot)
+        if len(x)<280: continue
+        out[d]={'close':x[-1].c,'base_volume':sum(z.v for z in x),'usd_volume_proxy':x[-1].c*sum(z.v for z in x)}
+    return out
+
+def reconstruct_volume_firstq(bars,is_tradifi=False):
+    if not bars:return {},[]
+    cts=[b.ct for b in bars]; qv_prefix=[0.0]
+    for b in bars:qv_prefix.append(qv_prefix[-1]+b.qv)
+    da=daily_agg(bars); days=sorted(da); daily_state={}
+    for i,d in enumerate(days):
+        if i<10: continue
+        p10=days[i-10:i]
+        daily_state[d]={'avg10':sum(da[z]['usd_volume_proxy'] for z in p10)/10.0}
+    firstq={}; rows=[]
+    for session_date,label,ms in CHECKPOINTS:
+        j=bisect.bisect_right(cts,ms)-1
+        if j<0: continue
+        lo=bisect.bisect_left(cts,ms-24*3600*1000)
+        qv24=qv_prefix[j+1]-qv_prefix[lo]
+        utc_day=datetime.fromtimestamp(ms/1000,tz=timezone.utc).date(); st=daily_state.get(utc_day)
+        if st is None: continue
+        avg10=st['avg10']; data_alive=(ms-bars[j].ct)<=10*60*1000
+        qualified=bool(data_alive and not is_tradifi and qv24>=100_000_000 and avg10>200_000_000)
+        rows.append({'session_date':session_date,'checkpoint':label,'ts':ms,'qv24':qv24,'avg10':avg10,'data_alive':data_alive,'current_tradifi':is_tradifi,'qualified':qualified})
+        if qualified and session_date not in firstq:firstq[session_date]=ms
+    return firstq,rows
+
+def infer_tick(bars):
+    vals=[]
+    for b in bars[:3000]: vals.extend([b.o,b.h,b.l,b.c])
+    return float(ref.infer_tick(vals)) if vals else None
+
+def info(tick):
+    # HARD FIX 2026-09-21: tv_tick() reads minmov/pricescale, not the legacy _tick field.
+    # Encode inferred Binance price tick exactly as TradingView-style metadata.
+    d=Decimal(str(tick)); scale=10**max(0,-d.as_tuple().exponent); minmov=int(d*scale)
+    if minmov<=0 or scale<=0: raise ValueError(f'invalid tick metadata tick={tick}')
+    return {'timezone':'Etc/UTC','exchange_timezone':'Etc/UTC','session':'0000-0000:1234567',
+            'subsessions':[{'id':'regular','session':'0000-0000:1234567'}],
+            'minmov':minmov,'pricescale':scale,'_tick':tick}
+
+def eligible_volume_t(firstq):
+    def f(ms):
+        vdt=datetime.fromtimestamp(ms/1000,tz=timezone.utc).astimezone(VN)
+        if vdt.date().isoformat() not in ALLOWED_T:return False
+        sd=(vdt-timedelta(hours=6)).date().isoformat()
+        q=firstq.get(sd)
+        return q is not None and ms>=int(q)
+    return f
+
+def run_fixed_case(bars, inf, eligible_signal, *, guarded:bool):
+    bars=[b for b in bars if b.ot>=int(HISTORY_START.timestamp()*1000)]
+    if len(bars)<100:return [],{'error':'too_few_bars'}
+    ind,_,_=ref.calc_ind(bars); tick=base.tv_tick(inf,[x.c for x in bars]); sc=base.SessionClock(inf,'start')
+    start_ms=int(REPORT_START.timestamp()*1000); end_ms=int(REPORT_END.timestamp()*1000)
+    eq=100000.; pending=None; active=None; trades=[]
+    counters={'signals':0,'eligible_signals':0,'fills':0,'unfilled_nextbar':0,'open_censored':0}
+    exits={k:0 for k in ('TP','SL','AMBIG->SL')}
+    # Frozen canonical embedded news list used by the prior run, only for guarded signal admission.
+    news=[datetime(2025,11,20,8,30,tzinfo=NY),datetime(2025,12,10,14,0,tzinfo=NY),datetime(2025,12,16,8,30,tzinfo=NY),datetime(2025,12,18,8,30,tzinfo=NY)]
+    news=[int(x.timestamp()*1000) for x in news]
+    def news_locked(t):
+        return guarded and any(e-15*60000 <= t < e+15*60000 for e in news)
+    def signal_allowed(b):
+        if not guarded:return True
+        market,rdc=sc.state(b)
+        if not market or rdc is None:return False
+        tc=b.ct; ne=rdc-40*60000
+        noentry=tc<=rdc and (tc>=ne or tc+base.TF_MS>=ne)
+        return not noentry
+    def close(i,reason):
+        nonlocal active,eq
+        p=active; b=bars[i]
+        both=b.h>=max(p.s,p.t) and b.l<=min(p.s,p.t)
+        if both: reason='AMBIG->SL'
+        cr=2.3 if reason=='TP' else -1.0
+        eq += cr*p.risk
+        if p.report:
+            trades.append({'signal':p.sig_t,'exit':b.ct,'side':'L' if p.d==1 else 'S','R':cr,'reason':reason,
+                           'e':p.e,'s':p.s,'t':p.t,'trigger':p.trigger,'entry_time':p.entry_t,'variant':'fixed_guarded_correct_tick' if guarded else 'fixed_pure_correct_tick'})
+        exits[reason]+=1; active=None
+    for i,b in enumerate(bars):
+        closed=False
+        if active is not None:
+            r,_px=ref.next_bracket(active,b,None)
+            if r:
+                close(i,r); closed=True
+        if active is None and pending is not None and not closed:
+            if i==pending.sig_i+1:
+                fill=(pending.d==1 and round(b.h/tick)>=round(pending.e/tick)) or (pending.d==-1 and round(b.l/tick)<=round(pending.e/tick))
+                if fill:
+                    active=pending; pending=None; active.entry_t=b.ot; counters['fills']+=1
+                    gap=(active.d==1 and round(b.o/tick)>=round(active.e/tick)) or (active.d==-1 and round(b.o/tick)<=round(active.e/tick))
+                    r,_px=ref.next_bracket(active,b,None if gap else active.e)
+                    if r:
+                        close(i,r); closed=True
+                else:
+                    counters['unfilled_nextbar']+=1
+        if pending is not None and active is None and i>=pending.sig_i+1:
+            pending=None
+        # Never open a new report signal after REPORT_END. We still process bars after it to settle open trades.
+        if b.ct>=end_ms:
+            continue
+        if active is None and pending is None and not closed:
+            z=ind[i]
+            lr=z['ha'] and b.c>z['ema'] and z['ag'] and z['chop_ok'] and z['res'] is not None
+            sr=z['hb'] and b.c<z['ema'] and z['ar'] and z['chop_ok'] and z['sup'] is not None
+            allowed=signal_allowed(b)
+            safe=not news_locked(b.ct) and not news_locked(b.ct+base.TF_MS)
+            nl=allowed and safe and z['sra_ok'] and b.c>b.o and lr and b.c>z['res'] and b.l<=z['res']
+            ns=allowed and safe and z['sra_ok'] and b.c<b.o and sr and b.c<z['sup'] and b.h>=z['sup']
+            if nl or ns:
+                counters['signals']+=1
+                if eligible_signal is not None and not bool(eligible_signal(int(b.ct))):
+                    continue
+                counters['eligible_signals']+=1
+                if nl:
+                    d=1; trigger=(round(b.h/tick)+1)*tick; s=(round(b.l/tick)-1)*tick
+                else:
+                    d=-1; trigger=(round(b.l/tick)-1)*tick; s=(round(b.h/tick)+1)*tick
+                e=trigger; dist=abs(e-s); t=e+2.3*(e-s) if d==1 else e-2.3*(s-e)
+                q=math.floor((max(eq,0)*0.01)/dist); risk=dist*q
+                if q>0 and risk>0:
+                    report=start_ms<=b.ct<end_ms
+                    pending=Position(d,e,s,t,risk,q,i,b.ct,b.h,b.l,report,trigger,None,None)
+    if active is not None and active.report:
+        counters['open_censored']=1
+    return trades,{'n':len(trades),'R':sum(x['R'] for x in trades),'exits':exits,'counters':counters,'bars':len(bars)}
+
+def run_one(sym,bars,is_tradifi=False):
+    if len(bars)<1000:return {'symbol':sym,'status':'INSUFFICIENT','bars':len(bars)},[]
+    firstq,cp=reconstruct_volume_firstq(bars,is_tradifi)
+    # Need volume qualification only for session dates that can map into allowed T dates.
+    if not firstq:return {'symbol':sym,'status':'NO_VOLUME','bars':len(bars),'qualified_sessions':0},[]
+    tick=infer_tick(bars)
+    if not tick:return {'symbol':sym,'status':'NO_TICK','bars':len(bars)},[]
+    wr=[base.Bar(b.ot,b.ct,b.o,b.h,b.l,b.c) for b in bars]; inf=info(tick); elig=eligible_volume_t(firstq)
+    orig=ref.calc_ind; cache={}
+    def cached(bs):
+        key=(len(bs),int(bs[0].ot),int(bs[-1].ot))
+        if key not in cache:cache[key]=orig(bs)
+        return cache[key]
+    ref.calc_ind=cached
+    try: rows,raw=run_fixed_case(wr,inf,elig,guarded=True)
+    finally: ref.calc_ind=orig
+    alltr=[]
+    for t in rows:
+        d=datetime.fromtimestamp(int(t['signal'])/1000,tz=timezone.utc).astimezone(VN).date().isoformat()
+        z={'symbol':sym,'audit_variant':'fixed_oos_correct_tick','signal_date_vn':d,'t_labels':T_LABELS.get(d,[])}; z.update(t); alltr.append(z)
+    sm={'symbol':sym,'status':'OK','bars':len(bars),'tick':tick,'qualified_sessions':len(firstq),'firstq':firstq,'variant':raw,
+        'volume_reconstruction':{'checkpoints':len(cp),'rule':'qv24>=100M and prior-completed-day avg10>200M; data_alive; not current tradifi'}}
+    return sm,alltr
+
+def golden():
+    expected={'BNBUSDT':(14,10.92089552238821),'TRXUSDT':(14,12.4)}
+    rs=datetime(2026,7,27,tzinfo=timezone.utc); re=datetime(2026,8,17,tzinfo=timezone.utc)
+    hs=datetime(2026,6,1,tzinfo=timezone.utc); http=sess(); out={}
+    for sym,(want_n,want_r) in expected.items():
+        bars=load_symbol(http,sym); tick=infer_tick(bars); inf=info(tick)
+        wr=[base.Bar(b.ot,b.ct,b.o,b.h,b.l,b.c) for b in bars]
+        got_tick=base.tv_tick(inf,[x.c for x in wr])
+        rows,_raw=canonical_run_case(base,ref,wr,inf,hs,rs,re,variant='canonical',anchor='start',use_session=True,eligible_signal=None)
+        got_n=len(rows); got_r=sum(float(t['R']) for t in rows)
+        ok=(got_n==want_n and abs(got_r-want_r)<1e-10 and abs(got_tick-tick)<1e-15)
+        out[sym]={'inferred_tick':tick,'runtime_tick':got_tick,'n':got_n,'R':got_r,'want_n':want_n,'want_R':want_r,'pass':ok}
+        if not ok: print(json.dumps(out,indent=2)); raise SystemExit(9)
+    print(json.dumps({'golden':'PASS','symbols':out},indent=2),flush=True)
+
+def shard():
+    http=sess(); syms=list_symbols(http); tradifi=current_tradifi(http); mine=[s for i,s in enumerate(syms) if i%SHARDS==SHARD]
+    sums=[]; trades=[]
+    for i,sym in enumerate(mine,1):
+        try:
+            bars=load_symbol(http,sym); sm,tr=run_one(sym,bars,sym in tradifi); sums.append(sm); trades.extend(tr)
+            print('DONE',SHARD,i,len(mine),sym,sm.get('status'),'n',sm.get('variant',{}).get('n',0),flush=True)
+        except Exception as e:
+            sums.append({'symbol':sym,'status':'ERROR','error':repr(e)}); print('ERROR',SHARD,sym,repr(e),flush=True)
+    (OUT/f'summary-{SHARD}.json').write_text(json.dumps({'shard':SHARD,'symbols_total':len(syms),'symbols':mine,'results':sums},separators=(',',':')))
+    with (OUT/f'trades-{SHARD}.jsonl').open('w') as f:
+        for t in trades:f.write(json.dumps(t,separators=(',',':'))+'\n')
+    print('SHARD_FINISH',SHARD,'symbols',len(mine),'trades',len(trades),flush=True)
+
+def cost_r(t,bps=6):
+    d=abs(float(t['e'])-float(t['s']))
+    return 0.0 if d<=0 else float(t['e'])/d*(bps/10000.0)
+
+def metrics(xs,bps):
+    vals=[float(t['R'])-(cost_r(t,bps) if bps else 0.0) for t in xs]
+    gp=sum(max(x,0) for x in vals); gl=sum(max(-x,0) for x in vals); eq=peak=0.; dd=0.
+    for x in vals:eq+=x; peak=max(peak,eq); dd=min(dd,eq-peak)
+    return {'n':len(vals),'R':sum(vals),'mean_R':sum(vals)/len(vals) if vals else None,'PF':gp/gl if gl else None,
+            'win_rate':100*sum(x>0 for x in vals)/len(vals) if vals else None,'max_DD_R':dd}
+
+def bootstrap(xs,bps,reps=2000,seed=20260921):
+    by=defaultdict(list)
+    for t in xs:by[t['signal_date_vn']].append(float(t['R'])-(cost_r(t,bps) if bps else 0.0))
+    days=sorted(by)
+    if not days:return {'days':0,'reps':0,'mean_ci95':[None,None]}
+    rng=random.Random(seed); ms=[]
+    for _ in range(reps):
+        vals=[]
+        for _j in range(len(days)):
+            d=days[rng.randrange(len(days))]; vals.extend(by[d])
+        if vals:ms.append(sum(vals)/len(vals))
+    ms.sort(); return {'days':len(days),'reps':len(ms),'mean_ci95':[ms[int(.025*(len(ms)-1))],ms[int(.975*(len(ms)-1))]]}
+
+def merge():
+    trades=[]; errors=[]; summaries=[]; shard_files=sorted(OUT.glob('summary-*.json'))
+    for p in shard_files:
+        x=json.load(open(p)); summaries.extend(x['results']); errors.extend([r for r in x['results'] if r.get('status')=='ERROR'])
+    for p in sorted(OUT.glob('trades-*.jsonl')):
+        for ln in open(p):
+            if ln.strip():trades.append(json.loads(ln))
+    gross=metrics(trades,0)
+    sensitivities={str(b):metrics(trades,b) for b in (1,2,2.5,2.9,3,6)}
+    exits=defaultdict(int); open_censored=0
+    for r in summaries:
+        vr=r.get('variant',{})
+        open_censored+=int(vr.get('counters',{}).get('open_censored',0))
+        for k,v in vr.get('exits',{}).items():exits[k]+=int(v)
+    labels=defaultdict(int); syms=defaultdict(list)
+    for t in trades:
+        syms[t['symbol']].append(t)
+        for z in t.get('t_labels',[]):labels[z]+=1
+    def basic(xs,bps=0):return metrics(xs,bps)
+    report={
+      'status':'COMPLETE' if not errors and len(shard_files)==SHARDS else 'PARTIAL','shards_seen':len(shard_files),'errors':errors,
+      'source':{'engine':'WR fixed +2.3R/-1R corrected crypto tick','market':'Binance USDT futures 5m','signal_window':'fresh OOS after 2026-08-14; report through 2026-09-18T00:00Z','settlement':'through 2026-09-19 UTC','volume_rule':'original causal Stage1 checkpoint semantics, volume-only qv24>=100M + prior completed UTC avg10D>200M','T0_VN':EVENT_T0,'allowed_T_dates':sorted(ALLOWED_T),'no_sweep':True},
+      'gross':gross,'cost_sensitivity_bps_equivalent':sensitivities,'open_censored':open_censored,'exit_counts':dict(exits),'T_label_trade_counts':dict(labels),
+      'by_T_label':{lab:basic([t for t in trades if lab in t.get('t_labels',[])],0) for lab in ('T-2','T-1','T0','T+2','T+3')},
+      'symbols_ge3':{s:basic(xs,0) for s,xs in sorted(syms.items()) if len(xs)>=3},
+      'symbols_scanned':len(summaries),'symbols_volume_ok':sum(r.get('status')=='OK' for r in summaries),
+    }
+    (ROOT/'final_report.json').write_text(json.dumps(report,indent=2)); print(json.dumps(report,indent=2),flush=True)
+    if report['status']!='COMPLETE':raise SystemExit(3)
+
+if __name__=='__main__':
+    mode=sys.argv[1] if len(sys.argv)>1 else 'shard'
+    if mode=='golden':golden()
+    elif mode=='merge':merge()
+    else:shard()
