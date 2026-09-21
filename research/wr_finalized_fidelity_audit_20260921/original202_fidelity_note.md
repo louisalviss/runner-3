@@ -69,3 +69,24 @@ Column G contains 25 `Ok` and 5 `Hit` manual confirmations.
 - The manual sheet explicitly says: enter only when the signal candle CLOSES THROUGH support/resistance; it does not state a same-bar retest requirement.
 - A replacement detector must recover the manual S/R line semantics. Do not simply delete filters and call it validated: the 202 rows are positive examples and do not measure false-positive precision.
 - Any detector calibrated on these 202 trades requires negative/control examples plus a new blind holdout before forward use.
+
+## S/R pivot-strength diagnosis on manually confirmed Line-test subset
+
+The 30 rows explicitly labeled `Ok` or `Hit` in column G are the strongest manual S/R-break oracle in the workbook.
+
+Fixed Pine-style confirmed-pivot strength recall on these 30 positive Line-test examples:
+- 2/2: 20/30
+- 3/3: 22/30
+- 4/4: 24/30
+- 5/5: 27/30
+- 6/6: 28/30
+- 7/7: 28/30
+- 8/8: 28/30
+- 9/9: 30/30
+- 10/10: 29/30 (misses BTC 2025-12-17 19:00 VN, labeled `Ok`)
+
+For that BTC `Ok` case, strengths 2 through 9 all identify a break; 10/10 selects a much older/higher resistance and rejects it.
+
+Important: repository/history search found no provenance that historical/manual WR used fixed 9/9 pivots. Later machine lineage uses 10/10. Therefore `9/9 = 30/30` is **HYPOTHESIS ONLY / recall clue**, not an authorized replacement rule. These are positive examples only; precision/false-positive behavior is unknown.
+
+Three unlabeled historical rows that do not break any 2..10 wick pivot (XRP 2023-08-18 14:00, XRP 2023-08-11 15:25, SUI 2025-11-22 20:05) should not be used to redefine Line-test semantics because they were not marked `Ok/Hit` in column G. This reinforces the distinction between the 202 timestamped WR trade corpus and the 30 manually confirmed S/R Line-test oracle.
