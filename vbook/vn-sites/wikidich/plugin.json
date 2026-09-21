@@ -1,0 +1,26 @@
+{
+  "metadata": {
+    "name": "Wiki Dịch",
+    "author": "vBook",
+    "version": 28,
+    "source": "https://wikicv.org",
+    "regexp": "(www.)?(.*?)wikicv(.*?)/truyen/[^/]+/?$",
+    "description": "Wiki Dịch: đọc truyện + public-catalog search fallback khi search chính thức yêu cầu đăng nhập.",
+    "locale": "vi_VN",
+    "type": "novel",
+    "language": "javascript",
+    "encrypt": true
+  },
+  "script": {
+    "home": "home.js",
+    "genre": "genre.js",
+    "detail": "detail.js",
+    "search": "search.js",
+    "toc": "toc.js",
+    "chap": "chap.js"
+  },
+  "config": {
+    "thread_num": 1,
+    "delay": 4000
+  }
+}
