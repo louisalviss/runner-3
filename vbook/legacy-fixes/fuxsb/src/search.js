@@ -5,7 +5,7 @@ function execute(key, page) {
     var body = 'keyboard=' + gbkFormEncode(key) + '&show=title%2Cwriter%2Ckeyboard&tempid=1&tbname=article';
     var response = fetch('https://www.fuxsb.com/e/search/index.php', {
         method: 'POST',
-        headers: {'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.fuxsb.com/','User-Agent':'Mozilla/5.0'},
+        headers: {'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.fuxsb.com/','User-Agent':'Mozilla/5.0','Cookie':'cjtxmlastsearchtime=0'},
         body: body
     });
     return parseResult(response);
