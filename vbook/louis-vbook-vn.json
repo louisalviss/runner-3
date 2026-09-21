@@ -1,7 +1,7 @@
 {
   "metadata": {
     "author": "louisalviss",
-    "description": "VN-only strict registry: only extensions passing ENGINE E2E + search identity acceptance. 31 verified sources.",
+    "description": "VN-only strict registry: only extensions passing ENGINE E2E + search identity + physical reader gate where changed. 34 verified sources.",
     "name": "Louis VBook VN Strict"
   },
   "data": [
@@ -344,6 +344,39 @@
       "source": "https://vntruyen.org",
       "icon": "https://raw.githubusercontent.com/louisalviss/runner-3/vbook-sources/vbook/vn-sites/vntruyenorg/icon.png",
       "description": "Đọc truyện chữ Việt Nam trên VnTruyen.org (canonical-title + cross-platform search)",
+      "type": "novel",
+      "locale": "vi_VN"
+    },
+    {
+      "name": "Wiki Dịch",
+      "author": "vBook",
+      "path": "https://raw.githubusercontent.com/louisalviss/runner-3/4671d96489bccdb212e6471fc90a55b72e8a0b9b/vbook/vn-sites/wikidich/plugin-v28.zip",
+      "version": 28,
+      "source": "https://wikicv.org",
+      "icon": "https://raw.githubusercontent.com/louisalviss/runner-3/4671d96489bccdb212e6471fc90a55b72e8a0b9b/vbook/vn-sites/wikidich/icon.png",
+      "description": "Wiki Dịch: đọc truyện + public-catalog search fallback khi search chính thức yêu cầu đăng nhập.",
+      "type": "novel",
+      "locale": "vi_VN"
+    },
+    {
+      "name": "Bàn Long",
+      "author": "vBook",
+      "path": "https://raw.githubusercontent.com/louisalviss/runner-3/4671d96489bccdb212e6471fc90a55b72e8a0b9b/vbook/vn-sites/banlong/plugin-v9.zip",
+      "version": 9,
+      "source": "https://blhvip.vn",
+      "icon": "https://raw.githubusercontent.com/louisalviss/runner-3/4671d96489bccdb212e6471fc90a55b72e8a0b9b/vbook/vn-sites/banlong/icon.png",
+      "description": "Đọc truyện trên Bàn Long; API search identity + robust TOC chain.",
+      "type": "novel",
+      "locale": "vi-VN"
+    },
+    {
+      "name": "Viblo",
+      "author": "Đường đen",
+      "path": "https://raw.githubusercontent.com/louisalviss/runner-3/4671d96489bccdb212e6471fc90a55b72e8a0b9b/vbook/vn-sites/viblo/plugin-v5.zip",
+      "version": 5,
+      "source": "https://viblo.asia",
+      "icon": "https://raw.githubusercontent.com/louisalviss/runner-3/4671d96489bccdb212e6471fc90a55b72e8a0b9b/vbook/vn-sites/viblo/icon.png",
+      "description": "Đọc Viblo trên VBook; bổ sung search từ public newest feed.",
       "type": "novel",
       "locale": "vi_VN"
     }
