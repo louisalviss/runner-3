@@ -1,0 +1,4 @@
+load('transport.js');
+var BASE_URL='https://truyenhub.net';
+function thAbs(h){h=String(h||'');if(!h)return '';if(h.indexOf('http://')===0||h.indexOf('https://')===0)return h;if(h.charAt(0)!='/')h='/'+h;return BASE_URL+h;}
+function execute(url){var d=thDoc(url);if(!d)return Response.error('BROWSER_LOAD_FAIL');var es=d.select('a[href*="/chuong-"]'),out=[],seen={};for(var i=0;i<es.size();i++){var e=es.get(i),h=thAbs(e.attr('href')||'');if(!h||seen[h])continue;var n=String(e.attr('title')||e.text()||'').replace(/^\s+|\s+$/g,'');if(!n){var m=/\/chuong-(\d+)/i.exec(h);n=m?('Chương '+m[1]):('Chương '+(out.length+1));}if(/^(Đọc từ đầu|Chương trước|Chương sau)$/i.test(n))continue;seen[h]=1;out.push({name:n,url:h,host:BASE_URL,lock:false,pay:false});}return out.length?Response.success(out):Response.error('NO_TOC');}

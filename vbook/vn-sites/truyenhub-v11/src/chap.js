@@ -1,0 +1,2 @@
+load('transport.js');
+function execute(url){var d=thDoc(url);if(!d)return Response.error('BROWSER_LOAD_FAIL');var sels=['article.chapter-content','.chapter-content','#chapter-content article','#chapter-content','.reading-content','.chapter-c','article'];for(var i=0;i<sels.length;i++){try{var es=d.select(sels[i]);for(var j=0;j<es.size();j++){var e=es.get(j),txt=String(e.text()||'');if(txt.length>=120){try{e.select('script,style,button,.ads,.advertisement').remove();}catch(x){}return Response.success(e.html());}}}catch(y){}}return Response.error('NO_CONTENT');}
