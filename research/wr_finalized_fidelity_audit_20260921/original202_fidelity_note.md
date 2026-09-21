@@ -112,3 +112,22 @@ Pivot-strength diagnostic after correcting labels (positive recall on the 25 `Ok
 - strength 9: 25/25
 - strength 10: 24/25
 Therefore the earlier apparent uniqueness of 9/9 (30/30 when `Hit` was incorrectly counted positive) is invalid. Strengths 6-9 are indistinguishable on positive recall alone and must be discriminated using the `Hit` negatives / causal line-completion semantics and blind data, not by fitting recall.
+
+## Historical M5 S/R provenance check — LuxAlgo default 15/15 (2026-09-21)
+
+User clarified Line test semantics: `Ok` = completed S/R line; `Hit` = unfinished line that still broke and entered, then stopped. Historical revisions also show two current `Hit` rows were originally labeled `1`, so current Hit set is not assumed homogeneous.
+
+Tested causal Binance USD-M futures M5 S/R breaks on the 30 Line-test rows using rightmost-tie pivots and the source `[1]` confirmation delay.
+
+Break recall by symmetric pivot strength:
+- 6/6: Ok 25/25; current Hit 3/5
+- 7/7: Ok 25/25; current Hit 3/5
+- 8/8: Ok 25/25; current Hit 3/5
+- 9/9: Ok 25/25; current Hit 5/5
+- 10/10: Ok 24/25; current Hit 5/5
+- 12/12: Ok 23/25; current Hit 5/5
+- 15/15 (LuxAlgo original defaults): Ok 20/25; current Hit 4/5
+
+15/15 Ok misses: BTC 2025-12-19 00:00; XRP 2026-01-03 13:40; XRP 2025-11-26 16:20; BTC 2025-12-17 19:00; SOL 2025-12-23 23:50.
+
+Decision: LuxAlgo source defaults 15/15 are NOT accepted as the historical M5 Wave Rider setting. The later 3m canonical 10/10 setting is also not evidence of the historical M5 setting. Strengths 6-8 are fidelity candidates only; no parameter is promoted without provenance or blind discrimination.
