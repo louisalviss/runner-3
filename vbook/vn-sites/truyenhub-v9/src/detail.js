@@ -1,0 +1,4 @@
+load('transport.js');
+var BASE_URL='https://truyenhub.net';
+function thAbs(h){h=String(h||'');if(!h)return '';if(h.indexOf('http://')===0||h.indexOf('https://')===0)return h;if(h.charAt(0)!='/')h='/'+h;return BASE_URL+h;}
+function execute(url){var d=thDoc(url);if(!d)return Response.error('BROWSER_LOAD_FAIL');var name='',cover='',desc='',author='';try{name=d.select('h1').first().text();}catch(e){}try{cover=d.select('meta[property=og:image]').attr('content');}catch(e2){}try{desc=d.select('meta[name=description]').attr('content');}catch(e3){}try{var a=d.select('.author-link,a[href*="/tac-gia/"],a[href*="/author/"]');if(a.size()>0)author=a.get(0).text();}catch(e4){}if(!name)name=String(url||'');return Response.success({name:name,cover:thAbs(cover),author:author,description:desc,host:BASE_URL,ongoing:true});}
