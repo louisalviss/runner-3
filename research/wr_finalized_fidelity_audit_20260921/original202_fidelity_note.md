@@ -90,3 +90,25 @@ For that BTC `Ok` case, strengths 2 through 9 all identify a break; 10/10 select
 Important: repository/history search found no provenance that historical/manual WR used fixed 9/9 pivots. Later machine lineage uses 10/10. Therefore `9/9 = 30/30` is **HYPOTHESIS ONLY / recall clue**, not an authorized replacement rule. These are positive examples only; precision/false-positive behavior is unknown.
 
 Three unlabeled historical rows that do not break any 2..10 wick pivot (XRP 2023-08-18 14:00, XRP 2023-08-11 15:25, SUI 2025-11-22 20:05) should not be used to redefine Line-test semantics because they were not marked `Ok/Hit` in column G. This reinforces the distinction between the 202 timestamped WR trade corpus and the 30 manually confirmed S/R Line-test oracle.
+
+## 2026-09-21 correction: Line test labels
+User clarified the manual `Line test` labels in `Backtest 2026`:
+- `Ok` = the S/R line was completed/valid; a breakout candle occurred; the trade was entered and was NOT stopped due to an unfinished-line condition.
+- `Hit` = the S/R line was NOT yet completed/valid; a breakout candle occurred anyway; the trade was entered and then stopped.
+
+Authority consequence:
+- `Ok` (n=25) is the positive oracle for completed/valid S/R line-break semantics.
+- `Hit` (n=5) MUST NOT be merged into the positive S/R oracle. It is a negative/invalid-line example set.
+- Any prior statement treating `Ok+Hit` (n=30) as a single positive line-test oracle is superseded.
+
+Pivot-strength diagnostic after correcting labels (positive recall on the 25 `Ok` cases only):
+- strength 2: 19/25
+- strength 3: 20/25
+- strength 4: 21/25
+- strength 5: 24/25
+- strength 6: 25/25
+- strength 7: 25/25
+- strength 8: 25/25
+- strength 9: 25/25
+- strength 10: 24/25
+Therefore the earlier apparent uniqueness of 9/9 (30/30 when `Hit` was incorrectly counted positive) is invalid. Strengths 6-9 are indistinguishable on positive recall alone and must be discriminated using the `Hit` negatives / causal line-completion semantics and blind data, not by fitting recall.
