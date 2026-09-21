@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Physical-Nokia acceptance gate for the VBook registry.
+
+Runs one source at a time through `nokia vbook-check-sources` and keeps source
+health separate from device/transport health. The default mode is read-only:
+it writes an evidence JSON file and never edits the registry.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+DEFAULT_REGISTRY = Path("vbook/louis-vbook-strict-20260918.json")
+DEFAULT_OUTPUT = Path("vbook/android-gate-latest.json")
+NOKIA = "/usr/local/bin/nokia"
+
+CLEAN_PASS_RESULTS = {"PASS_READER"}
+HEALTHY_ANOMALY_RESULTS = {"PASS_SOURCE_EXTERNAL_TAKEOVER"}
+PASS_RESULTS = CLEAN_PASS_RESULTS | HEALTHY_ANOMALY_RESULTS
+SOURCE_FAIL_RESULTS = {"SOURCE_FAIL_NO_DATA"}
+INFRA_RESULTS = {"TRANSPORT_INTERRUPTED", "TRANSPORT_OFFLINE", "CONTROL_TRANSIENT"}
+
+
+def load_registry(path: Path) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise ValueError(f"registry has no data list: {path}")
+    return [x for x in rows if isinstance(x, dict)]
+
+
+def classify(payload: dict[str, Any], source: str) -> dict[str, Any]:
+    summary = (payload.get("summary") or {}).get(source) or {}
+    runs = [r for r in payload.get("runs") or [] if r.get("source") == source]
+    finals = [str(r.get("result") or "UNKNOWN") for r in runs]
+    counts = Counter(finals)
+    anomalies = dict(summary.get("transient_anomalies") or {})
+    takeover_packages = dict(summary.get("takeover_packages") or {})
+
+    if finals and all(x in PASS_RESULTS for x in finals):
+        verdict = "PASS_E2E"
+        source_health = "HEALTHY"
+    elif finals and all(x in SOURCE_FAIL_RESULTS for x in finals):
+        verdict = "SOURCE_FAIL"
+        source_health = "FAILED"
+    elif finals and all(x in INFRA_RESULTS for x in finals):
+        verdict = "INFRA_UNAVAILABLE"
+        source_health = "UNKNOWN"
+    elif any(x in PASS_RESULTS for x in finals) and not any(x in SOURCE_FAIL_RESULTS for x in finals):
+        verdict = "PASS_WITH_ANOMALY"
+        source_health = "HEALTHY"
+    elif any(x in SOURCE_FAIL_RESULTS for x in finals) and any(x in PASS_RESULTS for x in finals):
+        verdict = "UNRESOLVED_CONFLICT"
+        source_health = "UNKNOWN"
+    else:
+        verdict = "UNRESOLVED"
+        source_health = "UNKNOWN"
+
+    return {
+        "source": source,
+        "verdict": verdict,
+        "source_health": source_health,
+        "final_results": dict(counts),
+        "stable": summary.get("stable"),
+        "consistency_evaluable": summary.get("consistency_evaluable"),
+        "transient_anomalies": anomalies,
+        "takeover_packages": takeover_packages,
+        "runs": runs,
+    }
+
+
+def run_one(source: str, repeats: int, guard_seconds: float, timeout: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    cmd = [NOKIA, "vbook-check-sources", source, "--repeats", str(repeats), "--guard-seconds", str(guard_seconds)]
+    started = time.time()
+    try:
+        p = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raw = {"ok": False, "runner_error": "TIMEOUT", "stdout": exc.stdout or "", "stderr": exc.stderr or ""}
+        result = {
+            "source": source,
+            "verdict": "INFRA_UNAVAILABLE",
+            "source_health": "UNKNOWN",
+            "final_results": {"RUNNER_TIMEOUT": 1},
+            "stable": None,
+            "consistency_evaluable": False,
+            "transient_anomalies": {"RUNNER_TIMEOUT": 1},
+            "takeover_packages": {},
+            "runs": [],
+        }
+        return result, raw
+
+    stdout = (p.stdout or "").strip()
+    try:
+        payload = json.loads(stdout) if stdout else {}
+    except json.JSONDecodeError:
+        payload = {
+            "ok": False,
+            "runner_error": "BAD_JSON",
+            "returncode": p.returncode,
+            "stdout": stdout[-4000:],
+            "stderr": (p.stderr or "")[-2000:],
+        }
+        result = {
+            "source": source,
+            "verdict": "INFRA_UNAVAILABLE",
+            "source_health": "UNKNOWN",
+            "final_results": {"RUNNER_BAD_JSON": 1},
+            "stable": None,
+            "consistency_evaluable": False,
+            "transient_anomalies": {"RUNNER_BAD_JSON": 1},
+            "takeover_packages": {},
+            "runs": [],
+        }
+        return result, payload
+
+    result = classify(payload, source)
+    payload["runner_returncode"] = p.returncode
+    payload["runner_seconds"] = round(time.time() - started, 3)
+    if p.stderr:
+        payload["runner_stderr"] = p.stderr[-2000:]
+    return result, payload
+
+
+def select_sources(rows: list[dict[str, Any]], names: list[str], all_novels: bool) -> list[str]:
+    registry_names = [str(x.get("name") or "").strip() for x in rows]
+    registry_names = [x for x in registry_names if x]
+    if names:
+        missing = [x for x in names if x not in registry_names]
+        if missing:
+            raise ValueError("not in registry: " + ", ".join(missing))
+        return names
+    if all_novels:
+        return [
+            str(x.get("name") or "").strip()
+            for x in rows
+            if str(x.get("type") or "").strip() in {"novel", "chinese_novel"}
+            and str(x.get("name") or "").strip()
+        ]
+    raise ValueError("provide source names or --all-novels")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("sources", nargs="*")
+    ap.add_argument("--registry", default=str(DEFAULT_REGISTRY))
+    ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
+    ap.add_argument("--repeats", type=int, default=2)
+    ap.add_argument("--guard-seconds", type=float, default=1.2)
+    ap.add_argument("--timeout", type=int, default=150)
+    ap.add_argument("--all-novels", action="store_true")
+    args = ap.parse_args()
+
+    registry = Path(args.registry)
+    output = Path(args.output)
+    rows = load_registry(registry)
+    sources = select_sources(rows, args.sources, args.all_novels)
+    repeats = max(1, min(args.repeats, 5))
+
+    results: list[dict[str, Any]] = []
+    raw: dict[str, Any] = {}
+    for source in sources:
+        result, payload = run_one(source, repeats, args.guard_seconds, args.timeout)
+        results.append(result)
+        raw[source] = payload
+        print(f"{source}: {result['verdict']} ({result['source_health']})", flush=True)
+
+    verdict_counts = Counter(x["verdict"] for x in results)
+    evidence = {
+        "schema": "vbook-android-registry-gate-v1",
+        "registry": str(registry),
+        "generated_at_epoch": int(time.time()),
+        "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "policy": {
+            "physical_canary": "Nokia",
+            "direct_first": True,
+            "source_fail_only": sorted(SOURCE_FAIL_RESULTS),
+            "infra_never_source_fail": sorted(INFRA_RESULTS),
+            "external_takeover_separate_dimension": True,
+            "bounded_per_source": True,
+        },
+        "requested_sources": sources,
+        "repeats": repeats,
+        "verdict_counts": dict(verdict_counts),
+        "results": results,
+        "raw": raw,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    # Gate semantics: only confirmed source failures are source failures. Infra or
+    # unresolved states make the audit incomplete rather than poisoning registry health.
+    if verdict_counts.get("SOURCE_FAIL", 0):
+        return 10
+    if any(k in verdict_counts for k in ("INFRA_UNAVAILABLE", "UNRESOLVED", "UNRESOLVED_CONFLICT")):
+        return 20
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
