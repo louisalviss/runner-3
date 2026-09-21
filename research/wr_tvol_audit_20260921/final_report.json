@@ -1,0 +1,167 @@
+{
+  "status": "COMPLETE",
+  "shards_seen": 32,
+  "errors": [],
+  "source": {
+    "engine": "Wave Rider v2.5.13 corrected Pine-compatible verifier",
+    "period": "2025-01-01..2026-08-14 signals; history from 2024-12-01",
+    "market": "Binance USDT futures archive 5m",
+    "cost_model_bps": 6,
+    "volume_rule": "24h quote volume >=100M USD AND prior-completed-day avg 10D dollar-volume proxy >200M USD",
+    "T_rule": "VN local T-2,T-1,T0,T+2,T+3 around actual CPI/NFP/FOMC releases; T+1/white/weekend excluded",
+    "no_sweep": true
+  },
+  "variants": {
+    "fullstage_t": {
+      "metrics": {
+        "n": 105,
+        "R": -23.45562320626276,
+        "mean_R": -0.22338688767869297,
+        "PF": 0.6023314582029159,
+        "win_rate": 26.666666666666668,
+        "max_DD_R": -24.324437787207934
+      },
+      "by_year": {
+        "2025": {
+          "n": 72,
+          "R": -8.299384343114621,
+          "mean_R": -0.11526922698770307,
+          "PF": 0.78076432112616,
+          "win_rate": 31.944444444444443,
+          "max_DD_R": -15.357316897480114
+        },
+        "2026": {
+          "n": 33,
+          "R": -15.15623886314814,
+          "mean_R": -0.4592799655499436,
+          "PF": 0.28260790207701064,
+          "win_rate": 15.151515151515152,
+          "max_DD_R": -15.15623886314814
+        }
+      },
+      "bootstrap": {
+        "days": 70,
+        "reps": 2000,
+        "mean_ci95": [
+          -0.4164008319782769,
+          -0.011914012378366829
+        ]
+      },
+      "symbol_breadth": {
+        "eligible_symbols_ge5": 5,
+        "positive_symbols": 2,
+        "positive_fraction": 0.4
+      },
+      "T_label_trade_counts": {
+        "T-2": 34,
+        "T-1": 28,
+        "T0": 28,
+        "T+3": 13,
+        "T+2": 12
+      },
+      "strong_pass": false
+    },
+    "volume_all": {
+      "metrics": {
+        "n": 924,
+        "R": -278.4014586000774,
+        "mean_R": -0.3013002798702136,
+        "PF": 0.582580894840466,
+        "win_rate": 27.38095238095238,
+        "max_DD_R": -278.40145860007704
+      },
+      "by_year": {
+        "2025": {
+          "n": 600,
+          "R": -166.29966965504266,
+          "mean_R": -0.27716611609173775,
+          "PF": 0.5993517528603575,
+          "win_rate": 27.5,
+          "max_DD_R": -166.29966965504252
+        },
+        "2026": {
+          "n": 324,
+          "R": -112.10178894503473,
+          "mean_R": -0.34599317575628,
+          "PF": 0.5549442515270978,
+          "win_rate": 27.160493827160494,
+          "max_DD_R": -113.80697105646605
+        }
+      },
+      "bootstrap": {
+        "days": 448,
+        "reps": 2000,
+        "mean_ci95": [
+          -0.3837195438653605,
+          -0.21501487271117267
+        ]
+      },
+      "symbol_breadth": {
+        "eligible_symbols_ge5": 18,
+        "positive_symbols": 1,
+        "positive_fraction": 0.05555555555555555
+      },
+      "T_label_trade_counts": {
+        "T-2": 79,
+        "T-1": 81,
+        "T0": 79,
+        "T+3": 37,
+        "T+2": 33
+      },
+      "strong_pass": false
+    },
+    "volume_t": {
+      "metrics": {
+        "n": 292,
+        "R": -60.278550295515814,
+        "mean_R": -0.20643339142299935,
+        "PF": 0.6912368028757762,
+        "win_rate": 30.47945205479452,
+        "max_DD_R": -64.4920809142624
+      },
+      "by_year": {
+        "2025": {
+          "n": 180,
+          "R": -37.18199228918407,
+          "mean_R": -0.2065666238288004,
+          "PF": 0.6905596609693057,
+          "win_rate": 31.666666666666668,
+          "max_DD_R": -38.90846615743794
+        },
+        "2026": {
+          "n": 112,
+          "R": -23.096558006331737,
+          "mean_R": -0.20621926791367623,
+          "PF": 0.6923206959500462,
+          "win_rate": 28.571428571428573,
+          "max_DD_R": -27.350426412426817
+        }
+      },
+      "bootstrap": {
+        "days": 133,
+        "reps": 2000,
+        "mean_ci95": [
+          -0.36095192998870235,
+          -0.03633355224563918
+        ]
+      },
+      "symbol_breadth": {
+        "eligible_symbols_ge5": 10,
+        "positive_symbols": 2,
+        "positive_fraction": 0.2
+      },
+      "T_label_trade_counts": {
+        "T-2": 79,
+        "T-1": 81,
+        "T0": 79,
+        "T+3": 37,
+        "T+2": 33
+      },
+      "strong_pass": false
+    }
+  },
+  "comparisons": {
+    "volume_t_minus_volume_all_mean_R": 0.09486688844721428,
+    "volume_t_minus_fullstage_t_mean_R": 0.016953496255693618
+  }
+}
