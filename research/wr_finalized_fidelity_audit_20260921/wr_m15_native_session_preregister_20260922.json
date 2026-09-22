@@ -1,0 +1,52 @@
+{
+  "created_utc": "2026-09-22T05:45:30.468639+00:00",
+  "purpose": "Test whether crypto-derived VN hour filter is the portability bottleneck for WR v2.5.13 on TradFi.",
+  "source_dataset": "market-data-crossasset-m5-20260821 (Dukascopy BID M5 canonical cache)",
+  "timeframe": "M15 from exact 3x contiguous M5 bars",
+  "period": [
+    "2022-01-01",
+    "2026-08-14"
+  ],
+  "universe": [
+    "AUDUSD",
+    "EURGBP",
+    "EURJPY",
+    "EURUSD",
+    "GBPJPY",
+    "GBPUSD",
+    "NZDUSD",
+    "USDCAD",
+    "USDCHF",
+    "USDJPY",
+    "XAUUSD",
+    "NAS100",
+    "US500",
+    "AAPL",
+    "AMZN",
+    "META",
+    "MSFT",
+    "NVDA",
+    "TSLA"
+  ],
+  "core": "Wave Rider v2.5.13 unchanged: pivot10/10+[1], EMA21, 12-bar regime, ATR-angle, CHOP14<50, signal range<=1.5ATR, next-bar stop entry, TP2.3R, EMA/session lifecycle.",
+  "session_policy": {
+    "US_STOCK_CFD": "Use the source regular-session bars; infer each UTC trading day close from the last available aggregated bar; no-entry 40m before close and forced-exit 15m before close. No overnight carry.",
+    "FX_METAL_INDEX": "Use all available weekday bars and retain the canonical WR UTC daily no-entry/exit lifecycle guard."
+  },
+  "variants": {
+    "T": "No VN hour filter; admit only weekdays classified NORMAL or T+1; cluster-overlap days remain OFF.",
+    "ALL": "No VN hour filter and no T exclusion; admit every available weekday; retain T labels only for diagnostics."
+  },
+  "gross_gate_before_cost": {
+    "trades_min": 50,
+    "gross_expectancy_min_R": 0.1,
+    "gross_pf_min": 1.15,
+    "early_2022_2023_R_gt": 0,
+    "late_2024_2026_R_gt": 0,
+    "positive_years_min": 3
+  },
+  "cost_gate_for_gross_survivors": {
+    "break_even_oneway_bps_min": 2.0
+  },
+  "discipline": "No symbol/session-hour selection after viewing these outcomes. ASK/spread/commission exact execution is run only for preregistered-gate survivors."
+}
