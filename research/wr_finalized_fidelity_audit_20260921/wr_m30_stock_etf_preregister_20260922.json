@@ -1,0 +1,56 @@
+{
+  "purpose": "Separate WR M30 US stock/ETF portability batch; frozen before PnL",
+  "selection_window": [
+    "2021-01-01",
+    "2026-08-14"
+  ],
+  "temporal_holdout": [
+    "2015-01-01",
+    "2020-12-31"
+  ],
+  "rule_freeze": "same WR v2.5.13 M30 + NORMAL/T+1 + original VN windows; BID signal / ASK-BID execution",
+  "universe": {
+    "stocks": [
+      "aaplususd",
+      "msftususd",
+      "nvdaususd",
+      "amznususd",
+      "fbususd",
+      "googlususd",
+      "tslaususd",
+      "jpmususd",
+      "xomususd",
+      "amdususd",
+      "bacususd",
+      "llyususd",
+      "orclususd",
+      "cscoususd",
+      "hdususd",
+      "cvxususd",
+      "jnjususd",
+      "pgususd",
+      "pepususd",
+      "crmususd"
+    ],
+    "etfs": [
+      "spyususd",
+      "qqqususd",
+      "iwmususd",
+      "gldususd",
+      "slvususd"
+    ]
+  },
+  "count": 25,
+  "cost_model": {
+    "dukas_us_stock_cfd": "$0.02/share each side, minimum $10/order",
+    "risk_fraction": 0.01,
+    "account_size_scenarios_usd": [
+      25000,
+      50000,
+      100000,
+      250000
+    ],
+    "report": "net R separately for each account size because minimum commission makes stock-CFD cost scale-dependent"
+  },
+  "note": "Not mixed into FX/metal/index ranking."
+}
