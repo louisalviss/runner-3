@@ -87,3 +87,30 @@ Therefore AAVE+CRV is rejected.
 - `FORWARD = STILL_PAUSED`
 
 The AAVE+RUNE selection is still research-selected from the 2022+ universe scan. Its 2021 holdout is encouraging but small (7 trades), so it is not yet production/forward-ready by itself.
+
+## Additional timeframe check: AAVE M15
+Exact 5m->M15, same `NORMAL+T+1` and original VN windows:
+- n=50
+- gross +13.5135R
+- net 5/2/5 +6.6942R
+- net E +0.1339R
+- PF 1.2034
+- max DD 7.2208R
+- median stop distance ~0.706%
+- negative net years: 2021, 2024, 2026 through Aug14.
+
+M15 increases trade count but is materially less stable than AAVE M30, so it is secondary research only and does not replace M30.
+
+## Cost robustness of AAVE+RUNE M30
+Full 2021 through 2026-08-14, n=65:
+- fee 5/2/5: +13.5545R, E +0.2085, PF 1.3288, max DD 6.8557R
+- fee 4.5/1.8/4.5: +14.2661R, E +0.2195, PF 1.3501
+- 6bps equivalent: +15.9030R, E +0.2447, PF 1.4047
+- all-maker 2/2: +17.4910R, E +0.2691, PF 1.4562
+- equivalent break-even friction ~26.01bps.
+
+But temporal stability is weak after combining RUNE:
+- 2024: -5.6632R net
+- 2026 through Aug14: -1.0582R net
+- combined 2024-26 is negative despite positive full-history total.
+Thus AAVE+RUNE remains a breadth research candidate, not a stronger replacement for AAVE M30 alone.
