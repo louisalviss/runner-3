@@ -1,0 +1,34 @@
+name: WR2513 Recovery Hash
+on:
+  push:
+    branches: [recovery/wr2513-hash-20260923]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decrypt and verify canonical source without exposing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUTOMATION_KEY:-}"
+          echo "::add-mask::$AUTOMATION_KEY"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY \
+            -in ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes -out /tmp/wr2513.pine
+          SHA="$(sha256sum /tmp/wr2513.pine | awk '{print $1}')"
+          BYTES="$(wc -c </tmp/wr2513.pine)"
+          LINES="$(wc -l </tmp/wr2513.pine)"
+          echo "WR2513_RECOVERY_SHA256=$SHA"
+          echo "WR2513_RECOVERY_BYTES=$BYTES"
+          echo "WR2513_RECOVERY_LINES=$LINES"
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' /tmp/wr2513.pine
+          grep -Fq 'use_bar_magnifier=false' /tmp/wr2513.pine
+          test "$SHA" = "$EXPECTED_SHA256"
+          echo 'WR2513_RECOVERY_VERIFY=PASS'
+          rm -f /tmp/wr2513.pine
