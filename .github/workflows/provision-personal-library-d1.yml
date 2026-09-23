@@ -17,6 +17,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +33,7 @@ jobs:
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$RUNNER3_CORE_TOKEN"
           test -s cloudflare/runner3-core/migrations-personal-library/0001_library_file_index_v1.sql
 
       - name: Find or create personal-library D1
@@ -123,3 +125,36 @@ jobs:
           git add cloudflare/runner3-core/wrangler.jsonc
           git commit -m 'Bind dedicated personal-library D1'
           git push origin HEAD:main
+
+      - name: Verify D1 data and live Worker authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const cfToken=process.env.CLOUDFLARE_API_TOKEN;
+          const db=process.env.PERSONAL_LIBRARY_DB_ID;
+          const coreToken=process.env.RUNNER3_CORE_TOKEN;
+          async function d1(sql){
+            const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${db}/query`,{
+              method:'POST',headers:{Authorization:`Bearer ${cfToken}`,'Content-Type':'application/json'},body:JSON.stringify({sql})
+            });
+            const b=await r.json();
+            if(!r.ok||b.success!==true) throw new Error(`d1_verify_${r.status}`);
+            const result=Array.isArray(b.result)?b.result[0]:b.result;
+            return result?.results||[];
+          }
+          (async()=>{
+            const countRows=await d1('SELECT COUNT(*) AS n FROM library_file_index_v1');
+            const categoryRows=await d1('SELECT category,COUNT(*) AS n FROM library_file_index_v1 GROUP BY category ORDER BY category');
+            const count=Number(countRows[0]?.n||0);
+            const cats=Object.fromEntries(categoryRows.map(x=>[x.category,Number(x.n||0)]));
+            if(count!==1655||cats.ebook!==1618||cats.comic!==37) throw new Error(`personal_library_parity_failed count=${count} cats=${JSON.stringify(cats)}`);
+            const r=await fetch('https://runner3-core.ducduy2411.workers.dev/library-index/meta',{
+              headers:{Authorization:`Bearer ${coreToken}`,'User-Agent':'personal-library-cutover-verify/1.0'}
+            });
+            const meta=await r.json();
+            if(!r.ok||meta.ok!==true||meta.authority!=='personal-library'||Number(meta.count)!==1655) throw new Error(`core_authority_failed status=${r.status} authority=${meta.authority} count=${meta.count}`);
+            console.log(JSON.stringify({ok:true,database:'personal-library',count,categories:cats,worker_authority:meta.authority}));
+          })().catch(err=>{console.error(String(err.message||err));process.exit(1)});
+          NODE
