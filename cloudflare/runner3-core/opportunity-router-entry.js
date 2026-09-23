@@ -1,4 +1,5 @@
 import { handleMailboxFast } from "./mailbox-fast-entry.js";
+import { handleLibraryIndex } from "./src/library-index.js";
 
 let appPromise = null;
 let opportunityPromise = null;
@@ -38,6 +39,9 @@ function isPrivateCoreFastPath(pathname) { return pathname.startsWith("/artifact
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/library-index")) {
+      return handleLibraryIndex(request, env, url);
+    }
     if (isMailboxPath(url.pathname)) {
       const response = await handleMailboxFast(request, env, url);
       if (response) return response;
