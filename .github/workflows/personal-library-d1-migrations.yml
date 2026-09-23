@@ -1,0 +1,80 @@
+name: Personal Library D1 Migrations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/personal-library-d1-migrations.yml'
+      - 'cloudflare/runner3-core/migrations-personal-library/**'
+      - 'cloudflare/runner3-core/wrangler.jsonc'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-library-d1-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate dedicated binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('cloudflare/runner3-core/wrangler.jsonc','utf8'));
+          const x=(d.d1_databases||[]).find(x=>x.binding==='LIBRARY_DB');
+          if(!x || x.database_name!=='personal-library' || !x.database_id || x.migrations_dir!=='migrations-personal-library') process.exit(2);
+          console.log('PERSONAL_LIBRARY_BINDING_OK');
+          NODE
+          test -s cloudflare/runner3-core/migrations-personal-library/0001_library_file_index_v1.sql
+
+      - name: Apply Personal Library migrations
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 migrations apply personal-library --remote
+
+      - name: Verify schema and data preserved
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute personal-library --remote --json \
+            --command='SELECT COUNT(*) AS n FROM library_file_index_v1' > /tmp/personal-library-count.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const root=JSON.parse(fs.readFileSync('/tmp/personal-library-count.json','utf8'));
+          const seen=new Set();
+          function walk(v){
+            if(!v || typeof v!=='object' || seen.has(v)) return null;
+            seen.add(v);
+            if(Object.prototype.hasOwnProperty.call(v,'n') && Number.isFinite(Number(v.n))) return Number(v.n);
+            for(const x of Object.values(v)){ const r=walk(x); if(r!==null) return r; }
+            return null;
+          }
+          const n=walk(root);
+          if(n===null || n<1655) throw new Error(`personal_library_count_invalid:${n}`);
+          console.log(`PERSONAL_LIBRARY_MIGRATION_OK count=${n}`);
+          NODE
