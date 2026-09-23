@@ -1,0 +1,40 @@
+name: WR Cross Asset META Fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-crossasset-meta-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --disable-pip-version-check dukascopy-python pandas
+      - name: Pin canonical verifier
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Map META to Dukascopy legacy FB instrument
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('wave-rider-verify/wr_crossasset_backtest.py')
+          s=p.read_text()
+          old="    sym=symbol.upper()\n    if sym in EXPLICIT:"
+          new="    sym=symbol.upper()\n    if sym=='META': return 'FB.US/USD'\n    if sym in EXPLICIT:"
+          assert old in s
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Backtest META
+        run: python wave-rider-verify/wr_crossasset_backtest.py --symbol META --out /tmp/out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-crossasset-META-fixed
+          path: /tmp/out
+          retention-days: 14
