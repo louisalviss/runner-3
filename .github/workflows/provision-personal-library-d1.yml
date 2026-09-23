@@ -106,8 +106,9 @@ jobs:
           const i=d.d1_databases.findIndex(x=>x.binding==='LIBRARY_DB');
           if(i>=0) d.d1_databases[i]=binding; else d.d1_databases.push(binding);
           fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');
+          const verify=JSON.parse(fs.readFileSync(p,'utf8')).d1_databases.find(x=>x.binding==='LIBRARY_DB');
+          if(!verify || verify.database_name!=='personal-library' || !verify.database_id) process.exit(2);
           NODE
-          node -e "const d=require('./cloudflare/runner3-core/wrangler.jsonc'); const x=d.d1_databases.find(x=>x.binding==='LIBRARY_DB'); if(!x||x.database_name!=='personal-library'||!x.database_id) process.exit(2)"
 
       - name: Persist binding to main
         shell: bash
