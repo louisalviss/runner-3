@@ -155,6 +155,7 @@ jobs:
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_evidence_projection.mjs
           node scripts/verify_interest_ontology.mjs
+          node scripts/verify_content_identity_resolution.mjs
 
       - name: Apply Core D1 migrations
         shell: bash

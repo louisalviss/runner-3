@@ -36,6 +36,13 @@ function normalizedItem(row={}){
   return {...row,item_id:itemId,canonical_url:canonicalUrl,source_type:sourceType};
 }
 
+async function resolveCanonicalItemIdentity(env,row){
+  const item=normalizedItem(row);
+  const existing=await env.DB.prepare("SELECT item_id FROM content_items WHERE canonical_url=? LIMIT 1").bind(item.canonical_url).first();
+  const existingId=text(existing?.item_id,4096)?.trim();
+  return existingId ? {...item,item_id:existingId} : item;
+}
+
 function itemStatement(env,row){
   const r=normalizedItem(row);
   return env.DB.prepare(`INSERT INTO content_items(item_id,canonical_url,source_type,source_name,source_key,title,published_at,captured_at,language,raw_ref,content_hash,metadata_json,first_seen_at,last_seen_at)
@@ -79,7 +86,9 @@ async function handleItems(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
-    const list=rows(await request.json()).map(normalizedItem);
+    const incoming=rows(await request.json()).map(normalizedItem);
+    const list=[];
+    for(const row of incoming) list.push(await resolveCanonicalItemIdentity(env,row));
     const itemResults=await env.DB.batch(list.map(r=>itemStatement(env,r)));
     const itemChanges=itemResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
     const heartbeatResults=await env.DB.batch(list.map(r=>heartbeatStatement(env,r)));
@@ -166,7 +175,7 @@ async function handleInterestIngest(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
-    const body=await request.json(); const item=normalizedItem(body.item||body);
+    const body=await request.json(); const item=await resolveCanonicalItemIdentity(env,body.item||body);
     const itemResult=await itemStatement(env,item).run();
     const heartbeatResult=await heartbeatStatement(env,item).run();
     let featureChanges=0;
@@ -210,7 +219,7 @@ async function handleInterestSave(request,env){
   const e=requireDb(env)||requireAuth(request,env); if(e)return e;
   if(request.method!=="POST")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   try{
-    const body=await request.json(); const item=normalizedItem(body.item||body);
+    const body=await request.json(); const item=await resolveCanonicalItemIdentity(env,body.item||body);
     const itemResult=await itemStatement(env,item).run();
     const heartbeatResult=await heartbeatStatement(env,item).run();
     const semantic=await enrichItem(env,item);
