@@ -10,6 +10,10 @@ function reply(value, status = 200) {
   return Response.json(value, { status, headers: { "cache-control": "private, no-store" } });
 }
 
+function libraryDb(env) {
+  return env.LIBRARY_DB || env.DB || null;
+}
+
 function requireAuth(request, env) {
   const expected = typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
   if (!expected) return reply({ ok: false, error: "LIBRARY_INDEX_AUTH_NOT_CONFIGURED" }, 503);
@@ -83,13 +87,15 @@ function page(url) {
 }
 
 async function meta(env) {
-  const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${TABLE}`).first();
-  const cats = await env.DB.prepare(`SELECT category,COUNT(*) AS n FROM ${TABLE} GROUP BY category ORDER BY category`).all();
-  const updated = await env.DB.prepare(`SELECT MAX(updated_at) AS latest FROM ${TABLE}`).first();
-  return { ok: true, schema_version: 1, count: Number(count?.n || 0), categories: cats.results || [], latest_updated_at: updated?.latest || null };
+  const db = libraryDb(env);
+  const count = await db.prepare(`SELECT COUNT(*) AS n FROM ${TABLE}`).first();
+  const cats = await db.prepare(`SELECT category,COUNT(*) AS n FROM ${TABLE} GROUP BY category ORDER BY category`).all();
+  const updated = await db.prepare(`SELECT MAX(updated_at) AS latest FROM ${TABLE}`).first();
+  return { ok: true, schema_version: 1, authority: env.LIBRARY_DB ? "personal-library" : "runner3-core-fallback", count: Number(count?.n || 0), categories: cats.results || [], latest_updated_at: updated?.latest || null };
 }
 
 async function batchUpsert(request, env) {
+  const db = libraryDb(env);
   let body;
   try { body = await request.json(); } catch { return reply({ ok: false, error: "INVALID_JSON" }, 400); }
   if (!Array.isArray(body?.items) || !body.items.length || body.items.length > MAX_BATCH) {
@@ -102,19 +108,20 @@ async function batchUpsert(request, env) {
   const cols = [...FIELDS, "row_hash"];
   const assignments = cols.slice(1).map((c) => `${c}=excluded.${c}`).join(",");
   const sql = `INSERT INTO ${TABLE}(${cols.join(",")},updated_at) VALUES(${cols.map(() => "?").join(",")},CURRENT_TIMESTAMP) ON CONFLICT(library_id) DO UPDATE SET ${assignments},updated_at=CURRENT_TIMESTAMP`;
-  const statements = hashed.map(({ item, row_hash }) => env.DB.prepare(sql).bind(...FIELDS.map((k) => item[k] ?? null), row_hash));
-  await env.DB.batch(statements);
+  const statements = hashed.map(({ item, row_hash }) => db.prepare(sql).bind(...FIELDS.map((k) => item[k] ?? null), row_hash));
+  await db.batch(statements);
   const ids = items.map((x) => x.library_id);
-  const readback = await env.DB.prepare(`SELECT library_id,row_hash FROM ${TABLE} WHERE library_id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
+  const readback = await db.prepare(`SELECT library_id,row_hash FROM ${TABLE} WHERE library_id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
   const got = new Map((readback.results || []).map((r) => [r.library_id, r.row_hash]));
   const verified = hashed.every((x) => got.get(x.item.library_id) === x.row_hash);
   const m = await meta(env);
-  await env.DB.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('record_count',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(String(m.count)).run();
-  await env.DB.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('last_write',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(new Date().toISOString()).run();
-  return reply({ ok: verified, durable: verified, d1_readback: verified, accepted: items.length, count: m.count }, verified ? 200 : 500);
+  await db.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('record_count',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(String(m.count)).run();
+  await db.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('last_write',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(new Date().toISOString()).run();
+  return reply({ ok: verified, durable: verified, d1_readback: verified, accepted: items.length, count: m.count, authority: m.authority }, verified ? 200 : 500);
 }
 
 async function search(env, url) {
+  const db = libraryDb(env);
   const q = normalize(url.searchParams.get("q") || "");
   if (!q) return reply({ ok: false, error: "q required" }, 400);
   const { limit, offset } = page(url);
@@ -123,13 +130,14 @@ async function search(env, url) {
   const where = terms.map(() => "search_text LIKE ?");
   const params = terms.map((t) => `%${t}%`);
   if (category) { where.push("category=?"); params.push(category); }
-  const rows = await env.DB.prepare(`SELECT ${FIELDS.join(",")} FROM ${TABLE} WHERE ${where.join(" AND ")} ORDER BY category,title,volume,library_id LIMIT ? OFFSET ?`).bind(...params, limit, offset).all();
+  const rows = await db.prepare(`SELECT ${FIELDS.join(",")} FROM ${TABLE} WHERE ${where.join(" AND ")} ORDER BY category,title,volume,library_id LIMIT ? OFFSET ?`).bind(...params, limit, offset).all();
   return reply({ ok: true, query: q, count: (rows.results || []).length, items: rows.results || [], limit, offset });
 }
 
 export async function handleLibraryIndex(request, env, url) {
   if (!url.pathname.startsWith("/library-index")) return null;
-  if (!env.DB) return reply({ ok: false, error: "D1_NOT_BOUND" }, 503);
+  const db = libraryDb(env);
+  if (!db) return reply({ ok: false, error: "D1_NOT_BOUND" }, 503);
   const authError = requireAuth(request, env); if (authError) return authError;
   if (request.method === "POST" && url.pathname === "/library-index/batch") return batchUpsert(request, env);
   if (request.method !== "GET") return reply({ ok: false, error: "method_not_allowed" }, 405);
@@ -137,11 +145,11 @@ export async function handleLibraryIndex(request, env, url) {
   if (url.pathname === "/library-index/search") return search(env, url);
   const { limit, offset } = page(url);
   if (url.pathname === "/library-index/hashes") {
-    const rows = await env.DB.prepare(`SELECT library_id,row_hash,updated_at FROM ${TABLE} ORDER BY library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
+    const rows = await db.prepare(`SELECT library_id,row_hash,updated_at FROM ${TABLE} ORDER BY library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
     return reply({ ok: true, items: rows.results || [], limit, offset });
   }
   if (url.pathname === "/library-index") {
-    const rows = await env.DB.prepare(`SELECT ${FIELDS.join(",")} FROM ${TABLE} ORDER BY category,title,volume,library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
+    const rows = await db.prepare(`SELECT ${FIELDS.join(",")} FROM ${TABLE} ORDER BY category,title,volume,library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
     return reply({ ok: true, items: rows.results || [], limit, offset });
   }
   return reply({ ok: false, error: "NOT_FOUND" }, 404);
