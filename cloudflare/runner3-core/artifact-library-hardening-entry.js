@@ -1,4 +1,5 @@
 import app from "./artifact-list-entry.js";
+import { handlePersonalLibrary } from "./personal-library-entry.js";
 
 const ARTIFACT_PREFIXES = ["/artifact-library", "/artifact-list"];
 const LIBRARY_COOKIE = "r3_artifact_library";
@@ -324,7 +325,7 @@ function injectLibraryControls(body) {
 
   body = body.replace(
     logoutPattern,
-    '<div style="display:flex;gap:8px;align-items:center"><button class="logout" id="change-pin-button" type="button">PIN</button><button class="logout" id="magic-link-button" type="button">Magic link</button>$1</div>',
+    '<div style="display:flex;gap:8px;align-items:center"><a class="logout" href="/artifact-library/personal" style="text-decoration:none">Personal</a><button class="logout" id="change-pin-button" type="button">PIN</button><button class="logout" id="magic-link-button" type="button">Magic link</button>$1</div>',
   );
 
   const script = `<script>
@@ -428,6 +429,20 @@ async function handleLibraryHome(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    const personalRoute = url.pathname === "/artifact-library/personal" || url.pathname === "/artifact-library/api/personal-meta" || url.pathname === "/artifact-library/api/personal-search";
+    if (personalRoute) {
+      if (!(await hasLibrarySession(request, env))) {
+        if (url.pathname === "/artifact-library/personal") {
+          const login = new URL(request.url);
+          login.pathname = "/artifact-library";
+          login.search = "";
+          return Response.redirect(login.toString(), 303);
+        }
+        return hardenedJson({ ok: false, error: "UNAUTHORIZED" }, 401);
+      }
+      return handlePersonalLibrary(request, env, url);
+    }
 
     if (url.pathname === "/artifact-library") return handleLibraryHome(request, env, ctx);
     if (url.pathname === "/artifact-library/login") return handlePinLogin(request, env);
