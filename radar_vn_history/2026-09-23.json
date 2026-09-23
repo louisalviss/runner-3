@@ -10,37 +10,47 @@
     "f33_after_midnight_grace_hours": 3,
     "forum_min_local_hour": 20
   },
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
-  "close_quality": false,
-  "blocking_reasons": [
-    "f33_history_missing"
-  ],
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
+  "close_quality": true,
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-09-23.json",
       "present": true,
-      "sha256": "bd9d07810b5512e93a3ae9f794c545a5f538b813388b1912a7bce6c0b8d14468",
+      "sha256": "1d284e92391e143f22c3ba1cceec6ed5c781c6c15e3f443d1f223839d51c4b11",
       "status": "HEALTHY",
       "vietnam_date": "2026-09-23",
-      "captured_at": "2026-09-22T17:46:22.846350+00:00",
+      "captured_at": "2026-09-23T13:01:35.786600+00:00",
       "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-09-23.json",
-      "present": false
+      "present": true,
+      "sha256": "f1fa5d0e0393316fd296db77d09b53c78bb28bf27f626912b4723afac3e9b25a",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-09-23",
+      "generated_at": "2026-09-23T19:15:23.392Z",
+      "run_id": 35907863989,
+      "artifact_id": 10771657165,
+      "threads_discovered": 20,
+      "expected_pages_total": 58,
+      "fetched_pages_total": 58,
+      "missing_pages_total": 0,
+      "posts_total": 846,
+      "target_date_source": "workflow_dispatch_input_after_midnight_grace"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-09-23.json",
       "present": true,
-      "sha256": "f0c7bb73eddf8f53c18f5c138b3e1d0f038679bcc24aa43bff15b45096e5dcdb",
+      "sha256": "e258e6d9b5283b073185a1d6e8fe4a8ba51e868bd54781caae90ab6ba2da4058",
       "status": "HEALTHY",
       "vietnam_date": "2026-09-23",
-      "generated_at": "2026-09-22T17:50:39.233Z",
-      "run_id": 35762484594,
-      "artifact_id": 10711256436,
-      "posts_total": 826,
+      "generated_at": "2026-09-23T13:03:23.600Z",
+      "run_id": 35863694284,
+      "artifact_id": 10752525120,
+      "posts_total": 892,
       "crawl_outcome": "success"
     }
   }
