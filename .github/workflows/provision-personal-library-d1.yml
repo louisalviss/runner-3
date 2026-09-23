@@ -1,0 +1,112 @@
+name: Provision Personal Library D1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/provision-personal-library-d1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate credentials and schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -s cloudflare/runner3-core/migrations-personal-library/0001_library_file_index_v1.sql
+
+      - name: Find or create personal-library D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 list --json > /tmp/d1-list.json
+          db_id="$(node - <<'NODE'
+          const fs=require('fs');
+          const root=JSON.parse(fs.readFileSync('/tmp/d1-list.json','utf8'));
+          const seen=new Set();
+          function walk(v){
+            if(!v || typeof v!=='object' || seen.has(v)) return null;
+            seen.add(v);
+            if(v.name==='personal-library') return v.uuid||v.database_id||v.id||null;
+            for(const x of Object.values(v)){ const r=walk(x); if(r) return r; }
+            return null;
+          }
+          process.stdout.write(String(walk(root)||''));
+          NODE
+          )"
+          if [[ -z "$db_id" ]]; then
+            npx --yes wrangler@4 d1 create personal-library --json > /tmp/d1-create.json
+            db_id="$(node - <<'NODE'
+          const fs=require('fs');
+          const root=JSON.parse(fs.readFileSync('/tmp/d1-create.json','utf8'));
+          const seen=new Set();
+          function walk(v){
+            if(!v || typeof v!=='object' || seen.has(v)) return null;
+            seen.add(v);
+            if((v.name==='personal-library'||v.database_name==='personal-library')) return v.uuid||v.database_id||v.id||null;
+            for(const x of Object.values(v)){ const r=walk(x); if(r) return r; }
+            return null;
+          }
+          process.stdout.write(String(walk(root)||root.uuid||root.database_id||root.id||''));
+          NODE
+            )"
+          fi
+          test -n "$db_id"
+          echo "PERSONAL_LIBRARY_DB_ID=$db_id" >> "$GITHUB_ENV"
+          echo "PERSONAL_LIBRARY_D1_READY"
+
+      - name: Apply Personal Library schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute personal-library --remote \
+            --file=cloudflare/runner3-core/migrations-personal-library/0001_library_file_index_v1.sql
+
+      - name: Bind LIBRARY_DB in Runner3 Core
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const p='cloudflare/runner3-core/wrangler.jsonc';
+          const d=JSON.parse(fs.readFileSync(p,'utf8'));
+          d.d1_databases ||= [];
+          const binding={binding:'LIBRARY_DB',database_name:'personal-library',database_id:process.env.PERSONAL_LIBRARY_DB_ID,migrations_dir:'migrations-personal-library'};
+          const i=d.d1_databases.findIndex(x=>x.binding==='LIBRARY_DB');
+          if(i>=0) d.d1_databases[i]=binding; else d.d1_databases.push(binding);
+          fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');
+          NODE
+          node -e "const d=require('./cloudflare/runner3-core/wrangler.jsonc'); const x=d.d1_databases.find(x=>x.binding==='LIBRARY_DB'); if(!x||x.database_name!=='personal-library'||!x.database_id) process.exit(2)"
+
+      - name: Persist binding to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- cloudflare/runner3-core/wrangler.jsonc; then
+            echo "LIBRARY_DB_BINDING_ALREADY_CURRENT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/wrangler.jsonc
+          git commit -m 'Bind dedicated personal-library D1'
+          git push origin HEAD:main
