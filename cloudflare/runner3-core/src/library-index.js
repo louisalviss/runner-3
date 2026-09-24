@@ -107,17 +107,20 @@ async function batchUpsert(request, env) {
   for (const item of items) hashed.push({ item, row_hash: await hashItem(item) });
   const cols = [...FIELDS, "row_hash"];
   const assignments = cols.slice(1).map((c) => `${c}=excluded.${c}`).join(",");
-  const sql = `INSERT INTO ${TABLE}(${cols.join(",")},updated_at) VALUES(${cols.map(() => "?").join(",")},CURRENT_TIMESTAMP) ON CONFLICT(library_id) DO UPDATE SET ${assignments},updated_at=CURRENT_TIMESTAMP`;
+  const sql = `INSERT INTO ${TABLE}(${cols.join(",")},updated_at) VALUES(${cols.map(() => "?").join(",")},CURRENT_TIMESTAMP) ON CONFLICT(library_id) DO UPDATE SET ${assignments},updated_at=CURRENT_TIMESTAMP WHERE ${TABLE}.row_hash IS NOT excluded.row_hash`;
   const statements = hashed.map(({ item, row_hash }) => db.prepare(sql).bind(...FIELDS.map((k) => item[k] ?? null), row_hash));
-  await db.batch(statements);
+  const writeResults = await db.batch(statements);
+  const changed = writeResults.reduce((sum, result) => sum + Number(result?.meta?.changes || 0), 0);
   const ids = items.map((x) => x.library_id);
   const readback = await db.prepare(`SELECT library_id,row_hash FROM ${TABLE} WHERE library_id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all();
   const got = new Map((readback.results || []).map((r) => [r.library_id, r.row_hash]));
   const verified = hashed.every((x) => got.get(x.item.library_id) === x.row_hash);
   const m = await meta(env);
-  await db.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('record_count',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(String(m.count)).run();
-  await db.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('last_write',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(new Date().toISOString()).run();
-  return reply({ ok: verified, durable: verified, d1_readback: verified, accepted: items.length, count: m.count, authority: m.authority }, verified ? 200 : 500);
+  await db.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('record_count',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP WHERE library_index_meta_v1.v IS NOT excluded.v").bind(String(m.count)).run();
+  if (changed > 0) {
+    await db.prepare("INSERT INTO library_index_meta_v1(k,v,updated_at) VALUES('last_write',?,CURRENT_TIMESTAMP) ON CONFLICT(k) DO UPDATE SET v=excluded.v,updated_at=CURRENT_TIMESTAMP").bind(new Date().toISOString()).run();
+  }
+  return reply({ ok: verified, durable: verified, d1_readback: verified, accepted: items.length, changed, count: m.count, authority: m.authority }, verified ? 200 : 500);
 }
 
 async function search(env, url) {
