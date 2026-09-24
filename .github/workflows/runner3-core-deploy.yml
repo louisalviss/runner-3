@@ -62,6 +62,8 @@ jobs:
           node --check cloudflare/runner3-core/src/rss-reader-page-v7.js
           node --check cloudflare/runner3-core/src/rss-reader-page-v8.js
           node --check cloudflare/runner3-core/src/index.js
+          node --check cloudflare/runner3-core/src/library-index.js
+          node scripts/verify_library_index_d1_quota_guards.mjs
           python3 -m py_compile scripts/ebook_reader_audio_tts.py scripts/ebook_reader_audio_tts_v2.py scripts/ebook_reader_audio_tts_daemon.py
           grep -q 'rss-reader-read-fast-v3-isolated-stream' cloudflare/runner3-core/rss-reader-read-fast-entry.js
           grep -q 'routeDelivery' cloudflare/runner3-core/rss-reader-read-fast-entry.js
