@@ -325,7 +325,7 @@ function injectLibraryControls(body) {
 
   body = body.replace(
     logoutPattern,
-    '<div style="display:flex;gap:8px;align-items:center"><a class="logout" href="/artifact-library/personal" style="text-decoration:none">Personal</a><button class="logout" id="change-pin-button" type="button">PIN</button><button class="logout" id="magic-link-button" type="button">Magic link</button>$1</div>',
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><a class="logout" href="/artifact-library/personal" style="text-decoration:none;background:#eef3f8;color:#0b0d10;font-weight:800">🔎 Tìm thư viện</a><button class="logout" id="change-pin-button" type="button">PIN</button><button class="logout" id="magic-link-button" type="button">Magic link</button>$1</div>',
   );
 
   const script = `<script>
