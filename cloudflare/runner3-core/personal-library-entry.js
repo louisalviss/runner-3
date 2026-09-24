@@ -163,7 +163,7 @@ function shell() {
 </style>
 </head>
 <body><main class="wrap">
-<div class="top"><div><a class="back" href="/artifact-library">← Library</a><div class="eyebrow">Runner3 · D1</div><h1>Personal Library</h1></div><div class="count" id="total-count">…</div></div>
+<div class="top"><div><a class="back" href="/artifact-library/r2">R2 files</a><div class="eyebrow">Runner3 · D1</div><h1>Personal Library</h1></div><div class="count" id="total-count">…</div></div>
 <section class="panel">
 <form class="search" id="search-form"><input id="q" name="q" autocomplete="off" placeholder="Tên sách, tác giả, bộ, tập…"><button>Tìm</button></form>
 <div class="filters">

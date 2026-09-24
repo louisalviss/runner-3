@@ -419,11 +419,28 @@ async function handleLibraryHome(request, env, ctx) {
   if (request.method !== "GET") return hardenedJson({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
   if (!expectedArtifactToken(env)) return hardenedHtml(pinLoginPage("Library authentication is not configured."), 503);
   if (await hasLibrarySession(request, env)) {
-    return hardenArtifactResponse(request, await app.fetch(request, env, ctx));
+    const target = new URL(request.url);
+    target.pathname = "/artifact-library/personal";
+    target.search = "";
+    return Response.redirect(target.toString(), 303);
   }
   if (!env.DB) return hardenedHtml(pinLoginPage("Library authentication database is unavailable."), 503);
   const record = await getPinRecord(env);
   return hardenedHtml(record ? pinLoginPage() : pinSetupPage());
+}
+
+async function handleR2LibraryHome(request, env, ctx) {
+  if (request.method !== "GET") return hardenedJson({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+  if (!(await hasLibrarySession(request, env))) {
+    const login = new URL(request.url);
+    login.pathname = "/artifact-library";
+    login.search = "";
+    return Response.redirect(login.toString(), 303);
+  }
+  const upstream = new URL(request.url);
+  upstream.pathname = "/artifact-library";
+  upstream.search = "";
+  return hardenArtifactResponse(request, await app.fetch(new Request(upstream.toString(), request), env, ctx));
 }
 
 export default {
@@ -445,6 +462,7 @@ export default {
     }
 
     if (url.pathname === "/artifact-library") return handleLibraryHome(request, env, ctx);
+    if (url.pathname === "/artifact-library/r2") return handleR2LibraryHome(request, env, ctx);
     if (url.pathname === "/artifact-library/login") return handlePinLogin(request, env);
     if (url.pathname === "/artifact-library/setup-pin") return handleSetupPin(request, env);
     if (url.pathname === "/artifact-library/reset-pin" && request.method === "GET") return hardenedHtml(pinSetupPage("", true));
