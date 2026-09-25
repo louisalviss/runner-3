@@ -18,6 +18,7 @@ if old_loading in text:
     text = replace_once(text, old_loading, new_loading, 'loading hidden by default')
 
 old_block = """  async function signedUrl(){
+    if(directSource)return directSource;
     const r=await fetch('/artifact-library/api/delivery',{method:'POST',headers:{'content-type':'application/json','x-runner3-library':'1'},body:JSON.stringify({key,ttl_seconds:3600})});
     const data=await r.json();if(!r.ok||data.ok!==true||!data.delivery?.url)throw new Error(data.error||('HTTP '+r.status));return data.delivery.url;
   }
@@ -100,6 +101,7 @@ new_block = """  const R3_EPUB_CACHE_DB='r3-reader-epub-cache-v49';
   }
 
   async function signedUrl(){
+    if(directSource)return directSource;
     const r=await fetch('/artifact-library/api/delivery',{method:'POST',headers:{'content-type':'application/json','x-runner3-library':'1'},body:JSON.stringify({key,ttl_seconds:3600})});
     const data=await r.json();if(!r.ok||data.ok!==true||!data.delivery?.url)throw new Error(data.error||('HTTP '+r.status));return data.delivery.url;
   }
