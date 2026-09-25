@@ -71,6 +71,7 @@ function cleanItem(raw) {
   };
   if (!item.library_id || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/.test(item.library_id)) throw new Error("invalid library_id");
   if (!item.category || !/^[a-z][a-z0-9_-]{0,39}$/.test(item.category)) throw new Error("invalid category");
+  if (item.category !== "ebook") throw new Error("web index accepts ebook only");
   if (!item.chat_id || item.message_id == null || item.message_id <= 0) throw new Error("telegram identity required");
   if (!item.search_text) item.search_text = normalize([item.title,item.creator,item.series,item.file_name,item.tags].filter(Boolean).join(" "));
   return item;
@@ -88,8 +89,8 @@ function page(url) {
 
 async function meta(env) {
   const db = libraryDb(env);
-  const count = await db.prepare(`SELECT COUNT(*) AS n FROM ${TABLE}`).first();
-  const cats = await db.prepare(`SELECT category,COUNT(*) AS n FROM ${TABLE} GROUP BY category ORDER BY category`).all();
+  const count = await db.prepare(`SELECT COUNT(*) AS n FROM ${TABLE} WHERE category='ebook'`).first();
+  const cats = await db.prepare(`SELECT category,COUNT(*) AS n FROM ${TABLE} WHERE category='ebook' GROUP BY category ORDER BY category`).all();
   const updated = await db.prepare(`SELECT MAX(updated_at) AS latest FROM ${TABLE}`).first();
   return { ok: true, schema_version: 1, authority: env.LIBRARY_DB ? "personal-library" : "runner3-core-fallback", count: Number(count?.n || 0), categories: cats.results || [], latest_updated_at: updated?.latest || null };
 }
