@@ -191,7 +191,8 @@ function card(x){
   const series=x.series?'<span>📚 '+e(x.series)+(x.volume!=null?' · Tập '+String(x.volume).padStart(2,'0'):'')+'</span>':(x.volume!=null?'<span>🔢 Tập '+e(x.volume)+'</span>':'');
   const fmt=[x.format?String(x.format).toUpperCase():'',size(x.size)].filter(Boolean).join(' · ');
   const badge='<span class="badge '+e(x.category)+'">'+(x.category==='comic'?'COMIC':'EBOOK')+'</span>';
-  const open=x.telegram_link?'<a class="open" href="'+e(x.telegram_link)+'" target="_blank" rel="noreferrer">Mở Telegram ↗</a>':'';
+  const isEpub=String(x.format||'').toLowerCase()==='epub';
+  const open=isEpub?'<a class="open" href="/artifact-library/read?library_id='+encodeURIComponent(String(x.library_id||''))+'">Đọc</a>':(x.telegram_link?'<a class="open" href="'+e(x.telegram_link)+'" target="_blank" rel="noreferrer">Mở Telegram ↗</a>':'');
   const fmtHtml=fmt?'<span>📄 '+e(fmt)+'</span>':'';
   return '<article class="item"><div><div>'+badge+'</div><div class="title">'+e(x.title||x.file_name||x.library_id)+'</div><div class="meta">'+creator+series+fmtHtml+'</div></div>'+open+'</article>';
 }

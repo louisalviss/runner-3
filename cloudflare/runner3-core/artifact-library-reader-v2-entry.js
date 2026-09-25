@@ -24,6 +24,31 @@ function isFinalEpub(key) {
   return typeof key === "string" && key.startsWith(ROOT) && key.includes("/final/") && key.toLowerCase().endsWith(".epub");
 }
 
+const LIBRARY_COOKIE = "r3_artifact_library";
+const TELEGRAM_LIBRARY_ORIGIN = "https://62-83-35-116.sslip.io/tg-library";
+const LIBRARY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/;
+
+function libraryDb(env) { return env.LIBRARY_DB || env.DB || null; }
+function cookieValue(request, name) {
+  const raw = request.headers.get("Cookie") || "";
+  for (const part of raw.split(";")) {
+    const i = part.indexOf("=");
+    if (i >= 0 && part.slice(0,i).trim() === name) return part.slice(i+1).trim();
+  }
+  return "";
+}
+async function librarySessionValue(env) {
+  const token = typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
+  if (!token) return "";
+  const bytes = new TextEncoder().encode(`runner3-artifact-library-v1:${token}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b)=>b.toString(16).padStart(2,"0")).join("");
+}
+async function hasLibrarySession(request, env) {
+  const expected = await librarySessionValue(env);
+  return Boolean(expected) && cookieValue(request, LIBRARY_COOKIE) === expected;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -38,9 +63,10 @@ function displayName(key) {
   try { return decodeURIComponent(raw).replace(/\.epub$/i, ""); } catch { return raw.replace(/\.epub$/i, ""); }
 }
 
-function readerPage(key) {
-  const safeTitle = escapeHtml(displayName(key));
+function readerPage(key, sourcePath = "", explicitTitle = "") {
+  const safeTitle = escapeHtml(explicitTitle || displayName(key));
   const keyJson = JSON.stringify(key).replaceAll("<", "\\u003c");
+  const sourceJson = JSON.stringify(sourcePath).replaceAll("<", "\\u003c");
   return `<!doctype html>
 <html lang="vi">
 <head>
@@ -74,6 +100,7 @@ function readerPage(key) {
 <script>
 (() => {
   const key=${keyJson};
+  const directSource=${sourceJson};
   const keys={
     font:'r3-reader-font-size',theme:'r3-reader-theme',nav:'r3-reader-navigation',margin:'r3-reader-margin',line:'r3-reader-line-height',position:'r3-reader-position:'+key
   };
@@ -155,6 +182,7 @@ function readerPage(key) {
   }
 
   async function signedUrl(){
+    if(directSource)return directSource;
     const r=await fetch('/artifact-library/api/delivery',{method:'POST',headers:{'content-type':'application/json','x-runner3-library':'1'},body:JSON.stringify({key,ttl_seconds:3600})});
     const data=await r.json();if(!r.ok||data.ok!==true||!data.delivery?.url)throw new Error(data.error||('HTTP '+r.status));return data.delivery.url;
   }
@@ -218,9 +246,56 @@ function readerPage(key) {
 </html>`;
 }
 
+async function telegramEpub(request, env) {
+  if (request.method !== "GET") return json({ ok:false, error:"METHOD_NOT_ALLOWED" },405);
+  if (!(await hasLibrarySession(request, env))) return json({ ok:false, error:"UNAUTHORIZED" },401);
+  const url = new URL(request.url);
+  const libraryId = String(url.searchParams.get("library_id") || "");
+  if (!LIBRARY_ID_RE.test(libraryId)) return json({ ok:false, error:"INVALID_LIBRARY_ID" },400);
+  const db = libraryDb(env);
+  if (!db) return json({ ok:false, error:"LIBRARY_DB_MISSING" },503);
+  const row = await db.prepare("SELECT library_id FROM library_file_index_v1 WHERE library_id=? AND category='ebook' AND LOWER(format)='epub'").bind(libraryId).first();
+  if (!row) return json({ ok:false, error:"EPUB_NOT_FOUND" },404);
+  const token = typeof env.RUNNER3_CORE_TOKEN === "string" ? env.RUNNER3_CORE_TOKEN.trim() : "";
+  if (!token) return json({ ok:false, error:"TELEGRAM_READER_AUTH_NOT_CONFIGURED" },503);
+  let upstream;
+  try {
+    upstream = await fetch(`${TELEGRAM_LIBRARY_ORIGIN}/epub?library_id=${encodeURIComponent(libraryId)}`, {
+      headers:{"Authorization":`Bearer ${token}`,"Accept":"application/epub+zip"},
+    });
+  } catch {
+    return json({ ok:false, error:"TELEGRAM_READER_UNAVAILABLE" },502);
+  }
+  if (!upstream.ok || !upstream.body) return json({ ok:false, error:"TELEGRAM_EPUB_FETCH_FAILED" }, upstream.status === 404 ? 404 : 502);
+  const out = new Headers();
+  out.set("Content-Type", upstream.headers.get("Content-Type") || "application/epub+zip");
+  const len = upstream.headers.get("Content-Length"); if (len) out.set("Content-Length", len);
+  const disp = upstream.headers.get("Content-Disposition"); if (disp) out.set("Content-Disposition", disp);
+  out.set("Cache-Control", "private, no-store");
+  out.set("X-Content-Type-Options", "nosniff");
+  return new Response(upstream.body,{status:200,headers:out});
+}
+
 async function reader(request, env) {
   if (request.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
   const url = new URL(request.url);
+  const libraryId = String(url.searchParams.get("library_id") || "");
+  if (libraryId) {
+    if (!(await hasLibrarySession(request, env))) return new Response(null,{status:303,headers:headers({Location:"/artifact-library"})});
+    if (!LIBRARY_ID_RE.test(libraryId)) return json({ok:false,error:"INVALID_LIBRARY_ID"},400);
+    const db = libraryDb(env);
+    if (!db) return json({ok:false,error:"LIBRARY_DB_MISSING"},503);
+    const row = await db.prepare("SELECT library_id,title FROM library_file_index_v1 WHERE library_id=? AND category='ebook' AND LOWER(format)='epub'").bind(libraryId).first();
+    if (!row) return json({ok:false,error:"EPUB_NOT_FOUND"},404);
+    const source = `/artifact-library/api/telegram-epub?library_id=${encodeURIComponent(libraryId)}`;
+    return new Response(readerPage(`telegram:${libraryId}`, source, String(row.title || "EPUB")), {
+      status:200,
+      headers:headers({
+        "Content-Type":"text/html; charset=utf-8",
+        "Content-Security-Policy":"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data: blob:; font-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self' blob:; child-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      }),
+    });
+  }
   const key = String(url.searchParams.get("key") || "");
   if (!isFinalEpub(key)) return new Response(null, { status: 303, headers: headers({ Location: "/artifact-library" }) });
   if (!env.ARTIFACTS) return json({ ok: false, error: "ARTIFACTS_BINDING_MISSING" }, 503);
@@ -238,6 +313,7 @@ async function reader(request, env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === "/artifact-library/api/telegram-epub") return telegramEpub(request, env);
     if (url.pathname === "/artifact-library/read") return reader(request, env);
     return app.fetch(request, env, ctx);
   },
