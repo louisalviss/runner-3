@@ -1,0 +1,71 @@
+name: WR2513 Exact Recovery Temp
+
+on:
+  push:
+    branches:
+      - recovery/wr2513-window-report-20260925
+    paths:
+      - '.github/workflows/wr2513-recovery-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUTOMATION_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_SHA256: 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026
+    steps:
+      - name: Recover and verify exact plaintext
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$AUTOMATION_KEY"
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/09427cdd9f95f091dd40495863c71ccab81c6ee0/ops/tradingview/wave-rider-v2.5.13-window-report.pine.aes' -o /tmp/wr2513.aes
+          test "$(stat -c '%s' /tmp/wr2513.aes)" = "38432"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AUTOMATION_KEY -in /tmp/wr2513.aes -out /tmp/wr2513.pine
+          SHA="$(sha256sum /tmp/wr2513.pine | awk '{print $1}')"
+          echo "RECOVERED_SHA256=$SHA"
+          echo "RECOVERED_BYTES=$(stat -c '%s' /tmp/wr2513.pine)"
+          test "$SHA" = "$EXPECTED_SHA256"
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' /tmp/wr2513.pine
+
+      - name: Encrypt recovered plaintext for transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/recovery_pub.pem <<'PUB'
+          -----BEGIN PUBLIC KEY-----
+          MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAvpA45RMDZnbNzJFZ2w0J
+          IsYIte3+41GvIlrxuOyq8tyU4qyQOkUlVm+aKtAF6Vamv+pGsy7UlNzDAlXoWnRr
+          LICd+/xRjR/UiXpPU5XWrcRnjgTdjaYsgM5xYxfnYmba2BZJFXUfrAD+6eusn0Bi
+          fBIyu3AgJJgrAZHbGKjptXqdk/YZmStbxK43GH23j7HqjgalxzggBKIK53P6JyGl
+          8ZKm8tpinZDZOLBjzTTUiEMZU9RtntT6iJgNQgSFDomalxBYT7ItV4ylMQ0JJjwG
+          RPo8Z4o0ol7H/2kbC8xoN3zrnnzK8fM5Ya0eta1zY4lT2t4oxCJPmW60NOOwQxpF
+          A5Y06tUeq0BcWO5dLDZ12DJKXWgstjgoxqRYjadNDAFCFGf9XZkV3+bY8PUqHMdQ
+          XDlIGGtzsWuN6ZbkVqati5LCFWFA7dCovNK4SCaLdwRNQeD1Kq/hk5PYaqVO5IYu
+          q3ituwYbjTdSQpbn5+k/9aw4X+gnhem/qKpTk6Jr7VnX7xd2lc7BwKxOcrp9xsiL
+          jrctXH+udg6yWJY9hO/XTf4nNVste4NbsVC4yKz0zVflMTdu2laGQofxWNLuuBeK
+          Dg7IzC+xAeprWlD0MsLK6decAEbJ0jB1311Q6fqJ2pgSSnOB1aMa8IKXWC65963r
+          ZgCmIK7Zg05CzlZXvPbBGOUCAwEAAQ==
+          -----END PUBLIC KEY-----
+          PUB
+          openssl rand -hex 32 >/tmp/wrap_key.txt
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass file:/tmp/wrap_key.txt -in /tmp/wr2513.pine -out /tmp/wr2513.pine.enc
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/recovery_pub.pem -in /tmp/wrap_key.txt -out /tmp/wrap_key.rsa
+          sha256sum /tmp/wr2513.pine.enc /tmp/wrap_key.rsa
+
+      - name: Upload encrypted recovery bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: wr2513-exact-recovery-encrypted
+          path: |
+            /tmp/wr2513.pine.enc
+            /tmp/wrap_key.rsa
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/wr2513.aes /tmp/wr2513.pine /tmp/recovery_pub.pem /tmp/wrap_key.txt /tmp/wr2513.pine.enc /tmp/wrap_key.rsa
