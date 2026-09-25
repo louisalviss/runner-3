@@ -70,12 +70,12 @@ function validFormat(value) {
 
 async function meta(env) {
   const db = libraryDb(env);
-  const total = await db.prepare(`SELECT COUNT(*) AS n FROM ${TABLE}`).first();
+  const total = await db.prepare(`SELECT COUNT(*) AS n FROM ${TABLE} WHERE category='ebook'`).first();
   const groups = await db.prepare(
-    `SELECT category, COUNT(*) AS n FROM ${TABLE} GROUP BY category ORDER BY category`,
+    `SELECT category, COUNT(*) AS n FROM ${TABLE} WHERE category='ebook' GROUP BY category ORDER BY category`,
   ).all();
   const formats = await db.prepare(
-    `SELECT format, COUNT(*) AS n FROM ${TABLE} GROUP BY format ORDER BY n DESC, format LIMIT 30`,
+    `SELECT format, COUNT(*) AS n FROM ${TABLE} WHERE category='ebook' GROUP BY format ORDER BY n DESC, format LIMIT 30`,
   ).all();
   const unknown = await db.prepare(
     `SELECT COUNT(*) AS n FROM ${TABLE} WHERE category='ebook' AND (creator IS NULL OR TRIM(creator)='')`,
@@ -103,7 +103,7 @@ async function search(env, url) {
   const limit = safeLimit(url);
   const offset = safeOffset(url);
 
-  const where = [];
+  const where = ["category = 'ebook'"];
   const params = [];
   if (q) {
     for (const term of q.split(/\s+/).filter(Boolean).slice(0, 12)) {
@@ -163,11 +163,11 @@ function shell() {
 </style>
 </head>
 <body><main class="wrap">
-<div class="top"><div><a class="back" href="/artifact-library/r2">R2 files</a><div class="eyebrow">Runner3 · D1</div><h1>Personal Library</h1></div><div class="count" id="total-count">…</div></div>
+<div class="top"><div><a class="back" href="/artifact-library/r2">R2 files</a><div class="eyebrow">Runner3 · D1</div><h1>Ebook Library</h1></div><div class="count" id="total-count">…</div></div>
 <section class="panel">
 <form class="search" id="search-form"><input id="q" name="q" autocomplete="off" placeholder="Tên sách, tác giả, bộ, tập…"><button>Tìm</button></form>
 <div class="filters">
-<button class="chip active" data-cat="">Tất cả</button><button class="chip" data-cat="ebook">📚 Ebook</button><button class="chip" data-cat="comic">🗯 Truyện tranh</button>
+<button class="chip active" data-cat="">📚 Ebook</button>
 <select id="format"><option value="">Mọi định dạng</option></select>
 <select id="sort"><option value="title">Tên A–Z</option><option value="creator">Tác giả A–Z</option><option value="series">Series / tập</option></select>
 <select id="limit"><option value="100">100 mục / trang</option><option value="40">40 mục / trang</option></select>
