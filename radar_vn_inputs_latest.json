@@ -1,41 +1,43 @@
 {
-  "generated_at": "2026-09-27T18:02:14.175141+00:00",
-  "status": "READY",
-  "render_allowed": true,
-  "full_quality": true,
-  "blocking_reasons": [],
+  "generated_at": "2026-09-27T22:35:12.928346+00:00",
+  "status": "BLOCKED",
+  "render_allowed": false,
+  "full_quality": false,
+  "blocking_reasons": [
+    "forum_signal_not_usable_fresh"
+  ],
   "inputs": {
     "trends": {
       "path": "trends_vn_latest.json",
       "ok": true,
       "status": "HEALTHY",
-      "captured_at": "2026-09-27T17:57:18.029829+00:00",
-      "age_minutes": 4.9,
+      "captured_at": "2026-09-27T22:35:00.291354+00:00",
+      "age_minutes": 0.2,
       "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_latest.json",
       "ok": true,
       "status": "HEALTHY",
-      "generated_at": "2026-09-27T17:47:30.183Z",
-      "age_minutes": 14.7,
-      "run_id": 36338105846,
-      "artifact_id": 10937509126,
+      "generated_at": "2026-09-27T19:17:33.411Z",
+      "age_minutes": 197.7,
+      "run_id": 36343685202,
+      "artifact_id": 10939407939,
       "threads_discovered": 20,
-      "expected_pages_total": 74,
-      "fetched_pages_total": 74,
+      "expected_pages_total": 70,
+      "fetched_pages_total": 70,
       "missing_pages_total": 0,
-      "posts_total": 1120
+      "posts_total": 1092
     },
     "forum_signal": {
       "path": "forum_signal_latest.json",
-      "ok": true,
-      "status": "HEALTHY",
-      "generated_at": "2026-09-27T18:01:58.828Z",
-      "age_minutes": 0.3,
-      "run_id": 36338657400,
-      "artifact_id": 10937759651,
-      "crawl_outcome": "success"
+      "ok": false,
+      "status": "RUNNING",
+      "generated_at": "2026-09-27T22:29:55.311Z",
+      "age_minutes": 5.3,
+      "run_id": 36355481597,
+      "artifact_id": 0,
+      "crawl_outcome": null
     }
   }
 }
