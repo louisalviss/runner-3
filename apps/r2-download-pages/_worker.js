@@ -18,12 +18,15 @@ export default {
 
     let upstreamUrl;
     let forcedName = null;
+    let vbookRoute = false;
     if (url.pathname === '/vbook/latest.epub') {
       upstreamUrl = VBOOK_ORIGIN + '/latest.epub';
       forcedName = 'VBook-latest.epub';
+      vbookRoute = true;
     } else if (url.pathname === '/vbook/import.shortcut' || url.pathname === '/vbook/install') {
       upstreamUrl = VBOOK_ORIGIN + '/import.shortcut';
       forcedName = 'VBook-Import-Latest.shortcut';
+      vbookRoute = true;
     } else {
       upstreamUrl = R2_ORIGIN + url.pathname;
     }
@@ -35,7 +38,7 @@ export default {
     h.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     h.set('X-Content-Type-Options','nosniff');
     h.set('X-Robots-Tag','noindex, nofollow, noarchive, nosnippet');
-    h.set('Cache-Control','public, max-age=60');
+    h.set('Cache-Control', vbookRoute ? 'no-store, max-age=0' : 'public, max-age=60');
     return new Response(request.method==='HEAD'?null:upstream.body,{status:200,headers:h});
   }
 };
