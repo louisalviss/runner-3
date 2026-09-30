@@ -1,13 +1,9 @@
 name: Reader v69 Audio Dock Reading Inset Live Smoke
 
+# Legacy v69 geometry smoke retained for manual regression checks only. It
+# targets the retired R2 Library root and is superseded by the authenticated
+# production Reader acceptance checks.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/reader-v39-home-screen-live-smoke.yml'
-  workflow_run:
-    workflows: ["Runner3 Core Production Deploy"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
