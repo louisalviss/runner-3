@@ -324,8 +324,10 @@ jobs:
           tr -d '\r' </tmp/library-owner-v87.h >/tmp/library-owner-v87.h.clean
           powner="$(grep -i '^x-r3-owner-session:' /tmp/library-owner-v87.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
           pmax="$(grep -i '^x-r3-owner-session-max-age:' /tmp/library-owner-v87.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
-          echo "EBOOK_V87_PERSISTENT_SESSION http=$pcode owner=$powner max_age=$pmax"
-          test "$pcode" = 200
+          plocation="$(grep -i '^location:' /tmp/library-owner-v87.h.clean | sed 's/^[^:]*:[[:space:]]*//' || true)"
+          echo "EBOOK_V87_PERSISTENT_SESSION http=$pcode owner=$powner max_age=$pmax location=$plocation"
+          test "$pcode" = 303
+          case "$plocation" in */artifact-library/personal) ;; *) echo "Unexpected Library root redirect: $plocation"; exit 1;; esac
           test "$powner" = 'single-owner-v87-persistent'
           test "$pmax" = '315360000'
           grep -qi 'set-cookie: r3_artifact_library=.*Max-Age=315360000' /tmp/library-owner-v87.h.clean
