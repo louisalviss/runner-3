@@ -20,15 +20,23 @@ helper=helper_anchor+'''\nfunction r3SingleOwnerCookieV73(value) {
 '''
 text=text.replace(helper_anchor,helper,1)
 old='''    if (p === "/artifact-library") {
-      if (request.method !== "GET") return redirectHome();
-      if (!(await hasBrowserLibrarySession(request, env))) return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
-      return new Response(libraryPage(), { status: 200, headers: headers({ "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "X-R3-Progress-Recovery": "v70", "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }) });
+      const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
+      const startupHeaders = { "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "X-R3-Progress-Recovery": "v70" };
+      const h = new Headers(response.headers);
+      for (const [name, value] of Object.entries(startupHeaders)) h.set(name, value);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
     }'''
 new='''    if (p === "/artifact-library") {
-      if (request.method !== "GET") return redirectHome();
-      if (!(await hasBrowserLibrarySession(request, env))) return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
-      const ownerSession = await sessionValue(env);
-      return new Response(libraryPage(), { status: 200, headers: headers({ "Set-Cookie": r3SingleOwnerCookieV73(ownerSession), "X-R3-Owner-Session": "single-owner-v73", "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "X-R3-Progress-Recovery": "v72", "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }) });
+      const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
+      const startupHeaders = { "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "X-R3-Progress-Recovery": "v72" };
+      const h = new Headers(response.headers);
+      for (const [name, value] of Object.entries(startupHeaders)) h.set(name, value);
+      if (await hasBrowserLibrarySession(request, env)) {
+        const ownerSession = await sessionValue(env);
+        h.set("Set-Cookie", r3SingleOwnerCookieV73(ownerSession));
+        h.set("X-R3-Owner-Session", "single-owner-v73");
+      }
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
     }'''
 if old not in text: raise SystemExit('V73_LIBRARY_ROOT_ANCHOR_MISSING')
 text=text.replace(old,new,1)

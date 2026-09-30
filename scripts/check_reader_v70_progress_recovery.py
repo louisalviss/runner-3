@@ -13,7 +13,7 @@ markers=[
 "ROOT+'_system/progress-v70/latest.json'",
 "ROOT+'_system/progress-v70/snapshots/'+day+'.json'",
 "recovery_version:'v70'",
-'if (!(await hasBrowserLibrarySession(request, env))) return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);',
+'const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);',
 '"X-R3-Progress-Recovery": "v70"',
 ]
 for m in markers:

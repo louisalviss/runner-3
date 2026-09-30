@@ -15,10 +15,15 @@ if "R3_PERSISTENT_OWNER_SESSION_V87='v87'" not in simple:
     new="const R3_PERSISTENT_OWNER_SESSION_V87='v87';\nconst R3_PERSISTENT_OWNER_SESSION_SECONDS_V87=10*365*24*60*60;\nconst R3_SINGLE_OWNER_SESSION_SECONDS_V73=R3_PERSISTENT_OWNER_SESSION_SECONDS_V87;"
     if old not in simple: raise SystemExit('V87_SIMPLE_SESSION_ANCHOR_MISSING')
     simple=simple.replace(old,new,1)
-    old_header='"X-R3-Owner-Session": "single-owner-v73"'
-    new_header='"X-R3-Owner-Session": "single-owner-v87-persistent", "X-R3-Owner-Session-Max-Age": String(R3_PERSISTENT_OWNER_SESSION_SECONDS_V87)'
-    if old_header not in simple: raise SystemExit('V87_SIMPLE_HEADER_ANCHOR_MISSING')
-    simple=simple.replace(old_header,new_header,1)
+    old_header='h.set("X-R3-Owner-Session", "single-owner-v73");'
+    new_header='h.set("X-R3-Owner-Session", "single-owner-v87-persistent");\n        h.set("X-R3-Owner-Session-Max-Age", String(R3_PERSISTENT_OWNER_SESSION_SECONDS_V87));'
+    if old_header in simple:
+        simple=simple.replace(old_header,new_header,1)
+    else:
+        legacy_header='"X-R3-Owner-Session": "single-owner-v73"'
+        legacy_new='"X-R3-Owner-Session": "single-owner-v87-persistent", "X-R3-Owner-Session-Max-Age": String(R3_PERSISTENT_OWNER_SESSION_SECONDS_V87)'
+        if legacy_header not in simple: raise SystemExit('V87_SIMPLE_HEADER_ANCHOR_MISSING')
+        simple=simple.replace(legacy_header,legacy_new,1)
 
 
 if "R3_READER_PERSISTENT_SESSION_V87='v87'" not in v7:

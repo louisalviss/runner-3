@@ -27,6 +27,7 @@ elif 'r3LoadLegacyLibraryAppV57' not in simple:
 
 simple = simple.replace('return app.fetch(forwarded, env, ctx);', 'return (await r3LoadLegacyLibraryAppV57()).fetch(forwarded, env, ctx);')
 simple = simple.replace('const response = await app.fetch(inner, env, ctx);', 'const response = await (await r3LoadLegacyLibraryAppV57()).fetch(inner, env, ctx);')
+simple = simple.replace('const response = await app.fetch(request, env, ctx);', 'const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);')
 simple = simple.replace('return app.fetch(request, env, ctx);', 'return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);')
 simple = simple.replace('if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);', 'const app = await r3LoadLegacyLibraryAppV57();\n    if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);')
 

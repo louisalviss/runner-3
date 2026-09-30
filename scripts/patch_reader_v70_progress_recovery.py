@@ -116,16 +116,21 @@ function r3CleanRenameV65'''
 text = text[:m.start()] + new_server + text[m.end():]
 
 root_old = '''    if (p === "/artifact-library") {
-      if (request.method !== "GET") return redirectHome();
-      return new Response(libraryPage(), { status: 200, headers: headers({ "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }) });
+      const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
+      const startupHeaders = { "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68" };
+      const h = new Headers(response.headers);
+      for (const [name, value] of Object.entries(startupHeaders)) h.set(name, value);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
     }'''
 root_new = '''    if (p === "/artifact-library") {
-      if (request.method !== "GET") return redirectHome();
-      if (!(await hasBrowserLibrarySession(request, env))) return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
-      return new Response(libraryPage(), { status: 200, headers: headers({ "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "X-R3-Progress-Recovery": "v70", "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }) });
+      const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);
+      const startupHeaders = { "X-R3-Reader-IOS-Startup-Viewport": "full-bleed-v68", "X-R3-Progress-Recovery": "v70" };
+      const h = new Headers(response.headers);
+      for (const [name, value] of Object.entries(startupHeaders)) h.set(name, value);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
     }'''
 if root_old not in text:
-    raise SystemExit('v70 authenticated root anchor missing')
+    raise SystemExit('v70 delegated root anchor missing')
 text = text.replace(root_old, root_new, 1)
 
 for marker in [
@@ -138,7 +143,7 @@ for marker in [
     'async function r3SnapshotProgressV70',
     "ROOT+'_system/progress-v70/latest.json'",
     "recovery_version:'v70'",
-    'if (!(await hasBrowserLibrarySession(request, env))) return (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);',
+    'const response = await (await r3LoadLegacyLibraryAppV57()).fetch(request, env, ctx);',
     '"X-R3-Progress-Recovery": "v70"',
 ]:
     if marker not in text:
