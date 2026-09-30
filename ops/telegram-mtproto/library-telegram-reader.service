@@ -1,0 +1,32 @@
+[Unit]
+Description=Telegram-backed EPUB reader service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/vps-control/content-intelligence-bridge.env
+ExecStart=/opt/telegram-mtproto/run-node-secure.sh /opt/telegram-mtproto/library-telegram-reader.js
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/opt/telegram-mtproto
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+ReadOnlyPaths=/etc/vps-control/content-intelligence-bridge.env /etc/vps-secrets/bitwarden.env /var/lib/telegram-media/library/library-index.jsonl
+ReadWritePaths=/var/cache/telegram-library-reader /run/telegram-mtproto
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

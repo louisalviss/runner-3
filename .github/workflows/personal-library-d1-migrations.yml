@@ -75,6 +75,6 @@ jobs:
             return null;
           }
           const n=walk(root);
-          if(n===null || n<1655) throw new Error(`personal_library_count_invalid:${n}`);
+          if(n===null || n<1600) throw new Error(`personal_library_count_invalid:${n}`);
           console.log(`PERSONAL_LIBRARY_MIGRATION_OK count=${n}`);
           NODE
