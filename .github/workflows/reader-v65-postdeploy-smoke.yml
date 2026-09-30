@@ -1,9 +1,9 @@
 name: Reader v65 Post-Deploy Smoke
 
+# Legacy v65 smoke retained for manual regression checks only. The production
+# deploy workflow now owns authenticated Library/Reader acceptance for the
+# Personal Library and current Reader runtime.
 on:
-  workflow_run:
-    workflows: ["Runner3 Core Production Deploy"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
