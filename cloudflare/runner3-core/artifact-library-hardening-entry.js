@@ -447,7 +447,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    const personalRoute = url.pathname === "/artifact-library/personal" || url.pathname === "/artifact-library/api/personal-meta" || url.pathname === "/artifact-library/api/personal-search";
+    const personalRoute = url.pathname === "/artifact-library/personal" || url.pathname === "/artifact-library/api/personal-meta" || url.pathname === "/artifact-library/api/personal-search" || url.pathname === "/artifact-library/api/personal-favorite";
     if (personalRoute) {
       if (!(await hasLibrarySession(request, env))) {
         if (url.pathname === "/artifact-library/personal") {
