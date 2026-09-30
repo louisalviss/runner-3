@@ -17,10 +17,13 @@ export default {
     if (!url.pathname || url.pathname === '/' || url.pathname.includes('..')) return new Response('Not Found',{status:404});
 
     let upstreamUrl;
+    let forcedName = null;
     if (url.pathname === '/vbook/latest.epub') {
       upstreamUrl = VBOOK_ORIGIN + '/latest.epub';
-    } else if (url.pathname === '/vbook/import.shortcut') {
+      forcedName = 'VBook-latest.epub';
+    } else if (url.pathname === '/vbook/import.shortcut' || url.pathname === '/vbook/install') {
       upstreamUrl = VBOOK_ORIGIN + '/import.shortcut';
+      forcedName = 'VBook-Import-Latest.shortcut';
     } else {
       upstreamUrl = R2_ORIGIN + url.pathname;
     }
@@ -28,7 +31,7 @@ export default {
     const upstream = await fetch(upstreamUrl, {method:request.method, headers:{'Accept-Encoding':'identity'}});
     if (!upstream.ok) return new Response('Not Found',{status:upstream.status===404?404:upstream.status});
     const h = new Headers(upstream.headers);
-    const filename = safeName(url.pathname);
+    const filename = forcedName || safeName(url.pathname);
     h.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     h.set('X-Content-Type-Options','nosniff');
     h.set('X-Robots-Tag','noindex, nofollow, noarchive, nosnippet');
