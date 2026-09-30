@@ -11,10 +11,15 @@ exec 9>"$LOCK"
 flock -n 9 || exit 0
 
 log(){ printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
+run_semrush(){
+  log 'Consuming SeoTrends Semrush queue on VPS'
+  timeout 15m python3 "$BASE/scripts/semrush_daily.py" --date "$DAY" || log 'Semrush daily consumer timed out or returned non-zero'
+}
 run_local(){
   log 'GitHub primary unavailable; running VPS fallback compute'
   python3 "$BASE/scripts/refresh.py"
   python3 "$BASE/scripts/daily_scan.py" --max 300 --workers 16 --timeout 5
+  run_semrush
   timeout 10m /usr/local/sbin/seotrends-telegram-sync || log 'Telegram sync timed out or returned non-zero'
   python3 - "$STATE" "$DAY" <<'PY'
 import json,sys,os
@@ -81,7 +86,9 @@ cp -f "$TMP/changes/$DAY-removed.txt" "$BASE/changes/$DAY-removed.txt" 2>/dev/nu
 cp -f "$TMP/scans/$DAY-candidates.jsonl" "$BASE/scans/$DAY-candidates.jsonl" 2>/dev/null || :
 cp -f "$TMP/scans/$DAY-candidates.csv" "$BASE/scans/$DAY-candidates.csv" 2>/dev/null || :
 cp -f "$TMP/scans/$DAY-shortlist.md" "$BASE/scans/$DAY-shortlist.md" 2>/dev/null || :
+cp -f "$TMP/scans/$DAY-semrush-queue.json" "$BASE/scans/$DAY-semrush-queue.json" 2>/dev/null || :
 python3 "$BASE/scripts/rebuild_sqlite.py" "$cur" "$BASE/data/domains.sqlite"
+run_semrush
 timeout 10m /usr/local/sbin/seotrends-telegram-sync || log 'Telegram sync timed out or returned non-zero'
 printf '{\n  "date": "%s",\n  "source": "github-primary",\n  "run_id": "%s"\n}\n' "$DAY" "$run_id" > "$STATE.tmp"
 mv -f "$STATE.tmp" "$STATE"
