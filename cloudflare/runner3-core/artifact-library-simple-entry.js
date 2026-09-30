@@ -196,8 +196,11 @@ export default {
     const url = new URL(request.url);
     const p = url.pathname;
     if (p === "/artifact-library") {
-      if (request.method !== "GET") return redirectHome();
-      return new Response(libraryPage(), { status: 200, headers: headers({ "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }) });
+      const response = await app.fetch(request, env, ctx);
+      const startupHeaders = { "X-R3-Reader-IOS-Startup-Viewport": "opaque-v39" };
+      const h = new Headers(response.headers);
+      for (const [name, value] of Object.entries(startupHeaders)) h.set(name, value);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
     }
     if (p === "/artifact-library/api/list") return publicList(request, env);
     if (p === "/artifact-library/api/delivery") return publicDelivery(request, env, ctx);
