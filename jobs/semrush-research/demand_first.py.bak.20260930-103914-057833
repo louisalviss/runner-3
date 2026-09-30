@@ -287,7 +287,7 @@ def cluster_summary(project: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     for r in rows:
         for t in set(r["tokens"]):
             token_freq[t] += 1
-    label_tokens = [t for t, _ in sorted(token_freq.items(), key=lambda kv: (-kv[1], -len(kv[0]), kv[0]))[:4]]
+    label_tokens = [t for t, _ in sorted(token_freq.items(), key=lambda kv: (kv[1], len(kv[0])), reverse=True)[:4]]
     top = sorted(rows, key=lambda r: (r["volume"], -(r["kd"] or 999)), reverse=True)[:8]
     return {
         "project": project,
