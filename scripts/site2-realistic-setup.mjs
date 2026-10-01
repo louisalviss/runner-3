@@ -3,242 +3,35 @@
 import fs from 'node:fs';
 import { chromium } from 'playwright-core';
 
-const target = (process.env.SITE2_URL || 'https://runner3-wp-a94b8fd2.wasmer.app').replace(/\/$/, '');
-const fixtureZip = process.env.FIXTURE_ZIP;
-const fixturePluginSlug = process.env.FIXTURE_PLUGIN_SLUG || 'runner3-site2-fixture-v2';
-const out = process.env.SETUP_OUT || '/tmp/site2-realistic-setup.json';
-let token = String(process.env.WASMER_TOKEN || '').replace(/[\r\n]/g, '').trim();
-if (!token) throw new Error('WASMER_TOKEN is required');
-if (!token.startsWith('wap_')) token = `wap_${token}`;
-if (!fixtureZip || !fs.existsSync(fixtureZip)) throw new Error('FIXTURE_ZIP is required');
-if (!/^[a-z0-9-]+$/.test(fixturePluginSlug)) throw new Error('invalid FIXTURE_PLUGIN_SLUG');
-
-const expectedHost = new URL(target).host;
-const liveconfigUrl = `${target}/?rest_route=/wasmer/v1/liveconfig`;
-
-function sanitize(value) {
-  return String(value || '')
-    .replaceAll(token, '[REDACTED]')
-    .replace(/magiclogin=[^&\s"']+/gi, 'magiclogin=[REDACTED]');
-}
-
-async function readLiveconfig() {
-  const response = await fetch(`${liveconfigUrl}&_=${Date.now()}`, {
-    headers: { 'cache-control': 'no-cache' },
-    redirect: 'follow',
-  });
-  if (!response.ok) throw new Error(`liveconfig returned HTTP ${response.status}`);
-  const data = await response.json();
-  const wpUrl = data?.wordpress?.url;
-  if (!wpUrl) throw new Error('liveconfig missing wordpress.url');
-  if (new URL(wpUrl).host !== expectedHost) throw new Error(`target guard failed: ${wpUrl}`);
-  return data;
-}
-
-function compactLiveconfig(data) {
-  const plugins = Array.isArray(data?.wordpress?.plugins) ? data.wordpress.plugins : [];
-  const themes = Array.isArray(data?.wordpress?.themes) ? data.wordpress.themes : [];
-  return {
-    wordpress_version: data?.wordpress?.version ?? null,
-    url: data?.wordpress?.url ?? null,
-    posts: data?.wordpress?.posts ?? null,
-    pages: data?.wordpress?.pages ?? null,
-    active_theme: themes.find((x) => x.status === 'active')?.name ?? null,
-    active_plugins: plugins
-      .filter((x) => ['active', 'active-network', 'must-use'].includes(x.status))
-      .map((x) => x.name),
-  };
-}
-
-async function gotoAdminHref(page, locator) {
-  const href = await locator.getAttribute('href');
-  if (!href) throw new Error('WordPress admin action link has no href');
-  const resolved = new URL(href, `${target}/wp-admin/`);
-  if (resolved.host !== expectedHost || !resolved.pathname.startsWith('/wp-admin/')) {
-    throw new Error('WordPress admin action target guard failed');
-  }
-  await page.goto(resolved.href, { waitUntil: 'domcontentloaded', timeout: 90_000 });
-}
-
-function fixtureRow(page) {
-  // Match the exact package basename through its plugin action links. This avoids
-  // ambiguity when an older partial upload has the same Plugin Name.
-  return page.locator('tr').filter({
-    has: page.locator(`a[href*="${fixturePluginSlug}"]`),
-  });
-}
-
-async function activateRowIfNeeded(page, rows) {
-  if (!(await rows.count())) return;
-  const activate = rows.first().getByRole('link', { name: /^Activate$/i });
-  if (await activate.count()) await gotoAdminHref(page, activate.first());
-}
-
-async function deactivateFixtureHelper(page) {
-  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  const rows = fixtureRow(page);
-  if (!(await rows.count())) throw new Error(`fixture helper ${fixturePluginSlug} missing before cleanup`);
-  const deactivate = rows.first().getByRole('link', { name: /^Deactivate$/i });
-  if (await deactivate.count()) await gotoAdminHref(page, deactivate.first());
-
-  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  const postRows = fixtureRow(page);
-  if (!(await postRows.count())) throw new Error('fixture helper disappeared during cleanup');
-  const deactivateAfter = postRows.first().getByRole('link', { name: /^Deactivate$/i });
-  if (await deactivateAfter.count()) throw new Error('fixture helper remained active after cleanup');
-  return {
-    verified_inactive: true,
-    source: 'wp-admin/plugins.php:no-deactivate-action',
-  };
-}
-
-async function ensureFixturePlugin(page) {
-  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  if (new URL(page.url()).host !== expectedHost) throw new Error('wp-admin target host changed unexpectedly');
-
-  let row = fixtureRow(page);
-  if (await row.count()) {
-    await activateRowIfNeeded(page, row);
-    return 'reused';
-  }
-
-  await page.goto(`${target}/wp-admin/plugin-install.php?tab=upload`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 60_000,
-  });
-  const input = page.locator('input[type="file"][name="pluginzip"]');
-  await input.waitFor({ state: 'visible', timeout: 30_000 });
-  await input.setInputFiles(fixtureZip);
-  await page.locator('#install-plugin-submit').click();
-  await page.waitForLoadState('domcontentloaded', { timeout: 120_000 }).catch(() => {});
-
-  const body = await page.locator('body').innerText();
-  if (/Destination folder already exists/i.test(body)) {
-    await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    row = fixtureRow(page);
-    if (!(await row.count())) {
-      throw new Error(`fixture package ${fixturePluginSlug} exists but is not enumerable; use a new package slug rather than deleting unknown state`);
-    }
-    await activateRowIfNeeded(page, row);
-    return 'reused';
-  }
-
-  const activateNow = page.locator('a.button.activate-now, a.button[href*="action=activate"]');
-  if (await activateNow.count()) await gotoAdminHref(page, activateNow.first());
-
-  await page.goto(`${target}/wp-admin/plugins.php`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  row = fixtureRow(page);
-  if (!(await row.count())) throw new Error(`fixture plugin ${fixturePluginSlug} was not installed`);
-  await activateRowIfNeeded(page, row);
-  return 'installed';
-}
-
-async function runFixture(page) {
-  await page.goto(`${target}/wp-admin/tools.php?page=runner3-site2-fixture`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 60_000,
-  });
-  if (!/runner3-site2-fixture/.test(page.url())) throw new Error('fixture admin page unavailable');
-  const button = page.locator('input[name="runner3_build"]');
-  await button.waitFor({ state: 'visible', timeout: 30_000 });
-  await button.click({ timeout: 30_000 });
-  await page.waitForLoadState('domcontentloaded', { timeout: 300_000 }).catch(() => {});
-  await page.getByText('RUNNER3_SETUP_DONE').waitFor({ state: 'visible', timeout: 300_000 });
-  return (await page.getByText('RUNNER3_SETUP_DONE').locator('xpath=..').innerText()).slice(0, 3000);
-}
-
-async function verifyFrontend(page) {
-  const checks = {};
-  for (const path of ['/', '/shop/', '/about/', '/contact/', '/faq/', '/field-note-1/']) {
-    const response = await page.goto(`${target}${path}?__fixture_verify=${Date.now()}`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 90_000,
-    });
-    checks[path] = {
-      status: response?.status() ?? null,
-      title: await page.title(),
-      h1: (await page.locator('h1').first().textContent().catch(() => ''))?.trim() || '',
-    };
-    if (!response || response.status() >= 400) throw new Error(`frontend verification failed for ${path}`);
-  }
-
-  await page.goto(`${target}/shop/?__fixture_products=${Date.now()}`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 90_000,
-  });
-  const productCards = await page.locator('li.product, .wc-block-product, .products .product').count();
-  if (productCards < 8) throw new Error(`expected >=8 visible shop product cards, got ${productCards}`);
-  checks.shop_product_cards = productCards;
-  return checks;
-}
-
-const result = {
-  target,
-  fixture: 'astra-woo-v1',
-  fixture_plugin_slug: fixturePluginSlug,
-  started_at: new Date().toISOString(),
-  status: 'starting',
-  before: null,
-  after: null,
-  plugin_action: null,
-  fixture_message: null,
-  frontend: null,
-  fixture_helper_cleanup: null,
-  fixture_helper_active_after_setup: null,
-  fixture_helper_liveconfig_active_after_setup: null,
-};
-
-let browser;
-try {
-  result.before = compactLiveconfig(await readLiveconfig());
-
-  const executablePath = [
-    process.env.CHROME_PATH,
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-  ].filter(Boolean).find((p) => fs.existsSync(p));
-  if (!executablePath) throw new Error('Chrome executable not found');
-
-  browser = await chromium.launch({
-    headless: true,
-    executablePath,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-  });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
-  const page = await context.newPage();
-  page.setDefaultTimeout(60_000);
-  page.setDefaultNavigationTimeout(120_000);
-
-  const magicUrl = `${target}/?rest_route=/wasmer/v1/magiclogin&magiclogin=${encodeURIComponent(token)}`;
-  await page.goto(magicUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 })
-    .catch(() => { throw new Error('Wasmer magic-login navigation failed'); });
-  if (new URL(page.url()).host !== expectedHost || !page.url().includes('/wp-admin')) {
-    throw new Error('Wasmer magic-login did not reach the expected Site2 wp-admin');
-  }
-
-  result.plugin_action = await ensureFixturePlugin(page);
-  result.fixture_message = await runFixture(page);
-  result.fixture_helper_cleanup = await deactivateFixtureHelper(page);
-  result.frontend = await verifyFrontend(page);
-
-  result.after = compactLiveconfig(await readLiveconfig());
-  const plugins = new Set(result.after.active_plugins || []);
-  result.fixture_helper_active_after_setup = !result.fixture_helper_cleanup?.verified_inactive;
-  result.fixture_helper_liveconfig_active_after_setup = plugins.has(fixturePluginSlug);
-  if (result.after.active_theme !== 'astra') throw new Error(`expected active theme astra, got ${result.after.active_theme}`);
-  if (!plugins.has('woocommerce')) throw new Error('WooCommerce is not active after fixture setup');
-  if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive before baseline');
-
-  result.status = 'ready';
-  result.completed_at = new Date().toISOString();
-} catch (error) {
-  result.status = 'failed';
-  result.error = sanitize(error?.stack || error?.message || error);
-  result.completed_at = new Date().toISOString();
-  process.exitCode = 1;
-} finally {
-  if (browser) await browser.close().catch(() => {});
-  fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
-  console.log(JSON.stringify({ ...result, error: result.error ? sanitize(result.error) : undefined }, null, 2));
-}
+const target=(process.env.SITE2_URL||'https://runner3-wp-a94b8fd2.wasmer.app').replace(/\/$/,'');
+const out=process.env.SETUP_OUT||'/tmp/site2-realistic-setup.json';
+const templateName=process.env.STARTER_TEMPLATE_NAME||'Organic Store';
+const fixtureId=process.env.STARTER_FIXTURE_ID||'astra-starter-organic-store-gutenberg';
+const legacySlug=process.env.LEGACY_FIXTURE_PLUGIN_SLUG||'runner3-site2-fixture-v2';
+const wooSamplePath='/tmp/woocommerce-official-sample-products.csv';
+const wooSampleUrl='https://raw.githubusercontent.com/woocommerce/woocommerce/trunk/plugins/woocommerce/sample-data/sample_products.csv';
+let token=String(process.env.WASMER_TOKEN||'').replace(/[\r\n]/g,'').trim();
+if(!token) throw new Error('WASMER_TOKEN is required');
+if(!token.startsWith('wap_')) token=`wap_${token}`;
+const expectedHost=new URL(target).host;
+const liveconfigUrl=`${target}/?rest_route=/wasmer/v1/liveconfig`;
+const sanitize=v=>String(v||'').replaceAll(token,'[REDACTED]').replace(/magiclogin=[^&\s"']+/gi,'magiclogin=[REDACTED]');
+async function readLiveconfig(){const r=await fetch(`${liveconfigUrl}&_=${Date.now()}`,{headers:{'cache-control':'no-cache'},redirect:'follow'});if(!r.ok)throw new Error(`liveconfig returned HTTP ${r.status}`);const d=await r.json();const u=d?.wordpress?.url;if(!u||new URL(u).host!==expectedHost)throw new Error(`target guard failed: ${u}`);return d;}
+const countValue=v=>v&&typeof v==='object'&&'count'in v?Number(v.count||0):Number(v||0);
+function compactLiveconfig(d){const p=Array.isArray(d?.wordpress?.plugins)?d.wordpress.plugins:[];const t=Array.isArray(d?.wordpress?.themes)?d.wordpress.themes:[];return{wordpress_version:d?.wordpress?.version??null,url:d?.wordpress?.url??null,posts:countValue(d?.wordpress?.posts),pages:countValue(d?.wordpress?.pages),active_theme:t.find(x=>x.status==='active')?.name??null,active_plugins:p.filter(x=>['active','active-network','must-use'].includes(x.status)).map(x=>x.name)};}
+async function gotoAdminHref(page,locator){const href=await locator.getAttribute('href');if(!href)throw new Error('WordPress admin action link has no href');const u=new URL(href,`${target}/wp-admin/`);if(u.host!==expectedHost||!u.pathname.startsWith('/wp-admin/'))throw new Error('admin target guard failed');await page.goto(u.href,{waitUntil:'domcontentloaded',timeout:120000});}
+async function domClick(locator){if(!(await locator.count()))return false;await locator.first().evaluate(el=>el.click());return true;}
+async function login(page){await page.goto(`${target}/?rest_route=/wasmer/v1/magiclogin&magiclogin=${encodeURIComponent(token)}`,{waitUntil:'domcontentloaded',timeout:90000});if(new URL(page.url()).host!==expectedHost||!page.url().includes('/wp-admin'))throw new Error('Wasmer magic-login failed');}
+async function cleanupLegacyFixture(page){const result={found:false,reset:false,inactive:false};await page.goto(`${target}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});let row=page.locator('tr').filter({has:page.locator(`a[href*="${legacySlug}"]`)}).first();if(!(await row.count()))return result;result.found=true;const activate=row.getByRole('link',{name:/^Activate$/i});if(await activate.count())await gotoAdminHref(page,activate.first());await page.goto(`${target}/wp-admin/tools.php?page=runner3-site2-fixture`,{waitUntil:'domcontentloaded',timeout:60000});const reset=page.locator('input[name="runner3_reset"]');if(await reset.count()){await reset.click();await page.waitForLoadState('domcontentloaded',{timeout:180000}).catch(()=>{});await page.getByText('RUNNER3_RESET_DONE').waitFor({state:'visible',timeout:180000});result.reset=true;}await page.goto(`${target}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});row=page.locator('tr').filter({has:page.locator(`a[href*="${legacySlug}"]`)}).first();if(await row.count()){const de=row.getByRole('link',{name:/^Deactivate$/i});if(await de.count())await gotoAdminHref(page,de.first());}await page.goto(`${target}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});row=page.locator('tr').filter({has:page.locator(`a[href*="${legacySlug}"]`)}).first();if(await row.count())result.inactive=!(await row.getByRole('link',{name:/^Deactivate$/i}).count());return result;}
+async function ensureAstra(page){await page.goto(`${target}/wp-admin/themes.php`,{waitUntil:'domcontentloaded',timeout:60000});let card=page.locator('.theme[data-slug="astra"]').first();if(!(await card.count())){await page.goto(`${target}/wp-admin/theme-install.php?search=astra`,{waitUntil:'domcontentloaded',timeout:60000});const c=page.locator('.theme[data-slug="astra"]').first();await c.waitFor({state:'visible',timeout:30000});const install=c.locator('.install-now').first();if(await install.count())await gotoAdminHref(page,install);}await page.goto(`${target}/wp-admin/themes.php`,{waitUntil:'domcontentloaded',timeout:60000});card=page.locator('.theme[data-slug="astra"]').first();if(!(await card.count()))throw new Error('Astra theme missing');const activate=card.locator('a.activate').first();if(await activate.count())await gotoAdminHref(page,activate);const live=compactLiveconfig(await readLiveconfig());if(live.active_theme!=='astra')throw new Error(`Astra activation failed: ${live.active_theme}`);}
+async function ensureStarterTemplates(page){await page.goto(`${target}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});let row=page.locator('tr[data-slug="astra-sites"]').first();if(!(await row.count())){await page.goto(`${target}/wp-admin/plugin-install.php?s=Starter%20Templates&tab=search&type=term`,{waitUntil:'domcontentloaded',timeout:90000});const card=page.locator('.plugin-card-astra-sites').first();await card.waitFor({state:'visible',timeout:45000});const install=card.locator('a.install-now').first();if(await install.count())await gotoAdminHref(page,install);}await page.goto(`${target}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});row=page.locator('tr[data-slug="astra-sites"]').first();if(!(await row.count()))throw new Error('Starter Templates plugin missing');const activate=row.locator('a[href*="action=activate"]').first();if(await activate.count())await gotoAdminHref(page,activate);await page.goto(`${target}/wp-admin/plugins.php`,{waitUntil:'domcontentloaded',timeout:60000});row=page.locator('tr[data-slug="astra-sites"]').first();if(!(await row.locator('a[href*="action=deactivate"]').count()))throw new Error('Starter Templates activation did not persist');}
+async function clickButton(page,regex,timeout=5000){const started=Date.now();while(Date.now()-started<timeout){const b=page.getByRole('button',{name:regex}).first();if(await b.count()){await b.evaluate(el=>el.click());return true;}const l=page.getByRole('link',{name:regex}).first();if(await l.count()){await l.evaluate(el=>el.click());return true;}const input=page.locator('input[type="submit"]').filter({has:page.locator('xpath=..')}).first();if(await input.count()){const value=await input.getAttribute('value');if(value&&regex.test(value)){await input.evaluate(el=>el.click());return true;}}await page.waitForTimeout(400);}return false;}
+const authBlocked=text=>/sign in to zipwp|log in to zipwp|create.*zipwp.*account|continue with google/i.test(text||'');
+async function openTemplateCard(exact){await exact.evaluate(el=>{const card=el.closest('.stc-grid-item');const target=card?.querySelector('.stc-grid-site-screenshot')||card?.querySelector('.stc-grid-item-inner');if(!target)throw new Error('Starter Templates clickable preview missing');target.click();});}
+async function findAndOpenTemplate(page){const escaped=templateName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');let exact=page.getByText(new RegExp(`^${escaped}$`,'i')).first();if(await exact.count()){await openTemplateCard(exact);return;}let search=page.locator('input[type="search"]').first();if(!(await search.count()))search=page.locator('input[placeholder*="Search" i]').first();if(!(await search.count()))throw new Error(`Starter Templates search input not found; page=${page.url()}`);await search.fill(templateName).catch(async()=>{await search.evaluate((el,v)=>{el.focus();const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));},templateName);});await page.waitForTimeout(4000);exact=page.getByText(new RegExp(`^${escaped}$`,'i')).first();if(!(await exact.count()))throw new Error(`Official free template not present in current library: ${templateName}`);await openTemplateCard(exact);}
+async function importOfficialStarterTemplate(page){await page.goto(`${target}/wp-admin/themes.php?page=starter-templates`,{waitUntil:'domcontentloaded',timeout:120000});await page.waitForTimeout(5000);let body=await page.locator('body').innerText().catch(()=>'');if(/not allowed to access this page/i.test(body))throw new Error('Starter Templates admin route unavailable after activation');if(authBlocked(body))throw new Error('Starter Templates requires ZipWP authentication');await clickButton(page,/Build with Templates/i,12000);await page.waitForTimeout(5000);body=await page.locator('body').innerText().catch(()=>'');if(/Select Page Builder/i.test(body)){const block=page.getByText(/^Block Editor$/i).first();if(!(await block.count()))throw new Error(`Block Editor option missing; body=${body.slice(0,2000)}`);await domClick(block);await page.waitForTimeout(9000);}body=await page.locator('body').innerText().catch(()=>'');if(authBlocked(body))throw new Error('Classic Starter Templates library requires ZipWP authentication');await findAndOpenTemplate(page);await page.waitForTimeout(5000);body=await page.locator('body').innerText().catch(()=>'');if(/What type of website are you building/i.test(body))throw new Error(`Template preview did not open; body=${body.slice(0,4000)}`);const deadline=Date.now()+180000;let submitted=false;while(Date.now()<deadline){body=await page.locator('body').innerText().catch(()=>'');if(authBlocked(body))throw new Error('Starter Templates import requires ZipWP authentication');if(/view your website|your website is ready|successfully imported|import complete/i.test(body))return{completed:true,source:'starter-templates-ui'};if(await clickButton(page,/Submit & Build My Website|Build My Website|Start Importing|Import Complete Site/i,1500)){submitted=true;break;}const progressed=await clickButton(page,/Skip & Continue|^Continue$|Continue & Build|Skip/i,2500);if(!progressed)await page.waitForTimeout(900);else await page.waitForTimeout(1800);}if(!submitted)throw new Error(`Could not reach complete-site import submit action; body=${body.slice(0,5000)}`);const done=Date.now()+300000;while(Date.now()<done){body=await page.locator('body').innerText().catch(()=>'');if(/view your website|your website is ready|successfully imported|import complete/i.test(body))return{completed:true,source:'starter-templates-ui'};await page.waitForTimeout(1500);}throw new Error(`Starter Templates import did not confirm completion: ${body.slice(0,3000)}`);}
+async function shopProductCards(page){await page.goto(`${target}/shop/?__sample_check=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:90000});return page.locator('li.product, .wc-block-product, .products .product').count();}
+async function ensureWooSampleFile(){if(fs.existsSync(wooSamplePath)&&fs.statSync(wooSamplePath).size>1000)return;const r=await fetch(wooSampleUrl,{redirect:'follow'});if(!r.ok)throw new Error(`official WooCommerce sample CSV download failed: HTTP ${r.status}`);const buf=Buffer.from(await r.arrayBuffer());if(buf.length<1000)throw new Error(`official WooCommerce sample CSV unexpectedly small: ${buf.length}`);fs.writeFileSync(wooSamplePath,buf);}
+async function importOfficialWooSampleProducts(page){await ensureWooSampleFile();await page.goto(`${target}/wp-admin/edit.php?post_type=product&page=product_importer`,{waitUntil:'domcontentloaded',timeout:120000});let body=await page.locator('body').innerText().catch(()=>'');if(/not allowed to access/i.test(body))throw new Error('WooCommerce product importer is inaccessible');const file=page.locator('input[type="file"]').first();if(!(await file.count()))throw new Error(`WooCommerce CSV file input missing; body=${body.slice(0,2500)}`);await file.setInputFiles(wooSamplePath);const cont=page.getByRole('button',{name:/^Continue$/i}).first();if(await cont.count())await cont.click({force:true});else{const submit=page.locator('button[type="submit"], input[type="submit"]').first();if(!(await submit.count()))throw new Error('WooCommerce importer Continue action missing');await submit.click({force:true});}await page.waitForLoadState('domcontentloaded',{timeout:120000}).catch(()=>{});await page.waitForTimeout(2000);body=await page.locator('body').innerText().catch(()=>'');if(/error|invalid file/i.test(body)&&!/mapping/i.test(body))throw new Error(`WooCommerce sample upload failed: ${body.slice(0,2500)}`);let run=page.getByRole('button',{name:/Run the importer|Run importer/i}).first();if(!(await run.count()))run=page.locator('button[type="submit"], input[type="submit"]').filter({hasText:/Run/i}).first();if(!(await run.count())){const candidates=page.locator('button[type="submit"], input[type="submit"]');for(let i=0;i<await candidates.count();i++){const el=candidates.nth(i);const txt=((await el.textContent().catch(()=>''))||await el.getAttribute('value')||'').trim();if(/run.*import/i.test(txt)){run=el;break;}}}if(!(await run.count()))throw new Error(`WooCommerce Run importer action missing; body=${body.slice(0,3500)}`);await run.click({force:true});const deadline=Date.now()+300000;while(Date.now()<deadline){body=await page.locator('body').innerText().catch(()=>'');if(/Import complete!|Import complete|Products imported/i.test(body))return{completed:true,source:'WooCommerce official sample_products.csv',url:wooSampleUrl};if(/failed to import|fatal error|critical error/i.test(body))throw new Error(`WooCommerce sample import failed: ${body.slice(0,3500)}`);await page.waitForTimeout(1500);}throw new Error(`WooCommerce sample import did not complete: ${body.slice(0,3500)}`);}
+async function verifyFrontend(page){const checks={};for(const path of ['/','/shop/','/cart/','/checkout/','/about/','/contact/']){const r=await page.goto(`${target}${path}?__official_demo_verify=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:90000});checks[path]={status:r?.status()??null,title:await page.title(),h1:(await page.locator('h1').first().textContent().catch(()=>''))?.trim()||''};if(!r||r.status()>=400)throw new Error(`frontend verification failed for ${path}`);}const productCards=await shopProductCards(page);if(productCards<4)throw new Error(`expected official sample product cards, got ${productCards}`);checks.shop_product_cards=productCards;await page.goto(`${target}/?__official_demo_home=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:90000});const bodyText=(await page.locator('body').innerText()).trim();if(bodyText.length<800)throw new Error(`homepage is not a full demo; body text only ${bodyText.length} chars`);checks.home_body_chars=bodyText.length;checks.home_images=await page.locator('main img, #content img, .site-content img').count();return checks;}
+const result={target,fixture:fixtureId,source:'official Astra Starter Templates complete-site demo',template:templateName,started_at:new Date().toISOString(),status:'starting',before:null,after:null,legacy_cleanup:null,import:null,woo_sample:null,frontend:null};let browser;try{result.before=compactLiveconfig(await readLiveconfig());const executablePath=[process.env.CHROME_PATH,'/usr/bin/google-chrome-stable','/usr/bin/google-chrome','/usr/bin/chromium'].filter(Boolean).find(p=>fs.existsSync(p));if(!executablePath)throw new Error('Chrome executable not found');browser=await chromium.launch({headless:true,executablePath,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']});const context=await browser.newContext({viewport:{width:1440,height:1100}});const page=await context.newPage();page.setDefaultTimeout(60000);page.setDefaultNavigationTimeout(120000);await login(page);result.legacy_cleanup=await cleanupLegacyFixture(page);await ensureAstra(page);await ensureStarterTemplates(page);result.import=await importOfficialStarterTemplate(page);if(await shopProductCards(page)<4)result.woo_sample=await importOfficialWooSampleProducts(page);else result.woo_sample={completed:true,source:'existing official demo/sample products',skipped_import:true};result.frontend=await verifyFrontend(page);result.after=compactLiveconfig(await readLiveconfig());const plugins=new Set(result.after.active_plugins||[]);if(result.after.active_theme!=='astra')throw new Error(`expected Astra, got ${result.after.active_theme}`);if(!plugins.has('woocommerce'))throw new Error('WooCommerce is not active after official demo import');if(result.after.pages<3)throw new Error(`official demo produced too few pages: ${result.after.pages}`);result.status='ready';result.completed_at=new Date().toISOString();}catch(error){result.status='failed';result.error=sanitize(error?.stack||error?.message||error);result.completed_at=new Date().toISOString();process.exitCode=1;}finally{if(browser)await browser.close().catch(()=>{});fs.writeFileSync(out,`${JSON.stringify(result,null,2)}\n`);console.log(JSON.stringify({...result,error:result.error?sanitize(result.error):undefined},null,2));}

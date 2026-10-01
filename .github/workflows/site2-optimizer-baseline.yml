@@ -15,12 +15,12 @@ permissions:
 
 concurrency:
   group: wp-optimizer-site2-baseline-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   SITE_ID: site2
   PSI_URL: https://runner3-wp-a94b8fd2.wasmer.app/
-  FIXTURE_ID: astra-woo-v1
+  FIXTURE_ID: astra-starter-organic-store-gutenberg
   WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
   WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -36,26 +36,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify realistic Site2 fixture scope
+      - name: Verify official Site2 fixture scope and persist identity
         shell: bash
         run: |
           set -euo pipefail
           curl -fsS --retry 3 --retry-delay 2 \
             "$PSI_URL?rest_route=/wasmer/v1/liveconfig&__baseline_scope=$(date +%s)" \
             -o /tmp/site2-baseline-liveconfig.json
-          node -e '
+          curl -fsS --retry 3 --retry-delay 2 \
+            "$PSI_URL?rest_route=/wc/store/v1/products&per_page=100&__baseline_scope=$(date +%s)" \
+            -o /tmp/site2-baseline-products.json
+          FIXTURE_ID="$FIXTURE_ID" SOURCE_SHA="$SOURCE_SHA" node -e '
             const fs=require("fs");
             const d=JSON.parse(fs.readFileSync("/tmp/site2-baseline-liveconfig.json","utf8"));
+            const products=JSON.parse(fs.readFileSync("/tmp/site2-baseline-products.json","utf8"));
             const themes=d?.wordpress?.themes||[];
             const plugins=d?.wordpress?.plugins||[];
             const activeTheme=themes.find(x=>x.status==="active")?.name;
             const woo=plugins.find(x=>x.name==="woocommerce" && ["active","active-network"].includes(x.status));
+            const pages=typeof d?.wordpress?.pages==="object" ? Number(d.wordpress.pages.count||0) : Number(d?.wordpress?.pages||0);
             if(activeTheme!=="astra") throw new Error(`Site2 fixture scope mismatch: active theme=${activeTheme}`);
             if(!woo) throw new Error("Site2 fixture scope mismatch: WooCommerce is not active");
-            console.log("SITE2_BASELINE_LIVE_FIXTURE_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,posts:d.wordpress.posts,pages:d.wordpress.pages}));
+            if(pages<13) throw new Error(`Site2 official demo pages too small: ${pages}`);
+            if(!Array.isArray(products) || products.length<30) throw new Error(`Site2 official Woo sample products too small: ${Array.isArray(products)?products.length:"non-array"}`);
+            fs.writeFileSync("/tmp/site2-official-fixture-upsert.json", JSON.stringify({
+              type:"site.upsert",
+              site_id:"site2",
+              name:"Site 2",
+              public_url:process.env.PSI_URL,
+              origin_url:process.env.PSI_URL,
+              status:"official-demo-fixture",
+              metadata:{
+                fixture:process.env.FIXTURE_ID,
+                fixture_source:"official Astra Starter Templates Organic Store + official WooCommerce sample_products.csv",
+                template:"Organic Store",
+                builder:"Block Editor",
+                theme:"astra",
+                commerce:"woocommerce",
+                sample_products:products.length,
+                pages,
+                fixture_source_sha:process.env.SOURCE_SHA,
+                prior_custom_fixture:"astra-woo-v1 / historical / non-comparable"
+              }
+            }));
+            console.log("SITE2_BASELINE_LIVE_FIXTURE_OK", JSON.stringify({theme:activeTheme,woocommerce:woo.version,pages,products:products.length,fixture:process.env.FIXTURE_ID}));
           '
+          node scripts/wp-optimizer-state.mjs --event-file /tmp/site2-official-fixture-upsert.json
 
-          SQL="SELECT status,json_extract(metadata_json,'$.fixture') AS fixture FROM sites WHERE site_id='${SITE_ID}';"
+          SQL="SELECT status,json_extract(metadata_json,'$.fixture') AS fixture,json_extract(metadata_json,'$.sample_products') AS sample_products FROM sites WHERE site_id='${SITE_ID}';"
           npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --json --command "$SQL" \
             | tee /tmp/site2-baseline-scope.json
           FIXTURE_ID="$FIXTURE_ID" node -e '
@@ -63,7 +91,7 @@ jobs:
             const p=JSON.parse(fs.readFileSync("/tmp/site2-baseline-scope.json","utf8"));
             const r=p.flatMap(x=>x.results||[])[0];
             if(!r) throw new Error("Site2 fixture identity missing from D1");
-            if(r.status!=="realistic-fixture" || r.fixture!==process.env.FIXTURE_ID) {
+            if(r.status!=="official-demo-fixture" || r.fixture!==process.env.FIXTURE_ID || Number(r.sample_products)<30) {
               throw new Error(`Site2 D1 fixture scope mismatch: ${JSON.stringify(r)}`);
             }
             console.log("SITE2_BASELINE_D1_FIXTURE_OK", JSON.stringify(r));
@@ -78,9 +106,6 @@ jobs:
           test -n "$C"
           echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
 
-          # Concurrency prevents two baseline jobs for this PR from running at once.
-          # Recover any orphaned Site2 baseline row left in `running` by a prior
-          # interrupted/syntax-failed workflow before opening the next run.
           STALE_SQL="UPDATE optimization_runs SET status='failed', finished_at=CURRENT_TIMESTAMP, metadata_json=json_set(COALESCE(metadata_json,'{}'),'$.recovered_reason','orphaned prior Site2 baseline run recovered before new attempt') WHERE site_id='${SITE_ID}' AND phase='baseline' AND status='running';"
           npx --yes wrangler@4.124.0 d1 execute "$WP_OPTIMIZER_D1_DB" --remote --yes --command "$STALE_SQL" >/tmp/stale-recovery.log
 
@@ -102,7 +127,7 @@ jobs:
               "device": "mobile",
               "fixture": "$FIXTURE_ID",
               "sample_policy": "5 valid official PageSpeed UI runs",
-              "purpose": "post-fixture clean baseline for optimizer candidate comparisons"
+              "purpose": "clean baseline for official Organic Store demo before optimizer candidate comparisons"
             }
           }
           JSON
@@ -295,7 +320,7 @@ jobs:
                 type: "run.finish",
                 run_id: process.env.RUN_ID,
                 status: "failed",
-                metadata: { reason: "Site2 post-fixture baseline workflow failed before five valid persisted samples" },
+                metadata: { reason: "Site2 official-demo baseline workflow failed before five valid persisted samples" },
               }));
             '
             node scripts/wp-optimizer-state.mjs --event-file /tmp/run-failed.json
@@ -306,7 +331,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## Site 2 D1-backed post-fixture clean baseline'
+            echo '## Site 2 D1-backed official-demo clean baseline'
             echo
             echo "- target: \`$PSI_URL\`"
             echo "- fixture: \`$FIXTURE_ID\`"
