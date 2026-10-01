@@ -1,0 +1,183 @@
+name: SABA Public Operator Demo Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/saba-operator-demo-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -q playwright
+          google-chrome --version
+          mkdir -p evidence
+
+      - name: Probe public SABA demo controls
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,pathlib
+          from playwright.sync_api import sync_playwright
+
+          OUT=pathlib.Path('evidence')
+          sites=[
+            ('jhonbet','https://jhonbet77.it.com/sports'),
+            ('surga99','https://surga99.com/sports'),
+            ('kings96','https://www.kings96.net/sports'),
+          ]
+          KW=re.compile(r'outright|top\s*4|top\s*6|relegat|goal.?scorer|golden boot|winner|champion|saba',re.I)
+          network=[]; results=[]; hits=[]
+
+          def netreq(r):
+              if r.resource_type not in ('document','xhr','fetch'): return
+              network.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:12000]})
+          def netresp(r):
+              q=r.request
+              if q.resource_type not in ('document','xhr','fetch'): return
+              network.append({'kind':'response','status':r.status,'type':q.resource_type,'url':r.url})
+              try:
+                  ct=(r.headers.get('content-type') or '').lower()
+                  if 'json' in ct:
+                      txt=r.text()
+                      if len(txt)<2_000_000 and KW.search(txt):
+                          m=KW.search(txt)
+                          hits.append({'source':'json','url':r.url,'status':r.status,'snippet':txt[max(0,m.start()-600):min(len(txt),m.end()+3000)]})
+              except Exception: pass
+
+          with sync_playwright() as p:
+              browser=p.chromium.launch(channel='chrome',headless=True)
+              ctx=browser.new_context(locale='en-US',viewport={'width':1280,'height':900})
+              ctx.on('request',netreq);ctx.on('response',netresp)
+
+              for label,url in sites:
+                  pg=ctx.new_page(); rec={'site':label,'start_url':url}
+                  try:
+                      r=pg.goto(url,wait_until='domcontentloaded',timeout=30000)
+                      pg.wait_for_timeout(5000)
+                      rec.update({'status':r.status if r else None,'url':pg.url,'title':pg.title()})
+                      # Find DOM elements around literal SABA SPORTS, including parents and sibling DEMO controls.
+                      saba=pg.get_by_text(re.compile(r'^\s*SABA\s+SPORTS\s*$',re.I))
+                      rec['saba_count']=saba.count()
+                      candidates=[]
+                      for i in range(min(saba.count(),10)):
+                          el=saba.nth(i)
+                          try:
+                              if not el.is_visible(): continue
+                              node=el
+                              for up in range(6):
+                                  try:
+                                      html=node.evaluate("e=>e.outerHTML")
+                                      txt=node.inner_text(timeout=1500)
+                                      candidates.append({'level':up,'text':txt[:1200],'html':html[:8000]})
+                                      if re.search(r'DEMO',txt,re.I): break
+                                      node=node.locator('xpath=..')
+                                  except Exception: break
+                          except Exception: pass
+                      rec['saba_context']=candidates[:30]
+
+                      # Prefer a public DEMO control inside the nearest SABA-containing card.
+                      clicked=False
+                      for i in range(min(saba.count(),10)):
+                          el=saba.nth(i)
+                          if not el.is_visible(): continue
+                          node=el
+                          for up in range(7):
+                              try:
+                                  txt=node.inner_text(timeout=1500)
+                                  demos=node.get_by_text(re.compile(r'^\s*DEMO\s*$',re.I),exact=True)
+                                  if re.search(r'SABA\s+SPORTS',txt,re.I) and demos.count():
+                                      for d in range(min(demos.count(),5)):
+                                          btn=demos.nth(d)
+                                          if not btn.is_visible(): continue
+                                          rec['demo_element']={
+                                            'text':btn.inner_text(timeout=1500)[:300],
+                                            'tag':btn.evaluate('e=>e.tagName'),
+                                            'href':btn.evaluate('e=>e.href||e.closest("a")?.href||""'),
+                                            'onclick':btn.evaluate('e=>e.getAttribute("onclick")||e.closest("[onclick]")?.getAttribute("onclick")||""'),
+                                            'html':btn.evaluate('e=>e.outerHTML')[:5000],
+                                          }
+                                          before_pages=set(ctx.pages); before_url=pg.url
+                                          btn.click(timeout=6000)
+                                          pg.wait_for_timeout(7000)
+                                          new=[x for x in ctx.pages if x not in before_pages]
+                                          target=(new[-1] if new else pg)
+                                          try: target.wait_for_load_state('domcontentloaded',timeout=15000)
+                                          except Exception: pass
+                                          target.wait_for_timeout(3000)
+                                          rec['launch']={'before':before_url,'after':target.url,'title':target.title()}
+                                          try:
+                                              body=target.locator('body').inner_text(timeout=7000)
+                                              rec['launch_text']=body[:30000]
+                                              for line in body.splitlines():
+                                                  if KW.search(line): hits.append({'source':'visible','url':target.url,'snippet':line[:1500]})
+                                          except Exception as e: rec['launch_text_error']=repr(e)
+                                          rec['frames']=[{'name':f.name,'url':f.url} for f in target.frames]
+                                          target.screenshot(path=str(OUT/f'{label}-launch.png'),full_page=False)
+
+                                          # Only ordinary public UI click on visible Outright/Futures.
+                                          c=target.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*(Outright|Outrights|Futures?)\s*$',re.I))
+                                          for k in range(min(c.count(),30)):
+                                              item=c.nth(k)
+                                              try:
+                                                  if not item.is_visible(): continue
+                                                  item.click(timeout=5000)
+                                                  target.wait_for_timeout(7000)
+                                                  rec['clicked_outright']=True
+                                                  rec['outright_url']=target.url
+                                                  text=target.locator('body').inner_text(timeout=7000)
+                                                  rec['outright_text']=text[:40000]
+                                                  for line in text.splitlines():
+                                                      if KW.search(line): hits.append({'source':'outright_visible','url':target.url,'snippet':line[:1800]})
+                                                  target.screenshot(path=str(OUT/f'{label}-outright.png'),full_page=False)
+                                                  break
+                                              except Exception as e:
+                                                  rec.setdefault('outright_errors',[]).append(repr(e)[:500])
+                                          clicked=True; break
+                                      if clicked: break
+                                  node=node.locator('xpath=..')
+                              except Exception: break
+                          if clicked: break
+                      rec['clicked_demo']=clicked
+                      pg.screenshot(path=str(OUT/f'{label}-sports.png'),full_page=False)
+                  except Exception as e:
+                      rec['error']=repr(e)
+                  results.append(rec)
+                  try: pg.close()
+                  except Exception: pass
+              browser.close()
+
+          # Dedupe network and hits enough for readable evidence.
+          OUT.joinpath('results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2))
+          OUT.joinpath('network.json').write_text(json.dumps(network,ensure_ascii=False,indent=2))
+          OUT.joinpath('hits.json').write_text(json.dumps(hits,ensure_ascii=False,indent=2))
+          for r in results:
+              print('RESULT',json.dumps({k:r.get(k) for k in ['site','status','url','title','saba_count','demo_element','launch','clicked_demo','clicked_outright','outright_url','error']},ensure_ascii=False)[:12000])
+              if r.get('launch_text'): print('LAUNCH_TEXT',r['site'],r['launch_text'][:8000])
+              if r.get('outright_text'): print('OUTRIGHT_TEXT',r['site'],r['outright_text'][:15000])
+          print('HITS',len(hits))
+          for h in hits[:80]: print('HIT',json.dumps(h,ensure_ascii=False)[:4000])
+          print('NETWORK_CANDIDATES')
+          seen=set()
+          for x in network:
+              u=x.get('url','')
+              if re.search(r'saba|sport|launch|game|odds|api',u,re.I) and u not in seen:
+                  seen.add(u); print(x.get('kind'),x.get('status',''),x.get('method',''),u)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: saba-operator-demo-${{ github.run_id }}
+          path: evidence/
+          retention-days: 7

@@ -1,0 +1,187 @@
+name: VPN Gate M88 Geo Sweep
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vpngate-m88-geo-sweep.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: ${{ matrix.country }} public reachability
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        country: [VN, SG, TH, ID, MY, PH]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install network tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openvpn iproute2 iptables curl
+          google-chrome --version | tee /tmp/chrome-version.txt
+
+      - name: Select one public relay for country
+        id: relay
+        env:
+          COUNTRY: ${{ matrix.country }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl -fsSL --max-time 30 'https://www.vpngate.net/api/iphone/' -o /tmp/vpngate.csv
+          python3 - <<'PY'
+          import base64, csv, io, json, os, pathlib
+          cc=os.environ['COUNTRY'].upper()
+          raw=pathlib.Path('/tmp/vpngate.csv').read_text(encoding='utf-8-sig', errors='replace')
+          rows=list(csv.DictReader(io.StringIO('\n'.join(x for x in raw.splitlines() if x and not x.startswith('*')))))
+          candidates=[r for r in rows if (r.get('CountryShort') or '').upper()==cc and (r.get('OpenVPN_ConfigData_Base64') or '').strip()]
+          candidates.sort(key=lambda r:int(r.get('Speed') or 0), reverse=True)
+          if not candidates:
+              pathlib.Path('evidence/result.json').write_text(json.dumps({'country':cc,'relay_available':False},indent=2))
+              print('RELAY_AVAILABLE=false')
+              raise SystemExit(4)
+          chosen=candidates[0]
+          cfg=base64.b64decode(chosen['OpenVPN_ConfigData_Base64']).decode('utf-8', errors='replace')
+          pathlib.Path('/tmp/vpngate.auth').write_text('vpn\nvpn\n')
+          out=[]
+          for ln in cfg.splitlines():
+              if ln.strip().startswith('auth-user-pass'):
+                  out.append('auth-user-pass /tmp/vpngate.auth')
+              else:
+                  out.append(ln)
+          pathlib.Path('/tmp/vpngate.ovpn').write_text('\n'.join(out)+'\n')
+          info={k:chosen.get(k) for k in ['CountryShort','CountryLong','IP','Ping','Speed','NumVpnSessions']}
+          info['relay_available']=True
+          pathlib.Path('evidence/selected_relay.json').write_text(json.dumps(info,indent=2,ensure_ascii=False))
+          print(json.dumps(info,ensure_ascii=False))
+          PY
+
+      - name: Create isolated VPN namespace
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFACE=$(ip route show default | awk '{print $5; exit}')
+          sudo ip netns add vpnns
+          sudo ip link add veth-host type veth peer name veth-ns
+          sudo ip link set veth-ns netns vpnns
+          sudo ip addr add 10.232.0.1/24 dev veth-host
+          sudo ip link set veth-host up
+          sudo ip netns exec vpnns ip addr add 10.232.0.2/24 dev veth-ns
+          sudo ip netns exec vpnns ip link set lo up
+          sudo ip netns exec vpnns ip link set veth-ns up
+          sudo ip netns exec vpnns ip route add default via 10.232.0.1
+          sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          sudo iptables -t nat -A POSTROUTING -s 10.232.0.0/24 -o "$IFACE" -j MASQUERADE
+          sudo iptables -A FORWARD -i veth-host -o "$IFACE" -j ACCEPT
+          sudo iptables -A FORWARD -i "$IFACE" -o veth-host -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo mkdir -p /etc/netns/vpnns
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/netns/vpnns/resolv.conf >/dev/null
+
+      - name: Connect selected relay
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -f /tmp/vpngate-openvpn.log
+          sudo touch /tmp/vpngate-openvpn.log
+          sudo chmod 644 /tmp/vpngate-openvpn.log
+          sudo ip netns exec vpnns openvpn --config /tmp/vpngate.ovpn --daemon --log /tmp/vpngate-openvpn.log
+          ok=0
+          for i in {1..30}; do
+            sleep 1
+            if sudo grep -q 'Initialization Sequence Completed' /tmp/vpngate-openvpn.log; then ok=1; break; fi
+            if sudo grep -Eq 'AUTH_FAILED|TLS Error|Connection timed out|Exiting due to fatal error' /tmp/vpngate-openvpn.log; then break; fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo 'VPN_CONNECT_FAILED' | tee evidence/vpn_status.txt
+            sudo tail -n 80 /tmp/vpngate-openvpn.log | tee evidence/openvpn_failure.log
+            exit 5
+          fi
+          echo 'VPN_CONNECT_OK' | tee evidence/vpn_status.txt
+          sudo ip netns exec vpnns curl -fsS --max-time 15 'https://www.cloudflare.com/cdn-cgi/trace' \
+            | grep -E '^(ip|loc|warp)=' | tee evidence/egress.txt
+
+      - name: Public HTTP reachability
+        if: success()
+        shell: bash
+        run: |
+          set -u
+          for spec in \
+            'msports_v2|https://msports.m88.com/app/v2/' \
+            'm88_sports|https://www.m88.com/sports'; do
+            name=${spec%%|*}; url=${spec#*|}
+            sudo ip netns exec vpnns curl -L -sS --max-time 20 \
+              -o "evidence/${name}_curl_body.html" \
+              -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize=%{size_download}\n' \
+              "$url" > "evidence/${name}_curl_meta.txt" 2>"evidence/${name}_curl_error.txt" || true
+          done
+
+      - name: Plain Google Chrome reachability
+        if: success()
+        shell: bash
+        env:
+          COUNTRY: ${{ matrix.country }}
+        run: |
+          set -u
+          mkdir -p /tmp/chrome-profile
+          for spec in \
+            'msports_v2|https://msports.m88.com/app/v2/' \
+            'm88_sports|https://www.m88.com/sports'; do
+            name=${spec%%|*}; url=${spec#*|}
+            timeout 30s sudo ip netns exec vpnns runuser -u runner -- \
+              google-chrome \
+                --headless=new \
+                --no-sandbox \
+                --disable-dev-shm-usage \
+                --user-data-dir="/tmp/chrome-profile-${COUNTRY}-${name}" \
+                --dump-dom "$url" \
+              > "evidence/${name}_chrome_dom.html" \
+              2> "evidence/${name}_chrome_error.txt" || true
+          done
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          root=pathlib.Path('evidence')
+          out={'country':os.environ['COUNTRY'],'targets':{}}
+          egress=(root/'egress.txt').read_text(errors='replace') if (root/'egress.txt').exists() else ''
+          out['egress']=dict(line.split('=',1) for line in egress.splitlines() if '=' in line)
+          for name in ['msports_v2','m88_sports']:
+              cm=(root/f'{name}_curl_meta.txt').read_text(errors='replace') if (root/f'{name}_curl_meta.txt').exists() else ''
+              ce=(root/f'{name}_curl_error.txt').read_text(errors='replace') if (root/f'{name}_curl_error.txt').exists() else ''
+              dom=(root/f'{name}_chrome_dom.html').read_text(errors='replace') if (root/f'{name}_chrome_dom.html').exists() else ''
+              be=(root/f'{name}_chrome_error.txt').read_text(errors='replace') if (root/f'{name}_chrome_error.txt').exists() else ''
+              meta=dict(line.split('=',1) for line in cm.splitlines() if '=' in line)
+              low=(dom+' '+be).lower()
+              out['targets'][name]={
+                  'curl_http_code':meta.get('http_code'),
+                  'curl_size':meta.get('size'),
+                  'curl_error':ce.strip()[:240],
+                  'chrome_dom_bytes':len(dom.encode()),
+                  'chrome_connection_reset':'err_connection_reset' in low or 'connection reset' in low,
+                  'chrome_access_denied':'access denied' in low,
+                  'chrome_cloudflare_block':'sorry, you have been blocked' in low or 'attention required' in low,
+                  'chrome_error_prefix':be.strip()[:300],
+              }
+          (root/'summary.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m88-geo-${{ matrix.country }}-${{ github.run_id }}
+          path: evidence/
+          retention-days: 3

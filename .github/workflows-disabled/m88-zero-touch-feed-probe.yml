@@ -1,0 +1,138 @@
+name: M88 zero-touch public feed probe
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m88-zero-touch-feed-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install parser deps
+        run: python3 -m pip install -q requests beautifulsoup4
+
+      - name: Probe public no-key M88 sources
+        shell: bash
+        run: |
+          cat > /tmp/probe.py <<'PY'
+          import json, re, time
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+          S = requests.Session()
+          S.headers.update({'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9'})
+          out = {'timestamp_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'sources': {}}
+
+          def get(url, timeout=20):
+              return S.get(url, timeout=timeout, allow_redirects=True)
+
+          # API providers: public catalog works, actual odds require an account key.
+          try:
+              r = get('https://api.odds-api.io/v3/sports')
+              out['sources']['odds_api_public_catalog'] = {
+                  'status': r.status_code, 'bytes': len(r.content),
+                  'usable_for_m88_odds_without_key': False,
+              }
+          except Exception as e:
+              out['sources']['odds_api_public_catalog'] = {'error': repr(e), 'usable_for_m88_odds_without_key': False}
+
+          # Public 888score pages expose Mansion88 and load odds dynamically. Discover all public feed assets.
+          ss = {'pages': [], 'assets': [], 'm88_assets': [], 'm88_page_visible': False}
+          roots = [
+              'https://www.888scoreonline.net/Comp.htm',
+              'https://www.888scoreonline.net/OU.htm',
+              'https://www.888scoreonline.net/OddsLive.htm',
+              'https://www.888scoreonline.net/6in1.htm',
+              'http://fb.888scoreonline.net/1x2/',
+              'http://fb.888scoreonline.net/history/handicap.aspx',
+              'http://fb.888scoreonline.net/history/lastchange.aspx?ot=1',
+              'http://fb.888scoreonline.net/history/lastchange.aspx?ot=2',
+          ]
+          asset_urls = []
+          for url in roots:
+              try:
+                  r = get(url)
+                  soup = BeautifulSoup(r.text, 'html.parser')
+                  text = ' '.join(soup.stripped_strings)
+                  if 'mansion88' in text.lower() or re.search(r'\bm88\b', text, re.I):
+                      ss['m88_page_visible'] = True
+                  page = {'url': url, 'final_url': r.url, 'status': r.status_code, 'bytes': len(r.content), 'm88': bool('mansion88' in text.lower() or re.search(r'\bm88\b', text, re.I))}
+                  scripts = []
+                  for tag in soup.find_all(['script','iframe','link']):
+                      v = tag.get('src') or tag.get('href')
+                      if v:
+                          u = urljoin(r.url, v)
+                          scripts.append(u)
+                          if any(k in u.lower() for k in ['888score', '888img', 'data.', 'fb.', '.js', 'odds']):
+                              asset_urls.append(u)
+                  # discover absolute/relative endpoints embedded in inline JS
+                  raw_candidates = re.findall(r'''(?i)(?:https?:)?//[^\s'\"<>]+|[A-Za-z0-9_./-]+\.(?:js|json|ashx|aspx|php)(?:\?[^\s'\"<>]*)?''', r.text)
+                  for v in raw_candidates:
+                      if v.startswith('//'):
+                          v = 'https:' + v
+                      u = urljoin(r.url, v)
+                      if any(k in u.lower() for k in ['888score', '888img', 'data.', 'fb.', '.js', 'odds', 'score']):
+                          asset_urls.append(u)
+                  page['assets_found'] = list(dict.fromkeys(scripts))[:30]
+                  ss['pages'].append(page)
+              except Exception as e:
+                  ss['pages'].append({'url': url, 'error': repr(e)})
+
+          asset_urls = list(dict.fromkeys(asset_urls))[:100]
+          for u in asset_urls:
+              try:
+                  r = get(u, timeout=12)
+                  if len(r.content) > 4_000_000:
+                      continue
+                  t = r.text
+                  rec = {'url': u, 'final_url': r.url, 'status': r.status_code, 'bytes': len(r.content)}
+                  ss['assets'].append(rec)
+                  low = t.lower()
+                  if 'mansion88' in low or re.search(r'\bm88\b', low):
+                      idx = low.find('mansion88')
+                      if idx < 0:
+                          m = re.search(r'\bm88\b', low); idx = m.start() if m else 0
+                      ss['m88_assets'].append({'url': r.url, 'status': r.status_code, 'snippet': t[max(0,idx-350):idx+900].replace('\n',' ')})
+              except Exception:
+                  pass
+          out['sources']['888scoreonline'] = ss
+
+          # FootballAnt is useful only if directly available from Runner3; do not evade its access controls.
+          fa = {'pages': []}
+          for url in ['https://www.footballant.com/', 'https://www.footballant.com/?type=2']:
+              try:
+                  r = get(url)
+                  fa['pages'].append({'url': url, 'status': r.status_code, 'bytes': len(r.content)})
+              except Exception as e:
+                  fa['pages'].append({'url': url, 'error': repr(e)})
+          out['sources']['footballant'] = fa
+
+          usable = bool(ss['m88_assets'])
+          out['decision'] = {
+              'zero_touch_no_key_path_found': usable,
+              'primary': '888scoreonline-public-feed' if usable else None,
+              'm88_assets_found': len(ss['m88_assets']),
+              'note': 'No account, API key, VPN, cookies or protected-site bypass used.'
+          }
+          print(json.dumps(out, ensure_ascii=False, indent=2))
+          with open('/tmp/m88-zero-touch-result.json', 'w') as f:
+              json.dump(out, f, ensure_ascii=False, indent=2)
+          PY
+          python3 /tmp/probe.py | tee /tmp/m88-zero-touch-result.log
+
+      - name: Upload probe result
+        uses: actions/upload-artifact@v4
+        with:
+          name: m88-zero-touch-${{ github.run_id }}
+          path: |
+            /tmp/m88-zero-touch-result.json
+            /tmp/m88-zero-touch-result.log
+          retention-days: 3
