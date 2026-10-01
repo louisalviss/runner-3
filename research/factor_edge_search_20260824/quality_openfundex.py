@@ -5,6 +5,7 @@ import requests
 
 import quality_factor as q
 
+# diagnostic trigger: 2026-08-24
 CACHE=Path('/tmp/openfundex_cache'); CACHE.mkdir(parents=True,exist_ok=True)
 BASE='https://huggingface.co/datasets/ttchopper/openfundex/resolve/main/'
 FILES=['train_clean.parquet','validation_clean.parquet','test_clean.parquet','recent_clean.parquet']
@@ -31,7 +32,6 @@ def load_openfundex(w):
     d['period_end']=pd.to_datetime(d.period_end_date,errors='coerce')
     symbols=set(w.loc[w.member & w.week.between(q.DISCOVERY[0],q.VALIDATION[1]),'symbol'].astype(str).unique())
     d=d[d.symbol.isin(symbols)].dropna(subset=['symbol','filed','period_end']).copy()
-    # Keep latest filing for duplicate company-period observations; all features below use only filed/past rows.
     d=d.sort_values(['symbol','period_end','filed']).drop_duplicates(['symbol','period_end'],keep='last')
     d=d.sort_values(['symbol','period_end'])
     g=d.groupby('symbol',observed=True,sort=False)
