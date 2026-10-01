@@ -1,0 +1,52 @@
+name: Site1 official PageSpeed recheck
+
+on:
+  push:
+    branches: [probe/three-site-pagespeed-20260824]
+    paths: [.github/workflows/three-site-pagespeed-probe.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/three-site-pagespeed-probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  pagespeed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare browser and canonical PSI script
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          C="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          test -n "$C"
+          echo "CHROME_PATH=$C" >> "$GITHUB_ENV"
+          mkdir -p scripts
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/runner3wp-v2-fcp-test/scripts/pagespeed-ui-mobile-audit.mjs' -o scripts/pagespeed-ui-mobile-audit.mjs
+          node --check scripts/pagespeed-ui-mobile-audit.mjs
+      - name: PageSpeed mobile 3x
+        run: |
+          set -euo pipefail
+          URL='https://runner3wp.pntr.dev/'
+          for i in 1 2 3; do
+            PSI_URL="$URL" PSI_UI_OUT="/tmp/psi-$i.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs
+          done
+          python3 - <<'PY'
+          import json,re,statistics
+          def seconds(v):
+            if isinstance(v,(int,float)): return float(v)
+            m=re.match(r'^([0-9.]+)\s*(ms|s)?$',str(v or '').strip())
+            if not m:return None
+            x=float(m.group(1));return x/1000 if m.group(2)=='ms' else x
+          rows=[]
+          for i in range(1,4):
+            d=json.load(open(f'/tmp/psi-{i}.json'))
+            row={'run':i,'status':d.get('status'),'performance':d.get('performance'),'fcp':seconds(d.get('fcp')),'lcp':seconds(d.get('lcp')),'tbt':d.get('tbt'),'cls':d.get('cls'),'resultUrl':d.get('resultUrl')}
+            rows.append(row);print('PSI',json.dumps(row))
+          good=[r for r in rows if r['status']=='ready' and r['lcp'] is not None]
+          assert good
+          print('MEDIAN',json.dumps({'samples':len(good),'performance':statistics.median([r['performance'] for r in good]),'fcp':statistics.median([r['fcp'] for r in good]),'lcp':statistics.median([r['lcp'] for r in good])}))
+          PY
