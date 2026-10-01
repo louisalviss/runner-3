@@ -10,38 +10,48 @@
     "f33_after_midnight_grace_hours": 3,
     "forum_min_local_hour": 20
   },
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
   "close_quality": false,
-  "blocking_reasons": [
-    "trends_history_missing",
-    "forum_history_missing"
-  ],
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-10-01.json",
-      "present": false
+      "present": true,
+      "sha256": "1eb507dc61c7db7fad36366fc82d9fae173827cf8b57a8f165b92b4e1121294c",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-10-01",
+      "captured_at": "2026-10-01T07:49:42.940846+00:00",
+      "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-10-01.json",
       "present": true,
-      "sha256": "02113ebebf7cac49b0bd4ecd5d21ce011170ede577c0137510283b4f71989a1c",
+      "sha256": "768ffd417acd37ac585a77d620be05d8172c2c6f2203ff0dbd287fbec511336a",
       "status": "HEALTHY",
       "vietnam_date": "2026-10-01",
-      "generated_at": "2026-09-30T20:23:18.122Z",
-      "run_id": 36771569695,
-      "artifact_id": 11124312299,
+      "generated_at": "2026-10-01T18:56:30.777Z",
+      "run_id": 36910254613,
+      "artifact_id": 11186401771,
       "threads_discovered": 20,
-      "expected_pages_total": 105,
-      "fetched_pages_total": 105,
+      "expected_pages_total": 114,
+      "fetched_pages_total": 114,
       "missing_pages_total": 0,
-      "posts_total": 1723,
-      "target_date_source": "workflow_dispatch_input"
+      "posts_total": 1854,
+      "target_date_source": "scheduled_occurrence_after_midnight_grace"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-10-01.json",
-      "present": false
+      "present": true,
+      "sha256": "2f4c214a63055996f55d924a11a77e6369bef40ab3acc0ad6bf42876a87fa2dd",
+      "status": "DEGRADED",
+      "vietnam_date": "2026-10-01",
+      "generated_at": "2026-10-01T07:47:11.175Z",
+      "run_id": 36831723241,
+      "artifact_id": 11148295859,
+      "posts_total": 922,
+      "crawl_outcome": "success"
     }
   }
 }
