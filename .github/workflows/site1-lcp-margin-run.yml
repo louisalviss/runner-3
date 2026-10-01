@@ -1,0 +1,96 @@
+name: Site1 LCP Margin Run
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/site1-lcp-margin-run.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner3wp-site1-lcp-margin-run
+  cancel-in-progress: true
+
+env:
+  PROD_DOMAIN: https://runner3wp.pntr.dev
+  CANONICAL_REF: perf/site1-lcp090-canonical-20260824
+  ROLLBACK_SHA: 9124f5957e176ffc9aa64444c980f3c5d6642a0d
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout canonical source and prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$CANONICAL_REF"
+          git checkout --detach "origin/$CANONICAL_REF"
+          npm install --no-save sharp@0.34.3 playwright-core@1.61.0 >/dev/null
+
+      - name: Compare three inline hero payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_candidate() {
+            local label="$1" width="$2" quality="$3"
+            echo "=== CANDIDATE_START $label width=$width quality=$quality ==="
+            git checkout -- edge/wordpress-edge-proxy/src/snapshot.generated.js
+            node scripts/build-wordpress-edge-snapshot.mjs >/tmp/${label}-snapshot.log
+            SITE1_INLINE_HERO_MARKER="$label" \
+              SITE1_INLINE_HERO_WIDTH="$width" \
+              SITE1_INLINE_HERO_QUALITY="$quality" \
+              node scripts/build-site1-mobile-inline-hero.mjs | tee /tmp/${label}-hero.log
+            npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.jsonc >/tmp/${label}-deploy.log 2>&1
+            sleep 5
+            ok=0
+            for attempt in 1 2 3 4 5 6; do
+              B="__margin=${label}-$(date +%s%N)-$attempt"
+              if curl -fsS -H 'Cache-Control: no-cache' -D /tmp/${label}.h -o /tmp/${label}.html "$PROD_DOMAIN/?$B" \
+                && grep -q "data-runner3-mobile-inline-lcp=\"$label\"" /tmp/${label}.html \
+                && grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/${label}.h \
+                && grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/${label}.h; then
+                ok=1
+                break
+              fi
+              sleep 4
+            done
+            test "$ok" = 1
+            ! grep -Eiq '^link:.*r2\.dev.*preconnect' /tmp/${label}.h
+            for i in 1 2 3; do
+              echo "=== PSI $label run=$i ==="
+              PSI_URL="$PROD_DOMAIN/" PSI_UI_OUT="/tmp/${label}-psi-$i.json" timeout 330s node scripts/pagespeed-ui-mobile-audit.mjs
+            done
+            echo "=== CANDIDATE_END $label ==="
+          }
+
+          run_candidate w320q58 320 58
+          run_candidate w300q66 300 66
+          run_candidate w300q58 300 58
+
+      - name: Restore known-safe production
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard
+          git clean -fd
+          git checkout --detach "$ROLLBACK_SHA"
+          node scripts/build-wordpress-edge-snapshot.mjs
+          npx --yes wrangler@4.124.0 deploy --config edge/wordpress-edge-proxy/wrangler.jsonc >/tmp/rollback.log 2>&1
+          sleep 5
+          B="__rollback=$(date +%s%N)"
+          curl -fsS -H 'Cache-Control: no-cache' -D /tmp/rh -o /tmp/rhome "$PROD_DOMAIN/?$B"
+          grep -Eiq '^x-edge-snapshot:[[:space:]]*HIT' /tmp/rh
+          grep -Eiq '^x-edge-cache-policy:[[:space:]]*snapshot-direct' /tmp/rh
+          echo ROLLBACK_VERIFIED
