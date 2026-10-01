@@ -1,0 +1,117 @@
+name: X ChatGPT Inbox
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/x-reader/requests/**/*.json'
+      - 'ops/x-reader/requests/*.json'
+      - '.github/workflows/x-chatgpt-inbox.yml'
+      - 'scripts/x_chatgpt_fetch.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runner3-x-chatgpt-inbox-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install resolver dependencies
+        run: python -m pip install -q -U requests beautifulsoup4
+
+      - name: Find new X requests
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            find ops/x-reader/requests -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sort > /tmp/x-request-files.txt || true
+          else
+            git show --pretty='' --name-only --diff-filter=AM "$GITHUB_SHA" \
+              | grep -E '^ops/x-reader/requests/.*\.json$' \
+              | sort -u > /tmp/x-request-files.txt || true
+          fi
+          echo "count=$(wc -l < /tmp/x-request-files.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          cat /tmp/x-request-files.txt
+
+      - name: Fetch public X posts
+        id: fetch
+        if: steps.changed.outputs.count != '0'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/x-results
+          mapfile -t files < /tmp/x-request-files.txt
+          set +e
+          python scripts/x_chatgpt_fetch.py --output-dir /tmp/x-results "${files[@]}" | tee /tmp/x-fetch-summary.json
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Publish X results
+        if: always() && steps.changed.outputs.count != '0'
+        env:
+          FETCH_OUTCOME: ${{ steps.fetch.outcome }}
+          FETCH_EXIT_CODE: ${{ steps.fetch.outputs.exit_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/x-reader/results
+          cp -f /tmp/x-results/*.json ops/x-reader/results/ 2>/dev/null || true
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+          rows=[]
+          for p in sorted(Path('/tmp/x-results').glob('*.json')):
+              try:
+                  obj=json.loads(p.read_text(encoding='utf-8'))
+                  rows.append({
+                      'requestId': obj.get('requestId'),
+                      'ok': obj.get('ok'),
+                      'provider': obj.get('provider'),
+                      'tweetId': obj.get('tweetId'),
+                      'resultPath': f"ops/x-reader/results/{p.name}",
+                      'error': obj.get('error'),
+                  })
+              except Exception as e:
+                  rows.append({'resultPath':str(p),'ok':False,'error':str(e)})
+          status={
+              'status':'ready' if rows and all(r.get('ok') for r in rows) else 'partial-or-error',
+              'fetchOutcome':os.environ.get('FETCH_OUTCOME','unknown'),
+              'fetchExitCode':os.environ.get('FETCH_EXIT_CODE',''),
+              'sourceCommit':os.environ.get('GITHUB_SHA',''),
+              'results':rows,
+              'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          Path('ops/x-reader').mkdir(parents=True, exist_ok=True)
+          Path('ops/x-reader/latest.json').write_text(json.dumps(status,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/x-reader/results/ ops/x-reader/latest.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Publish X ChatGPT result [skip ci]'
+          branch="${GITHUB_REF_NAME}"
+          git pull --rebase origin "$branch" || true
+          git push origin HEAD:"$branch"
+
+      - name: Fail when X resolver failed
+        if: steps.fetch.outcome == 'failure'
+        run: exit 1
