@@ -1,0 +1,170 @@
+name: WR US Stocks 30m Actual Execution
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-stock-15m30m-base.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: wr-stock-30m-exec-20260824
+  cancel-in-progress: true
+
+jobs:
+  exec30:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q pandas websocket-client requests dukascopy-python
+      - name: Fetch and same-sample patch frozen WR execution-audit lineage
+        run: |
+          mkdir -p /tmp/wr-audit
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_execution_audit.py' -o /tmp/wr-audit/wr_dukascopy_execution_audit.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-audit/wr_dukascopy_expanded_matrix.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-audit/wr_tv_parity.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/wr-audit/wr_dukascopy_execution_audit.py')
+          s=p.read_text()
+          replacements={
+            "exp.fetch_side(instrument,bidc,a,b,1)":"exp.fetch_side(instrument,bidc,a,b,5)",
+            "exp.fetch_side(instrument,askc,a,b,1)":"exp.fetch_side(instrument,askc,a,b,5)",
+            "exp.aggregate(mid1,1,tf)":"exp.aggregate(mid1,5,tf)",
+            "exp.aggregate(bid1,1,tf)":"exp.aggregate(bid1,5,tf)",
+            "exp.aggregate(ask1,1,tf)":"exp.aggregate(ask1,5,tf)",
+            "pd.Timedelta(minutes=1)":"pd.Timedelta(minutes=5)",
+            "1m executable-side":"5m executable-side",
+            "1m BID/ASK":"5m BID/ASK",
+            "simulated on 1m":"simulated on 5m",
+            "1m quote":"5m quote"
+          }
+          for a,b in replacements.items():
+              if a not in s: print('PATCH_TOKEN_NOT_FOUND',a)
+              s=s.replace(a,b)
+          p.write_text(s)
+          assert 'fetch_side(instrument,bidc,a,b,1)' not in s
+          assert 'exp.aggregate(mid1,1,tf)' not in s
+          print('M5 SAME-SAMPLE PATCH OK')
+          PY
+      - name: Run actual M5 BID ASK execution audit at frozen 30m
+        env:
+          SHARD: ${{ matrix.shard }}
+          TF_MIN: '30'
+          WR_OUT: /tmp/wr-exec30
+        run: |
+          python3 - <<'PY'
+          import os,subprocess
+          symbols='AAPL ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN AVGO BKR CDNS CMCSA COST CPRT CSCO CSGP CSX CTSH DXCM EA EXC FANG FTNT GILD GOOG GOOGL HON IDXX INTC INTU ISRG KHC LRCX MAR MCHP MDLZ META MPWR MRVL MSFT MU NFLX NVDA ODFL ORLY PANW PAYX PCAR PEP PLTR PYPL QCOM REGN ROST SBUX SNPS TMUS TSLA TTWO TXN VRTX WDAY WDC WMT ZS'.split()
+          shard=int(os.environ['SHARD']); mine=[s for i,s in enumerate(symbols) if i%8==shard]
+          print('SHARD',shard,'SYMBOLS',mine,flush=True)
+          env=os.environ.copy(); env['PYTHONPATH']='/tmp/wr-audit'; env['TF_MIN']='30'; env['WR_OUT']='/tmp/wr-exec30'
+          for sym in mine:
+              env['SYMBOL']=sym
+              print('AUDIT_START',sym,flush=True)
+              subprocess.run(['python3','/tmp/wr-audit/wr_dukascopy_execution_audit.py'],env=env,check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-exec30-shard-${{ matrix.shard }}
+          path: /tmp/wr-exec30
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: exec30
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-exec30-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Merge execution and chronological walk-forward diagnostics
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, statistics, datetime
+          root=pathlib.Path('/tmp/all'); out=pathlib.Path('/tmp/final'); out.mkdir(parents=True,exist_ok=True)
+          rows=[]; trades=[]
+          for p in root.rglob('audit-*-30m.json'):
+              try: rows.append(json.loads(p.read_text()))
+              except Exception: pass
+          for p in root.rglob('trades-*-30m.jsonl'):
+              name=p.name; sym=name[len('trades-'):-len('-30m.jsonl')]
+              for line in p.read_text().splitlines():
+                  if not line.strip(): continue
+                  try:
+                      x=json.loads(line); x['_symbol']=sym; trades.append(x)
+                  except Exception: pass
+          rows.sort(key=lambda x:x.get('symbol','')); trades.sort(key=lambda x:int(x.get('signal',0)))
+          ok=[x for x in rows if x.get('status')=='OK']
+
+          def metric(ts):
+              vals=[float(x.get('R_exec',0.0)) for x in sorted(ts,key=lambda z:int(z.get('signal',0)))]
+              if not vals:return {'n':0,'R':0.0,'avg_R':None,'PF':None,'win_rate':None,'max_DD_R':0.0}
+              gp=sum(max(v,0.0) for v in vals); gl=sum(max(-v,0.0) for v in vals); eq=peak=0.0; dd=0.0
+              for v in vals:eq+=v;peak=max(peak,eq);dd=min(dd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals),'PF':gp/gl if gl else None,'win_rate':100.0*sum(v>0 for v in vals)/len(vals),'max_DD_R':dd}
+          def year(x):
+              if x.get('signal_year') is not None:return int(x['signal_year'])
+              return datetime.datetime.fromtimestamp(int(x['signal'])/1000,datetime.timezone.utc).year
+          def side(x):return str(x.get('side','')).upper()
+
+          years={}
+          for y in range(2022,2027):
+              yy=[x for x in trades if year(x)==y]
+              years[str(y)]={'overall':metric(yy),'long':metric([x for x in yy if side(x)=='L']),'short':metric([x for x in yy if side(x)=='S'])}
+          symbols={}
+          for sym in sorted(set(x['_symbol'] for x in trades)):
+              ss=[x for x in trades if x['_symbol']==sym]
+              symbols[sym]={'overall':metric(ss),'long':metric([x for x in ss if side(x)=='L']),'short':metric([x for x in ss if side(x)=='S'])}
+          folds=[]
+          for train_end,oos in [(2023,2024),(2024,2025),(2025,2026)]:
+              train=[x for x in trades if 2022<=year(x)<=train_end]; test=[x for x in trades if year(x)==oos]
+              folds.append({'train_years':f'2022-{train_end}','oos_year':oos,'train_actual':metric(train),'oos_actual':metric(test)})
+          pre2026=[x for x in trades if year(x)<=2025]
+          entry_spreads=[float(x['entry_spread_bps']) for x in trades if x.get('entry_spread_bps') is not None]
+          exit_spreads=[float(x['exit_spread_bps']) for x in trades if x.get('exit_spread_bps') is not None]
+          actual=metric(trades); longm=metric([x for x in trades if side(x)=='L']); shortm=metric([x for x in trades if side(x)=='S'])
+          audit_mid={'n':sum(int(x.get('n_mid',0)) for x in ok),'R':sum(float(x.get('R_mid',0.0)) for x in ok)}
+          exec_summary={'n':sum(int(x.get('n_exec',0)) for x in ok),'R':sum(float(x.get('R_exec',0.0)) for x in ok)}
+          pos_syms=sum(v['overall']['R']>0 for v in symbols.values()); neg_syms=sum(v['overall']['R']<0 for v in symbols.values())
+          positive_oos=sum(years[str(y)]['overall']['R']>0 for y in (2024,2025,2026))
+          same_sample=(len(ok)==68 and audit_mid['n']==2056 and abs(audit_mid['R']-63.3832)<0.5)
+          gate_flags={'same_sample_reconciled':same_sample,'actual_R_positive':actual['R']>0,'actual_PF_gt_1':actual['PF'] is not None and actual['PF']>1,'chronology_gate':metric(pre2026)['R']>=0 or positive_oos>=2,'pre2026_nonnegative':metric(pre2026)['R']>=0,'positive_oos_folds_2024_2026':positive_oos}
+          report={'status':'COMPLETE','candidate':'WR 2.5.13 frozen base — US stocks 30m','validation':'same-sample Dukascopy M5 BID/ASK execution + expanding-history chronological diagnostic','frozen_universe_expected':68,'result_rows':len(rows),'ok_symbols':len(ok),'trade_rows':len(trades),'prior_midpoint_reference':{'run_id':32657035483,'n':2056,'R_gross':63.3832,'R_0_5bps':44.7797,'R_1bps':26.1762,'PF_gross':1.0704},'audit_midpoint_recomputed_from_M5':audit_mid,'actual_execution_from_symbol_summaries':exec_summary,'actual':actual,'long_actual':longm,'short_actual':shortm,'years':years,'pre2026_actual':metric(pre2026),'walk_forward':folds,'symbol_breadth':{'symbols_with_exec_trades':len(symbols),'positive':pos_syms,'negative':neg_syms,'positive_fraction':pos_syms/len(symbols) if symbols else None},'median_entry_spread_bps':statistics.median(entry_spreads) if entry_spreads else None,'median_exit_spread_bps':statistics.median(exit_spreads) if exit_spreads else None,'midpoint_to_actual_R_delta':exec_summary['R']-audit_mid['R'],'gate_flags':gate_flags,'symbols':symbols,'raw_symbol_summaries':rows,'method_notes':['No alpha parameters tuned after the 30m midpoint result.','Same M5 BID/ASK source/coverage as baseline; midpoint aggregated from M5.','Long stop entries fill on ASK; short stop entries on BID.','Long exits execute on BID; short exits on ASK.','Six 5m executable-side bars resolve execution inside each 30m candle.','Ambiguous same-5m TP+SL resolves conservatively to SL.','Walk-forward folds are reporting-only because the strategy has no fitted parameters.']}
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          with (out/'execution-trades.jsonl').open('w') as f:
+              for x in trades:f.write(json.dumps(x)+'\n')
+          print('RESULT_ROWS',len(rows),'OK',len(ok),'TRADES',len(trades));print('AUDIT_MID',audit_mid,'ACTUAL',actual,'DELTA',report['midpoint_to_actual_R_delta']);print('LONG',longm,'SHORT',shortm);print('PRE2026',report['pre2026_actual']);print('OOS',[(f['oos_year'],f['oos_actual']) for f in folds]);print('BREADTH',report['symbol_breadth'],'SPREADS',report['median_entry_spread_bps'],report['median_exit_spread_bps']);print('GATES',gate_flags)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wr-stock-30m-exec-final
+          path: /tmp/final
+          retention-days: 30
+      - name: Validate same-sample coverage
+        run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open('/tmp/final/report.json'))
+          if r['ok_symbols'] != 68: raise SystemExit(f"coverage fail: {r['ok_symbols']}/68")
+          if not r['gate_flags']['same_sample_reconciled']: raise SystemExit(f"midpoint reconciliation fail: {r['audit_midpoint_recomputed_from_M5']}")
+          print('SAME-SAMPLE COVERAGE PASS')
+          PY
