@@ -15,33 +15,45 @@
   "full_quality": false,
   "close_quality": false,
   "blocking_reasons": [
-    "trends_history_missing",
-    "forum_history_missing"
+    "forum_not_usable"
   ],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-10-03.json",
-      "present": false
+      "present": true,
+      "sha256": "f35cad1f0cfd06eb39005f169720e2ac4356a072e037a0f72ae29a69b563bbca",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-10-03",
+      "captured_at": "2026-10-03T12:45:03.955421+00:00",
+      "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-10-03.json",
       "present": true,
-      "sha256": "cc4eac591656d26a04c8ea533bc30deb29adc588ba6fd3b9c97736aa376e9f4f",
+      "sha256": "2f0c37a8786115fa642b4affba8dbb2501887083b0e71f87190d703266d6439c",
       "status": "HEALTHY",
       "vietnam_date": "2026-10-03",
-      "generated_at": "2026-10-02T20:09:08.199Z",
-      "run_id": 37058527901,
-      "artifact_id": 11249501801,
+      "generated_at": "2026-10-03T18:50:54.859Z",
+      "run_id": 37145639508,
+      "artifact_id": 11281659392,
       "threads_discovered": 20,
-      "expected_pages_total": 55,
-      "fetched_pages_total": 55,
+      "expected_pages_total": 44,
+      "fetched_pages_total": 44,
       "missing_pages_total": 0,
-      "posts_total": 763,
-      "target_date_source": "workflow_dispatch_input"
+      "posts_total": 591,
+      "target_date_source": "workflow_dispatch_input_after_midnight_grace"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-10-03.json",
-      "present": false
+      "present": true,
+      "sha256": "e73877023cd3bed9d1fa3824fd115697f96c969d12a75b3661a63c6ce28fac38",
+      "status": "FAILED",
+      "vietnam_date": "2026-10-03",
+      "generated_at": "2026-10-03T12:46:13.636Z",
+      "run_id": 37123643820,
+      "artifact_id": 11273944018,
+      "posts_total": 620,
+      "crawl_outcome": "failure"
     }
   }
 }
