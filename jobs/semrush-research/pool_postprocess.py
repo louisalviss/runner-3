@@ -190,21 +190,26 @@ def main() -> int:
             raise RuntimeError("POOL_CONFIG_INVALID")
         config.update(override)
     config_sha = hashlib.sha256(canonical(config)).hexdigest()
+    commit, flow_sha = source_identity()
 
     current_state = out / "state.json"
     if current_state.is_file() and not args.force:
         state = json.loads(current_state.read_text(encoding="utf-8"))
         proof_path = out / "pool-proof.json"
         proof = json.loads(proof_path.read_text(encoding="utf-8")) if proof_path.is_file() else {}
-        if state.get("stage") in {"SERP_DD_PENDING", "COMPLETE_NO_PASS"} and state.get("source_sha256") == input_sha and proof.get("config_sha256") == config_sha:
-            print(json.dumps({"status": "RESUME_NO_BACKTRACK", "stage": state.get("stage"), "source_sha256": input_sha, "output_dir": str(out)}, ensure_ascii=False))
+        if (
+            state.get("stage") in {"SERP_DD_PENDING", "COMPLETE_NO_PASS"}
+            and state.get("source_sha256") == input_sha
+            and proof.get("config_sha256") == config_sha
+            and proof.get("flow_source_sha256") == flow_sha
+        ):
+            print(json.dumps({"status": "RESUME_NO_BACKTRACK", "stage": state.get("stage"), "source_sha256": input_sha, "flow_source_sha256": flow_sha, "output_dir": str(out)}, ensure_ascii=False))
             return 0
 
-    commit, flow_sha = source_identity()
     dispatch_path = out / "pool-dispatch.json"
     if dispatch_path.is_file() and not args.force:
         prior = json.loads(dispatch_path.read_text(encoding="utf-8"))
-        if prior.get("input_sha256") == input_sha and prior.get("config_sha256") == config_sha:
+        if prior.get("input_sha256") == input_sha and prior.get("config_sha256") == config_sha and prior.get("flow_source_sha256") == flow_sha:
             job_id = str(prior.get("job_id") or "")
             if job_id and (ROUTER_JOBS / job_id / "state.json").is_file():
                 info = materialize(job_id, out, input_sha)
