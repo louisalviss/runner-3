@@ -197,7 +197,22 @@ def shard(args):
     pkg = work / "pkg"; symbols_root = work / "symbols"; helper = work / "helper"
     pkg.mkdir(); symbols_root.mkdir(); helper.mkdir()
     manifest, local = fetch_shadow_package(scope, pkg)
-    shutil.copy2(local["helper"], helper / "exp.py")
+    # Keep the frozen strategy package byte-identical while applying a documented
+    # market-data compatibility overlay. Dukascopy continues to expose Meta under
+    # its historical FB.US/USD instrument identifier, so current symbol META must
+    # resolve through FB for data access only. Strategy rules/parameters are untouched.
+    shutil.copy2(local["helper"], helper / "exp_base.py")
+    (helper / "exp.py").write_text(
+        "from exp_base import *\n"
+        "_DATA_SYMBOL_ALIASES = {'META': 'FB'}\n"
+        "def resolve_symbol(symbol):\n"
+        "    symbol = str(symbol).strip().upper()\n"
+        "    if not symbol:\n"
+        "        return None\n"
+        "    symbol = _DATA_SYMBOL_ALIASES.get(symbol, symbol)\n"
+        "    return f'{symbol}.US/USD'\n",
+        encoding="utf-8",
+    )
     profile = json.loads(local["profile"].read_text(encoding="utf-8"))
     universe = [str(s).upper() for s in profile["universe"]]
     assigned = [s for i,s in enumerate(universe) if i % SHARDS == shard_id]
@@ -220,7 +235,7 @@ def shard(args):
     archive=work/f"shard-{shard_id:02d}.tar.gz"
     with tarfile.open(archive,"w:gz") as tf:
         tf.add(symbols_root,arcname="symbols")
-    status={"shard":shard_id,"assigned_count":len(assigned),"failed_count":len(failed),"failed_symbols":failed,"attempts":attempts,"elapsed_seconds":round(time.time()-started,3),"completed_at":core.now_iso()}
+    status={"shard":shard_id,"assigned_count":len(assigned),"failed_count":len(failed),"failed_symbols":failed,"attempts":attempts,"elapsed_seconds":round(time.time()-started,3),"completed_at":core.now_iso(),"data_compatibility":{"symbol_aliases":{"META":"FB"},"purpose":"Dukascopy instrument naming only","strategy_rule_changes":"NONE"}}
     status_p=work/f"shard-{shard_id:02d}.json"; write_json(status_p,status)
     core.upload_artifact(PROJECT,scope,f"shards/shard-{shard_id:02d}.tar.gz",archive,"application/gzip")
     core.upload_artifact(PROJECT,scope,f"shards/shard-{shard_id:02d}.json",status_p,"application/json; charset=utf-8")
