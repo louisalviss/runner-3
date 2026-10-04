@@ -12,8 +12,9 @@ flock -n 9 || exit 0
 
 DAY=$(date -u +%F)
 SHORTLIST="$BASE/scans/$DAY-shortlist.md"
-# Heartbeats are valid only after today's daily scan has produced its terminal summary.
+TERMINAL="$BASE/scans/$DAY-terminal-verdicts.json"
 [ -s "$SHORTLIST" ] || exit 0
+[ -s "$TERMINAL" ] || exit 0
 
 FINGERPRINT=$(python3 - "$BASE/data/manifest.json" <<'PY'
 import hashlib,json,sys
@@ -22,70 +23,53 @@ p={'unique_domains':m.get('unique_domains'),'sitemaps':[(x.get('part'),x.get('sh
 print(hashlib.sha256(json.dumps(p,sort_keys=True,separators=(',',':')).encode()).hexdigest())
 PY
 )
-mapfile -t STATE_FIELDS < <(python3 - "$STATE" 2>/dev/null <<'PY' || true
+TERMINAL_SHA=$(sha256sum "$TERMINAL" | awk '{print $1}')
+SYNC_KEY="$DAY:$FINGERPRINT:$TERMINAL_SHA"
+OLD_KEY=$(python3 - "$STATE" 2>/dev/null <<'PY' || true
 import json,sys
-try:
- s=json.load(open(sys.argv[1],encoding='utf-8'))
-except Exception:
- s={}
-print(s.get('fingerprint',''))
-print(s.get('heartbeat_date',''))
+try: s=json.load(open(sys.argv[1],encoding='utf-8'))
+except Exception: s={}
+print(s.get('sync_key',''))
 PY
 )
-OLD=${STATE_FIELDS[0]:-}
-HEARTBEAT_DATE=${STATE_FIELDS[1]:-}
+[[ "$OLD_KEY" = "$SYNC_KEY" ]] && exit 0
 
 COUNT=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["unique_domains"])' "$BASE/data/manifest.json")
 ADDED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("added",0))' "$BASE/data/manifest.json")
 REMOVED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("removed",0))' "$BASE/data/manifest.json")
-read -r SCANNED SHORT < <(python3 - "$SHORTLIST" <<'PY'
+read -r SCANNED PENDING SHORT < <(python3 - "$SHORTLIST" <<'PY'
 import re,sys
-try:
- s=open(sys.argv[1],encoding='utf-8').read()
- def n(label):
-  m=re.search(rf'^- {label}: (\d+)\s*$',s,re.M)
-  return int(m.group(1)) if m else 0
- print(n('scanned'),n('shortlist'))
-except Exception:
- print(0,0)
+s=open(sys.argv[1],encoding='utf-8').read()
+def n(label):
+ m=re.search(rf'^- {label}: (\d+)\s*$',s,re.M)
+ return int(m.group(1)) if m else 0
+print(n('scanned'),n('pending'),n('shortlist'))
 PY
 )
-
-# No corpus change: still publish one explicit RUN OK heartbeat per UTC day.
-if [[ "$FINGERPRINT" = "$OLD" ]]; then
-  [[ "$HEARTBEAT_DATE" = "$DAY" ]] && exit 0
-  "$WRAPPER" send "$TARGET" "SeoTrends RUN OK | $DAY | domains=$COUNT | +$ADDED / -$REMOVED | scanned=$SCANNED | shortlist=$SHORT | corpus=unchanged"
-  python3 - "$STATE" "$DAY" <<'PY'
-import json,sys,os
-p,day=sys.argv[1:]
-try:
- s=json.load(open(p,encoding='utf-8'))
-except Exception:
- s={}
-s['heartbeat_date']=day
-t=p+'.tmp'
-open(t,'w',encoding='utf-8').write(json.dumps(s,indent=2)+'\n')
-os.replace(t,p)
+read -r RUN_STATUS BUILD WATCH DROP BLOCKED < <(python3 - "$TERMINAL" <<'PY'
+import json,sys
+t=json.load(open(sys.argv[1],encoding='utf-8')); c=t.get('counts') or {}
+print(t.get('status','UNKNOWN'),c.get('BUILD',0),c.get('WATCH',0),c.get('DROP',0),c.get('BLOCKED',0))
 PY
-  exit 0
-fi
+)
 
 OUT="/var/lib/telegram-upload/seotrends/daily/$DAY"
 install -d -m 0750 "$OUT"
 cp -f "$BASE/data/manifest.json" "$OUT/manifest.json"
 cp -f "$BASE/changes/$DAY-added.txt" "$OUT/added.txt" 2>/dev/null || :
 cp -f "$BASE/changes/$DAY-removed.txt" "$OUT/removed.txt" 2>/dev/null || :
-cp -f "$SHORTLIST" "$OUT/shortlist.md" 2>/dev/null || :
+cp -f "$SHORTLIST" "$OUT/shortlist.md"
 cp -f "$BASE/scans/$DAY-candidates.jsonl" "$OUT/candidates.jsonl" 2>/dev/null || :
+cp -f "$BASE/scans/$DAY-semrush-results.md" "$OUT/semrush-results.md" 2>/dev/null || :
+cp -f "$BASE/scans/$DAY-terminal-verdicts.md" "$OUT/terminal-verdicts.md" 2>/dev/null || :
 ARCHIVE="$OUT/seotrends-public-$DAY-full.tar.gz"
 tar -C /var/lib -czf "$ARCHIVE" seotrends-public -C /etc/systemd/system seotrends-public-refresh.service seotrends-public-refresh.timer -C /usr/local/sbin seotrends-telegram-sync seotrends-github-fallback
 SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
-"$WRAPPER" upload-local "$TARGET" "$ARCHIVE" "SeoTrends daily full snapshot $DAY | domains=$COUNT | sha256=$SHA"
-"$WRAPPER" send "$TARGET" "SeoTrends RUN OK | $DAY | domains=$COUNT | +$ADDED / -$REMOVED | scanned=$SCANNED | shortlist=$SHORT | corpus=changed | sha256=$SHA"
-python3 - "$STATE" "$FINGERPRINT" "$DAY" "$SHA" <<'PY'
+"$WRAPPER" upload-local "$TARGET" "$ARCHIVE" "SeoTrends canonical snapshot $DAY | status=$RUN_STATUS | domains=$COUNT | sha256=$SHA"
+"$WRAPPER" send "$TARGET" "SeoTrends $RUN_STATUS | $DAY | domains=$COUNT | +$ADDED / -$REMOVED | scanned=$SCANNED | pending=$PENDING | shortlist=$SHORT | BUILD=$BUILD WATCH=$WATCH DROP=$DROP BLOCKED=$BLOCKED | sha256=$SHA"
+python3 - "$STATE" "$FINGERPRINT" "$TERMINAL_SHA" "$SYNC_KEY" "$DAY" "$SHA" "$RUN_STATUS" <<'PY'
 import json,sys,os
-p,fp,day,sha=sys.argv[1:]
-t=p+'.tmp'
-open(t,'w',encoding='utf-8').write(json.dumps({'fingerprint':fp,'date':day,'archive_sha256':sha,'heartbeat_date':day},indent=2)+'\n')
+p,fp,tsha,key,day,sha,status=sys.argv[1:]; t=p+'.tmp'
+open(t,'w',encoding='utf-8').write(json.dumps({'fingerprint':fp,'terminal_sha256':tsha,'sync_key':key,'date':day,'archive_sha256':sha,'heartbeat_date':day,'status':status},indent=2)+'\n')
 os.replace(t,p)
 PY
