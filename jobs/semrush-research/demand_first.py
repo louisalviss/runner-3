@@ -368,6 +368,8 @@ def main() -> int:
         "max_median_kd": args.max_median_kd,
         "max_head_share": args.max_head_share,
         "cluster_min_tokens": args.cluster_min_tokens,
+        "secondary_min_total_volume": 4000,
+        "secondary_min_high_intent_share": 0.80,
     }
 
     if state_path.exists() and not args.force:
@@ -414,12 +416,30 @@ def main() -> int:
 
     project_report = []
     passed_projects = []
+    passed_tiers: dict[str, str] = {}
     for project, prows in sorted(by_project.items()):
         metrics = project_metrics(prows, args.max_kd, args.longtail_tokens)
-        ok, fail_reasons = gate(metrics, cfg)
-        project_report.append({"project": project, "pass": ok, "fail_reasons": fail_reasons, "scale_band": scale_band(metrics["total_volume"]), **metrics})
-        if ok:
+        primary_ok, strict_fail_reasons = gate(metrics, cfg)
+        secondary_ok = (
+            not primary_ok
+            and strict_fail_reasons == ["total_volume"]
+            and metrics["total_volume"] >= cfg["secondary_min_total_volume"]
+            and metrics["high_intent_volume_share"] >= cfg["secondary_min_high_intent_share"]
+        )
+        effective_ok = primary_ok or secondary_ok
+        gate_tier = "PRIMARY" if primary_ok else ("LOW_SCALE_HIGH_INTENT" if secondary_ok else None)
+        project_report.append({
+            "project": project,
+            "pass": effective_ok,
+            "gate_tier": gate_tier,
+            "strict_fail_reasons": strict_fail_reasons,
+            "fail_reasons": [] if effective_ok else strict_fail_reasons,
+            "scale_band": scale_band(metrics["total_volume"]),
+            **metrics,
+        })
+        if effective_ok:
             passed_projects.append(project)
+            passed_tiers[project] = gate_tier
 
     atomic_json(outdir / "project-gates.json", {
         "lane": "semrush-demand-first",
@@ -427,7 +447,7 @@ def main() -> int:
         "config": cfg,
         "projects": project_report,
     })
-    state.update(stage="DEMAND_GATE_COMPLETE", updated_at=now_ts(), project_count=len(project_report), passed_projects=passed_projects)
+    state.update(stage="DEMAND_GATE_COMPLETE", updated_at=now_ts(), project_count=len(project_report), passed_projects=passed_projects, pass_tiers=passed_tiers)
     atomic_json(state_path, state)
     append_journal(journal_path, {"ts": now_ts(), "stage": "DEMAND_GATE_COMPLETE", "project_count": len(project_report), "passed_projects": passed_projects})
 
@@ -439,6 +459,7 @@ def main() -> int:
                 continue
             rec = cluster_summary(project, group)
             rec["cluster_id"] = f"{norm_phrase(project).replace(' ', '-')[:40]}-{idx:03d}"
+            rec["gate_tier"] = passed_tiers.get(project)
             clusters.append(rec)
 
     clusters.sort(key=lambda x: (x["total_volume"], x["keyword_count"]), reverse=True)
@@ -458,6 +479,7 @@ def main() -> int:
         "weighted_cpc": r["weighted_cpc"],
         "head_share": r["head_share"],
         "top_keywords": r["top_keywords"],
+        "gate_tier": r.get("gate_tier"),
         "next": "exact SERP DD + exact-product competitor gate + monetization/WTP validation",
     } for r in clusters]
     terminal_stage = "SERP_DD_PENDING" if queue else "COMPLETE_NO_PASS"
@@ -485,7 +507,7 @@ def main() -> int:
         for p in project_report:
             if p["pass"]:
                 lines.append(
-                    f"- {p['project']}: band={p['scale_band']}; volume={p['total_volume']}; lowKD={p['low_kd_volume']}; medianKD={p['median_kd']}; "
+                    f"- {p['project']}: tier={p.get('gate_tier')}; band={p['scale_band']}; volume={p['total_volume']}; lowKD={p['low_kd_volume']}; medianKD={p['median_kd']}; "
                     f"longtailLowKD={p['longtail_low_kd_count']}; headShare={p['head_share']}"
                 )
     else:
