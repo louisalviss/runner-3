@@ -126,6 +126,13 @@ def load_jsonl_index(path, key_fields):
     return rows
 
 
+def rpc_row_ok(row):
+    if not isinstance(row, dict):
+        return False
+    errors = row.get('errors') or {}
+    return not isinstance(errors, dict) or all(value is None for value in errors.values())
+
+
 def main():
     parser = argparse.ArgumentParser(description='Live Semrush Research collector through the single-owner NoxTools RPC broker.')
     parser.add_argument('--seed-bank', required=True)
@@ -165,9 +172,18 @@ def main():
         if previous.get('bank_sha256') == bank_sha and previous.get('database') == args.database:
             state = previous
             state['transport'] = 'semrush-rpc-broker-v1'
-            if state.get('stage') in ('UNIVERSE_READY', 'BLOCKED_RPC_SCHEMA'):
-                print(json.dumps({'status': 'RESUME_NO_BACKTRACK', 'state': state}, ensure_ascii=False))
-                return 0
+            if state.get('stage') == 'UNIVERSE_READY':
+                cached_preflight = load_jsonl_index(preflight_path, ('theme_id', 'seed'))
+                cached_ideas = load_jsonl_index(ideas_path, ('theme_id', 'seed'))
+                preflight_complete = (
+                    len(cached_preflight) == len(seeds)
+                    and all(rpc_row_ok(row) for row in cached_preflight.values())
+                )
+                ideas_complete = len(cached_ideas) == len(seeds)
+                if preflight_complete and ideas_complete:
+                    print(json.dumps({'status': 'RESUME_NO_BACKTRACK', 'state': state}, ensure_ascii=False))
+                    return 0
+                state['stage'] = 'REPAIR_INCOMPLETE_CACHE'
 
     atomic(state_path, state)
     journal(journal_path, {
@@ -192,12 +208,13 @@ def main():
 
         server = ready.get('server')
         state.update(stage='SEED_PREFLIGHT_RUNNING', server=server, updated_at=ts())
-        for key in ('blocker', 'error', 'server_probe', 'broker_detail'):
+        for key in ('blocker', 'error', 'server_probe', 'broker_detail', 'schema_probe', 'rate_limit_probe'):
             state.pop(key, None)
         atomic(state_path, state)
         journal(journal_path, {'event': 'LIVE_AUTH_PASS', 'transport': 'broker', 'server': server})
 
-        done = {} if args.force else load_jsonl_index(preflight_path, ('theme_id', 'seed'))
+        preflight_latest = {} if args.force else load_jsonl_index(preflight_path, ('theme_id', 'seed'))
+        done = {key: row for key, row in preflight_latest.items() if rpc_row_ok(row)}
         pending = [(theme, seed) for theme, seed in seeds if (theme, seed) not in done]
         with preflight_path.open('a', encoding='utf-8') as handle:
             for batch in chunks(pending, 4):
@@ -206,6 +223,7 @@ def main():
                     calls.append({'tag': 'info\t' + theme + '\t' + seed, 'method': 'keywords.GetInfo', 'args': info_args(seed, args.database)})
                     calls.append({'tag': 'summary\t' + theme + '\t' + seed, 'method': 'ideas.GetKeywordsSummary', 'args': idea_args(seed, args.database, False)})
                 results = {row.get('tag'): row for row in rpc_many(calls)}
+                batch_errors = []
                 for theme, seed in batch:
                     info = results.get('info\t' + theme + '\t' + seed, {})
                     summary = results.get('summary\t' + theme + '\t' + seed, {})
@@ -217,10 +235,41 @@ def main():
                         'errors': {'info': info.get('error'), 'summary': summary.get('error')},
                     }
                     handle.write(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n')
-                    done[(theme, seed)] = row
+                    key = (theme, seed)
+                    preflight_latest[key] = row
+                    if rpc_row_ok(row):
+                        done[key] = row
+                    else:
+                        done.pop(key, None)
+                        for call_name, error in row['errors'].items():
+                            if error is not None:
+                                batch_errors.append({'seed': seed, 'call': call_name, 'error': error})
                 handle.flush()
-                state.update(seed_done=len(done), last_seed=batch[-1][1], updated_at=ts())
+                state.update(seed_done=len(done), seed_pending=len(seeds) - len(done), last_seed=batch[-1][1], updated_at=ts())
                 atomic(state_path, state)
+                if batch_errors:
+                    rate_limited = any(
+                        isinstance(item.get('error'), dict)
+                        and int(item['error'].get('code') or 0) == -2002
+                        for item in batch_errors
+                    )
+                    probe = {'errors': batch_errors[:8]}
+                    if rate_limited:
+                        state.update(stage='BLOCKED_RATE_LIMIT', blocker='SEMRUSH_RATE_LIMIT',
+                                     rate_limit_probe=probe, updated_at=ts())
+                        state.pop('schema_probe', None)
+                        atomic(state_path, state)
+                        journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_RATE_LIMIT', 'rate_limit_probe': probe})
+                        print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_RATE_LIMIT', 'state': state}, ensure_ascii=False))
+                        return 5
+                    state.update(stage='BLOCKED_PREFLIGHT_RPC', blocker='seed preflight RPC returned errors',
+                                 schema_probe=probe, updated_at=ts())
+                    state.pop('rate_limit_probe', None)
+                    atomic(state_path, state)
+                    journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_PREFLIGHT_RPC', 'schema_probe': probe})
+                    print(json.dumps({'status': 'BLOCKED', 'reason': 'PREFLIGHT_RPC', 'state': state}, ensure_ascii=False))
+                    return 4
+        state.pop('seed_pending', None)
         journal(journal_path, {'event': 'SEED_PREFLIGHT_COMPLETE', 'seed_done': len(done)})
 
         ideas_done = {} if args.force else load_jsonl_index(ideas_path, ('theme_id', 'seed'))
@@ -254,8 +303,19 @@ def main():
                 state.update(ideas_done=len(ideas_done), last_seed=batch[-1][1], updated_at=ts())
                 atomic(state_path, state)
                 if schema_error:
+                    errors = schema_error.get('errors') or []
+                    rate_limited = any(isinstance(err, dict) and int(err.get('code') or 0) == -2002 for err in errors)
+                    if rate_limited:
+                        state.update(stage='BLOCKED_RATE_LIMIT', blocker='SEMRUSH_RATE_LIMIT',
+                                     rate_limit_probe=schema_error, updated_at=ts())
+                        state.pop('schema_probe', None)
+                        atomic(state_path, state)
+                        journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_RATE_LIMIT', 'rate_limit_probe': schema_error})
+                        print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_RATE_LIMIT', 'state': state}, ensure_ascii=False))
+                        return 5
                     state.update(stage='BLOCKED_RPC_SCHEMA', blocker='ideas.GetKeywords returned errors; request-shape validation required',
                                  schema_probe=schema_error, updated_at=ts())
+                    state.pop('rate_limit_probe', None)
                     atomic(state_path, state)
                     journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_RPC_SCHEMA', 'schema_probe': schema_error})
                     print(json.dumps({'status': 'BLOCKED', 'reason': 'RPC_SCHEMA', 'state': state}, ensure_ascii=False))
