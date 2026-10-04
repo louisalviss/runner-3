@@ -110,17 +110,32 @@ def load_universe(path: Path) -> list[dict[str, Any]]:
             seeds = pval.get("seeds") or {}
             if not isinstance(seeds, dict):
                 continue
+            database = str(pval.get("database") or payload.get("database") or "").strip()
             for seed, sval in seeds.items():
                 if not isinstance(sval, dict):
                     continue
+                info = sval.get("info")
+                if isinstance(info, dict):
+                    exact_rows = info.get("keywords") or []
+                    if isinstance(exact_rows, list):
+                        for row in exact_rows:
+                            if not isinstance(row, dict):
+                                continue
+                            row_database = str(row.get("database") or "").strip()
+                            if database and row_database and row_database != database:
+                                continue
+                            flat = dict(row)
+                            flat["phrase"] = row.get("phrase") or seed
+                            rec = parse_idea(str(project), str(seed), flat)
+                            if rec:
+                                out.append(rec)
                 ideas = sval.get("ideas") or []
-                if not isinstance(ideas, list):
-                    continue
-                for row in ideas:
-                    if isinstance(row, dict):
-                        rec = parse_idea(str(project), str(seed), row)
-                        if rec:
-                            out.append(rec)
+                if isinstance(ideas, list):
+                    for row in ideas:
+                        if isinstance(row, dict):
+                            rec = parse_idea(str(project), str(seed), row)
+                            if rec:
+                                out.append(rec)
         return out
 
     rows = payload.get("rows") if isinstance(payload, dict) else None
@@ -148,12 +163,20 @@ def dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = (r["project"], r["norm"])
         cur = by_key.get(key)
         if cur is None:
-            by_key[key] = r
+            by_key[key] = dict(r)
             continue
-        cur_kd = cur["kd"] if cur["kd"] is not None else 999.0
-        new_kd = r["kd"] if r["kd"] is not None else 999.0
-        if (r["volume"], -new_kd, r["cpc"]) > (cur["volume"], -cur_kd, cur["cpc"]):
-            by_key[key] = r
+        merged = dict(cur)
+        if r["volume"] > merged["volume"]:
+            merged["volume"] = r["volume"]
+            merged["seed"] = r["seed"]
+        if merged["kd"] is None and r["kd"] is not None:
+            merged["kd"] = r["kd"]
+        if r["cpc"] > merged["cpc"]:
+            merged["cpc"] = r["cpc"]
+        if not merged.get("intent") and r.get("intent"):
+            merged["intent"] = r["intent"]
+        merged["high_intent"] = bool(merged.get("high_intent") or r.get("high_intent"))
+        by_key[key] = merged
     return list(by_key.values())
 
 
