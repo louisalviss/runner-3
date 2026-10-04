@@ -231,9 +231,18 @@ def collect_thread_candidates(html, base_url, source, start_order=0):
     found = []
     order = start_order
     for a in soup.find_all("a", href=True):
-        href = clean_url(urljoin(base_url, a.get("href", "")))
-        p = urlparse(href)
-        if (p.hostname or "").lower() not in source["hosts"]:
+        raw_href = a.get("href", "")
+        try:
+            href = clean_url(urljoin(base_url, raw_href))
+            p = urlparse(href)
+            hostname = (p.hostname or "").lower()
+        except (TypeError, ValueError):
+            # Forum pages may contain malformed bracketed pseudo-URLs that
+            # urllib correctly rejects as invalid IPv6. They are navigation
+            # noise, not thread candidates, so isolate them instead of
+            # aborting the whole source crawl.
+            continue
+        if hostname not in source["hosts"]:
             continue
         if not source["thread_regex"].search(p.path):
             continue
