@@ -32,6 +32,7 @@ PY
 if [[ "$(already_done)" == yes ]]; then
   log "Canonical batch already PASS for $DAY; only repairing backlog/sync"
   timeout 35m python3 "$BASE/scripts/repair_backlog.py" --days 14 --exclude-today || log 'Backlog repair returned non-zero'
+  timeout 10m python3 "$BASE/scripts/backfill_sync.py" || log 'Backfill Telegram sync returned non-zero'
   timeout 10m /usr/local/sbin/seotrends-telegram-sync || log 'Telegram sync returned non-zero'
   exit 0
 fi
@@ -41,6 +42,7 @@ python3 "$BASE/scripts/daily_scan.py" --workers 16 --timeout 5
 run_semrush
 run_terminal
 timeout 35m python3 "$BASE/scripts/repair_backlog.py" --days 14 --exclude-today || log 'Backlog repair returned non-zero'
+timeout 10m python3 "$BASE/scripts/backfill_sync.py" || log 'Backfill Telegram sync returned non-zero'
 timeout 10m /usr/local/sbin/seotrends-telegram-sync || log 'Telegram sync returned non-zero'
 python3 - "$STATE" "$DAY" <<'PY'
 import json,sys,os
