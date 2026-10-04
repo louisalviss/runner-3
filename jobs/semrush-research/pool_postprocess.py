@@ -156,7 +156,7 @@ def materialize(job_id: str, output_dir: pathlib.Path, expected_input_sha: str) 
     if not src.is_dir():
         raise RuntimeError("POOL_JOB_OUTPUT_MISSING")
     state = json.loads((src / "state.json").read_text(encoding="utf-8"))
-    if state.get("stage") != "SERP_DD_PENDING" or state.get("source_sha256") != expected_input_sha:
+    if state.get("stage") not in {"SERP_DD_PENDING", "COMPLETE_NO_PASS"} or state.get("source_sha256") != expected_input_sha:
         raise RuntimeError("POOL_JOB_OUTPUT_IDENTITY_MISMATCH")
     output_dir.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
@@ -196,8 +196,8 @@ def main() -> int:
         state = json.loads(current_state.read_text(encoding="utf-8"))
         proof_path = out / "pool-proof.json"
         proof = json.loads(proof_path.read_text(encoding="utf-8")) if proof_path.is_file() else {}
-        if state.get("stage") == "SERP_DD_PENDING" and state.get("source_sha256") == input_sha and proof.get("config_sha256") == config_sha:
-            print(json.dumps({"status": "RESUME_NO_BACKTRACK", "stage": "SERP_DD_PENDING", "source_sha256": input_sha, "output_dir": str(out)}, ensure_ascii=False))
+        if state.get("stage") in {"SERP_DD_PENDING", "COMPLETE_NO_PASS"} and state.get("source_sha256") == input_sha and proof.get("config_sha256") == config_sha:
+            print(json.dumps({"status": "RESUME_NO_BACKTRACK", "stage": state.get("stage"), "source_sha256": input_sha, "output_dir": str(out)}, ensure_ascii=False))
             return 0
 
     commit, flow_sha = source_identity()
@@ -212,7 +212,7 @@ def main() -> int:
                          "vps_control_commit": prior.get("vps_control_commit"), "flow_source_sha256": prior.get("flow_source_sha256"),
                          "artifact": prior.get("artifact"), "job_id": job_id, "router_proof": (info["job_state"].get("proof") or {})}
                 atomic_json(out / "pool-proof.json", proof)
-                print(json.dumps({"status": "RECOVERED", "stage": "SERP_DD_PENDING", "job_id": job_id, "output_dir": str(out)}, ensure_ascii=False))
+                print(json.dumps({"status": "RECOVERED", "stage": info["demand_state"].get("stage"), "job_id": job_id, "output_dir": str(out)}, ensure_ascii=False))
                 return 0
             raise RuntimeError("POOL_PREVIOUS_DISPATCH_NOT_TERMINAL")
 
@@ -252,7 +252,7 @@ def main() -> int:
              "flow_source_sha256": flow_sha, "artifact": artifact, "job_id": job_id,
              "swarm_result": swarm_result, "router_proof": (info["job_state"].get("proof") or {})}
     atomic_json(out / "pool-proof.json", proof)
-    print(json.dumps({"status": "PASS", "stage": "SERP_DD_PENDING", "job_id": job_id,
+    print(json.dumps({"status": "PASS", "stage": info["demand_state"].get("stage"), "job_id": job_id,
                       "passed_projects": info["demand_state"].get("passed_projects") or [],
                       "queue_count": int(info["demand_state"].get("queue_count") or 0), "output_dir": str(out)}, ensure_ascii=False))
     return 0
