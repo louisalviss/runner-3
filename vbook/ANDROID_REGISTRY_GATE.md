@@ -18,7 +18,7 @@
 Run on `runner-vps1` through the privileged SentinelX/root lane because `/run/nokia-control/control.sock` is intentionally not exposed to the GitHub runner account.
 
 ```bash
-cd /opt/vps-mailbox/vbook-sources-work
+cd /opt/vps-mailbox/vbook-truyenhub-gate
 python3 vbook/android_registry_gate.py \
   --registry vbook/louis-vbook.json \
   --repeats 2
