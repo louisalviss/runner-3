@@ -349,7 +349,11 @@ def main() -> int:
 
     if state_path.exists() and not args.force:
         prev = json.loads(state_path.read_text(encoding="utf-8"))
-        if prev.get("source_sha256") == source_sha and prev.get("config") == cfg and prev.get("stage") == "SERP_DD_PENDING":
+        if (
+            prev.get("source_sha256") == source_sha
+            and prev.get("config") == cfg
+            and prev.get("stage") in {"SERP_DD_PENDING", "COMPLETE_NO_PASS"}
+        ):
             print(json.dumps({
                 "status": "RESUME_NO_BACKTRACK",
                 "stage": prev["stage"],
@@ -433,8 +437,9 @@ def main() -> int:
         "top_keywords": r["top_keywords"],
         "next": "exact SERP DD + exact-product competitor gate + monetization/WTP validation",
     } for r in clusters]
+    terminal_stage = "SERP_DD_PENDING" if queue else "COMPLETE_NO_PASS"
     atomic_json(outdir / "serp-dd-queue.json", {
-        "status": "PENDING",
+        "status": "PENDING" if queue else "COMPLETE_NO_PASS",
         "lane": "semrush-demand-first",
         "source_sha256": source_sha,
         "passed_projects": passed_projects,
@@ -467,18 +472,18 @@ def main() -> int:
         "## Resume contract",
         "- `state.json` is the exact stage pointer.",
         "- `main-points.jsonl` is append-only stage history.",
-        "- same input SHA + same config + `SERP_DD_PENDING` => do not restart discovery; resume from `serp-dd-queue.json`.",
+        "- same input SHA + same config + terminal stage (`SERP_DD_PENDING` or `COMPLETE_NO_PASS`) => do not restart discovery.",
         "- no BUILD verdict is allowed from volume/KD alone.",
     ]
     (outdir / "checkpoint.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    state.update(stage="SERP_DD_PENDING", updated_at=now_ts(), queue_count=len(queue))
+    state.update(stage=terminal_stage, updated_at=now_ts(), queue_count=len(queue))
     atomic_json(state_path, state)
-    append_journal(journal_path, {"ts": now_ts(), "stage": "SERP_DD_PENDING", "queue_count": len(queue), "passed_projects": passed_projects})
+    append_journal(journal_path, {"ts": now_ts(), "stage": terminal_stage, "queue_count": len(queue), "passed_projects": passed_projects})
 
     print(json.dumps({
         "status": "PASS",
-        "stage": "SERP_DD_PENDING",
+        "stage": terminal_stage,
         "source_sha256": source_sha,
         "projects": len(project_report),
         "passed_projects": passed_projects,
