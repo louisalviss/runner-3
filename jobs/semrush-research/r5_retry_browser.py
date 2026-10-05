@@ -2,6 +2,8 @@
 from __future__ import annotations
 import json, pathlib, socket, time, importlib.util
 
+from runtime_preflight import require_semrush_preflight
+
 BROKER_SOCKET='/run/semrush-rpc-broker/control.sock'
 BANK=pathlib.Path('/var/lib/semrush-research/config/delta-bank-2026-09-21-r5.json')
 RUN=pathlib.Path('/var/lib/semrush-research/runs/delta-2026-09-21-r5')
@@ -66,6 +68,18 @@ def main():
     print(json.dumps({'event':'START','transport':'semrush-rpc-broker-v1','total':len(items),'pending':len(pending),'already_good':len(items)-len(pending)}),flush=True)
     if not pending:
         errors=rebuild(themes,items,latest); print(json.dumps({'event':'COMPLETE','retried':0,'errors':errors}),flush=True); return 0
+    try:
+        runtime_preflight=require_semrush_preflight()
+        shallow_payload=runtime_preflight.get('shallow',{}).get('payload') or {}
+        state=json.loads(STATE.read_text()) if STATE.exists() else {}
+        state.update(runtime_preflight={'status':'PASS','broker':(shallow_payload.get('checks') or {}).get('broker')},updated_at=now())
+        state.pop('runtime_preflight_error',None)
+        STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    except Exception as e:
+        state=json.loads(STATE.read_text()) if STATE.exists() else {}
+        state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=now())
+        STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        print(json.dumps({'event':'BLOCKED','reason':'SEMRUSH_RUNTIME_PREFLIGHT','detail':state['runtime_preflight_error']}),flush=True); return 6
     ready=broker_call({'action':'ensure'})
     if ready.get('ok') is not True:
         code=str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
