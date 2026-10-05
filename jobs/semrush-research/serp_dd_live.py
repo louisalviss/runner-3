@@ -4,6 +4,8 @@ import argparse, json, pathlib, re, socket, time
 from urllib.parse import urlparse
 from collections import Counter
 
+from runtime_preflight import require_semrush_preflight
+
 BROKER_SOCKET='/run/semrush-rpc-broker/control.sock'
 SOCIAL={'youtube.com','www.youtube.com','reddit.com','www.reddit.com','facebook.com','www.facebook.com','quora.com','www.quora.com','tiktok.com','www.tiktok.com'}
 TOOL_WORDS={'calculator','calc','checker','lookup','estimator','estimate','converter','conversion','generator','planner','tool','tools','template','checklist','cost','quote'}
@@ -80,22 +82,33 @@ def main():
             try:r=json.loads(line); done[(r['cluster_id'],r['keyword'])]=r
             except Exception: pass
     state={'version':2,'transport':'semrush-rpc-broker-v1','stage':'SERP_DD_RUNNING','cluster_total':len(rows),'queries_per_cluster':a.queries_per_cluster,'raw_done':len(done),'updated_at':ts()}; atomic(statep,state)
+    pending=[]
+    for r in rows:
+        kws=[]
+        for x in r.get('top_keywords') or []:
+            kw=str(x.get('keyword') or '').strip()
+            if kw and kw not in kws: kws.append(kw)
+            if len(kws)>=a.queries_per_cluster: break
+        for kw in kws:
+            if (r['cluster_id'],kw) not in done: pending.append((r['cluster_id'],kw))
     try:
-        ready=broker_call({'action':'ensure'})
-        if ready.get('ok') is not True:
-            code=str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
-            state.update(stage='BLOCKED_BROKER_BUSY' if code=='SEMRUSH_RESOURCE_ADMISSION_DENIED' else 'BLOCKED_LIVE_AUTH',blocker=code,updated_at=ts()); atomic(statep,state)
-            print(json.dumps({'status':'BLOCKED','reason':code,'state':state},ensure_ascii=False)); return 3
-        state.update(server=ready.get('server'),updated_at=ts()); atomic(statep,state)
-        pending=[]
-        for r in rows:
-            kws=[]
-            for x in r.get('top_keywords') or []:
-                kw=str(x.get('keyword') or '').strip()
-                if kw and kw not in kws: kws.append(kw)
-                if len(kws)>=a.queries_per_cluster: break
-            for kw in kws:
-                if (r['cluster_id'],kw) not in done: pending.append((r['cluster_id'],kw))
+        if pending:
+            try:
+                runtime_preflight=require_semrush_preflight()
+                shallow_payload=runtime_preflight.get('shallow',{}).get('payload') or {}
+                state['runtime_preflight']={'status':'PASS','broker':(shallow_payload.get('checks') or {}).get('broker')}
+            except Exception as e:
+                state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=ts()); atomic(statep,state)
+                print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_RUNTIME_PREFLIGHT','state':state},ensure_ascii=False)); return 6
+            ready=broker_call({'action':'ensure'})
+            if ready.get('ok') is not True:
+                code=str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
+                state.update(stage='BLOCKED_BROKER_BUSY' if code=='SEMRUSH_RESOURCE_ADMISSION_DENIED' else 'BLOCKED_LIVE_AUTH',blocker=code,updated_at=ts()); atomic(statep,state)
+                print(json.dumps({'status':'BLOCKED','reason':code,'state':state},ensure_ascii=False)); return 3
+            state.update(server=ready.get('server'),updated_at=ts()); atomic(statep,state)
+        else:
+            state['runtime_preflight']={'status':'SKIPPED_NO_PENDING'}
+            atomic(statep,state)
         with rawp.open('a',encoding='utf-8') as f:
             for i in range(0,len(pending),6):
                 batch=pending[i:i+6]
