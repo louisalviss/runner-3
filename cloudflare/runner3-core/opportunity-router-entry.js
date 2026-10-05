@@ -3,6 +3,7 @@ import { handleLibraryIndex } from "./src/library-index.js";
 
 let appPromise = null;
 let opportunityPromise = null;
+let businessOpportunityPromise = null;
 let privateCorePromise = null;
 
 function loadApp() {
@@ -21,6 +22,15 @@ function loadOpportunity() {
     }));
   }
   return opportunityPromise;
+}
+
+function loadBusinessOpportunity() {
+  if (!businessOpportunityPromise) {
+    businessOpportunityPromise = import("./src/business-opportunity-ledger.js").then((module) => ({
+      handleBusinessOpportunityLedger: module.handleBusinessOpportunityLedger,
+    }));
+  }
+  return businessOpportunityPromise;
 }
 
 function loadPrivateCore() {
@@ -50,6 +60,10 @@ export default {
     if (isPrivateCoreFastPath(url.pathname)) {
       const { coreApp, handlePrivateCoreFastPath } = await loadPrivateCore();
       return handlePrivateCoreFastPath(request, env, ctx, coreApp);
+    }
+    if (url.pathname.startsWith("/business-opportunity/")) {
+      const { handleBusinessOpportunityLedger } = await loadBusinessOpportunity();
+      return handleBusinessOpportunityLedger(request, env, url);
     }
     const { handleOpportunityRegime, guardOpportunityRegimeWrite } = await loadOpportunity();
     const regimeWriteGuard = await guardOpportunityRegimeWrite(request, url);

@@ -1,0 +1,131 @@
+name: Business Opportunity Ledger Live Proof
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Runner3 Core Production Deploy"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-opportunity-ledger-live-proof
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      TARGET_DB: runner3-business-opportunity
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+
+    steps:
+      - name: Resolve target commit
+        id: target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 2
+
+      - name: Decide whether this deploy changed the ledger
+        id: relevant
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff-tree --no-commit-id --name-only -r "${{ steps.target.outputs.sha }}" > /tmp/changed
+          if grep -Eq '^(cloudflare/runner3-core/src/business-opportunity-ledger\.js|cloudflare/runner3-core/opportunity-router-entry\.js|cloudflare/runner3-core/wrangler\.jsonc|ops/business-opportunity-ledger/)' /tmp/changed; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.relevant.outputs.run == 'true'
+        with:
+          node-version: '22'
+
+      - name: Static contract
+        if: steps.relevant.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/runner3-core/src/business-opportunity-ledger.js
+          node --check cloudflare/runner3-core/opportunity-router-entry.js
+          grep -q 'BUSINESS_OPPORTUNITY_DB' cloudflare/runner3-core/wrangler.jsonc
+          grep -q 'handleBusinessOpportunityLedger' cloudflare/runner3-core/opportunity-router-entry.js
+
+      - name: Wait for deployed ledger version
+        if: steps.relevant.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            code="$(curl -sS -H "Authorization: Bearer $RUNNER3_CORE_TOKEN" -o /tmp/health.json -w '%{http_code}' "$CORE_URL/business-opportunity/health" || true)"
+            echo "LEDGER_HEALTH attempt=$attempt http=$code body=$(cat /tmp/health.json 2>/dev/null || true)"
+            if [ "$code" = 200 ] && grep -q '"version":"business-opportunity-ledger-v1"' /tmp/health.json && grep -q '"schema_version":"1"' /tmp/health.json; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: End-to-end NO_RECHECK smoke
+        if: steps.relevant.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cid="smoke-${GITHUB_RUN_ID}"
+          eid="ev-${GITHUB_RUN_ID}"
+          alias="smoke-ledger-${GITHUB_RUN_ID}"
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          auth=(-H "Authorization: Bearer $RUNNER3_CORE_TOKEN" -H 'content-type: application/json')
+
+          cat >/tmp/candidate.json <<JSON
+          {"expected_version":0,"normalized_problem":"ledger acceptance smoke","thesis_version":"smoke-v1","status":"TEST","score":9.0,"next_gate":"smoke-next-gate","decision_reason":"acceptance","source_lane":"ACCEPTANCE","research_terminal":true,"research_terminal_at":"$now","last_material_delta_at":"$now","checked_at":"$now"}
+          JSON
+          curl -fsS "${auth[@]}" -X PUT --data @/tmp/candidate.json "$CORE_URL/business-opportunity/candidates/$cid" >/tmp/candidate.out
+          grep -q '"ok":true' /tmp/candidate.out
+
+          printf '{"candidate_id":"%s","identity_type":"alias","identity_value":"%s","source_lane":"ACCEPTANCE"}' "$cid" "$alias" >/tmp/identity.json
+          curl -fsS "${auth[@]}" -X POST --data @/tmp/identity.json "$CORE_URL/business-opportunity/identities" >/tmp/identity.out
+          grep -q '"ok":true' /tmp/identity.out
+
+          eh="$(printf '%s' "$cid:$now" | sha256sum | awk '{print $1}')"
+          printf '{"candidate_id":"%s","source_lane":"ACCEPTANCE","source_ref":"acceptance://%s","evidence_type":"runtime_smoke","independence_group":"acceptance","hard_signal":true,"direction":"SUPPORT","observed_at":"%s","evidence_hash":"%s","note":"temporary acceptance evidence"}' "$cid" "$cid" "$now" "$eh" >/tmp/evidence.json
+          curl -fsS "${auth[@]}" -X PUT --data @/tmp/evidence.json "$CORE_URL/business-opportunity/evidence/$eid" >/tmp/evidence.out
+          grep -q '"ok":true' /tmp/evidence.out
+
+          printf '{"identity_type":"alias","identity_value":"%s","thesis_version":"smoke-v1"}' "$alias" >/tmp/reconcile.json
+          curl -fsS "${auth[@]}" -X POST --data @/tmp/reconcile.json "$CORE_URL/business-opportunity/reconcile" >/tmp/reconcile.out
+          cat /tmp/reconcile.out
+          grep -q '"decision":"NO_RECHECK"' /tmp/reconcile.out
+          grep -q '"research_allowed":false' /tmp/reconcile.out
+          grep -q '"next_gate":"smoke-next-gate"' /tmp/reconcile.out
+          echo "SMOKE_CANDIDATE_ID=$cid" >> "$GITHUB_ENV"
+
+      - name: Cleanup smoke rows
+        if: always() && steps.relevant.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cid="${SMOKE_CANDIDATE_ID:-smoke-${GITHUB_RUN_ID}}"
+          npx --yes wrangler@4 d1 execute "$TARGET_DB" --remote --command "DELETE FROM business_opportunity_evidence WHERE candidate_id='$cid'; DELETE FROM business_opportunity_identity WHERE candidate_id='$cid'; DELETE FROM business_opportunity_transition WHERE candidate_id='$cid'; DELETE FROM business_opportunity_candidate WHERE candidate_id='$cid';"
