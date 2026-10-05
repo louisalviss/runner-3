@@ -1,0 +1,55 @@
+name: Business Opportunity Ledger Canonical Seed
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/business-opportunity-ledger-seed.yml'
+      - 'ops/business-opportunity-ledger/canonical-seed.json'
+      - 'scripts/business_opportunity_seed.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-opportunity-ledger-seed
+  cancel-in-progress: true
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      CORE_URL: https://runner3-core.ducduy2411.workers.dev
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate live ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'MISSING:RUNNER3_CORE_TOKEN'; exit 2; }
+          curl -fsS -H "Authorization: Bearer $RUNNER3_CORE_TOKEN" "$CORE_URL/business-opportunity/health" >/tmp/health.json
+          grep -q '"version":"business-opportunity-ledger-v1"' /tmp/health.json
+
+      - name: Seed canonical portfolio projection
+        run: node scripts/business_opportunity_seed.mjs ops/business-opportunity-ledger/canonical-seed.json
+
+      - name: Verify seeded counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: Bearer $RUNNER3_CORE_TOKEN" "$CORE_URL/business-opportunity/health" >/tmp/health-after.json
+          cat /tmp/health-after.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/health-after.json'))
+          assert p['counts']['candidates'] >= 14, p
+          assert p['counts']['identities'] >= 25, p
+          PY
