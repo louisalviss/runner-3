@@ -1,0 +1,157 @@
+name: Business Opportunity Ledger Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/business-opportunity-ledger-bootstrap.yml'
+      - 'ops/business-opportunity-ledger/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: business-opportunity-ledger-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET_DB: runner3-business-opportunity
+
+    steps:
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'MISSING:CLOUDFLARE_API_TOKEN'; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'MISSING:CLOUDFLARE_ACCOUNT_ID'; exit 2; }
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create or resolve dedicated Business Opportunity D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          list=/tmp/d1-list.json
+          npx --yes wrangler@4 d1 list --json > "$list"
+          if ! python3 - "$list" "$TARGET_DB" >/tmp/target-id <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))
+          target=sys.argv[2]
+          def walk(x):
+              if isinstance(x,dict):
+                  if x.get('name') == target:
+                      for k in ('uuid','database_id','id'):
+                          if x.get(k): return str(x[k])
+                  for v in x.values():
+                      r=walk(v)
+                      if r: return r
+              elif isinstance(x,list):
+                  for v in x:
+                      r=walk(v)
+                      if r: return r
+              return None
+          found=walk(data)
+          if not found: raise SystemExit(1)
+          print(found)
+          PY
+          then
+            npx --yes wrangler@4 d1 create "$TARGET_DB" --location apac
+            npx --yes wrangler@4 d1 list --json > "$list"
+            python3 - "$list" "$TARGET_DB" >/tmp/target-id <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1])); target=sys.argv[2]
+          def walk(x):
+              if isinstance(x,dict):
+                  if x.get('name') == target:
+                      for k in ('uuid','database_id','id'):
+                          if x.get(k): return str(x[k])
+                  for v in x.values():
+                      r=walk(v)
+                      if r: return r
+              elif isinstance(x,list):
+                  for v in x:
+                      r=walk(v)
+                      if r: return r
+              return None
+          found=walk(data)
+          if not found: raise SystemExit('TARGET_DB_ID_NOT_FOUND')
+          print(found)
+          PY
+          fi
+          echo "TARGET_DB_ID=$(cat /tmp/target-id)" >> "$GITHUB_ENV"
+          echo "BUSINESS_OPPORTUNITY_DB=$TARGET_DB"
+
+      - name: Apply ledger schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute "$TARGET_DB" --remote --file=ops/business-opportunity-ledger/0001_business_opportunity_ledger.sql
+          npx --yes wrangler@4 d1 execute "$TARGET_DB" --remote --command "SELECT key,value FROM business_opportunity_meta WHERE key='schema_version';" --json >/tmp/schema-proof.json
+          grep -q '"schema_version"' /tmp/schema-proof.json
+          grep -q '"1"' /tmp/schema-proof.json
+
+      - name: Patch Worker binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path('cloudflare/runner3-core/wrangler.jsonc')
+          cfg=json.loads(p.read_text())
+          row={
+            'binding':'BUSINESS_OPPORTUNITY_DB',
+            'database_name':'runner3-business-opportunity',
+            'database_id':os.environ['TARGET_DB_ID'],
+          }
+          d1=cfg.setdefault('d1_databases',[])
+          for i,item in enumerate(d1):
+              if item.get('binding')=='BUSINESS_OPPORTUNITY_DB':
+                  d1[i]=row
+                  break
+          else:
+              d1.append(row)
+          p.write_text(json.dumps(cfg,indent=2)+'\n')
+          PY
+          grep -q '"binding": "BUSINESS_OPPORTUNITY_DB"' cloudflare/runner3-core/wrangler.jsonc
+          grep -q '"database_name": "runner3-business-opportunity"' cloudflare/runner3-core/wrangler.jsonc
+
+      - name: Persist binding to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/wrangler.jsonc
+          if git diff --cached --quiet; then
+            echo 'BINDING_ALREADY_CURRENT'
+            exit 0
+          fi
+          git commit -m 'feat(research): bind business opportunity D1 [skip ci]'
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin main
+            git push origin HEAD:main && exit 0
+            sleep 2
+          done
+          exit 3
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "BUSINESS_OPPORTUNITY_LEDGER_BOOTSTRAP=PASS"
+          echo "TARGET_DB=$TARGET_DB"
+          echo "TARGET_DB_ID=$TARGET_DB_ID"

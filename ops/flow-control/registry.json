@@ -95,6 +95,22 @@
       "dropbox": {"mode": "human-report"}
     },
     {
+      "flow_id": "business-opportunity-research-ledger",
+      "pattern": "lean",
+      "d1": {
+        "project": "runner3-business-opportunity",
+        "binding": "BUSINESS_OPPORTUNITY_DB",
+        "role": "cross-source-candidate-identity-evidence-state"
+      },
+      "r2": {"mode": "not-required-by-default"},
+      "sheet": {"mode": "optional-projection"},
+      "dropbox": {
+        "mode": "human-canonical-project-docs",
+        "portfolio_authority": "AI-MEMORY/PROJECTS/Projects Map.md"
+      },
+      "notes": "Machine SOT for cross-source research identity/evidence state only; never merge with Finance/Trading Opportunity Radar V2."
+    },
+    {
       "flow_id": "opportunity-radar-v2",
       "pattern": "special",
       "d1": {"project": "opportunity-radar-v2", "role": "runtime-checkpoint"},
