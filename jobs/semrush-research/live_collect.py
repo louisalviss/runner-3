@@ -9,6 +9,9 @@ import socket
 import time
 
 from runtime_preflight import require_semrush_preflight
+from runtime_metrics import SemrushJobMetrics
+
+JOB_METRICS = SemrushJobMetrics('live_collect')
 
 BROKER_SOCKET = '/run/semrush-rpc-broker/control.sock'
 
@@ -26,6 +29,11 @@ def atomic(path, payload):
     tmp = path.with_suffix(path.suffix + '.tmp')
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     tmp.replace(path)
+
+
+def persist_state(path, state):
+    state['semrush_metrics'] = JOB_METRICS.snapshot()
+    atomic(path, state)
 
 
 def journal(path, event):
@@ -52,6 +60,8 @@ def broker_call(request, timeout=180):
         raise RuntimeError('BROKER_REQUEST_TOO_LARGE')
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
+    started = time.monotonic()
+    result = None
     try:
         sock.connect(BROKER_SOCKET)
         sock.sendall(payload)
@@ -66,6 +76,7 @@ def broker_call(request, timeout=180):
     except FileNotFoundError as exc:
         raise RuntimeError('BROKER_UNAVAILABLE') from exc
     finally:
+        JOB_METRICS.observe(request, result, (time.monotonic() - started) * 1000.0)
         sock.close()
 
 
@@ -183,6 +194,8 @@ def main():
                 )
                 ideas_complete = len(cached_ideas) == len(seeds)
                 if preflight_complete and ideas_complete:
+                    state['runtime_preflight'] = {'status': 'SKIPPED_TERMINAL'}
+                    persist_state(state_path, state)
                     print(json.dumps({'status': 'RESUME_NO_BACKTRACK', 'state': state}, ensure_ascii=False))
                     return 0
                 state['stage'] = 'REPAIR_INCOMPLETE_CACHE'
@@ -202,7 +215,7 @@ def main():
             runtime_preflight_error=type(exc).__name__ + ':' + str(exc)[:1200],
             updated_at=ts(),
         )
-        atomic(state_path, state)
+        persist_state(state_path, state)
         journal(journal_path, {
             'event': 'BLOCKED',
             'stage': 'BLOCKED_RUNTIME_PREFLIGHT',
@@ -211,7 +224,7 @@ def main():
         print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_RUNTIME_PREFLIGHT', 'state': state}, ensure_ascii=False))
         return 6
 
-    atomic(state_path, state)
+    persist_state(state_path, state)
     journal(journal_path, {
         'event': 'RUN_START',
         'transport': 'semrush-rpc-broker-v1',
@@ -227,7 +240,7 @@ def main():
             detail = str(ready.get('detail') or '')[:800]
             state.update(stage='BLOCKED_BROKER_BUSY' if code == 'SEMRUSH_RESOURCE_ADMISSION_DENIED' else 'BLOCKED_LIVE_AUTH_CF',
                          blocker=code, broker_detail=detail, updated_at=ts())
-            atomic(state_path, state)
+            persist_state(state_path, state)
             journal(journal_path, {'event': 'BLOCKED', 'stage': state['stage'], 'blocker': code})
             print(json.dumps({'status': 'BLOCKED', 'reason': code, 'state': state}, ensure_ascii=False))
             return 3
@@ -236,7 +249,7 @@ def main():
         state.update(stage='SEED_PREFLIGHT_RUNNING', server=server, updated_at=ts())
         for key in ('blocker', 'error', 'server_probe', 'broker_detail', 'schema_probe', 'rate_limit_probe'):
             state.pop(key, None)
-        atomic(state_path, state)
+        persist_state(state_path, state)
         journal(journal_path, {'event': 'LIVE_AUTH_PASS', 'transport': 'broker', 'server': server})
 
         preflight_latest = {} if args.force else load_jsonl_index(preflight_path, ('theme_id', 'seed'))
@@ -272,7 +285,7 @@ def main():
                                 batch_errors.append({'seed': seed, 'call': call_name, 'error': error})
                 handle.flush()
                 state.update(seed_done=len(done), seed_pending=len(seeds) - len(done), last_seed=batch[-1][1], updated_at=ts())
-                atomic(state_path, state)
+                persist_state(state_path, state)
                 if batch_errors:
                     rate_limited = any(
                         isinstance(item.get('error'), dict)
@@ -284,14 +297,14 @@ def main():
                         state.update(stage='BLOCKED_RATE_LIMIT', blocker='SEMRUSH_RATE_LIMIT',
                                      rate_limit_probe=probe, updated_at=ts())
                         state.pop('schema_probe', None)
-                        atomic(state_path, state)
+                        persist_state(state_path, state)
                         journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_RATE_LIMIT', 'rate_limit_probe': probe})
                         print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_RATE_LIMIT', 'state': state}, ensure_ascii=False))
                         return 5
                     state.update(stage='BLOCKED_PREFLIGHT_RPC', blocker='seed preflight RPC returned errors',
                                  schema_probe=probe, updated_at=ts())
                     state.pop('rate_limit_probe', None)
-                    atomic(state_path, state)
+                    persist_state(state_path, state)
                     journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_PREFLIGHT_RPC', 'schema_probe': probe})
                     print(json.dumps({'status': 'BLOCKED', 'reason': 'PREFLIGHT_RPC', 'state': state}, ensure_ascii=False))
                     return 4
@@ -300,7 +313,7 @@ def main():
 
         ideas_done = {} if args.force else load_jsonl_index(ideas_path, ('theme_id', 'seed'))
         state.update(stage='UNIVERSE_EXPANDING', ideas_done=len(ideas_done), updated_at=ts())
-        atomic(state_path, state)
+        persist_state(state_path, state)
         pending_ideas = [(theme, seed) for theme, seed in seeds if (theme, seed) not in ideas_done]
         with ideas_path.open('a', encoding='utf-8') as handle:
             for batch in chunks(pending_ideas, 4):
@@ -327,7 +340,7 @@ def main():
                     ideas_done[(row['theme_id'], row['seed'])] = row
                 handle.flush()
                 state.update(ideas_done=len(ideas_done), last_seed=batch[-1][1], updated_at=ts())
-                atomic(state_path, state)
+                persist_state(state_path, state)
                 if schema_error:
                     errors = schema_error.get('errors') or []
                     rate_limited = any(isinstance(err, dict) and int(err.get('code') or 0) == -2002 for err in errors)
@@ -335,14 +348,14 @@ def main():
                         state.update(stage='BLOCKED_RATE_LIMIT', blocker='SEMRUSH_RATE_LIMIT',
                                      rate_limit_probe=schema_error, updated_at=ts())
                         state.pop('schema_probe', None)
-                        atomic(state_path, state)
+                        persist_state(state_path, state)
                         journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_RATE_LIMIT', 'rate_limit_probe': schema_error})
                         print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_RATE_LIMIT', 'state': state}, ensure_ascii=False))
                         return 5
                     state.update(stage='BLOCKED_RPC_SCHEMA', blocker='ideas.GetKeywords returned errors; request-shape validation required',
                                  schema_probe=schema_error, updated_at=ts())
                     state.pop('rate_limit_probe', None)
-                    atomic(state_path, state)
+                    persist_state(state_path, state)
                     journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_RPC_SCHEMA', 'schema_probe': schema_error})
                     print(json.dumps({'status': 'BLOCKED', 'reason': 'RPC_SCHEMA', 'state': state}, ensure_ascii=False))
                     return 4
@@ -364,14 +377,14 @@ def main():
             'projects': projects,
         })
         state.update(stage='UNIVERSE_READY', universe=str(universe_path), updated_at=ts())
-        atomic(state_path, state)
+        persist_state(state_path, state)
         journal(journal_path, {'event': 'UNIVERSE_READY', 'project_count': len(projects)})
         print(json.dumps({'status': 'PASS', 'stage': 'UNIVERSE_READY', 'projects': len(projects), 'seeds': len(seeds),
                           'universe': str(universe_path), 'transport': 'semrush-rpc-broker-v1'}, ensure_ascii=False))
         return 0
     except Exception as exc:
         state.update(stage='FAILED', error=type(exc).__name__ + ':' + str(exc)[:400], updated_at=ts())
-        atomic(state_path, state)
+        persist_state(state_path, state)
         journal(journal_path, {'event': 'FAILED', 'error': state['error']})
         print(json.dumps({'status': 'FAIL', 'state': state}, ensure_ascii=False))
         return 1

@@ -3,6 +3,9 @@ from __future__ import annotations
 import json, pathlib, socket, time, importlib.util
 
 from runtime_preflight import require_semrush_preflight
+from runtime_metrics import SemrushJobMetrics
+
+JOB_METRICS=SemrushJobMetrics('r5_retry_browser')
 
 BROKER_SOCKET='/run/semrush-rpc-broker/control.sock'
 BANK=pathlib.Path('/var/lib/semrush-research/config/delta-bank-2026-09-21-r5.json')
@@ -13,6 +16,7 @@ def now(): return time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
 def broker_call(req,timeout=180):
     payload=(json.dumps(req,ensure_ascii=False,separators=(',',':'))+'\n').encode()
     s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(timeout)
+    started=time.monotonic(); out=None
     try:
         s.connect(BROKER_SOCKET); s.sendall(payload); raw=s.makefile('rb').readline(8*1024*1024)
         if not raw: raise RuntimeError('BROKER_EMPTY_RESPONSE')
@@ -20,7 +24,8 @@ def broker_call(req,timeout=180):
         if not isinstance(out,dict): raise RuntimeError('BROKER_INVALID_RESPONSE')
         return out
     except FileNotFoundError as e: raise RuntimeError('BROKER_UNAVAILABLE') from e
-    finally: s.close()
+    finally:
+        JOB_METRICS.observe(req,out,(time.monotonic()-started)*1000.0); s.close()
 def rpc_many(calls):
     out=broker_call({'action':'rpc_many','calls':calls})
     if out.get('ok') is not True:
@@ -53,6 +58,9 @@ def load_items():
         for s in t.get('seeds',[]): items.append({'theme_id':t['theme_id'],'label':t.get('label'),'search_channel_fit':t.get('search_channel_fit'),'database':db,'seed':' '.join(str(s).split())})
     return themes,items
 def is_bad(r): return (not r) or bool(r.get('error')) or r.get('summary') is None or not isinstance(r.get('ideas'),list)
+def write_state(state):
+    state['semrush_metrics']=JOB_METRICS.snapshot()
+    STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 def rebuild(themes,items,latest):
     spec=importlib.util.spec_from_file_location('scanmod','/var/lib/semrush-research/scripts/dropbox_idea_scan_rpc.py'); mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
     rows=[latest[(x['database'],x['theme_id'],x['seed'])] for x in items if (x['database'],x['theme_id'],x['seed']) in latest]
@@ -61,7 +69,7 @@ def rebuild(themes,items,latest):
     UNIVERSE.write_text(json.dumps({'created_at':now(),'source':'Semrush Keyword RPC via NoxTools single-owner broker','bank_shas':{str(BANK):mod.sha(BANK)},'rows':rows},ensure_ascii=False)+'\n',encoding='utf-8')
     errors=sum(bool(x.get('error')) for x in rows); state=json.loads(STATE.read_text()) if STATE.exists() else {}
     state.update(version=2,transport='semrush-rpc-broker-v1',stage='COMPLETE' if errors==0 else 'BROWSER_RETRY_PENDING',updated_at=now(),seed_total=len(items),seed_done=len(rows)-errors,seed_pending=errors,error_count=errors,endpoint='NoxTools single-owner broker RPC',summary=str(SUMMARY),universe=str(UNIVERSE))
-    STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8'); return errors
+    write_state(state); return errors
 
 def main():
     themes,items=load_items(); latest=load_latest(); pending=[x for x in items if is_bad(latest.get((x['database'],x['theme_id'],x['seed'])))]
@@ -74,11 +82,11 @@ def main():
         state=json.loads(STATE.read_text()) if STATE.exists() else {}
         state.update(runtime_preflight={'status':'PASS','broker':(shallow_payload.get('checks') or {}).get('broker')},updated_at=now())
         state.pop('runtime_preflight_error',None)
-        STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        write_state(state)
     except Exception as e:
         state=json.loads(STATE.read_text()) if STATE.exists() else {}
         state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=now())
-        STATE.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        write_state(state)
         print(json.dumps({'event':'BLOCKED','reason':'SEMRUSH_RUNTIME_PREFLIGHT','detail':state['runtime_preflight_error']}),flush=True); return 6
     ready=broker_call({'action':'ensure'})
     if ready.get('ok') is not True:

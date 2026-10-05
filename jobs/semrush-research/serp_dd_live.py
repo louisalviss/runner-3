@@ -5,6 +5,9 @@ from urllib.parse import urlparse
 from collections import Counter
 
 from runtime_preflight import require_semrush_preflight
+from runtime_metrics import SemrushJobMetrics
+
+JOB_METRICS=SemrushJobMetrics('serp_dd_live')
 
 BROKER_SOCKET='/run/semrush-rpc-broker/control.sock'
 SOCIAL={'youtube.com','www.youtube.com','reddit.com','www.reddit.com','facebook.com','www.facebook.com','quora.com','www.quora.com','tiktok.com','www.tiktok.com'}
@@ -16,9 +19,12 @@ def ts(): return time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
 def atomic(path,payload):
     path.parent.mkdir(parents=True,exist_ok=True); tmp=path.with_suffix(path.suffix+'.tmp')
     tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8'); tmp.replace(path)
+def persist_state(path,state):
+    state['semrush_metrics']=JOB_METRICS.snapshot(); atomic(path,state)
 def broker_call(req,timeout=180):
     payload=(json.dumps(req,ensure_ascii=False,separators=(',',':'))+'\n').encode()
     s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(timeout)
+    started=time.monotonic(); out=None
     try:
         s.connect(BROKER_SOCKET); s.sendall(payload); raw=s.makefile('rb').readline(8*1024*1024)
         if not raw: raise RuntimeError('BROKER_EMPTY_RESPONSE')
@@ -26,7 +32,8 @@ def broker_call(req,timeout=180):
         if not isinstance(out,dict): raise RuntimeError('BROKER_INVALID_RESPONSE')
         return out
     except FileNotFoundError as e: raise RuntimeError('BROKER_UNAVAILABLE') from e
-    finally: s.close()
+    finally:
+        JOB_METRICS.observe(req,out,(time.monotonic()-started)*1000.0); s.close()
 def rpc_many(calls):
     out=broker_call({'action':'rpc_many','calls':calls})
     if out.get('ok') is not True:
@@ -81,7 +88,7 @@ def main():
         for line in rawp.read_text().splitlines():
             try:r=json.loads(line); done[(r['cluster_id'],r['keyword'])]=r
             except Exception: pass
-    state={'version':2,'transport':'semrush-rpc-broker-v1','stage':'SERP_DD_RUNNING','cluster_total':len(rows),'queries_per_cluster':a.queries_per_cluster,'raw_done':len(done),'updated_at':ts()}; atomic(statep,state)
+    state={'version':2,'transport':'semrush-rpc-broker-v1','stage':'SERP_DD_RUNNING','cluster_total':len(rows),'queries_per_cluster':a.queries_per_cluster,'raw_done':len(done),'updated_at':ts()}; persist_state(statep,state)
     pending=[]
     for r in rows:
         kws=[]
@@ -98,17 +105,17 @@ def main():
                 shallow_payload=runtime_preflight.get('shallow',{}).get('payload') or {}
                 state['runtime_preflight']={'status':'PASS','broker':(shallow_payload.get('checks') or {}).get('broker')}
             except Exception as e:
-                state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=ts()); atomic(statep,state)
+                state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=ts()); persist_state(statep,state)
                 print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_RUNTIME_PREFLIGHT','state':state},ensure_ascii=False)); return 6
             ready=broker_call({'action':'ensure'})
             if ready.get('ok') is not True:
                 code=str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
-                state.update(stage='BLOCKED_BROKER_BUSY' if code=='SEMRUSH_RESOURCE_ADMISSION_DENIED' else 'BLOCKED_LIVE_AUTH',blocker=code,updated_at=ts()); atomic(statep,state)
+                state.update(stage='BLOCKED_BROKER_BUSY' if code=='SEMRUSH_RESOURCE_ADMISSION_DENIED' else 'BLOCKED_LIVE_AUTH',blocker=code,updated_at=ts()); persist_state(statep,state)
                 print(json.dumps({'status':'BLOCKED','reason':code,'state':state},ensure_ascii=False)); return 3
-            state.update(server=ready.get('server'),updated_at=ts()); atomic(statep,state)
+            state.update(server=ready.get('server'),updated_at=ts()); persist_state(statep,state)
         else:
             state['runtime_preflight']={'status':'SKIPPED_NO_PENDING'}
-            atomic(statep,state)
+            persist_state(statep,state)
         with rawp.open('a',encoding='utf-8') as f:
             for i in range(0,len(pending),6):
                 batch=pending[i:i+6]
@@ -118,7 +125,7 @@ def main():
                     v=by.get(cid+'\t'+kw,{})
                     rec={'cluster_id':cid,'keyword':kw,'status':v.get('status'),'rows':v.get('result') or [],'error':v.get('error')}
                     f.write(json.dumps(rec,ensure_ascii=False,separators=(',',':'))+'\n'); done[(cid,kw)]=rec
-                f.flush(); state.update(raw_done=len(done),updated_at=ts()); atomic(statep,state)
+                f.flush(); state.update(raw_done=len(done),updated_at=ts()); persist_state(statep,state)
         output=[]
         for r in rows:
             serps=[]; errors=[]; kws=[]
@@ -134,8 +141,8 @@ def main():
             g=gate(serps); avg_tool=round(sum(x['exact_tool_top10'] for x in serps)/len(serps),2) if serps else None
             output.append({**r,'serp_gate':g,'avg_exact_tool_top10':avg_tool,'serps':serps,'errors':errors})
         atomic(resultp,{'created_at':ts(),'source_queue':str(pathlib.Path(a.queue)),'transport':'semrush-rpc-broker-v1','cluster_count':len(output),'results':output})
-        counts=dict(Counter(x['serp_gate'] for x in output)); state.update(stage='SERP_DD_READY',cluster_done=len(output),gate_counts=counts,results=str(resultp),updated_at=ts()); atomic(statep,state)
+        counts=dict(Counter(x['serp_gate'] for x in output)); state.update(stage='SERP_DD_READY',cluster_done=len(output),gate_counts=counts,results=str(resultp),updated_at=ts()); persist_state(statep,state)
         print(json.dumps({'status':'PASS','stage':'SERP_DD_READY','clusters':len(output),'gate_counts':counts,'results':str(resultp),'transport':'semrush-rpc-broker-v1'},ensure_ascii=False)); return 0
     except Exception as e:
-        state.update(stage='FAILED',error=type(e).__name__+':'+str(e)[:400],updated_at=ts()); atomic(statep,state); print(json.dumps({'status':'FAIL','state':state},ensure_ascii=False)); return 1
+        state.update(stage='FAILED',error=type(e).__name__+':'+str(e)[:400],updated_at=ts()); persist_state(statep,state); print(json.dumps({'status':'FAIL','state':state},ensure_ascii=False)); return 1
 if __name__=='__main__': raise SystemExit(main())
