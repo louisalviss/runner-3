@@ -8,6 +8,8 @@ import pathlib
 import socket
 import time
 
+from runtime_preflight import require_semrush_preflight
+
 BROKER_SOCKET = '/run/semrush-rpc-broker/control.sock'
 
 
@@ -184,6 +186,30 @@ def main():
                     print(json.dumps({'status': 'RESUME_NO_BACKTRACK', 'state': state}, ensure_ascii=False))
                     return 0
                 state['stage'] = 'REPAIR_INCOMPLETE_CACHE'
+
+    try:
+        runtime_preflight = require_semrush_preflight()
+        shallow_payload = runtime_preflight.get('shallow', {}).get('payload') or {}
+        state['runtime_preflight'] = {
+            'status': 'PASS',
+            'broker': (shallow_payload.get('checks') or {}).get('broker'),
+        }
+        state.pop('runtime_preflight_error', None)
+    except Exception as exc:
+        state.update(
+            stage='BLOCKED_RUNTIME_PREFLIGHT',
+            blocker='SEMRUSH_RUNTIME_PREFLIGHT',
+            runtime_preflight_error=type(exc).__name__ + ':' + str(exc)[:1200],
+            updated_at=ts(),
+        )
+        atomic(state_path, state)
+        journal(journal_path, {
+            'event': 'BLOCKED',
+            'stage': 'BLOCKED_RUNTIME_PREFLIGHT',
+            'blocker': 'SEMRUSH_RUNTIME_PREFLIGHT',
+        })
+        print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_RUNTIME_PREFLIGHT', 'state': state}, ensure_ascii=False))
+        return 6
 
     atomic(state_path, state)
     journal(journal_path, {
