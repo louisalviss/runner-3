@@ -194,6 +194,8 @@ def main():
                 )
                 ideas_complete = len(cached_ideas) == len(seeds)
                 if preflight_complete and ideas_complete:
+                    state['runtime_preflight'] = {'status': 'SKIPPED_TERMINAL'}
+                    persist_state(state_path, state)
                     print(json.dumps({'status': 'RESUME_NO_BACKTRACK', 'state': state}, ensure_ascii=False))
                     return 0
                 state['stage'] = 'REPAIR_INCOMPLETE_CACHE'
