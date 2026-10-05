@@ -1,0 +1,26 @@
+name: Business Opportunity Ledger Client Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/business-opportunity-ledger-client-test.yml'
+      - 'scripts/business_opportunity_ledger_client.py'
+      - 'tests/test_business_opportunity_ledger_client.py'
+      - 'ops/business-opportunity-ledger/README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m py_compile scripts/business_opportunity_ledger_client.py
+      - run: python -m unittest tests/test_business_opportunity_ledger_client.py -v
