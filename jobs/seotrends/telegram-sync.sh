@@ -6,6 +6,7 @@ TARGET='-1004357761890'
 WRAPPER=/opt/telegram-mtproto/run-secure.sh
 STATE="$BASE/telegram-sync-state.json"
 LOCK=/run/seotrends-telegram-sync.lock
+ARCHIVE_SCHEMA='public-derived-v2'
 exec 9>"$LOCK"
 flock -n 9 || exit 0
 [ -s "$BASE/data/manifest.json" ] || exit 2
@@ -24,7 +25,7 @@ print(hashlib.sha256(json.dumps(p,sort_keys=True,separators=(',',':')).encode())
 PY
 )
 TERMINAL_SHA=$(sha256sum "$TERMINAL" | awk '{print $1}')
-SYNC_KEY="$DAY:$FINGERPRINT:$TERMINAL_SHA"
+SYNC_KEY="$ARCHIVE_SCHEMA:$DAY:$FINGERPRINT:$TERMINAL_SHA"
 OLD_KEY=$(python3 - "$STATE" 2>/dev/null <<'PY' || true
 import json,sys
 try: s=json.load(open(sys.argv[1],encoding='utf-8'))
@@ -54,22 +55,46 @@ PY
 )
 
 OUT="/var/lib/telegram-upload/seotrends/daily/$DAY"
-install -d -m 0750 "$OUT"
-cp -f "$BASE/data/manifest.json" "$OUT/manifest.json"
-cp -f "$BASE/changes/$DAY-added.txt" "$OUT/added.txt" 2>/dev/null || :
-cp -f "$BASE/changes/$DAY-removed.txt" "$OUT/removed.txt" 2>/dev/null || :
-cp -f "$SHORTLIST" "$OUT/shortlist.md"
-cp -f "$BASE/scans/$DAY-candidates.jsonl" "$OUT/candidates.jsonl" 2>/dev/null || :
-cp -f "$BASE/scans/$DAY-semrush-results.md" "$OUT/semrush-results.md" 2>/dev/null || :
-cp -f "$BASE/scans/$DAY-terminal-verdicts.md" "$OUT/terminal-verdicts.md" 2>/dev/null || :
-ARCHIVE="$OUT/seotrends-public-$DAY-full.tar.gz"
-tar -C /var/lib -czf "$ARCHIVE" seotrends-public -C /etc/systemd/system seotrends-public-refresh.service seotrends-public-refresh.timer -C /usr/local/sbin seotrends-telegram-sync seotrends-github-fallback
+STAGE="$OUT/$ARCHIVE_SCHEMA-$TERMINAL_SHA"
+install -d -m 0750 "$STAGE/data" "$STAGE/changes" "$STAGE/scans" "$STAGE/scripts" "$STAGE/systemd" "$STAGE/sbin"
+cp -f "$BASE/data/domains-current.csv.gz" "$STAGE/data/"
+cp -f "$BASE/data/domains-$DAY.csv.gz" "$STAGE/data/" 2>/dev/null || :
+cp -f "$BASE/data/domains.sqlite" "$STAGE/data/" 2>/dev/null || :
+cp -f "$BASE/data/manifest.json" "$STAGE/data/"
+cp -f "$BASE/changes/$DAY-added.txt" "$STAGE/changes/" 2>/dev/null || :
+cp -f "$BASE/changes/$DAY-removed.txt" "$STAGE/changes/" 2>/dev/null || :
+cp -f "$SHORTLIST" "$STAGE/scans/"
+cp -f "$BASE/scans/$DAY-candidates.jsonl" "$STAGE/scans/" 2>/dev/null || :
+cp -f "$BASE/scans/$DAY-candidates.csv" "$STAGE/scans/" 2>/dev/null || :
+cp -f "$BASE/scans/$DAY-semrush-results.md" "$STAGE/scans/" 2>/dev/null || :
+cp -f "$BASE/scans/$DAY-terminal-verdicts.json" "$STAGE/scans/" 2>/dev/null || :
+cp -f "$BASE/scans/$DAY-terminal-verdicts.md" "$STAGE/scans/" 2>/dev/null || :
+find "$BASE/scripts" -maxdepth 1 -type f -name '*.py' -exec cp -f {} "$STAGE/scripts/" \;
+cp -f "$BASE/README.md" "$STAGE/" 2>/dev/null || :
+cp -f /etc/systemd/system/seotrends-public-refresh.service "$STAGE/systemd/"
+cp -f /etc/systemd/system/seotrends-public-refresh.timer "$STAGE/systemd/"
+cp -f /usr/local/sbin/seotrends-telegram-sync "$STAGE/sbin/"
+cp -f /usr/local/sbin/seotrends-github-fallback "$STAGE/sbin/"
+
+python3 - "$STAGE" "$DAY" "$ARCHIVE_SCHEMA" <<'PY'
+import hashlib,json,pathlib,sys
+root=pathlib.Path(sys.argv[1]); day=sys.argv[2]; schema=sys.argv[3]
+files=[]
+for p in sorted(root.rglob('*')):
+    if p.is_file() and p.name!='archive-manifest.json':
+        h=hashlib.sha256(p.read_bytes()).hexdigest()
+        files.append({'path':str(p.relative_to(root)),'size':p.stat().st_size,'sha256':h})
+(root/'archive-manifest.json').write_text(json.dumps({'schema':schema,'date':day,'retention':'public-data + derived summaries only; raw Semrush/SERP excluded','files':files},indent=2)+'\n',encoding='utf-8')
+PY
+
+ARCHIVE="$OUT/seotrends-public-$DAY-$ARCHIVE_SCHEMA.tar.gz"
+tar -C "$STAGE" -czf "$ARCHIVE" .
 SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
-"$WRAPPER" upload-local "$TARGET" "$ARCHIVE" "SeoTrends canonical snapshot $DAY | status=$RUN_STATUS | domains=$COUNT | sha256=$SHA"
-"$WRAPPER" send "$TARGET" "SeoTrends $RUN_STATUS | $DAY | domains=$COUNT | +$ADDED / -$REMOVED | scanned=$SCANNED | pending=$PENDING | shortlist=$SHORT | BUILD=$BUILD WATCH=$WATCH DROP=$DROP BLOCKED=$BLOCKED | sha256=$SHA"
-python3 - "$STATE" "$FINGERPRINT" "$TERMINAL_SHA" "$SYNC_KEY" "$DAY" "$SHA" "$RUN_STATUS" <<'PY'
+"$WRAPPER" upload-local "$TARGET" "$ARCHIVE" "SeoTrends canonical public/derived snapshot $DAY | schema=$ARCHIVE_SCHEMA | status=$RUN_STATUS | domains=$COUNT | sha256=$SHA"
+"$WRAPPER" send "$TARGET" "SeoTrends $RUN_STATUS | $DAY | domains=$COUNT | +$ADDED / -$REMOVED | scanned=$SCANNED | pending=$PENDING | shortlist=$SHORT | BUILD=$BUILD WATCH=$WATCH DROP=$DROP BLOCKED=$BLOCKED | archive=$ARCHIVE_SCHEMA | sha256=$SHA"
+python3 - "$STATE" "$FINGERPRINT" "$TERMINAL_SHA" "$SYNC_KEY" "$DAY" "$SHA" "$RUN_STATUS" "$ARCHIVE_SCHEMA" <<'PY'
 import json,sys,os
-p,fp,tsha,key,day,sha,status=sys.argv[1:]; t=p+'.tmp'
-open(t,'w',encoding='utf-8').write(json.dumps({'fingerprint':fp,'terminal_sha256':tsha,'sync_key':key,'date':day,'archive_sha256':sha,'heartbeat_date':day,'status':status},indent=2)+'\n')
+p,fp,tsha,key,day,sha,status,schema=sys.argv[1:]; t=p+'.tmp'
+open(t,'w',encoding='utf-8').write(json.dumps({'fingerprint':fp,'terminal_sha256':tsha,'sync_key':key,'date':day,'archive_sha256':sha,'heartbeat_date':day,'status':status,'archive_schema':schema},indent=2)+'\n')
 os.replace(t,p)
 PY
