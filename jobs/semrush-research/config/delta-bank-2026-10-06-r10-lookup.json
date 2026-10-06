@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "source": "semrush-research-r10-ai-resistant-lookup-2026-10-06",
+  "database": "us",
+  "purpose": "R10 AI-resistant lookup/compatibility/current-data + physical sizing delta; additive only",
+  "hard_gates": {
+    "ai_resilience": "prefer model/serial/current-data lookups, compatibility, code-table calculators, or physical sizing requiring real inputs",
+    "reject": "pure generic informational/direct-answer demand unless a meaningful tool-intent wedge exists"
+  },
+  "themes": [
+    {
+      "theme_id": "hvac-equipment-age-lookup",
+      "label": "HVAC Equipment Age / Serial Decoder",
+      "ai_resilience_reason": "Brand/model serial patterns and current manufacturer data are better served by structured lookup than prose.",
+      "seeds": [
+        "hvac serial number lookup",
+        "hvac age lookup",
+        "furnace serial number lookup",
+        "air conditioner serial number lookup"
+      ]
+    },
+    {
+      "theme_id": "water-heater-age-lookup",
+      "label": "Water Heater Age / Serial Decoder",
+      "ai_resilience_reason": "Brand-specific serial decoding and replacement context.",
+      "seeds": [
+        "water heater serial number lookup",
+        "water heater age lookup",
+        "water heater manufacture date lookup"
+      ]
+    },
+    {
+      "theme_id": "appliance-age-lookup",
+      "label": "Appliance Age / Serial Decoder",
+      "ai_resilience_reason": "Brand/model serial decoding and service/parts context.",
+      "seeds": [
+        "appliance serial number lookup",
+        "appliance age lookup",
+        "refrigerator serial number lookup"
+      ]
+    },
+    {
+      "theme_id": "hvac-filter-fitment",
+      "label": "HVAC Filter Size by Model",
+      "ai_resilience_reason": "Model-specific compatibility/fitment lookup.",
+      "seeds": [
+        "hvac filter size by model number",
+        "furnace filter size lookup",
+        "air conditioner filter size lookup"
+      ]
+    },
+    {
+      "theme_id": "mini-split-error-code-index",
+      "label": "Mini Split Error Code Lookup",
+      "ai_resilience_reason": "Brand/model/current documentation lookup with troubleshooting context.",
+      "seeds": [
+        "mini split error codes",
+        "daikin mini split error codes",
+        "mitsubishi mini split error codes",
+        "gree mini split error codes"
+      ]
+    },
+    {
+      "theme_id": "water-heater-error-code-index",
+      "label": "Water Heater Error Code Lookup",
+      "ai_resilience_reason": "Brand/model-specific diagnostics and current manuals.",
+      "seeds": [
+        "water heater error codes",
+        "rheem water heater error codes",
+        "navien error code lookup"
+      ]
+    },
+    {
+      "theme_id": "generator-error-code-index",
+      "label": "Generator Error Code Lookup",
+      "ai_resilience_reason": "Model-specific live troubleshooting and service-part pathways.",
+      "seeds": [
+        "generator error codes",
+        "generac error code lookup",
+        "kohler generator error codes"
+      ]
+    },
+    {
+      "theme_id": "garage-door-spring-sizing",
+      "label": "Garage Door Spring Sizing",
+      "ai_resilience_reason": "Physical door dimensions/weight and spring geometry determine output.",
+      "seeds": [
+        "garage door spring calculator",
+        "torsion spring calculator garage door",
+        "garage door spring size calculator"
+      ]
+    },
+    {
+      "theme_id": "attic-ventilation-sizing",
+      "label": "Attic / Ridge / Soffit Vent Sizing",
+      "ai_resilience_reason": "Physical area and ventilation ratio inputs; jurisdiction/climate context can refine output.",
+      "seeds": [
+        "attic ventilation calculator",
+        "soffit vent calculator",
+        "ridge vent calculator"
+      ]
+    },
+    {
+      "theme_id": "commercial-kitchen-ventilation",
+      "label": "Commercial Kitchen Hood / Makeup Air Sizing",
+      "ai_resilience_reason": "Equipment duty, hood dimensions and code-driven airflow calculations.",
+      "seeds": [
+        "commercial kitchen hood cfm calculator",
+        "commercial kitchen exhaust calculator",
+        "makeup air calculator kitchen"
+      ]
+    },
+    {
+      "theme_id": "electrical-fill-code-calculators",
+      "label": "Electrical Box / Conduit Fill",
+      "ai_resilience_reason": "Structured conductor/trade-size inputs and code-table based calculations.",
+      "seeds": [
+        "box fill calculator",
+        "conduit fill calculator",
+        "electrical conduit fill calculator"
+      ]
+    },
+    {
+      "theme_id": "dc-battery-wire-sizing",
+      "label": "DC Battery Cable / Wire Sizing",
+      "ai_resilience_reason": "Voltage/current/length/drop/temperature inputs and deterministic result.",
+      "seeds": [
+        "battery cable size calculator",
+        "dc wire size calculator",
+        "12v wire size calculator"
+      ]
+    },
+    {
+      "theme_id": "well-pressure-tank-sizing",
+      "label": "Well Pressure Tank Sizing",
+      "ai_resilience_reason": "Pump flow, cut-in/out pressure and drawdown inputs.",
+      "seeds": [
+        "pressure tank size calculator",
+        "well pressure tank sizing calculator",
+        "well pump pressure tank size calculator"
+      ]
+    },
+    {
+      "theme_id": "sump-pump-sizing-backup",
+      "label": "Sump Pump / Backup Sizing",
+      "ai_resilience_reason": "Basin inflow/head/runtime and battery inputs.",
+      "seeds": [
+        "sump pump size calculator",
+        "sump pump sizing calculator",
+        "sump pump battery backup runtime calculator"
+      ]
+    },
+    {
+      "theme_id": "chimney-flue-sizing",
+      "label": "Chimney / Flue Sizing",
+      "ai_resilience_reason": "Appliance BTU, vent height, connector and code-table inputs.",
+      "seeds": [
+        "chimney size calculator",
+        "flue size calculator",
+        "gas vent sizing calculator"
+      ]
+    }
+  ]
+}
