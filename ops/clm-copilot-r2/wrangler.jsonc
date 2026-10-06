@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "clm-conversation-copilot-api",
+  "main": "index.js",
+  "compatibility_date": "2026-10-01",
+  "ai": {
+    "binding": "AI"
+  },
+  "r2_buckets": [
+    {
+      "binding": "DATASET",
+      "bucket_name": "clm-copilot-data"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "73041",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ]
+}
