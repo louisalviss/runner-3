@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "status": "quota-aware-partial-cutover",
+  "recorded_at": "2026-10-06T22:24:47.828757+00:00",
+  "authorities": {
+    "control_plane": "runner3-core",
+    "task_context": "louis-task-context",
+    "context_index": "louis-context-index",
+    "content_intelligence": "runner3-content-intelligence",
+    "rss": "runner3-rss",
+    "reddit": "runner3-core (quota-blocked legacy)",
+    "ebook": "runner3-core (quota-blocked legacy)",
+    "opportunity_radar": "runner3-opportunity-radar",
+    "business_opportunity": "runner3-opportunity-radar",
+    "personal_library": "personal-library",
+    "media_library": "personal-library",
+    "common_access_d1": "runner3-core",
+    "wp_optimizer": "runner3-wp-optimizer",
+    "volamidle": "volamidle-rogue-data",
+    "clm_copilot": "clm-copilot-v1"
+  },
+  "quota": {
+    "limit": 10,
+    "blocked_dedicated_domains": [
+      "runner3-reddit",
+      "runner3-ebook"
+    ]
+  },
+  "legacy_policy": "Do not delete core legacy rows/tables until dedicated bindings have proven multiple healthy cycles."
+}
