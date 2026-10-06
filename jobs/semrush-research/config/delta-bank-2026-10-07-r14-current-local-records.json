@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "source": "semrush-research-r14-current-local-records-2026-10-07",
+  "database": "us",
+  "purpose": "R14 AI-resistant current/local-record workflow delta; address/jurisdiction/status data that changes over time and is poorly served by static AI answers",
+  "hard_gates": {
+    "ai_resilience": "prefer live/local records keyed by address, permit, jurisdiction, inspection, or service territory",
+    "reject": "generic informational permit/license questions already covered by prior banks"
+  },
+  "themes": [
+    {
+      "theme_id": "permit-status-by-address",
+      "label": "Permit Status / History by Address",
+      "ai_resilience_reason": "Requires current jurisdiction records tied to a real address.",
+      "seeds": [
+        "permit search by address",
+        "permit status by address",
+        "building permit history by address"
+      ]
+    },
+    {
+      "theme_id": "zoning-by-address",
+      "label": "Zoning Lookup by Address",
+      "ai_resilience_reason": "Current parcel/jurisdiction zoning data and overlays are location-specific.",
+      "seeds": [
+        "zoning lookup by address",
+        "zoning map by address",
+        "property zoning by address"
+      ]
+    },
+    {
+      "theme_id": "certificate-occupancy-records",
+      "label": "Certificate of Occupancy Lookup",
+      "ai_resilience_reason": "Current municipal record lookup by property/address.",
+      "seeds": [
+        "certificate of occupancy lookup",
+        "certificate of occupancy search by address",
+        "occupancy permit lookup"
+      ]
+    },
+    {
+      "theme_id": "septic-well-records",
+      "label": "Septic / Well Permit Records",
+      "ai_resilience_reason": "Property-specific county health/environmental records.",
+      "seeds": [
+        "septic permit lookup",
+        "septic records by address",
+        "well permit lookup"
+      ]
+    },
+    {
+      "theme_id": "trade-permit-history",
+      "label": "Roof / Pool / Solar Permit History",
+      "ai_resilience_reason": "Address-specific local permit history and status.",
+      "seeds": [
+        "roof permit lookup",
+        "pool permit lookup",
+        "solar permit lookup"
+      ]
+    },
+    {
+      "theme_id": "restaurant-inspection-records",
+      "label": "Restaurant Health Inspection Scores",
+      "ai_resilience_reason": "Current local inspection scores and violation records.",
+      "seeds": [
+        "restaurant inspection scores",
+        "restaurant health inspection lookup",
+        "food inspection score lookup"
+      ]
+    },
+    {
+      "theme_id": "fire-inspection-records",
+      "label": "Fire Inspection / Permit Records",
+      "ai_resilience_reason": "Current local fire authority inspection and permit data.",
+      "seeds": [
+        "fire inspection lookup",
+        "fire permit lookup",
+        "fire inspection records"
+      ]
+    },
+    {
+      "theme_id": "rental-property-license-records",
+      "label": "Rental Property License / Inspection",
+      "ai_resilience_reason": "Current local rental registration, license and inspection status.",
+      "seeds": [
+        "rental license lookup",
+        "rental inspection lookup",
+        "rental property license search"
+      ]
+    },
+    {
+      "theme_id": "property-code-violations",
+      "label": "Property Code Violations by Address",
+      "ai_resilience_reason": "Current local enforcement records and open violations.",
+      "seeds": [
+        "code violations by address",
+        "property code violation lookup",
+        "building violations lookup"
+      ]
+    },
+    {
+      "theme_id": "open-permit-due-diligence",
+      "label": "Open / Unclosed Permit Due Diligence",
+      "ai_resilience_reason": "Current property transaction workflow requiring permit-status aggregation.",
+      "seeds": [
+        "open permits by address",
+        "unclosed permits lookup",
+        "permit history report"
+      ]
+    },
+    {
+      "theme_id": "utility-service-territory",
+      "label": "Utility Provider by Address",
+      "ai_resilience_reason": "Address-specific service territory and provider data changes by jurisdiction.",
+      "seeds": [
+        "electric utility by address",
+        "water utility by address",
+        "gas utility by address"
+      ]
+    }
+  ]
+}
