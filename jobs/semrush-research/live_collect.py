@@ -9,6 +9,7 @@ import socket
 import time
 
 from runtime_preflight import require_semrush_preflight
+from runtime_recovery import ensure_with_one_shot_recovery
 from runtime_metrics import SemrushJobMetrics
 
 JOB_METRICS = SemrushJobMetrics('live_collect')
@@ -234,7 +235,16 @@ def main():
     })
 
     try:
-        ready = broker_call({'action': 'ensure'}, timeout=180)
+        ready, recovery = ensure_with_one_shot_recovery(broker_call, timeout=180)
+        state['runtime_recovery'] = recovery
+        if recovery.get('attempted'):
+            journal(journal_path, {
+                'event': 'ONE_SHOT_RECOVERY',
+                'trigger': recovery.get('trigger'),
+                'recovery_state': (recovery.get('recovery') or {}).get('state'),
+                'retry_code': recovery.get('retry_code'),
+                'success': recovery.get('success'),
+            })
         if ready.get('ok') is not True:
             code = str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
             detail = str(ready.get('detail') or '')[:800]
