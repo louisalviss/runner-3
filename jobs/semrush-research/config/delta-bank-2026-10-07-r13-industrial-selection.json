@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "source": "semrush-research-r13-industrial-selection-2026-10-07",
+  "database": "us",
+  "purpose": "R13 AI-resistant industrial compatibility/material/process selection delta; multi-constraint selection over structured tables rather than generic informational content",
+  "hard_gates": {
+    "ai_resilience": "prefer multi-input compatibility/selection tasks where chemical, material, temperature, pressure, flow, standard, or equipment constraints determine the answer",
+    "reject": "single-formula commodity calculators and static charts if exact SERP is already saturated"
+  },
+  "themes": [
+    {
+      "theme_id": "chemical-material-compatibility",
+      "label": "Chemical / Material Compatibility",
+      "ai_resilience_reason": "Material choice depends on chemical, concentration, temperature and exposure.",
+      "seeds": [
+        "chemical compatibility chart",
+        "chemical resistance chart",
+        "material compatibility chart"
+      ]
+    },
+    {
+      "theme_id": "gasket-material-selection",
+      "label": "Gasket Material Selection",
+      "ai_resilience_reason": "Fluid, temperature, pressure and flange conditions drive material choice.",
+      "seeds": [
+        "gasket material selection chart",
+        "gasket chemical compatibility chart",
+        "gasket material compatibility"
+      ]
+    },
+    {
+      "theme_id": "elastomer-seal-compatibility",
+      "label": "Elastomer / Seal Compatibility",
+      "ai_resilience_reason": "Chemical and temperature compatibility varies by elastomer family.",
+      "seeds": [
+        "o ring material compatibility chart",
+        "seal material compatibility chart",
+        "elastomer chemical resistance chart"
+      ]
+    },
+    {
+      "theme_id": "plastic-chemical-resistance",
+      "label": "Plastic Chemical Resistance",
+      "ai_resilience_reason": "Polymer compatibility depends on chemical, concentration and temperature.",
+      "seeds": [
+        "plastic chemical resistance chart",
+        "polypropylene chemical resistance chart",
+        "pvc chemical resistance chart"
+      ]
+    },
+    {
+      "theme_id": "hose-chemical-compatibility",
+      "label": "Hose Chemical Compatibility",
+      "ai_resilience_reason": "Hose tube material, chemical and temperature determine safe compatibility.",
+      "seeds": [
+        "hose chemical compatibility chart",
+        "chemical hose compatibility chart",
+        "hose material compatibility chart"
+      ]
+    },
+    {
+      "theme_id": "lubricant-grease-compatibility",
+      "label": "Lubricant / Grease Compatibility",
+      "ai_resilience_reason": "Base oil/thickener compatibility and mixing consequences require structured reference data.",
+      "seeds": [
+        "grease compatibility chart",
+        "lubricant compatibility chart",
+        "grease mixing compatibility chart"
+      ]
+    },
+    {
+      "theme_id": "refrigerant-retrofit-selection",
+      "label": "Refrigerant Retrofit / Replacement Selection",
+      "ai_resilience_reason": "Replacement choice depends on original refrigerant, equipment, oil, pressure class and current product availability.",
+      "seeds": [
+        "refrigerant replacement chart",
+        "refrigerant retrofit chart",
+        "refrigerant compatibility chart"
+      ]
+    },
+    {
+      "theme_id": "control-valve-selection",
+      "label": "Control Valve Cv / Sizing",
+      "ai_resilience_reason": "Fluid properties, pressure drop, flow and valve characteristic drive selection.",
+      "seeds": [
+        "control valve sizing calculator",
+        "valve cv calculator",
+        "control valve cv calculator"
+      ]
+    },
+    {
+      "theme_id": "orifice-flow-selection",
+      "label": "Orifice Flow / Sizing",
+      "ai_resilience_reason": "Fluid, differential pressure, pipe size and discharge coefficient drive sizing.",
+      "seeds": [
+        "orifice plate calculator",
+        "orifice size calculator",
+        "orifice flow calculator"
+      ]
+    },
+    {
+      "theme_id": "spray-nozzle-selection",
+      "label": "Spray Nozzle Selection",
+      "ai_resilience_reason": "Flow, pressure, angle, droplet requirement and fluid determine nozzle choice.",
+      "seeds": [
+        "spray nozzle calculator",
+        "nozzle flow calculator",
+        "spray nozzle selection chart"
+      ]
+    },
+    {
+      "theme_id": "steam-trap-selection",
+      "label": "Steam Trap Selection / Sizing",
+      "ai_resilience_reason": "Pressure, condensate load, application and safety factor drive trap selection.",
+      "seeds": [
+        "steam trap sizing calculator",
+        "steam trap selection chart",
+        "steam trap sizing"
+      ]
+    },
+    {
+      "theme_id": "flange-pressure-rating",
+      "label": "Flange Pressure / Temperature Rating",
+      "ai_resilience_reason": "Material class, flange class and temperature determine allowable pressure.",
+      "seeds": [
+        "flange pressure temperature rating chart",
+        "ansi flange pressure rating chart",
+        "flange pressure rating chart"
+      ]
+    }
+  ]
+}

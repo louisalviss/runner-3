@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "source": "semrush-research-r15-trade-landed-cost-2026-10-07",
+  "database": "us",
+  "purpose": "R15 AI-resistant current trade/landed-cost workflows; current HTS/origin/value/rule data rather than static informational content",
+  "hard_gates": {
+    "ai_resilience": "prefer workflows requiring product classification, origin, customs value, current tariff layers and current rule tables",
+    "reject": "generic import-duty/HS-code seeds already scanned in customs-import"
+  },
+  "themes": [
+    {
+      "theme_id": "landed-cost-trade-workflow",
+      "label": "Landed Cost / HTS Duty Workflow",
+      "ai_resilience_reason": "Requires current HTS, origin, value, duty layers and freight/fees to compute a usable landed cost.",
+      "seeds": [
+        "landed cost calculator",
+        "total landed cost calculator",
+        "hts duty calculator",
+        "hts tariff calculator",
+        "hts code duty calculator",
+        "customs value calculator",
+        "customs valuation calculator",
+        "import tax calculator usa"
+      ]
+    },
+    {
+      "theme_id": "section-301-tariff-workflow",
+      "label": "Section 301 / China Tariff Workflow",
+      "ai_resilience_reason": "Current tariff applicability depends on HTS classification, origin and active exclusion/tariff lists.",
+      "seeds": [
+        "section 301 duty calculator",
+        "section 301 tariff lookup",
+        "china tariff calculator",
+        "section 301 hts lookup"
+      ]
+    },
+    {
+      "theme_id": "de-minimis-import-workflow",
+      "label": "De Minimis Import Workflow",
+      "ai_resilience_reason": "Current threshold/rule applicability depends on country, shipment value, product and current customs policy.",
+      "seeds": [
+        "de minimis calculator",
+        "de minimis duty calculator",
+        "import de minimis calculator",
+        "de minimis threshold calculator"
+      ]
+    },
+    {
+      "theme_id": "antidumping-duty-workflow",
+      "label": "Anti-Dumping / Countervailing Duty Workflow",
+      "ai_resilience_reason": "Current case/order scope, country, exporter and product classification determine applicable duties.",
+      "seeds": [
+        "anti dumping duty calculator",
+        "antidumping duty lookup",
+        "countervailing duty lookup",
+        "ad cvd duty calculator"
+      ]
+    }
+  ]
+}

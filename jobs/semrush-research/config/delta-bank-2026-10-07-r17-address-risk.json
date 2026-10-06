@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "source": "semrush-research-r17-address-risk-territory-2026-10-07",
+  "database": "us",
+  "purpose": "R17 AI-resistant address/ZIP-driven current map, risk, boundary and building-design lookup delta",
+  "hard_gates": {
+    "ai_resilience": "prefer address/ZIP inputs resolved against current GIS, official maps, boundaries, hazard or code datasets",
+    "reject": "pure informational explanations without a meaningful lookup/tool intent"
+  },
+  "themes": [
+    {
+      "theme_id": "flood-zone-by-address",
+      "label": "Flood Zone / FEMA Risk by Address",
+      "ai_resilience_reason": "Requires current parcel/address mapping against FEMA flood data.",
+      "seeds": [
+        "flood zone lookup by address",
+        "fema flood map by address",
+        "flood risk by address"
+      ]
+    },
+    {
+      "theme_id": "school-district-by-address",
+      "label": "School District / Boundary by Address",
+      "ai_resilience_reason": "Requires current geocoded school-boundary data tied to a real address.",
+      "seeds": [
+        "school district lookup by address",
+        "school district by address",
+        "school boundary lookup by address"
+      ]
+    },
+    {
+      "theme_id": "snow-load-by-location",
+      "label": "Ground / Roof Snow Load by ZIP",
+      "ai_resilience_reason": "Design load depends on exact location and current code/map data.",
+      "seeds": [
+        "snow load by zip code",
+        "ground snow load by zip code",
+        "roof snow load by zip code"
+      ]
+    },
+    {
+      "theme_id": "design-wind-by-location",
+      "label": "Design Wind Speed by Address / ZIP",
+      "ai_resilience_reason": "Requires site-specific current design wind map and code edition.",
+      "seeds": [
+        "wind speed by zip code",
+        "design wind speed by address",
+        "asce wind speed lookup"
+      ]
+    },
+    {
+      "theme_id": "wildfire-risk-by-address",
+      "label": "Wildfire / Fire Hazard Zone by Address",
+      "ai_resilience_reason": "Requires current GIS hazard layers and location-specific lookup.",
+      "seeds": [
+        "wildfire risk by address",
+        "fire hazard zone lookup by address",
+        "wildfire risk map by address"
+      ]
+    },
+    {
+      "theme_id": "seismic-design-by-location",
+      "label": "Seismic Design / Earthquake Zone by ZIP",
+      "ai_resilience_reason": "Requires current mapped seismic parameters and site location.",
+      "seeds": [
+        "seismic design category by zip code",
+        "seismic zone by zip code",
+        "earthquake risk by address"
+      ]
+    },
+    {
+      "theme_id": "building-climate-zone-by-zip",
+      "label": "IECC / Building Climate Zone by ZIP",
+      "ai_resilience_reason": "Requires ZIP/jurisdiction mapping to current climate/code zones.",
+      "seeds": [
+        "iecc climate zone by zip code",
+        "building climate zone by zip code",
+        "climate zone lookup by zip code"
+      ]
+    },
+    {
+      "theme_id": "plant-hardiness-zone-by-zip",
+      "label": "USDA Plant Hardiness Zone by ZIP",
+      "ai_resilience_reason": "ZIP/location lookup against current USDA hardiness data.",
+      "seeds": [
+        "plant hardiness zone by zip code",
+        "usda hardiness zone by zip code",
+        "growing zone by zip code"
+      ]
+    }
+  ]
+}
