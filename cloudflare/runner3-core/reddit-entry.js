@@ -1,4 +1,5 @@
 import app from "./rss-entry.js";
+import { redditEnv } from "./src/domain-db.js";
 
 const MAX_BATCH_ROWS = 100;
 const MAX_TEXT = 100000;
@@ -239,15 +240,16 @@ async function handleRunRead(request, env, runId) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const reddit = redditEnv(env);
     if (url.pathname === "/reddit/deep-sweep/ingest") {
-      return handleIngest(request, env);
+      return handleIngest(request, reddit);
     }
     const match = url.pathname.match(/^\/reddit\/deep-sweep\/runs\/([^/]+)$/);
     if (match) {
       let runId;
       try { runId = decodeURIComponent(match[1]); } catch { return Response.json({ ok: false, error: "invalid_run_id" }, { status: 400 }); }
       if (!runId || runId.length > 200) return Response.json({ ok: false, error: "invalid_run_id" }, { status: 400 });
-      return handleRunRead(request, env, runId);
+      return handleRunRead(request, reddit, runId);
     }
     return app.fetch(request, env, ctx);
   },

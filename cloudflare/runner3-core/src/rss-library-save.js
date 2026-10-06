@@ -1,5 +1,6 @@
 import { handleRssLibrary, persistFetchedArticle } from "./rss-library.js";
 import { markProfileDirty } from "./content-personalization.js";
+import { contentEnv } from "./domain-db.js";
 
 const VERSION = "rss-library-save-v1";
 const IMPORT_VERSION = "rss-library-import-v1";
@@ -213,8 +214,9 @@ async function fetchThroughCanonicalHandler(env, articleId) {
 }
 
 async function recordSelected(env, article, renderId, context, checksum) {
+  const content = contentEnv(env);
   const itemId = article.canonical_url;
-  await env.DB.prepare(`
+  await content.DB.prepare(`
     INSERT INTO content_items(
       item_id,canonical_url,source_type,source_name,source_key,title,published_at,captured_at,language,raw_ref,content_hash,metadata_json,first_seen_at,last_seen_at
     ) VALUES(?,?, 'rss',?,?,?,?,CURRENT_TIMESTAMP,?,?,?, ?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
@@ -238,7 +240,7 @@ async function recordSelected(env, article, renderId, context, checksum) {
     JSON.stringify({ rss_article_id: article.article_id, selected_via: "rss-library-save-v1" })
   ).run();
 
-  const result = await env.DB.prepare(`
+  const result = await content.DB.prepare(`
     INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,explicit_feedback,context_json,event_at)
     SELECT ?,?,'selected',NULL,?,CURRENT_TIMESTAMP
     WHERE NOT EXISTS(
@@ -246,7 +248,7 @@ async function recordSelected(env, article, renderId, context, checksum) {
     )
   `).bind(itemId, renderId, JSON.stringify({ source: "rss_library_save", ...context }), itemId, renderId).run();
   const changed = Number(result.meta?.changes || 0);
-  if (changed) await markProfileDirty(env, "rss_library_selected");
+  if (changed) await markProfileDirty(content, "rss_library_selected");
   return changed;
 }
 

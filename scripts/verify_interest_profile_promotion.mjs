@@ -25,6 +25,6 @@ forbidText("instr(feature_key, :)", "invalid unquoted family fallback SQL reintr
 forbidText("OR has_explicit_feedback=1", "item feedback singleton bypass reintroduced");
 forbidText("FROM interest_profile WHERE feature_type='family'", "family aggregate leaked back into durable interest_profile");
 forbidText("WHERE feature_type IN ('family','topic','mechanism','concept')", "family aggregate leaked back into durable profile reader");
-requireRssText('if (changed) await markProfileDirty(env, "rss_library_selected");', "RSS Library idempotent selected retry must not dirty profile");
+requireRssText('if (changed) await markProfileDirty(content, "rss_library_selected");', "RSS Library idempotent selected retry must dirty only the dedicated content profile when data changed");
 
 console.log(JSON.stringify({ok:true,policy_version:"canonical-interest-ontology-v7-family-aware",item_derived_profile_min_independent_items:2,source_profile_promotion:false,entity_profile_promotion:false,family_aware_scoring:true,rss_library_idempotent_dirty_guard:true}));

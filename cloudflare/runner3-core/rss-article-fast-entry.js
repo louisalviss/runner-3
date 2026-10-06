@@ -6,6 +6,7 @@ import { repairGeneratedReaderHtml } from "./src/rss-reader-page-v4.js";
 import { addNamMinhReaderAudio } from "./src/rss-reader-page-v5.js";
 import { addNamMinhTiming } from "./src/rss-reader-page-v6.js";
 import { addIsolatedNamMinhPlayer } from "./src/rss-reader-page-v8.js";
+import { rssEnv } from "./src/domain-db.js";
 
 const POLL_HARDEN_VERSION = "rss-audio-poll-adaptive-v1";
 const LEARNING_THRESHOLD_VERSION = "rss-deep-read-adaptive-v2";
@@ -276,7 +277,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    const apiResponse = await routeReaderApiFast(request, env, url);
+    const apiResponse = await routeReaderApiFast(request, rssEnv(env), url);
     if (apiResponse) return apiResponse;
 
     if (request.method === "GET" && /^\/rss\/article\/[^/]+$/.test(url.pathname)) {

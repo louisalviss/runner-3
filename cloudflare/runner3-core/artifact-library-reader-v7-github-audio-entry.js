@@ -11,6 +11,7 @@ import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { handleRssReaderLearning, recordReaderStateLearning } from "./src/rss-reader-learning.js";
 import { handleContentIntelligence } from "./src/content-intelligence.js";
 import { preserveArticleImages } from "./src/rss-image-enrich.js";
+import { rssEnv, contentEnv } from "./src/domain-db.js";
 
 const ROBOTS = "noindex, nofollow,noarchive,nosnippet,noimageindex";
 const ALLOWED_EVENT = "ebook_reader_audio";
@@ -175,6 +176,8 @@ async function manualDispatch(request, env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const rss = rssEnv(env);
+    const content = contentEnv(env);
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json({ ok: true, service: "runner3-core" });
     }
@@ -185,7 +188,7 @@ export default {
       return core.fetch(request, env, ctx);
     }
 
-    const rssSaveResponse = await handleRssLibrarySave(request, env, url);
+    const rssSaveResponse = await handleRssLibrarySave(request, rss, url);
     if (rssSaveResponse) return rssSaveResponse;
     if (request.method === "GET" && url.pathname === "/ui/rss") {
       return Response.redirect(new URL("/rss/library", url).toString(), 302);
@@ -194,14 +197,14 @@ export default {
       return readerMedia.fetch(request, env, ctx);
     }
     if (url.pathname.startsWith("/api/rss/")) {
-      const rssResponse = await handleRssLibrary(request, env, url);
+      const rssResponse = await handleRssLibrary(request, rss, url);
       return rssResponse || json({ ok: false, error: "NOT_FOUND" }, 404);
     }
     if (url.pathname.startsWith("/reader/rss/")) {
-      return dispatchRssReader(request, env, ctx, url);
+      return dispatchRssReader(request, rss, ctx, url);
     }
     if (url.pathname.startsWith("/content-intelligence/")) {
-      const ciResponse = await handleContentIntelligence(request, env, url);
+      const ciResponse = await handleContentIntelligence(request, content, url);
       return ciResponse || json({ ok: false, error: "NOT_FOUND" }, 404);
     }
 

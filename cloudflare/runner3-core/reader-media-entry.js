@@ -16,6 +16,7 @@ import {
   serveCachedReaderImage,
 } from "./src/rss-image-enrich.js";
 import { cleanReaderBoilerplate, READER_CLEAN_VERSION } from "./src/rss-reader-clean.mjs";
+import { rssEnv, contentEnv } from "./src/domain-db.js";
 
 function readerViewArticleId(url) {
   const match = url.pathname.match(/^\/reader\/rss\/articles\/([^/]+)\/(?:original|vi)$/);
@@ -247,11 +248,13 @@ async function cleanReaderArticleView(request, env, ctx, articleId, view) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const rss = rssEnv(env);
+    const content = contentEnv(env);
 
-    const plusResponse = await handleRssReaderPlus(request, env, url);
+    const plusResponse = await handleRssReaderPlus(request, rss, url);
     if (plusResponse) {
       if (request.method === "GET" && url.pathname === "/reader/rss/library/v2" && plusResponse.ok) {
-        const task = reconcileLibraryLearning(plusResponse.clone(), env).catch((error) => {
+        const task = reconcileLibraryLearning(plusResponse.clone(), rss).catch((error) => {
           console.warn("rss learning library reconcile failed", String(error?.message || error));
         });
         if (ctx?.waitUntil) ctx.waitUntil(task);
@@ -260,22 +263,22 @@ export default {
       return polishRssLibraryResponse(plusResponse, request, url);
     }
 
-    const learningResponse = await handleRssReaderLearning(request, env, url, (articleId) => authorizeReaderArticle(request, env, ctx, articleId));
+    const learningResponse = await handleRssReaderLearning(request, rss, url, (articleId) => authorizeReaderArticle(request, rss, ctx, articleId));
     if (learningResponse) return learningResponse;
 
-    const audioResponse = await handleRssReaderAudio(request, env, url, {
-      authorize: (articleId) => authorizeReaderArticle(request, env, ctx, articleId),
-      cleanView: (articleId, view) => cleanReaderArticleView(request, env, ctx, articleId, view),
+    const audioResponse = await handleRssReaderAudio(request, rss, url, {
+      authorize: (articleId) => authorizeReaderArticle(request, rss, ctx, articleId),
+      cleanView: (articleId, view) => cleanReaderArticleView(request, rss, ctx, articleId, view),
     });
     if (audioResponse) return audioResponse;
 
     const articlePage = await renderReaderArticlePageV8(request, url);
     if (articlePage) return injectReaderLearning(articlePage);
 
-    const ciResponse = await handleContentIntelligence(request, env, url);
+    const ciResponse = await handleContentIntelligence(request, content, url);
     if (ciResponse) return ciResponse;
 
-    const mediaResponse = await serveCachedReaderImage(request, env, url);
+    const mediaResponse = await serveCachedReaderImage(request, rss, url);
     if (mediaResponse) return mediaResponse;
 
     const stateArticleId = readerStateArticleId(request, url);
@@ -286,11 +289,11 @@ export default {
       const body = await stateClone.json().catch(() => null);
       const tasks = [];
       if (shouldPreserveImages(body)) {
-        tasks.push(preserveArticleImages(env, stateArticleId).catch((error) => {
+        tasks.push(preserveArticleImages(rss, stateArticleId).catch((error) => {
           console.warn("rss image preserve failed", stateArticleId, String(error?.message || error));
         }));
       }
-      tasks.push(recordReaderStateLearning(env, stateArticleId, body).catch((error) => {
+      tasks.push(recordReaderStateLearning(rss, stateArticleId, body).catch((error) => {
         console.warn("rss reader learning state failed", stateArticleId, String(error?.message || error));
       }));
       const task = Promise.all(tasks);
@@ -302,7 +305,7 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    const prune = pruneExpiredReaderImages(env).catch((error) => {
+    const prune = pruneExpiredReaderImages(rssEnv(env)).catch((error) => {
       console.warn("rss image prune failed", String(error?.message || error));
     });
     if (ctx?.waitUntil) ctx.waitUntil(prune);

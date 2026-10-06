@@ -4,6 +4,7 @@ import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { handleRssReaderLearning, recordReaderStateLearning, reconcileLibraryLearning } from "./src/rss-reader-learning.js";
 import { preserveArticleImages, serveCachedReaderImage, serveImportedFacebookMedia } from "./src/rss-image-enrich.js";
 import { handleRssLibrarySave } from "./src/rss-library-save.js";
+import { rssEnv } from "./src/domain-db.js";
 
 const VERSION = "rss-reader-read-fast-v3-isolated-stream";
 const READER_TOKEN_SHA256 = "a4efd86ada61ed4398ec259b7f46262f10d4e2f7fa4f123c5619eb6366d0dd18";
@@ -416,19 +417,20 @@ export default {
     const url = new URL(request.url);
     const deliveryResponse = await routeDelivery(request, env, url);
     if (deliveryResponse) return deliveryResponse;
+    const rss = rssEnv(env);
     if (url.pathname === "/api/rss/library/import") {
-      const imported = await handleRssLibrarySave(request, env, url);
+      const imported = await handleRssLibrarySave(request, rss, url);
       if (imported) {
         const headers = new Headers(imported.headers);
         headers.set("x-r3-rss-import-entry", VERSION);
         return new Response(imported.body, { status: imported.status, statusText: imported.statusText, headers });
       }
     }
-    const pageResponse = await routeRssPage(request, env, url);
+    const pageResponse = await routeRssPage(request, rss, url);
     if (pageResponse) return pageResponse;
-    const response = await routeRead(request, env, url, ctx);
+    const response = await routeRead(request, rss, url, ctx);
     if (response) return response;
-    const extendedResponse = await routeReaderExtended(request, env, url, ctx);
+    const extendedResponse = await routeReaderExtended(request, rss, url, ctx);
     if (extendedResponse) return extendedResponse;
     const app = await loadFallbackApp();
     return app.fetch(request, env, ctx);

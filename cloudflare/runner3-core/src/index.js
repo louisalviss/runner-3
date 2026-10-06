@@ -11,6 +11,15 @@ function requireDb(env) {
   return null;
 }
 
+function checkpointDb(env, project) {
+  const key = String(project || "").trim().toLowerCase();
+  if (key === "context-index") return env.CONTEXT_INDEX_DB || env.DB || null;
+  if (key === "task-context" || key === "task-context-history" || key === "task-catalog" || key.startsWith("task-context-")) {
+    return env.TASK_CONTEXT_DB || env.DB || null;
+  }
+  return env.DB || null;
+}
+
 function requireArtifacts(env) {
   if (!env.ARTIFACTS) {
     return Response.json({ ok: false, error: "R2_NOT_BOUND" }, { status: 503 });
@@ -329,9 +338,11 @@ export default {
       }
       const project = projectResult.value;
       const scope = scopeResult.value;
+      const db = checkpointDb(env, project);
+      if (!db) return Response.json({ ok: false, error: "CHECKPOINT_D1_NOT_BOUND" }, { status: 503 });
 
       if (request.method === "GET") {
-        const row = await env.DB.prepare(`
+        const row = await db.prepare(`
           SELECT project, scope, source, status, position, dropbox_path, last_error, updated_at
           FROM checkpoints
           WHERE project = ? AND scope = ?
@@ -353,7 +364,7 @@ export default {
             return Response.json({ ok: false, error: position.error }, { status: 400 });
           }
 
-          await env.DB.prepare(`
+          await db.prepare(`
             INSERT INTO checkpoints (
               project, scope, source, status, position, dropbox_path, last_error, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -374,7 +385,7 @@ export default {
             optionalText(body.last_error)
           ).run();
 
-          const row = await env.DB.prepare(`
+          const row = await db.prepare(`
             SELECT project, scope, source, status, position, dropbox_path, last_error, updated_at
             FROM checkpoints
             WHERE project = ? AND scope = ?

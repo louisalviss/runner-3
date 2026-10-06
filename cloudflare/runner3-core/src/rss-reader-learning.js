@@ -3,9 +3,17 @@ import {
   isSupportedContentEvent,
   markProfileDirty,
   maybeRecomputePersonal as maybeRecomputePersonalShared,
+  refreshPersonalScoresDaily as refreshPersonalScoresDailyShared,
 } from "./content-personalization.js";
+import { contentEnv } from "./domain-db.js";
 
-export const maybeRecomputePersonal = maybeRecomputePersonalShared;
+export async function maybeRecomputePersonal(env, options) {
+  return maybeRecomputePersonalShared(contentEnv(env), options);
+}
+
+export async function refreshPersonalScoresDaily(env, options) {
+  return refreshPersonalScoresDailyShared(contentEnv(env), options);
+}
 
 function articleItemId(article) {
   return String(article?.canonical_url || article?.canonicalUrl || "").trim();
@@ -19,6 +27,7 @@ async function loadArticle(env, articleId) {
 }
 
 async function ensureContentItem(env, article) {
+  const content = contentEnv(env);
   const itemId = articleItemId(article);
   if (!itemId) return { itemId: null, changed: 0, features: 0 };
   const sourceKey = String(article.source_key || article.sourceKey || "").trim() || null;
@@ -26,7 +35,7 @@ async function ensureContentItem(env, article) {
   const title = String(article.title || "").trim() || null;
   const publishedAt = article.published_at || article.publishedAt || null;
   const language = String(article.source_language || article.language || "").trim().toLowerCase() || null;
-  const result = await env.DB.prepare(`
+  const result = await content.DB.prepare(`
     INSERT INTO content_items (
       item_id, canonical_url, source_type, source_name, source_key, title,
       published_at, captured_at, language, metadata_json, first_seen_at, last_seen_at
@@ -54,7 +63,7 @@ async function ensureContentItem(env, article) {
     JSON.stringify({ rss_reader_article_id: article.article_id || null, selection_gate: true, feature_model: FEATURE_MODEL_VERSION })
   ).run();
 
-  const semantic = await replaceAutoSemanticFeatures(env, itemId, {
+  const semantic = await replaceAutoSemanticFeatures(content, itemId, {
     canonical_url: itemId,
     source_key: sourceKey,
     source_name: sourceName,
@@ -66,11 +75,12 @@ async function ensureContentItem(env, article) {
 }
 
 async function recordEventOnce(env, article, eventType, context = null) {
+  const content = contentEnv(env);
   if (!isSupportedContentEvent(eventType)) return 0;
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
   const renderId = `rss-reader:${eventType}:v3`;
-  const result = await env.DB.prepare(`
+  const result = await content.DB.prepare(`
     INSERT OR IGNORE INTO user_content_events (
       item_id, render_id, event_type, assistant_recommended, assistant_rank,
       explicit_feedback, context_json, event_at
@@ -84,18 +94,19 @@ async function recordEventOnce(env, article, eventType, context = null) {
     ensured.itemId, eventType
   ).run();
   const changed = Number(result.meta?.changes || 0);
-  if (changed) await markProfileDirty(env, `rss_${eventType}`);
+  if (changed) await markProfileDirty(content, `rss_${eventType}`);
   return changed;
 }
 
 async function recordFollowUpEvent(env, article, articleId, interactionId, context = null) {
+  const content = contentEnv(env);
   if (!isSupportedContentEvent("follow_up")) return 0;
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
   const interaction = String(interactionId || "").trim().slice(0, 200);
   if (!interaction) return 0;
   const renderId = `rss-reader:follow_up:${interaction}`;
-  const result = await env.DB.prepare(`
+  const result = await content.DB.prepare(`
     INSERT OR IGNORE INTO user_content_events (
       item_id, render_id, event_type, assistant_recommended, assistant_rank,
       explicit_feedback, context_json, event_at
@@ -109,22 +120,23 @@ async function recordFollowUpEvent(env, article, articleId, interactionId, conte
     ensured.itemId, renderId
   ).run();
   const changed = Number(result.meta?.changes || 0);
-  if (changed) await markProfileDirty(env, "rss_follow_up");
+  if (changed) await markProfileDirty(content, "rss_follow_up");
   return changed;
 }
 
 async function replaceReaderPreference(env, article, preference, articleId) {
+  const content = contentEnv(env);
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
   const targetEvent = preference === "like" ? "liked" : preference === "dislike" ? "disliked" : null;
-  const current = await env.DB.prepare(`SELECT event_type FROM user_content_events WHERE item_id=? AND event_type IN ('liked','disliked') ORDER BY id DESC LIMIT 1`).bind(ensured.itemId).first();
+  const current = await content.DB.prepare(`SELECT event_type FROM user_content_events WHERE item_id=? AND event_type IN ('liked','disliked') ORDER BY id DESC LIMIT 1`).bind(ensured.itemId).first();
   const currentEvent = current?.event_type || null;
   if (currentEvent === targetEvent) return 0;
-  const removed = await env.DB.prepare(`DELETE FROM user_content_events WHERE item_id=? AND event_type IN ('liked','disliked')`).bind(ensured.itemId).run();
+  const removed = await content.DB.prepare(`DELETE FROM user_content_events WHERE item_id=? AND event_type IN ('liked','disliked')`).bind(ensured.itemId).run();
   let changed = Number(removed.meta?.changes || 0);
   if (targetEvent) {
     const eventType = targetEvent;
-    const inserted = await env.DB.prepare(`
+    const inserted = await content.DB.prepare(`
       INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
       VALUES(?,?,?,0,NULL,?, ?,CURRENT_TIMESTAMP)
     `).bind(
@@ -136,20 +148,21 @@ async function replaceReaderPreference(env, article, preference, articleId) {
     ).run();
     changed += Number(inserted.meta?.changes || 0);
   }
-  if (changed) await markProfileDirty(env, "rss_preference_state");
+  if (changed) await markProfileDirty(content, "rss_preference_state");
   return changed;
 }
 
 async function replaceReaderFeatured(env, article, featured, articleId) {
+  const content = contentEnv(env);
   const ensured = await ensureContentItem(env, article);
   if (!ensured.itemId) return 0;
-  const current = await env.DB.prepare(`SELECT 1 AS present FROM user_content_events WHERE item_id=? AND event_type='saved' AND render_id='rss-reader:saved:featured-v3' LIMIT 1`).bind(ensured.itemId).first();
+  const current = await content.DB.prepare(`SELECT 1 AS present FROM user_content_events WHERE item_id=? AND event_type='saved' AND render_id='rss-reader:saved:featured-v3' LIMIT 1`).bind(ensured.itemId).first();
   const targetFeatured = featured === true;
   if (Boolean(current?.present) === targetFeatured) return 0;
-  const removed = await env.DB.prepare(`DELETE FROM user_content_events WHERE item_id=? AND event_type='saved' AND render_id LIKE 'rss-reader:saved:%'`).bind(ensured.itemId).run();
+  const removed = await content.DB.prepare(`DELETE FROM user_content_events WHERE item_id=? AND event_type='saved' AND render_id LIKE 'rss-reader:saved:%'`).bind(ensured.itemId).run();
   let changed = Number(removed.meta?.changes || 0);
   if (targetFeatured) {
-    const inserted = await env.DB.prepare(`
+    const inserted = await content.DB.prepare(`
       INSERT OR IGNORE INTO user_content_events(item_id,render_id,event_type,assistant_recommended,assistant_rank,explicit_feedback,context_json,event_at)
       VALUES(?,?,'saved',0,NULL,'featured',?,CURRENT_TIMESTAMP)
     `).bind(
@@ -159,7 +172,7 @@ async function replaceReaderFeatured(env, article, featured, articleId) {
     ).run();
     changed += Number(inserted.meta?.changes || 0);
   }
-  if (changed) await markProfileDirty(env, "rss_featured_state");
+  if (changed) await markProfileDirty(content, "rss_featured_state");
   return changed;
 }
 
@@ -174,7 +187,7 @@ export async function reconcileLibraryLearning(response, env) {
       article_id: article.article_id || null,
     });
   }
-  const recompute = changed ? await maybeRecomputePersonalShared(env) : { recomputed: false };
+  const recompute = changed ? await maybeRecomputePersonal(env) : { recomputed: false };
   return { ok: true, changed, articles: articles.length, recomputed: Boolean(recompute.recomputed) };
 }
 
@@ -208,11 +221,11 @@ export async function handleRssReaderLearning(request, env, url, authorize) {
       depth: Math.max(1, Math.min(99, Number.parseInt(String(followUpBody?.depth || 1), 10) || 1)),
       substantive: true,
     }) : 0;
-    const recompute = (selected || deepRead || followUp) ? await maybeRecomputePersonalShared(env) : { recomputed: false };
+    const recompute = (selected || deepRead || followUp) ? await maybeRecomputePersonal(env) : { recomputed: false };
     return Response.json({ ok: true, selected_applied: selected, deep_read_applied: deepRead, follow_up_applied: followUp, substantive, profile_recomputed: Boolean(recompute.recomputed) });
   }
 
-  const recompute = (selected || deepRead) ? await maybeRecomputePersonalShared(env) : { recomputed: false };
+  const recompute = (selected || deepRead) ? await maybeRecomputePersonal(env) : { recomputed: false };
   return Response.json({ ok: true, selected_applied: selected, deep_read_applied: deepRead, profile_recomputed: Boolean(recompute.recomputed) });
 }
 
@@ -230,6 +243,6 @@ export async function recordReaderStateLearning(env, articleId, body) {
     changed += await replaceReaderFeatured(env, article, body.featured, articleId);
   }
 
-  const recompute = changed ? await maybeRecomputePersonalShared(env) : { recomputed: false };
+  const recompute = changed ? await maybeRecomputePersonal(env) : { recomputed: false };
   return { ok: true, changed, recomputed: Boolean(recompute.recomputed) };
 }

@@ -2,6 +2,7 @@ import legacy from "./rss-wrapper.js";
 import { handleRssLibrary } from "./src/rss-library.js";
 import { handleRssReader } from "./src/rss-reader.js";
 import { enrichFetchedArticleImages } from "./src/rss-image-enrich.js";
+import { rssEnv } from "./src/domain-db.js";
 
 const BLOCKED_INCOMPLETE_SOURCE_IDS = new Set([
   "projectsyndicate-url-26a9686e21ebe4fa865d",
@@ -164,6 +165,7 @@ async function postProcessReaderResponse(response, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const rss = rssEnv(env);
 
     if (request.method === "GET" && url.pathname === "/ui/rss") {
       return Response.redirect(new URL("/rss/library", url).toString(), 302);
@@ -179,22 +181,22 @@ export default {
     const integrityResponse = blockedRestrictedFetch(request, url);
     if (integrityResponse) return integrityResponse;
 
-    const readerResponse = await handleRssReader(request, env, url);
+    const readerResponse = await handleRssReader(request, rss, url);
     if (readerResponse) return postProcessReaderResponse(readerResponse, url);
 
     const articleId = fetchArticleId(request, url);
-    const rssResponse = await handleRssLibrary(request, env, url);
+    const rssResponse = await handleRssLibrary(request, rss, url);
     if (rssResponse) {
       if (articleId && rssResponse.ok) {
         try {
-          await enrichFetchedArticleImages(env, articleId);
+          await enrichFetchedArticleImages(rss, articleId);
         } catch (error) {
           console.warn("rss image enrichment failed", articleId, String(error?.message || error));
         }
       }
       return rssResponse;
     }
-    return legacy.fetch(request, env, ctx);
+    return legacy.fetch(request, rss, ctx);
   },
 
   async scheduled(controller, env, ctx) {

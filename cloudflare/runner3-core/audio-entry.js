@@ -1,4 +1,5 @@
 import { handleAudioMedia } from "./src/audio-media.js";
+import { contentEnv } from "./src/domain-db.js";
 
 let readerAppPromise = null;
 let learningModulePromise = null;
@@ -77,9 +78,10 @@ export default {
     const learning = await loadLearningModule();
     const dailyWindow = isLegacyDailyWindow(controller);
     const refresh = (async () => {
-      const recompute = await learning.maybeRecomputePersonal(env);
+      const content = contentEnv(env);
+      const recompute = await learning.maybeRecomputePersonal(content);
       if (dailyWindow && !recompute?.recomputed) {
-        await learning.refreshPersonalScoresDaily(env);
+        await learning.refreshPersonalScoresDaily(content);
       }
     })().catch((error) => {
       console.warn("content intelligence scheduled refresh failed", String(error?.message || error));

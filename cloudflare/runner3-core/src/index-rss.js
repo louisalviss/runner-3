@@ -1,10 +1,11 @@
 import core from "./index.js";
 import { handleRssLibrary } from "./rss-library.js";
+import { rssEnv } from "./domain-db.js";
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const rssResponse = await handleRssLibrary(request, env, url);
+    const rssResponse = await handleRssLibrary(request, rssEnv(env), url);
     if (rssResponse) return rssResponse;
     return core.fetch(request, env, ctx);
   },
