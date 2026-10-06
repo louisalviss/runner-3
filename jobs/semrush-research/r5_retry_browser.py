@@ -3,6 +3,7 @@ from __future__ import annotations
 import json, pathlib, socket, time, importlib.util
 
 from runtime_preflight import require_semrush_preflight
+from runtime_recovery import ensure_with_one_shot_recovery
 from runtime_metrics import SemrushJobMetrics
 
 JOB_METRICS=SemrushJobMetrics('r5_retry_browser')
@@ -88,7 +89,10 @@ def main():
         state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=now())
         write_state(state)
         print(json.dumps({'event':'BLOCKED','reason':'SEMRUSH_RUNTIME_PREFLIGHT','detail':state['runtime_preflight_error']}),flush=True); return 6
-    ready=broker_call({'action':'ensure'})
+    ready,recovery=ensure_with_one_shot_recovery(broker_call,timeout=180)
+    state=json.loads(STATE.read_text()) if STATE.exists() else {}
+    state['runtime_recovery']=recovery
+    write_state(state)
     if ready.get('ok') is not True:
         code=str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
         print(json.dumps({'event':'BLOCKED','reason':code,'detail':str(ready.get('detail') or '')[:500]}),flush=True); return 3
