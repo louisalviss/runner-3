@@ -4,7 +4,7 @@ import json, pathlib, socket, time, importlib.util
 
 from runtime_preflight import require_semrush_preflight
 from runtime_recovery import ensure_with_one_shot_recovery
-from runtime_metrics import SemrushJobMetrics
+from runtime_metrics import SemrushJobMetrics, is_rate_limit, is_quota_limit
 
 JOB_METRICS=SemrushJobMetrics('r5_retry_browser')
 
@@ -104,11 +104,26 @@ def main():
                 {'tag':'ideas','method':'ideas.GetKeywords','args':{**base,'mode':0,'questions_only':False}},
             ]
             vals=None
+            terminal_provider_reason=None
             for attempt in range(3):
                 vals={x.get('tag'):x for x in rpc_many(calls)}; errs=[v.get('error') for v in vals.values() if v.get('error')]
                 if not errs: break
+                if any(is_quota_limit(err) for err in errs):
+                    terminal_provider_reason='SEMRUSH_REPORT_LIMIT'; break
+                if any(is_rate_limit(err) for err in errs):
+                    terminal_provider_reason='SEMRUSH_RATE_LIMIT'; break
                 time.sleep(1.0+attempt)
             errs={k:v.get('error') for k,v in (vals or {}).items() if v.get('error')}
+            if terminal_provider_reason:
+                state=json.loads(STATE.read_text()) if STATE.exists() else {}
+                state.update(
+                    stage='BLOCKED_QUOTA_LIMIT' if terminal_provider_reason=='SEMRUSH_REPORT_LIMIT' else 'BLOCKED_RATE_LIMIT',
+                    blocker=terminal_provider_reason,
+                    updated_at=now(),
+                )
+                write_state(state)
+                print(json.dumps({'event':'BLOCKED','reason':terminal_provider_reason,'retried':i-1}),flush=True)
+                return 7 if terminal_provider_reason=='SEMRUSH_REPORT_LIMIT' else 5
             if errs: rec={**item,'exact':None,'summary':None,'ideas':[],'error':'BROKER_RPC:'+json.dumps(errs,ensure_ascii=False)[:700],'scanned_at':now()}
             else: rec={**item,'exact':exact_metric(vals['info'].get('result')),'summary':vals['summary'].get('result'),'ideas':ideas_rows(vals['ideas'].get('result')),'error':None,'scanned_at':now()}
             f.write(json.dumps(rec,ensure_ascii=False,separators=(',',':'))+'\n'); f.flush(); latest[(item['database'],item['theme_id'],item['seed'])]=rec
