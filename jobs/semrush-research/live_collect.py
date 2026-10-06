@@ -9,7 +9,8 @@ import socket
 import time
 
 from runtime_preflight import require_semrush_preflight
-from runtime_metrics import SemrushJobMetrics
+from runtime_recovery import ensure_with_one_shot_recovery
+from runtime_metrics import SemrushJobMetrics, is_quota_limit
 
 JOB_METRICS = SemrushJobMetrics('live_collect')
 
@@ -234,7 +235,16 @@ def main():
     })
 
     try:
-        ready = broker_call({'action': 'ensure'}, timeout=180)
+        ready, recovery = ensure_with_one_shot_recovery(broker_call, timeout=180)
+        state['runtime_recovery'] = recovery
+        if recovery.get('attempted'):
+            journal(journal_path, {
+                'event': 'ONE_SHOT_RECOVERY',
+                'trigger': recovery.get('trigger'),
+                'recovery_state': (recovery.get('recovery') or {}).get('state'),
+                'retry_code': recovery.get('retry_code'),
+                'success': recovery.get('success'),
+            })
         if ready.get('ok') is not True:
             code = str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
             detail = str(ready.get('detail') or '')[:800]
@@ -292,7 +302,17 @@ def main():
                         and int(item['error'].get('code') or 0) == -2002
                         for item in batch_errors
                     )
+                    quota_limited = any(is_quota_limit(item.get('error')) for item in batch_errors)
                     probe = {'errors': batch_errors[:8]}
+                    if quota_limited:
+                        state.update(stage='BLOCKED_QUOTA_LIMIT', blocker='SEMRUSH_REPORT_LIMIT',
+                                     quota_limit_probe=probe, updated_at=ts())
+                        state.pop('schema_probe', None)
+                        state.pop('rate_limit_probe', None)
+                        persist_state(state_path, state)
+                        journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_QUOTA_LIMIT', 'quota_limit_probe': probe})
+                        print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_REPORT_LIMIT', 'state': state}, ensure_ascii=False))
+                        return 7
                     if rate_limited:
                         state.update(stage='BLOCKED_RATE_LIMIT', blocker='SEMRUSH_RATE_LIMIT',
                                      rate_limit_probe=probe, updated_at=ts())
@@ -344,6 +364,16 @@ def main():
                 if schema_error:
                     errors = schema_error.get('errors') or []
                     rate_limited = any(isinstance(err, dict) and int(err.get('code') or 0) == -2002 for err in errors)
+                    quota_limited = any(is_quota_limit(err) for err in errors)
+                    if quota_limited:
+                        state.update(stage='BLOCKED_QUOTA_LIMIT', blocker='SEMRUSH_REPORT_LIMIT',
+                                     quota_limit_probe=schema_error, updated_at=ts())
+                        state.pop('schema_probe', None)
+                        state.pop('rate_limit_probe', None)
+                        persist_state(state_path, state)
+                        journal(journal_path, {'event': 'BLOCKED', 'stage': 'BLOCKED_QUOTA_LIMIT', 'quota_limit_probe': schema_error})
+                        print(json.dumps({'status': 'BLOCKED', 'reason': 'SEMRUSH_REPORT_LIMIT', 'state': state}, ensure_ascii=False))
+                        return 7
                     if rate_limited:
                         state.update(stage='BLOCKED_RATE_LIMIT', blocker='SEMRUSH_RATE_LIMIT',
                                      rate_limit_probe=schema_error, updated_at=ts())
