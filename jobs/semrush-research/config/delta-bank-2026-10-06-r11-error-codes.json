@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "source": "semrush-research-r11-error-code-expansion-2026-10-06",
+  "database": "us",
+  "purpose": "R11 additive expansion for equipment error-code intelligence; reuse R10 mini-split/water-heater/generator artifacts and add only new furnace/boiler/heat-pump/thermostat seeds",
+  "themes": [
+    {
+      "theme_id": "furnace-error-code-expansion",
+      "label": "Furnace Error Code Lookup",
+      "ai_resilience_reason": "Brand/model-specific diagnostic codes change across generations and are safer with structured sourced lookup.",
+      "seeds": [
+        "furnace error codes",
+        "carrier furnace error codes",
+        "lennox furnace error codes",
+        "goodman furnace error codes"
+      ]
+    },
+    {
+      "theme_id": "boiler-error-code-expansion",
+      "label": "Boiler Error Code Lookup",
+      "ai_resilience_reason": "Brand/model-specific diagnostics tied to current manuals and service context.",
+      "seeds": [
+        "boiler error codes",
+        "navien boiler error codes",
+        "viessmann error codes"
+      ]
+    },
+    {
+      "theme_id": "heat-pump-error-code-expansion",
+      "label": "Heat Pump Error Code Lookup",
+      "ai_resilience_reason": "Model-specific fault codes with current documentation and service pathways.",
+      "seeds": [
+        "heat pump error codes",
+        "carrier heat pump error codes"
+      ]
+    },
+    {
+      "theme_id": "thermostat-error-code-expansion",
+      "label": "Thermostat Error Code Lookup",
+      "ai_resilience_reason": "Current firmware/device-specific codes and guided resolution.",
+      "seeds": [
+        "thermostat error codes",
+        "ecobee error codes",
+        "nest error codes"
+      ]
+    }
+  ]
+}
