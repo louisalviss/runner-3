@@ -21,6 +21,11 @@ HIGH_INTENT = {
     "converter","generator","validator","verify","verification","search","find","finder","audit","cost",
     "price","pricing","quote","requirements","permit","license","title","serial","vin","compliance",
 }
+TOPIC_GENERIC = {
+    "calculator","calculate","calculating","calculation","chart","lookup","search","find","finder","tool",
+    "online","free","cost","price","pricing","rate","rates","value","tax","size","sizing","number","numbers",
+    "estimate","estimator","report","reports","guide","guides","table","tables",
+}
 
 
 def now_ts() -> str:
@@ -54,6 +59,34 @@ def norm_phrase(s: str) -> str:
 
 def tokens(s: str) -> list[str]:
     return [t for t in norm_phrase(s).split() if len(t) > 1 and t not in STOPWORDS]
+
+
+def topic_token(t: str) -> str:
+    # Normalize only simple English plurals. Deliberately do not stem verbs/adjectives:
+    # e.g. "landed" must never collapse to "land".
+    t = (t or "").lower()
+    if len(t) > 4 and t.endswith("ies"):
+        return t[:-3] + "y"
+    if len(t) > 4 and t.endswith("es") and not t.endswith(("ses", "xes")):
+        return t[:-2]
+    if len(t) > 3 and t.endswith("s") and not t.endswith(("ss", "us")):
+        return t[:-1]
+    return t
+
+
+def topic_relevant(seed: str, phrase: str) -> bool:
+    seed_norm = norm_phrase(seed)
+    phrase_norm = norm_phrase(phrase)
+    if not seed_norm or not phrase_norm:
+        return False
+    if seed_norm == phrase_norm:
+        return True
+    seed_tokens = {topic_token(t) for t in tokens(seed)}
+    phrase_tokens = {topic_token(t) for t in tokens(phrase)}
+    anchors = {t for t in seed_tokens if t not in TOPIC_GENERIC}
+    if not anchors:
+        return True
+    return bool(anchors & phrase_tokens)
 
 
 def as_float(v: Any, default: float | None = 0.0) -> float | None:
@@ -95,6 +128,7 @@ def parse_idea(project: str, seed: str, row: dict[str, Any]) -> dict[str, Any] |
         "token_count": len(norm_phrase(phrase).split()),
         "tokens": toks,
         "high_intent": bool(set(toks) & HIGH_INTENT),
+        "topic_relevant": topic_relevant(seed, phrase),
     }
 
 
@@ -370,6 +404,7 @@ def main() -> int:
         "cluster_min_tokens": args.cluster_min_tokens,
         "secondary_min_total_volume": 4000,
         "secondary_min_high_intent_share": 0.80,
+        "topic_relevance_version": 1,
     }
 
     if state_path.exists() and not args.force:
@@ -405,7 +440,23 @@ def main() -> int:
     atomic_json(state_path, state)
     append_journal(journal_path, {"ts": now_ts(), "stage": "UNIVERSE_LOADED", "raw_keyword_rows": len(raw_rows)})
 
-    rows = dedupe_rows(raw_rows)
+    topic_rows = [r for r in raw_rows if r.get("topic_relevant", True)]
+    topic_dropped_rows = len(raw_rows) - len(topic_rows)
+    state.update(
+        stage="TOPIC_FILTERED",
+        updated_at=now_ts(),
+        topic_keyword_rows=len(topic_rows),
+        topic_dropped_rows=topic_dropped_rows,
+    )
+    atomic_json(state_path, state)
+    append_journal(journal_path, {
+        "ts": now_ts(),
+        "stage": "TOPIC_FILTERED",
+        "topic_keyword_rows": len(topic_rows),
+        "topic_dropped_rows": topic_dropped_rows,
+    })
+
+    rows = dedupe_rows(topic_rows)
     state.update(stage="NORMALIZED", updated_at=now_ts(), dedup_keyword_rows=len(rows))
     atomic_json(state_path, state)
     append_journal(journal_path, {"ts": now_ts(), "stage": "NORMALIZED", "dedup_keyword_rows": len(rows)})
@@ -496,6 +547,8 @@ def main() -> int:
         "",
         f"- source SHA256: `{source_sha}`",
         f"- input rows: {len(raw_rows)}",
+        f"- topic-relevant rows: {len(topic_rows)}",
+        f"- topic-dropped rows: {topic_dropped_rows}",
         f"- dedup rows: {len(rows)}",
         f"- projects: {len(project_report)}",
         f"- demand-gate PASS: {len(passed_projects)}",
