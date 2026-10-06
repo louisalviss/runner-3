@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "source": "semrush-research-r9-ai-resistant-delta-2026-10-06",
+  "database": "us",
+  "purpose": "R9 AI-resistant utility delta: solid demand + low KD + physical/structured-input resilience; exact old-theme/seed dedupe required",
+  "hard_gates": {
+    "ai_resilience": "prefer structured-input calculators, engineering sizing, current/spec-dependent utilities; reject pure informational/direct-answer niches",
+    "demand_defaults": "aggregate US volume >=10000; KD<29 volume >=2000; >=20 metric-bearing keywords; >=10 low-KD long-tail; median KD <30; head share <=60%"
+  },
+  "themes": [
+    {
+      "theme_id": "bolted-joint-engineering",
+      "label": "Bolted Joint Torque / Preload",
+      "ai_resilience_reason": "Requires fastener/material/friction inputs and numeric output.",
+      "seeds": [
+        "bolt torque calculator",
+        "bolt preload calculator",
+        "torque tension calculator"
+      ]
+    },
+    {
+      "theme_id": "bearing-life-sizing",
+      "label": "Bearing Life / Load Sizing",
+      "ai_resilience_reason": "Requires bearing/load/speed parameters and repeatable calculation.",
+      "seeds": [
+        "bearing life calculator",
+        "l10 bearing life calculator",
+        "bearing load calculator"
+      ]
+    },
+    {
+      "theme_id": "pneumatic-cylinder-sizing",
+      "label": "Pneumatic Cylinder Sizing",
+      "ai_resilience_reason": "Requires bore/pressure/load/stroke inputs.",
+      "seeds": [
+        "pneumatic cylinder force calculator",
+        "air cylinder sizing calculator",
+        "pneumatic air consumption calculator"
+      ]
+    },
+    {
+      "theme_id": "hydraulic-cylinder-sizing",
+      "label": "Hydraulic Cylinder Sizing",
+      "ai_resilience_reason": "Requires pressure/bore/rod/flow inputs; distinct from prior pump sizing thesis.",
+      "seeds": [
+        "hydraulic cylinder force calculator",
+        "hydraulic cylinder speed calculator",
+        "hydraulic cylinder bore calculator"
+      ]
+    },
+    {
+      "theme_id": "sheet-metal-bend-engineering",
+      "label": "Sheet Metal Bend Engineering",
+      "ai_resilience_reason": "Requires thickness/radius/angle/material parameters.",
+      "seeds": [
+        "bend allowance calculator",
+        "sheet metal bend deduction calculator",
+        "k factor calculator sheet metal"
+      ]
+    },
+    {
+      "theme_id": "injection-molding-process-math",
+      "label": "Injection Molding Process Math",
+      "ai_resilience_reason": "Machine/process specific numeric sizing.",
+      "seeds": [
+        "injection molding clamp tonnage calculator",
+        "injection molding shrinkage calculator",
+        "shot size calculator injection molding"
+      ]
+    },
+    {
+      "theme_id": "oring-gland-sizing",
+      "label": "O-Ring Gland / Squeeze Sizing",
+      "ai_resilience_reason": "Geometry/spec dependent tool; exact dimensions matter.",
+      "seeds": [
+        "o ring gland calculator",
+        "o ring squeeze calculator",
+        "o ring groove calculator"
+      ]
+    },
+    {
+      "theme_id": "chain-sprocket-drive-math",
+      "label": "Chain / Sprocket Drive Math",
+      "ai_resilience_reason": "Mechanical inputs and deterministic sizing.",
+      "seeds": [
+        "roller chain length calculator",
+        "sprocket ratio calculator",
+        "chain center distance calculator"
+      ]
+    },
+    {
+      "theme_id": "belt-pulley-drive-math",
+      "label": "Belt / Pulley Drive Math",
+      "ai_resilience_reason": "Mechanical sizing with diameters, RPM and center distance.",
+      "seeds": [
+        "pulley rpm calculator",
+        "v belt length calculator",
+        "belt speed calculator"
+      ]
+    },
+    {
+      "theme_id": "heat-exchanger-process-math",
+      "label": "Heat Exchanger Process Math",
+      "ai_resilience_reason": "Requires temperatures/flow/UA inputs; interactive engineering utility.",
+      "seeds": [
+        "heat exchanger calculator",
+        "lmtd calculator",
+        "heat exchanger duty calculator"
+      ]
+    },
+    {
+      "theme_id": "steam-condensate-sizing",
+      "label": "Steam / Condensate Sizing",
+      "ai_resilience_reason": "Pressure/temperature/load dependent calculations.",
+      "seeds": [
+        "steam table calculator",
+        "condensate load calculator",
+        "steam pipe sizing calculator"
+      ]
+    },
+    {
+      "theme_id": "refrigeration-service-math",
+      "label": "Refrigeration Service Math",
+      "ai_resilience_reason": "Gauge/temperature/refrigerant dependent field utility.",
+      "seeds": [
+        "superheat calculator",
+        "subcooling calculator",
+        "refrigerant charge calculator"
+      ]
+    },
+    {
+      "theme_id": "pv-string-design",
+      "label": "PV String / MPPT Design",
+      "ai_resilience_reason": "Module/inverter/temperature spec dependent; distinct from generic solar savings.",
+      "seeds": [
+        "solar string sizing calculator",
+        "pv string voltage calculator",
+        "mppt string calculator"
+      ]
+    },
+    {
+      "theme_id": "ups-runtime-sizing",
+      "label": "UPS Battery Runtime / Sizing",
+      "ai_resilience_reason": "Load, battery chemistry/capacity and efficiency inputs.",
+      "seeds": [
+        "ups runtime calculator",
+        "battery backup runtime calculator",
+        "ups battery size calculator"
+      ]
+    },
+    {
+      "theme_id": "geotechnical-bearing-math",
+      "label": "Soil / Foundation Bearing Math",
+      "ai_resilience_reason": "Site/load/geometry dependent engineering calculation.",
+      "seeds": [
+        "soil bearing capacity calculator",
+        "footing bearing pressure calculator",
+        "allowable bearing capacity calculator"
+      ]
+    },
+    {
+      "theme_id": "open-channel-flow-math",
+      "label": "Open Channel / Culvert Flow Math",
+      "ai_resilience_reason": "Geometry/slope/roughness dependent hydraulic calculation.",
+      "seeds": [
+        "manning equation calculator",
+        "open channel flow calculator",
+        "culvert flow calculator"
+      ]
+    },
+    {
+      "theme_id": "psychrometric-air-math",
+      "label": "Psychrometric Air Properties",
+      "ai_resilience_reason": "Temperature/humidity/pressure inputs and chart-like output.",
+      "seeds": [
+        "psychrometric calculator",
+        "dew point calculator hvac",
+        "enthalpy calculator air"
+      ]
+    },
+    {
+      "theme_id": "pond-water-management",
+      "label": "Pond Volume / Aeration / Treatment",
+      "ai_resilience_reason": "Physical dimensions/water conditions drive actionable sizing.",
+      "seeds": [
+        "pond volume calculator",
+        "pond aeration calculator",
+        "pond treatment calculator"
+      ]
+    }
+  ]
+}
