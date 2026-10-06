@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "source": "semrush-research-r16-vehicle-service-data-2026-10-07",
+  "database": "us",
+  "purpose": "R16 AI-resistant vehicle-specific service-data lookup delta; additive only",
+  "hard_gates": {
+    "ai_resilience": "prefer year/make/model/VIN-dependent service specifications and diagrams that require trusted source data",
+    "reject": "generic maintenance advice and fitment categories already scanned"
+  },
+  "themes": [
+    {
+      "theme_id": "vehicle-ac-refrigerant-capacity",
+      "label": "Automotive A/C Refrigerant Capacity",
+      "ai_resilience_reason": "Charge type/quantity depends on exact model-year/engine/HVAC configuration.",
+      "seeds": [
+        "ac refrigerant capacity by vehicle",
+        "refrigerant capacity by vehicle",
+        "car ac refrigerant capacity chart"
+      ]
+    },
+    {
+      "theme_id": "vehicle-spark-plug-specs",
+      "label": "Spark Plug Gap / Torque Specs",
+      "ai_resilience_reason": "Gap and torque depend on exact engine/application and plug type.",
+      "seeds": [
+        "spark plug gap by vehicle",
+        "spark plug gap lookup",
+        "spark plug torque specs by vehicle"
+      ]
+    },
+    {
+      "theme_id": "vehicle-alignment-specs",
+      "label": "Wheel Alignment Specs Lookup",
+      "ai_resilience_reason": "Camber/caster/toe specifications depend on exact vehicle and suspension.",
+      "seeds": [
+        "alignment specs by vehicle",
+        "wheel alignment specifications lookup",
+        "car alignment specs lookup"
+      ]
+    },
+    {
+      "theme_id": "vehicle-fuse-box-diagrams",
+      "label": "Fuse Box / Fuse Diagram by Vehicle",
+      "ai_resilience_reason": "Fuse position, circuit and layout depend on exact year/make/model and are diagram/data dependent.",
+      "seeds": [
+        "fuse box diagram by vehicle",
+        "fuse diagram by car",
+        "vehicle fuse box diagram"
+      ]
+    },
+    {
+      "theme_id": "vehicle-belt-routing-diagrams",
+      "label": "Serpentine Belt Routing by Vehicle",
+      "ai_resilience_reason": "Routing depends on exact engine/accessory configuration and benefits from trusted diagrams.",
+      "seeds": [
+        "serpentine belt routing by vehicle",
+        "serpentine belt diagram by vehicle",
+        "belt routing diagram by car"
+      ]
+    }
+  ]
+}
