@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from collections import Counter
 
 from runtime_preflight import require_semrush_preflight
+from runtime_recovery import ensure_with_one_shot_recovery
 from runtime_metrics import SemrushJobMetrics
 
 JOB_METRICS=SemrushJobMetrics('serp_dd_live')
@@ -107,7 +108,8 @@ def main():
             except Exception as e:
                 state.update(stage='BLOCKED_RUNTIME_PREFLIGHT',blocker='SEMRUSH_RUNTIME_PREFLIGHT',runtime_preflight_error=type(e).__name__+':'+str(e)[:1200],updated_at=ts()); persist_state(statep,state)
                 print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_RUNTIME_PREFLIGHT','state':state},ensure_ascii=False)); return 6
-            ready=broker_call({'action':'ensure'})
+            ready,recovery=ensure_with_one_shot_recovery(broker_call,timeout=180)
+            state['runtime_recovery']=recovery
             if ready.get('ok') is not True:
                 code=str(ready.get('error_code') or ready.get('state') or 'BROKER_UNAVAILABLE')
                 state.update(stage='BLOCKED_BROKER_BUSY' if code=='SEMRUSH_RESOURCE_ADMISSION_DENIED' else 'BLOCKED_LIVE_AUTH',blocker=code,updated_at=ts()); persist_state(statep,state)
