@@ -1,0 +1,287 @@
+name: D1 Domain Isolation Quota Aware
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: d1-domain-isolation-quota-aware
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Migrate task context, context index, and content intelligence
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          ROOT='cloudflare/runner3-core'
+          SRC='runner3-core'
+          TASK='louis-task-context'
+          CTX='louis-context-index'
+          CONTENT='runner3-content-intelligence'
+          LEGACY_LINK='link-interest-profile'
+          TMP=/tmp/d1-qaware
+          mkdir -p "$TMP"
+
+          $W d1 execute "$TASK" --remote --file="$ROOT/migrations/0002_state_checkpoints.sql"
+          $W d1 execute "$CTX" --remote --file="$ROOT/migrations/0002_state_checkpoints.sql"
+          for f in 0002_state_checkpoints.sql 0008_content_intelligence.sql 0009_content_event_dedupe.sql 0015_personal_score_stage.sql 0016_interest_family_profile.sql 0017_user_content_event_idempotency.sql; do
+            $W d1 execute "$CONTENT" --remote --file="$ROOT/migrations/$f"
+          done
+
+          $W d1 export "$SRC" --remote --skip-confirmation --table=checkpoints --no-schema --output="$TMP/checkpoints.sql"
+          python3 - "$TMP/checkpoints.sql" "$TMP/task.sql" "$TMP/context.sql" <<'PY'
+          import pathlib,sys
+          lines=pathlib.Path(sys.argv[1]).read_text().splitlines()
+          pragma=[x for x in lines if x.startswith('PRAGMA ')]
+          inserts=[x for x in lines if x.startswith('INSERT INTO "checkpoints"')]
+          task=[x for x in inserts if any(("VALUES('"+p+"'") in x for p in ('task-context','task-context-history','task-catalog')) or "VALUES('task-context-" in x]
+          ctx=[x for x in inserts if "VALUES('context-index'" in x]
+          pathlib.Path(sys.argv[2]).write_text("\n".join(pragma+task)+"\n")
+          pathlib.Path(sys.argv[3]).write_text("\n".join(pragma+ctx)+"\n")
+          print('TASK_ROWS',len(task),'CONTEXT_ROWS',len(ctx))
+          PY
+          $W d1 execute "$TASK" --remote --command "DELETE FROM checkpoints"
+          $W d1 execute "$TASK" --remote --file="$TMP/task.sql"
+          $W d1 execute "$CTX" --remote --command "DELETE FROM checkpoints"
+          $W d1 execute "$CTX" --remote --file="$TMP/context.sql"
+
+          content_tables=(content_items content_features user_content_events content_scores interest_profile interest_family_profile personal_score_stage recommendation_runs workflow_state)
+          for t in "${content_tables[@]}"; do
+            $W d1 export "$SRC" --remote --skip-confirmation --table="$t" --no-schema --output="$TMP/$t.sql"
+          done
+          python3 - "$TMP/workflow_state.sql" "$TMP/workflow_state.content.sql" <<'PY'
+          import pathlib,sys
+          lines=pathlib.Path(sys.argv[1]).read_text().splitlines()
+          out=[x for x in lines if x.startswith('PRAGMA ') or (x.startswith('INSERT INTO "workflow_state"') and "VALUES('content-intelligence-" in x)]
+          pathlib.Path(sys.argv[2]).write_text("\n".join(out)+"\n")
+          PY
+
+          $W d1 export "$LEGACY_LINK" --remote --skip-confirmation --table=link_interest_events --output="$TMP/link_interest_events.full.sql"
+          python3 - "$TMP/link_interest_events.full.sql" "$TMP/link_interest_events.schema.sql" "$TMP/link_interest_events.data.sql" <<'PY'
+          import pathlib,sys
+          lines=pathlib.Path(sys.argv[1]).read_text().splitlines()
+          schema=[x for x in lines if not x.startswith('INSERT INTO ')]
+          data=[x for x in lines if x.startswith('PRAGMA ') or x.startswith('INSERT INTO ')]
+          pathlib.Path(sys.argv[2]).write_text("\n".join(schema)+"\n")
+          pathlib.Path(sys.argv[3]).write_text("\n".join(data)+"\n")
+          PY
+          $W d1 execute "$CONTENT" --remote --file="$TMP/link_interest_events.schema.sql"
+
+          for t in user_content_events content_features content_scores personal_score_stage interest_family_profile interest_profile recommendation_runs content_items workflow_state link_interest_events; do
+            $W d1 execute "$CONTENT" --remote --command "DELETE FROM \"$t\""
+          done
+          for t in content_items content_features user_content_events content_scores interest_profile interest_family_profile personal_score_stage recommendation_runs; do
+            $W d1 execute "$CONTENT" --remote --file="$TMP/$t.sql"
+          done
+          $W d1 execute "$CONTENT" --remote --file="$TMP/workflow_state.content.sql"
+          $W d1 execute "$CONTENT" --remote --file="$TMP/link_interest_events.data.sql"
+
+          normalize() {
+            local db="$1" table="$2" out="$3"
+            local raw="$out.raw"
+            $W d1 export "$db" --remote --skip-confirmation --table="$table" --no-schema --output="$raw"
+            python3 - "$raw" "$out" <<'PY'
+          import pathlib,sys
+          lines=[]
+          for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+              s=line.strip()
+              if not s or s.startswith('--') or s in ('BEGIN TRANSACTION;','COMMIT;') or s.startswith('PRAGMA '): continue
+              lines.append(line)
+          pathlib.Path(sys.argv[2]).write_text("\n".join(sorted(lines))+"\n")
+          PY
+          }
+
+          normalize "$TASK" checkpoints "$TMP/task.actual"
+          grep '^INSERT INTO' "$TMP/task.sql" | sort > "$TMP/task.expected" || true
+          cmp "$TMP/task.expected" "$TMP/task.actual"
+
+          normalize "$CTX" checkpoints "$TMP/context.actual"
+          grep '^INSERT INTO' "$TMP/context.sql" | sort > "$TMP/context.expected" || true
+          cmp "$TMP/context.expected" "$TMP/context.actual"
+
+          for t in content_items content_features user_content_events content_scores interest_profile interest_family_profile personal_score_stage recommendation_runs; do
+            normalize "$SRC" "$t" "$TMP/$t.src"
+            normalize "$CONTENT" "$t" "$TMP/$t.dst"
+            cmp "$TMP/$t.src" "$TMP/$t.dst"
+            echo "VERIFY_EQUAL:$t"
+          done
+
+          normalize "$LEGACY_LINK" link_interest_events "$TMP/link.src"
+          normalize "$CONTENT" link_interest_events "$TMP/link.dst"
+          cmp "$TMP/link.src" "$TMP/link.dst"
+          echo VERIFY_EQUAL:link_interest_events
+
+          normalize "$CONTENT" workflow_state "$TMP/workflow.dst"
+          grep '^INSERT INTO' "$TMP/workflow_state.content.sql" | sort > "$TMP/workflow.expected" || true
+          cmp "$TMP/workflow.expected" "$TMP/workflow.dst"
+
+          echo TASK_CONTEXT_CONTENT_VERIFY_OK
+
+      - name: Free one slot and create isolated RSS D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          if $W d1 list --json | grep -q '"name": "link-interest-profile"'; then
+            $W d1 delete link-interest-profile --skip-confirmation
+          fi
+          if ! $W d1 list --json | grep -q '"name": "runner3-rss"'; then
+            $W d1 create runner3-rss --location apac
+          fi
+
+      - name: Migrate and verify RSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          ROOT='cloudflare/runner3-core'
+          SRC='runner3-core'
+          RSS='runner3-rss'
+          TMP=/tmp/d1-rss
+          mkdir -p "$TMP"
+
+          for f in 0004_rss_library.sql 0006_rss_library_search_keys.sql 0010_rss_reader_state.sql 0011_rss_reader_library_plus.sql; do
+            $W d1 execute "$RSS" --remote --file="$ROOT/migrations/$f"
+          done
+
+          tables=(rss_articles rss_article_versions rss_translations rss_processing_events rss_reader_state rss_preference_events rss_reader_categories)
+          for t in "${tables[@]}"; do
+            $W d1 export "$SRC" --remote --skip-confirmation --table="$t" --no-schema --output="$TMP/$t.sql"
+          done
+          for t in rss_preference_events rss_reader_state rss_processing_events rss_translations rss_article_versions rss_articles rss_reader_categories; do
+            $W d1 execute "$RSS" --remote --command "DELETE FROM \"$t\""
+          done
+          for t in "${tables[@]}"; do
+            $W d1 execute "$RSS" --remote --file="$TMP/$t.sql"
+          done
+
+          normalize() {
+            local db="$1" table="$2" out="$3"
+            local raw="$out.raw"
+            $W d1 export "$db" --remote --skip-confirmation --table="$table" --no-schema --output="$raw"
+            python3 - "$raw" "$out" <<'PY'
+          import pathlib,sys
+          lines=[]
+          for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+              s=line.strip()
+              if not s or s.startswith('--') or s in ('BEGIN TRANSACTION;','COMMIT;') or s.startswith('PRAGMA '): continue
+              lines.append(line)
+          pathlib.Path(sys.argv[2]).write_text("\n".join(sorted(lines))+"\n")
+          PY
+          }
+          for t in "${tables[@]}"; do
+            normalize "$SRC" "$t" "$TMP/$t.src"
+            normalize "$RSS" "$t" "$TMP/$t.dst"
+            cmp "$TMP/$t.src" "$TMP/$t.dst"
+            echo "VERIFY_EQUAL:$t"
+          done
+
+          $W d1 execute "$RSS" --remote --command "SELECT (SELECT COUNT(*) FROM rss_articles) AS articles,(SELECT COUNT(*) FROM rss_articles_fts) AS fts" --json > "$TMP/fts.json"
+          python3 - "$TMP/fts.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          if not rows or int(rows[0].get('articles',-1)) != int(rows[0].get('fts',-2)):
+              raise SystemExit('RSS_FTS_MISMATCH')
+          print('RSS_FTS_OK',rows[0])
+          PY
+
+      - name: Patch dedicated bindings and persist authority manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 list --json > /tmp/d1-list.json
+          python3 - <<'PY'
+          import json,pathlib,datetime
+          data=json.load(open('/tmp/d1-list.json'))
+          ids={x['name']:x['uuid'] for x in data}
+          required=['louis-task-context','louis-context-index','runner3-content-intelligence','runner3-rss']
+          missing=[x for x in required if x not in ids]
+          if missing: raise SystemExit('MISSING_D1:'+','.join(missing))
+          p=pathlib.Path('cloudflare/runner3-core/wrangler.jsonc')
+          cfg=json.loads(p.read_text())
+          wanted=[
+            ('TASK_CONTEXT_DB','louis-task-context'),
+            ('CONTEXT_INDEX_DB','louis-context-index'),
+            ('CONTENT_DB','runner3-content-intelligence'),
+            ('RSS_DB','runner3-rss'),
+          ]
+          rows=cfg.setdefault('d1_databases',[])
+          by={x.get('binding'):i for i,x in enumerate(rows)}
+          for binding,name in wanted:
+              item={'binding':binding,'database_name':name,'database_id':ids[name]}
+              if binding in by: rows[by[binding]]=item
+              else: rows.append(item)
+          p.write_text(json.dumps(cfg,indent=2)+'\n')
+
+          manifest={
+            'schema_version':2,
+            'status':'quota-aware-partial-cutover',
+            'recorded_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'authorities':{
+              'control_plane':'runner3-core',
+              'task_context':'louis-task-context',
+              'context_index':'louis-context-index',
+              'content_intelligence':'runner3-content-intelligence',
+              'rss':'runner3-rss',
+              'reddit':'runner3-core (quota-blocked legacy)',
+              'ebook':'runner3-core (quota-blocked legacy)',
+              'opportunity_radar':'runner3-opportunity-radar',
+              'business_opportunity':'runner3-opportunity-radar',
+              'personal_library':'personal-library',
+              'media_library':'personal-library',
+              'common_access_d1':'runner3-core',
+              'wp_optimizer':'runner3-wp-optimizer',
+              'volamidle':'volamidle-rogue-data',
+              'clm_copilot':'clm-copilot-v1',
+            },
+            'quota':{'limit':10,'blocked_dedicated_domains':['runner3-reddit','runner3-ebook']},
+            'legacy_policy':'Do not delete core legacy rows/tables until dedicated bindings have proven multiple healthy cycles.'
+          }
+          q=pathlib.Path('ops/cloudflare-capability/d1-domain-isolation.json')
+          q.write_text(json.dumps(manifest,indent=2)+'\n')
+          PY
+
+          node --check cloudflare/runner3-core/src/domain-db.js
+          node --check cloudflare/runner3-core/src/index.js
+          git diff --check
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/runner3-core/wrangler.jsonc ops/cloudflare-capability/d1-domain-isolation.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(d1): quota-aware domain cutover [skip ci]'
+            for attempt in 1 2 3 4; do
+              git pull --rebase origin main || true
+              git push origin HEAD:main && break
+              sleep 2
+            done
+          fi
+
+          echo D1_QUOTA_AWARE_ISOLATION_OK
