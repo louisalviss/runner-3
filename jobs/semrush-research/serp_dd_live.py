@@ -6,7 +6,7 @@ from collections import Counter
 
 from runtime_preflight import require_semrush_preflight
 from runtime_recovery import ensure_with_one_shot_recovery
-from runtime_metrics import SemrushJobMetrics
+from runtime_metrics import SemrushJobMetrics, is_rate_limit, is_quota_limit
 
 JOB_METRICS=SemrushJobMetrics('serp_dd_live')
 
@@ -123,6 +123,13 @@ def main():
                 batch=pending[i:i+6]
                 calls=[{'tag':cid+'\t'+kw,'method':'serp.GetURLs','args':{'phrase':kw,'device':0,'currency':'USD','database':'us','location':0,'date':''}} for cid,kw in batch]
                 vals=rpc_many(calls); by={v.get('tag'):v for v in vals}
+                batch_errors=[v.get('error') for v in vals if isinstance(v,dict) and v.get('error') is not None]
+                if any(is_quota_limit(err) for err in batch_errors):
+                    state.update(stage='BLOCKED_QUOTA_LIMIT',blocker='SEMRUSH_REPORT_LIMIT',updated_at=ts()); persist_state(statep,state)
+                    print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_REPORT_LIMIT','state':state},ensure_ascii=False)); return 7
+                if any(is_rate_limit(err) for err in batch_errors):
+                    state.update(stage='BLOCKED_RATE_LIMIT',blocker='SEMRUSH_RATE_LIMIT',updated_at=ts()); persist_state(statep,state)
+                    print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_RATE_LIMIT','state':state},ensure_ascii=False)); return 5
                 for cid,kw in batch:
                     v=by.get(cid+'\t'+kw,{})
                     rec={'cluster_id':cid,'keyword':kw,'status':v.get('status'),'rows':v.get('result') or [],'error':v.get('error')}
