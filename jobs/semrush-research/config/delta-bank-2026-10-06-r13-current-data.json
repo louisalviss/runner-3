@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "source": "semrush-research-r13-current-data-2026-10-06",
+  "database": "us",
+  "purpose": "R13 AI-resistant current-data/model-specific decision tools; additive only",
+  "themes": [
+    {
+      "theme_id": "home-energy-rebate",
+      "label": "Home Energy / HVAC Rebate Eligibility",
+      "ai_resilience_reason": "Depends on current program, product, location and eligibility data.",
+      "seeds": [
+        "heat pump rebate finder",
+        "hvac rebate finder",
+        "heat pump tax credit calculator"
+      ]
+    },
+    {
+      "theme_id": "hvac-warranty-lookup",
+      "label": "HVAC Warranty Lookup",
+      "ai_resilience_reason": "Requires manufacturer/model/serial registration and current warranty data.",
+      "seeds": [
+        "hvac warranty lookup",
+        "carrier warranty lookup",
+        "lennox warranty lookup"
+      ]
+    },
+    {
+      "theme_id": "water-heater-warranty-lookup",
+      "label": "Water Heater Warranty Lookup",
+      "ai_resilience_reason": "Manufacturer/model/serial-specific warranty data.",
+      "seeds": [
+        "water heater warranty lookup",
+        "rheem warranty lookup",
+        "ao smith warranty lookup"
+      ]
+    },
+    {
+      "theme_id": "appliance-recall-lookup",
+      "label": "Appliance Recall Lookup",
+      "ai_resilience_reason": "Requires current recall database and model/serial matching.",
+      "seeds": [
+        "appliance recall lookup",
+        "refrigerator recall lookup",
+        "dryer recall lookup"
+      ]
+    },
+    {
+      "theme_id": "vehicle-maintenance-schedule",
+      "label": "Vehicle Maintenance Schedule Lookup",
+      "ai_resilience_reason": "Vehicle/model/year/VIN-specific service intervals and current data.",
+      "seeds": [
+        "maintenance schedule by vin",
+        "car maintenance schedule by model",
+        "vehicle service interval lookup"
+      ]
+    },
+    {
+      "theme_id": "vehicle-fluid-capacity",
+      "label": "Vehicle Fluid Capacity Lookup",
+      "ai_resilience_reason": "Year/make/model/engine-specific exact capacities.",
+      "seeds": [
+        "oil capacity by vehicle",
+        "vehicle fluid capacity lookup",
+        "transmission fluid capacity by vehicle"
+      ]
+    },
+    {
+      "theme_id": "vehicle-torque-spec",
+      "label": "Vehicle Torque Spec Lookup",
+      "ai_resilience_reason": "Vehicle/part-specific service spec data with safety implications.",
+      "seeds": [
+        "lug nut torque spec by vehicle",
+        "wheel torque spec by vehicle",
+        "torque specs by vehicle"
+      ]
+    },
+    {
+      "theme_id": "vehicle-tire-pressure",
+      "label": "Vehicle Tire Pressure Lookup",
+      "ai_resilience_reason": "Vehicle/trim/tire-specific data and real-use field utility.",
+      "seeds": [
+        "tire pressure by vehicle",
+        "tire pressure lookup by car",
+        "recommended tire pressure by vehicle"
+      ]
+    },
+    {
+      "theme_id": "vehicle-paint-code",
+      "label": "Vehicle Paint Code Lookup",
+      "ai_resilience_reason": "VIN/model/year-specific color-code database tied to commerce.",
+      "seeds": [
+        "car paint code lookup",
+        "paint code by vin",
+        "vehicle color code lookup"
+      ]
+    },
+    {
+      "theme_id": "key-fob-battery-fitment",
+      "label": "Key Fob Battery Fitment",
+      "ai_resilience_reason": "Vehicle/key-specific replacement compatibility with ecommerce intent.",
+      "seeds": [
+        "key fob battery by car",
+        "car key battery size lookup",
+        "key fob battery size by vehicle"
+      ]
+    },
+    {
+      "theme_id": "vehicle-bulb-spec",
+      "label": "Automotive Bulb Size Lookup",
+      "ai_resilience_reason": "Vehicle/position-specific fitment catalog.",
+      "seeds": [
+        "car bulb size chart",
+        "automotive bulb size chart",
+        "vehicle bulb size lookup"
+      ]
+    },
+    {
+      "theme_id": "hvac-capacitor-fitment",
+      "label": "HVAC Capacitor Fitment / Cross Reference",
+      "ai_resilience_reason": "Equipment/model/spec-specific replacement compatibility.",
+      "seeds": [
+        "hvac capacitor size by model",
+        "ac capacitor size lookup",
+        "run capacitor cross reference"
+      ]
+    }
+  ]
+}
