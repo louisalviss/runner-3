@@ -1,9 +1,9 @@
 {
-  "checkedAt": "2026-09-08T01:51:20.535029Z",
+  "checkedAt": "2026-10-06T09:43:20.433288Z",
   "window": {
-    "startUtc": "2026-09-08T00:00:00Z",
-    "endUtc": "2026-09-08T01:51:20.535029Z",
-    "dateUtc": "2026-09-08"
+    "startUtc": "2026-10-06T00:00:00Z",
+    "endUtc": "2026-10-06T09:43:20.433288Z",
+    "dateUtc": "2026-10-06"
   },
   "freeTierLimits": {
     "workersRequestsPerDay": 100000,
@@ -17,9 +17,13 @@
   "inventory": {
     "workersHttp": 200,
     "workers": [
+      "ema-forward-monitor",
+      "ema-mt5-report-viewer",
+      "ema-mt5-viewer",
       "fate-aio",
       "imdb-stremio-addon",
       "khotruyen-worker",
+      "media-library",
       "ocr-pdf",
       "rss-proxy",
       "runner3-audio-chatgpt-bridge",
@@ -34,6 +38,12 @@
       "runner3-wp-control",
       "runner3-x-fast-direct",
       "runner5-restore-proxy",
+      "seotrends-watchdog",
+      "telegram-bobvolman-archive",
+      "tienvuc-vbook-proxy-louis",
+      "tiktok-product-radar",
+      "truyenhub-vbook-proxy",
+      "vbth-free-editorial-ai",
       "wave-rider-scanner",
       "webcap",
       "wordpress-edge-proxy",
@@ -42,8 +52,8 @@
     ],
     "pagesHttp": 200,
     "pagesProjects": [
-      "runner3wp-pages-gateway",
       "runner3-download-gateway",
+      "runner3wp-pages-gateway",
       "worker-1",
       "runner5-restore-gateway",
       "runner5-restore-gateway-v100b",
@@ -62,6 +72,9 @@
     ],
     "d1Http": 200,
     "d1Databases": [
+      "runner3-business-opportunity",
+      "personal-library",
+      "media-library",
       "ai-vps-common-access",
       "link-interest-profile",
       "runner3-opportunity-radar",
@@ -74,75 +87,105 @@
     "errors": []
   },
   "workers": {
-    "requestsToday": 1735,
-    "requestLimitPct": 1.74,
-    "errorsToday": 1,
-    "subrequestsToday": 270,
+    "requestsToday": 18178,
+    "requestLimitPct": 18.18,
+    "errorsToday": 3,
+    "subrequestsToday": 1452,
     "byScript": [
       {
         "script": "runner3-core",
-        "requests": 1696,
-        "errors": 1,
-        "subrequests": 0
+        "requests": 17958,
+        "errors": 3,
+        "subrequests": 26
       },
       {
         "script": "wave-rider-scanner",
-        "requests": 22,
+        "requests": 116,
         "errors": 0,
-        "subrequests": 220
+        "subrequests": 1180
       },
       {
         "script": "rss-proxy",
-        "requests": 11,
+        "requests": 57,
         "errors": 0,
-        "subrequests": 44
+        "subrequests": 228
+      },
+      {
+        "script": "wordpress-edge-proxy",
+        "requests": 37,
+        "errors": 0,
+        "subrequests": 11
       },
       {
         "script": "runner5-restore-proxy",
-        "requests": 6,
+        "requests": 4,
         "errors": 0,
-        "subrequests": 6
+        "subrequests": 4
+      },
+      {
+        "script": "vbth-free-editorial-ai",
+        "requests": 3,
+        "errors": 0,
+        "subrequests": 3
+      },
+      {
+        "script": "webcap",
+        "requests": 1,
+        "errors": 0,
+        "subrequests": 0
+      },
+      {
+        "script": "runner3-core-reader-v33-preview",
+        "requests": 1,
+        "errors": 0,
+        "subrequests": 0
+      },
+      {
+        "script": "runner3-audio-library",
+        "requests": 1,
+        "errors": 0,
+        "subrequests": 0
       }
     ]
   },
   "kv": {
     "operationsToday": {
-      "read": 36,
-      "write": 14,
+      "read": 177,
+      "write": 94,
       "delete": 0,
       "list": 0,
       "other": 0
     },
     "limitPct": {
-      "read": 0.04,
-      "write": 1.4,
+      "read": 0.18,
+      "write": 9.4,
       "delete": 0.0,
       "list": 0.0
     }
   },
   "d1": {
     "totalsToday": {
-      "readQueries": 4150,
-      "writeQueries": 905,
-      "rowsRead": 14289,
-      "rowsWritten": 1618
+      "readQueries": 3855,
+      "writeQueries": 3326,
+      "rowsRead": 364391,
+      "rowsWritten": 6641
     },
     "limitPct": {
-      "rowsRead": 0.29,
-      "rowsWritten": 1.62
+      "rowsRead": 7.29,
+      "rowsWritten": 6.64
     },
     "byDatabaseId": {
-      "823fccf7-0d71-4849-b262-4974ffbc49f2": {
-        "readQueries": 22,
+      "739f4891-7aa1-4381-a5f7-fff91d794609": {
+        "readQueries": 42,
         "writeQueries": 0,
-        "rowsRead": 22,
+        "rowsRead": 82358,
         "rowsWritten": 0
       },
       "514a2c61-3f7a-44d0-a51b-e07525d32a5d": {
-        "readQueries": 4128,
-        "writeQueries": 905,
-        "rowsRead": 14267,
-        "rowsWritten": 1618
+        "readQueries": 3813,
+        "writeQueries": 3326,
+        "rowsRead": 282033,
+        "rowsWritten": 6641
       }
     }
   }
