@@ -1,0 +1,57 @@
+name: Deploy Volamidle Rogue
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: volamidle-rogue-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Verify source and Cloudflare auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f /opt/volamidle-rogue/index.html
+          test -f /opt/volamidle-rogue/js/rogue.js
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          npx --yes wrangler@4.147.0 whoami >/tmp/volamidle-whoami.txt 2>&1
+          grep -Eq 'API Token|Account|logged in' /tmp/volamidle-whoami.txt
+          echo "CLOUDFLARE_AUTH=PASS"
+
+      - name: Prepare static deploy tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/volamidle-rogue-pages
+          mkdir -p /tmp/volamidle-rogue-pages
+          rsync -a             --exclude='.git/'             --exclude='docs/'             --exclude='_worker.js'             --exclude='_routes.json'             --exclude='NET_SETUP.sql'             --exclude='HUONG_DAN_WEB.txt'             --exclude='README.md'             --exclude='package.json'             /opt/volamidle-rogue/ /tmp/volamidle-rogue-pages/
+          test -f /tmp/volamidle-rogue-pages/index.html
+          test -f /tmp/volamidle-rogue-pages/js/rogue.js
+          echo "DEPLOY_FILES=$(find /tmp/volamidle-rogue-pages -type f | wc -l)"
+
+      - name: Ensure Pages project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx --yes wrangler@4.147.0 pages project list 2>/tmp/volamidle-pages-list.err | grep -q 'volamidle-rogue'; then
+            npx --yes wrangler@4.147.0 pages project create volamidle-rogue --production-branch main
+          fi
+
+      - name: Deploy Pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git -C /opt/volamidle-rogue rev-parse HEAD)"
+          npx --yes wrangler@4.147.0 pages deploy /tmp/volamidle-rogue-pages             --project-name volamidle-rogue             --branch main             --commit-hash "$sha"             --commit-message "Võ Lâm Idle roguelike prototype"
