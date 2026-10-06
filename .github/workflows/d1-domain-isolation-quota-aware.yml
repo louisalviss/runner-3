@@ -84,7 +84,9 @@ jobs:
           pathlib.Path(sys.argv[2]).write_text("\n".join(schema)+"\n")
           pathlib.Path(sys.argv[3]).write_text("\n".join(data)+"\n")
           PY
-          $W d1 execute "$CONTENT" --remote --file="$TMP/link_interest_events.schema.sql"
+          if ! $W d1 execute "$CONTENT" --remote --command "SELECT 1 FROM link_interest_events LIMIT 1" >/dev/null 2>&1; then
+            $W d1 execute "$CONTENT" --remote --file="$TMP/link_interest_events.schema.sql"
+          fi
 
           for t in user_content_events content_features content_scores personal_score_stage interest_family_profile interest_profile recommendation_runs content_items workflow_state link_interest_events; do
             $W d1 execute "$CONTENT" --remote --command "DELETE FROM \"$t\""
