@@ -1,0 +1,110 @@
+name: CLM D1 To R2 Migration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clm-d1-to-r2-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Export CLM D1 and materialize R2 samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          mkdir -p /tmp/clm-r2/samples /tmp/clm-r2/readback
+          $W d1 export clm-copilot-v1 --remote --skip-confirmation --table=clm_samples --output=/tmp/clm-r2/clm_samples.sql
+          cp /tmp/clm-r2/clm_samples.sql /tmp/clm-r2/clm-copilot-v1-backup.sql
+          python3 - <<'PY'
+          import sqlite3,json,pathlib,hashlib
+          sql=pathlib.Path('/tmp/clm-r2/clm_samples.sql').read_text()
+          con=sqlite3.connect(':memory:'); con.row_factory=sqlite3.Row; con.executescript(sql)
+          rows=con.execute('select * from clm_samples order by created_at,id').fetchall()
+          out=pathlib.Path('/tmp/clm-r2/samples')
+          manifest=[]
+          for row in rows:
+              d=dict(row)
+              raw=(json.dumps(d,ensure_ascii=False,separators=(',',':'))+'\n').encode()
+              p=out/(d['id']+'.json'); p.write_bytes(raw)
+              manifest.append({'id':d['id'],'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)})
+          pathlib.Path('/tmp/clm-r2/manifest.json').write_text(json.dumps({'count':len(manifest),'samples':manifest},indent=2)+'\n')
+          print('CLM_D1_ROWS',len(rows))
+          PY
+          $W r2 object put clm-copilot-data/_migration/2026-10-07/clm-copilot-v1.sql --remote --file=/tmp/clm-r2/clm-copilot-v1-backup.sql
+          $W r2 object put clm-copilot-data/_migration/2026-10-07/manifest.json --remote --file=/tmp/clm-r2/manifest.json
+          for f in /tmp/clm-r2/samples/*.json; do
+            n="$(basename "$f")"
+            $W r2 object put "clm-copilot-data/samples/$n" --remote --file="$f"
+            $W r2 object get "clm-copilot-data/samples/$n" --remote --file="/tmp/clm-r2/readback/$n"
+            cmp "$f" "/tmp/clm-r2/readback/$n"
+          done
+          echo CLM_R2_COPY_VERIFY_OK
+
+      - name: Deploy R2-backed CLM worker
+        shell: bash
+        working-directory: ops/clm-copilot-r2
+        run: |
+          set -euo pipefail
+          node --check index.js
+          npx --yes wrangler@4 deploy
+
+      - name: Live CLM R2 smoke and feedback readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          base='https://clm-conversation-copilot-api.ducduy2411.workers.dev'
+          code="$(curl -sS -o /tmp/clm-health.json -w '%{http_code}' "$base/")"
+          test "$code" = 200
+          grep -q '"service":"clm-conversation-copilot-api"' /tmp/clm-health.json
+
+          curl -sS -o /tmp/clm-analyze.json -H 'content-type: application/json'             --data '{"text":"A: please start the test. B: okay, I will do it now.","sourcePackage":"d1-r2-migration-smoke"}' "$base/"
+          analysis_id="$(python3 -c "import json; d=json.load(open('/tmp/clm-analyze.json')); print(d.get('analysisId') or '')")"
+          test -n "$analysis_id"
+
+          fcode="$(curl -sS -o /tmp/clm-feedback.json -w '%{http_code}' -H 'content-type: application/json'             --data "{\"analysisId\":\"$analysis_id\",\"helpful\":true,\"outcome\":\"r2_migration_smoke\"}" "$base/feedback")"
+          test "$fcode" = 200
+          grep -q '"ok":true' /tmp/clm-feedback.json
+
+          $W r2 object get "clm-copilot-data/samples/$analysis_id.json" --remote --file=/tmp/clm-smoke-readback.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/clm-smoke-readback.json'))
+          assert d.get('helpful') == 1
+          assert d.get('outcome') == 'r2_migration_smoke'
+          assert d.get('source_package') == 'd1-r2-migration-smoke'
+          print('CLM_R2_LIVE_READBACK_OK')
+          PY
+
+      - name: Retire CLM D1 and create Reddit D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          if $W d1 list --json | grep -q '"name": "clm-copilot-v1"'; then
+            $W d1 delete clm-copilot-v1 --skip-confirmation
+          fi
+          if ! $W d1 list --json | grep -q '"name": "runner3-reddit"'; then
+            $W d1 create runner3-reddit --location apac
+          fi
+          echo CLM_D1_TO_R2_MIGRATION_OK
