@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Deep-sweep a public subreddit into normalized SQL + raw evidence files.
+"""RealDayTrading-only deep research corpus into normalized SQL + raw evidence files.
+
+This workload is NOT the generic Reddit URL reader and MUST NOT be used for
+ordinary/user-supplied Reddit links. Those belong to reddit_read.py.
 
 Deep mode is wiki-first:
 1. Snapshot the subreddit wiki and extract every linked Reddit thread/resource.
@@ -21,6 +24,7 @@ import datetime as dt
 import hashlib
 import json
 import math
+import os
 import pathlib
 import re
 import time
@@ -28,6 +32,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter, defaultdict
+
+CANONICAL_SUBREDDIT = "RealDayTrading"
+ACCEPTANCE_OVERRIDE_ENV = "REDDIT_DEEP_SWEEP_ACCEPTANCE"
 
 UA = "runner3-reddit-deep-sweep/3.0 (+public read-only research)"
 BASES = ("https://www.reddit.com", "https://old.reddit.com")
@@ -391,7 +398,7 @@ def emit_comment_sql(c: dict):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--subreddit", default="RealDayTrading")
+    ap.add_argument("--subreddit", default=CANONICAL_SUBREDDIT)
     ap.add_argument("--mode", choices=("deep", "delta"), default="deep")
     ap.add_argument(
         "--max-threads",
@@ -405,6 +412,13 @@ def main():
     ap.add_argument("--sql-dir", required=True)
     ap.add_argument("--manifest-out", required=True)
     args = ap.parse_args()
+
+    acceptance_override = os.environ.get(ACCEPTANCE_OVERRIDE_ENV, "").strip() == "1"
+    if args.subreddit.lower() != CANONICAL_SUBREDDIT.lower() and not acceptance_override:
+        raise SystemExit(
+            f"reddit_deep_sweep_scope_violation: expected r/{CANONICAL_SUBREDDIT}, got r/{args.subreddit}. "
+            "Use reddit-read for ordinary/user-supplied Reddit URLs."
+        )
 
     started = utc_now()
     out_root = pathlib.Path(args.output_dir)
