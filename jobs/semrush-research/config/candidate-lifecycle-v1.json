@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-07",
+  "updated_at": "2026-10-08",
   "purpose": "Manual/business lifecycle overrides layered on top of mechanical exact-SERP outcomes.",
   "current_ranked": [
     {
@@ -87,6 +87,14 @@
     "steal-a-brainrot-trade-values": {
       "verdict": "DROP_SERP_SATURATED",
       "note": "R18 exact SERP saturated."
+    },
+    "discovery-jobs-that-don-87f1a532": {
+      "verdict": "DROP_INFORMATIONAL_EMPLOYMENT_NOISE",
+      "note": "R26 candidate came from jobs-that-don't-require-background-checks informational/job-search intent; not a tool niche. Keep fingerprint; do not promote or routinely recheck."
+    },
+    "discovery-goodman-warranty-e5d38ac6": {
+      "verdict": "DROP_OFFICIAL_AUTHORITY_NO_BUILD",
+      "note": "R27 mechanical SERP pass but official Goodman dominates 7/10 top results and provides the canonical warranty lookup. Brand-specific official-authority query; no greenfield moat."
     }
   },
   "legacy_terminal": [

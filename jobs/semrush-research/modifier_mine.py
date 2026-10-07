@@ -16,6 +16,11 @@ NOISE = {"word","excel","google","sheets","photoshop"}
 BANNED = {"gun","guns","firearm","firearms","weapon","weapons","bullet","ammo","ammunition","colt","ruger","winchester","remington","prostate","dosage","dose","medication","insulin","pregnancy","medical","health","body","blood","heart","kidney"}
 RETAIL_NOISE = {"bazic","desktop","pocket","digit"}
 AI_WEAK = {"definition","meaning","formula","explain","explained","tutorial","example","examples","incidence","best"}
+INFO_NOISE_PATTERNS = [
+    re.compile(r"\\bjobs?\\s+that\\b"),
+    re.compile(r"\\bjobs?\\s+(?:which|where)\\b"),
+    re.compile(r"\\bdon\\s+t\\s+require\\b"),
+]
 
 def norm(s):
     return re.sub(r"\s+"," ",re.sub(r"[^a-z0-9+%.-]+"," ",str(s or "").lower())).strip()
@@ -104,6 +109,7 @@ def main():
         if not key:continue
         if set(tokens(key)) <= NOISE:continue
         if set(tokens(r["keyword"])) & AI_WEAK:continue
+        if any(p.search(r["keyword"]) for p in INFO_NOISE_PATTERNS):continue
         if already_seen(key,seen):continue
         r={**r,"subject":key}
         k=(key,r["keyword"])

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, collections, hashlib, json, os, pathlib
+import argparse, collections, hashlib, json, os, pathlib, re
 
 DEFAULT_CANDIDATE_DROPBOX = "/Apps/remotely-save/AI/AI-MEMORY/FLOWS/SEO/Semrush Candidate Registry.md"
 DEFAULT_TESTED_DROPBOX = "/Apps/remotely-save/AI/AI-MEMORY/FLOWS/SEO/Semrush Tested Registry.json"
@@ -28,8 +28,21 @@ def derived(project,rows,overrides):
     if any(g=="BLOCKED_INCOMPLETE_SERP" for g in gates): return "BLOCKED_INCOMPLETE_SERP"
     return "UNCLASSIFIED"
 
-def render(reg,lifecycle,tested_sha):
+def infer_round(reg):
+    rounds=[]
+    for rec in reg.get("records") or []:
+        src=str(rec.get("source_results") or "")
+        for m in re.finditer(r"(?:^|[-_/])r(\d+)(?:[-_/]|$)",src,re.I):
+            try: rounds.append(int(m.group(1)))
+            except: pass
+    return max(rounds) if rounds else None
+
+def render(reg,lifecycle,tested_sha,terminal_round=None):
     recs=reg.get("records") or []; overrides=lifecycle.get("overrides") or {}
+    inferred_round=infer_round(reg)
+    rounds=[x for x in [inferred_round,terminal_round] if x is not None]
+    max_round=max(rounds) if rounds else None
+    next_round=(max_round+1) if max_round is not None else None
     by=collections.defaultdict(list)
     for rec in recs: by[str(rec.get("project") or "(unscoped)")].append(rec)
     gc=collections.Counter(str(r.get("serp_gate") or "UNKNOWN") for r in recs)
@@ -98,9 +111,10 @@ def render(reg,lifecycle,tested_sha):
       "- Create `PROJECTS/<name>/` only when candidate crosses into `BUILD_TEST / ACTIVE VALIDATION / EXECUTION`.","",
       "## Resume","",
       "- Candidate ranking authority: this registry + newer explicit canonical override in `Semrush Research.md`.",
-      "- Exact anti-repeat authority: `discovery-tested-v1.json` plus its Dropbox machine mirror.",
-      "- R20-R25 are terminal.",
-      "- Next new discovery run: R26+.","" ]
+      "- Exact anti-repeat authority: `discovery-tested-v1.json` plus its Dropbox machine mirror." ]
+    if max_round is not None:
+        lines += [f"- Terminal discovery currently extends through R{max_round}.",f"- Next new discovery run: R{next_round}+."]
+    lines.append("")
     return "\n".join(lines)
 
 def sync_existing(svc,path,text,backup):
@@ -116,11 +130,12 @@ def main():
     ap.add_argument("--dropbox-path",default=DEFAULT_CANDIDATE_DROPBOX)
     ap.add_argument("--dropbox-tested-path",default=DEFAULT_TESTED_DROPBOX)
     ap.add_argument("--dropbox-env-file",default="/etc/vps-control/dropbox.env")
+    ap.add_argument("--terminal-round",type=int)
     ap.add_argument("--no-dropbox",action="store_true")
     a=ap.parse_args()
     tested=pathlib.Path(a.tested_registry); raw=tested.read_bytes(); reg=json.loads(raw)
     lifecycle=json.loads(pathlib.Path(a.lifecycle).read_text(encoding="utf-8"))
-    sha=hashlib.sha256(raw).hexdigest(); md=render(reg,lifecycle,sha)
+    sha=hashlib.sha256(raw).hexdigest(); md=render(reg,lifecycle,sha,a.terminal_round)
     atomic_text(a.output,md)
     result={"status":"PASS","records":len(reg.get("records") or []),"tested_sha256":sha,"output":a.output,"dropbox_synced":False}
     if not a.no_dropbox:
