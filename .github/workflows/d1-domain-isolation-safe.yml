@@ -77,33 +77,10 @@ jobs:
           echo PERSONAL_LIBRARY
           npx --yes wrangler@4 d1 execute personal-library --remote --json --command "$SQL"
 
-      - name: Reserve Reddit dedicated D1 and apply schema only
-        shell: bash
+      - name: Confirm RealDayTrading does not use D1
         run: |
-          set -euo pipefail
-          W='npx --yes wrangler@4'
-          $W d1 list --json > /tmp/d1-list.json
-          count=$(python3 - <<'PY'
-          import json
-          print(len(json.load(open('/tmp/d1-list.json'))))
-          PY
-          )
-          exists=$(python3 - <<'PY'
-          import json
-          data=json.load(open('/tmp/d1-list.json'))
-          print('1' if any(x.get('name')=='runner3-reddit' for x in data) else '0')
-          PY
-          )
-          if [ "$exists" = 0 ]; then
-            if [ "$count" -ge 10 ]; then
-              echo "::error::No D1 slot available for runner3-reddit"
-              exit 4
-            fi
-            $W d1 create runner3-reddit --location apac
-          fi
-          $W d1 execute runner3-reddit --remote --file cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql
-          $W d1 list --json
-          echo "REDDIT_SCHEMA_PREPARED_NO_DATA_COPY"
+          echo "RealDayTrading storage: R2 canonical + SQLite/JSONL query bundle + Telegram backup."
+          echo "Do not create runner3-reddit."
 
       - name: Guardrail
         run: |
