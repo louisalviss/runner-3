@@ -70,7 +70,7 @@ jobs:
           if not m: raise SystemExit('QUOTA_PARSE_FAIL')
           print(m.group(1))
           PY
-          }}
+          }
 
           table_count() {
             local table="$1"
@@ -88,7 +88,7 @@ jobs:
           walk(d)
           print(int((rows[0] if rows else {}).get('n',0)))
           PY
-          }}
+          }
 
           run_scope="$($W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS bad FROM reddit_scan_runs WHERE lower(subreddit)<>'realdaytrading'")"
           printf '%s' "$run_scope" > /tmp/scope.json
@@ -147,7 +147,7 @@ jobs:
           final_counts=()
           for table in reddit_scan_runs reddit_posts reddit_comments reddit_post_tags; do
             n="$(table_count "$table")"
-            [ "$n" -eq 0 ] || { echo "::error::NONZERO_AFTER_PURGE $table=$n"; exit 7; }}
+            [ "$n" -eq 0 ] || { echo "::error::NONZERO_AFTER_PURGE $table=$n"; exit 7; }
           done
 
           $W d1 execute runner3-core --remote --command "
