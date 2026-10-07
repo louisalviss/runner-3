@@ -87,7 +87,7 @@ def render(reg,lifecycle,tested_sha,terminal_round=None,catalog_exhausted=False)
         lines.append("| %s | %s | `%s` | %s | %s |"%(rank_text,item.get("candidate",""),item.get("verdict",""),project,item.get("next_gate","")))
     conclusion=lifecycle.get("scanner_conclusion")
     if conclusion:
-        lines += ["",f"Scanner conclusion: \`{conclusion}\`."]
+        lines += ["",f"Scanner conclusion: `{conclusion}`."]
     strongest=lifecycle.get("strongest_watch")
     if strongest:
         lines.append(f"Strongest remaining search watch: {strongest}.")
