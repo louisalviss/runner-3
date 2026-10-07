@@ -112,3 +112,24 @@ When `modifier_seed_bank.py` has no unseen catalog roots left, `discovery_cycle.
 - Candidate Registry now reports terminal through R31 and modifier catalog exhausted.
 - Do not open R32 until the modifier catalog itself is materially expanded.
 - Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
+
+
+## Psychrometric downstream business gate — 2026-10-08
+
+Search evidence remains attractive (18,180 combined toolkit demand; 4,040 KD<29; low-KD wedge SERP pass), but downstream product/business validation does not support greenfield BUILD_TEST.
+
+Observed market coverage:
+- full field diagnostics: measureQuick + Fieldpiece Job Link;
+- browser process/chart/report workflows: PsychroView, HVAC-calcs, PsychroStudio;
+- low-cost/offline standalone tools: multiple one-time-purchase/mobile competitors;
+- free SEO-tool layer: broad HVAC calculator networks already cover psychrometric utilities.
+
+WTP splits sharply between full ecosystems (~$49/user/month) and low-price standalone psychrometric tools (~$4-$10 one-time or low single-digit monthly pricing). A new standalone tool would compete in the low-WTP tier without a proprietary hardware/data/integration advantage.
+
+Lifecycle override:
+`Psychrometric HVAC Toolkit -> WATCH_NO_BUILD_ACQUIRE_ONLY`.
+
+Scanner conclusion after R31 catalog exhaustion:
+`NO_GREENFIELD_BUILD_CANDIDATE`.
+
+Do not create a Psychrometric PROJECTS folder. Reopen only for an attractive already-ranked acquisition, material proprietary integration/data advantage, or a genuinely new market wedge.
