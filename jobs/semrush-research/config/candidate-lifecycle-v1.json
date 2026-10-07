@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-07",
+  "purpose": "Manual/business lifecycle overrides layered on top of mechanical exact-SERP outcomes.",
+  "current_ranked": [
+    {
+      "rank": 1,
+      "candidate": "Psychrometric HVAC Toolkit",
+      "identities": [
+        "psychrometric-air-math",
+        "psychrometric-air-toolkit"
+      ],
+      "verdict": "WATCH_STRONG_CANDIDATE",
+      "project": false,
+      "next_gate": "Validate field-workflow differentiation + WTP"
+    },
+    {
+      "rank": null,
+      "candidate": "Fisch Trade Values",
+      "identities": [
+        "fisch-trade-values"
+      ],
+      "verdict": "WATCH_NO_BUILD",
+      "project": false,
+      "next_gate": "Reopen only on materially new moat/data/distribution evidence"
+    },
+    {
+      "rank": null,
+      "candidate": "Snowboard Length",
+      "identities": [
+        "discovery-snowboard-length-8b3b5511"
+      ],
+      "verdict": "WATCH_COMPETITION",
+      "project": false,
+      "next_gate": "No promotion; R25 had zero SERP_DD_PASS survivors"
+    }
+  ],
+  "overrides": {
+    "psychrometric-air-math": {
+      "verdict": "WATCH_STRONG_CANDIDATE",
+      "note": "Structured-input HVAC workflow; current #1 thesis."
+    },
+    "psychrometric-air-toolkit": {
+      "verdict": "WATCH_STRONG_CANDIDATE",
+      "note": "Combined Psychrometric toolkit authority."
+    },
+    "fisch-trade-values": {
+      "verdict": "WATCH_NO_BUILD",
+      "note": "R20-R25 override: rising competition, weak moat, single-game lifecycle."
+    },
+    "home-equipment-age-intelligence": {
+      "verdict": "WATCH_COMPETITION",
+      "note": "Merged SERP competition too high for promotion."
+    },
+    "hvac-equipment-age-lookup": {
+      "verdict": "WATCH_COMPETITION",
+      "note": "Subcluster SERP pass; broader product competition prevents promotion."
+    },
+    "equipment-error-code-intelligence": {
+      "verdict": "WATCH_NARROW_NO_PROMOTION",
+      "note": "Generac wedge passes but error-code intent is AI-answerable/narrow."
+    },
+    "restaurant-inspection-records": {
+      "verdict": "WATCH_SCALE_TOO_LOW",
+      "note": "SERP pass but geo expansion only ~3.59k monthly topic demand."
+    },
+    "parts-cross-reference-network": {
+      "verdict": "WATCH_COMPETITION",
+      "note": "Long-tail cross-reference survives partially; not promoted."
+    },
+    "discovery-snowboard-length-8b3b5511": {
+      "verdict": "WATCH_COMPETITION",
+      "note": "R25 watch only; zero R25 SERP_DD_PASS survivors."
+    },
+    "refrigeration-service-math": {
+      "verdict": "DROP_SERP_SATURATED",
+      "note": "Numeric gate passed; direct calculator SERP saturated."
+    },
+    "blox-fruits-trade-values": {
+      "verdict": "DROP_SERP_SATURATED",
+      "note": "R18 exact SERP saturated."
+    },
+    "grow-a-garden-trade-values": {
+      "verdict": "DROP_SERP_SATURATED",
+      "note": "R18 exact SERP saturated."
+    },
+    "steal-a-brainrot-trade-values": {
+      "verdict": "DROP_SERP_SATURATED",
+      "note": "R18 exact SERP saturated."
+    }
+  },
+  "legacy_terminal": [
+    "RBT Practice -> WATCH_NO_BUILD / ACQUIRE_ONLY",
+    "HR Performance AI -> DROP_GREENFIELD / ACQUISITION_ONLY",
+    "Local Reputation -> ABSORB_INTO_GROWTH_OPS / NO_STANDALONE_BUILD"
+  ],
+  "project_promotion_states": [
+    "BUILD_TEST",
+    "ACTIVE_VALIDATION",
+    "EXECUTION"
+  ],
+  "github_recovery_baseline": "louisalviss/runner-3 jobs/semrush-research/config/discovery-tested-v1.json @ 69b3897a3b47c80d36f701a4fd10c03781875c86 (PR #362)"
+}
