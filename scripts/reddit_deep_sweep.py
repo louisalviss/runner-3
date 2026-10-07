@@ -9,9 +9,8 @@ Deep mode is wiki-first:
 2. Full-fetch every Reddit thread referenced by the wiki.
 3. Add a ranked set of non-wiki threads from subreddit discovery listings.
 4. Store complete raw evidence in R2.
-5. Emit normalized D1 post/tag rows plus only a bounded top-quality comment shortlist
-   (12 comments per fetched thread by default). The full comment tree is never
-   required in D1 and remains recoverable from the R2 raw thread snapshot.
+5. Build a full local SQLite + JSONL corpus bundle for research/query.
+6. Deliver/backup the bundle through Telegram. D1 persistence is disabled for this workload.
 
 Delta mode still snapshots the wiki but only full-fetches recent/high-signal threads.
 Acquisition transport is injected by reddit_deep_sweep_cloudflare.py when needed.
@@ -27,6 +26,7 @@ import math
 import os
 import pathlib
 import re
+import sqlite3
 import time
 import urllib.error
 import urllib.parse
@@ -409,7 +409,7 @@ def main():
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--r2-key", required=True)
     ap.add_argument("--output-dir", required=True)
-    ap.add_argument("--sql-dir", required=True)
+    ap.add_argument("--sql-dir", required=False, help="Deprecated compatibility path; no D1 SQL is emitted.")
     ap.add_argument("--manifest-out", required=True)
     args = ap.parse_args()
 
@@ -491,11 +491,9 @@ def main():
     selected_ids = list(dict.fromkeys(selected_ids))
 
     all_comments = []
-    indexed_comments_by_post: dict[str, list[dict]] = {}
     fetched_ids = set()
     thread_errors = []
     thread_comment_counts = {}
-    thread_indexed_comment_counts = {}
 
     for pid in selected_ids:
         try:
@@ -525,11 +523,8 @@ def main():
                 comments = flatten_comments(payload[1], pid)
             dedup = {c["comment_id"]: c for c in comments}
             comments = list(dedup.values())
-            indexed_comments = select_comments_for_d1(comments)
             all_comments.extend(comments)
-            indexed_comments_by_post[pid] = indexed_comments
             thread_comment_counts[pid] = len(comments)
-            thread_indexed_comment_counts[pid] = len(indexed_comments)
             fetched_ids.add(pid)
         except Exception as exc:
             thread_errors.append({
@@ -540,68 +535,149 @@ def main():
         time.sleep(0.20)
 
     raw_pointer_prefix = f"{args.r2_key}#"
-    start_stmt = (
-        "INSERT INTO reddit_scan_runs "
-        "(run_id,subreddit,mode,status,started_at,posts_seen,threads_fetched,comments_seen,raw_object_key,error) VALUES "
-        f"({sql_quote(args.run_id)},{sql_quote(args.subreddit)},{sql_quote(args.mode)},'running',"
-        f"{sql_quote(started)},{len(posts)},{len(fetched_ids)},{len(all_comments)},"
-        f"{sql_quote(args.r2_key)},{sql_quote(json.dumps(thread_errors, ensure_ascii=False) if thread_errors else None)}) "
-        "ON CONFLICT(run_id) DO UPDATE SET status='running', posts_seen=excluded.posts_seen, "
-        "threads_fetched=excluded.threads_fetched, comments_seen=excluded.comments_seen, "
-        "raw_object_key=excluded.raw_object_key, error=excluded.error;"
+    bundle_dir = out_root / "bundle"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    sqlite_path = bundle_dir / "realdytrading.sqlite"
+    if sqlite_path.exists():
+        sqlite_path.unlink()
+    db = sqlite3.connect(sqlite_path)
+    db.executescript("""
+    PRAGMA journal_mode=DELETE;
+    CREATE TABLE runs (
+      run_id TEXT PRIMARY KEY, subreddit TEXT NOT NULL, mode TEXT NOT NULL,
+      started_at TEXT NOT NULL, finished_at TEXT, posts_seen INTEGER NOT NULL,
+      threads_fetched INTEGER NOT NULL, comments_seen INTEGER NOT NULL,
+      raw_object_key TEXT, error TEXT
+    );
+    CREATE TABLE posts (
+      post_id TEXT PRIMARY KEY, subreddit TEXT NOT NULL, canonical_url TEXT NOT NULL,
+      title TEXT, author TEXT, created_utc INTEGER, score INTEGER, num_comments INTEGER,
+      body_text TEXT, body_hash TEXT, quality_score REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL, source_sorts TEXT, last_thread_fetch_at TEXT,
+      comments_snapshot_count INTEGER NOT NULL DEFAULT 0, raw_object_key TEXT
+    );
+    CREATE TABLE comments (
+      comment_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, parent_id TEXT, author TEXT,
+      depth INTEGER NOT NULL DEFAULT 0, body_text TEXT, body_hash TEXT, score INTEGER,
+      created_utc INTEGER, quality_score REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE post_tags (
+      post_id TEXT NOT NULL, tag TEXT NOT NULL, weight REAL NOT NULL DEFAULT 1,
+      PRIMARY KEY(post_id, tag)
+    );
+    CREATE INDEX idx_posts_quality ON posts(quality_score DESC);
+    CREATE INDEX idx_posts_created ON posts(created_utc DESC);
+    CREATE INDEX idx_comments_post ON comments(post_id);
+    CREATE INDEX idx_comments_quality ON comments(post_id, quality_score DESC);
+    CREATE INDEX idx_tags_tag ON post_tags(tag, weight DESC);
+    """)
+
+    finished = utc_now()
+    db.execute(
+        "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (
+            args.run_id, args.subreddit, args.mode, started, finished,
+            len(posts), len(fetched_ids), len(all_comments), args.r2_key,
+            json.dumps(thread_errors, ensure_ascii=False) if thread_errors else None,
+        ),
     )
 
-    data_stmts = []
+    normalized_posts = []
+    normalized_tags = []
     for post in posts.values():
         pid = post["id"]
         fetched = pid in fetched_ids
         raw_pointer = raw_pointer_prefix + f"threads/{pid}.json" if fetched else None
-        data_stmts.append(
-            emit_post_sql(
-                post,
-                sorted(post_sorts[pid]),
-                raw_pointer,
-                fetched,
-                thread_comment_counts.get(pid, 0),
-            )
+        row = {
+            "post_id": pid,
+            "subreddit": post.get("subreddit") or "",
+            "canonical_url": "https://www.reddit.com" + (post.get("permalink") or f"/comments/{pid}/"),
+            "title": post.get("title") or "",
+            "author": post.get("author"),
+            "created_utc": int(post.get("created_utc") or 0),
+            "score": int(post.get("score") or 0),
+            "num_comments": int(post.get("num_comments") or 0),
+            "body_text": post.get("selftext") or "",
+            "body_hash": body_hash(post.get("selftext") or ""),
+            "quality_score": quality(post),
+            "status": "thread_fetched" if fetched else "indexed",
+            "source_sorts": json.dumps(sorted(set(post_sorts[pid])), separators=(",", ":")),
+            "last_thread_fetch_at": finished if fetched else None,
+            "comments_snapshot_count": thread_comment_counts.get(pid, 0) if fetched else 0,
+            "raw_object_key": raw_pointer,
+        }
+        normalized_posts.append(row)
+        db.execute(
+            """INSERT INTO posts(
+              post_id,subreddit,canonical_url,title,author,created_utc,score,num_comments,
+              body_text,body_hash,quality_score,status,source_sorts,last_thread_fetch_at,
+              comments_snapshot_count,raw_object_key
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            tuple(row[k] for k in (
+              "post_id","subreddit","canonical_url","title","author","created_utc","score","num_comments",
+              "body_text","body_hash","quality_score","status","source_sorts","last_thread_fetch_at",
+              "comments_snapshot_count","raw_object_key"
+            )),
         )
-        for tag, weight in tags_for(post).items():
-            data_stmts.append(
-                "INSERT INTO reddit_post_tags (post_id,tag,weight) VALUES "
-                f"({sql_quote(pid)},{sql_quote(tag)},{sql_quote(weight)}) "
-                "ON CONFLICT(post_id,tag) DO UPDATE SET weight=excluded.weight, updated_at=CURRENT_TIMESTAMP;"
-            )
+        tags = tags_for(post)
         if pid in seen_wiki_posts:
-            data_stmts.append(
-                "INSERT INTO reddit_post_tags (post_id,tag,weight) VALUES "
-                f"({sql_quote(pid)},'wiki-canonical',3.0) "
-                "ON CONFLICT(post_id,tag) DO UPDATE SET weight=excluded.weight, updated_at=CURRENT_TIMESTAMP;"
-            )
+            tags["wiki-canonical"] = 3.0
+        for tag, weight in tags.items():
+            normalized_tags.append({"post_id": pid, "tag": tag, "weight": weight})
+            db.execute("INSERT INTO post_tags(post_id,tag,weight) VALUES (?,?,?)", (pid, tag, weight))
 
-    indexed_comments = [
-        c
-        for pid in selected_ids
-        for c in indexed_comments_by_post.get(pid, [])
-    ]
-    for c in indexed_comments:
-        data_stmts.append(emit_comment_sql(c))
+    for row in all_comments:
+        db.execute(
+            """INSERT INTO comments(
+              comment_id,post_id,parent_id,author,depth,body_text,body_hash,score,created_utc,quality_score
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            tuple(row.get(k) for k in (
+              "comment_id","post_id","parent_id","author","depth","body_text","body_hash","score","created_utc","quality_score"
+            )),
+        )
 
-    final_stmt = (
-        "UPDATE reddit_scan_runs SET status='success', finished_at=CURRENT_TIMESTAMP, "
-        f"posts_seen={len(posts)}, threads_fetched={len(fetched_ids)}, comments_seen={len(all_comments)}, "
-        f"raw_object_key={sql_quote(args.r2_key)}, error={sql_quote(json.dumps(thread_errors, ensure_ascii=False) if thread_errors else None)} "
-        f"WHERE run_id={sql_quote(args.run_id)};"
-    )
+    fts_enabled = False
+    try:
+        db.executescript("""
+        CREATE VIRTUAL TABLE posts_fts USING fts5(post_id UNINDEXED,title,body_text);
+        INSERT INTO posts_fts(post_id,title,body_text) SELECT post_id,title,body_text FROM posts;
+        CREATE VIRTUAL TABLE comments_fts USING fts5(comment_id UNINDEXED,post_id UNINDEXED,body_text);
+        INSERT INTO comments_fts(comment_id,post_id,body_text) SELECT comment_id,post_id,body_text FROM comments;
+        """)
+        fts_enabled = True
+    except sqlite3.DatabaseError:
+        pass
+    db.commit()
+    db.close()
 
-    sql_dir = pathlib.Path(args.sql_dir)
-    sql_dir.mkdir(parents=True, exist_ok=True)
-    chunk_size = 200
-    chunks = [("0000-start.sql", [start_stmt])]
-    for offset in range(0, len(data_stmts), chunk_size):
-        chunks.append((f"{1 + offset // chunk_size:04d}-data.sql", data_stmts[offset:offset + chunk_size]))
-    chunks.append((f"{1 + math.ceil(len(data_stmts) / chunk_size):04d}-finish.sql", [final_stmt]))
-    for name, payload in chunks:
-        (sql_dir / name).write_text("\n".join(payload) + "\n", encoding="utf-8")
+    def write_jsonl(path: pathlib.Path, rows):
+        with path.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    write_jsonl(bundle_dir / "posts.jsonl", normalized_posts)
+    write_jsonl(bundle_dir / "comments.jsonl", all_comments)
+    write_jsonl(bundle_dir / "post_tags.jsonl", normalized_tags)
+    write_jsonl(bundle_dir / "runs.jsonl", [{
+        "run_id": args.run_id,
+        "subreddit": args.subreddit,
+        "mode": args.mode,
+        "started_at": started,
+        "finished_at": finished,
+        "posts_seen": len(posts),
+        "threads_fetched": len(fetched_ids),
+        "comments_seen": len(all_comments),
+        "raw_object_key": args.r2_key,
+        "error": thread_errors or None,
+    }])
+
+    if args.sql_dir:
+        legacy = pathlib.Path(args.sql_dir)
+        legacy.mkdir(parents=True, exist_ok=True)
+        (legacy / "RETIRED.txt").write_text(
+            "D1 persistence retired for RealDayTrading. Use R2 raw + SQLite/JSONL bundle + Telegram backup.\n",
+            encoding="utf-8",
+        )
 
     top_preview = []
     for p in ranked[:25]:
@@ -637,10 +713,15 @@ def main():
         "additional_threads_requested": len(additional_ids),
         "thread_errors": thread_errors,
         "comments_seen": len(all_comments),
-        "comments_indexed_d1": len(indexed_comments),
-        "d1_comment_cap_per_thread": D1_COMMENT_CAP_PER_THREAD,
-        "d1_comment_retention": "top-quality bounded evidence only; full comment tree remains in R2 raw thread snapshots",
         "raw_object_key": args.r2_key,
+        "storage": {
+            "d1": "disabled",
+            "canonical": "R2 raw + SQLite/JSONL bundle",
+            "telegram": "backup/delivery",
+            "sqlite": str(sqlite_path),
+            "jsonl": ["posts.jsonl", "comments.jsonl", "post_tags.jsonl", "runs.jsonl"],
+            "fts5_enabled": fts_enabled,
+        },
         "listing_requests": len([x for x in acquisition if x["kind"] == "listing"]),
         "thread_requests": len([x for x in acquisition if x["kind"] == "thread"]),
         "acquisition_hosts": sorted({x.get("via") for x in acquisition if x.get("via")}),
