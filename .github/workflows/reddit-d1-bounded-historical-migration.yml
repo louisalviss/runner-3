@@ -1,4 +1,4 @@
-name: Reddit D1 Bounded Historical Migration
+name: RealDayTrading D1 Bounded Historical Migration
 
 on:
   workflow_dispatch:
@@ -33,6 +33,40 @@ jobs:
 
       - name: Account-wide D1 budget preflight
         run: python3 scripts/d1_account_quota_preflight.py
+
+      - name: Verify source corpus is RealDayTrading-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "
+            SELECT
+              COUNT(*) AS total_runs,
+              SUM(CASE WHEN lower(subreddit)='realdaytrading' THEN 1 ELSE 0 END) AS realdaytrading_runs,
+              SUM(CASE WHEN lower(subreddit)<>'realdaytrading' THEN 1 ELSE 0 END) AS foreign_runs
+            FROM reddit_scan_runs;
+          " > /tmp/reddit-scope.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/reddit-scope.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(data)
+          if not rows:
+              raise SystemExit('REDDIT_SCOPE_NO_ROWS')
+          row=rows[0]
+          total=int(row.get('total_runs') or 0)
+          good=int(row.get('realdaytrading_runs') or 0)
+          bad=int(row.get('foreign_runs') or 0)
+          print({'total_runs':total,'realdaytrading_runs':good,'foreign_runs':bad})
+          if total < 1 or bad != 0 or good != total:
+              raise SystemExit('REDDIT_SCOPE_VIOLATION: historical migration is reserved for the RealDayTrading corpus only')
+          print('REALDAYTRADING_SCOPE_PASS')
+          PY
 
       - name: Ensure Reddit target schema
         run: |
@@ -170,6 +204,8 @@ jobs:
 
       - name: Guardrail
         run: |
-          echo "Historical corpus migrated with top-12-per-thread D1 comment retention."
+          echo "RealDayTrading corpus migrated with top-12-per-thread D1 comment retention."
+          echo "Cross-subreddit threads are included only when they belong to the RealDayTrading wiki/research corpus."
+          echo "Generic/user-supplied Reddit links are out of scope and remain on reddit-read."
           echo "Full raw comment trees remain in R2."
           echo "This workflow does not modify REDDIT_DB binding and does not delete runner3-core legacy rows."
