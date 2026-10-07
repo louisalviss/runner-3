@@ -1,4 +1,4 @@
-name: Retire Empty RealDayTrading D1
+name: Retire Empty RealDayTrading D1 (ARCHIVED)
 
 on:
   workflow_dispatch:
@@ -7,57 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  retire:
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Verify empty then delete runner3-reddit
-        shell: bash
-        run: |
-          set -euo pipefail
-          W='npx --yes wrangler@4'
-          $W d1 list --json > /tmp/d1-list.json
-          if ! grep -q '"name": "runner3-reddit"' /tmp/d1-list.json; then
-            echo "runner3-reddit already absent"
-            exit 0
-          fi
-          $W d1 execute runner3-reddit --remote --json --command "
-            SELECT
-              (SELECT COUNT(*) FROM reddit_scan_runs) AS runs,
-              (SELECT COUNT(*) FROM reddit_posts) AS posts,
-              (SELECT COUNT(*) FROM reddit_comments) AS comments,
-              (SELECT COUNT(*) FROM reddit_post_tags) AS tags;
-          " > /tmp/reddit-counts.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/reddit-counts.json'))
-          rows=[]
-          def walk(x):
-              if isinstance(x,dict):
-                  if isinstance(x.get('results'),list): rows.extend(x['results'])
-                  for v in x.values(): walk(v)
-              elif isinstance(x,list):
-                  for v in x: walk(v)
-          walk(d)
-          if not rows: raise SystemExit('REDDIT_EMPTY_PROOF_MISSING')
-          row=rows[0]
-          counts={k:int(row.get(k) or 0) for k in ('runs','posts','comments','tags')}
-          print(counts)
-          if any(counts.values()):
-              raise SystemExit('RUNNER3_REDDIT_NOT_EMPTY: refusing delete')
-          print('RUNNER3_REDDIT_EMPTY_PASS')
-          PY
-          $W d1 delete runner3-reddit --skip-confirmation
-          $W d1 list --json > /tmp/d1-list-after.json
-          if grep -q '"name": "runner3-reddit"' /tmp/d1-list-after.json; then
-            echo "::error::runner3-reddit still present after delete"
-            exit 5
-          fi
-          echo "RUNNER3_REDDIT_DELETE_PASS"
+      - run: |
+          echo "RealDayTrading D1 retirement is complete."
+          echo "runner3-reddit is deleted and must not be recreated."
