@@ -96,7 +96,7 @@ jobs:
           print('CLM_R2_LIVE_READBACK_OK')
           PY
 
-      - name: Retire CLM D1 and create Reddit D1
+      - name: Retire CLM D1
         shell: bash
         run: |
           set -euo pipefail
@@ -104,7 +104,5 @@ jobs:
           if $W d1 list --json | grep -q '"name": "clm-copilot-v1"'; then
             $W d1 delete clm-copilot-v1 --skip-confirmation
           fi
-          if ! $W d1 list --json | grep -q '"name": "runner3-reddit"'; then
-            $W d1 create runner3-reddit --location apac
-          fi
           echo CLM_D1_TO_R2_MIGRATION_OK
+          echo "RealDayTrading uses R2 + SQLite/JSONL + Telegram; do not create runner3-reddit."
