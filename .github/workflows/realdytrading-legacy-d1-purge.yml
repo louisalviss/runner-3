@@ -1,0 +1,159 @@
+name: Purge Legacy RealDayTrading D1 Rows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: realdaytrading-legacy-d1-purge
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_BUCKET: runner3-artifacts
+      R2_KEY: reddit/RealDayTrading/corpus/snapshots/20261007T203155Z/realdytrading-corpus-20261007T203155Z.tar.gz
+      R2_SHA256: f724b5237f5c4f185f0abded0518b2748cc3b235768d98753083ca604a47df97
+      SAFE_STOP_ROWS: '60000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify canonical R2 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 r2 object get "${R2_BUCKET}/${R2_KEY}"             --file=/tmp/rdt-canonical.tar.gz --remote --config=cloudflare/runner3-core/wrangler.jsonc
+          test "$(sha256sum /tmp/rdt-canonical.tar.gz | awk '{print $1}')" = "$R2_SHA256"
+          echo "RDT_R2_CANONICAL_VERIFY_PASS"
+
+      - name: Verify D1 writer is retired
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'REALDAYTRADING_D1_INGEST_RETIRED' cloudflare/runner3-core/reddit-entry.js
+          python3 - <<'PY'
+          import json
+          d=json.load(open('ops/flow-control/registry.json'))
+          row=next(x for x in d['flows'] if x['flow_id']=='reddit-deep-sweep')
+          assert row['d1']['mode']=='none'
+          assert row['r2']['role']=='canonical'
+          print('RDT_NO_D1_CONTRACT_PASS')
+          PY
+
+      - name: Bounded account-wide safe purge
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+
+          quota_now() {
+            D1_PLANNED_ROWS=0 D1_SAFE_CEILING=99999 python3 scripts/d1_account_quota_preflight.py > /tmp/rdt-quota.txt
+            python3 - <<'PY'
+          import json,re
+          s=open('/tmp/rdt-quota.txt').read()
+          m=re.search(r'"currentRowsWritten"\s*:\s*(\d+)',s)
+          if not m: raise SystemExit('QUOTA_PARSE_FAIL')
+          print(m.group(1))
+          PY
+          }}
+
+          table_count() {
+            local table="$1"
+            $W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS n FROM ${table}" > /tmp/count.json
+            python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/count.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          print(int((rows[0] if rows else {}).get('n',0)))
+          PY
+          }}
+
+          run_scope="$($W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS bad FROM reddit_scan_runs WHERE lower(subreddit)<>'realdaytrading'")"
+          printf '%s' "$run_scope" > /tmp/scope.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/scope.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          bad=int((rows[0] if rows else {}).get('bad',-1))
+          if bad != 0: raise SystemExit(f'RDT_SCOPE_FAIL bad={bad}')
+          print('RDT_SCOPE_PASS')
+          PY
+
+          start="$(quota_now)"
+          echo "ACCOUNT_ROWS_WRITTEN_START=$start"
+          if [ "$start" -ge 10000 ]; then
+            echo "SAFE_DEFER: reset headroom insufficient start=$start"
+            exit 0
+          fi
+
+          for table in reddit_comments reddit_post_tags reddit_posts reddit_scan_runs; do
+            while :; do
+              n="$(table_count "$table")"
+              echo "TABLE=$table REMAINING=$n"
+              [ "$n" -eq 0 ] && break
+              current="$(quota_now)"
+              if [ "$current" -ge "$SAFE_STOP_ROWS" ]; then
+                echo "SAFE_PARTIAL_STOP account_rows_written=$current table=$table remaining=$n"
+                exit 0
+              fi
+              batch=500
+              [ "$table" = "reddit_scan_runs" ] && batch=50
+              $W d1 execute runner3-core --remote --json --command                 "DELETE FROM $table WHERE rowid IN (SELECT rowid FROM $table LIMIT $batch)" > /tmp/delete.json
+              python3 - "$table" <<'PY'
+          import json,sys
+          d=json.load(open('/tmp/delete.json'))
+          metas=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('meta'),dict): metas.append(x['meta'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          print(sys.argv[1], 'rows_written=', sum(int(m.get('rows_written') or 0) for m in metas))
+          PY
+            done
+          done
+
+          final_counts=()
+          for table in reddit_scan_runs reddit_posts reddit_comments reddit_post_tags; do
+            n="$(table_count "$table")"
+            [ "$n" -eq 0 ] || { echo "::error::NONZERO_AFTER_PURGE $table=$n"; exit 7; }}
+          done
+
+          $W d1 execute runner3-core --remote --command "
+            DROP TABLE IF EXISTS reddit_comments;
+            DROP TABLE IF EXISTS reddit_post_tags;
+            DROP TABLE IF EXISTS reddit_posts;
+            DROP TABLE IF EXISTS reddit_scan_runs;
+          "
+          echo "RDT_LEGACY_D1_PURGE_COMPLETE"
