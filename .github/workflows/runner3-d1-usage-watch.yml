@@ -74,7 +74,10 @@ jobs:
               raise SystemExit(f'Cloudflare GraphQL failed: HTTP {code} errors={data.get("errors",[])[:2]}')
           rows=data['data']['viewer']['accounts'][0]['d1AnalyticsAdaptiveGroups']
 
-          per_db={}
+          per_db={
+              dbid:{'databaseId':dbid,'database':name,'readQueries':0,'writeQueries':0,'rowsRead':0,'rowsWritten':0}
+              for dbid,name in inventory.items()
+          }
           for row in rows:
               dbid=str((row.get('dimensions') or {}).get('databaseId') or '')
               if not dbid: continue
@@ -90,6 +93,7 @@ jobs:
           result={
               'checkedAt':now.isoformat().replace('+00:00','Z'),'dateUtc':today,
               'accountTotals':totals,'projectedRowsWrittenAtCurrentPace':projected,
+              'inventoryCount':len(inventory),
               'databases':databases,
               'thresholds':{'warn':warn_rows,'alert':alert_rows,'emergency':emergency_rows,'freeTierHardLimit':100000}
           }
@@ -101,7 +105,8 @@ jobs:
                   h.write('## D1 account usage watch\n\n')
                   h.write(f"- UTC date: `{today}`\n")
                   h.write(f"- Account rows written: **{totals['rowsWritten']:,}** / 100,000\n")
-                  h.write(f"- Current-pace projection: {projected:,} rows/day\n\n")
+                  h.write(f"- Current-pace projection: {projected:,} rows/day\n")
+                  h.write(f"- D1 databases: {len(inventory)}\n\n")
                   h.write('| Database | Rows written | Write queries |\n|---|---:|---:|\n')
                   for x in databases:
                       h.write(f"| {x['database']} | {x['rowsWritten']:,} | {x['writeQueries']:,} |\n")
