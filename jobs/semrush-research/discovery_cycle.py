@@ -67,6 +67,13 @@ def main():
         if not bank.exists():
             run('modifier_seed_bank.py','--config-dir',a.config_dir,'--output',bank,'--count',a.auto_seed_count)
 
+        bank_data=json.loads(bank.read_text(encoding='utf-8'))
+        if not (bank_data.get('themes') or []):
+            candidate_sync=sync_candidates(a,run_dir)
+            state={'version':1,'stage':'COMPLETE_CATALOG_EXHAUSTED','updated_at':ts(),'run_dir':str(run_dir),
+                   'seed_bank':str(bank),'candidate_registry_sync':candidate_sync}
+            atomic(cycle_state,state); print(json.dumps({'status':'PASS',**state},ensure_ascii=False)); return 0
+
         universe=run_dir/'universe.json'
         if not universe.exists():
             run('live_collect.py','--seed-bank',bank,'--run-dir',run_dir,'--database',a.database)
