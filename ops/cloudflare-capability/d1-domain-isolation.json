@@ -30,10 +30,12 @@
     "legacy_full_recopy_workflows": "archived/fail-safe",
     "safe_prepare_workflow": ".github/workflows/d1-domain-isolation-safe.yml",
     "migration_mode": "incremental/no destructive clears",
-    "context_index": "5-minute local probe; D1 change-only plus 1-hour heartbeat"
+    "context_index": "5-minute local probe; D1 change-only plus 1-hour heartbeat",
+    "reddit_comment_retention": "D1 top 12 quality-ranked comments/thread; complete comment tree stays in R2 raw snapshots",
+    "reddit_historical_migration": ".github/workflows/reddit-d1-bounded-historical-migration.yml"
   },
   "pending": {
-    "reddit": "copy historical rows in bounded quota-budgeted batches, verify parity, then add REDDIT_DB binding and deploy",
+    "reddit": "copy only runs/posts/tags plus top-12 quality-ranked comments per thread into runner3-reddit under 35k planned-write preflight; verify parity; then add REDDIT_DB binding and deploy",
     "legacy_cleanup": "retain runner3-core legacy rows until dedicated authorities have proven healthy cycles"
   }
 }
