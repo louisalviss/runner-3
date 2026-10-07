@@ -259,29 +259,6 @@ def comment_quality(comment: dict) -> float:
     return round(q, 4)
 
 
-D1_COMMENT_CAP_PER_THREAD = 12
-
-
-def select_comments_for_d1(comments: list[dict], cap: int = D1_COMMENT_CAP_PER_THREAD) -> list[dict]:
-    """Keep only the strongest bounded comment evidence in D1.
-
-    The complete comment tree remains in the raw R2 thread snapshot. D1 is only
-    the searchable evidence index, so retention is deliberately bounded.
-    """
-    if cap <= 0 or not comments:
-        return []
-    ranked = sorted(
-        comments,
-        key=lambda c: (
-            float(c.get("quality_score") or 0),
-            max(int(c.get("score") or 0), 0),
-            len(str(c.get("body_text") or "")),
-        ),
-        reverse=True,
-    )
-    return ranked[:cap]
-
-
 def flatten_comments(node, post_id: str, depth: int = 0):
     out = []
     if isinstance(node, list):
