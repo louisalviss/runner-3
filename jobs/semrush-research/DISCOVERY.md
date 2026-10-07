@@ -33,3 +33,18 @@ The cycle auto-generates an unseen modifier seed bank when `--seed-bank` is omit
 - Current overall leader remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
 - Next run identity should start at R26 or later. R20-R25 are terminal and must not be reacquired.
 - Modifier miner now filters duplicate themes, exact-SERP-tested candidates, obvious informational noise, retail-calculator noise, weapon-related queries, and medical/YMYL calculator noise.
+
+
+## Candidate lifecycle + durable anti-repeat — 2026-10-07
+
+Terminal close now includes candidate registry reconciliation:
+
+1. `discovery_finalize.py` updates `discovery-tested-v1.json`.
+2. `candidate_registry_sync.py` renders the human candidate lifecycle projection from the tested registry + `config/candidate-lifecycle-v1.json`.
+3. It syncs `Semrush Candidate Registry.md` and the machine mirror `Semrush Tested Registry.json` to Dropbox.
+4. `SERP_DD_PASS` remains evidence only; it does not auto-promote a candidate into `PROJECTS/`.
+5. Only `BUILD_TEST / ACTIVE VALIDATION / EXECUTION` candidates become project folders.
+
+The sync also runs on `RESUME_NO_BACKTRACK` and zero-candidate terminal paths. If Dropbox reconciliation fails after SERP finalization, the cycle returns BLOCKED at sync; the next invocation reuses terminal artifacts and retries sync without reacquiring or re-running SERP work.
+
+R25 resume acceptance verified twice: first run reconciled the registries, second run returned both Dropbox targets as `unchanged=true`.
