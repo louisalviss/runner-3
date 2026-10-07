@@ -1,14 +1,14 @@
 {
   "schema_version": 3,
-  "status": "safe-partial-cutover-reddit-retired",
-  "recorded_at": "2026-10-07T20:35:47Z",
+  "status": "quota-safe-domain-isolation-complete",
+  "recorded_at": "2026-10-07T20:49:43Z",
   "authorities": {
     "control_plane": "runner3-core",
     "task_context": "louis-task-context",
     "context_index": "louis-context-index",
     "content_intelligence": "runner3-content-intelligence",
     "rss": "runner3-rss",
-    "reddit": "R2 canonical + SQLite/JSONL query bundle + Telegram backup; no D1",
+    "reddit": "R2 canonical + SQLite/JSONL query bundle + Telegram backup/delivery; D1 retired and legacy tables purged",
     "ebook": "personal-library",
     "opportunity_radar": "runner3-opportunity-radar",
     "business_opportunity": "runner3-opportunity-radar",
@@ -33,12 +33,11 @@
     "context_index": "5-minute local probe; D1 change-only plus 1-hour heartbeat",
     "reddit_scope": "RealDayTrading corpus only; generic/user-supplied Reddit URLs use reddit-read and must not write reddit-deep-sweep tables",
     "reddit_cross_subreddit_rule": "A thread from another subreddit may exist only when linked/discovered from the RealDayTrading wiki/research corpus; it does not authorize scanning that subreddit.",
-    "reddit_storage": "D1 forbidden; R2 canonical; SQLite/JSONL working/query bundle; Telegram Trading Research Library backup/delivery"
+    "reddit_storage": "D1 forbidden; R2 canonical; SQLite/JSONL working/query bundle; Telegram Trading Research Library backup/delivery",
+    "reddit_d1_runtime": "all /reddit/deep-sweep/* D1 runtime routes retired with HTTP 410",
+    "reddit_legacy_purge": "complete; DROP TABLE path verified with rows_written=15 for all four legacy tables"
   },
-  "pending": {
-    "reddit": "Legacy RealDayTrading rows still remain in runner3-core only for cleanup; purge after quota reset once R2+Telegram backup verification is rechecked.",
-    "legacy_cleanup": "Purge legacy reddit_* rows from runner3-core after quota reset under account-wide preflight; other legacy cleanup remains separate."
-  },
+  "pending": {},
   "reddit_archive": {
     "r2_key": "reddit/RealDayTrading/corpus/snapshots/20261007T203155Z/realdytrading-corpus-20261007T203155Z.tar.gz",
     "sha256": "f724b5237f5c4f185f0abded0518b2748cc3b235768d98753083ca604a47df97",
@@ -54,6 +53,8 @@
       "chat_id": "-1003986555024",
       "message_id": 363
     },
-    "dedicated_d1": "deleted"
+    "dedicated_d1": "deleted",
+    "legacy_runner3_core": "purged",
+    "legacy_tables_remaining": 0
   }
 }
