@@ -22,3 +22,14 @@ python3 discovery_cycle.py --run-dir <run> --config-dir <config> --tested-regist
 ```
 
 The cycle auto-generates an unseen modifier seed bank when `--seed-bank` is omitted, resumes partial acquisition in the same run identity, skips provider work when `universe.json` already exists, runs bounded exact SERP DD, finalizes the tested registry, and returns `RESUME_NO_BACKTRACK` for terminal runs.
+
+
+## Acceptance state — 2026-10-07
+
+- Runtime regression: 3/3 PASS.
+- R24 one-path acceptance: 8 root modifiers acquired; discovery shortlisted 6; exact SERP returned 6/6 `DROP_SERP_SATURATED`; registry advanced to 127.
+- R25 one-command acceptance through `discovery_cycle.py`: terminal `COMPLETE_NO_SURVIVOR`; 8 candidates tested; 7 `DROP_SERP_SATURATED`, 1 `WATCH_COMPETITION`; registry advanced to 135.
+- R25 strongest watch only: snowboard-length cluster, not promoted.
+- Current overall leader remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
+- Next run identity should start at R26 or later. R20-R25 are terminal and must not be reacquired.
+- Modifier miner now filters duplicate themes, exact-SERP-tested candidates, obvious informational noise, retail-calculator noise, weapon-related queries, and medical/YMYL calculator noise.
