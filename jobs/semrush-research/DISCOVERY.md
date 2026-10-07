@@ -91,3 +91,13 @@ When `modifier_seed_bank.py` has no unseen catalog roots left, `discovery_cycle.
 - Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
 - No R30 candidate is promoted to PROJECTS.
 - After R30, the current modifier root catalog has no unseen entries; the next probe should terminate as `COMPLETE_CATALOG_EXHAUSTED` without provider acquisition.
+
+
+## R31 catalog exhaustion — 2026-10-08
+
+- Auto-seed bank generated with `themes: []`.
+- `discovery_cycle.py` terminated as `COMPLETE_CATALOG_EXHAUSTED`.
+- No Semrush provider acquisition was performed.
+- Candidate Registry remained at 147 exact-SERP tested records and now reports that there is no next discovery run until the modifier catalog is expanded.
+- Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
+- Recommended next gate is downstream product/business validation of Psychrometric; do not reopen R20-R31 or expand generic modifiers merely to force a winner.
