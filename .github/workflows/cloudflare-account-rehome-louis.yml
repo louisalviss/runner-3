@@ -1,0 +1,123 @@
+name: Cloudflare Account Rehome Louis
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-account-rehome-louis.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rehome-phase1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      EXPECTED_ACCOUNT_ID: '7415a87f6bce7884e73ad7cfed5782df'
+      TARGET_EMAIL: 'louisalviss3@gmail.com'
+      SOURCE_EMAIL: 'ducduy2411@gmail.com'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Invite Louis as Super Administrator if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test "${CLOUDFLARE_ACCOUNT_ID:-}" = "$EXPECTED_ACCOUNT_ID"
+          echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request, urllib.error, datetime
+
+          base='https://api.cloudflare.com/client/v4'
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          target=os.environ['TARGET_EMAIL'].lower()
+          source=os.environ['SOURCE_EMAIL'].lower()
+          headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+
+          def api(method,path,payload=None):
+              data=None if payload is None else json.dumps(payload).encode()
+              req=urllib.request.Request(base+path,data=data,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      raw=r.read().decode()
+                      return r.status, json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode(errors='replace')
+                  try:j=json.loads(raw)
+                  except Exception:j={}
+                  return e.code,j
+
+          result={
+              'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'account_match': account==os.environ['EXPECTED_ACCOUNT_ID'],
+              'phase':'invite_only',
+              'mutation':'none'
+          }
+
+          mc,m=api('GET',f'/accounts/{account}/members?per_page=100')
+          rc,r=api('GET',f'/accounts/{account}/roles')
+          result['members_http']=mc
+          result['roles_http']=rc
+
+          members=m.get('result') if isinstance(m,dict) and isinstance(m.get('result'),list) else []
+          roles=r.get('result') if isinstance(r,dict) and isinstance(r.get('result'),list) else []
+          super_role=next((x for x in roles if isinstance(x,dict) and x.get('name')=='Super Administrator - All Privileges'),None)
+          result['super_role_found']=bool(super_role)
+
+          def member_email(x):
+              if not isinstance(x,dict): return ''
+              if isinstance(x.get('user'),dict) and x['user'].get('email'): return str(x['user']['email']).lower()
+              return str(x.get('email') or '').lower()
+
+          tm=next((x for x in members if member_email(x)==target),None)
+          sm=next((x for x in members if member_email(x)==source),None)
+          result['target_present_before']=bool(tm)
+          result['source_present']=bool(sm)
+          result['source_superadmin']=any((q or {}).get('name')=='Super Administrator - All Privileges' for q in ((sm or {}).get('roles') or []))
+          result['target_status_before']=(tm or {}).get('status')
+
+          if mc!=200 or not (isinstance(m,dict) and m.get('success')):
+              result['blocked']='members_read_denied'
+          elif rc!=200 or not super_role:
+              result['blocked']='roles_read_denied_or_super_role_missing'
+          elif tm:
+              result['mutation']='none_target_already_present'
+          else:
+              pc,p=api('POST',f'/accounts/{account}/members',{'email':target,'roles':[super_role['id']]})
+              result['invite_http']=pc
+              result['invite_success']=bool(isinstance(p,dict) and p.get('success'))
+              result['mutation']='invite_target_pending' if result['invite_success'] else 'invite_failed'
+              if not result['invite_success']:
+                  result['invite_error_codes']=[e.get('code') for e in (p.get('errors') or []) if isinstance(e,dict)][:5]
+
+          # Read back; never revoke source in phase 1.
+          mc2,m2=api('GET',f'/accounts/{account}/members?per_page=100')
+          members2=m2.get('result') if isinstance(m2,dict) and isinstance(m2.get('result'),list) else []
+          tm2=next((x for x in members2 if member_email(x)==target),None)
+          result['readback_http']=mc2
+          result['target_present_after']=bool(tm2)
+          result['target_status_after']=(tm2 or {}).get('status')
+          result['target_superadmin_after']=any((q or {}).get('name')=='Super Administrator - All Privileges' for q in ((tm2 or {}).get('roles') or []))
+          result['source_revoked']=False
+
+          path=pathlib.Path('ops/cloudflare-account-rehome/latest.json')
+          path.parent.mkdir(parents=True,exist_ok=True)
+          path.write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Persist sanitized result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/cloudflare-account-rehome/latest.json || true
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Persist Cloudflare account rehome phase 1"
+          git push origin HEAD:main
