@@ -55,67 +55,20 @@ jobs:
           print('RDT_NO_D1_CONTRACT_PASS')
           PY
 
-      - name: Bounded account-wide safe purge
+      - name: Drop retired RealDayTrading legacy tables
         shell: bash
         run: |
           set -euo pipefail
           W='npx --yes wrangler@4'
 
-          $W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS n FROM sqlite_schema WHERE type='table' AND name='reddit_scan_runs'" > /tmp/rdt-table-exists.json
-          exists="$(python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/rdt-table-exists.json'))
-          rows=[]
-          def walk(x):
-              if isinstance(x,dict):
-                  if isinstance(x.get('results'),list): rows.extend(x['results'])
-                  for v in x.values(): walk(v)
-              elif isinstance(x,list):
-                  for v in x: walk(v)
-          walk(d)
-          print(int((rows[0] if rows else {}).get('n',0)))
-          PY
-          )"
-          if [ "$exists" -eq 0 ]; then
-            echo "RDT_LEGACY_D1_ALREADY_PURGED"
-            exit 0
-          fi
-
-          quota_now() {
-            D1_PLANNED_ROWS=0 D1_SAFE_CEILING=99999 python3 scripts/d1_account_quota_preflight.py > /tmp/rdt-quota.txt
-            python3 - <<'PY'
-          import json,re
-          s=open('/tmp/rdt-quota.txt').read()
-          m=re.search(r'"currentRowsWritten"\s*:\s*(\d+)',s)
-          if not m: raise SystemExit('QUOTA_PARSE_FAIL')
-          print(m.group(1))
-          PY
-          }
-
-          table_count() {
-            local table="$1"
-            $W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS n FROM ${table}" > /tmp/count.json
-            python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/count.json'))
-          rows=[]
-          def walk(x):
-              if isinstance(x,dict):
-                  if isinstance(x.get('results'),list): rows.extend(x['results'])
-                  for v in x.values(): walk(v)
-              elif isinstance(x,list):
-                  for v in x: walk(v)
-          walk(d)
-          print(int((rows[0] if rows else {}).get('n',0)))
-          PY
-          }
-
-          run_scope="$($W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS bad FROM reddit_scan_runs WHERE lower(subreddit)<>'realdaytrading'")"
-          printf '%s' "$run_scope" > /tmp/scope.json
+          $W d1 execute runner3-core --remote --json --command "
+            SELECT COUNT(*) AS bad
+            FROM reddit_scan_runs
+            WHERE lower(subreddit)<>'realdaytrading';
+          " > /tmp/scope.json
           python3 - <<'PY'
           import json
-          d=json.load(open('/tmp/scope.json'))
-          rows=[]
+          d=json.load(open('/tmp/scope.json')); rows=[]
           def walk(x):
               if isinstance(x,dict):
                   if isinstance(x.get('results'),list): rows.extend(x['results'])
@@ -124,34 +77,21 @@ jobs:
                   for v in x: walk(v)
           walk(d)
           bad=int((rows[0] if rows else {}).get('bad',-1))
-          if bad != 0: raise SystemExit(f'RDT_SCOPE_FAIL bad={bad}')
+          if bad != 0:
+              raise SystemExit(f'RDT_SCOPE_FAIL bad={bad}')
           print('RDT_SCOPE_PASS')
           PY
 
-          start="$(quota_now)"
-          echo "ACCOUNT_ROWS_WRITTEN_START=$start"
-          if [ "$start" -ge 10000 ]; then
-            echo "SAFE_DEFER: reset headroom insufficient start=$start"
-            exit 0
-          fi
+          $W d1 execute runner3-core --remote --json --command "
+            DROP TABLE IF EXISTS reddit_comments;
+            DROP TABLE IF EXISTS reddit_post_tags;
+            DROP TABLE IF EXISTS reddit_posts;
+            DROP TABLE IF EXISTS reddit_scan_runs;
+          " > /tmp/drop.json
 
-          for table in reddit_comments reddit_post_tags reddit_posts reddit_scan_runs; do
-            while :; do
-              n="$(table_count "$table")"
-              echo "TABLE=$table REMAINING=$n"
-              [ "$n" -eq 0 ] && break
-              current="$(quota_now)"
-              if [ "$current" -ge "$SAFE_STOP_ROWS" ]; then
-                echo "SAFE_PARTIAL_STOP account_rows_written=$current table=$table remaining=$n"
-                exit 0
-              fi
-              batch=500
-              [ "$table" = "reddit_scan_runs" ] && batch=50
-              $W d1 execute runner3-core --remote --json --command                 "DELETE FROM $table WHERE rowid IN (SELECT rowid FROM $table LIMIT $batch)" > /tmp/delete.json
-              python3 - "$table" <<'PY'
-          import json,sys
-          d=json.load(open('/tmp/delete.json'))
-          metas=[]
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/drop.json')); metas=[]
           def walk(x):
               if isinstance(x,dict):
                   if isinstance(x.get('meta'),dict): metas.append(x['meta'])
@@ -159,21 +99,33 @@ jobs:
               elif isinstance(x,list):
                   for v in x: walk(v)
           walk(d)
-          print(sys.argv[1], 'rows_written=', sum(int(m.get('rows_written') or 0) for m in metas))
+          print('RDT_DROP_META', {
+              'rows_read':sum(int(m.get('rows_read') or 0) for m in metas),
+              'rows_written':sum(int(m.get('rows_written') or 0) for m in metas),
+              'changes':sum(int(m.get('changes') or 0) for m in metas),
+          })
           PY
-            done
-          done
 
-          final_counts=()
-          for table in reddit_scan_runs reddit_posts reddit_comments reddit_post_tags; do
-            n="$(table_count "$table")"
-            [ "$n" -eq 0 ] || { echo "::error::NONZERO_AFTER_PURGE $table=$n"; exit 7; }
-          done
+          $W d1 execute runner3-core --remote --json --command "
+            SELECT name
+            FROM sqlite_schema
+            WHERE type='table' AND name IN (
+              'reddit_scan_runs','reddit_posts','reddit_comments','reddit_post_tags'
+            )
+            ORDER BY name;
+          " > /tmp/verify.json
 
-          $W d1 execute runner3-core --remote --command "
-            DROP TABLE IF EXISTS reddit_comments;
-            DROP TABLE IF EXISTS reddit_post_tags;
-            DROP TABLE IF EXISTS reddit_posts;
-            DROP TABLE IF EXISTS reddit_scan_runs;
-          "
-          echo "RDT_LEGACY_D1_PURGE_COMPLETE"
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/verify.json')); rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          if rows:
+              raise SystemExit(f'RDT_LEGACY_TABLES_STILL_PRESENT:{rows}')
+          print('RDT_LEGACY_D1_PURGE_COMPLETE')
+          PY
