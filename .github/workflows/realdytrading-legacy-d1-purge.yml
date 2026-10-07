@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'REALDAYTRADING_D1_INGEST_RETIRED' cloudflare/runner3-core/reddit-entry.js
+          grep -q 'REALDAYTRADING_D1_RUNTIME_RETIRED' cloudflare/runner3-core/reddit-entry.js
           python3 - <<'PY'
           import json
           d=json.load(open('ops/flow-control/registry.json'))
