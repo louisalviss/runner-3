@@ -61,6 +61,26 @@ jobs:
           set -euo pipefail
           W='npx --yes wrangler@4'
 
+          $W d1 execute runner3-core --remote --json --command "SELECT COUNT(*) AS n FROM sqlite_schema WHERE type='table' AND name='reddit_scan_runs'" > /tmp/rdt-table-exists.json
+          exists="$(python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/rdt-table-exists.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          print(int((rows[0] if rows else {}).get('n',0)))
+          PY
+          )"
+          if [ "$exists" -eq 0 ]; then
+            echo "RDT_LEGACY_D1_ALREADY_PURGED"
+            exit 0
+          fi
+
           quota_now() {
             D1_PLANNED_ROWS=0 D1_SAFE_CEILING=99999 python3 scripts/d1_account_quota_preflight.py > /tmp/rdt-quota.txt
             python3 - <<'PY'
