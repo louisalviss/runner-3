@@ -85,6 +85,12 @@ def render(reg,lifecycle,tested_sha,terminal_round=None,catalog_exhausted=False)
         rank=item.get("rank"); rank_text=str(rank) if rank is not None else "—"
         project="Yes" if item.get("project") else "No"
         lines.append("| %s | %s | `%s` | %s | %s |"%(rank_text,item.get("candidate",""),item.get("verdict",""),project,item.get("next_gate","")))
+    conclusion=lifecycle.get("scanner_conclusion")
+    if conclusion:
+        lines += ["",f"Scanner conclusion: \`{conclusion}\`."]
+    strongest=lifecycle.get("strongest_watch")
+    if strongest:
+        lines.append(f"Strongest remaining search watch: {strongest}.")
     lines += ["","## Curated lifecycle overrides","","| Candidate identity | Final lifecycle verdict | Note |","|---|---|---|"]
     for key in sorted(overrides):
         item=overrides.get(key) or {}; note=str(item.get("note") or "").replace("|","/")

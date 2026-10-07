@@ -10,9 +10,9 @@
         "psychrometric-air-math",
         "psychrometric-air-toolkit"
       ],
-      "verdict": "WATCH_STRONG_CANDIDATE",
+      "verdict": "WATCH_NO_BUILD_CURRENT",
       "project": false,
-      "next_gate": "Validate field-workflow differentiation + WTP"
+      "next_gate": "Reopen only on materially new distribution/data/workflow moat; standalone psychrometric product gap did not clear WTP+differentiation gate"
     },
     {
       "rank": null,
@@ -37,12 +37,12 @@
   ],
   "overrides": {
     "psychrometric-air-math": {
-      "verdict": "WATCH_STRONG_CANDIDATE",
-      "note": "Structured-input HVAC workflow; current #1 thesis."
+      "verdict": "WATCH_NO_BUILD_CURRENT",
+      "note": "2026-10-08 product/WTP DD: WTP is proven, but standalone differentiation is not. Dedicated psychrometric tools already span free to ~$60 one-time and ~$149-199/year; newer web tools cover processes, ADP/BF, loads, exports, projects. Higher WTP exists in broader field/reporting platforms (measureQuick/Testo/FlowPoint), where instrument connectivity and reporting are already strong. Keep as benchmark/module, not current BUILD_TEST."
     },
     "psychrometric-air-toolkit": {
-      "verdict": "WATCH_STRONG_CANDIDATE",
-      "note": "Combined Psychrometric toolkit authority."
+      "verdict": "WATCH_NO_BUILD_CURRENT",
+      "note": "2026-10-08 product/WTP DD: WTP is proven, but standalone differentiation is not. Dedicated psychrometric tools already span free to ~$60 one-time and ~$149-199/year; newer web tools cover processes, ADP/BF, loads, exports, projects. Higher WTP exists in broader field/reporting platforms (measureQuick/Testo/FlowPoint), where instrument connectivity and reporting are already strong. Keep as benchmark/module, not current BUILD_TEST."
     },
     "fisch-trade-values": {
       "verdict": "WATCH_NO_BUILD",
@@ -99,6 +99,10 @@
     "discovery-county-52d3663e": {
       "verdict": "ABSORB_AS_ADDRESS_GEO_MODULE_NO_STANDALONE_BUILD",
       "note": "R30 mechanical SERP pass (3.38K cluster volume, median KD26, 2.5 exact tools/top10) but CPC is zero, demand is head-heavy, and free Census geocoding/geography APIs commoditize the core lookup. Keep as address/permit intelligence module; do not create standalone project."
+    },
+    "word-search-solver-from-image": {
+      "verdict": "SEO_PROBE_ONLY_NO_PROJECT",
+      "note": "Manual 2026-10-08 review: image/photo word-search solver demand is real, but exact-match competition is rising quickly and moat is weak. Keep only as cheap SEO probe; do not prioritize over Psychrometric HVAC Toolkit. Gate: indexed + correct-query impressions + ranking movement + real upload usage."
     }
   },
   "legacy_terminal": [
@@ -111,5 +115,7 @@
     "ACTIVE_VALIDATION",
     "EXECUTION"
   ],
-  "github_recovery_baseline": "louisalviss/runner-3 jobs/semrush-research/config/discovery-tested-v1.json @ 69b3897a3b47c80d36f701a4fd10c03781875c86 (PR #362)"
+  "github_recovery_baseline": "louisalviss/runner-3 jobs/semrush-research/config/discovery-tested-v1.json @ 69b3897a3b47c80d36f701a4fd10c03781875c86 (PR #362)",
+  "scanner_conclusion": "NO_GREENFIELD_BUILD_CANDIDATE",
+  "strongest_watch": "Psychrometric HVAC Toolkit"
 }
