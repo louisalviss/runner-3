@@ -59,4 +59,4 @@ R25 resume acceptance verified twice: first run reconciled the registries, secon
 - Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
 - No R26-R28 result is promoted to PROJECTS.
 - Next discovery identity: R29+.
-- R28 seed bank in GitHub is a deterministic recovery reconstruction from catalog order; verify against the runtime original when the host is available.
+- R28 seed bank in GitHub has been verified against the recovered runtime original and now matches the exact generated seed identities/timestamp.
