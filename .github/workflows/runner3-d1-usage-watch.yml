@@ -124,3 +124,21 @@ jobs:
               print(f'::warning::D1 ACCOUNT PACE WARN: projected {projected:,} rows/day.')
           print(f'D1_ACCOUNT_USAGE_WATCH_PASS rowsWritten={written} projected={projected}')
           PY
+
+
+      - name: Audit remaining legacy-domain row counts
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          SQL="SELECT
+            (SELECT COUNT(*) FROM reddit_scan_runs) AS reddit_scan_runs,
+            (SELECT COUNT(*) FROM reddit_posts) AS reddit_posts,
+            (SELECT COUNT(*) FROM reddit_comments) AS reddit_comments,
+            (SELECT COUNT(*) FROM reddit_post_tags) AS reddit_post_tags,
+            (SELECT COUNT(*) FROM ebook_reader_progress_v65) AS ebook_reader_progress_v65,
+            (SELECT COUNT(*) FROM ebook_reader_state_v72) AS ebook_reader_state_v72,
+            (SELECT COUNT(*) FROM ebook_reader_trace_v113) AS ebook_reader_trace_v113;"
+          npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "$SQL"
