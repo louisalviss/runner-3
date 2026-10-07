@@ -72,3 +72,8 @@ R25 resume acceptance verified twice: first run reconciled the registries, secon
 - Tested registry advanced 141 -> 144.
 - Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
 - Next discovery identity: R30+.
+
+
+## Catalog exhaustion behavior
+
+When `modifier_seed_bank.py` has no unseen catalog roots left, `discovery_cycle.py` now terminates as `COMPLETE_CATALOG_EXHAUSTED` before `live_collect.py`. It still reconciles Candidate Registry state, but performs zero new provider acquisition. This makes calling the next round safe after the finite modifier catalog is exhausted.
