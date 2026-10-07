@@ -162,3 +162,17 @@ All exact-SERP anti-repeat rules remain active.
 - Pennsylvania primary-source `pa.gov/PALS` occupies positions 1, 2 and 4 and provides the canonical status/disciplinary lookup across 29 boards.
 - Tested registry advanced 147 -> 148.
 - No R32 candidate is promoted to PROJECTS.
+
+
+## R33 new family — model-specific document retrieval
+
+R33 opens a genuinely new family after R32 closed with no build candidate.
+
+Hypothesis:
+- users need an exact manual/service manual/parts diagram/wiring diagram/spec/datasheet tied to a model;
+- structured model/document intent is less compressible than generic explanatory content;
+- potential pSEO scale across model pages;
+- monetization can attach to parts, repair/service, lead generation, or higher-value document workflows.
+
+Eight exact new seeds were verified absent from prior config history and are persisted in `config/delta-2026-10-08-r33-model-document-retrieval.json`.
+Existing exact-SERP anti-repeat remains authoritative.
