@@ -1,7 +1,9 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "status": "quota-safe-domain-isolation-complete",
-  "recorded_at": "2026-10-07T20:49:43Z",
+  "recorded_at": "2026-10-07T22:03:52Z",
+  "final_checkpoint": "ops/checkpoints/d1-domain-isolation-2026-10-08-0503-VN-FINAL.md",
+  "supersedes_checkpoint": "ops/checkpoints/d1-domain-isolation-2026-10-08-0443-VN.md",
   "authorities": {
     "control_plane": "runner3-core",
     "task_context": "louis-task-context",
@@ -23,6 +25,10 @@
     "free_tier_daily_row_write_limit": 100000,
     "safe_ceiling": 70000,
     "inventory_count": 9,
+    "latest_watch_run_id": 37693689645,
+    "latest_watch_rows_written": 55905,
+    "latest_watch_projected_rows_per_day": 60809,
+    "latest_watch_result": "pass",
     "account_wide_watch": ".github/workflows/runner3-d1-usage-watch.yml",
     "preflight_script": "scripts/d1_account_quota_preflight.py"
   },
@@ -35,7 +41,9 @@
     "reddit_cross_subreddit_rule": "A thread from another subreddit may exist only when linked/discovered from the RealDayTrading wiki/research corpus; it does not authorize scanning that subreddit.",
     "reddit_storage": "D1 forbidden; R2 canonical; SQLite/JSONL working/query bundle; Telegram Trading Research Library backup/delivery",
     "reddit_d1_runtime": "all /reddit/deep-sweep/* D1 runtime routes retired with HTTP 410",
-    "reddit_legacy_purge": "complete; DROP TABLE path verified with rows_written=15 for all four legacy tables"
+    "reddit_legacy_purge": "complete; DROP TABLE path verified with rows_written=15 for all four legacy tables",
+    "clm_slot_pressure_migration": "forbidden unless independently justified; do not run clm-d1-to-r2-migration merely to free a D1 slot",
+    "ebook_remigration": "do not rerun unless drift is proven"
   },
   "pending": {},
   "reddit_archive": {
@@ -71,6 +79,23 @@
       "telegram_upload": "pass",
       "telegram_smoke_cleanup": "pass",
       "d1_tables_absent": "pass"
+    },
+    "fresh_final_audit": {
+      "verified_at": "2026-10-07T22:03:52Z",
+      "d1_usage_watch_run_id": 37693689645,
+      "inventory_count": 9,
+      "rows_written": 55905,
+      "projected_rows_per_day": 60809,
+      "clm_live_http": 200,
+      "clm_live_dataset": "clm-copilot-v1",
+      "reddit_retired_http": 410,
+      "reddit_retired_error": "REALDAYTRADING_D1_RUNTIME_RETIRED",
+      "runner3_core_production_deploy_run_id": 37685609334,
+      "ebook_authority": "personal-library",
+      "ebook_safe_prepare_run_id": 37675165492,
+      "reddit_d1_retire_run_id": 37683136867,
+      "reddit_legacy_purge_run_id": 37685747444,
+      "result": "pass"
     }
   }
 }
