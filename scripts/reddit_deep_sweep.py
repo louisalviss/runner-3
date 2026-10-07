@@ -5,7 +5,10 @@ Deep mode is wiki-first:
 1. Snapshot the subreddit wiki and extract every linked Reddit thread/resource.
 2. Full-fetch every Reddit thread referenced by the wiki.
 3. Add a ranked set of non-wiki threads from subreddit discovery listings.
-4. Store raw evidence for R2 and emit idempotent normalized D1 upserts.
+4. Store complete raw evidence in R2.
+5. Emit normalized D1 post/tag rows plus only a bounded top-quality comment shortlist
+   (12 comments per fetched thread by default). The full comment tree is never
+   required in D1 and remains recoverable from the R2 raw thread snapshot.
 
 Delta mode still snapshots the wiki but only full-fetches recent/high-signal threads.
 Acquisition transport is injected by reddit_deep_sweep_cloudflare.py when needed.
@@ -249,6 +252,29 @@ def comment_quality(comment: dict) -> float:
     return round(q, 4)
 
 
+D1_COMMENT_CAP_PER_THREAD = 12
+
+
+def select_comments_for_d1(comments: list[dict], cap: int = D1_COMMENT_CAP_PER_THREAD) -> list[dict]:
+    """Keep only the strongest bounded comment evidence in D1.
+
+    The complete comment tree remains in the raw R2 thread snapshot. D1 is only
+    the searchable evidence index, so retention is deliberately bounded.
+    """
+    if cap <= 0 or not comments:
+        return []
+    ranked = sorted(
+        comments,
+        key=lambda c: (
+            float(c.get("quality_score") or 0),
+            max(int(c.get("score") or 0), 0),
+            len(str(c.get("body_text") or "")),
+        ),
+        reverse=True,
+    )
+    return ranked[:cap]
+
+
 def flatten_comments(node, post_id: str, depth: int = 0):
     out = []
     if isinstance(node, list):
@@ -451,9 +477,11 @@ def main():
     selected_ids = list(dict.fromkeys(selected_ids))
 
     all_comments = []
+    indexed_comments_by_post: dict[str, list[dict]] = {}
     fetched_ids = set()
     thread_errors = []
     thread_comment_counts = {}
+    thread_indexed_comment_counts = {}
 
     for pid in selected_ids:
         try:
@@ -483,8 +511,11 @@ def main():
                 comments = flatten_comments(payload[1], pid)
             dedup = {c["comment_id"]: c for c in comments}
             comments = list(dedup.values())
+            indexed_comments = select_comments_for_d1(comments)
             all_comments.extend(comments)
+            indexed_comments_by_post[pid] = indexed_comments
             thread_comment_counts[pid] = len(comments)
+            thread_indexed_comment_counts[pid] = len(indexed_comments)
             fetched_ids.add(pid)
         except Exception as exc:
             thread_errors.append({
@@ -533,7 +564,12 @@ def main():
                 "ON CONFLICT(post_id,tag) DO UPDATE SET weight=excluded.weight, updated_at=CURRENT_TIMESTAMP;"
             )
 
-    for c in all_comments:
+    indexed_comments = [
+        c
+        for pid in selected_ids
+        for c in indexed_comments_by_post.get(pid, [])
+    ]
+    for c in indexed_comments:
         data_stmts.append(emit_comment_sql(c))
 
     final_stmt = (
@@ -587,6 +623,9 @@ def main():
         "additional_threads_requested": len(additional_ids),
         "thread_errors": thread_errors,
         "comments_seen": len(all_comments),
+        "comments_indexed_d1": len(indexed_comments),
+        "d1_comment_cap_per_thread": D1_COMMENT_CAP_PER_THREAD,
+        "d1_comment_retention": "top-quality bounded evidence only; full comment tree remains in R2 raw thread snapshots",
         "raw_object_key": args.r2_key,
         "listing_requests": len([x for x in acquisition if x["kind"] == "listing"]),
         "thread_requests": len([x for x in acquisition if x["kind"] == "thread"]),
