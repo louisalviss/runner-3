@@ -14,7 +14,7 @@ QUESTION = {"how","what","where","why","when","who","does","do","can","is","are"
 STOP = {"a","an","and","in","on","to","of","the","with","using","my","your","at","from"}
 NOISE = {"word","excel","google","sheets","photoshop"}
 BANNED = {"gun","guns","firearm","firearms","weapon","weapons","colt","ruger","winchester","remington"}
-AI_WEAK = {"definition","meaning","formula","explain","explained","tutorial","example","examples"}
+AI_WEAK = {"definition","meaning","formula","explain","explained","tutorial","example","examples","incidence"}
 
 def norm(s):
     return re.sub(r"\s+"," ",re.sub(r"[^a-z0-9+%.-]+"," ",str(s or "").lower())).strip()
@@ -32,6 +32,7 @@ def subject_key(kw):
     if ts[0] in QUESTION:return ""
     core=[t for t in ts if t not in GENERIC and t not in QUESTION and t not in STOP]
     if not core or set(core) & BANNED:return ""
+    # Preserve compact nouns/brands while avoiding excessively specific tails.
     return " ".join(core[:3])
 
 def descriptor_tokens(s):
@@ -56,7 +57,7 @@ def already_seen(subject, seen):
     if not st:return True
     for d in seen:
         if len(st)==1:
-            if st==d:return True
+            if st==d or (st <= d and len(d)<=4):return True
         elif st <= d:
             return True
     return False
@@ -118,6 +119,7 @@ def main():
         weighted_cpc=sum(r["cpc"]*r["volume"] for r in rs)/cpc_den if cpc_den else 0
         head=max((r["volume"] for r in rs),default=0)
         top=sorted(rs,key=lambda r:(-r["volume"],r["kd"]))[:10]
+        # Reward scale, low KD and breadth; penalize single-keyword clusters.
         breadth=min(2.0, 0.7 + math.log10(len(rs)+1))
         score=round(math.log10(total+1)*breadth*(1-(statistics.median(kds) if kds else 100)/100),4)
         clusters.append({
