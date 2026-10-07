@@ -1,0 +1,56 @@
+name: D1 Drop Meter Canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Measure DROP TABLE row writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          $W d1 execute runner3-core --remote --json --command "
+            DROP TABLE IF EXISTS __drop_meter_canary;
+            CREATE TABLE __drop_meter_canary(id INTEGER PRIMARY KEY, a TEXT, b INTEGER);
+            CREATE INDEX __drop_meter_canary_a ON __drop_meter_canary(a);
+            CREATE INDEX __drop_meter_canary_b ON __drop_meter_canary(b);
+            WITH RECURSIVE seq(x) AS (
+              SELECT 1 UNION ALL SELECT x+1 FROM seq WHERE x<100
+            )
+            INSERT INTO __drop_meter_canary(id,a,b)
+            SELECT x, 'row-'||x, x%7 FROM seq;
+          " > /tmp/setup.json
+          $W d1 execute runner3-core --remote --json --command "DROP TABLE __drop_meter_canary;" > /tmp/drop.json
+          python3 - <<'PY'
+          import json
+          for name,path in [('setup','/tmp/setup.json'),('drop','/tmp/drop.json')]:
+              d=json.load(open(path)); metas=[]
+              def walk(x):
+                  if isinstance(x,dict):
+                      if isinstance(x.get('meta'),dict): metas.append(x['meta'])
+                      for v in x.values(): walk(v)
+                  elif isinstance(x,list):
+                      for v in x: walk(v)
+              walk(d)
+              print(name, {
+                  'rows_read':sum(int(m.get('rows_read') or 0) for m in metas),
+                  'rows_written':sum(int(m.get('rows_written') or 0) for m in metas),
+                  'changes':sum(int(m.get('changes') or 0) for m in metas),
+              })
+          PY
