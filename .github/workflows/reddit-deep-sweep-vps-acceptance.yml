@@ -24,6 +24,7 @@ jobs:
         env:
           RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
           RUNNER3_CORE_URL: ${{ secrets.RUNNER3_CORE_URL }}
+          REDDIT_DEEP_SWEEP_ACCEPTANCE: '1'
         run: |
           cd /opt/chatgpt-vps/reddit
           python3 reddit_vps.py deep-sweep --subreddit test --max-threads 1 --acceptance
