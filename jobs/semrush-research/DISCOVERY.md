@@ -133,3 +133,19 @@ Scanner conclusion after R31 catalog exhaustion:
 `NO_GREENFIELD_BUILD_CANDIDATE`.
 
 Do not create a Psychrometric PROJECTS folder. Reopen only for an attractive already-ranked acquisition, material proprietary integration/data advantage, or a genuinely new market wedge.
+
+
+## R32 new family — license / credential verification
+
+After R31 exhausted the original modifier catalog and the previous #1 failed BUILD_TEST differentiation, discovery resumes only with a genuinely new family.
+
+R32 hypothesis:
+- current license / credential / registration verification;
+- structured query inputs;
+- underlying status changes over time;
+- answer quality depends on fresh authoritative records;
+- possible B2B/API/lead monetization;
+- less compressible by generic AI than static informational content.
+
+Eight new seeds are persisted in `config/delta-2026-10-08-r32-license-credential.json`.
+All exact-SERP anti-repeat rules remain active.
