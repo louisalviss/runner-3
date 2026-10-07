@@ -38,7 +38,7 @@ def main():
                'survivor_count':summary.get('survivor_count',0),'final_summary':str(final)}
         atomic(cycle_state,state); print(json.dumps({'status':'PASS',**state},ensure_ascii=False)); return 0
 
-    bank=pathlib.Path(a.seed_bank) if a.seed_bank else pathlib.Path(a.config_dir)/(run_dir.name+'-auto-modifier.json')
+    bank=pathlib.Path(a.seed_bank) if a.seed_bank else pathlib.Path(a.config_dir)/(run_dir.name+'.json')
     try:
         if not bank.exists():
             run('modifier_seed_bank.py','--config-dir',a.config_dir,'--output',bank,'--count',a.auto_seed_count)
