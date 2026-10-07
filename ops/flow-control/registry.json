@@ -114,37 +114,60 @@
     {
       "flow_id": "reddit-deep-sweep",
       "pattern": "full",
-      "single_link": {
-        "workflow": ".github/workflows/reddit-thread-read.yml",
-        "request": "ops/reddit-thread-read/request.json",
-        "checkpoint": "ops/reddit-thread-read/latest.json",
-        "resolver_order": [
-          "canonical",
-          "rxddit"
-        ],
-        "thread_acquisition": "arctic-shift-recursive-tree",
-        "coverage_rule": "use captured tree snapshot counts; do not infer completeness from reported_num_comments"
-      },
       "d1": {
         "project": "reddit-deep-sweep",
-        "scope": "<subreddit>",
+        "scope": "RealDayTrading",
         "custom_index": true,
         "comment_retention": "top_quality_bounded",
         "max_comments_per_thread": 12,
         "full_comment_tree": "R2 only",
-        "historical_migration": ".github/workflows/reddit-d1-bounded-historical-migration.yml"
+        "historical_migration": ".github/workflows/reddit-d1-bounded-historical-migration.yml",
+        "reserved_for": "RealDayTrading corpus only"
       },
       "r2": {
         "bucket": "runner3-artifacts",
-        "prefix": "reddit/<subreddit>",
-        "raw_evidence": "full listings/wiki/thread payloads including complete comment trees"
+        "prefix": "reddit/RealDayTrading",
+        "raw_evidence": "full RealDayTrading corpus evidence; linked cross-subreddit threads allowed only when discovered through the RealDayTrading corpus"
       },
       "sheet": {
         "mode": "projection"
       },
       "dropbox": {
         "mode": "optional-digest-only"
+      },
+      "scope": {
+        "canonical_subreddit": "RealDayTrading",
+        "purpose": "RealDayTrading trading-strategy research corpus",
+        "allow_cross_subreddit_threads_only_when_linked_from_realdytrading_corpus": true,
+        "not_for": [
+          "user-supplied Reddit URLs",
+          "generic Reddit browsing/reading",
+          "Reddit MMO Scan",
+          "other subreddit crawls"
+        ]
       }
+    },
+    {
+      "flow_id": "reddit-read",
+      "pattern": "lean",
+      "scope": "one current/user-supplied Reddit URL",
+      "entrypoint": "scripts/reddit_read.py",
+      "routing": "reddit_common.read_current_thread",
+      "d1": {
+        "mode": "none",
+        "hard_rule": "must not write reddit-deep-sweep tables"
+      },
+      "r2": {
+        "mode": "parent-owned-optional",
+        "hard_rule": "must not join the RealDayTrading corpus unless explicitly invoked by that corpus flow"
+      },
+      "sheet": {
+        "mode": "none"
+      },
+      "dropbox": {
+        "mode": "none"
+      },
+      "notes": "Canonical generic Reddit link reader. Separate from reddit-deep-sweep."
     },
     {
       "flow_id": "rss-reader",
