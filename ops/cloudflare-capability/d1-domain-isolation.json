@@ -1,8 +1,8 @@
 {
   "schema_version": 4,
-  "status": "context-merged-core-cleanup-pending",
-  "recorded_at": "2026-10-07T22:25:11.680154Z",
-  "final_checkpoint": "ops/checkpoints/d1-domain-isolation-2026-10-08-0503-VN-FINAL.md",
+  "status": "domain-isolation-complete",
+  "recorded_at": "2026-10-07T22:32:54.987497Z",
+  "final_checkpoint": "ops/checkpoints/d1-review-merge-cleanup-2026-10-08-0515-VN.md",
   "supersedes_checkpoint": "ops/checkpoints/d1-domain-isolation-2026-10-08-0443-VN.md",
   "authorities": {
     "control_plane": "runner3-core",
@@ -47,15 +47,7 @@
     "ebook_remigration": "do not rerun unless drift is proven",
     "task_context_cohabitation": "TASK_CONTEXT_DB and CONTEXT_INDEX_DB share louis-task-context; logical separation is by project namespace."
   },
-  "pending": {
-    "runner3_core_legacy_purge": {
-      "state": "migration_prepared_not_applied",
-      "migration": "cloudflare/runner3-core/migrations/0018_drop_legacy_domain_tables.sql",
-      "backup_r2": "runner3-artifacts/d1-migration-backups/2026-10-08/review-merge-cleanup/runner3-core-legacy.sql.gz",
-      "backup_sha256": "0ea2b922e09aedcc67abc3e150e735a22e573a6a26fa7fe94155b5d808f1cf58",
-      "reason": "destructive migration execution was blocked by the current tool safety gate"
-    }
-  },
+  "pending": {},
   "reddit_archive": {
     "r2_key": "reddit/RealDayTrading/corpus/snapshots/20261007T203155Z/realdytrading-corpus-20261007T203155Z.tar.gz",
     "sha256": "f724b5237f5c4f185f0abded0518b2748cc3b235768d98753083ca604a47df97",
@@ -161,6 +153,13 @@
         "dedicated": 6,
         "missing_core_keys": 0
       }
+    },
+    "runner3_core_final": {
+      "migrations_pending": 0,
+      "legacy_domain_tables_remaining": 0,
+      "core_size_after_bytes": 1343488,
+      "table_count": 12,
+      "result": "pass"
     }
   }
 }
