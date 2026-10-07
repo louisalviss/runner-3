@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, pathlib, subprocess, sys, time
+import argparse, json, pathlib, re, subprocess, sys, time
 
 def ts(): return time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
 def atomic(path,payload):
@@ -18,16 +18,22 @@ def run(script,*args):
     try:return json.loads(last) if last else {}
     except Exception:return {'stdout':cp.stdout[-4000:]}
 
-def sync_candidates(a):
+def run_round(run_dir):
+    m=re.search(r"(?:^|[-_])r(\d+)(?:[-_]|$)",pathlib.Path(run_dir).name,re.I)
+    return int(m.group(1)) if m else None
+
+def sync_candidates(a,run_dir):
     if a.skip_candidate_sync: return {'status':'SKIPPED'}
     lifecycle=pathlib.Path(a.candidate_lifecycle) if a.candidate_lifecycle else pathlib.Path(a.config_dir)/'candidate-lifecycle-v1.json'
-    return run('candidate_registry_sync.py',
-               '--tested-registry',a.tested_registry,
-               '--lifecycle',lifecycle,
-               '--output',a.candidate_registry_out,
-               '--dropbox-path',a.candidate_dropbox_path,
-               '--dropbox-tested-path',a.tested_dropbox_path,
-               '--dropbox-env-file',a.dropbox_env_file)
+    args=['--tested-registry',a.tested_registry,
+          '--lifecycle',lifecycle,
+          '--output',a.candidate_registry_out,
+          '--dropbox-path',a.candidate_dropbox_path,
+          '--dropbox-tested-path',a.tested_dropbox_path,
+          '--dropbox-env-file',a.dropbox_env_file]
+    rr=run_round(run_dir)
+    if rr is not None: args += ['--terminal-round',rr]
+    return run('candidate_registry_sync.py',*args)
 
 def main():
     ap=argparse.ArgumentParser()
@@ -52,7 +58,7 @@ def main():
     try:
         if final.exists():
             summary=json.loads(final.read_text(encoding='utf-8'))
-            candidate_sync=sync_candidates(a)
+            candidate_sync=sync_candidates(a,run_dir)
             state={'version':1,'stage':'RESUME_NO_BACKTRACK','updated_at':ts(),'run_dir':str(run_dir),
                    'survivor_count':summary.get('survivor_count',0),'final_summary':str(final),'candidate_registry_sync':candidate_sync}
             atomic(cycle_state,state); print(json.dumps({'status':'PASS',**state},ensure_ascii=False)); return 0
@@ -70,7 +76,7 @@ def main():
                   '--tested-registry',a.tested_registry,'--output-dir',discovery,
                   '--max-serp-candidates',a.max_serp_candidates)
         if int(stage.get('queue_count') or 0)==0:
-            candidate_sync=sync_candidates(a)
+            candidate_sync=sync_candidates(a,run_dir)
             state={'version':1,'stage':'COMPLETE_NO_CANDIDATE','updated_at':ts(),'run_dir':str(run_dir),
                    'seed_bank':str(bank),'universe':str(universe),'discovery_state':stage,'candidate_registry_sync':candidate_sync}
             atomic(cycle_state,state); print(json.dumps({'status':'PASS',**state},ensure_ascii=False)); return 0
@@ -82,7 +88,7 @@ def main():
         if not results.exists(): raise RuntimeError('SERP_RESULTS_NOT_READY')
 
         summary=run('discovery_finalize.py','--serp-results',results,'--registry',a.tested_registry,'--summary',final)
-        candidate_sync=sync_candidates(a)
+        candidate_sync=sync_candidates(a,run_dir)
         survivors=int(summary.get('survivor_count') or 0)
         state={'version':1,'stage':'COMPLETE_WITH_SURVIVOR' if survivors else 'COMPLETE_NO_SURVIVOR',
                'updated_at':ts(),'run_dir':str(run_dir),'seed_bank':str(bank),'universe':str(universe),
