@@ -77,3 +77,17 @@ R25 resume acceptance verified twice: first run reconciled the registries, secon
 ## Catalog exhaustion behavior
 
 When `modifier_seed_bank.py` has no unseen catalog roots left, `discovery_cycle.py` now terminates as `COMPLETE_CATALOG_EXHAUSTED` before `live_collect.py`. It still reconciles Candidate Registry state, but performs zero new provider acquisition. This makes calling the next round safe after the finite modifier catalog is exhausted.
+
+
+## R30 terminal continuation — 2026-10-08
+
+- R30 used the final 7 unseen roots in the current modifier catalog.
+- Exact-SERP queue: 3 candidates.
+- total variable cost -> `DROP_SERP_SATURATED`.
+- county lookup by ZIP -> `DROP_SERP_SATURATED`.
+- county lookup by address -> mechanical `SERP_DD_PASS` (3,380 cluster volume / median KD26 / 2.5 exact tools top10).
+- Business override for county-by-address: `ABSORB_AS_ADDRESS_GEO_MODULE_NO_STANDALONE_BUILD` because economics are weak and the core mapping is commoditized by free official geocoding/geography data.
+- Tested registry advanced 144 -> 147.
+- Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
+- No R30 candidate is promoted to PROJECTS.
+- After R30, the current modifier root catalog has no unseen entries; the next probe should terminate as `COMPLETE_CATALOG_EXHAUSTED` without provider acquisition.
