@@ -22,7 +22,7 @@ def run_round(run_dir):
     m=re.search(r"(?:^|[-_])r(\d+)(?:[-_]|$)",pathlib.Path(run_dir).name,re.I)
     return int(m.group(1)) if m else None
 
-def sync_candidates(a,run_dir):
+def sync_candidates(a,run_dir,catalog_exhausted=False):
     if a.skip_candidate_sync: return {'status':'SKIPPED'}
     lifecycle=pathlib.Path(a.candidate_lifecycle) if a.candidate_lifecycle else pathlib.Path(a.config_dir)/'candidate-lifecycle-v1.json'
     args=['--tested-registry',a.tested_registry,
@@ -33,6 +33,7 @@ def sync_candidates(a,run_dir):
           '--dropbox-env-file',a.dropbox_env_file]
     rr=run_round(run_dir)
     if rr is not None: args += ['--terminal-round',rr]
+    if catalog_exhausted: args += ['--catalog-exhausted']
     return run('candidate_registry_sync.py',*args)
 
 def main():
@@ -69,7 +70,7 @@ def main():
 
         bank_data=json.loads(bank.read_text(encoding='utf-8'))
         if not (bank_data.get('themes') or []):
-            candidate_sync=sync_candidates(a,run_dir)
+            candidate_sync=sync_candidates(a,run_dir,True)
             state={'version':1,'stage':'COMPLETE_CATALOG_EXHAUSTED','updated_at':ts(),'run_dir':str(run_dir),
                    'seed_bank':str(bank),'candidate_registry_sync':candidate_sync}
             atomic(cycle_state,state); print(json.dumps({'status':'PASS',**state},ensure_ascii=False)); return 0
