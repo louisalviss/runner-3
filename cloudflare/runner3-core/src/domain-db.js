@@ -16,5 +16,5 @@ export function redditEnv(env) {
 }
 
 export function ebookEnv(env) {
-  return withDb(env, env?.EBOOK_DB || env?.DB || null);
+  return withDb(env, env?.EBOOK_DB || env?.LIBRARY_DB || env?.DB || null);
 }
