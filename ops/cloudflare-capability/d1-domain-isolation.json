@@ -1,14 +1,14 @@
 {
   "schema_version": 3,
-  "status": "safe-partial-cutover-reddit-data-pending",
-  "recorded_at": "2026-10-07T19:34:19Z",
+  "status": "safe-partial-cutover-reddit-retired",
+  "recorded_at": "2026-10-07T20:35:47Z",
   "authorities": {
     "control_plane": "runner3-core",
     "task_context": "louis-task-context",
     "context_index": "louis-context-index",
     "content_intelligence": "runner3-content-intelligence",
     "rss": "runner3-rss",
-    "reddit": "runner3-core live RealDayTrading corpus only; runner3-reddit reserved for RealDayTrading corpus, historical bounded cutover pending",
+    "reddit": "R2 canonical + SQLite/JSONL query bundle + Telegram backup; no D1",
     "ebook": "personal-library",
     "opportunity_radar": "runner3-opportunity-radar",
     "business_opportunity": "runner3-opportunity-radar",
@@ -22,7 +22,7 @@
   "quota": {
     "free_tier_daily_row_write_limit": 100000,
     "safe_ceiling": 70000,
-    "inventory_count": 10,
+    "inventory_count": 9,
     "account_wide_watch": ".github/workflows/runner3-d1-usage-watch.yml",
     "preflight_script": "scripts/d1_account_quota_preflight.py"
   },
@@ -31,13 +31,29 @@
     "safe_prepare_workflow": ".github/workflows/d1-domain-isolation-safe.yml",
     "migration_mode": "incremental/no destructive clears",
     "context_index": "5-minute local probe; D1 change-only plus 1-hour heartbeat",
-    "reddit_comment_retention": "D1 top 12 quality-ranked comments/thread; complete comment tree stays in R2 raw snapshots",
-    "reddit_historical_migration": ".github/workflows/reddit-d1-bounded-historical-migration.yml",
     "reddit_scope": "RealDayTrading corpus only; generic/user-supplied Reddit URLs use reddit-read and must not write reddit-deep-sweep tables",
-    "reddit_cross_subreddit_rule": "A thread from another subreddit may exist only when linked/discovered from the RealDayTrading wiki/research corpus; it does not authorize scanning that subreddit."
+    "reddit_cross_subreddit_rule": "A thread from another subreddit may exist only when linked/discovered from the RealDayTrading wiki/research corpus; it does not authorize scanning that subreddit.",
+    "reddit_storage": "D1 forbidden; R2 canonical; SQLite/JSONL working/query bundle; Telegram Trading Research Library backup/delivery"
   },
   "pending": {
-    "reddit": "migrate only the RealDayTrading corpus under 35k planned-write preflight; scope gate requires every reddit_scan_runs root to be RealDayTrading; then verify bounded parity before REDDIT_DB cutover",
-    "legacy_cleanup": "retain runner3-core legacy rows until dedicated authorities have proven healthy cycles"
+    "reddit": "Legacy RealDayTrading rows still remain in runner3-core only for cleanup; purge after quota reset once R2+Telegram backup verification is rechecked.",
+    "legacy_cleanup": "Purge legacy reddit_* rows from runner3-core after quota reset under account-wide preflight; other legacy cleanup remains separate."
+  },
+  "reddit_archive": {
+    "r2_key": "reddit/RealDayTrading/corpus/snapshots/20261007T203155Z/realdytrading-corpus-20261007T203155Z.tar.gz",
+    "sha256": "f724b5237f5c4f185f0abded0518b2748cc3b235768d98753083ca604a47df97",
+    "bytes": 15385459,
+    "counts": {
+      "runs": 6,
+      "posts": 1795,
+      "comments": 18975,
+      "tags": 2090
+    },
+    "telegram": {
+      "chat": "Trading Research Library",
+      "chat_id": "-1003986555024",
+      "message_id": 363
+    },
+    "dedicated_d1": "deleted"
   }
 }
