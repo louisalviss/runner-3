@@ -149,3 +149,16 @@ R32 hypothesis:
 
 Eight new seeds are persisted in `config/delta-2026-10-08-r32-license-credential.json`.
 All exact-SERP anti-repeat rules remain active.
+
+
+## R32 license / credential verification — terminal
+
+- New family: current license / credential / registration verification.
+- 8 new seeds; initial attempt was resource-admission blocked before any provider RPC, then resumed on the same run identity when a browser slot became available.
+- Exact-SERP queue: 1 candidate.
+- `verification of license pa`: 5,400 volume / KD21 / CPC0 / head share 100%.
+- Mechanical outcome: `SERP_DD_PASS`, avg 4 exact tools/top10.
+- Business/lifecycle override: `DROP_OFFICIAL_AUTHORITY_HEAD_HEAVY_NO_BUILD`.
+- Pennsylvania primary-source `pa.gov/PALS` occupies positions 1, 2 and 4 and provides the canonical status/disciplinary lookup across 29 boards.
+- Tested registry advanced 147 -> 148.
+- No R32 candidate is promoted to PROJECTS.
