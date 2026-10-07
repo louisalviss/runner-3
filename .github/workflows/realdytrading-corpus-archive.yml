@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      CLOUDFLARE_API_TOKEN: ${ secrets.CLOUDFLARE_API_TOKEN }
-      CLOUDFLARE_ACCOUNT_ID: ${ secrets.CLOUDFLARE_ACCOUNT_ID }
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       R2_BUCKET: runner3-artifacts
     steps:
       - uses: actions/checkout@v4
@@ -134,9 +134,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive='${ steps.pack.outputs.archive }'
-          key='${ steps.pack.outputs.key }'
-          sha='${ steps.pack.outputs.sha }'
+          archive='${{ steps.pack.outputs.archive }}'
+          key='${{ steps.pack.outputs.key }}'
+          sha='${{ steps.pack.outputs.sha }}'
           rb=/tmp/rdt-readback.tar.gz
           W='npx --yes wrangler@4'
           $W r2 object put "${R2_BUCKET}/$key" --file="$archive" --remote --config=cloudflare/runner3-core/wrangler.jsonc
@@ -147,8 +147,8 @@ jobs:
             "schema": "realdytrading-corpus-pointer-v1",
             "key": "$key",
             "sha256": "$sha",
-            "bytes": ${ steps.pack.outputs.bytes },
-            "generated_at": "${ steps.pack.outputs.stamp }",
+            "bytes": ${{ steps.pack.outputs.bytes }},
+            "generated_at": "${{ steps.pack.outputs.stamp }}",
             "authority": "R2",
             "d1": "retired",
             "telegram": "backup/delivery"
@@ -163,7 +163,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: realdaytrading-corpus
-          path: ${ steps.pack.outputs.archive }
+          path: ${{ steps.pack.outputs.archive }}
           retention-days: 1
           if-no-files-found: error
 
@@ -171,9 +171,9 @@ jobs:
         run: |
           {
             echo "## RealDayTrading corpus archive"
-            echo "- R2 key: `${ steps.pack.outputs.key }`"
-            echo "- SHA256: `${ steps.pack.outputs.sha }`"
-            echo "- Bytes: ${ steps.pack.outputs.bytes }"
+            echo "- R2 key: `${{ steps.pack.outputs.key }}`"
+            echo "- SHA256: `${{ steps.pack.outputs.sha }}`"
+            echo "- Bytes: ${{ steps.pack.outputs.bytes }}"
             echo "- D1: retired"
             echo "- Telegram: pending delivery of this verified artifact"
           } >> "$GITHUB_STEP_SUMMARY"
