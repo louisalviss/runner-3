@@ -1,0 +1,105 @@
+name: RealDayTrading Archive Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_BUCKET: runner3-artifacts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run tiny RealDayTrading delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/rdt-smoke
+          OUT="$ROOT/out"
+          MANIFEST="$ROOT/manifest.json"
+          mkdir -p "$ROOT"
+          RUN_ID="smoke-${GITHUB_RUN_ID}"
+          R2_KEY="reddit/RealDayTrading/smoke/${GITHUB_RUN_ID}/rdt-smoke.tar.gz"
+          python3 scripts/reddit_deep_sweep_cloudflare.py             --subreddit RealDayTrading             --mode delta             --max-threads 1             --run-id "$RUN_ID"             --r2-key "$R2_KEY"             --output-dir "$OUT"             --manifest-out "$MANIFEST"
+          python3 - "$MANIFEST" <<'PY'
+          import json,sys
+          m=json.load(open(sys.argv[1]))
+          assert m["ok"] is True
+          assert m["subreddit"]=="RealDayTrading"
+          assert m["mode"]=="delta"
+          assert m["storage"]["d1"]=="disabled"
+          assert m["storage"]["canonical"]=="R2 raw + SQLite/JSONL bundle"
+          assert m["storage"]["telegram"]=="backup/delivery"
+          assert m["threads_fetched"] >= 1
+          print("RDT_SMOKE_COLLECT_PASS", {
+              "posts_seen":m["posts_seen"],
+              "threads_fetched":m["threads_fetched"],
+              "comments_seen":m["comments_seen"],
+          })
+          PY
+          tar -C "$ROOT" -czf "$ROOT/rdt-smoke.tar.gz" out manifest.json
+          sha256sum "$ROOT/rdt-smoke.tar.gz" | tee "$ROOT/rdt-smoke.sha256"
+          echo "R2_KEY=$R2_KEY" >> "$GITHUB_ENV"
+
+      - name: R2 upload readback verify and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          LOCAL=/tmp/rdt-smoke/rdt-smoke.tar.gz
+          EXPECTED="$(sha256sum "$LOCAL" | awk '{print $1}')"
+          $W r2 object put "$R2_BUCKET/$R2_KEY"             --file="$LOCAL" --remote --config=cloudflare/runner3-core/wrangler.jsonc
+          $W r2 object get "$R2_BUCKET/$R2_KEY"             --file=/tmp/rdt-smoke/readback.tar.gz --remote --config=cloudflare/runner3-core/wrangler.jsonc
+          ACTUAL="$(sha256sum /tmp/rdt-smoke/readback.tar.gz | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          echo "RDT_SMOKE_R2_PASS sha256=$ACTUAL key=$R2_KEY"
+          $W r2 object delete "$R2_BUCKET/$R2_KEY"             --remote --config=cloudflare/runner3-core/wrangler.jsonc
+          echo "RDT_SMOKE_R2_CLEANUP_PASS"
+
+      - name: Verify no Reddit D1 tables exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "
+            SELECT name FROM sqlite_schema
+            WHERE type='table' AND name IN (
+              'reddit_scan_runs','reddit_posts','reddit_comments','reddit_post_tags'
+            ) ORDER BY name;
+          " > /tmp/rdt-smoke/d1.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/rdt-smoke/d1.json')); rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if isinstance(x.get('results'),list): rows.extend(x['results'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          if rows:
+              raise SystemExit(f"RDT_D1_TABLES_PRESENT:{rows}")
+          print("RDT_SMOKE_D1_NONE_PASS")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realdaytrading-smoke
+          path: |
+            /tmp/rdt-smoke/rdt-smoke.tar.gz
+            /tmp/rdt-smoke/manifest.json
+            /tmp/rdt-smoke/rdt-smoke.sha256
+          retention-days: 1
