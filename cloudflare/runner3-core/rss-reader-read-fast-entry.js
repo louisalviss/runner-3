@@ -415,6 +415,13 @@ async function loadFallbackApp() {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/reddit/deep-sweep/")) {
+      return Response.json({
+        ok: false,
+        error: "REALDAYTRADING_D1_RUNTIME_RETIRED",
+        storage: "R2_RAW_PLUS_SQLITE_JSONL_TELEGRAM",
+      }, { status: 410, headers: { "Cache-Control": "no-store" } });
+    }
     const deliveryResponse = await routeDelivery(request, env, url);
     if (deliveryResponse) return deliveryResponse;
     const rss = rssEnv(env);
