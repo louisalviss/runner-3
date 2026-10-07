@@ -1,13 +1,13 @@
 {
   "schema_version": 4,
-  "status": "quota-safe-domain-isolation-complete",
-  "recorded_at": "2026-10-07T22:03:52Z",
+  "status": "context-merged-core-cleanup-pending",
+  "recorded_at": "2026-10-07T22:25:11.680154Z",
   "final_checkpoint": "ops/checkpoints/d1-domain-isolation-2026-10-08-0503-VN-FINAL.md",
   "supersedes_checkpoint": "ops/checkpoints/d1-domain-isolation-2026-10-08-0443-VN.md",
   "authorities": {
     "control_plane": "runner3-core",
     "task_context": "louis-task-context",
-    "context_index": "louis-context-index",
+    "context_index": "louis-task-context (project=context-index; shared physical D1 with task_context)",
     "content_intelligence": "runner3-content-intelligence",
     "rss": "runner3-rss",
     "reddit": "R2 canonical + SQLite/JSONL query bundle + Telegram backup/delivery; D1 retired and legacy tables purged",
@@ -24,13 +24,14 @@
   "quota": {
     "free_tier_daily_row_write_limit": 100000,
     "safe_ceiling": 70000,
-    "inventory_count": 9,
+    "inventory_count": 8,
     "latest_watch_run_id": 37693689645,
     "latest_watch_rows_written": 55905,
     "latest_watch_projected_rows_per_day": 60809,
     "latest_watch_result": "pass",
     "account_wide_watch": ".github/workflows/runner3-d1-usage-watch.yml",
-    "preflight_script": "scripts/d1_account_quota_preflight.py"
+    "preflight_script": "scripts/d1_account_quota_preflight.py",
+    "free_slots": 2
   },
   "guardrails": {
     "legacy_full_recopy_workflows": "archived/fail-safe",
@@ -43,9 +44,18 @@
     "reddit_d1_runtime": "all /reddit/deep-sweep/* D1 runtime routes retired with HTTP 410",
     "reddit_legacy_purge": "complete; DROP TABLE path verified with rows_written=15 for all four legacy tables",
     "clm_slot_pressure_migration": "forbidden unless independently justified; do not run clm-d1-to-r2-migration merely to free a D1 slot",
-    "ebook_remigration": "do not rerun unless drift is proven"
+    "ebook_remigration": "do not rerun unless drift is proven",
+    "task_context_cohabitation": "TASK_CONTEXT_DB and CONTEXT_INDEX_DB share louis-task-context; logical separation is by project namespace."
   },
-  "pending": {},
+  "pending": {
+    "runner3_core_legacy_purge": {
+      "state": "migration_prepared_not_applied",
+      "migration": "cloudflare/runner3-core/migrations/0018_drop_legacy_domain_tables.sql",
+      "backup_r2": "runner3-artifacts/d1-migration-backups/2026-10-08/review-merge-cleanup/runner3-core-legacy.sql.gz",
+      "backup_sha256": "0ea2b922e09aedcc67abc3e150e735a22e573a6a26fa7fe94155b5d808f1cf58",
+      "reason": "destructive migration execution was blocked by the current tool safety gate"
+    }
+  },
   "reddit_archive": {
     "r2_key": "reddit/RealDayTrading/corpus/snapshots/20261007T203155Z/realdytrading-corpus-20261007T203155Z.tar.gz",
     "sha256": "f724b5237f5c4f185f0abded0518b2748cc3b235768d98753083ca604a47df97",
@@ -96,6 +106,61 @@
       "reddit_d1_retire_run_id": 37683136867,
       "reddit_legacy_purge_run_id": 37685747444,
       "result": "pass"
+    },
+    "context_index_merge": {
+      "source_rows": 12,
+      "target_db": "louis-task-context",
+      "target_project": "context-index",
+      "production_binding": "CONTEXT_INDEX_DB -> louis-task-context",
+      "service_smoke": "PASS",
+      "target_updated_at": "2026-10-07 22:11:08",
+      "retired_db": "louis-context-index",
+      "backup_r2": "runner3-artifacts/d1-migration-backups/2026-10-08/review-merge-cleanup/louis-context-index.sql.gz",
+      "backup_sha256": "962b640a77f12c80451ffa1727dd1ef9b7ca77fa6a88f6b91603585108b2ee46"
+    },
+    "personal_library_reconcile": {
+      "core_library_ids": 1655,
+      "personal_library_ids": 1655,
+      "comic_rows_added": 37,
+      "ebook_rows": 1618,
+      "ebook_reader_progress_key_parity": "PASS",
+      "ebook_reader_state_key_parity": "PASS",
+      "ebook_reader_trace_key_parity": "PASS"
+    },
+    "content_intelligence_superset": {
+      "content_items": {
+        "core": 2835,
+        "dedicated": 2853,
+        "missing_core_keys": 0
+      },
+      "content_features": {
+        "core": 13914,
+        "dedicated": 14328,
+        "missing_core_keys": 0
+      },
+      "content_scores": {
+        "core": 1961,
+        "dedicated": 2061,
+        "missing_core_keys": 0
+      },
+      "user_content_events": {
+        "core": 4802,
+        "dedicated": 5017,
+        "missing_core_keys": 0
+      },
+      "note": "one stale core-only interest_profile key topic/semiconductors is not active in dedicated canonical profile and remains recoverable from backup"
+    },
+    "opportunity_superset": {
+      "current": {
+        "core": 1,
+        "dedicated": 2,
+        "missing_core_keys": 0
+      },
+      "history": {
+        "core": 1,
+        "dedicated": 6,
+        "missing_core_keys": 0
+      }
     }
   }
 }
