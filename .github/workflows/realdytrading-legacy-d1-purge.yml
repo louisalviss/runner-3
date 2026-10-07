@@ -64,7 +64,9 @@ jobs:
           $W d1 execute runner3-core --remote --json --command "
             SELECT COUNT(*) AS n
             FROM sqlite_schema
-            WHERE type='table' AND name='reddit_scan_runs';
+            WHERE type='table' AND name IN (
+              'reddit_scan_runs','reddit_posts','reddit_comments','reddit_post_tags'
+            );
           " > /tmp/exists.json
           exists="$(python3 - <<'PY'
           import json
