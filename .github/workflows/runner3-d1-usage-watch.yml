@@ -149,3 +149,17 @@ jobs:
             (SELECT COUNT(*) FROM ebook_reader_state_v72) AS ebook_reader_state_v72,
             (SELECT COUNT(*) FROM ebook_reader_trace_v113) AS ebook_reader_trace_v113;"
           npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "$SQL"
+          echo "REDDIT_SUBREDDIT_DISTRIBUTION"
+          npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "
+            SELECT subreddit, COUNT(*) AS posts
+            FROM reddit_posts
+            GROUP BY subreddit
+            ORDER BY posts DESC;
+          "
+          echo "REDDIT_RUN_DISTRIBUTION"
+          npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "
+            SELECT subreddit, mode, COUNT(*) AS runs
+            FROM reddit_scan_runs
+            GROUP BY subreddit, mode
+            ORDER BY runs DESC;
+          "
