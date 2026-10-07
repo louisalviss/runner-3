@@ -60,3 +60,15 @@ R25 resume acceptance verified twice: first run reconciled the registries, secon
 - No R26-R28 result is promoted to PROJECTS.
 - Next discovery identity: R29+.
 - R28 seed bank in GitHub has been verified against the recovered runtime original and now matches the exact generated seed identities/timestamp.
+
+
+## R29 terminal continuation — 2026-10-08
+
+- R29 exact-SERP queue: 3 candidates.
+- mixed fraction calculator: 12,690 cluster volume / median KD26.5 -> `DROP_SERP_SATURATED`.
+- 50:1 gas/oil mix calculator: 2,020 cluster volume / median KD13 -> `DROP_SERP_SATURATED`.
+- baluster spacing calculator: 1,140 cluster volume / median KD23.5 -> `DROP_SERP_SATURATED`.
+- Terminal: `COMPLETE_NO_SURVIVOR`.
+- Tested registry advanced 141 -> 144.
+- Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
+- Next discovery identity: R30+.
