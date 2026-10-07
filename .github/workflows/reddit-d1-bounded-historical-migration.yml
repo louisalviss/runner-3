@@ -1,0 +1,175 @@
+name: Reddit D1 Bounded Historical Migration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reddit-d1-bounded-historical-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_PLANNED_ROWS: '35000'
+      D1_SAFE_CEILING: '70000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Account-wide D1 budget preflight
+        run: python3 scripts/d1_account_quota_preflight.py
+
+      - name: Ensure Reddit target schema
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute runner3-reddit --remote             --file cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql
+
+      - name: Export legacy Reddit corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          mkdir -p /tmp/reddit-d1/source /tmp/reddit-d1/out
+          for t in reddit_scan_runs reddit_posts reddit_comments reddit_post_tags; do
+            $W d1 export runner3-core --remote --skip-confirmation               --table="$t" --no-schema --output="/tmp/reddit-d1/source/$t.sql"
+          done
+
+      - name: Build bounded D1 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, sqlite3
+
+          root=pathlib.Path('/tmp/reddit-d1')
+          src=root/'source'
+          out=root/'out'
+
+          def safe_insert_file(name):
+              text=(src/f'{name}.sql').read_text()
+              lines=[]
+              for line in text.splitlines():
+                  if line.startswith('INSERT INTO '):
+                      line=line.replace('INSERT INTO ','INSERT OR IGNORE INTO ',1)
+                  lines.append(line)
+              (out/f'{name}.sql').write_text('\n'.join(lines)+'\n')
+
+          for table in ('reddit_scan_runs','reddit_posts','reddit_post_tags'):
+              safe_insert_file(table)
+
+          db=sqlite3.connect(':memory:')
+          db.executescript(pathlib.Path('cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql').read_text())
+          db.executescript((src/'reddit_comments.sql').read_text())
+
+          rows=db.execute('''
+            SELECT comment_id,post_id,parent_id,author,depth,body_text,body_hash,score,created_utc,quality_score
+            FROM (
+              SELECT *,
+                ROW_NUMBER() OVER (
+                  PARTITION BY post_id
+                  ORDER BY quality_score DESC, MAX(score,0) DESC, LENGTH(body_text) DESC
+                ) AS rn
+              FROM reddit_comments
+            )
+            WHERE rn <= 12
+            ORDER BY post_id, quality_score DESC, score DESC
+          ''').fetchall()
+
+          def q(v):
+              if v is None: return 'NULL'
+              if isinstance(v,(int,float)): return str(v)
+              return "'" + str(v).replace("'","''").replace("\x00","") + "'"
+
+          cols=('comment_id','post_id','parent_id','author','depth','body_text','body_hash','score','created_utc','quality_score')
+          chunk=200
+          for offset in range(0,len(rows),chunk):
+              statements=[]
+              for row in rows[offset:offset+chunk]:
+                  statements.append(
+                    'INSERT OR IGNORE INTO reddit_comments ('+','.join(cols)+') VALUES ('+
+                    ','.join(q(v) for v in row)+');'
+                  )
+              (out/f'comments-{offset//chunk:04d}.sql').write_text('\n'.join(statements)+'\n')
+
+          (out/'selected-count.txt').write_text(str(len(rows))+'\n')
+          print(f'REDDIT_SELECTED_COMMENTS={len(rows)} cap=12')
+          PY
+
+      - name: Import bounded corpus without destructive clears
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          for t in reddit_scan_runs reddit_posts reddit_post_tags; do
+            $W d1 execute runner3-reddit --remote --file="/tmp/reddit-d1/out/$t.sql"
+          done
+          for f in /tmp/reddit-d1/out/comments-*.sql; do
+            [ -e "$f" ] || continue
+            $W d1 execute runner3-reddit --remote --file="$f"
+          done
+
+      - name: Verify exact bounded parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          SRC_SQL="SELECT
+            (SELECT COUNT(*) FROM reddit_scan_runs) AS runs,
+            (SELECT COUNT(*) FROM reddit_posts) AS posts,
+            (SELECT COUNT(*) FROM reddit_post_tags) AS tags,
+            (SELECT COUNT(*) FROM (
+              SELECT comment_id, ROW_NUMBER() OVER (
+                PARTITION BY post_id
+                ORDER BY quality_score DESC, MAX(score,0) DESC, LENGTH(body_text) DESC
+              ) AS rn
+              FROM reddit_comments
+            ) WHERE rn <= 12) AS comments;"
+          DST_SQL="SELECT
+            (SELECT COUNT(*) FROM reddit_scan_runs) AS runs,
+            (SELECT COUNT(*) FROM reddit_posts) AS posts,
+            (SELECT COUNT(*) FROM reddit_post_tags) AS tags,
+            (SELECT COUNT(*) FROM reddit_comments) AS comments;"
+          $W d1 execute runner3-core --remote --json --command "$SRC_SQL" > /tmp/reddit-d1/source-counts.json
+          $W d1 execute runner3-reddit --remote --json --command "$DST_SQL" > /tmp/reddit-d1/target-counts.json
+          python3 - <<'PY'
+          import json
+          def first(path):
+              data=json.load(open(path))
+              rows=[]
+              def walk(x):
+                  if isinstance(x,dict):
+                      if isinstance(x.get('results'),list): rows.extend(x['results'])
+                      for v in x.values(): walk(v)
+                  elif isinstance(x,list):
+                      for v in x: walk(v)
+              walk(data)
+              if not rows: raise SystemExit(f'NO_ROWS:{path}')
+              return {k:int(rows[0][k]) for k in ('runs','posts','tags','comments')}
+          src=first('/tmp/reddit-d1/source-counts.json')
+          dst=first('/tmp/reddit-d1/target-counts.json')
+          print(json.dumps({'source_bounded':src,'target':dst},indent=2))
+          if src != dst:
+              raise SystemExit(f'REDDIT_BOUNDED_PARITY_FAIL source={src} target={dst}')
+          print('REDDIT_BOUNDED_PARITY_PASS')
+          PY
+
+      - name: Guardrail
+        run: |
+          echo "Historical corpus migrated with top-12-per-thread D1 comment retention."
+          echo "Full raw comment trees remain in R2."
+          echo "This workflow does not modify REDDIT_DB binding and does not delete runner3-core legacy rows."
