@@ -242,7 +242,11 @@ export default {
     const url = new URL(request.url);
     const reddit = redditEnv(env);
     if (url.pathname === "/reddit/deep-sweep/ingest") {
-      return handleIngest(request, reddit);
+      return Response.json({
+        ok: false,
+        error: "REALDAYTRADING_D1_INGEST_RETIRED",
+        storage: "R2_RAW_PLUS_SQLITE_JSONL_TELEGRAM",
+      }, { status: 410 });
     }
     const match = url.pathname.match(/^\/reddit\/deep-sweep\/runs\/([^/]+)$/);
     if (match) {
