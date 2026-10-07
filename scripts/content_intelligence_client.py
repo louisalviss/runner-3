@@ -117,9 +117,9 @@ def manifest_rows(obj: dict[str, Any], source_type: str) -> tuple[list[dict[str,
     return content_rows, feature_rows, shown_rows
 
 
-def post_batches(path: str, rows: list[dict[str, Any]], core_url: str | None) -> int:
+def post_batches(path: str, rows: list[dict[str, Any]], core_url: str | None, *, batch_size: int = 50) -> int:
     applied = 0
-    for batch in batches(rows):
+    for batch in batches(rows, batch_size):
         if not batch:
             continue
         result = request_json("POST", path, {"rows": batch}, core_url=core_url)
@@ -130,7 +130,7 @@ def post_batches(path: str, rows: list[dict[str, Any]], core_url: str | None) ->
 def cmd_ingest_manifest(args: argparse.Namespace) -> int:
     obj = load_json(args.manifest)
     content_rows, feature_rows, shown_rows = manifest_rows(obj, args.source_type)
-    items_applied = post_batches("/content-intelligence/items", content_rows, args.core_url)
+    items_applied = post_batches("/content-intelligence/items", content_rows, args.core_url, batch_size=10)
     features_applied = post_batches("/content-intelligence/features", feature_rows, args.core_url)
     shown_applied = 0 if args.no_shown else post_batches("/content-intelligence/events/batch", shown_rows, args.core_url)
     result = {"ok": True, "items": items_applied, "features": features_applied, "shown_events": shown_applied}
