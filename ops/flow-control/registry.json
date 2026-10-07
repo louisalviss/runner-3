@@ -17,9 +17,23 @@
       "entrypoint": "louisalviss/vps-control:stack/ebook_auto.py",
       "workflow": "louisalviss/vps-control:.github/workflows/ebook-codex-job.yml",
       "ingress": {
-        "default_for_chatgpt_file_uploads": ["application/pdf", "application/epub+zip", ".pdf", ".epub"],
-        "accepted": ["chatgpt-library-file", "r2", "public-https-url"],
-        "explicit_intent_override": ["translate", "editorial", "qa-only", "repair"],
+        "default_for_chatgpt_file_uploads": [
+          "application/pdf",
+          "application/epub+zip",
+          ".pdf",
+          ".epub"
+        ],
+        "accepted": [
+          "chatgpt-library-file",
+          "r2",
+          "public-https-url"
+        ],
+        "explicit_intent_override": [
+          "translate",
+          "editorial",
+          "qa-only",
+          "repair"
+        ],
         "auto_when_intent_missing": true
       },
       "routing": {
@@ -37,11 +51,20 @@
         "legacy_translation": "ebook_runtime.py compatibility only",
         "web_novel": "AI-WEB-NOVEL-EPUB-001 when source is a web-novel URL rather than an uploaded file"
       },
-      "d1": {"project": "ebook", "scope": "<book_id_or_job_id>"},
+      "d1": {
+        "project": "ebook",
+        "scope": "<book_id_or_job_id>"
+      },
       "r2": {
         "bucket": "runner3-artifacts",
         "prefix": "core/ebook/<book_id_or_job_id>",
-        "layout": ["source/", "work/", "control/", "qa/", "final/"]
+        "layout": [
+          "source/",
+          "work/",
+          "control/",
+          "qa/",
+          "final/"
+        ]
       },
       "delivery": {
         "final": "R2 final/<visible-version>.epub",
@@ -49,18 +72,44 @@
         "signed_delivery_link": true,
         "max_ttl_seconds": 3600
       },
-      "sheet": {"mode": "projection", "row_key": "ebook-auto"},
-      "dropbox": {"mode": "canonical-docs-and-optional-human-final-only"},
-      "legacy_aliases": ["ebook-editorial", "ebook-translate", "ebook-bookforge", "pdf-to-epub", "epub-repair"],
-      "completion": ["FINAL_FILE_QA_PASS", "FINAL_BYTES_FROZEN", "DURABLE_COMPLETE", "SIGNED_URL_READY"]
+      "sheet": {
+        "mode": "projection",
+        "row_key": "ebook-auto"
+      },
+      "dropbox": {
+        "mode": "canonical-docs-and-optional-human-final-only"
+      },
+      "legacy_aliases": [
+        "ebook-editorial",
+        "ebook-translate",
+        "ebook-bookforge",
+        "pdf-to-epub",
+        "epub-repair"
+      ],
+      "completion": [
+        "FINAL_FILE_QA_PASS",
+        "FINAL_BYTES_FROZEN",
+        "DURABLE_COMPLETE",
+        "SIGNED_URL_READY"
+      ]
     },
     {
       "flow_id": "audio-library-tts",
       "pattern": "full",
-      "d1": {"project": "audio-library-tts", "scope": "<item_id>"},
-      "r2": {"bucket": "runner3-wp-media", "prefix": "audio-library"},
-      "sheet": {"mode": "projection"},
-      "dropbox": {"mode": "optional-human-output"}
+      "d1": {
+        "project": "audio-library-tts",
+        "scope": "<item_id>"
+      },
+      "r2": {
+        "bucket": "runner3-wp-media",
+        "prefix": "audio-library"
+      },
+      "sheet": {
+        "mode": "projection"
+      },
+      "dropbox": {
+        "mode": "optional-human-output"
+      }
     },
     {
       "flow_id": "reddit-deep-sweep",
@@ -69,30 +118,67 @@
         "workflow": ".github/workflows/reddit-thread-read.yml",
         "request": "ops/reddit-thread-read/request.json",
         "checkpoint": "ops/reddit-thread-read/latest.json",
-        "resolver_order": ["canonical", "rxddit"],
+        "resolver_order": [
+          "canonical",
+          "rxddit"
+        ],
         "thread_acquisition": "arctic-shift-recursive-tree",
         "coverage_rule": "use captured tree snapshot counts; do not infer completeness from reported_num_comments"
       },
-      "d1": {"project": "reddit-deep-sweep", "scope": "<subreddit>", "custom_index": true},
-      "r2": {"bucket": "runner3-artifacts", "prefix": "reddit/<subreddit>"},
-      "sheet": {"mode": "projection"},
-      "dropbox": {"mode": "optional-digest-only"}
+      "d1": {
+        "project": "reddit-deep-sweep",
+        "scope": "<subreddit>",
+        "custom_index": true,
+        "comment_retention": "top_quality_bounded",
+        "max_comments_per_thread": 12,
+        "full_comment_tree": "R2 only",
+        "historical_migration": ".github/workflows/reddit-d1-bounded-historical-migration.yml"
+      },
+      "r2": {
+        "bucket": "runner3-artifacts",
+        "prefix": "reddit/<subreddit>",
+        "raw_evidence": "full listings/wiki/thread payloads including complete comment trees"
+      },
+      "sheet": {
+        "mode": "projection"
+      },
+      "dropbox": {
+        "mode": "optional-digest-only"
+      }
     },
     {
       "flow_id": "rss-reader",
       "pattern": "lean",
-      "d1": {"project": "rss-reader", "role": "operational-shadow-checkpoint"},
-      "r2": {"mode": "not-required-by-default"},
-      "sheet": {"mode": "optional-projection"},
-      "dropbox": {"mode": "optional-report"}
+      "d1": {
+        "project": "rss-reader",
+        "role": "operational-shadow-checkpoint"
+      },
+      "r2": {
+        "mode": "not-required-by-default"
+      },
+      "sheet": {
+        "mode": "optional-projection"
+      },
+      "dropbox": {
+        "mode": "optional-report"
+      }
     },
     {
       "flow_id": "vietnam-news-radar",
       "pattern": "lean",
-      "d1": {"project": "vietnam-news-radar", "role": "bounded-story-and-f33-ledger"},
-      "r2": {"mode": "only-for-large-raw-archives"},
-      "sheet": {"mode": "optional-projection"},
-      "dropbox": {"mode": "human-report"}
+      "d1": {
+        "project": "vietnam-news-radar",
+        "role": "bounded-story-and-f33-ledger"
+      },
+      "r2": {
+        "mode": "only-for-large-raw-archives"
+      },
+      "sheet": {
+        "mode": "optional-projection"
+      },
+      "dropbox": {
+        "mode": "human-report"
+      }
     },
     {
       "flow_id": "business-opportunity-research-ledger",
@@ -102,8 +188,12 @@
         "binding": "BUSINESS_OPPORTUNITY_DB",
         "role": "cross-source-candidate-identity-evidence-state"
       },
-      "r2": {"mode": "not-required-by-default"},
-      "sheet": {"mode": "optional-projection"},
+      "r2": {
+        "mode": "not-required-by-default"
+      },
+      "sheet": {
+        "mode": "optional-projection"
+      },
       "dropbox": {
         "mode": "human-canonical-project-docs",
         "portfolio_authority": "AI-MEMORY/PROJECTS/Projects Map.md"
@@ -113,18 +203,36 @@
     {
       "flow_id": "opportunity-radar-v2",
       "pattern": "special",
-      "d1": {"project": "opportunity-radar-v2", "role": "runtime-checkpoint"},
-      "r2": {"mode": "only-for-large-artifacts"},
-      "sheet": {"mode": "decision-layer-plus-projection", "human_decisions_authoritative": true},
-      "dropbox": {"mode": "docs-archive"}
+      "d1": {
+        "project": "opportunity-radar-v2",
+        "role": "runtime-checkpoint"
+      },
+      "r2": {
+        "mode": "only-for-large-artifacts"
+      },
+      "sheet": {
+        "mode": "decision-layer-plus-projection",
+        "human_decisions_authoritative": true
+      },
+      "dropbox": {
+        "mode": "docs-archive"
+      }
     },
     {
       "flow_id": "wordpress-optimizer",
       "pattern": "lean",
-      "d1": {"role": "site-run-machine-state"},
-      "r2": {"mode": "use-for-large-proof-artifacts"},
-      "sheet": {"mode": "projection"},
-      "dropbox": {"mode": "human-report-final"}
+      "d1": {
+        "role": "site-run-machine-state"
+      },
+      "r2": {
+        "mode": "use-for-large-proof-artifacts"
+      },
+      "sheet": {
+        "mode": "projection"
+      },
+      "dropbox": {
+        "mode": "human-report-final"
+      }
     }
   ]
 }
