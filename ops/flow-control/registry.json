@@ -113,27 +113,26 @@
     },
     {
       "flow_id": "reddit-deep-sweep",
-      "pattern": "full",
+      "pattern": "archive",
       "d1": {
-        "project": "reddit-deep-sweep",
-        "scope": "RealDayTrading",
-        "custom_index": true,
-        "comment_retention": "top_quality_bounded",
-        "max_comments_per_thread": 12,
-        "full_comment_tree": "R2 only",
-        "historical_migration": ".github/workflows/reddit-d1-bounded-historical-migration.yml",
-        "reserved_for": "RealDayTrading corpus only"
+        "mode": "none",
+        "hard_rule": "RealDayTrading corpus must not use D1"
       },
       "r2": {
         "bucket": "runner3-artifacts",
         "prefix": "reddit/RealDayTrading",
-        "raw_evidence": "full RealDayTrading corpus evidence; linked cross-subreddit threads allowed only when discovered through the RealDayTrading corpus"
+        "role": "canonical",
+        "layout": {
+          "raw_runs": "reddit/RealDayTrading/runs/",
+          "corpus_snapshots": "reddit/RealDayTrading/corpus/snapshots/",
+          "latest_pointer": "reddit/RealDayTrading/corpus/latest.json"
+        }
       },
       "sheet": {
         "mode": "projection"
       },
       "dropbox": {
-        "mode": "optional-digest-only"
+        "mode": "flow-docs-only"
       },
       "scope": {
         "canonical_subreddit": "RealDayTrading",
@@ -145,6 +144,16 @@
           "Reddit MMO Scan",
           "other subreddit crawls"
         ]
+      },
+      "local_query": {
+        "format": "SQLite + JSONL",
+        "role": "working/query index",
+        "full_comments": true
+      },
+      "telegram": {
+        "target": "Trading Research Library",
+        "chat_id": "-1003986555024",
+        "role": "backup/delivery"
       }
     },
     {
