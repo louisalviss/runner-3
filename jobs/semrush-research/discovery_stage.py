@@ -35,7 +35,9 @@ def was_tested(subject, tested):
     s=desc(subject)
     if not s: return True
     for d in tested:
-        if s <= d or d <= s:
+        if d == s or d <= s:
+            return True
+        if len(s)==1 and s <= d and len(d)<=2:
             return True
     return False
 
