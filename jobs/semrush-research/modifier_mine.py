@@ -13,8 +13,9 @@ GENERIC = {
 QUESTION = {"how","what","where","why","when","who","does","do","can","is","are"}
 STOP = {"a","an","and","in","on","to","of","the","with","using","my","your","at","from"}
 NOISE = {"word","excel","google","sheets","photoshop"}
-BANNED = {"gun","guns","firearm","firearms","weapon","weapons","colt","ruger","winchester","remington"}
-AI_WEAK = {"definition","meaning","formula","explain","explained","tutorial","example","examples","incidence"}
+BANNED = {"gun","guns","firearm","firearms","weapon","weapons","bullet","ammo","ammunition","colt","ruger","winchester","remington","prostate","dosage","dose","medication","insulin","pregnancy","medical","health","body","blood","heart","kidney"}
+RETAIL_NOISE = {"bazic","desktop","pocket","digit"}
+AI_WEAK = {"definition","meaning","formula","explain","explained","tutorial","example","examples","incidence","best"}
 
 def norm(s):
     return re.sub(r"\s+"," ",re.sub(r"[^a-z0-9+%.-]+"," ",str(s or "").lower())).strip()
@@ -30,8 +31,9 @@ def subject_key(kw):
     ts=tokens(kw)
     if not ts:return ""
     if ts[0] in QUESTION:return ""
-    core=[t for t in ts if t not in GENERIC and t not in QUESTION and t not in STOP]
+    core=[t for t in ts if len(t)>=2 and t not in GENERIC and t not in QUESTION and t not in STOP]
     if not core or set(core) & BANNED:return ""
+    if set(core) & RETAIL_NOISE:return ""
     # Preserve compact nouns/brands while avoiding excessively specific tails.
     return " ".join(core[:3])
 
