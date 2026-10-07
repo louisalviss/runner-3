@@ -48,3 +48,15 @@ Terminal close now includes candidate registry reconciliation:
 The sync also runs on `RESUME_NO_BACKTRACK` and zero-candidate terminal paths. If Dropbox reconciliation fails after SERP finalization, the cycle returns BLOCKED at sync; the next invocation reuses terminal artifacts and retries sync without reacquiring or re-running SERP work.
 
 R25 resume acceptance verified twice: first run reconciled the registries, second run returned both Dropbox targets as `unchanged=true`.
+
+
+## R26-R28 terminal continuation — 2026-10-08
+
+- R26: 8 new modifier roots; 1 exact-SERP candidate, `jobs that don't require background checks`. Mechanical outcome `BLOCKED_INCOMPLETE_SERP`; business/lifecycle override `DROP_INFORMATIONAL_EMPLOYMENT_NOISE`. Employment informational-noise filter added.
+- R27: 8 new modifier roots; 5 exact-SERP candidates. Four were `DROP_SERP_SATURATED`; Goodman warranty lookup mechanically passed with ~12.1K volume / KD26 / 4 exact tools top10, but the official Goodman domain occupied 7/10 results. Lifecycle override: `DROP_OFFICIAL_AUTHORITY_NO_BUILD`.
+- R28: terminal `COMPLETE_NO_CANDIDATE`; no new SERP records.
+- Exact-SERP tested registry after R27/R28: 141 records.
+- Current #1 remains `Psychrometric HVAC Toolkit — WATCH_STRONG_CANDIDATE`.
+- No R26-R28 result is promoted to PROJECTS.
+- Next discovery identity: R29+.
+- R28 seed bank in GitHub is a deterministic recovery reconstruction from catalog order; verify against the runtime original when the host is available.
