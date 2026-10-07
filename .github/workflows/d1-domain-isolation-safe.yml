@@ -1,0 +1,110 @@
+name: D1 Domain Isolation Safe Prepare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d1-domain-isolation-safe-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_PLANNED_ROWS: '2000'
+      D1_SAFE_CEILING: '70000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Account-wide write-budget preflight
+        run: python3 scripts/d1_account_quota_preflight.py
+
+      - name: Prepare Personal Library ebook reader schema
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 d1 execute personal-library --remote             --file cloudflare/runner3-core/migrations-personal-library/0003_ebook_reader_state.sql
+
+      - name: Copy ebook reader state without destructive clears
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          TMP=/tmp/d1-safe-ebook
+          mkdir -p "$TMP"
+          tables=(ebook_reader_progress_v65 ebook_reader_state_v72 ebook_reader_trace_v113)
+          for t in "${tables[@]}"; do
+            $W d1 export runner3-core --remote --skip-confirmation --table="$t" --no-schema --output="$TMP/$t.sql"
+            python3 - "$TMP/$t.sql" "$TMP/$t.safe.sql" <<'PY'
+          import pathlib,sys
+          src=pathlib.Path(sys.argv[1]).read_text()
+          lines=[]
+          for line in src.splitlines():
+              if line.startswith('INSERT INTO '):
+                  line=line.replace('INSERT INTO ','INSERT OR IGNORE INTO ',1)
+              lines.append(line)
+          pathlib.Path(sys.argv[2]).write_text("\n".join(lines)+"\n")
+          PY
+            if grep -q '^INSERT OR IGNORE INTO ' "$TMP/$t.safe.sql"; then
+              $W d1 execute personal-library --remote --file="$TMP/$t.safe.sql"
+            fi
+          done
+
+      - name: Verify ebook reader counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          SQL="SELECT
+            (SELECT COUNT(*) FROM ebook_reader_progress_v65) AS progress,
+            (SELECT COUNT(*) FROM ebook_reader_state_v72) AS state,
+            (SELECT COUNT(*) FROM ebook_reader_trace_v113) AS trace;"
+          echo CORE
+          npx --yes wrangler@4 d1 execute runner3-core --remote --json --command "$SQL"
+          echo PERSONAL_LIBRARY
+          npx --yes wrangler@4 d1 execute personal-library --remote --json --command "$SQL"
+
+      - name: Reserve Reddit dedicated D1 and apply schema only
+        shell: bash
+        run: |
+          set -euo pipefail
+          W='npx --yes wrangler@4'
+          $W d1 list --json > /tmp/d1-list.json
+          count=$(python3 - <<'PY'
+          import json
+          print(len(json.load(open('/tmp/d1-list.json'))))
+          PY
+          )
+          exists=$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/d1-list.json'))
+          print('1' if any(x.get('name')=='runner3-reddit' for x in data) else '0')
+          PY
+          )
+          if [ "$exists" = 0 ]; then
+            if [ "$count" -ge 10 ]; then
+              echo "::error::No D1 slot available for runner3-reddit"
+              exit 4
+            fi
+            $W d1 create runner3-reddit --location apac
+          fi
+          $W d1 execute runner3-reddit --remote --file cloudflare/runner3-core/migrations/0003_reddit_deep_sweep.sql
+          $W d1 list --json
+          echo "REDDIT_SCHEMA_PREPARED_NO_DATA_COPY"
+
+      - name: Guardrail
+        run: |
+          echo "No Reddit data copy and no Worker binding cutover are performed by this prepare workflow."
