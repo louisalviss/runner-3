@@ -1,30 +1,39 @@
 {
-  "schema_version": 2,
-  "status": "quota-aware-partial-cutover",
-  "recorded_at": "2026-10-06T22:24:47.828757+00:00",
+  "schema_version": 3,
+  "status": "safe-partial-cutover-reddit-data-pending",
+  "recorded_at": "2026-10-07T19:34:19Z",
   "authorities": {
     "control_plane": "runner3-core",
     "task_context": "louis-task-context",
     "context_index": "louis-context-index",
     "content_intelligence": "runner3-content-intelligence",
     "rss": "runner3-rss",
-    "reddit": "runner3-core (quota-blocked legacy)",
-    "ebook": "runner3-core (quota-blocked legacy)",
+    "reddit": "runner3-core live; runner3-reddit schema prepared, historical data cutover pending",
+    "ebook": "personal-library",
     "opportunity_radar": "runner3-opportunity-radar",
     "business_opportunity": "runner3-opportunity-radar",
     "personal_library": "personal-library",
     "media_library": "personal-library",
     "common_access_d1": "runner3-core",
-    "wp_optimizer": "runner3-wp-optimizer",
     "volamidle": "volamidle-rogue-data",
-    "clm_copilot": "clm-copilot-v1"
+    "clm_copilot": "clm-copilot-v1",
+    "wp_optimizer": "retired"
   },
   "quota": {
-    "limit": 10,
-    "blocked_dedicated_domains": [
-      "runner3-reddit",
-      "runner3-ebook"
-    ]
+    "free_tier_daily_row_write_limit": 100000,
+    "safe_ceiling": 70000,
+    "inventory_count": 10,
+    "account_wide_watch": ".github/workflows/runner3-d1-usage-watch.yml",
+    "preflight_script": "scripts/d1_account_quota_preflight.py"
   },
-  "legacy_policy": "Do not delete core legacy rows/tables until dedicated bindings have proven multiple healthy cycles."
+  "guardrails": {
+    "legacy_full_recopy_workflows": "archived/fail-safe",
+    "safe_prepare_workflow": ".github/workflows/d1-domain-isolation-safe.yml",
+    "migration_mode": "incremental/no destructive clears",
+    "context_index": "5-minute local probe; D1 change-only plus 1-hour heartbeat"
+  },
+  "pending": {
+    "reddit": "copy historical rows in bounded quota-budgeted batches, verify parity, then add REDDIT_DB binding and deploy",
+    "legacy_cleanup": "retain runner3-core legacy rows until dedicated authorities have proven healthy cycles"
+  }
 }
