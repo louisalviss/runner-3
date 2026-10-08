@@ -1,0 +1,50 @@
+name: WR TradingView Feed Parity
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-tv-parity.yml'
+      - 'wave-rider-verify/wr_tv_parity.py'
+      - 'wave-rider-verify/wr_tv_parity_more.py'
+      - 'wave-rider-verify/wr_tv_recent_cases.py'
+      - 'wave-rider-verify/wr_tv_recent_cases_exitreport.py'
+      - 'wave-rider-verify/wr_tv_pivot_diagnostic.py'
+      - 'wave-rider-verify/wr_tv_rightmost_final.py'
+      - 'wave-rider-verify/wr_tv_next5.py'
+      - 'wave-rider-verify/wr_tv_next5_10m.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client requests
+      - name: Fetch frozen WR reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Generate recent provider-exact parity cases
+        run: python3 wave-rider-verify/wr_tv_recent_cases_exitreport.py
+      - name: Diagnose Pine pivot tie semantics
+        run: python3 wave-rider-verify/wr_tv_pivot_diagnostic.py
+      - name: Assert final Pine rightmost parity
+        run: python3 wave-rider-verify/wr_tv_rightmost_final.py
+      - name: Generate next five blind-check cases
+        run: python3 wave-rider-verify/wr_tv_next5.py
+      - name: Generate same five 10m cases
+        run: python3 wave-rider-verify/wr_tv_next5_10m.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-tv-parity
+          path: |
+            wave-rider-verify/output/tv-recent-cases
+            wave-rider-verify/output/tv-pivot-diagnostic
+            wave-rider-verify/output/tv-rightmost-final
+            wave-rider-verify/output/tv-next5
+            wave-rider-verify/output/tv-next5-10m
+          retention-days: 14

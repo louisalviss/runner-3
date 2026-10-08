@@ -1,0 +1,30 @@
+name: WR TradingView Range Parity
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-tv-parity-range.yml'
+      - 'wave-rider-verify/wr_tv_parity_range.py'
+      - 'wave-rider-verify/wr_tv_parity.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install websocket-client requests
+      - run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run exact TradingView range parity
+        run: python3 wave-rider-verify/wr_tv_parity_range.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-tv-parity-range
+          path: wave-rider-verify/output/tv-parity
+          retention-days: 14
