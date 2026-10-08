@@ -111,7 +111,7 @@ def main():
     if not allowed:
         print(
             f"::error::D1_BUDGET_BLOCKED current={current} planned={planned} "
-            f"projected={projected} ceiling={ceiling}",
+            f"projected={projected} ceiling={ceiling} rowsRead={current_reads} projectedReads={projected_reads} readCeiling={read_ceiling}",
             file=sys.stderr,
         )
         raise SystemExit(3)
