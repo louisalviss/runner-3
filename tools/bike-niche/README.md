@@ -51,3 +51,13 @@ The deployed scripts live under `/opt/bike-niche-corpus` (except the secure Tele
 `normalize_geometry.py` enforces conservative, metric-specific physical limits across 16 measurements (stack, reach, head/seat angles, tube dimensions, wheelbase, bottom bracket, fork, trail and standover). Nonphysical values (e.g. negative 7,730-mm bottom bracket height) are excluded from searchable numeric rows but retained in the original site snapshots and an audit table `rejected_measurements`. A live October 9 audit retired 5,714 pre-existing impossible rows; `PRAGMA quick_check` and twelve synthetic metric boundary tests passed. Avoid treating all manufacturer-reported field values as verified.
 
 `checkpoint_geometry.py` now writes a separate immutable checkpoint workspace, never into the final publication directory, to avoid overwriting a concurrent final release. It stores the SQLite numeric index plus rejected-measurement audit in R2 (verified multi-part objects when above 30 MiB) and writes a guarded D1 checkpoint that cannot replace a `published` pointer.
+
+
+## Restore-from-R2 acceptance
+
+`restore_r2_shards.py` reads the **remote** immutable R2 manifest, downloads ordered parts, checks each part's SHA256/byte count, concatenates to a temporary file, checks the complete archive SHA256/byte count, and only then atomically promotes the reconstructed `.tar.zst`. This supports both archive layouts already deployed:
+
+- `r2-sharded-tar`: normalized geometry and source releases using `*.r2-parts-manifest.json`.
+- `inprogress-checkpoint`: the earlier Geometry Geeks partial backup using `parts-manifest.json` and `readback_verified` flags.
+
+Recovery needs the exact R2 manifest key and an output directory. It does not change active D1 pointers, publish releases, or touch the source crawler. Do not regard R2 upload-only success as restore proof.
