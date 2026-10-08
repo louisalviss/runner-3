@@ -64,6 +64,9 @@ def main():
  run(["python3",str(ROOT/"qa_sources.py")],600)
  run(["python3",str(ROOT/"entity_crosswalk.py")],600)
  run(["python3",str(ROOT/"biklo_fit_index.py")],600)
+ # Fail closed if any source or derived watermark is incomplete.
+ audit=json.loads(run(["python3",str(ROOT/"release_preflight.py")],180).strip().splitlines()[-1])
+ if not audit.get("ok"):raise RuntimeError("RELEASE_COVERAGE_AUDIT_FAILED")
  live=ROOT/"derived/geometry-index.sqlite3"
  snap=DIR/"geometry-index.sqlite3"
  arch=DIR/("bike-niche-geometry-final-"+release+".tar.zst")
@@ -85,6 +88,7 @@ def main():
   fit_db=ROOT/"derived/biklo-fit-candidates.sqlite3"
   fit_summary=ROOT/"derived/biklo-fit-candidates-summary.json"
   d={"dataset":"bike-niche-geometry-normalized","release":release,"measurements":n,"sources":sources,
+     "coverage_audit":audit,
      "outliers_audited":outliers_audited,"numeric_corrections":numeric_corrections,
      "measurements_by_source":rows,"source_db_sha256":sha(snap),"source_db_bytes":snap.stat().st_size,
      "quality_flags_sha256":sha(qa_db),"quality_flags_bytes":qa_db.stat().st_size,
