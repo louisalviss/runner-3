@@ -8,13 +8,21 @@ on:
       - 'Tin VN · Trends Live'
     types: [completed]
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/radar-vn-input-gate.yml'
+  schedule:
+    # Backup gate: eight checks/day even when source workflow schedules are skipped.
+    - cron: '7 0,3,6,9,12,15,18,21 * * *'
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: radar-vn-input-gate
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gate:
@@ -67,6 +75,75 @@ jobs:
             };
             if (sha) args.sha = sha;
             await github.rest.repos.createOrUpdateFileContents(args);
+
+      - name: Recover stale sources with bounded dispatch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const gate = JSON.parse(fs.readFileSync('radar_vn_inputs_latest.json', 'utf8'));
+            if (gate.render_allowed === true) {
+              core.info('Radar ready; no recovery dispatch needed');
+              return;
+            }
+
+            const now = Date.now();
+            const parts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(new Date(now));
+            const vn = Object.fromEntries(parts.map(part => [part.type, part.value]));
+            const targetDate = `${vn.year}-${vn.month}-${vn.day}`;
+            const reasons = new Set(gate.blocking_reasons || []);
+            const recovery = [
+              { reason: 'trends_not_healthy_fresh_top10', workflow: 'trends-vn-live.yml',
+                cooldownHours: 2, maxDispatches24h: 4, inputs: {} },
+              { reason: 'f33_not_full_healthy_fresh', workflow: 'voz-f33-daily.yml',
+                cooldownHours: 6, maxDispatches24h: 2, inputs: {target_date: targetDate} },
+              { reason: 'forum_signal_not_usable_fresh', workflow: 'forum-signal.yml',
+                cooldownHours: 3, maxDispatches24h: 3,
+                inputs: {job_file: 'forum-jobs/forum-signal-vn.json'} }
+            ];
+
+            for (const source of recovery) {
+              if (!reasons.has(source.reason)) continue;
+              let runs;
+              try {
+                const response = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  workflow_id: source.workflow, per_page: 50
+                });
+                runs = response.data.workflow_runs || [];
+              } catch (err) {
+                core.warning(`Cannot inspect ${source.workflow}; fail closed: ${err.message}`);
+                continue;
+              }
+              const ageMs = run => now - Date.parse(run.created_at || '');
+              const active = runs.some(run =>
+                ['queued', 'in_progress', 'waiting', 'requested', 'pending'].includes(run.status)
+                && ageMs(run) >= 0 && ageMs(run) < 2 * 3600 * 1000
+              );
+              const dispatched24h = runs.filter(run =>
+                run.event === 'workflow_dispatch'
+                && ageMs(run) >= 0 && ageMs(run) < 24 * 3600 * 1000
+              );
+              const recentlyDispatched = dispatched24h.some(run =>
+                ageMs(run) < source.cooldownHours * 3600 * 1000
+              );
+              if (active || recentlyDispatched ||
+                  dispatched24h.length >= source.maxDispatches24h) {
+                core.info(`Skip ${source.workflow}: active=${active}, cooldown=${recentlyDispatched}, dispatch24h=${dispatched24h.length}/${source.maxDispatches24h}`);
+                continue;
+              }
+              try {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  workflow_id: source.workflow, ref: 'main', inputs: source.inputs
+                });
+                core.notice(`Triggered bounded recovery ${source.workflow} for ${targetDate}`);
+              } catch (err) {
+                core.warning(`Dispatch failed for ${source.workflow}: ${err.message}`);
+              }
+            }
 
       - name: Enforce full Radar gate
         shell: bash
