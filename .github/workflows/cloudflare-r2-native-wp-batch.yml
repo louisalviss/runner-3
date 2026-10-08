@@ -1,0 +1,43 @@
+name: Cloudflare R2 Native WP Media Bounded Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        description: Read-only audit or safe bounded copy
+        required: true
+        default: audit
+        options:
+          - audit
+          - batch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-target-r2-native-canary
+  cancel-in-progress: false
+
+jobs:
+  migrate-wp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_TARGET_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_TARGET_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install R2 S3 SDK
+        run: python3 -m pip install --quiet boto3
+      - name: Audit or copy at most five objects (10 MB)
+        run: python3 scripts/cloudflare_r2_native_batch.py --mode "${{ inputs.mode }}"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: cloudflare-r2-native-wp-batch-receipt
+          path: migration-out/receipt.json
+          if-no-files-found: error
+          retention-days: 3
