@@ -40,4 +40,18 @@ class ProductKeywordGateTests(unittest.TestCase):
             ('meeting minutes software','https://sally.io/blog/meeting-minutes',1000,1)),context)
         self.assertEqual([x['keyword'] for x in q],['meeting minutes software'])
 
+    def test_generator_is_not_automatically_software(self):
+        context={'title':'Field Service Management & CMMS Software','description':'maintenance and work order software'}
+        q=product_keyword_candidates('fieldex.com',raw(
+            ('commercial generator maintenance checklist','https://fieldex.com/checklist/genset',210,1),
+            ('work order generator','https://fieldex.com/en/work-order-generator',110,3)),context)
+        self.assertEqual(q[0]['keyword'],'work order generator')
+
+    def test_meeting_software_without_assistant_intent(self):
+        context={'title':'AI Meeting Assistant: Transcription & Tasks'}
+        q=product_keyword_candidates('sally.io',raw(
+            ('1:1 meeting software performance conversations employee engagement','https://sally.io/blog/performance',40,0),
+            ('meeting minutes software','https://sally.io/blog/meeting-minutes',1000,1)),context)
+        self.assertEqual([x['keyword'] for x in q],['meeting minutes software'])
+
 if __name__=='__main__':unittest.main()
