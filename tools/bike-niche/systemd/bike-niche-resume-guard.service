@@ -1,0 +1,11 @@
+[Unit]
+Description=Bike niche corpus acquisition resume guard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/bike-niche-corpus/resume_guard.py
+TimeoutStartSec=90
