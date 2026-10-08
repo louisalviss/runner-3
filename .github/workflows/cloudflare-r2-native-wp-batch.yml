@@ -11,6 +11,7 @@ on:
         options:
           - audit
           - batch
+          - auto-small
 
 permissions:
   contents: read
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   migrate-wp:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -32,12 +33,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install R2 S3 SDK
         run: python3 -m pip install --quiet boto3
-      - name: Audit or copy at most five objects (10 MB)
-        run: python3 scripts/cloudflare_r2_native_batch.py --mode "${{ inputs.mode }}"
+      - name: Validate Python and bounded migration contracts
+        run: |
+          python3 -m py_compile scripts/cloudflare_r2_native_canary.py scripts/cloudflare_r2_native_batch.py scripts/cloudflare_r2_wp_autopilot.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_native_batch.py
+      - name: Audit, one batch, or one bounded auto-resume session
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.mode }}" == "auto-small" ]]; then
+            python3 scripts/cloudflare_r2_wp_autopilot.py
+          else
+            python3 scripts/cloudflare_r2_native_batch.py --mode "${{ inputs.mode }}"
+          fi
       - uses: actions/upload-artifact@v4
-        if: success()
+        if: always()
         with:
           name: cloudflare-r2-native-wp-batch-receipt
-          path: migration-out/receipt.json
+          path: |
+            migration-out/receipt.json
+            migration-out/wp-auto-progress.json
           if-no-files-found: error
           retention-days: 3
