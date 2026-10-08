@@ -149,11 +149,11 @@ export async function handleLibraryIndex(request, env, url) {
   if (url.pathname === "/library-index/search") return search(env, url);
   const { limit, offset } = page(url);
   if (url.pathname === "/library-index/hashes") {
-    const rows = await db.prepare(`SELECT library_id,row_hash,updated_at FROM ${TABLE} ORDER BY library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
+    const rows = await db.prepare(`SELECT library_id,row_hash,updated_at FROM ${TABLE} WHERE category='ebook' ORDER BY library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
     return reply({ ok: true, items: rows.results || [], limit, offset });
   }
   if (url.pathname === "/library-index") {
-    const rows = await db.prepare(`SELECT ${FIELDS.join(",")} FROM ${TABLE} ORDER BY category,title,volume,library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
+    const rows = await db.prepare(`SELECT ${FIELDS.join(",")} FROM ${TABLE} WHERE category='ebook' ORDER BY category,title,volume,library_id LIMIT ? OFFSET ?`).bind(limit, offset).all();
     return reply({ ok: true, items: rows.results || [], limit, offset });
   }
   return reply({ ok: false, error: "NOT_FOUND" }, 404);
