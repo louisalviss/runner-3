@@ -39,7 +39,10 @@ for source in SOURCES:
   state=load_json(ROOT/"releases"/source/"publication-state.json")
   if state.get("phase")=="published":
    report(source,"already_published",done=n);continue
- dedicated_delivery=source in ("rideinsights","sram") and active("bike-niche-release-delivery.service")
+ dedicated_delivery=(
+  (source in ("rideinsights","sram") and active("bike-niche-release-delivery.service")) or
+  (source=="bikeinsights" and active("bike-niche-batch-bikeinsights.service"))
+ )
  if active(LEGACY[source]) or active(unit) or dedicated_delivery:
   report(source,"already_running",done=n,remaining=remaining);continue
  if (ROOT/"state"/(source+"-blocked.json")).exists():
@@ -68,3 +71,25 @@ for source in SOURCES:
  cmd=["systemd-run","--unit=bike-niche-resume-"+source,"--collect","--property=MemoryMax=1024M","--property=CPUQuota=60%","/bin/bash",*pipeline]
  p=subprocess.run(cmd,capture_output=True,text=True,timeout=25)
  report(source,"resume_started" if p.returncode==0 else "resume_failed",rc=p.returncode,message=(p.stdout+p.stderr)[-280:],done=n,remaining=remaining)
+
+# Once the 3 geometry sources have successfully published, finalize the
+# unified *derived* geometry index exactly once. Never publish partial data.
+all_geometry_published=all(
+ load_json(ROOT/"releases"/src/"publication-state.json").get("phase")=="published"
+ for src in ("bikeinsights","rideinsights","geometrygeeks")
+)
+geometry_state=load_json(ROOT/"releases"/"normalized-geometry"/"publication-state.json")
+if geometry_state.get("phase")=="published":
+ report("normalized-geometry","already_published",release=geometry_state.get("release_id"))
+elif not all_geometry_published:
+ report("normalized-geometry","sources_not_all_published")
+elif active("bike-niche-finalize-geometry.service"):
+ report("normalized-geometry","already_running")
+else:
+ cmd=["systemd-run","--unit=bike-niche-finalize-geometry","--collect",
+      "--property=Restart=on-failure","--property=RestartSec=900s",
+      "--property=MemoryMax=1800M","--property=CPUQuota=70%",
+      "/usr/bin/python3",str(ROOT/"finalize_geometry.py")]
+ p=subprocess.run(cmd,capture_output=True,text=True,timeout=25)
+ report("normalized-geometry","finalization_started" if p.returncode==0 else "finalization_start_failed",
+        rc=p.returncode,message=(p.stdout+p.stderr)[-280:])
