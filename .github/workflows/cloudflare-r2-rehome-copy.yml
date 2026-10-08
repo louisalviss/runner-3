@@ -12,6 +12,12 @@ on:
           - runner3-wp-media
           - runner3-artifacts
           - runner3-rss-fastlane-artifacts
+          - ai-vps-common-access
+          - clm-copilot-data
+          - runner-vps-dr
+          - runner3-reddit-opportunity-raw
+          - runner3-telegram-bobvolman-raw
+          - runner3-telegram-raw
       limit_objects:
         description: 'Max objects to copy in this run, 1..300 (first-run recommendation: 5)'
         required: true
@@ -57,7 +63,7 @@ jobs:
           if not source or not target or os.environ.get('EXPECTED_SOURCE_ACCOUNT')!=a:
               raise SystemExit('MISSING_OR_WRONG_SCOPED_TOKEN')
           name=os.environ['BUCKET']
-          allow={'runner3-artifacts','runner3-wp-media','runner3-rss-fastlane-artifacts'}
+          allow={'runner3-artifacts','runner3-wp-media','runner3-rss-fastlane-artifacts','ai-vps-common-access','clm-copilot-data','runner-vps-dr','runner3-reddit-opportunity-raw','runner3-telegram-bobvolman-raw','runner3-telegram-raw'}
           if name not in allow:raise SystemExit('BUCKET_NOT_ALLOWLISTED')
           limit=int(os.environ['LIMIT_OBJECTS'])
           if limit<1 or limit>300:raise SystemExit('OBJECT_LIMIT_OUT_OF_RANGE')
@@ -101,16 +107,22 @@ jobs:
           if isinstance(dst_obj,dict):dst_obj=dst_obj.get('objects') or []
           dst_map={x.get('key'):x for x in dst_obj if isinstance(x,dict)}
           if (dst.get('result_info') or {}).get('is_truncated'):raise SystemExit('TARGET_MANIFEST_INCOMPLETE_ABORT')
-          selected=[x for x in src_meta if isinstance(x,dict)][:limit]
-          # No deletes or overwrites: existing keys are left intact until a separate drift review.
-          planned=[x for x in selected if x.get('key') not in dst_map]
+          # Resume by selecting the next MISSING objects, not the first N every run.
+          # Do not overwrite any existing target key, and stop on a size mismatch.
+          existing=[x for x in src_meta if isinstance(x,dict) and x.get('key') in dst_map]
+          for x in existing:
+              if int(x.get('size') or 0)!=int(dst_map[x['key']].get('size') or 0):
+                  raise SystemExit('TARGET_EXISTING_OBJECT_SIZE_DRIFT_ABORT')
+          missing=[x for x in src_meta if isinstance(x,dict) and x.get('key') not in dst_map]
+          planned=missing[:limit]
+          selected=planned
           total=sum(int(x.get('size') or 0) for x in planned)
           if any(int(x.get('size') or 0)>max_object_bytes for x in planned):raise SystemExit('OBJECT_EXCEEDS_REST_UPLOAD_LIMIT')
-          if total>max_transfer_bytes:raise SystemExit('TRANSFER_BUDGET_EXCEEDED')
+          if total>max_transfer_bytes:raise SystemExit('TRANSFER_BUDGET_EXCEEDED_REDUCE_LIMIT')
           result={'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'bucket':name,
                   'source_account':a,'target_account':b,'dry_run':dry,
                   'source_inventory_count':len(src_meta),'selected_count':len(selected),
-                  'already_present_count':len(selected)-len(planned),
+                  'already_present_count':len(existing),'remaining_before':len(missing),
                   'planned_count':len(planned),'planned_bytes':total,
                   'copied_count':0,'copied_bytes':0,'verified_count':0,'source_deleted':False}
           if not dry:
@@ -137,7 +149,8 @@ jobs:
                       raise RuntimeError('TARGET_HASH_MISMATCH')
                   result['verified_count']+=1
                   print('verified_object_number',result['verified_count'],'bytes',len(raw))
-              result['complete_for_selected']=result['copied_count']+result['already_present_count']==len(selected)
+              result['complete_for_selected']=result['copied_count']==len(selected)
+              result['remaining_after']=max(0,len(missing)-result['copied_count'])
           result['status']='PASS' if dry or result.get('complete_for_selected') else 'BLOCKED'
           dest=pathlib.Path('ops/cloudflare-account-rehome/r2-copy-last.json')
           dest.parent.mkdir(parents=True,exist_ok=True)
