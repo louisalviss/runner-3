@@ -1,5 +1,9 @@
 # Cloudflare account migration — canonical checkpoint (2026-10-08 06:20 VN)
 
+> **Current user direction (2026-10-09 VN): NO DOMAIN PURCHASED. Do not perform any domain setup.**
+> Move retained data and essential runtime from Ducduy2411 to Louisalviss3; review each source Worker separately. Migrate only required Workers. Delete unused Workers only after complete runtime/dependency/backup evidence; source remains authoritative until relevant services verified on target. Never run blanket Worker deletion or delete R2/D1 with unfinished parity.
+
+
 ## Goal / authority
 Move only necessary Cloudflare compute/storage from source `7415a87f6bce7884e73ad7cfed5782df` (Ducduy2411) into target `748a80810f77f447ee476543ef0e5014` (Louisalviss3). Preserve production, verify D1/R2/Worker parity, remove unused source resources **only after** verified cutover. This task is distinct from `d1-domain-isolation-2026-10-08-0503-VN-FINAL.md`; do not replay that completed isolation flow.
 
@@ -197,3 +201,13 @@ Target via authenticated, same-browser API (no cookie export), 2026-10-08 approx
 - Cloudflare official current docs `https://developers.cloudflare.com/fundamentals/manage-domains/move-domain/` distinguish DNS zone/account rehome from domain registrar transfer; a new domain registered directly under target needs no cross-account transfer. If at external registrar, authoritative nameservers must be configured for the target's zone after proper DNSSEC/certificate checks. Cloudflare Registrar between-account transfer is a separate manual operation. Treat exact registration path as pending confirmation.
 - SentinelX's saved Cloudflare integration list returned `count=0`, so native SentinelX Cloudflare DNS list tool cannot enumerate user's domain zones currently. No Cloudflare account/browser credential transfer should be attempted; prior security-protected blocks remain in force. Connected GitHub+SentinelX may still safely inspect current workflow state and repository code. Exact new domain remains the only missing essential identity for domain-specific work, not a reason to interrupt ongoing R2 work.
 - User explicit preference: full hands-off operation using existing tooling; do not ask for repeated manual batch actions or repeat credential setup. One direct non-secret domain name clarification only if no connected source can establish it, then handle setup with least privileged available access; escalate only genuinely blocked steps.
+
+
+## 2026-10-09 VN — domain correction + source Worker selective cleanup
+- User corrected previous assumption: **no domain has been purchased**. Remove domain/DNS/Registrar tasks from active scope; no questions about a domain until the user asks again.
+- Priority: retain all unique R2/D1 records and required service state; transfer **only necessary** Workers to target Louisalviss3. Source Workers demonstrably unused may be removed, but not using name/age alone.
+- Opened Worker-prune review at `ops/cloudflare-account-rehome/workers-prune-review-2026-10-09.md` (commit `4f1858dba869240889c7fbf2540e96c2458855d9`). Historical source count 36; actual full name/traffic/bindings inventory not yet available. Target prior snapshot 6; at least 10 named Worker references found in VPS/GitHub deployments and host config; 3 old preview candidates require live corroboration. NO Worker verified safe to delete yet, and **ZERO source Worker deletions performed**.
+- Current SentinelX Cloudflare-integration registry returned 0 provider integrations, so native Cloudflare account inspection/deletion via this tool is unavailable. GitHub/host read-only searches are useful for positive dependency evidence but cannot establish absence of hidden cron, routes, Durable Object namespaces or external callers. GitHub Actions source Cloudflare token remains inside GitHub runner only; previously blocked delegated dispatch path must not be circumvented.
+- Critical deletion guardrail confirmed by Cloudflare official API docs: `DELETE /accounts/{account_id}/workers/scripts/{name}?force=true` can break service bindings and delete referenced Durable Object namespaces; source cleanup must NEVER use `force=true`. Back up restorable script+binding configuration and check Workers metrics/cron/consumer dependencies before deletion.
+- Canonical D1 final task supersedes stale 04:43 note: `ops/checkpoints/d1-domain-isolation-2026-10-08-0503-VN-FINAL.md` and `ops/cloudflare-capability/d1-domain-isolation.json`; Reddit D1 retired, Ebook in personal-library, CLM on D1. Do not replay old D1 isolation or CLM migration for quota.
+- WP Media auto-small GitHub run `37824948164` remains IN_PROGRESS at latest current check. Do not duplicate or claim copy success without final receipt.
