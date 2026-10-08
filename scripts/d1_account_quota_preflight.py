@@ -35,6 +35,8 @@ def main():
         raise SystemExit("D1_PLANNED_ROWS must be >= 0")
     if not (1 <= ceiling < HARD_LIMIT):
         raise SystemExit("D1_SAFE_CEILING must be between 1 and 99999")
+    if planned_reads < 0 or not (1 <= read_ceiling <= READ_SAFE_CEILING):
+        raise SystemExit("Invalid D1 read budget")
 
     headers = {
         "Authorization": "Bearer " + token,
