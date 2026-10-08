@@ -40,7 +40,7 @@ For each exact source Worker, independently collect:
 8. After deletion, verify Worker absent plus all retained endpoints, cron pipelines and source production smoke healthy. If uncertainty, halt without deleting further scripts.
 
 ## Source data gate / deployment order
-- WP Media R2 auto-small GitHub run [37824948164](https://github.com/louisalviss/runner-3/actions/runs/37824948164) was still IN_PROGRESS at last read; no final receipt at this review.
+- WP Media R2 auto-small GitHub run [37824948164](https://github.com/louisalviss/runner-3/actions/runs/37824948164) completed SUCCESS at GitHub job level, but receipt is **PARTIAL_VERIFIED**. Copied 271 new objects / 80,333,850 bytes in 60 batches; source 285, target now 272, 13 objects still missing (5 bounded-small and 8 oversized). Existing 272 target objects have NOT undergone full final read-only SHA+metadata recheck, `cutover_ready=false`. GitHub commit `e26863612b25a3d4055cb01e510a36dbce8eef3f` raises future resumable batch count bound to 80 without relaxing per-batch 5 object/10MB, byte/time, metadata, no-overwrite or no-delete gates.
 - Full R2 (historical 10 buckets ~5.59 GB) and D1 schema+row/delta parity to `Louisalviss3` still incomplete. Source R2 and D1 must not be deleted.
 - D1 domain-isolation task is already closed: canonical `ops/cloudflare-capability/d1-domain-isolation.json` / `ops/checkpoints/d1-domain-isolation-2026-10-08-0503-VN-FINAL.md`. Do not resurrect retired Reddit D1, force CLM into R2, or replay Ebook migration.
 - Move only required Workers to target, with secrets/bindings created for target account and end-to-end smoke tests, before source traffic switches.
