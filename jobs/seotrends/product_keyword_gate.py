@@ -17,7 +17,7 @@ PROFILES = (
      re.compile(r"(work.order.{0,35}(generat|template|form|software|management|planner|schedul|app)|cmms.{0,30}(software|tool|system|program)|maintenance.{0,35}(software|checklist|planner|work.order)|field.service.{0,30}(software|management))", re.I)),
     ("legislative_intelligence",
      re.compile(r"(congressional (intelligence|witness)|lobbying data|legislative intelligence|government affairs)", re.I),
-     re.compile(r"((lobby|lobbyist|lobbying).{0,40}(database|data|list|rank|group|spending|search|tracking|report)|(congressional|legislativ|committee|witness).{0,40}(database|data|search|tracker|history|voting records))", re.I)),
+     re.compile(r"((lobby|lobbyist|lobbying).{0,40}(database|data|list|rank|spending|search|tracking|report|platform)|(?:list|ranking|biggest|top).{0,30}(?:lobby|lobbyist|lobbying).{0,15}groups?|(congressional|legislativ|committee|witness).{0,40}(database|data|search|tracker|history|voting records))", re.I)),
 )
 # Some broad industry words are not evidence of a *specific* product opportunity.
 EXCLUDE = re.compile(r"(?:^|[\s])(news|breaking news|definition of|what is a|meaning of|election results|today's headlines)(?:$|[\s])", re.I)
@@ -63,8 +63,13 @@ def product_keyword_candidates(domain: str, raw: dict, context: dict | None, max
         # Real utility/transaction intent gets priority over high-volume articles.
         action = bool(re.search(r"\b(software|tools?|generator|templates?|converter|database|lookup|automation|tracker|checklist|management|app|api|list|ranking|transcription)\b", norm))
         informational = any(part in url for part in ("/blog/", "/glossary/", "/news/"))
-        product = bool(re.search(r"\b(generator|software|automation|converter|database|templates?|api|tracker|management)\b", norm))
-        score = (9 if product else (3 if action else 0)) + (3 if not informational else 0) + min(volume / 1000, 3) + min(traffic / 15, 3) + max(0, (45-kd)/30) - max(0,len(norm.split())-7)*0.4
+        direct = bool(re.search(r"\b(generator|software|automation|converter|database|tracker|platform|templates?|tools?|lookup|management)\b", norm))
+        direct_bonus = (7 if re.search(r"\b(generator|software|automation|database|platform)\b", norm) else (5 if direct else 0))
+        informational_phrase = bool(re.search(r"\b(benefits of|guide|meaning|explained|how to|challenges|what is|is .+ a)\b", norm))
+        score = direct_bonus + (2 if not informational else 0) + min(volume / 1000, 3) + min(traffic / 15, 3) + max(0, (45-kd)/30) - max(0,len(norm.split())-7)*0.7 - (5 if informational_phrase else 0)
+        if profile[0] == 'field_service_cmms' and 'work order generator' in norm: score += 7
+        if profile[0] == 'legislative_intelligence' and re.search(r"\b(platform|database|lookup|research tool|tracker)\b",norm):score+=5
+        if profile[0] == 'meeting_assistant' and 'meeting minutes software' in norm: score += 5
         scored.append((score, traffic, volume, -kd, norm, phrase, url))
     scored.sort(reverse=True)
     out, used_urls = [], set()
