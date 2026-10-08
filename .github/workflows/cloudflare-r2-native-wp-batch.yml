@@ -5,13 +5,13 @@ on:
     inputs:
       mode:
         type: choice
-        description: Read-only audit or safe bounded copy
+        description: Auto-run bounded copy of all eligible small WP objects; audit is read-only
         required: true
-        default: audit
+        default: auto-small
         options:
+          - auto-small
           - audit
           - batch
-          - auto-small
 
 permissions:
   contents: read
