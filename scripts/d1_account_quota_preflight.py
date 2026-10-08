@@ -79,7 +79,7 @@ def main():
         sums = row.get("sum") or {}
         cur = per_db.setdefault(
             dbid,
-            {"databaseId": dbid, "database": inventory.get(dbid, dbid), "rowsWritten": 0, "writeQueries": 0},
+            {"databaseId": dbid, "database": inventory.get(dbid, dbid), "rowsRead": 0, "readQueries": 0, "rowsWritten": 0, "writeQueries": 0},
         )
         cur["rowsWritten"] += int(sums.get("rowsWritten") or 0)
         cur["writeQueries"] += int(sums.get("writeQueries") or 0)
