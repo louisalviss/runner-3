@@ -62,6 +62,7 @@ def main():
  release=st["release_id"]
  run(["python3",str(ROOT/"normalize_geometry.py")],900)
  run(["python3",str(ROOT/"qa_sources.py")],600)
+ run(["python3",str(ROOT/"entity_crosswalk.py")],600)
  live=ROOT/"derived/geometry-index.sqlite3"
  snap=DIR/"geometry-index.sqlite3"
  arch=DIR/("bike-niche-geometry-final-"+release+".tar.zst")
@@ -76,17 +77,22 @@ def main():
   con.close()
   qa_db=ROOT/"derived/source-quality.sqlite3"
   qa_summary=ROOT/"derived/source-quality-summary.json"
+  crosswalk_db=ROOT/"derived/bike-crosswalk.sqlite3"
+  crosswalk_summary=ROOT/"derived/bike-crosswalk-summary.json"
   d={"dataset":"bike-niche-geometry-normalized","release":release,"measurements":n,"sources":sources,
      "measurements_by_source":rows,"source_db_sha256":sha(snap),"source_db_bytes":snap.stat().st_size,
      "quality_flags_sha256":sha(qa_db),"quality_flags_bytes":qa_db.stat().st_size,
      "quality_summary":json.loads(qa_summary.read_text()),
+     "crosswalk_sha256":sha(crosswalk_db),"crosswalk_bytes":crosswalk_db.stat().st_size,
+     "crosswalk_summary":json.loads(crosswalk_summary.read_text()),
      "format":"SQLite geometry(source,url,title,frame_size,metric,value,unit,raw_value)",
      "provenance":"bikeinsights, rideinsights, geometrygeeks independently crawled; retain per-source origins",
      "created_at":datetime.datetime.now(datetime.timezone.utc).isoformat()}
   atomic(manifest,d)
   run(["tar","-I","zstd -4","--sort=name","--owner=0","--group=0","--numeric-owner","--mtime=@0",
        "-cf",str(arch),"-C",str(DIR),snap.name,manifest.name,
-       "-C",str(ROOT/"derived"),"source-quality.sqlite3","source-quality-summary.json"],1300)
+       "-C",str(ROOT/"derived"),"source-quality.sqlite3","source-quality-summary.json",
+       "bike-crosswalk.sqlite3","bike-crosswalk-summary.json"],1300)
   st.update({"sha256":sha(arch),"bytes":arch.stat().st_size,"measurements":n,"phase":"packaged"})
   atomic(STATE,st)
  prefix=BASE+"/releases/"+release
