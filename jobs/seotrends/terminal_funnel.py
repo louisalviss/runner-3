@@ -9,38 +9,12 @@ BASE=pathlib.Path('/var/lib/seotrends-public')
 SCANS=BASE/'scans'
 SERP_RUNNER=pathlib.Path('/var/lib/semrush-research/scripts/serp_dd_live.py')
 PYTHON='/opt/chatgpt-bridge/venv/bin/python'
-TOOL_INTENT={'calculator','checker','lookup','estimator','estimate','converter','conversion','generator','planner','tool','tools','validator','compare','compress','resize','viewer','tracker','monitor','summarizer','redaction','analytics','api'}
 
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 def load(path): return json.loads(path.read_text(encoding='utf-8'))
 def atomic(path,payload):
     path.parent.mkdir(parents=True,exist_ok=True); tmp=path.with_suffix(path.suffix+'.tmp')
     tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8'); tmp.replace(path)
-def brand_tokens(domain):
-    label=domain.lower().split('.')[0]
-    return {label,label.replace('-',''),label.replace('-',' ')}
-def is_brand_kw(domain,phrase):
-    q=' '+re.sub(r'\s+',' ',phrase.lower())+' '
-    return any(b and (' '+b+' ') in q for b in brand_tokens(domain))
-def keyword_candidates(domain,raw,maxn=6):
-    rows=list(raw.get('rows') or []); scored=[]
-    for r in rows:
-        phrase=str(r.get('phrase') or '').strip()
-        if not phrase or is_brand_kw(domain,phrase): continue
-        url=str(r.get('url') or '').lower()
-        vol=int(float(r.get('volume') or 0)); traffic=float(r.get('traffic') or 0); kd=float(r.get('keywordDifficulty') or 100)
-        toks=set(re.findall(r'[a-z0-9]+',phrase.lower()))
-        utility=bool(toks & TOOL_INTENT); landing=('/blog/' not in url and '/news/' not in url and '/article' not in url)
-        score=(4 if utility else 0)+(3 if landing else 0)+min(traffic/100,5)+min(vol/1000,5)+max(0,(40-kd)/20)
-        scored.append((score,traffic,vol,-kd,phrase,url))
-    scored.sort(reverse=True); out=[]; seen=set()
-    for _,traffic,vol,nkd,phrase,url in scored:
-        key=phrase.lower()
-        if key in seen: continue
-        seen.add(key); out.append({'keyword':phrase,'volume':vol,'traffic':traffic,'kd':-nkd,'url':url})
-        if len(out)>=maxn: break
-    return out
-
 def load_profiles(day):
     profiles={}
     p=SCANS/f'{day}-candidates.jsonl'
