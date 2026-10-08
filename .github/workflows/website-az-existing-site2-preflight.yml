@@ -1,0 +1,195 @@
+name: Website A-Z Existing Stack Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-az-existing-site2-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SITE2_URL: https://runner3-wp-a94b8fd2.wasmer.app
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WASMER_TOKEN: ${{ secrets.WASMER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Public Site2 WordPress and WooCommerce check
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = process.env.SITE2_URL;
+          const paths = ['/', '/shop/', '/wp-json/wp/v2/types'];
+          const results = {};
+          for (const path of paths) {
+            try {
+              const res = await fetch(base + path, { signal: AbortSignal.timeout(30000), redirect: 'follow' });
+              const data = await res.text();
+              results[path] = { status: res.status, bytes: data.length };
+              if (path === '/') {
+                results[path].hasWordPress = /wp-content|wp-json/i.test(data);
+              } else if (path === '/shop/') {
+                results[path].hasWooCommerce = /woocommerce|wc-block|products/i.test(data);
+              } else {
+                results[path].hasPostType = res.ok && Object.hasOwn(JSON.parse(data), 'post');
+              }
+            } catch (e) {
+              results[path] = { error: e?.name || 'request_error' };
+            }
+          }
+          const pass = paths.every(p => results[p]?.status === 200) &&
+            results['/'].hasWordPress && results['/shop/'].hasWooCommerce &&
+            results['/wp-json/wp/v2/types'].hasPostType;
+          fs.writeFileSync('/tmp/website-az-public.json', JSON.stringify({ pass, results }, null, 2));
+          console.log('PUBLIC_WORDPRESS_CHECK', JSON.stringify({pass,results}));
+          if (!pass) process.exitCode = 1;
+          NODE
+
+      - name: Cloudflare D1 and R2 authority check
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID || '';
+          const token = process.env.CLOUDFLARE_API_TOKEN || '';
+          const result = {
+            credentialsConfigured: Boolean(account && token),
+            d1Visible: false,
+            optimizerD1Present: false,
+            baselineVerified: false,
+            r2ReadAvailable: false
+          };
+          async function get(path, opts={}) {
+            const response = await fetch('https://api.cloudflare.com/client/v4/' + path, {
+              headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(22000), ...opts
+            });
+            return { http: response.status, value: await response.json() };
+          }
+          if (result.credentialsConfigured) {
+            try {
+              const r = await get('accounts/' + account + '/d1/database?per_page=100');
+              const db = Array.isArray(r.value.result) ? r.value.result : [];
+              result.d1Visible = r.http === 200 && r.value.success === true;
+              result.optimizerD1Present = db.some(x => x.name === 'runner3-wp-optimizer');
+              const target = db.find(x => x.name === 'runner3-wp-optimizer');
+              if (target?.uuid) {
+                const chk = await get('accounts/' + account + '/d1/database/' + target.uuid + '/query', {
+                  method: 'POST', body: JSON.stringify({
+                    sql: "SELECT site_id,status,json_extract(metadata_json,'$.fixture') AS fixture FROM sites WHERE site_id='site2'"
+                  })
+                });
+                const row = chk.value?.result?.[0]?.results?.[0];
+                result.baselineVerified = Boolean(chk.value?.success && row?.site_id === 'site2' &&
+                   row?.status === 'realistic-fixture' && row?.fixture === 'astra-woo-v1');
+                result.baselineStatus = row ? (result.baselineVerified ? 'fixture_matched' : 'fixture_mismatch') : 'not_found';
+              }
+            } catch (e) { result.d1Error = e?.name || 'request_error'; }
+            try {
+              const r = await get('accounts/' + account + '/r2/buckets');
+              result.r2ReadAvailable = r.http === 200 && r.value.success === true;
+              result.r2BucketCount = Array.isArray(r.value.result?.buckets) ? r.value.result.buckets.length : null;
+            } catch (e) { result.r2Error = e?.name || 'request_error'; }
+          }
+          result.pass = result.optimizerD1Present && result.baselineVerified && result.r2ReadAvailable;
+          fs.writeFileSync('/tmp/website-az-cloudflare.json',JSON.stringify(result,null,2));
+          console.log('CLOUDFLARE_AUTHORITY_CHECK',JSON.stringify(result));
+          if (!result.pass) process.exitCode = 1;
+          NODE
+
+      - name: Site2 authenticated admin check via existing Wasmer token
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright-core@1.61.0 >/dev/null
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright-core';
+          const base = process.env.SITE2_URL;
+          const raw = (process.env.WASMER_TOKEN || '').trim();
+          const token = raw.startsWith('wap_') ? raw : ('wap_' + raw);
+          const result = { tokenConfigured: Boolean(raw), adminAccessible: false, pluginListAccessible: false };
+          let browser;
+          try {
+            if (!raw) throw new Error('secret_missing');
+            const chrome = ['/usr/bin/google-chrome-stable','/usr/bin/google-chrome','/usr/bin/chromium']
+              .find(x => fs.existsSync(x));
+            if (!chrome) throw new Error('chrome_missing');
+            browser = await chromium.launch({ headless:true, executablePath:chrome, args:['--no-sandbox'] });
+            const ctx = await browser.newContext();
+            const page = await ctx.newPage();
+            await page.goto(base + '/?rest_route=/wasmer/v1/magiclogin&magiclogin=' + encodeURIComponent(token), {
+              waitUntil:'domcontentloaded',timeout:65000
+            });
+            result.adminAccessible = page.url().startsWith(base + '/wp-admin');
+            if (result.adminAccessible) {
+              await page.goto(base + '/wp-admin/plugins.php', { waitUntil:'domcontentloaded',timeout:60000 });
+              result.pluginListAccessible = page.url().startsWith(base + '/wp-admin/plugins.php')
+                && (await page.locator('table.plugins, #the-list').count()) > 0;
+            }
+          } catch (e) {
+            result.errorType = e?.name || 'auth_failed';
+            result.errorClass = /secret_missing|chrome_missing/.test(String(e?.message)) ? String(e.message) : 'navigation_or_auth_failed';
+          } finally {
+            await browser?.close().catch(()=>{});
+          }
+          result.pass = result.adminAccessible && result.pluginListAccessible;
+          fs.writeFileSync('/tmp/website-az-admin.json',JSON.stringify(result,null,2));
+          console.log('AUTHENTICATED_WASMER_ADMIN_CHECK',JSON.stringify(result));
+          if (!result.pass) process.exitCode = 1;
+          NODE
+
+      - name: Summarize each independent gate
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          parts={}
+          for key in ('public','cloudflare','admin'):
+              p=pathlib.Path('/tmp/website-az-'+key+'.json')
+              parts[key]=json.loads(p.read_text()) if p.exists() else {'pass':False,'reason':'not_run'}
+          final=all(bool(x.get('pass')) for x in parts.values())
+          out={'status':'PASS' if final else 'PARTIAL_OR_FAIL','gates':parts}
+          pathlib.Path('/tmp/website-az-acceptance.json').write_text(json.dumps(out,indent=2)+'\n')
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Website A-Z Existing Site2 Stack\n\n')
+              for key,v in parts.items():
+                  f.write(f'- {key}: {"PASS" if v.get("pass") else "FAIL"}\n')
+              f.write('\nNo site content, settings or infrastructure were modified.\n')
+          print('WEBSITE_AZ_VERDICT',out['status'])
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: website-az-site2-acceptance
+          path: /tmp/website-az-acceptance.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Enforce acceptance gate
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/website-az-acceptance.json'))
+          if d['status']!='PASS':
+              raise SystemExit('WEBSITE_AZ_NOT_YET_PASS')
+          print('WEBSITE_AZ_PASS')
+          PY
