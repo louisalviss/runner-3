@@ -37,6 +37,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/cloudflare_r2_native_canary.py scripts/cloudflare_r2_native_batch.py scripts/cloudflare_r2_wp_autopilot.py
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_native_batch.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_autopilot.py
       - name: Audit, one batch, or one bounded auto-resume session
         shell: bash
         run: |
