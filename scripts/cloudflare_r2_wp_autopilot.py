@@ -9,13 +9,15 @@ is needed. Large/unsupported objects remain quarantined.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
 import time
 
 import cloudflare_r2_native_batch as batch
-from cloudflare_r2_native_canary import GateError, source_list, source_properties, copy_one
+from cloudflare_r2_native_canary import (GateError, source_list, source_properties,
+                                         source_bytes, verify_properties)
 
 MAX_BATCHES = 60
 MAX_UPLOADED_BYTES = 250_000_000
@@ -74,6 +76,25 @@ def check_source_budget(token):
 
 def time_ok(start):
     return time.monotonic() - start < MAX_RUNTIME_SECONDS
+
+
+def verify_existing_read_only(client, token, obj):
+    """Verify an existing destination object without even attempting PUT."""
+    key = obj["key"]
+    properties = source_properties(obj)
+    raw = source_bytes(token, batch.BUCKET, obj)
+    try:
+        head = client.head_object(Bucket=batch.BUCKET, Key=key)
+        response = client.get_object(Bucket=batch.BUCKET, Key=key)
+        content = response["Body"].read(len(raw) + 1)
+    except Exception:
+        raise GateError("FINAL_READ_ONLY_TARGET_READ_FAILED") from None
+    if head.get("ContentLength") != len(raw):
+        raise GateError("FINAL_READ_ONLY_SIZE_MISMATCH")
+    if len(content) != len(raw) or hashlib.sha256(content).digest() != hashlib.sha256(raw).digest():
+        raise GateError("FINAL_READ_ONLY_SHA256_MISMATCH")
+    verify_properties(properties, head)
+    return len(raw)
 
 
 def run():
@@ -175,11 +196,9 @@ def run():
                 state["stop_reason"] = "FINAL_VERIFY_BYTE_BUDGET"
                 save(state)
                 return state
-            verified = copy_one(client, token, batch.BUCKET, obj)
-            if verified["uploaded"]:
-                raise GateError("FINAL_VERIFY_UNEXPECTED_WRITE")
+            verified_bytes = verify_existing_read_only(client, token, obj)
             final_verified += 1
-            final_bytes += verified["object_bytes"]
+            final_bytes += verified_bytes
             state["verified_existing_final"] = final_verified
             state["verified_existing_final_bytes"] = final_bytes
             save(state)
