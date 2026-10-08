@@ -83,8 +83,16 @@ def main():
             raise SystemExit("SOURCE_OBJECT_MISSING_KEY")
         path = base + "/" + urllib.parse.quote(key, safe="/")
         code, h, blob = request(path, token)
-        if code != 200 or len(blob) != int(x.get("size") or -1):
-            raise SystemExit("SOURCE_READ_SIZE_CHECK_FAILED_index_"+str(len(encrypted_items))+"_http_"+str(code)+"_got_"+str(len(blob))+"_expected_"+str(int(x.get("size") or 0)))
+        if code != 200:
+            raise SystemExit("SOURCE_READ_HTTP_"+str(code))
+        if len(blob) != int(x.get("size") or -1):
+            # R2 object may have changed after listing, or HTTP metadata may
+            # describe encoded length; require two stable independent GETs.
+            code2, h2, blob2 = request(path, token)
+            if code2 != 200 or hashlib.sha256(blob2).digest() != hashlib.sha256(blob).digest():
+                raise SystemExit("SOURCE_UNSTABLE_CONTENT_ABORT")
+            print("SOURCE_LIST_SIZE_DRIFT_VERIFIED_INDEX",len(encrypted_items),
+                  "listed_bytes",int(x.get("size") or -1),"stable_read_bytes",len(blob))
         hm = x.get("http_metadata") or {}
         if x.get("custom_metadata"):
             # Don't silently strip custom metadata during browser API uploads.
@@ -95,6 +103,9 @@ def main():
             "http_metadata": hm,
             "payload_b64": base64.b64encode(blob).decode(),
         })
+    actual_bytes=sum(int(x["size"]) for x in encrypted_items)
+    if actual_bytes>MAX_BUNDLE_BYTES:
+        raise SystemExit("BUNDLE_ACTUAL_SIZE_EXCEEDED")
     payload = {
         "version": 2, "account": SOURCE, "bucket": bucket,
         "start_index": start, "source_inventory": len(objects),
