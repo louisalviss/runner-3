@@ -34,3 +34,13 @@ The Bikes.Fan bike-page sitemap was compared with Biklo and found to contain exa
 - **Checkpoint**: SentinelX source continuity; never restart an active job or mark published until all independent source delivery steps have passed.
 
 The deployed scripts live under `/opt/bike-niche-corpus` (except the secure Telegram batch uploader under `/opt/telegram-mtproto`). These modules depend on preconfigured VPS credentials and an existing secret-injection wrapper; credentials are intentionally absent from the repo.
+
+
+## Resilience, canonical linkage and quality gates (October 2026)
+
+- `r2_verified.py` uses the existing `runner3-artifacts` bucket. For archives larger than 30 MiB, it writes **R2-sharded-tar**, with individual SHA256/byte readback for each part and an immutable `*.r2-parts-manifest.json` entrypoint. The original archive SHA256 remains in the manifest. This avoids the Cloudflare API Gateway 502 observed for a 213-MB single PUT. `CURRENT.json` and the D1 pointer identify the artifact format and number of parts; never assume every release key is a directly downloadable single `.tar.zst`.
+- `entity_crosswalk.py` builds `derived/bike-crosswalk.sqlite3`. Links are only candidates where a unique normalized canonical bike slug and exact year match a Biklo URL, allowing common manufacturer aliases such as `brand bicycles`. Each link carries source URL, Biklo URL, year, geometry-presence flag and match rule. This is **not** proof of identical build/spec. Original source records remain separate.
+- `qa_sources.py` produces `derived/source-quality.sqlite3` to withhold placeholder-title, non-detail or geometry-missing pages from **geometry pSEO** while preserving all raw records.
+- The final geometry release includes numeric geometry, source quality flags, crosswalk and their summaries. `finalize_geometry.py` requires all three source release receipts before building, then performs R2 readback, D1 published pointer and Telegram / Data segmented delivery.
+- A persistent `/etc/systemd/system/bike-niche-finalize-geometry.service`, started only by the source-aware resume guard, replaces the volatile transient finalizer. It remains **inactive** while Geometry Geeks is unfinished.
+- Geometry Geeks partial snapshot at `sources/geometrygeeks/checkpoints/20261008T174448Z/`: 23,212 source records, seven separately verified R2 chunks, manifest and D1 `crawling` readback. It is a checkpoint, not the final release.
