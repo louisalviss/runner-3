@@ -191,8 +191,76 @@ def head_or_none(client, bucket, key):
         raise GateError("TARGET_HEAD_FAILED") from None
 
 
+def copy_one(client, token, bucket, obj):
+    raw = source_bytes(token, bucket, obj)
+    properties = source_properties(obj)
+    key = obj["key"]
+    existing = head_or_none(client, bucket, key)
+    sha = hashlib.sha256(raw).hexdigest()
+    uploaded = False
+    if existing is None:
+        put_args = dict(Bucket=bucket, Key=key, Body=raw,
+                        ContentMD5=base64.b64encode(hashlib.md5(raw).digest()).decode())
+        put_args.update(properties)
+
+        # Conditional header included before signing; never issue an unguarded PUT.
+        def require_new_key(request, **kwargs):
+            request.headers["If-None-Match"] = "*"
+
+        event = "before-sign.s3.PutObject"
+        client.meta.events.register(event, require_new_key)
+        try:
+            client.put_object(**put_args)
+        except ClientError as exc:
+            meta = exc.response if isinstance(exc.response, dict) else {}
+            raw_code = str((meta.get("Error") or {}).get("Code") or "")
+            code = raw_code if raw_code in {
+                "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch",
+                "PreconditionFailed", "ConditionalRequestConflict",
+                "InvalidRequest", "InvalidArgument", "NotImplemented",
+                "BadDigest", "NoSuchBucket", "SlowDown"
+            } else "OTHER"
+            status = int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0)
+            raise GateError("TARGET_CANARY_PUT_HTTP_" + str(status) + "_" + code.upper()) from None
+        except ParamValidationError as exc:
+            names = re.findall(
+                r'(?:Invalid type for parameter|Invalid length for parameter|'
+                r'Invalid value for parameter) ([A-Za-z0-9_.]+)', str(exc)
+            )
+            names += re.findall(r'Unknown parameter in input: "([A-Za-z0-9_]+)"', str(exc))
+            safe = sorted({n for n in names if n.split(".")[0] in {
+                "Body", "Bucket", "Key", "Metadata", "Expires",
+                "StorageClass", "ContentType", "ContentEncoding",
+                "ContentLanguage", "ContentDisposition", "CacheControl",
+                "ContentMD5", "IfNoneMatch"
+            }})
+            raise GateError("TARGET_CANARY_PUT_PARAM_" + ("_".join(safe) or "UNKNOWN")) from None
+        except Exception as exc:
+            raise GateError("TARGET_CANARY_PUT_EXCEPTION_" + type(exc).__name__.upper()) from None
+        finally:
+            client.meta.events.unregister(event, require_new_key)
+        uploaded = True
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+        data = client.get_object(Bucket=bucket, Key=key)["Body"].read(MAX_BYTES + 1)
+    except Exception:
+        raise GateError("TARGET_READBACK_FAILED") from None
+    if len(data) != len(raw) or hashlib.sha256(data).hexdigest() != sha:
+        raise GateError("TARGET_BYTES_SHA256_MISMATCH")
+    if head.get("ContentLength") != len(raw):
+        raise GateError("TARGET_HEAD_SIZE_MISMATCH")
+    verify_properties(properties, head)
+    return {
+        "object_key_sha256": hashlib.sha256(key.encode()).hexdigest(),
+        "object_bytes": len(raw),
+        "object_sha256": sha,
+        "custom_metadata_field_count": len(properties["Metadata"]),
+        "object_verified": True, "uploaded": uploaded,
+    }
+
+
 def run(mode, bucket):
-    if bucket not in ALLOWED or mode not in ("probe", "canary"):
+    if bucket not in ALLOWED or mode not in ("probe", "canary", "complete-small-bucket"):
         raise GateError("INPUT_NOT_ALLOWED")
     src_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
     expected = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -233,88 +301,54 @@ def run(mode, bucket):
         receipt["result"] = "CREDENTIALS_AND_SOURCE_LIST_OK"
         return receipt
 
-    # Canary specifically exercises metadata-bearing objects.
-    candidates = [obj for obj in src if obj.get("custom_metadata")]
-    if not candidates:
-        raise GateError("NO_CUSTOM_METADATA_CANARY")
-    obj = min(candidates, key=lambda x: (int(x.get("size") or 0), x["key"]))
-    raw = source_bytes(src_token, bucket, obj)
-    properties = source_properties(obj)
-    key = obj["key"]
-    existing = head_or_none(client, bucket, key)
-    sha = hashlib.sha256(raw).hexdigest()
-    if existing is None:
-        put_args = dict(Bucket=bucket, Key=key, Body=raw,
-                        ContentMD5=base64.b64encode(hashlib.md5(raw).digest()).decode())
-        put_args.update(properties)
+    if mode == "canary":
+        candidates = [obj for obj in src if obj.get("custom_metadata")]
+        if not candidates:
+            raise GateError("NO_CUSTOM_METADATA_CANARY")
+        obj = min(candidates, key=lambda x: (int(x.get("size") or 0), x["key"]))
+        verified = copy_one(client, src_token, bucket, obj)
+        receipt.update(verified)
+        receipt["result"] = (
+            "COPIED_AND_VERIFIED" if verified["uploaded"] else "EXISTING_VERIFIED_NO_OVERWRITE"
+        )
+        return receipt
 
-        # Some botocore models reject IfNoneMatch for PutObject. Add its
-        # HTTP conditional header before AWS SigV4 signing instead. R2
-        # enforces If-None-Match:* atomically; never use an unguarded PUT.
-        def require_new_key(request, **kwargs):
-            request.headers["If-None-Match"] = "*"
-
-        event = "before-sign.s3.PutObject"
-        client.meta.events.register(event, require_new_key)
-        try:
-            client.put_object(**put_args)
-        except ClientError as exc:
-            meta = exc.response if isinstance(exc.response, dict) else {}
-            raw_code = str((meta.get("Error") or {}).get("Code") or "")
-            code = raw_code if raw_code in {
-                "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch",
-                "PreconditionFailed", "ConditionalRequestConflict",
-                "InvalidRequest", "InvalidArgument", "NotImplemented",
-                "BadDigest", "NoSuchBucket", "SlowDown"
-            } else "OTHER"
-            status = int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0)
-            raise GateError("TARGET_CANARY_PUT_HTTP_" + str(status) + "_" + code.upper()) from None
-        except ParamValidationError as exc:
-            # Report only documented SDK parameter NAMES, never values.
-            names = re.findall(
-                r'(?:Invalid type for parameter|Invalid length for parameter|'
-                r'Invalid value for parameter) ([A-Za-z0-9_.]+)',
-                str(exc),
-            )
-            names += re.findall(r'Unknown parameter in input: "([A-Za-z0-9_]+)"', str(exc))
-            known = {"Body", "Bucket", "Key", "Metadata", "Expires",
-                     "StorageClass", "ContentType", "ContentEncoding",
-                     "ContentLanguage", "ContentDisposition", "CacheControl",
-                     "ContentMD5", "IfNoneMatch"}
-            safe = sorted({n for n in names if n.split(".")[0] in known})
-            raise GateError("TARGET_CANARY_PUT_PARAM_" + ("_".join(safe) or "UNKNOWN")) from None
-        except Exception as exc:
-            raise GateError("TARGET_CANARY_PUT_EXCEPTION_" + type(exc).__name__.upper()) from None
-        finally:
-            client.meta.events.unregister(event, require_new_key)
-        receipt["result"] = "COPIED_AND_VERIFIED"
-    else:
-        receipt["result"] = "EXISTING_VERIFIED_NO_OVERWRITE"
+    # Only the 2-object Bob Volman bucket; bounded to a few small objects.
+    if len(src) > 5 or sum(int(o.get("size") or 0) for o in src) > 5_000_000:
+        raise GateError("SMALL_BUCKET_BUDGET_EXCEEDED")
+    for obj in src:
+        source_properties(obj)
+    checked = []
+    for obj in src:
+        checked.append(copy_one(client, src_token, bucket, obj))
     try:
-        head = client.head_object(Bucket=bucket, Key=key)
-        data = client.get_object(Bucket=bucket, Key=key)["Body"].read(MAX_BYTES + 1)
+        target = client.list_objects_v2(Bucket=bucket, MaxKeys=1000)
     except Exception:
-        raise GateError("TARGET_READBACK_FAILED") from None
-    if len(data) != len(raw) or hashlib.sha256(data).hexdigest() != sha:
-        raise GateError("TARGET_BYTES_SHA256_MISMATCH")
-    if int(head.get("ContentLength") or -1) != len(raw):
-        # Size zero is valid.
-        if not (len(raw) == 0 and head.get("ContentLength") == 0):
-            raise GateError("TARGET_HEAD_SIZE_MISMATCH")
-    verify_properties(properties, head)
+        raise GateError("TARGET_FINAL_LIST_FAILED") from None
+    if target.get("IsTruncated"):
+        raise GateError("TARGET_FINAL_LIST_TRUNCATED")
+    source_keys = {o["key"] for o in src}
+    target_keys = {o["Key"] for o in target.get("Contents", [])}
+    if source_keys != target_keys:
+        raise GateError("TARGET_FINAL_KEYSPACE_MISMATCH")
+    for item in target.get("Contents", []):
+        matched = next(o for o in src if o["key"] == item["Key"])
+        if int(item["Size"]) != int(matched["size"]):
+            raise GateError("TARGET_FINAL_SIZE_MISMATCH")
     receipt.update({
-        "object_key_sha256": hashlib.sha256(key.encode()).hexdigest(),
-        "object_bytes": len(raw),
-        "object_sha256": sha,
-        "custom_metadata_field_count": len(properties["Metadata"]),
-        "object_verified": True,
+        "result": "SMALL_BUCKET_SNAPSHOT_PARITY_VERIFIED",
+        "verified_count": len(checked),
+        "uploaded_count": sum(1 for x in checked if x["uploaded"]),
+        "already_present_verified_count": sum(1 for x in checked if not x["uploaded"]),
+        "verified_bytes": sum(x["object_bytes"] for x in checked),
+        "full_bucket_parity_verified": True,
+        "cutover_ready": False,  # live writes and final delta still require validation
     })
     return receipt
 
-
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("probe", "canary"), required=True)
+    parser.add_argument("--mode", choices=("probe", "canary", "complete-small-bucket"), required=True)
     parser.add_argument("--bucket", choices=sorted(ALLOWED), required=True)
     args = parser.parse_args()
     try:
