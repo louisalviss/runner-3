@@ -81,6 +81,8 @@ def main():
             dbid,
             {"databaseId": dbid, "database": inventory.get(dbid, dbid), "rowsRead": 0, "readQueries": 0, "rowsWritten": 0, "writeQueries": 0},
         )
+        cur["rowsRead"] += int(sums.get("rowsRead") or 0)
+        cur["readQueries"] += int(sums.get("readQueries") or 0)
         cur["rowsWritten"] += int(sums.get("rowsWritten") or 0)
         cur["writeQueries"] += int(sums.get("writeQueries") or 0)
 
