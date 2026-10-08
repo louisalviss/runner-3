@@ -91,3 +91,11 @@ Target via authenticated, same-browser API (no cookie export), 2026-10-08 approx
 - Overall: old account still production. Two small R2 buckets (CLM and Telegram raw) fully copied to target with readback. WordPress media has only 14-byte canary. No R2 data removed from old account. No D1 data imported. No Worker/runtime cutover, no source cleanup.
 - Sensitive auth boundary: no browser cookie export or token extraction. Do not bypass security-blocked deployment/API paths. The target authenticated browser remains highly privileged and should be revoked after scoped production access is established. Existing courier private key stored root-only in `/var/lib/cloudflare-migration/2026-10-08/ephemeral-courier/key.pem`; remove when no longer needed after verifying all receipts/backup.
 - Latest ready code: `scripts/cloudflare_r2_encrypted_courier.py`, `scripts/cloudflare_r2_target_browser_apply.py`, `scripts/cloudflare_d1_encrypted_parity.py`, `.github/workflows/cloudflare-r2-encrypted-courier-canary.yml`, `.github/workflows/cloudflare-d1-encrypted-parity.yml`; Worker prototype prepared but NOT deployed. Status: `PARTIAL_SAFE`, blockers: native customMetadata preservation and D1 source-to-target protected migration.
+
+
+## 2026-10-08 16:03 VN — DHS authorized credentials routing
+- User asked assistant to create R2 key and push it through DHS, Bitwarden, GitHub directly. Loaded canonical Dropbox `VPS Bitwarden Credential Router.md`; machine/API keys are assigned to **BWS**, while Cloudflare human account login is BW. User's intent is to avoid manual credential entry.
+- Current `/opt/dhs-control/dhs_credential_broker.py` implements **lookup/check/request** with allowlisted credential references; it does **not** implement capture/create/store-credential or secure Cloudflare → BWS → GitHub secret handoff.
+- Browser-to-GitHub credential transfer had already been security-blocked; do not repeat through alternatives. Work toward an approved credential-safe integration; do not claim success.
+- Created DHS credential request `credreq-20261008T090304Z-6843ea55`, alias `cloudflare.louis.r2.rehome`, flow `cloudflare-r2-rehome`, status `BLOCKED / CREDENTIAL_REFERENCE_REQUIRED`, `secret_exposed=false`.
+- No R2 Access Key ID, Secret Access Key, BWS record, or GitHub target secrets created. No Cloudflare data deleted, no cutover.
