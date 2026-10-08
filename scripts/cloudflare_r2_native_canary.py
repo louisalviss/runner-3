@@ -244,9 +244,18 @@ def run(mode, bucket):
     existing = head_or_none(client, bucket, key)
     sha = hashlib.sha256(raw).hexdigest()
     if existing is None:
-        put_args = dict(Bucket=bucket, Key=key, Body=raw, IfNoneMatch="*",
+        put_args = dict(Bucket=bucket, Key=key, Body=raw,
                         ContentMD5=base64.b64encode(hashlib.md5(raw).digest()).decode())
         put_args.update(properties)
+
+        # Some botocore models reject IfNoneMatch for PutObject. Add its
+        # HTTP conditional header before AWS SigV4 signing instead. R2
+        # enforces If-None-Match:* atomically; never use an unguarded PUT.
+        def require_new_key(request, **kwargs):
+            request.headers["If-None-Match"] = "*"
+
+        event = "before-sign.s3.PutObject"
+        client.meta.events.register(event, require_new_key)
         try:
             client.put_object(**put_args)
         except ClientError as exc:
@@ -276,6 +285,8 @@ def run(mode, bucket):
             raise GateError("TARGET_CANARY_PUT_PARAM_" + ("_".join(safe) or "UNKNOWN")) from None
         except Exception as exc:
             raise GateError("TARGET_CANARY_PUT_EXCEPTION_" + type(exc).__name__.upper()) from None
+        finally:
+            client.meta.events.unregister(event, require_new_key)
         receipt["result"] = "COPIED_AND_VERIFIED"
     else:
         receipt["result"] = "EXISTING_VERIFIED_NO_OVERWRITE"
