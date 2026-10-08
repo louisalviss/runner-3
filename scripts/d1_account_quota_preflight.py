@@ -29,6 +29,8 @@ def main():
     account = os.environ["CF_ACCOUNT"]
     planned = int(os.environ.get("D1_PLANNED_ROWS", "0"))
     ceiling = int(os.environ.get("D1_SAFE_CEILING", "70000"))
+    planned_reads = int(os.environ.get("D1_PLANNED_READ_ROWS", "0"))
+    read_ceiling = int(os.environ.get("D1_READ_SAFE_CEILING", "4000000"))
     if planned < 0:
         raise SystemExit("D1_PLANNED_ROWS must be >= 0")
     if not (1 <= ceiling < HARD_LIMIT):
