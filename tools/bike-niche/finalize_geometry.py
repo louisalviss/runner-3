@@ -63,6 +63,7 @@ def main():
  run(["python3",str(ROOT/"normalize_geometry.py")],900)
  run(["python3",str(ROOT/"qa_sources.py")],600)
  run(["python3",str(ROOT/"entity_crosswalk.py")],600)
+ run(["python3",str(ROOT/"biklo_fit_index.py")],600)
  live=ROOT/"derived/geometry-index.sqlite3"
  snap=DIR/"geometry-index.sqlite3"
  arch=DIR/("bike-niche-geometry-final-"+release+".tar.zst")
@@ -81,6 +82,8 @@ def main():
   qa_summary=ROOT/"derived/source-quality-summary.json"
   crosswalk_db=ROOT/"derived/bike-crosswalk.sqlite3"
   crosswalk_summary=ROOT/"derived/bike-crosswalk-summary.json"
+  fit_db=ROOT/"derived/biklo-fit-candidates.sqlite3"
+  fit_summary=ROOT/"derived/biklo-fit-candidates-summary.json"
   d={"dataset":"bike-niche-geometry-normalized","release":release,"measurements":n,"sources":sources,
      "outliers_audited":outliers_audited,"numeric_corrections":numeric_corrections,
      "measurements_by_source":rows,"source_db_sha256":sha(snap),"source_db_bytes":snap.stat().st_size,
@@ -88,6 +91,10 @@ def main():
      "quality_summary":json.loads(qa_summary.read_text()),
      "crosswalk_sha256":sha(crosswalk_db),"crosswalk_bytes":crosswalk_db.stat().st_size,
      "crosswalk_summary":json.loads(crosswalk_summary.read_text()),
+     "biklo_fit_candidates_sha256":sha(fit_db),
+     "biklo_fit_candidates_bytes":fit_db.stat().st_size,
+     "biklo_fit_candidates_summary":json.loads(fit_summary.read_text()),
+     "fit_warning":"Same model-year candidates only. Never treat source geometry as a verified same-build match.",
      "format":"SQLite geometry(source,url,title,frame_size,metric,value,unit,raw_value)",
      "provenance":"bikeinsights, rideinsights, geometrygeeks independently crawled; retain per-source origins",
      "created_at":datetime.datetime.now(datetime.timezone.utc).isoformat()}
@@ -95,7 +102,8 @@ def main():
   run(["tar","-I","zstd -4","--sort=name","--owner=0","--group=0","--numeric-owner","--mtime=@0",
        "-cf",str(arch),"-C",str(DIR),snap.name,manifest.name,
        "-C",str(ROOT/"derived"),"source-quality.sqlite3","source-quality-summary.json",
-       "bike-crosswalk.sqlite3","bike-crosswalk-summary.json"],1300)
+       "bike-crosswalk.sqlite3","bike-crosswalk-summary.json",
+       "biklo-fit-candidates.sqlite3","biklo-fit-candidates-summary.json"],1300)
   st.update({"sha256":sha(arch),"bytes":arch.stat().st_size,"measurements":n,"phase":"packaged"})
   atomic(STATE,st)
  prefix=BASE+"/releases/"+release
