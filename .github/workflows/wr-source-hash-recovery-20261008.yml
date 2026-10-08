@@ -1,0 +1,50 @@
+name: WR source hash recovery
+
+on:
+  push:
+    branches:
+      - research/wr-source-hash-20261008
+    paths:
+      - .github/workflows/wr-source-hash-recovery-20261008.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wr-source-hash-recovery-20261008
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout history without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recover historical exact plaintext into ephemeral memory and verify
+        shell: bash
+        env:
+          WR_RECOVERY_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${WR_RECOVERY_KEY:-}" || { echo 'WR_DECRYPTION_KEY_MISSING'; exit 2; }
+          git cat-file -e c0c2eb5430c6a424a32ddbfde87d1c56eb03570d
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git cat-file blob c0c2eb5430c6a424a32ddbfde87d1c56eb03570d > "$tmp/source.pine.aes"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:WR_RECOVERY_KEY -in "$tmp/source.pine.aes" -out "$tmp/source.pine"
+          actual="$(sha256sum "$tmp/source.pine" | cut -d' ' -f1)"
+          test "$actual" = 9156e8c49b9a5e36007620f3e17fcab26c06714a3e32a252be52437ae23d6026 || { echo 'WR_SOURCE_HASH_MISMATCH'; exit 3; }
+          grep -Fq 'strategy("Wave Rider Strategy v2.5.13 WINDOW REPORT"' "$tmp/source.pine"
+          grep -Fq 'WR 2.5.13 WIN' "$tmp/source.pine"
+          echo 'WR_EXACT_SOURCE_SHA256=PASS'
+          echo 'WR_PINE_TITLE_AND_SHORTTITLE=PASS'
+          echo 'WR_GIT_BLOB=c0c2eb5430c6a424a32ddbfde87d1c56eb03570d'
+          echo 'WR_SOURCE_RECOVERY_EPHEMERAL_ONLY=TRUE'
+      - name: Remove any residual temporary plaintext
+        if: always()
+        shell: bash
+        run: rm -f /tmp/wr-base.pine /tmp/wr-live.pine
