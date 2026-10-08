@@ -1,0 +1,157 @@
+name: Cloudflare R2 Rehome Copy (bounded)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket:
+        description: 'Existing source + destination bucket'
+        required: true
+        default: 'runner3-wp-media'
+        type: choice
+        options:
+          - runner3-wp-media
+          - runner3-artifacts
+          - runner3-rss-fastlane-artifacts
+      limit_objects:
+        description: 'Max objects to copy in this run, 1..300 (first-run recommendation: 5)'
+        required: true
+        default: '5'
+        type: string
+      dry_run:
+        description: 'List eligible objects only; do not write'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-r2-rehome-copy-${{ inputs.bucket }}
+  cancel-in-progress: false
+
+jobs:
+  safe-copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CF_SOURCE_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TARGET_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_MIGRATION_R2_TOKEN }}
+      CF_SOURCE_ACCOUNT: '7415a87f6bce7884e73ad7cfed5782df'
+      CF_TARGET_ACCOUNT: '748a80810f77f447ee476543ef0e5014'
+      EXPECTED_SOURCE_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: ${{ inputs.bucket }}
+      LIMIT_OBJECTS: ${{ inputs.limit_objects }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source → target, no source mutation, hash verified
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime,hashlib,json,os,pathlib,urllib.request,urllib.error,urllib.parse
+          source=os.environ.get('CF_SOURCE_TOKEN') or ''
+          target=os.environ.get('CF_TARGET_TOKEN') or ''
+          a=os.environ['CF_SOURCE_ACCOUNT']; b=os.environ['CF_TARGET_ACCOUNT']
+          if not source or not target or os.environ.get('EXPECTED_SOURCE_ACCOUNT')!=a:
+              raise SystemExit('MISSING_OR_WRONG_SCOPED_TOKEN')
+          name=os.environ['BUCKET']
+          allow={'runner3-artifacts','runner3-wp-media','runner3-rss-fastlane-artifacts'}
+          if name not in allow:raise SystemExit('BUCKET_NOT_ALLOWLISTED')
+          limit=int(os.environ['LIMIT_OBJECTS'])
+          if limit<1 or limit>300:raise SystemExit('OBJECT_LIMIT_OUT_OF_RANGE')
+          dry=os.environ['DRY_RUN'].strip().lower()=='true'
+          base='https://api.cloudflare.com/client/v4'
+          max_object_bytes=300_000_000
+          max_transfer_bytes=300_000_000
+          max_pages=8
+          def api(account,token,method,path,body=None,extra=None):
+              h={'Authorization':'Bearer '+token,'Accept':'*/*'}
+              if extra:h.update(extra)
+              url=base+'/accounts/'+account+path
+              request=urllib.request.Request(url,headers=h,data=body,method=method)
+              try:
+                  with urllib.request.urlopen(request,timeout=95) as r:
+                      return r.status,dict(r.headers),r.read()
+              except urllib.error.HTTPError as e:
+                  data=e.read(3000)
+                  raise RuntimeError('CLOUDFLARE_HTTP_'+str(e.code)+'_'+method+'_'+path.split('/')[1]) from None
+          def jsonget(account,token,path):
+              status,headers,raw=api(account,token,'GET',path)
+              d=json.loads(raw)
+              if status!=200 or not d.get('success'):raise RuntimeError('CLOUDFLARE_JSON_FAILURE')
+              return d
+          src_path='/r2/buckets/'+name+'/objects'
+          src_meta=[]
+          cursor=None
+          for page in range(max_pages):
+              q='?per_page=1000'
+              if cursor:q+='&cursor='+urllib.parse.quote(cursor,safe='')
+              d=jsonget(a,source,src_path+q)
+              r=d.get('result') or []
+              if isinstance(r,dict):r=r.get('objects') or []
+              src_meta+=r
+              info=d.get('result_info') or {}
+              cursor=info.get('cursor') if info.get('is_truncated') else None
+              if not cursor:break
+          if cursor:raise SystemExit('SOURCE_MANIFEST_INCOMPLETE_ABORT')
+          dst=jsonget(b,target,src_path+'?per_page=1000')
+          dst_obj=dst.get('result') or []
+          if isinstance(dst_obj,dict):dst_obj=dst_obj.get('objects') or []
+          dst_map={x.get('key'):x for x in dst_obj if isinstance(x,dict)}
+          if (dst.get('result_info') or {}).get('is_truncated'):raise SystemExit('TARGET_MANIFEST_INCOMPLETE_ABORT')
+          selected=[x for x in src_meta if isinstance(x,dict)][:limit]
+          # No deletes or overwrites: existing keys are left intact until a separate drift review.
+          planned=[x for x in selected if x.get('key') not in dst_map]
+          total=sum(int(x.get('size') or 0) for x in planned)
+          if any(int(x.get('size') or 0)>max_object_bytes for x in planned):raise SystemExit('OBJECT_EXCEEDS_REST_UPLOAD_LIMIT')
+          if total>max_transfer_bytes:raise SystemExit('TRANSFER_BUDGET_EXCEEDED')
+          result={'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'bucket':name,
+                  'source_account':a,'target_account':b,'dry_run':dry,
+                  'source_inventory_count':len(src_meta),'selected_count':len(selected),
+                  'already_present_count':len(selected)-len(planned),
+                  'planned_count':len(planned),'planned_bytes':total,
+                  'copied_count':0,'copied_bytes':0,'verified_count':0,'source_deleted':False}
+          if not dry:
+              for obj in planned:
+                  key=obj.get('key')
+                  if not key:raise SystemExit('OBJECT_WITHOUT_KEY_ABORT')
+                  escaped=urllib.parse.quote(key,safe='/')
+                  path=src_path+'/'+escaped
+                  code,h,raw=api(a,source,'GET',path)
+                  if code!=200 or len(raw)!=int(obj.get('size') or -1):
+                      raise RuntimeError('SOURCE_READ_OR_SIZE_MISMATCH')
+                  src_hash=hashlib.sha256(raw).hexdigest()
+                  m=obj.get('http_metadata') or {}
+                  extra={'Content-Type':m.get('contentType') or h.get('Content-Type') or 'application/octet-stream'}
+                  for key1,header1 in [('cacheControl','Cache-Control'),('contentDisposition','Content-Disposition'),('contentLanguage','Content-Language'),('contentEncoding','Content-Encoding')]:
+                      if m.get(key1):extra[header1]=m[key1]
+                  code2,h2,body2=api(b,target,'PUT',path,raw,extra)
+                  uploaded=json.loads(body2)
+                  if code2 not in (200,201) or not uploaded.get('success'):
+                      raise RuntimeError('TARGET_PUT_FAILED')
+                  result['copied_count']+=1;result['copied_bytes']+=len(raw)
+                  code3,h3,check=api(b,target,'GET',path)
+                  if code3!=200 or hashlib.sha256(check).hexdigest()!=src_hash:
+                      raise RuntimeError('TARGET_HASH_MISMATCH')
+                  result['verified_count']+=1
+                  print('verified_object_number',result['verified_count'],'bytes',len(raw))
+              result['complete_for_selected']=result['copied_count']+result['already_present_count']==len(selected)
+          result['status']='PASS' if dry or result.get('complete_for_selected') else 'BLOCKED'
+          dest=pathlib.Path('ops/cloudflare-account-rehome/r2-copy-last.json')
+          dest.parent.mkdir(parents=True,exist_ok=True)
+          dest.write_text(json.dumps(result,indent=2)+'\n')
+          print('R2_REHOME_RESULT',json.dumps(result,sort_keys=True))
+          PY
+      - name: Persist sanitized receipt
+        if: success()
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/cloudflare-account-rehome/r2-copy-last.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Record R2 rehome bounded copy verification'
+          git pull --rebase origin main
+          git push origin HEAD:main
