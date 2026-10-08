@@ -8,7 +8,7 @@ import re
 PROFILES = (
     ("meeting_assistant",
      re.compile(r"(meeting assistant|meeting (transcrip|notes|minutes|summary)|automatic transcription)", re.I),
-     re.compile(r"(meeting.{0,30}(minute|note|transcrib|summari|assistant|software)|transcri.{0,30}(tool|app|software|meeting|voice|audio|live)|voice.to.text|audio.to.text|(?:srt|vtt).{0,25}(convert|edit|generat|subtitle))", re.I)),
+     re.compile(r"(meeting.{0,30}(minute|note|transcrib|summari|assistant)|transcri.{0,30}(tool|app|software|meeting|voice|audio|live)|voice.to.text|audio.to.text|(?:srt|vtt).{0,25}(convert|edit|generat|subtitle))", re.I)),
     ("customer_support_automation",
      re.compile(r"(customer (service|support|engagement)|whatsapp|chatbots?|chat assistants?)", re.I),
      re.compile(r"(whatsapp.{0,55}(automat\w*|chatbot|\bapi\b|integration|\btools?\b)|(?:customer service|customer support|support team).{0,40}(chatbot|automation|ai assistant|chat software|support software)|live chat.{0,35}(software|tool|automation)|chatbot.{0,35}(customer service|customer support|whatsapp))", re.I)),
@@ -67,7 +67,9 @@ def product_keyword_candidates(domain: str, raw: dict, context: dict | None, max
         direct_bonus = (7 if re.search(r"\b(generator|software|automation|database|platform)\b", norm) else (5 if direct else 0))
         informational_phrase = bool(re.search(r"\b(benefits of|guide|meaning|explained|how to|challenges|what is|is .+ a)\b", norm))
         score = direct_bonus + (2 if not informational else 0) + min(volume / 1000, 3) + min(traffic / 15, 3) + max(0, (45-kd)/30) - max(0,len(norm.split())-7)*0.7 - (5 if informational_phrase else 0)
-        if profile[0] == 'field_service_cmms' and 'work order generator' in norm: score += 7
+        if profile[0] == 'field_service_cmms':
+            if 'work order generator' in norm: score += 9
+            elif 'generator' in norm: score -= 9  # electrical generator is not software
         if profile[0] == 'legislative_intelligence' and re.search(r"\b(platform|database|lookup|research tool|tracker)\b",norm):score+=5
         if profile[0] == 'meeting_assistant' and 'meeting minutes software' in norm: score += 5
         scored.append((score, traffic, volume, -kd, norm, phrase, url))
