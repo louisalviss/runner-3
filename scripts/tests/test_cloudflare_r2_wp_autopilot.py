@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory() as folder:
         patch.object(auto.batch, "target_list", return_value={"small-1": 10}), \
         patch.object(auto.batch, "preflight", return_value=([src[0]], [src[1]])), \
         patch.object(auto, "source_properties", return_value={}), \
-        patch.object(auto, "copy_one", return_value={"uploaded": False, "object_bytes": 10}):
+        patch.object(auto, "verify_existing_read_only", return_value=10):
         state = auto.run()
         assert state["status"] == "SMALL_OBJECTS_VERIFIED", state
         assert state["batch_count"] == 1 and state["uploaded_count"] == 1
@@ -68,3 +68,31 @@ with tempfile.TemporaryDirectory() as folder:
         assert state["status"] == "BLOCKED" and state["reason"] == "MOCK_SAFE_GATE"
         assert state["uploaded_count"] == 0 and auto.PROGRESS.exists()
         print("PASS fail-closed with durable-on-graceful-error local receipt")
+
+# Direct verifier cannot PUT, including if an existing key disappears.
+class ReadOnly:
+    def __init__(self):
+        self.reads = 0
+        self.puts = 0
+    def head_object(self, **kwargs):
+        self.reads += 1
+        return {"ContentLength": 4, "Metadata": {}, "StorageClass": "STANDARD"}
+    def get_object(self, **kwargs):
+        self.reads += 1
+        class Body:
+            def read(self, n): return b"proof"
+        return {"Body": Body()}
+    def put_object(self, **kwargs):
+        self.puts += 1
+        raise AssertionError("READ_ONLY_VERIFIER_MUST_NOT_WRITE")
+
+ro = ReadOnly()
+with patch.object(auto, "source_bytes", return_value=b"proof"), \
+     patch.object(auto, "source_properties", return_value={"Metadata": {}, "StorageClass": "STANDARD"}):
+    try:
+        auto.verify_existing_read_only(ro, "fake", {"key": "proof", "size": 4})
+        assert False, "length mismatch must be detected"
+    except auto.GateError as e:
+        assert str(e) == "FINAL_READ_ONLY_SIZE_MISMATCH"
+        assert ro.puts == 0
+print("PASS read-only final verifier refuses mismatched target and never PUTs")
