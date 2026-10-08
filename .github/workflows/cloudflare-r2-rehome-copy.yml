@@ -116,6 +116,13 @@ jobs:
           missing=[x for x in src_meta if isinstance(x,dict) and x.get('key') not in dst_map]
           planned=missing[:limit]
           selected=planned
+          # REST R2 object writes are not a lossless copy path for custom metadata.
+          # Reject the whole batch BEFORE the first write, never silently strip it.
+          if any((x.get('custom_metadata') or {}) for x in planned):
+              raise SystemExit('CUSTOM_METADATA_REQUIRES_NATIVE_R2_COPY_ABORT')
+          # Encoded objects use a separate source-byte normalization / readback path.
+          if any((x.get('http_metadata') or {}).get('contentEncoding') for x in planned):
+              raise SystemExit('STORED_CONTENT_ENCODING_REQUIRES_NATIVE_R2_COPY_ABORT')
           total=sum(int(x.get('size') or 0) for x in planned)
           if any(int(x.get('size') or 0)>max_object_bytes for x in planned):raise SystemExit('OBJECT_EXCEEDS_REST_UPLOAD_LIMIT')
           if total>max_transfer_bytes:raise SystemExit('TRANSFER_BUDGET_EXCEEDED_REDUCE_LIMIT')
@@ -136,6 +143,12 @@ jobs:
                       raise RuntimeError('SOURCE_READ_OR_SIZE_MISMATCH')
                   src_hash=hashlib.sha256(raw).hexdigest()
                   m=obj.get('http_metadata') or {}
+                  # Cloudflare may return transfer-encoded bytes unrelated to the
+                  # stored object encoding. Fail closed rather than copying them.
+                  transfer_encoding=next((v for k,v in h.items() if k.lower()=='content-encoding'),'')
+                  stored_encoding=str(m.get('contentEncoding') or '')
+                  if transfer_encoding and transfer_encoding.lower()!=stored_encoding.lower():
+                      raise RuntimeError('SOURCE_TRANSFER_ENCODING_MISMATCH_ABORT')
                   extra={'Content-Type':m.get('contentType') or h.get('Content-Type') or 'application/octet-stream'}
                   for key1,header1 in [('cacheControl','Cache-Control'),('contentDisposition','Content-Disposition'),('contentLanguage','Content-Language'),('contentEncoding','Content-Encoding')]:
                       if m.get(key1):extra[header1]=m[key1]
