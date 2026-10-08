@@ -3,7 +3,7 @@
 import datetime,hashlib,json,os,pathlib,shlex,shutil,sqlite3,subprocess,tempfile,sys
 ROOT=pathlib.Path("/opt/bike-niche-corpus")
 NAME=sys.argv[1] if len(sys.argv)>1 else ""
-assert NAME in ("bikeinsights","rideinsights","sram")
+assert NAME in ("bikeinsights","rideinsights","sram","geometrygeeks")
 DIR=ROOT/"releases"/NAME;DIR.mkdir(parents=True,exist_ok=True)
 DB=ROOT/"crawls"/(NAME+".sqlite3")
 INV=ROOT/"inventory"/(NAME+"-urls.jsonl")
@@ -38,9 +38,16 @@ def d1(status,stamp,detail):
  src="bike-niche-"+NAME
  raw=json.dumps(detail,ensure_ascii=False,separators=(",",":"))
  sql=f"INSERT INTO workflow_state(source,status,run_id,detail,updated_at) VALUES({sqlquote(src)},{sqlquote(status)},{sqlquote(stamp)},{sqlquote(raw)},CURRENT_TIMESTAMP) ON CONFLICT(source) DO UPDATE SET status=excluded.status,run_id=excluded.run_id,detail=excluded.detail,updated_at=CURRENT_TIMESTAMP;"
- json.loads(cf("d1 execute runner3-core --remote --yes --json --command "+shlex.quote(sql),160))
+ # Wrangler can return empty stdout for successful D1 mutations even with --json.
+ # The authoritative success criterion is the subsequent remote readback.
+ cf("d1 execute runner3-core --remote --yes --json --command "+shlex.quote(sql),160)
  check=f"SELECT status,run_id,detail FROM workflow_state WHERE source={sqlquote(src)} LIMIT 1"
- rows=json.loads(cf("d1 execute runner3-core --remote --yes --json --command "+shlex.quote(check),160))[0]["results"]
+ output=cf("d1 execute runner3-core --remote --yes --json --command "+shlex.quote(check),160)
+ try:
+  payload=json.loads(output)
+  rows=payload[0]["results"]
+ except Exception as exc:
+  raise RuntimeError("D1_READBACK_NON_JSON: "+repr(output[:400])) from exc
  assert rows and rows[0]["status"]==status and rows[0]["run_id"]==stamp and rows[0]["detail"]==raw,"D1_READBACK_MISMATCH"
 def tg_upload(p,caption):
  tg=pathlib.Path("/var/lib/telegram-upload/bike-niche");tg.mkdir(parents=True,exist_ok=True)
