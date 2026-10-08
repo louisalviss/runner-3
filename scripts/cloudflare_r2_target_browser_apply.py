@@ -87,6 +87,7 @@ def main():
         for item in objs:
             raw = base64.b64decode(item["payload_b64"])
             digest = hashlib.sha256(raw).hexdigest()
+            logical_digest = item.get("logical_sha256") or digest
             if len(raw) != int(item.get("size") or -1) or digest != item.get("sha256"):
                 raise SystemExit("SOURCE_CONTENT_CHECK_FAILED")
             key = item.get("key")
@@ -95,7 +96,7 @@ def main():
             url = root + urllib.parse.quote(key, safe="/")
             exists = p.request.get(url, timeout=45000)
             if exists.status == 200:
-                if hashlib.sha256(exists.body()).hexdigest() != digest:
+                if hashlib.sha256(exists.body()).hexdigest() != logical_digest:
                     raise SystemExit("TARGET_OBJECT_COLLISION_DIFFERENT_HASH")
                 report["existing_verified"] += 1
                 report["readback_verified"] += 1
@@ -123,7 +124,7 @@ def main():
             report["copied"] += 1
             report["bytes_copied"] += len(raw)
             check = p.request.get(url, timeout=90000)
-            if check.status != 200 or hashlib.sha256(check.body()).hexdigest() != digest:
+            if check.status != 200 or hashlib.sha256(check.body()).hexdigest() != logical_digest:
                 raise SystemExit("DESTINATION_SHA256_MISMATCH")
             report["readback_verified"] += 1
     report["status"]="PASS"
@@ -133,4 +134,12 @@ def main():
     print(json.dumps(report, ensure_ascii=False))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        # In particular, Playwright HTTP exceptions may contain Cookie headers.
+        # Never print their message or traceback into CI/VPS logs.
+        print("TARGET_BROWSER_EXCEPTION_REDACTED", type(exc).__name__)
+        raise SystemExit(2)
