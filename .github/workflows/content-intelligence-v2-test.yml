@@ -61,6 +61,7 @@ jobs:
           node --check cloudflare/runner3-core/src/content-intelligence.js
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
           python3 -m py_compile scripts/content_intelligence_client.py
+          python3 -m unittest discover -s tests -p test_d1_account_dual_quota_guard.py
           node scripts/verify_runner3_d1_quota_guards.mjs
           node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_personal_score_sql_size.mjs
