@@ -108,10 +108,10 @@ def main():
             except Exception:
                 raise SystemExit("HTTP_GZIP_WIRE_DECODE_FAILED")
             if len(decoded) != listed_size:
-                raise SystemExit("R2_LIST_STORAGE_SIZE_MISMATCH_ABORT")
+                raise SystemExit("R2_STORAGE_SIZE_DRIFT listed="+str(listed_size)+" wire="+str(len(wire_bytes))+" decoded="+str(len(decoded))+" wire_encoding="+wire_encoding+" storage_encoding="+storage_encoding)
             stored = decoded
         else:
-            raise SystemExit("R2_LIST_STORAGE_SIZE_MISMATCH_ABORT")
+            raise SystemExit("R2_STORAGE_SIZE_DRIFT listed="+str(listed_size)+" wire="+str(len(wire_bytes))+" decoded=NA wire_encoding="+wire_encoding+" storage_encoding="+storage_encoding)
 
         if storage_encoding == "gzip":
             if not stored.startswith(b"\\x1f\\x8b"):
