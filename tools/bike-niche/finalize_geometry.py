@@ -73,6 +73,8 @@ def main():
   con=sqlite3.connect(snap)
   if con.execute("pragma quick_check").fetchone()[0]!="ok":raise RuntimeError("QUICK_CHECK_FAILED")
   n=con.execute("select count(*) from geometry").fetchone()[0]
+  outliers_audited=con.execute("select count(*) from rejected_measurements").fetchone()[0]
+  numeric_corrections=con.execute("select count(*) from numeric_corrections").fetchone()[0]
   rows=[{"source":x[0],"measurements":x[1],"pages":x[2]} for x in con.execute("select source,count(*),count(distinct url) from geometry group by source")]
   con.close()
   qa_db=ROOT/"derived/source-quality.sqlite3"
@@ -80,6 +82,7 @@ def main():
   crosswalk_db=ROOT/"derived/bike-crosswalk.sqlite3"
   crosswalk_summary=ROOT/"derived/bike-crosswalk-summary.json"
   d={"dataset":"bike-niche-geometry-normalized","release":release,"measurements":n,"sources":sources,
+     "outliers_audited":outliers_audited,"numeric_corrections":numeric_corrections,
      "measurements_by_source":rows,"source_db_sha256":sha(snap),"source_db_bytes":snap.stat().st_size,
      "quality_flags_sha256":sha(qa_db),"quality_flags_bytes":qa_db.stat().st_size,
      "quality_summary":json.loads(qa_summary.read_text()),
