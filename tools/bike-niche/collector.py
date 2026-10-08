@@ -159,5 +159,11 @@ def main():
  state=stats(db);log(a.source,{"terminal_run":True,"healthy":success,"stats":state})
  if not success:raise SystemExit(20)
  if a.limit and state["queue"].get("pending",0):return
- if any(state["queue"].get(k,0)>0 for k in ("pending","retry","in_progress","error")):raise SystemExit(12)
+ if any(state["queue"].get(k,0)>0 for k in ("pending","retry","in_progress")):raise SystemExit(12)
+ # Bounded terminal fetch failures are retained explicitly in the manifest.
+ # The publisher independently gates the same threshold; a handful of
+ # genuinely missing/unstable pages must not strand the whole corpus.
+ errors=state["queue"].get("error",0)
+ total=sum(state["queue"].values())
+ if errors>max(5,int(total*0.01)):raise SystemExit(13)
 if __name__=="__main__":main()
