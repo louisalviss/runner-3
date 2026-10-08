@@ -44,3 +44,10 @@ The deployed scripts live under `/opt/bike-niche-corpus` (except the secure Tele
 - The final geometry release includes numeric geometry, source quality flags, crosswalk and their summaries. `finalize_geometry.py` requires all three source release receipts before building, then performs R2 readback, D1 published pointer and Telegram / Data segmented delivery.
 - A persistent `/etc/systemd/system/bike-niche-finalize-geometry.service`, started only by the source-aware resume guard, replaces the volatile transient finalizer. It remains **inactive** while Geometry Geeks is unfinished.
 - Geometry Geeks partial snapshot at `sources/geometrygeeks/checkpoints/20261008T174448Z/`: 23,212 source records, seven separately verified R2 chunks, manifest and D1 `crawling` readback. It is a checkpoint, not the final release.
+
+
+## Numeric geometry safety gate
+
+`normalize_geometry.py` enforces conservative, metric-specific physical limits across 16 measurements (stack, reach, head/seat angles, tube dimensions, wheelbase, bottom bracket, fork, trail and standover). Nonphysical values (e.g. negative 7,730-mm bottom bracket height) are excluded from searchable numeric rows but retained in the original site snapshots and an audit table `rejected_measurements`. A live October 9 audit retired 5,714 pre-existing impossible rows; `PRAGMA quick_check` and twelve synthetic metric boundary tests passed. Avoid treating all manufacturer-reported field values as verified.
+
+`checkpoint_geometry.py` now writes a separate immutable checkpoint workspace, never into the final publication directory, to avoid overwriting a concurrent final release. It stores the SQLite numeric index plus rejected-measurement audit in R2 (verified multi-part objects when above 30 MiB) and writes a guarded D1 checkpoint that cannot replace a `published` pointer.
