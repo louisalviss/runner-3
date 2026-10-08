@@ -133,6 +133,12 @@ jobs:
           # Encoded objects use a separate source-byte normalization / readback path.
           if any((x.get('http_metadata') or {}).get('contentEncoding') for x in planned):
               raise SystemExit('STORED_CONTENT_ENCODING_REQUIRES_NATIVE_R2_COPY_ABORT')
+          if any((x.get('http_metadata') or {}).get('cacheExpiry') for x in planned):
+              raise SystemExit('CACHE_EXPIRY_REQUIRES_NATIVE_R2_COPY_ABORT')
+          if any(x.get('ssec') for x in planned):
+              raise SystemExit('SSEC_OBJECT_REQUIRES_NATIVE_R2_COPY_ABORT')
+          if any((x.get('storage_class') or 'Standard')!='Standard' for x in planned):
+              raise SystemExit('NONSTANDARD_STORAGE_CLASS_REQUIRES_NATIVE_R2_COPY_ABORT')
           total=sum(int(x.get('size') or 0) for x in planned)
           if any(int(x.get('size') or 0)>max_object_bytes for x in planned):raise SystemExit('OBJECT_EXCEEDS_REST_UPLOAD_LIMIT')
           if total>max_transfer_bytes:raise SystemExit('TRANSFER_BUDGET_EXCEEDED_REDUCE_LIMIT')
@@ -153,7 +159,7 @@ jobs:
                   escaped=urllib.parse.quote(key,safe='/')
                   path=src_path+'/'+escaped
                   code,h,raw=api(a,source,'GET',path)
-                  if code!=200 or len(raw)!=int(obj.get('size') or -1):
+                  if obj.get('size') is None or code!=200 or len(raw)!=int(obj['size']):
                       raise RuntimeError('SOURCE_READ_OR_SIZE_MISMATCH')
                   src_hash=hashlib.sha256(raw).hexdigest()
                   m=obj.get('http_metadata') or {}
