@@ -88,8 +88,10 @@ def main():
 
     databases = sorted(per_db.values(), key=lambda x: x["rowsWritten"], reverse=True)
     current = sum(x["rowsWritten"] for x in databases)
+    current_reads = sum(x["rowsRead"] for x in databases)
     projected = current + planned
-    allowed = projected <= ceiling
+    projected_reads = current_reads + planned_reads
+    allowed = projected <= ceiling and projected_reads <= read_ceiling
     result = {
         "ok": allowed,
         "dateUtc": today,
