@@ -11,7 +11,7 @@ PROFILES = (
      re.compile(r"(meeting.{0,30}(minute|note|transcrib|summari|assistant|software)|transcri.{0,30}(tool|app|software|meeting|voice|audio|live)|voice.to.text|audio.to.text|(?:srt|vtt).{0,25}(convert|edit|generat|subtitle))", re.I)),
     ("customer_support_automation",
      re.compile(r"(customer (service|support|engagement)|whatsapp|chatbots?|chat assistants?)", re.I),
-     re.compile(r"(whatsapp.{0,55}(automat|chatbot|api|integration|business tool|support tool)|(?:customer|support).{0,40}(chatbot|automation|ai assistant|chat software|support software)|live chat.{0,35}(software|tool|automation)|chatbot.{0,35}(customer|support|whatsapp))", re.I)),
+     re.compile(r"(whatsapp.{0,55}(automat\w*|chatbot|\bapi\b|integration|\btools?\b)|(?:customer service|customer support|support team).{0,40}(chatbot|automation|ai assistant|chat software|support software)|live chat.{0,35}(software|tool|automation)|chatbot.{0,35}(customer service|customer support|whatsapp))", re.I)),
     ("field_service_cmms",
      re.compile(r"(field service management|cmms|maintenance management|work orders?|technicians?.{0,20}assets)", re.I),
      re.compile(r"(work.order.{0,35}(generat|template|form|software|management|planner|schedul|app)|cmms.{0,30}(software|tool|system|program)|maintenance.{0,35}(software|checklist|planner|work.order)|field.service.{0,30}(software|management))", re.I)),
@@ -41,7 +41,7 @@ def product_keyword_candidates(domain: str, raw: dict, context: dict | None, max
     for row in raw.get("rows") or []:
         phrase = str(row.get("phrase") or "").strip()
         norm = " ".join(phrase.lower().split())
-        if not norm or norm in seen or norm in GENERIC or EXCLUDE.search(norm):
+        if not norm or len(norm.split()) > 12 or norm in seen or norm in GENERIC or EXCLUDE.search(norm):
             continue
         seen.add(norm)
         compact = re.sub(r"[^a-z0-9]", "", norm)
@@ -61,13 +61,19 @@ def product_keyword_candidates(domain: str, raw: dict, context: dict | None, max
         if volume < 30:
             continue
         # Real utility/transaction intent gets priority over high-volume articles.
-        action = bool(re.search(r"(software|tool|generator|template|converter|database|lookup|automation|tracker|checklist|management|app|api|list|ranking|transcription)", norm))
+        action = bool(re.search(r"\b(software|tools?|generator|templates?|converter|database|lookup|automation|tracker|checklist|management|app|api|list|ranking|transcription)\b", norm))
         informational = any(part in url for part in ("/blog/", "/glossary/", "/news/"))
-        score = (6 if action else 0) + (2 if not informational else 0) + min(volume / 1000, 3) + min(traffic / 15, 3) + max(0, (45-kd)/30)
+        product = bool(re.search(r"\b(generator|software|automation|converter|database|templates?|api|tracker|management)\b", norm))
+        score = (9 if product else (3 if action else 0)) + (3 if not informational else 0) + min(volume / 1000, 3) + min(traffic / 15, 3) + max(0, (45-kd)/30) - max(0,len(norm.split())-7)*0.4
         scored.append((score, traffic, volume, -kd, norm, phrase, url))
     scored.sort(reverse=True)
-    return [
-        {"keyword": phrase, "volume": vol, "traffic": traffic, "kd": -nkd, "url": url,
-         "profile": profile[0], "product_intent_matched": True}
-        for _, traffic, vol, nkd, norm, phrase, url in scored[:maxn]
-    ]
+    out, used_urls = [], set()
+    for _, traffic, vol, nkd, norm, phrase, url in scored:
+        # Two paraphrases on one landing page do not justify two provider queries.
+        canonical_url=url.split("?")[0].rstrip("/")
+        if canonical_url and canonical_url in used_urls: continue
+        if canonical_url: used_urls.add(canonical_url)
+        out.append({"keyword": phrase, "volume": vol, "traffic": traffic, "kd": -nkd, "url": url,
+                    "profile": profile[0], "product_intent_matched": True})
+        if len(out)>=maxn:break
+    return out
