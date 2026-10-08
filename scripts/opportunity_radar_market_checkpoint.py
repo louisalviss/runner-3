@@ -65,10 +65,17 @@ def validate_packet(health: dict[str, Any], packet: dict[str, Any], prefilter: d
     if not isinstance(signals, list):
         raise RuntimeError("market-signals.signals must be a list")
 
+    if health_session != health.get("expected_latest_completed_us_session"):
+        raise RuntimeError("market packet is not the latest completed US session")
+    if packet.get("expected_latest_completed_us_session") != health_session:
+        raise RuntimeError("market packet expected session mismatch")
+
     ids: list[str] = []
     for row in signals:
         if not isinstance(row, dict) or not row.get("intake_id"):
             raise RuntimeError("every market signal must have intake_id")
+        if (row.get("source") or {}).get("last_date") != health_session:
+            raise RuntimeError("stale symbol source date in COMPLETE market signals")
         ids.append(str(row["intake_id"]))
 
     if len(ids) != len(set(ids)):
@@ -91,6 +98,10 @@ def validate_packet(health: dict[str, Any], packet: dict[str, Any], prefilter: d
         raise RuntimeError("market-prefilter universe_count mismatch")
     if int(health.get("prefilter_count") or -1) != len(records):
         raise RuntimeError("market-health prefilter_count mismatch")
+    if any(row.get("last_date") != health_session for row in records):
+        raise RuntimeError("stale symbol source date in COMPLETE market prefilter")
+    if float(health.get("fresh_history_coverage") or 0) < 0.8:
+        raise RuntimeError("insufficient same-session market history coverage")
 
     health_scanner_version = str(health.get("scanner_version") or "")
     prefilter_scanner_version = str(prefilter.get("scanner_version") or "")
