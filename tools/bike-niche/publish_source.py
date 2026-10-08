@@ -27,14 +27,9 @@ def cf(args,timeout=500):
  # otherwise corrupting --json parsing even when Wrangler succeeds.
  return run(["bash","-c","set -a; . "+shlex.quote(ENV)+"; set +a; /usr/local/bin/wrangler "+args],timeout)
 def r2_put(p,key):
- remote=BUCKET+"/"+key
- cf("r2 object put "+shlex.quote(remote)+" --remote --file "+shlex.quote(str(p))+" --force",1000)
- fd,tmp=tempfile.mkstemp(prefix="bike-corpus-verify-");os.close(fd)
- try:
-  cf("r2 object get "+shlex.quote(remote)+" --remote --file "+shlex.quote(tmp),1000)
-  assert sha(tmp)==sha(p) and os.stat(tmp).st_size==p.stat().st_size,"R2_READBACK_MISMATCH"
- finally:os.unlink(tmp)
- return {"key":key,"sha256":sha(p),"bytes":p.stat().st_size,"verified":True}
+ # Bounded chunks + SHA256 readback avoid R2 Gateway 502 on large archives.
+ from r2_verified import put
+ return put(p,key)
 def sqlquote(x):return "'"+str(x).replace("'","''")+"'"
 def d1(status,stamp,detail):
  src="bike-niche-"+NAME
@@ -86,9 +81,9 @@ def main():
  con.close()
  a=r2_put(archive,f"{release}/{archive.name}")
  b=r2_put(manifest,f"{release}/manifest.json")
- curr=DIR/"CURRENT.json";atomic(curr,{"source":NAME,"release":stamp,"artifact_key":a["key"],"sha256":a["sha256"],"records":n})
+ curr=DIR/"CURRENT.json";atomic(curr,{"source":NAME,"release":stamp,"artifact_key":a["key"],"sha256":a["sha256"],"records":n,"artifact_format":a.get("format","single-tar"),"part_count":a.get("part_count",1)})
  c=r2_put(curr,f"{PREFIX}/CURRENT.json")
- details={"phase":"published_pending_telegram","bucket":BUCKET,"r2_key":a["key"],"sha256":a["sha256"],"bytes":a["bytes"],"records":n,"queue":q}
+ details={"phase":"published_pending_telegram","bucket":BUCKET,"r2_key":a["key"],"sha256":a["sha256"],"bytes":a["bytes"],"records":n,"queue":q,"artifact_format":a.get("format","single-tar"),"r2_part_count":a.get("part_count",1)}
  d1("published_pending_telegram",stamp,details)
  cap=f"BIKE NICHE — {NAME.upper()}\nRelease: {stamp}\nRecords: {n}\nSHA256: {a['sha256']}\n#dataset_bike #src_{NAME}"
  sent=tg_upload(archive,cap)
