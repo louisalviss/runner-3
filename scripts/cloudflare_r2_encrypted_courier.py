@@ -26,11 +26,11 @@ ALLOWED = {
 MAX_BUNDLE_BYTES = 25_000_000
 MAX_OBJECTS = 30
 MAX_PAGES = 15
+GZIP_MAGIC = bytes((0x1F, 0x8B))
 
 def request(url, token, accept_encoded=False):
     h = {"Authorization": "Bearer " + token, "Accept": "*/*"}
-    if accept_encoded:
-        h["Accept-Encoding"] = "gzip"
+    h["Accept-Encoding"] = "gzip" if accept_encoded else "identity"
     req = urllib.request.Request(url, headers=h)
     with urllib.request.urlopen(req, timeout=50) as result:
         return result.status, dict(result.headers), result.read()
@@ -107,7 +107,7 @@ def main():
             # gzip without returning a gzip-framed body; fall back to
             # Accept-Encoding: identity for exact stored bytes.
             stored = None
-            if wire_encoding == "gzip" and wire_bytes.startswith(b"\\x1f\\x8b"):
+            if wire_encoding == "gzip" and wire_bytes.startswith(GZIP_MAGIC):
                 try:
                     decoded = gzip.decompress(wire_bytes)
                     if len(decoded) == listed_size:
@@ -127,7 +127,7 @@ def main():
                 stored = identity_bytes
 
         if storage_encoding == "gzip":
-            if not stored.startswith(b"\\x1f\\x8b"):
+            if not stored.startswith(GZIP_MAGIC):
                 raise SystemExit("STORED_GZIP_MAGIC_MISSING")
             try:
                 logical = gzip.decompress(stored)
