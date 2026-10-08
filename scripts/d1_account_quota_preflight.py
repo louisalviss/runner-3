@@ -115,7 +115,7 @@ def main():
             file=sys.stderr,
         )
         raise SystemExit(3)
-    print(f"D1_BUDGET_PASS current={current} planned={planned} projected={projected} ceiling={ceiling}")
+    print(f"D1_BUDGET_PASS write={projected}/{ceiling} read={projected_reads}/{read_ceiling}")
 
 if __name__ == "__main__":
     main()
