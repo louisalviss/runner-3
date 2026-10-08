@@ -1,0 +1,11 @@
+[Unit]
+Description=Resume unfinished bicycle data acquisitions after reboot
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=30min
+Persistent=true
+Unit=bike-niche-resume-guard.service
+
+[Install]
+WantedBy=timers.target
