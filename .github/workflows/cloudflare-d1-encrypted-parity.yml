@@ -1,0 +1,22 @@
+name: Cloudflare D1 Source Encrypted Parity Audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --quiet cryptography
+      - run: python3 scripts/cloudflare_d1_encrypted_parity.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cf-d1-encrypted-parity
+          path: courier-out/d1-envelope.json
+          if-no-files-found: error
+          retention-days: 1
