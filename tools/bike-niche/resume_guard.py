@@ -86,10 +86,9 @@ elif not all_geometry_published:
 elif active("bike-niche-finalize-geometry.service"):
  report("normalized-geometry","already_running")
 else:
- cmd=["systemd-run","--unit=bike-niche-finalize-geometry","--collect",
-      "--property=Restart=on-failure","--property=RestartSec=900s",
-      "--property=MemoryMax=1800M","--property=CPUQuota=70%",
-      "/usr/bin/python3",str(ROOT/"finalize_geometry.py")]
+ # Persistent native unit prevents transient unit loss across VPS reboot.
+ # The guard already verified all prerequisite sources are published.
+ cmd=["systemctl","start","--no-block","bike-niche-finalize-geometry.service"]
  p=subprocess.run(cmd,capture_output=True,text=True,timeout=25)
  report("normalized-geometry","finalization_started" if p.returncode==0 else "finalization_start_failed",
         rc=p.returncode,message=(p.stdout+p.stderr)[-280:])
