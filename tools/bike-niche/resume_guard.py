@@ -39,7 +39,8 @@ for source in SOURCES:
   state=load_json(ROOT/"releases"/source/"publication-state.json")
   if state.get("phase")=="published":
    report(source,"already_published",done=n);continue
- if active(LEGACY[source]) or active(unit):
+ dedicated_delivery=source in ("rideinsights","sram") and active("bike-niche-release-delivery.service")
+ if active(LEGACY[source]) or active(unit) or dedicated_delivery:
   report(source,"already_running",done=n,remaining=remaining);continue
  if (ROOT/"state"/(source+"-blocked.json")).exists():
   report(source,"blocked_manual_review",done=n);continue
