@@ -248,8 +248,19 @@ def run(mode, bucket):
         put_args.update(properties)
         try:
             client.put_object(**put_args)
-        except Exception:
-            raise GateError("TARGET_CANARY_PUT_FAILED") from None
+        except ClientError as exc:
+            meta = exc.response if isinstance(exc.response, dict) else {}
+            raw_code = str((meta.get("Error") or {}).get("Code") or "")
+            code = raw_code if raw_code in {
+                "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch",
+                "PreconditionFailed", "ConditionalRequestConflict",
+                "InvalidRequest", "InvalidArgument", "NotImplemented",
+                "BadDigest", "NoSuchBucket", "SlowDown"
+            } else "OTHER"
+            status = int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0)
+            raise GateError("TARGET_CANARY_PUT_HTTP_" + str(status) + "_" + code.upper()) from None
+        except Exception as exc:
+            raise GateError("TARGET_CANARY_PUT_EXCEPTION_" + type(exc).__name__.upper()) from None
         receipt["result"] = "COPIED_AND_VERIFIED"
     else:
         receipt["result"] = "EXISTING_VERIFIED_NO_OVERWRITE"
