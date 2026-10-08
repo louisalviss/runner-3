@@ -19,7 +19,7 @@ import cloudflare_r2_native_batch as batch
 from cloudflare_r2_native_canary import (GateError, source_list, source_properties,
                                          source_bytes, verify_properties)
 
-MAX_BATCHES = 60
+MAX_BATCHES = 80
 MAX_UPLOADED_BYTES = 250_000_000
 MAX_RUNTIME_SECONDS = 40 * 60
 MAX_SOURCE_OBJECTS = 500
