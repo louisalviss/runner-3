@@ -35,8 +35,13 @@ def main():
  try:
   current=inp.execute("SELECT COUNT(*) FROM geometry").fetchone()[0]
   rejected=inp.execute("SELECT COUNT(*) FROM rejected_measurements").fetchone()[0]
+  corrections=inp.execute("SELECT COUNT(*) FROM numeric_corrections").fetchone()[0]
+  progress={row[0]:row[1] for row in inp.execute("SELECT source,last_rowid FROM progress")}
  finally:inp.close()
- if prior and prior.get("measurements")==current and prior.get("outliers_audited")==rejected:
+ if (prior and prior.get("measurements")==current
+     and prior.get("outliers_audited")==rejected
+     and prior.get("numeric_corrections")==corrections
+     and prior.get("progress")==progress):
   print(json.dumps({"ok":True,"skipped":"UNCHANGED_MEASUREMENTS_AND_AUDIT","checkpoint":prior["checkpoint"]}))
   return
  stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -50,12 +55,14 @@ def main():
  if check.execute("PRAGMA quick_check").fetchone()[0]!="ok":raise RuntimeError("SQLITE_QUICK_CHECK_FAIL")
  n=check.execute("SELECT count(*) FROM geometry").fetchone()[0]
  audited=check.execute("SELECT count(*) FROM rejected_measurements").fetchone()[0]
+ corrected=check.execute("SELECT count(*) FROM numeric_corrections").fetchone()[0]
+ snapshot_progress={row[0]:row[1] for row in check.execute("SELECT source,last_rowid FROM progress")}
  cov=[{"source":row[0],"measurements":row[1],"bike_pages":row[2]} for row in
    check.execute("SELECT source,count(*),count(distinct url) FROM geometry GROUP BY source")]
  check.close()
  state={"source":"bike-niche-normalized-geometry","checkpoint":stamp,
-   "measurements":n,"outliers_audited":audited,
-   "coverage":cov,"sqlite_sha256":sha(snap),"sqlite_bytes":snap.stat().st_size,
+   "measurements":n,"outliers_audited":audited,"numeric_corrections":corrected,
+   "progress":snapshot_progress,"coverage":cov,"sqlite_sha256":sha(snap),"sqlite_bytes":snap.stat().st_size,
    "site_crawls_complete":False,
    "checkpoint_at":datetime.datetime.now(datetime.timezone.utc).isoformat()}
  manifest=dest/"manifest.json";atomic(manifest,state)
@@ -67,7 +74,8 @@ def main():
  man=put(manifest,prefix+"/manifest.json")
  detail={"phase":"checkpoint","bucket":"runner3-artifacts","artifact_r2_key":file["key"],
          "artifact_format":file.get("format","single-tar"),"r2_part_count":file.get("part_count",1),
-         "sha256":file["sha256"],"bytes":file["bytes"],"measurements":n,"outliers_audited":audited}
+         "sha256":file["sha256"],"bytes":file["bytes"],"measurements":n,"outliers_audited":audited,
+         "numeric_corrections":corrected,"progress":snapshot_progress}
  raw=json.dumps(detail,separators=(",",":"))
  sql=("INSERT INTO workflow_state(source,status,run_id,detail,updated_at) VALUES("
    "'bike-niche-normalized-geometry','checkpoint',"+quote(stamp)+","+quote(raw)+",CURRENT_TIMESTAMP)"
@@ -81,6 +89,7 @@ def main():
      (rows[0]["run_id"]!=stamp or rows[0]["detail"]!=raw)):
   raise RuntimeError("D1_READBACK_FAIL")
  receipt={"ok":True,"checkpoint":stamp,"measurements":n,"outliers_audited":audited,
+          "numeric_corrections":corrected,"progress":snapshot_progress,
           "r2_archive":file,"r2_manifest":man,"d1_status":rows[0]["status"],
           "d1_readback_verified":True}
  atomic(dest/"receipt.json",receipt)
