@@ -142,7 +142,7 @@ def main():
         encrypted_items.append({
             "key": key, "size": len(stored), "sha256": hashlib.sha256(stored).hexdigest(),
             "logical_sha256": logical_sha,
-            "content_type": hm.get("contentType") or h.get("Content-Type") or "application/octet-stream",
+            "content_type": hm.get("contentType") or headers.get("Content-Type") or "application/octet-stream",
             "http_metadata": hm,
             "payload_b64": base64.b64encode(stored).decode(),
         })
