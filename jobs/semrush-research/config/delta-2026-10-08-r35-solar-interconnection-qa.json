@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "source": "semrush-new-family-solar-utility-interconnection-qa-v1",
+  "database": "us",
+  "generated_at": "2026-10-08T14:10:39+07:00",
+  "purpose": "R35 bounded pre-SERP probe of installer-side utility-interconnection document completeness, cross-document consistency, resubmission rejections and PTO workflow (not solar permitting or solar CRM). Commercial pain evidenced by installers; buyers already pay existing workflows; competitive moat not yet proven.",
+  "business_preflight": {
+    "stage": "PASS_FOR_BOUNDED_DEMAND_PROBE_ONLY",
+    "buyer": "US solar installers / EPC permit and interconnection coordinators",
+    "problem": "Documents rejected as incomplete or inconsistent; utility-specific changes and submission rework",
+    "wedge": "Source-cited utility-specific preflight + document consistency warnings, no utility credential automation and no generic CRM",
+    "monetization_hypothesis": "Per-project QA report, paid integrations or installer subscription; published competitor sticker prices are market benchmarks, not verified willingness to pay for this product",
+    "sources": [
+      "https://www.pge.com/en/about/doing-business-with-pge/interconnections/contractor-resources.html",
+      "https://www.pge.com/en/about/doing-business-with-pge/interconnections/net-energy-metering-program.html",
+      "https://www.birdcamprod2.xcelenergy.com/working_with_us/renewable_developer_resource_center/solar_rewards_developer_resources",
+      "https://soladrive.app/",
+      "https://civyxiq.com/products/gridprojex/"
+    ],
+    "risks": [
+      "PG&E already has portal-side built-in validation",
+      "GridProjeX offers similar applicant-side verified-document and checklist workflow",
+      "Proprietary source-change tracking/exception data network is not proven",
+      "Search volume and unique monetizable intent must be verified by R35 before further investment"
+    ],
+    "spend_guardrail": "6 exact new root seeds; no extension round unless R35 forms a coherent numeric demand cluster; max two exact-SERP candidates and one query per candidate"
+  },
+  "themes": [
+    {
+      "theme_id": "discovery-solar-interconnection-checklist",
+      "label": "Solar interconnection checklist",
+      "seeds": [
+        "solar interconnection application checklist"
+      ]
+    },
+    {
+      "theme_id": "discovery-utility-interconnection-requirements",
+      "label": "Utility interconnection requirements",
+      "seeds": [
+        "solar utility interconnection requirements"
+      ]
+    },
+    {
+      "theme_id": "discovery-interconnection-document-list",
+      "label": "Interconnection document list",
+      "seeds": [
+        "solar interconnection documents required"
+      ]
+    },
+    {
+      "theme_id": "discovery-interconnection-application-rejected",
+      "label": "Interconnection application rejected",
+      "seeds": [
+        "solar interconnection application rejected"
+      ]
+    },
+    {
+      "theme_id": "discovery-solar-pto-checklist",
+      "label": "Solar PTO checklist",
+      "seeds": [
+        "solar pto checklist"
+      ]
+    },
+    {
+      "theme_id": "discovery-solar-interconnection-application-form",
+      "label": "Solar interconnection form",
+      "seeds": [
+        "solar interconnection application form"
+      ]
+    }
+  ]
+}
