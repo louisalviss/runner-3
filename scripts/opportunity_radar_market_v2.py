@@ -645,6 +645,25 @@ def classify_source_session(source_session_date: str, expected_session_date: str
     return "DEGRADED", False, "STALE_SOURCE_SESSION"
 
 
+def partition_fresh_market_history(
+    history: dict[str, pd.DataFrame], expected_session_date: str
+) -> tuple[dict[str, pd.DataFrame], int]:
+    """Only same-session priced symbols can enter anomaly ranking/prefilter.
+
+    A market-wide max(date) is insufficient: a few fresh symbols could mask
+    stale Yahoo batches and produce a falsely COMPLETE packet.
+    """
+    fresh: dict[str, pd.DataFrame] = {}
+    stale = 0
+    for symbol, frame in history.items():
+        # Matches the adjusted/raw aligned close used by signal_from().
+        if price_metrics(frame).get("last_date") == expected_session_date:
+            fresh[symbol] = frame
+        else:
+            stale += 1
+    return fresh, stale
+
+
 def latest_valid_market_session(history: dict[str, pd.DataFrame]) -> str | None:
     """Return the newest valid upstream market session, independent of emitted signals."""
     latest: str | None = None
@@ -706,16 +725,28 @@ def main() -> None:
             raise RuntimeError(f"history coverage too low: {len(history)}/{len(eligible)} ({coverage:.1%})")
 
         print("[4/4] Building V2 raw pricing signals")
-        anomalies, guard_stats, prefilter_records = build_anomalies(commons, snapshot, history, previous_packet)
-        previous = previous_by_symbol(previous_packet)
-        signals = [signal_from(x, generated_at, previous.get(str(x.get("symbol") or "").upper())) for x in anomalies]
+        expected_session_date = expected_latest_completed_us_session(generated_at_dt)
         source_session_date = latest_valid_market_session(history)
         if source_session_date is None:
             raise RuntimeError("no valid market session in fetched history")
-        expected_session_date = expected_latest_completed_us_session(generated_at_dt)
+        fresh_history, stale_history_suppressed = partition_fresh_market_history(
+            history, expected_session_date
+        )
+        fresh_history_coverage = len(fresh_history) / max(1, len(eligible))
+        # Build all decision-facing artifacts from one common, accepted session.
+        # Never relabel a stale symbol with the aggregate freshest market date.
+        anomalies, guard_stats, prefilter_records = build_anomalies(
+            commons, snapshot, fresh_history, previous_packet
+        )
+        previous = previous_by_symbol(previous_packet)
+        signals = [signal_from(x, generated_at, previous.get(str(x.get("symbol") or "").upper())) for x in anomalies]
         market_status, market_complete, reason_code = classify_source_session(
             source_session_date, expected_session_date
         )
+        if fresh_history_coverage < CFG["min_history_coverage"]:
+            market_status, market_complete, reason_code = (
+                "DEGRADED", False, "INSUFFICIENT_FRESH_SESSION_COVERAGE"
+            )
 
         prefilter_payload = {
             "schema": "opportunity-radar-market-prefilter-v1",
@@ -730,6 +761,8 @@ def main() -> None:
             "history_requested": len(eligible),
             "history_returned": len(history),
             "history_coverage": coverage,
+            "fresh_history_coverage": fresh_history_coverage,
+            "stale_history_suppressed": stale_history_suppressed,
             "config_snapshot": dict(CFG),
             "records": prefilter_records,
         }
@@ -764,6 +797,8 @@ def main() -> None:
                 "history_requested": len(eligible),
                 "history_returned": len(history),
                 "history_coverage": coverage,
+                "fresh_history_coverage": fresh_history_coverage,
+                "stale_history_suppressed": stale_history_suppressed,
                 "signal_count": len(signals),
                 "volume_confirmed": sum(1 for x in anomalies if x.get("volume_confirmation")),
                 **guard_stats,
@@ -793,6 +828,8 @@ def main() -> None:
             history_requested=len(eligible),
             history_returned=len(history),
             history_coverage=coverage,
+            fresh_history_coverage=fresh_history_coverage,
+            stale_history_suppressed=stale_history_suppressed,
             snapshot_ok=bool(snapshot),
             snapshot_error=snapshot_error,
             early_watch=guard_stats["early_watch"],
