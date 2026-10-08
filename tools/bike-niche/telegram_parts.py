@@ -66,42 +66,31 @@ def upload_archive(archive,folder,caption):
         "part_bytes":PARTSIZE,"parts":parts,"message_ids":prev.get("message_ids",{}),
         "manifest_message_id":prev.get("manifest_message_id")}
  write_atomic(statefile,state)
- for part in parts:
-  key=part["name"]
-  if str(key) in state["message_ids"]:continue
-  item=release_folder/key
-  msg="\n".join([
-   caption,
-   f"Archive: {archive.name}",
-   f"Part {part['number']}/{part['total']}",
-   f"Full SHA256: {totalsha}",
-   f"Part SHA256: {part['sha256']}",
-   "Restore: concatenate all numbered parts in order"
-  ])
-  mid=send(item,msg)
-  state["message_ids"][key]=mid
-  write_atomic(statefile,state)
-  print(json.dumps({"part_sent":part["number"],"parts_total":part["total"],"message_id":mid}),flush=True)
-  time.sleep(1.5)
- receipt={
-   "archive":archive.name,"archive_sha256":totalsha,"archive_bytes":archive.stat().st_size,
-   "part_bytes":PARTSIZE,"parts":[{**p,"telegram_message_id":state["message_ids"][p["name"]]} for p in parts],
-   "reassemble_command":f"cat {archive.name}.part-* > {archive.name}",
-   "r2_durable_master":True
- }
- manifest=folder/"telegram-parts-manifest.json"
- write_atomic(manifest,receipt)
- if not state["manifest_message_id"]:
-  cap="\n".join(["BIKE NICHE — PARTS MANIFEST",f"Archive: {archive.name}",
-   f"Parts: {len(parts)}",f"SHA256: {totalsha}", "Follow numbered parts to restore .tar.zst"])
-  state["manifest_message_id"]=send(manifest,cap)
-  write_atomic(statefile,state)
- receipt.update({
-    "message_id":state["manifest_message_id"],
-    "manifest_message_id":state["manifest_message_id"],
-    "part_message_ids":[state["message_ids"][p["name"]] for p in parts],
-    "part_count":len(parts),
-    "bytes":archive.stat().st_size,
-    "topic":"Data","forum":"VPS Control"
- })
- return receipt
+ # One BWS credential load and one Telegram session for all remaining parts.
+ # The Node worker commits each sent message ID atomically; resume skips it.
+ cmd=[NODE,"/opt/telegram-mtproto/vps-control-data-batch.js",str(statefile),caption]
+ process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                          text=True,bufsize=1)
+ last=None
+ try:
+  for line in process.stdout:
+   line=line.strip()
+   if not line:continue
+   if line.startswith("{"):
+    try:
+     item=json.loads(line)
+     if item.get("ok") and item.get("topic")=="Data" and item.get("part_count"):
+      last=item
+    except json.JSONDecodeError:pass
+   print(line,flush=True)
+  rc=process.wait(timeout=30)
+ except Exception:
+  process.kill()
+  process.wait()
+  raise
+ if rc!=0 or not last:
+  raise RuntimeError("TELEGRAM_BATCH_FAILED rc="+str(rc)+"; check per-part checkpoint")
+ state=json.loads(statefile.read_text())
+ if len(state.get("message_ids",{}))!=len(parts):
+  raise RuntimeError("TELEGRAM_BATCH_INCOMPLETE")
+ return last
