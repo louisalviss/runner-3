@@ -28,3 +28,31 @@ Scope: existing WordPress **test** site2 only. **Do not change jeff-vn.com**; it
 - Full VPS-level WordPress A→Z still requires separately validating OS/PHP/DB-level operations; Wasmer site-admin success does not prove dedicated-VPS management.
 
 Operational rule: do not operate `jeff-vn.com` unless user explicitly says to do so.
+
+
+## VPS-hosted WordPress full-stack acceptance — 2026-10-09 02:10 VN (continued)
+
+**Host**: runner-vps1; existing Docker HawkHost migration stack. This is distinct from Wasmer Site2. All checks excluded jeff-vn.com.
+
+### Verified live capability
+- SentinelX root-level OS access on Linux: PASS. Nginx 1.26.3 config `nginx -t`: PASS. Controlled temporary local file write/readback/cleanup: PASS.
+- Existing web containers running (zero restarts in test): Apache/PHP 5.6.40, PHP 7.4.33, PHP 8.1.34. Apache config syntax on PHP 8.1: PASS.
+- Existing database `hawkhost-db`: MariaDB 10.11.19, health healthy, SQL SELECT: PASS.
+- PHP 8.1 `mysqli` end-to-end connections for existing WordPress `wp`, `wp2`, `canary`: 3/3 PASS (`SELECT 1`), without disclosing DB credentials.
+- Independent scratch-only MariaDB transaction: create unique ephemeral schema, INSERT/SELECT, SQL dump, drop, restore, exact readback — PASS; scratch schema cleaned.
+- **Real WordPress file/database recovery proof** (source: existing `wp2`, read-only):
+  - Full site file tar 116,746,240 bytes, extracted to temporary isolated directory; `diff -rq` PASS.
+  - Existing `louisalv_wp337` database dumped as SQL (1,706,887 bytes), restored to a unique new isolated schema. All **19 tables** and exact source/restored row counts matched.
+  - Re-dumping the restored schema produced a **byte-identical SQL dump**; SHA256 `3ac042ca82e2327b03255b0ebd538dab535c0dac5ba9a883556bfd067ec6b2dc`.
+  - Verified no `az_restore_wp2_*` / `az_accept_*` scratch schema remains; no temporary file staging remains. Existing web containers have restart count 0. Nginx syntax PASS; database healthy.
+- No production WordPress DB rows, content, PHP configuration or nginx settings were modified; only scratch schema and temporary files were created then deleted.
+
+### Open gates — DO NOT promote to A→Z production-ready
+1. `vps-state-backup` automated task (last run SUCCESS 2026-10-09 00:19 VN) backs up SQLite state, not verified to include whole WordPress site files or MariaDB. Existing `/opt/hawkhost-migration/runtime/backups` stores **partial** SQL/config/file backups; **full current WordPress backup and verified offsite restore are NOT proven**.
+2. An actual independent WordPress app clone with altered `siteurl`/separate DB + private web server must boot and pass functional/visual smoke; file+DB readback alone is not application-state recovery.
+3. Define encrypted private R2 backups + backup manifest/hash/retention/readback in the already existing artifact authority; avoid storing plaintext WordPress credentials or customer data in public GitHub/Dropbox.
+4. Dedicated VPS stack operator (start/restart/deploy/rollback/health) needs one bounded reversible config/candidate test with production-safe visual and functionality gates.
+5. Legacy PHP 5.6/7.4 must remain isolated, never treated as acceptable defaults for a new WordPress golden template. Future standard should use supported PHP release compatible with current WP/plugins and current MariaDB. No upgrade performed today.
+6. Cloudflare `runner3-wp-optimizer` D1 was marked retired in current authority: don't resurrect it accidentally. WordPress experiment state needs a deliberately agreed current home before automatic optimization is re-enabled.
+
+**Overall verdict:** Host OS, PHP, MariaDB, WordPress→DB link, isolated data backup/restore = PASS. Actual autonomous website restore / self-healing / offsite backup = NOT YET PASS. No domain purchase necessary for these gates.
