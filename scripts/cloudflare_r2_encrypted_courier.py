@@ -102,16 +102,29 @@ def main():
         # with R2 object's Content-Encoding metadata.
         if len(wire_bytes) == listed_size:
             stored = wire_bytes
-        elif wire_encoding == "gzip" and wire_bytes.startswith(b"\\x1f\\x8b"):
-            try:
-                decoded = gzip.decompress(wire_bytes)
-            except Exception:
-                raise SystemExit("HTTP_GZIP_WIRE_DECODE_FAILED")
-            if len(decoded) != listed_size:
-                raise SystemExit("R2_STORAGE_SIZE_DRIFT listed="+str(listed_size)+" wire="+str(len(wire_bytes))+" decoded="+str(len(decoded))+" wire_encoding="+wire_encoding+" storage_encoding="+storage_encoding)
-            stored = decoded
         else:
-            raise SystemExit("R2_STORAGE_SIZE_DRIFT listed="+str(listed_size)+" wire="+str(len(wire_bytes))+" decoded=NA wire_encoding="+wire_encoding+" storage_encoding="+storage_encoding)
+            # First try to undo transfer gzip. Certain API responses declare
+            # gzip without returning a gzip-framed body; fall back to
+            # Accept-Encoding: identity for exact stored bytes.
+            stored = None
+            if wire_encoding == "gzip" and wire_bytes.startswith(b"\\x1f\\x8b"):
+                try:
+                    decoded = gzip.decompress(wire_bytes)
+                    if len(decoded) == listed_size:
+                        stored = decoded
+                except Exception:
+                    pass
+            if stored is None:
+                code2, headers2, identity_bytes = request(
+                    path, token, accept_encoded=False
+                )
+                if code2 != 200 or len(identity_bytes) != listed_size:
+                    raise SystemExit(
+                        "R2_SOURCE_SIZE_DRIFT_ABORT listed="+str(listed_size)+
+                        " encoded_response="+str(len(wire_bytes))+
+                        " identity_response="+str(len(identity_bytes))
+                    )
+                stored = identity_bytes
 
         if storage_encoding == "gzip":
             if not stored.startswith(b"\\x1f\\x8b"):
