@@ -1,0 +1,104 @@
+name: Cloudflare Rehome R2 Inventory
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-rehome-r2-inventory.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloudflare-rehome-r2-inventory
+  cancel-in-progress: false
+
+jobs:
+  readonly-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      EXPECTED_ACCOUNT_ID: '7415a87f6bce7884e73ad7cfed5782df'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aggregate R2 counts without exposing object keys or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime,json,os,pathlib,urllib.parse,urllib.request,urllib.error
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          if not token or account!=os.environ['EXPECTED_ACCOUNT_ID']:
+              raise SystemExit('SOURCE_CLOUDFLARE_AUTH_PRECONDITION_FAILED')
+          headers={'Authorization':'Bearer '+token,'Accept':'application/json'}
+          base='https://api.cloudflare.com/client/v4'
+          def get(path):
+              req=urllib.request.Request(base+path,headers=headers)
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      return r.status,json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  try:j=json.loads(e.read())
+                  except Exception:j={}
+                  return e.code,j
+          code,raw=get(f'/accounts/{account}/r2/buckets?per_page=100')
+          if code!=200 or not raw.get('success'):
+              raise SystemExit('R2_BUCKET_LIST_UNAVAILABLE')
+          buckets=(raw.get('result') or {}).get('buckets') or []
+          result={'observed_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  'source_account_id':account,'mode':'read_only','bucket_count':len(buckets),
+                  'sample_max_per_bucket':2000,'buckets':[]}
+          for b in buckets:
+              name=b.get('name')
+              item={'name':name,'jurisdiction':b.get('jurisdiction'),
+                    'location':b.get('location'),'storage_class':b.get('storage_class'),
+                    'count_at_least':0,'sample_bytes':0,'truncated':False,'http':None}
+              cursor=None
+              for page in range(2):
+                  q='?per_page=1000'
+                  if cursor:q+='&cursor='+urllib.parse.quote(cursor,safe='')
+                  code,j=get(f'/accounts/{account}/r2/buckets/{urllib.parse.quote(name,safe="")}/objects'+q)
+                  item['http']=code
+                  if code!=200 or not j.get('success'):
+                      item['error_codes']=[x.get('code') for x in (j.get('errors') or [])[:2]]
+                      break
+                  obj=j.get('result')
+                  if isinstance(obj,dict):obj=obj.get('objects') or []
+                  if not isinstance(obj,list):obj=[]
+                  item['count_at_least']+=len(obj)
+                  item['sample_bytes']+=sum(int(x.get('size') or 0) for x in obj if isinstance(x,dict))
+                  info=j.get('result_info') or {}
+                  cursor=info.get('cursor')
+                  item['truncated']=bool(info.get('is_truncated') or cursor)
+                  if not item['truncated'] or not cursor:break
+              result['buckets'].append(item)
+              print('bucket',name,'http',item['http'],'sample_count',item['count_at_least'],
+                    'truncated',item['truncated'])
+          code,metrics=get(f'/accounts/{account}/r2/metrics')
+          result['metrics_http']=code
+          if code==200 and metrics.get('success'):
+              data=metrics.get('result') or {}
+              for klass in ('standard','infrequentAccess'):
+                  c=data.get(klass) or {}
+                  result.setdefault('storage_totals',{})[klass]={
+                      phase:{key:int(((c.get(phase) or {}).get(key)) or 0)
+                             for key in ('objects','payloadSize','metadataSize')}
+                      for phase in ('published','uploaded')}
+          path=pathlib.Path('ops/cloudflare-account-rehome/r2-inventory.json')
+          path.parent.mkdir(parents=True,exist_ok=True)
+          path.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+          print('SOURCE_R2_INVENTORY_COMPLETE',len(result['buckets']))
+          PY
+      - name: Persist sanitized inventory
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/cloudflare-account-rehome/r2-inventory.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Record Cloudflare R2 source inventory for account rehome'
+          git push origin HEAD:main
