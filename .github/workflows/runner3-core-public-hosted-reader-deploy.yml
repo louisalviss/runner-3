@@ -157,6 +157,14 @@ jobs:
           node scripts/verify_interest_ontology.mjs
           node scripts/verify_content_identity_resolution.mjs
 
+      - name: D1 account-wide read/write preflight
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_PLANNED_READ_ROWS: '100000'
+          D1_PLANNED_ROWS: '1000'
+        run: python3 scripts/d1_account_quota_preflight.py
+
       - name: Apply Core D1 migrations
         shell: bash
         working-directory: cloudflare/runner3-core
