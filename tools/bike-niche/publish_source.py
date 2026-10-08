@@ -23,7 +23,9 @@ def sha(p):
 def atomic(p,data):
  q=p.with_name(p.name+".tmp");q.write_text(json.dumps(data,indent=2,ensure_ascii=False));q.replace(p)
 def cf(args,timeout=500):
- return run(["bash","-lc","set -a; . "+shlex.quote(ENV)+"; set +a; /usr/local/bin/wrangler "+args],timeout)
+ # Non-login shell: /root/.profile prints unrelated warnings on stdout,
+ # otherwise corrupting --json parsing even when Wrangler succeeds.
+ return run(["bash","-c","set -a; . "+shlex.quote(ENV)+"; set +a; /usr/local/bin/wrangler "+args],timeout)
 def r2_put(p,key):
  remote=BUCKET+"/"+key
  cf("r2 object put "+shlex.quote(remote)+" --remote --file "+shlex.quote(str(p))+" --force",1000)
