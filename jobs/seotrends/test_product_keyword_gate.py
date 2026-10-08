@@ -54,4 +54,23 @@ class ProductKeywordGateTests(unittest.TestCase):
             ('meeting minutes software','https://sally.io/blog/meeting-minutes',1000,1)),context)
         self.assertEqual([x['keyword'] for x in q],['meeting minutes software'])
 
+    def test_generic_product_fallback(self):
+        context={'title':'PDF Compressor - Free Online File Tools','description':'Compress PDF documents into smaller files'}
+        q=product_keyword_candidates('tinyfile.app',raw(
+            ('pdf compressor','https://tinyfile.app/compress-pdf',1900,3),
+            ('celebrity lifestyle news','https://tinyfile.app/blog/news',10000,40)),context)
+        self.assertEqual([x['keyword'] for x in q],['pdf compressor'])
+        self.assertEqual(q[0]['profile'],'generic_product')
+
+    def test_hardware_and_airport_do_not_inherit_utility_fallback(self):
+        self.assertIsNone(detect_profile({'title':'FPGA Embedded Boards','description':'Hardware vendor offering embedded automation boards'}))
+        self.assertIsNone(detect_profile({'title':'Eastern Iowa Airport','description':'Flights and airlines from Cedar Rapids'}))
+
+    def test_generic_utility_requires_subject_anchor(self):
+        context={'title':'Invoice Generator','description':'Create invoices for freelancers using online tools'}
+        q=product_keyword_candidates('billpilot.app',raw(
+            ('best marketing automation software','https://billpilot.app/marketing',8000,22),
+            ('invoice generator','https://billpilot.app/invoice',1900,5)),context)
+        self.assertEqual([x['keyword'] for x in q],['invoice generator'])
+
 if __name__=='__main__':unittest.main()

@@ -21,18 +21,54 @@ PROFILES = (
 )
 # Some broad industry words are not evidence of a *specific* product opportunity.
 EXCLUDE = re.compile(r"(?:^|[\s])(news|breaking news|definition of|what is a|meaning of|election results|today's headlines)(?:$|[\s])", re.I)
+
+GENERIC_SITE_PRODUCT = re.compile(
+    r"\b(software|saas|api|calculator|converter|generator|checker|estimator|planner|lookup|tracker|validator|viewer|editor|compressor|analytics|automation|tools?|platform|application|web app)\b", re.I)
+PHYSICAL_ONLY = re.compile(
+    r"\b(fpga|embedded boards?|hardware vendor|surveillance cameras?|physical devices?|portable saunas?|sauna tents?|airport|airline|manufacturer of|shop outdoor)\b", re.I)
+GENERIC_QUERY_ACTION = re.compile(
+    r"\b(software|api|calculator|converter|generator|checker|estimator|planner|lookup|tracker|validator|viewer|editor|compressor|analytics|automation|tools?|platform|apps?|templates?|schedul(?:er|ing)|dashboard)\b", re.I)
+GENERIC_STOP = {
+    "the","and","for","with","your","from","into","are","you","best","powerful",
+    "business","solutions","solution","services","service","customers","customer",
+    "software","saas","platform","tool","tools","app","apps","online","website",
+    "management","support","modern","smart","digital","product","products","market",
+    "cloud","system","systems","using","automatically","automated","teams","team",
+    "simple","easy","data","technology","technical","businesses","free","company",
+    "intelligent","fast","make","create","build","leading","welcome","home","join",
+    "more","today","all","and","new","this","that","what","about","artificial",
+    "intelligence","users","people","benefits","features","solutions","solutions"
+}
+def generic_product_profile(context: dict | None, domain: str = "") -> tuple[str,re.Pattern] | None:
+    if not context: return None
+    title=str(context.get('title') or '').lower()
+    desc=str(context.get('description') or '').lower()
+    combined=title+" "+desc
+    if not GENERIC_SITE_PRODUCT.search(combined): return None
+    # A hardware/ecommerce site mentioning automation isn't automatically a utility.
+    if PHYSICAL_ONLY.search(combined) and not re.search(r"\b(software|saas|api|web app)\b",combined):
+        return None
+    label=domain.lower().split('.')[0].replace('-','')
+    title_tokens=re.findall(r"[a-z][a-z0-9]{2,}", title)
+    desc_tokens=re.findall(r"[a-z][a-z0-9]{2,}", desc)
+    title_anchors=[x for x in title_tokens if x not in GENERIC_STOP and x!=label]
+    desc_anchors=[x for x in desc_tokens if x not in GENERIC_STOP and x!=label]
+    anchors=list(dict.fromkeys(title_anchors+desc_anchors))[:28]
+    if not anchors: return None
+    return "generic_product", re.compile(r"\b(?:"+"|".join(re.escape(x) for x in anchors)+r")\b",re.I)
+
 GENERIC = {"best ai tools", "ai tools", "tools", "software", "analytics", "api", "business", "ai"}
-def detect_profile(context: dict | None) -> tuple[str, re.Pattern] | None:
+def detect_profile(context: dict | None, domain: str = "") -> tuple[str, re.Pattern] | None:
     if not context:
         return None
     text = " ".join(str(context.get(k) or "") for k in ("title", "description"))
     for name, category, query in PROFILES:
         if category.search(text):
             return name, query
-    return None
+    return generic_product_profile(context, domain)
 
 def product_keyword_candidates(domain: str, raw: dict, context: dict | None, maxn: int = 6) -> list[dict]:
-    profile = detect_profile(context)
+    profile = detect_profile(context, domain)
     if not profile:
         return []  # no verified product mapping: fail closed, never topical SERP
     _, allow = profile
@@ -48,6 +84,8 @@ def product_keyword_candidates(domain: str, raw: dict, context: dict | None, max
         if label and label in compact:  # brand-led keywords are not transferable
             continue
         if not allow.search(norm):
+            continue
+        if profile[0]=='generic_product' and not GENERIC_QUERY_ACTION.search(norm):
             continue
         url = str(row.get("url") or "").lower()
         if "/news/" in url or "/press/" in url or "/blog/news/" in url:
