@@ -95,6 +95,9 @@ def main():
     result = {
         "ok": allowed,
         "dateUtc": today,
+        "currentRowsRead": current_reads,
+        "projectedRowsRead": projected_reads,
+        "readSafeCeiling": read_ceiling,
         "currentRowsWritten": current,
         "plannedRows": planned,
         "projectedRowsWritten": projected,
