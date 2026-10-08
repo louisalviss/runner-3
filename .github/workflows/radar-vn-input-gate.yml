@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/radar-vn-input-gate.yml'
+      - 'radar_vn_input_gate.py'
   schedule:
     # Backup gate: eight checks/day even when source workflow schedules are skipped.
     - cron: '7 0,3,6,9,12,15,18,21 * * *'
