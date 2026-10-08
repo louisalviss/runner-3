@@ -41,8 +41,8 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         self.assertEqual(stale, 1)
         records, _, _ = scanner.build_anomalies(
             {
-                "NEW": {"symbol": "NEW", "sector": "Technology"},
-                "STALE": {"symbol": "STALE", "sector": "Technology"},
+                "NEW": {"symbol": "NEW", "name": "New Company", "exchange": "NASDAQ"},
+                "STALE": {"symbol": "STALE", "name": "Stale Company", "exchange": "NASDAQ"},
             },
             {},
             fresh,
