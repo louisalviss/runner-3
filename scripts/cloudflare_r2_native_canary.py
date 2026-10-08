@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import urllib.error
 import urllib.parse
@@ -18,7 +19,7 @@ import urllib.request
 
 import boto3
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ParamValidationError
 
 SOURCE_ACCOUNT = "7415a87f6bce7884e73ad7cfed5782df"
 TARGET_ACCOUNT = "748a80810f77f447ee476543ef0e5014"
@@ -259,6 +260,20 @@ def run(mode, bucket):
             } else "OTHER"
             status = int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0)
             raise GateError("TARGET_CANARY_PUT_HTTP_" + str(status) + "_" + code.upper()) from None
+        except ParamValidationError as exc:
+            # Report only documented SDK parameter NAMES, never values.
+            names = re.findall(
+                r'(?:Invalid type for parameter|Invalid length for parameter|'
+                r'Invalid value for parameter) ([A-Za-z0-9_.]+)',
+                str(exc),
+            )
+            names += re.findall(r'Unknown parameter in input: "([A-Za-z0-9_]+)"', str(exc))
+            known = {"Body", "Bucket", "Key", "Metadata", "Expires",
+                     "StorageClass", "ContentType", "ContentEncoding",
+                     "ContentLanguage", "ContentDisposition", "CacheControl",
+                     "ContentMD5", "IfNoneMatch"}
+            safe = sorted({n for n in names if n.split(".")[0] in known})
+            raise GateError("TARGET_CANARY_PUT_PARAM_" + ("_".join(safe) or "UNKNOWN")) from None
         except Exception as exc:
             raise GateError("TARGET_CANARY_PUT_EXCEPTION_" + type(exc).__name__.upper()) from None
         receipt["result"] = "COPIED_AND_VERIFIED"
