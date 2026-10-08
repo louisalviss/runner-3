@@ -4,6 +4,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 def parse_dt(value):
@@ -44,6 +45,7 @@ def main():
     args = ap.parse_args()
 
     now = datetime.now(timezone.utc)
+    vn_date = now.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date().isoformat()
     blocking = []
 
     trends, err = load(args.trends)
@@ -60,12 +62,19 @@ def main():
         blocking.append("trends_not_healthy_fresh_top10")
 
     f33, err = load(args.f33)
+    f33_path = args.f33
+    if (f33 or {}).get('vietnam_date') != vn_date:
+        dated_path = f'voz_f33_history/{vn_date}.json'
+        candidate, candidate_error = load(dated_path)
+        if not candidate_error and (candidate or {}).get('vietnam_date') == vn_date:
+            f33, err, f33_path = candidate, None, dated_path
     f_age = age_minutes((f33 or {}).get("generated_at"), now)
     f_expected = (f33 or {}).get("expected_pages_total")
     f_fetched = (f33 or {}).get("fetched_pages_total")
     f_ok = bool(
         not err
         and (f33 or {}).get("status") == "HEALTHY"
+        and (f33 or {}).get('vietnam_date') == vn_date
         and int((f33 or {}).get("artifact_id") or 0) > 0
         and int((f33 or {}).get("missing_pages_total") or 0) == 0
         and int((f33 or {}).get("threads_degraded") or 0) == 0
@@ -99,6 +108,7 @@ def main():
         "render_allowed": render_allowed,
         "full_quality": bool(render_allowed and forum_status == "HEALTHY"),
         "blocking_reasons": blocking,
+        "target_vietnam_date": vn_date,
         "inputs": {
             "trends": {
                 "path": args.trends,
@@ -109,7 +119,8 @@ def main():
                 "top10_count": t_rows,
             },
             "f33": {
-                "path": args.f33,
+                "path": f33_path,
+                "vietnam_date": (f33 or {}).get("vietnam_date"),
                 "ok": f_ok,
                 "status": (f33 or {}).get("status"),
                 "generated_at": (f33 or {}).get("generated_at"),
