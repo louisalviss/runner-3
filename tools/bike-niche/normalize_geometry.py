@@ -47,9 +47,19 @@ def clean(x):return re.sub(r"\s+"," ",str(x)).strip()
 def normalize(k,value):
  s=clean(value)
  if not s or s.casefold() in ("-","n/a","unknown","—","not available"):return None
- m=NUMBER.search(s)
+ # Source pages mix decimal commas (461,25) and grouped thousands (1,234).
+ # Convert only a terminal 1- or 2-digit decimal comma; leave 3-digit
+ # groups as thousands. The raw value remains available for audit.
+ normalized_text=re.sub(r"(?<=\d),(?=\d{1,2}(?!\d))",".",s)
+ m=NUMBER.search(normalized_text)
  if not m:return None
  n=float(m.group().replace(",",""))
+ if k not in ("head_tube_angle","seat_tube_angle"):
+  suffix=s[m.end():].strip().lower()
+  # Units must immediately follow the first numeric value; a trailing note
+  # like "70.5 (toe overlap 4 more than M)cm" does not imply centimetres.
+  if re.match(r"^cm(?:\\b|$)",suffix):n*=10
+  elif re.match(r"^(?:in(?:ch(?:es)?)?|[”″\\\"])(?:\\b|$)",suffix):n*=25.4
  if k not in METRIC_LIMITS:return None
  lo,hi=METRIC_LIMITS[k]
  if not lo<=n<=hi:return None
@@ -99,6 +109,45 @@ def init(db):
  CREATE TABLE IF NOT EXISTS progress(source TEXT PRIMARY KEY,last_rowid INTEGER NOT NULL DEFAULT 0,processed INTEGER NOT NULL DEFAULT 0,measured INTEGER NOT NULL DEFAULT 0,updated_at TEXT);
  """)
  db.commit()
+def repair_locale_units(db):
+ # Reparse only older numeric rows carrying mixed locale or explicit units.
+ # The source raw values remain unchanged. Audit every correction.
+ db.execute("""CREATE TABLE IF NOT EXISTS numeric_corrections(
+   source TEXT,url TEXT,frame_size TEXT,metric TEXT,
+   old_value REAL,new_value REAL,unit TEXT,raw_value TEXT,
+   reason TEXT,corrected_at TEXT,
+   PRIMARY KEY(source,url,frame_size,metric)
+ )""")
+ sql="""SELECT source,url,frame_size,metric,value,unit,raw_value
+        FROM geometry
+        WHERE instr(raw_value,',')>0 OR lower(raw_value) LIKE '%cm%'
+              OR lower(raw_value) LIKE '% in%'"""
+ updates=[]
+ count=0
+ for source,url,size,metric,old_value,unit,raw in list(db.execute(sql)):
+  norm=normalize(metric,raw)
+  if norm is None:
+   # Retain unusable legacy rows in the rejection audit before exclusion.
+   db.execute("""INSERT OR IGNORE INTO rejected_measurements
+     (source,url,frame_size,metric,value,unit,raw_value,reason,rejected_at)
+     VALUES (?,?,?,?,?,?,?,?,?)""",
+     (source,url,size,metric,old_value,unit,raw,'locale_unit_invalid',datetime.datetime.now(datetime.timezone.utc).isoformat()))
+   db.execute("DELETE FROM geometry WHERE source=? AND url=? AND frame_size=? AND metric=?",
+              (source,url,size,metric))
+   count+=1
+   continue
+  new_value,new_unit=norm
+  if abs(new_value-old_value)<0.000001 and new_unit==unit:continue
+  db.execute("""INSERT OR IGNORE INTO numeric_corrections
+    (source,url,frame_size,metric,old_value,new_value,unit,raw_value,reason,corrected_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)""",
+    (source,url,size,metric,old_value,new_value,new_unit,raw,'locale_or_explicit_unit',datetime.datetime.now(datetime.timezone.utc).isoformat()))
+  db.execute("UPDATE geometry SET value=?,unit=? WHERE source=? AND url=? AND frame_size=? AND metric=?",
+             (new_value,new_unit,source,url,size,metric))
+  count+=1
+ db.commit()
+ print(json.dumps({"quality_gate":"locale_numeric_units","repaired_or_rejected":count}),flush=True)
+ return count
 def cleanup_outliers(db):
  # Old indexed records may predate METRIC_LIMITS. Preserve audit metadata
  # when retiring out-of-range values; never mutate original source SQLite.
@@ -127,6 +176,7 @@ def main():
  out=sqlite3.connect(OUT,timeout=60)
  init(out)
  cleanup_outliers(out)
+ repair_locale_units(out)
  for src in SOURCES:
   f=ROOT/"crawls"/(src+".sqlite3")
   if not f.exists():continue
