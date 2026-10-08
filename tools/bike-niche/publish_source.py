@@ -50,14 +50,10 @@ def d1(status,stamp,detail):
   raise RuntimeError("D1_READBACK_NON_JSON: "+repr(output[:400])) from exc
  assert rows and rows[0]["status"]==status and rows[0]["run_id"]==stamp and rows[0]["detail"]==raw,"D1_READBACK_MISMATCH"
 def tg_upload(p,caption):
- tg=pathlib.Path("/var/lib/telegram-upload/bike-niche");tg.mkdir(parents=True,exist_ok=True)
- staged=tg/p.name;shutil.copy2(p,staged)
- try:
-  out=run(["/opt/telegram-mtproto/run-node-secure.sh","/opt/telegram-mtproto/vps-control-data-upload.js",str(staged),caption],2500)
-  rows=[x for x in out.splitlines() if x.startswith("{")]
-  res=json.loads(rows[-1]);assert res.get("ok") and res.get("topic")=="Data",res
-  return res
- finally:staged.unlink(missing_ok=True)
+ # Small deterministic shards keep Telegram MTProto transfers bounded and
+ # checkpointed. Large full-archive uploads have timed out on this VPS.
+ from telegram_parts import upload_archive
+ return upload_archive(p,DIR,caption)
 def main():
  con=sqlite3.connect(DB,timeout=90)
  q=dict(con.execute("SELECT status,COUNT(*) FROM queue GROUP BY status").fetchall())
@@ -94,9 +90,14 @@ def main():
  d1("published_pending_telegram",stamp,details)
  cap=f"BIKE NICHE — {NAME.upper()}\nRelease: {stamp}\nRecords: {n}\nSHA256: {a['sha256']}\n#dataset_bike #src_{NAME}"
  sent=tg_upload(archive,cap)
- details.update({"phase":"published","telegram_message_id":sent["message_id"]})
+ details.update({"phase":"published","telegram_message_id":sent["message_id"],
+                 "telegram_part_message_ids":sent["part_message_ids"],
+                 "telegram_part_count":sent["part_count"]})
  d1("published",stamp,details)
- receipt={"source":NAME,"status":"published","counts":q,"r2":[a,b,c],"d1":"published","telegram_message_id":sent["message_id"]}
+ receipt={"source":NAME,"status":"published","counts":q,"r2":[a,b,c],"d1":"published",
+          "telegram_message_id":sent["message_id"],
+          "telegram_part_message_ids":sent["part_message_ids"],
+          "telegram_part_count":sent["part_count"]}
  atomic(DIR/"publish-receipt.json",receipt)
  r2_put(DIR/"publish-receipt.json",f"{release}/publish-receipt.json")
  s.update({"phase":"published","telegram_message_id":sent["message_id"],"published_at":datetime.datetime.now(datetime.timezone.utc).isoformat()});atomic(STATE,s)
