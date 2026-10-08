@@ -35,15 +35,8 @@ def publish_d1(status,release,detail):
  if not items or items[0].get("status")!=status or items[0].get("run_id")!=release or items[0].get("detail")!=raw:
   raise RuntimeError("D1_READBACK_FAILED")
 def upload(local,key):
- remote=BUCKET+"/"+key
- wr("r2 object put "+shlex.quote(remote)+" --remote --file "+shlex.quote(str(local))+" --force",1800)
- fd,temp=tempfile.mkstemp(prefix="bike-geom-verify-");os.close(fd)
- try:
-  wr("r2 object get "+shlex.quote(remote)+" --remote --file "+shlex.quote(temp),1800)
-  if sha(temp)!=sha(local) or os.stat(temp).st_size!=local.stat().st_size:raise RuntimeError("R2_READBACK_MISMATCH")
- finally:
-  pathlib.Path(temp).unlink(missing_ok=True)
- return {"key":key,"bytes":local.stat().st_size,"sha256":sha(local),"verified":True}
+ from r2_verified import put
+ return put(local,key)
 def done(name):
  rel=ROOT/"releases"/name/"publication-state.json"
  if not rel.exists():raise RuntimeError("SOURCE_NOT_PUBLISHED: "+name)
@@ -94,9 +87,9 @@ def main():
  package=upload(arch,prefix+"/"+arch.name)
  manifest_obj=upload(manifest,prefix+"/manifest.json")
  current=DIR/"CURRENT.json"
- atomic(current,{"dataset":"bike-niche-geometry-normalized","release":release,"r2_key":package["key"],"sha256":package["sha256"],"measurements":st["measurements"]})
+ atomic(current,{"dataset":"bike-niche-geometry-normalized","release":release,"r2_key":package["key"],"sha256":package["sha256"],"measurements":st["measurements"],"artifact_format":package.get("format","single-tar"),"r2_part_count":package.get("part_count",1)})
  current_obj=upload(current,BASE+"/CURRENT.json")
- detail={"phase":"published_pending_telegram","bucket":BUCKET,"package":package["key"],"sha256":package["sha256"],"bytes":package["bytes"],"measurements":st["measurements"],"sources":sources}
+ detail={"phase":"published_pending_telegram","bucket":BUCKET,"package":package["key"],"sha256":package["sha256"],"bytes":package["bytes"],"measurements":st["measurements"],"sources":sources,"artifact_format":package.get("format","single-tar"),"r2_part_count":package.get("part_count",1)}
  publish_d1("published_pending_telegram",release,detail)
  from telegram_parts import upload_archive
  cap="BIKE NICHE — NORMALIZED GEOMETRY FINAL\nRelease: "+release+"\nMetrics: "+str(st["measurements"])+"\nSHA256: "+package["sha256"]+"\n#dataset_bike #geometry"
