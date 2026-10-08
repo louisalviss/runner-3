@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline contract for R2 S3 metadata canary, no credentials/network."""
 import importlib.util, datetime as dt, hashlib, io, json, os, contextlib
+from types import SimpleNamespace
 from unittest.mock import patch
 from botocore.exceptions import ClientError
 
@@ -19,6 +20,12 @@ class FakeBody:
 class FakeS3:
     def __init__(self,existing=False,bad=False):
         self.existing=existing;self.bad=bad;self.puts=0;self.saved=None
+        self.registered={}
+        self.meta=SimpleNamespace(events=SimpleNamespace(register=self.register,unregister=self.unregister))
+    def register(self,event,handler): self.registered[event]=handler
+    def unregister(self,event,handler):
+        assert self.registered[event] is handler
+        del self.registered[event]
     def list_objects_v2(self,**k): return {"Contents":[]}
     def head_object(self,**k):
         if self.saved: return self.saved
@@ -26,7 +33,10 @@ class FakeS3:
                                       ContentType="text/plain",CacheControl="max-age=60",StorageClass="STANDARD")
         raise ClientError({"Error":{"Code":"404","Message":"Not Found"}},"HeadObject")
     def put_object(self,**k):
-        assert k["IfNoneMatch"]=="*" and k["Metadata"]==META
+        assert "IfNoneMatch" not in k and k["Metadata"]==META
+        req=SimpleNamespace(headers={})
+        self.registered["before-sign.s3.PutObject"](req)
+        assert req.headers["If-None-Match"]=="*"
         self.puts+=1
         self.saved={"Metadata":k["Metadata"],"ContentType":k["ContentType"],"CacheControl":k["CacheControl"],
                     "StorageClass":k["StorageClass"],"ContentLength":len(k["Body"])}
@@ -47,6 +57,7 @@ for label,mode,existing,bad in [
             result=m.run(mode,"runner3-telegram-bobvolman-raw")
             assert not bad and result["status"]=="PASS"
             assert mock.puts==(1 if label=="new_metadata" else 0)
+            assert not mock.registered
             if mode=="canary":assert result["object_verified"] and not result["cutover_ready"]
             print("PASS",label,"writes",mock.puts)
         except m.GateError as ex:
