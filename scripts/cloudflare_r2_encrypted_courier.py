@@ -3,6 +3,7 @@
 import base64
 import datetime
 import hashlib
+import gzip
 import json
 import os
 import pathlib
@@ -26,10 +27,11 @@ MAX_BUNDLE_BYTES = 25_000_000
 MAX_OBJECTS = 30
 MAX_PAGES = 15
 
-def request(url, token):
-    req = urllib.request.Request(
-        url, headers={"Authorization": "Bearer " + token, "Accept": "*/*"}
-    )
+def request(url, token, accept_encoded=False):
+    h = {"Authorization": "Bearer " + token, "Accept": "*/*"}
+    if accept_encoded:
+        h["Accept-Encoding"] = "gzip"
+    req = urllib.request.Request(url, headers=h)
     with urllib.request.urlopen(req, timeout=50) as result:
         return result.status, dict(result.headers), result.read()
 
@@ -82,23 +84,39 @@ def main():
         if not isinstance(key, str) or not key:
             raise SystemExit("SOURCE_OBJECT_MISSING_KEY")
         path = base + "/" + urllib.parse.quote(key, safe="/")
-        code, h, blob = request(path, token)
+        code, h, blob = request(path, token, accept_encoded=True)
         if code != 200:
             raise SystemExit("SOURCE_READ_HTTP_"+str(code))
         if len(blob) != int(x.get("size") or -1):
             # R2 object may have changed after listing, or HTTP metadata may
             # describe encoded length; require two stable independent GETs.
-            code2, h2, blob2 = request(path, token)
+            code2, h2, blob2 = request(path, token, accept_encoded=True)
             if code2 != 200 or hashlib.sha256(blob2).digest() != hashlib.sha256(blob).digest():
                 raise SystemExit("SOURCE_UNSTABLE_CONTENT_ABORT")
             print("SOURCE_LIST_SIZE_DRIFT_VERIFIED_INDEX",len(encrypted_items),
                   "listed_bytes",int(x.get("size") or -1),"stable_read_bytes",len(blob))
         hm = x.get("http_metadata") or {}
+        encoding = (hm.get("contentEncoding") or h.get("Content-Encoding") or "").lower()
+        if encoding == "gzip":
+            # Preserve actual gzip bytes. R2 may transparently decompress
+            # when the caller does not advertise gzip support.
+            if not blob.startswith(bytes.fromhex("1f8b")):
+                raise SystemExit("GZIP_SOURCE_BYTES_NOT_ENCODED")
+            try:
+                logical = gzip.decompress(blob)
+            except Exception:
+                raise SystemExit("SOURCE_GZIP_DECOMPRESSION_FAILED")
+            logical_sha = hashlib.sha256(logical).hexdigest()
+        elif encoding in ("", "identity"):
+            logical_sha = hashlib.sha256(blob).hexdigest()
+        else:
+            raise SystemExit("UNSUPPORTED_CONTENT_ENCODING_ABORT")
         if x.get("custom_metadata"):
             # Don't silently strip custom metadata during browser API uploads.
             raise SystemExit("OBJECT_CUSTOM_METADATA_REQUIRES_SPECIAL_PATH")
         encrypted_items.append({
             "key": key, "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest(),
+            "logical_sha256": logical_sha,
             "content_type": hm.get("contentType") or h.get("Content-Type") or "application/octet-stream",
             "http_metadata": hm,
             "payload_b64": base64.b64encode(blob).decode(),
