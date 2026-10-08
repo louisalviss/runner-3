@@ -61,3 +61,12 @@ The deployed scripts live under `/opt/bike-niche-corpus` (except the secure Tele
 - `inprogress-checkpoint`: the earlier Geometry Geeks partial backup using `parts-manifest.json` and `readback_verified` flags.
 
 Recovery needs the exact R2 manifest key and an output directory. It does not change active D1 pointers, publish releases, or touch the source crawler. Do not regard R2 upload-only success as restore proof.
+
+
+## Candidate fitting index (not an automatic specs merge)
+
+`biklo_fit_index.py` joins the conservative Biklo URL/year crosswalk, source-page QA eligibility, and normalized `stack`/`reach` from the **same source URL and size**. Output: `derived/biklo-fit-candidates.sqlite3` plus a JSON summary; the final normalized release bundles both.
+
+The generated table retains `biklo_url`, `source_url`, `source`, `model_year`, `frame_size`, `stack_mm`, `reach_mm`, `stack_reach_ratio`, `link_rule`, and `identity_status='candidate_model_year_only'`. It also flags `cross_source_conflict` and `same_source_conflict` where same-named sizes differ by more than 10 mm. **Do not automatically overwrite Biklo specifications or assert exact model/build compatibility from these links.** The verified source provenance and conflicts are intended for subsequent comparison, review and fitting tools.
+
+Intermediate QA snapshot on 2026-10-09: 24,610 candidate size records spanning 4,617 distinct Biklo URLs; 1,141 cross-source and 246 within-source model/size disagreement groups exceeded 10 mm. These are preliminary and are recomputed at final release. Four derived SQLite files pass `PRAGMA quick_check`. Ten numeric normalizer regression tests pass.
