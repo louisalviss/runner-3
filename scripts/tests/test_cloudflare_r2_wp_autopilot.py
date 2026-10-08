@@ -96,3 +96,36 @@ with patch.object(auto, "source_bytes", return_value=b"proof"), \
         assert str(e) == "FINAL_READ_ONLY_SIZE_MISMATCH"
         assert ro.puts == 0
 print("PASS read-only final verifier refuses mismatched target and never PUTs")
+
+
+# Read-only positive verification checks SHA256, metadata and size.
+class ReadOnlyGood(ReadOnly):
+    def head_object(self, **kwargs):
+        self.reads += 1
+        return {"ContentLength": 5, "Metadata": {}, "StorageClass": "STANDARD"}
+
+good = ReadOnlyGood()
+with patch.object(auto, "source_bytes", return_value=b"proof"), \
+     patch.object(auto, "source_properties", return_value={"Metadata": {}, "StorageClass": "STANDARD"}):
+    size = auto.verify_existing_read_only(good, "fake", {"key": "proof", "size": 5})
+    assert size == 5 and good.puts == 0 and good.reads == 2
+print("PASS read-only existing-object SHA and metadata verification")
+
+# Different bytes of the same length must fail SHA, never overwrite.
+class ReadOnlyCorrupt(ReadOnlyGood):
+    def get_object(self, **kwargs):
+        self.reads += 1
+        class Body:
+            def read(self, n): return b"wrong"
+        return {"Body": Body()}
+
+corrupt = ReadOnlyCorrupt()
+with patch.object(auto, "source_bytes", return_value=b"proof"), \
+     patch.object(auto, "source_properties", return_value={"Metadata": {}, "StorageClass": "STANDARD"}):
+    try:
+        auto.verify_existing_read_only(corrupt, "fake", {"key": "proof", "size": 5})
+        assert False, "SHA drift must fail"
+    except auto.GateError as e:
+        assert str(e) == "FINAL_READ_ONLY_SHA256_MISMATCH"
+        assert corrupt.puts == 0
+print("PASS read-only existing-object SHA drift refuses overwrite")
