@@ -8,6 +8,8 @@ import urllib.request
 
 BASE = "https://api.cloudflare.com/client/v4"
 HARD_LIMIT = 100000
+READ_HARD_LIMIT = 5000000
+READ_SAFE_CEILING = 4000000
 
 def request_json(url, headers, method="GET", payload=None):
     body = json.dumps(payload).encode() if payload is not None else None
