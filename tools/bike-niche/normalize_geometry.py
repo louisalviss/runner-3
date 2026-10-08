@@ -30,6 +30,19 @@ FIELDS=[
 ]
 REGEX=[(k,re.compile(expr,re.I)) for k,expr in FIELDS]
 NUMBER=re.compile(r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+# Broad, conservative bicycle geometry limits. These reject impossible
+# measurement artifacts but retain source HTML and original raw tables.
+# Some children's and cargo bike measurements are legitimately unusual.
+METRIC_LIMITS={
+ "stack":(200,1000),"reach":(150,950),
+ "head_tube_angle":(45,90),"seat_tube_angle":(45,90),
+ "top_tube_length":(180,1300),"head_tube_length":(10,500),
+ "seat_tube_length":(80,1300),"chainstay_length":(150,800),
+ "wheelbase":(500,2100),"bb_drop":(-60,250),
+ "bb_height":(100,700),"standover":(100,1600),
+ "fork_offset":(-20,200),"trail":(-20,350),
+ "front_center":(150,1500),"fork_length":(150,1100)
+}
 def clean(x):return re.sub(r"\s+"," ",str(x)).strip()
 def normalize(k,value):
  s=clean(value)
@@ -37,14 +50,10 @@ def normalize(k,value):
  m=NUMBER.search(s)
  if not m:return None
  n=float(m.group().replace(",",""))
- if n<=-10000 or n>20000:return None
- if k in ("head_tube_angle","seat_tube_angle"):
-  if n<30 or n>95:return None
-  unit="deg"
- else:
-  if k in ("stack","reach") and not 150<=n<=900:return None
-  if k not in ("stack","reach") and n>2500:return None
-  unit="mm"
+ if k not in METRIC_LIMITS:return None
+ lo,hi=METRIC_LIMITS[k]
+ if not lo<=n<=hi:return None
+ unit="deg" if k in ("head_tube_angle","seat_tube_angle") else "mm"
  return n,unit
 def parse(tables):
  best=[]
@@ -90,9 +99,34 @@ def init(db):
  CREATE TABLE IF NOT EXISTS progress(source TEXT PRIMARY KEY,last_rowid INTEGER NOT NULL DEFAULT 0,processed INTEGER NOT NULL DEFAULT 0,measured INTEGER NOT NULL DEFAULT 0,updated_at TEXT);
  """)
  db.commit()
+def cleanup_outliers(db):
+ # Old indexed records may predate METRIC_LIMITS. Preserve audit metadata
+ # when retiring out-of-range values; never mutate original source SQLite.
+ db.execute("""CREATE TABLE IF NOT EXISTS rejected_measurements(
+   source TEXT,url TEXT,frame_size TEXT,metric TEXT,
+   value REAL,unit TEXT,raw_value TEXT,reason TEXT,rejected_at TEXT,
+   PRIMARY KEY(source,url,frame_size,metric)
+ )""")
+ rejected=0
+ for metric,(low,high) in METRIC_LIMITS.items():
+  condition="metric=? AND (value<? OR value>?)"
+  params=(metric,low,high)
+  count=db.execute("SELECT count(*) FROM geometry WHERE "+condition,params).fetchone()[0]
+  if not count:continue
+  db.execute("""INSERT OR IGNORE INTO rejected_measurements
+    (source,url,frame_size,metric,value,unit,raw_value,reason,rejected_at)
+    SELECT source,url,frame_size,metric,value,unit,raw_value,?,?
+    FROM geometry WHERE """+condition,
+    ("outside_conservative_range",datetime.datetime.now(datetime.timezone.utc).isoformat(),*params))
+  db.execute("DELETE FROM geometry WHERE "+condition,params)
+  rejected+=count
+ db.commit()
+ print(json.dumps({"quality_gate":"geometry_metric_limits","retired_existing_outliers":rejected}),flush=True)
+ return rejected
 def main():
  out=sqlite3.connect(OUT,timeout=60)
  init(out)
+ cleanup_outliers(out)
  for src in SOURCES:
   f=ROOT/"crawls"/(src+".sqlite3")
   if not f.exists():continue
