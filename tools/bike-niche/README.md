@@ -70,3 +70,17 @@ Recovery needs the exact R2 manifest key and an output directory. It does not ch
 The generated table retains `biklo_url`, `source_url`, `source`, `model_year`, `frame_size`, `stack_mm`, `reach_mm`, `stack_reach_ratio`, `link_rule`, and `identity_status='candidate_model_year_only'`. It also flags `cross_source_conflict` and `same_source_conflict` where same-named sizes differ by more than 10 mm. **Do not automatically overwrite Biklo specifications or assert exact model/build compatibility from these links.** The verified source provenance and conflicts are intended for subsequent comparison, review and fitting tools.
 
 Intermediate QA snapshot on 2026-10-09: 24,610 candidate size records spanning 4,617 distinct Biklo URLs; 1,141 cross-source and 246 within-source model/size disagreement groups exceeded 10 mm. These are preliminary and are recomputed at final release. Four derived SQLite files pass `PRAGMA quick_check`. Ten numeric normalizer regression tests pass.
+
+
+## Final release completeness preflight (fail closed)
+
+`release_preflight.py` is called by `finalize_geometry.py` **after** the three terminal source databases and derived builders have finished, but **before** the final archive is created or published. It verifies:
+
+- All source queues terminal and source `records` row counts equal successful queue counts.
+- `PRAGMA quick_check=ok` on source, normalized, QA, crosswalk and fit databases.
+- Per-source max raw record rowid equals both normalized geometry progress watermark and QA watermark.
+- QA rows cover every successful raw source page; no partially processed source is published.
+- Fit candidates retain provenance, candidate-only identity and positive Stack/Reach measurements.
+- Final release manifest embeds a machine-readable coverage audit.
+
+The deliberately incomplete Geometry Geeks preflight was run on 2026-10-09 at 01:59 VN and correctly returned nonzero `SOURCE_NONTERMINAL:geometrygeeks`, proving the fail-closed gate. Full PASS is expected only when all source releases are terminal; do not claim it before then.
