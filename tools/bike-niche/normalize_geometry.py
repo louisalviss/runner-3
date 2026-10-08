@@ -50,7 +50,7 @@ def normalize(k,value):
  # Source pages mix decimal commas (461,25) and grouped thousands (1,234).
  # Convert only a terminal 1- or 2-digit decimal comma; leave 3-digit
  # groups as thousands. The raw value remains available for audit.
- normalized_text=re.sub(r"(?<=\d),(?=\d{1,2}(?!\d))",".",s)
+ normalized_text=re.sub(r"(?<=\d),\s*(?=\d{1,2}(?!\d))",".",s)
  m=NUMBER.search(normalized_text)
  if not m:return None
  n=float(m.group().replace(",",""))
