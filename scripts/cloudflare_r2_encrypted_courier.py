@@ -84,7 +84,7 @@ def main():
         path = base + "/" + urllib.parse.quote(key, safe="/")
         code, h, blob = request(path, token)
         if code != 200 or len(blob) != int(x.get("size") or -1):
-            raise SystemExit("SOURCE_READ_SIZE_CHECK_FAILED")
+            raise SystemExit("SOURCE_READ_SIZE_CHECK_FAILED_index_"+str(len(encrypted_items))+"_http_"+str(code)+"_got_"+str(len(blob))+"_expected_"+str(int(x.get("size") or 0)))
         hm = x.get("http_metadata") or {}
         if x.get("custom_metadata"):
             # Don't silently strip custom metadata during browser API uploads.
