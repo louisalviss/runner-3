@@ -71,7 +71,7 @@ jobs:
           base='https://api.cloudflare.com/client/v4'
           max_object_bytes=300_000_000
           max_transfer_bytes=300_000_000
-          max_pages=8
+          max_pages=32
           def api(account,token,method,path,body=None,extra=None):
               h={'Authorization':'Bearer '+token,'Accept':'*/*'}
               if extra:h.update(extra)
@@ -81,32 +81,42 @@ jobs:
                   with urllib.request.urlopen(request,timeout=95) as r:
                       return r.status,dict(r.headers),r.read()
               except urllib.error.HTTPError as e:
-                  data=e.read(3000)
+                  e.read(3000)
                   raise RuntimeError('CLOUDFLARE_HTTP_'+str(e.code)+'_'+method+'_'+path.split('/')[1]) from None
           def jsonget(account,token,path):
               status,headers,raw=api(account,token,'GET',path)
               d=json.loads(raw)
               if status!=200 or not d.get('success'):raise RuntimeError('CLOUDFLARE_JSON_FAILURE')
               return d
+          def full_manifest(account,token,path):
+              objects=[]; keys=set(); seen_cursors=set(); cursor=None
+              for page in range(max_pages):
+                  q='?per_page=1000'
+                  if cursor:q+='&cursor='+urllib.parse.quote(cursor,safe='')
+                  d=jsonget(account,token,path+q)
+                  rows=d.get('result') or []
+                  if isinstance(rows,dict):rows=rows.get('objects') or []
+                  if not isinstance(rows,list):raise SystemExit('MANIFEST_INVALID_SHAPE_ABORT')
+                  for item in rows:
+                      if not isinstance(item,dict) or not isinstance(item.get('key'),str) or not item['key']:
+                          raise SystemExit('MANIFEST_INVALID_KEY_ABORT')
+                      if item['key'] in keys:
+                          raise SystemExit('MANIFEST_DUPLICATE_KEY_ABORT')
+                      keys.add(item['key'])
+                      objects.append(item)
+                  info=d.get('result_info') or {}
+                  if not info.get('is_truncated'):
+                      return objects
+                  next_cursor=info.get('cursor')
+                  if not isinstance(next_cursor,str) or not next_cursor or next_cursor in seen_cursors:
+                      raise SystemExit('MANIFEST_INVALID_CURSOR_ABORT')
+                  seen_cursors.add(next_cursor)
+                  cursor=next_cursor
+              raise SystemExit('MANIFEST_PAGE_LIMIT_ABORT')
           src_path='/r2/buckets/'+name+'/objects'
-          src_meta=[]
-          cursor=None
-          for page in range(max_pages):
-              q='?per_page=1000'
-              if cursor:q+='&cursor='+urllib.parse.quote(cursor,safe='')
-              d=jsonget(a,source,src_path+q)
-              r=d.get('result') or []
-              if isinstance(r,dict):r=r.get('objects') or []
-              src_meta+=r
-              info=d.get('result_info') or {}
-              cursor=info.get('cursor') if info.get('is_truncated') else None
-              if not cursor:break
-          if cursor:raise SystemExit('SOURCE_MANIFEST_INCOMPLETE_ABORT')
-          dst=jsonget(b,target,src_path+'?per_page=1000')
-          dst_obj=dst.get('result') or []
-          if isinstance(dst_obj,dict):dst_obj=dst_obj.get('objects') or []
-          dst_map={x.get('key'):x for x in dst_obj if isinstance(x,dict)}
-          if (dst.get('result_info') or {}).get('is_truncated'):raise SystemExit('TARGET_MANIFEST_INCOMPLETE_ABORT')
+          src_meta=full_manifest(a,source,src_path)
+          dst_obj=full_manifest(b,target,src_path)
+          dst_map={x['key']:x for x in dst_obj}
           # Resume by selecting the next MISSING objects, not the first N every run.
           # Do not overwrite any existing target key, and stop on a size mismatch.
           existing=[x for x in src_meta if isinstance(x,dict) and x.get('key') in dst_map]
@@ -129,9 +139,13 @@ jobs:
           result={'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'bucket':name,
                   'source_account':a,'target_account':b,'dry_run':dry,
                   'source_inventory_count':len(src_meta),'selected_count':len(selected),
-                  'already_present_count':len(existing),'remaining_before':len(missing),
+                  'already_present_count':len(existing),
+                  'already_present_unverified_count':len(existing),
+                  'remaining_before':len(missing),
                   'planned_count':len(planned),'planned_bytes':total,
-                  'copied_count':0,'copied_bytes':0,'verified_count':0,'source_deleted':False}
+                  'copied_count':0,'copied_bytes':0,'verified_count':0,
+                  'whole_bucket_parity_verified':False,'cutover_ready':False,
+                  'source_deleted':False}
           if not dry:
               for obj in planned:
                   key=obj.get('key')
