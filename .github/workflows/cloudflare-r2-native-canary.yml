@@ -1,0 +1,43 @@
+name: Cloudflare R2 Native S3 Metadata Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Verify credentials without writes, or copy one metadata canary
+        required: true
+        type: choice
+        default: probe
+        options:
+          - probe
+          - canary
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-target-r2-native-canary
+  cancel-in-progress: false
+
+jobs:
+  source-to-target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_TARGET_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_TARGET_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install R2 native SDK
+        run: python3 -m pip install --quiet boto3
+      - name: Probe or copy one custom-metadata object without overwrite
+        run: python3 scripts/cloudflare_r2_native_canary.py --mode "${{ inputs.mode }}" --bucket runner3-telegram-bobvolman-raw
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: cloudflare-r2-native-canary-receipt
+          path: migration-out/receipt.json
+          retention-days: 3
+          if-no-files-found: error
