@@ -1,4 +1,4 @@
-name: WordPress Optimizer D1 Bootstrap
+name: WordPress Optimizer D1 Bootstrap (RETIRED)
 
 on:
   workflow_dispatch:
@@ -26,9 +26,12 @@ env:
   WP_OPTIMIZER_D1_DB: runner3-wp-optimizer
   WRANGLER_VERSION: '4.124.0'
 
+# The old runner3-wp-optimizer D1 was deliberately retired. Keep this workflow
+# visible for historical provenance, but never recreate that database.
+# Current optimizer event state uses scripts/wp-optimizer-r2-ledger.py on R2 private.
 jobs:
   bootstrap:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: false # permanently retired / no resources may be created
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
