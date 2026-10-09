@@ -307,17 +307,23 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
   }
 
   const items = new Map();
-  let offset = 0;
+  // Keyset pagination follows the content_features primary key. OFFSET makes
+  // later pages rescan earlier rows and burns D1 account-wide read quota.
+  let cursor = null;
   let readFeatures = 0;
   while (true) {
-    const pageResult = await env.DB.prepare(`
+    const seek = cursor ? "AND (f.item_id,f.feature_type,f.feature_key) > (?,?,?)" : "";
+    const query = env.DB.prepare(`
       SELECT f.item_id,f.feature_type,f.feature_key,f.weight,f.confidence,i.published_at
       FROM content_features f
       JOIN content_items i ON i.item_id=f.item_id
-      WHERE f.feature_type IN ('topic','mechanism','concept')
+      WHERE f.feature_type IN ('topic','mechanism','concept') ${seek}
       ORDER BY f.item_id,f.feature_type,f.feature_key
-      LIMIT ? OFFSET ?
-    `).bind(PERSONAL_SCORE_READ_PAGE, offset).all();
+      LIMIT ?
+    `);
+    const pageResult = await (cursor
+      ? query.bind(...cursor,PERSONAL_SCORE_READ_PAGE)
+      : query.bind(PERSONAL_SCORE_READ_PAGE)).all();
     const page = Array.isArray(pageResult?.results) ? pageResult.results : [];
     readFeatures += page.length;
     for (const row of page) {
@@ -342,7 +348,8 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
       }
     }
     if (page.length < PERSONAL_SCORE_READ_PAGE) break;
-    offset += page.length;
+    const tail = page[page.length-1];
+    cursor = [String(tail.item_id), String(tail.feature_type), String(tail.feature_key)];
   }
 
   const scoreRows = [];
