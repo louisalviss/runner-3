@@ -99,3 +99,37 @@ This is a fresh non-destructive rerun on existing HawKHost migration stack, `wp2
 
 **Still NOT a complete autonomous production A→Z deployment:** a durable encrypted full-site WordPress+MariaDB backup in private R2, R2 read-back + decrypt + disaster recovery verification, and a persistent optimizer authority replacing the retired `runner3-wp-optimizer` D1 have not passed current acceptance. Existing `vps-state-backup` covers select SQLite only. Its `verify-latest` must use the existing systemd credential unit; direct CLI missed systemd LoadCredential. SentinelX service-start policy disallows direct start of `vps-state-backup-verify.service`; do not bypass or alter policies implicitly. No source WordPress data/settings/containers were changed, no domain/VPS purchased, no `jeff-vn.com` operations.
 
+
+
+## 2026-10-10 VN — Encrypted Offsite Backup + Optimizer Ledger E2E verified
+
+Scope: existing `wp2` WordPress fixture on `runner-vps1` **only**. No operations on `jeff-vn.com`; no domain purchase/new VPS. Source WordPress/DB and production services remain unchanged.
+
+### Private encrypted R2 backup — PASS
+- Canonical backup source: `louisalviss/vps-control:stack/website_a2z_backup.py`, commit `14c670aeb57be7f21d7a90d01b9031374a72c0ba`.
+- New bounded BWS project: `website-a2z`; secret reference **name only** `WEBSITE_A2Z_BACKUP_AGE_V1`. Dedicated machine backup encryption via BWS; no secret bytes in logs, GitHub, Dropbox, or R2. Existing Session Vault secret and protected service config unchanged.
+- Writer: Runner3 Core private R2 durable_put_file, including exact byte + SHA256 readback, **followed by a separately fetched GET** and age-scrypt decrypt using existing reviewed age helper.
+- Proof: recovered 7,102 WordPress files and SQL restored to isolated temp MariaDB (19 tables); validated SQL SHA and archive safety; latest pointer written **after** restore proof and read back.
+- Private artifact address: project `wordpress-backup`, scope `wp2`, name `snapshots/20261009T223256Z-239dbb/site.tar.zst.age`.
+- Encrypted size **27,789,650 bytes**, SHA-256 `7484f39d100ba2121568a56c9612969f78f53b4ddee83f46e7defc9a6f7e0a20`.
+- Stable private pointer: `wordpress-backup/wp2/latest.json`; live readback `PASS`.
+- Test result: R2_UPLOAD=PASS, R2_GET=PASS, CIPHERTEXT_SHA=PASS, DECRYPT=PASS, FILE_RESTORE=PASS, SQL_RESTORE=PASS, POINTER=PASS. Duration approx. 19.8 sec.
+- Never publish a public permalink for this private backup. Restoring requires BWS access and site-scoped authorization.
+
+### New optimizer event authority — PASS on VPS
+- Source `louisalviss/runner-3:scripts/wp-optimizer-r2-ledger.py`, commit `252a3552dde4680de9755f1c24d7d4ebbbc48556`. Existing Runner3 Core private R2 transport; immutable SHA-addressed events, site-scoped file lock, idempotent replay, verified per-run manifest.
+- New experiment ledger R2: project `wordpress-optimizer`, scope `a2z`, run `wp2-a2z-integrated-20261010`. Integrated `vps-control:tests/website_a2z_wp2_restore_acceptance.py` commit `1a80ff510af623972ba8eb881dcd0fb7d6780c3b` tests ephemeral WordPress restore → HTTP homepage/login/REST 200 → clone-only plugin candidate deploy → rollback → append 6 structured events → readback verify.
+- Integrated acceptance run duration approx. 39 sec, result `PASS`, event_count=6, manifest integrity=PASS, final verdict=`ROLLBACK` for an intentionally rejected fixture canary; no claim of performance gains or production promotion.
+- Historical retired D1 `runner3-wp-optimizer` deliberately NOT recreated.
+- Retired D1 bootstrap workflow set `if: false` in `.github/workflows/wp-optimizer-d1-bootstrap.yml`, commit `3ad2589325a2c428b5d4e163e3e868a297a83716` to avoid accidental database creation.
+- Independently checked both private R2 pointers/events after tests: `PASS`.
+- Cleanup: no temporary Docker containers/networks/directories. Original `hawkhost-db` healthy; `hawkhost-web81`, `hawkhost-web74`, `hawkhost-web56` all running; zero restarts.
+
+### Remaining production gates (do not overclaim A-Z)
+1. Existing hosted GitHub Site2 A/B workflows still refer to retired D1. They must be explicitly migrated to the same R2 ledger transport (or retired); current proof covers VPS-native optimizer only, **not** hosted CI A/B automation end-to-end.
+2. Backup/restore test covered `wp2` and decrypted R2 site files + SQL. A fully functional HTTP WordPress app clone was independently proved on the same fixture, but this fresh run did not boot a clone directly from the *downloaded* encrypted R2 artifact.
+3. One-shot backup was durable verified, but no recurring backup timer/retention/alerting has been enabled. Do not silently create a new unattended schedule without an appropriate authorized owner/integration.
+4. Only fixture `wp2` has passed. Other existing sites are not declared automatically migrated/protected.
+5. Site2 Wasmer flow is distinct from VPS-hosted `wp2`; do not conflate identities. `jeff-vn.com` is excluded.
+
+**Current verdict: core VPS A→Z technical primitives verified; unattended multi-site website manager NOT YET production-ready.**
