@@ -25,9 +25,13 @@ env:
   WP_OPTIMIZER_WRANGLER_VERSION: '4.124.0'
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
+# PAUSED: optimizer D1 authority retired. This legacy workflow may access live
+# Wasmer Site2; do not run until its baseline queries AND event writes use the
+# readback-verified private R2 ledger with equivalent preflight/promotion gates.
+# VPS fixture wp2 uses the independent Website A-Z Manager instead.
 jobs:
   baseline:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: false # fail-closed: retired D1 dependency / unsafe stale Site2 fixture
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
