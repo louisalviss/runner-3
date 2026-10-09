@@ -21,6 +21,7 @@ jobs:
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_PLANNED_ROWS: '2000'
       D1_SAFE_CEILING: '70000'
+      D1_PLANNED_READ_ROWS: '250000'
     steps:
       - uses: actions/checkout@v4
         with:

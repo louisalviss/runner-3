@@ -191,7 +191,10 @@ async function handleInterestIngest(request,env){
     if(readback.count!==1)return Response.json({ok:false,durable:false,d1_readback:false,error:"INTEREST_EVENT_READBACK_FAILED",item_id:item.item_id,render_id:renderId,event_count:readback.count},{status:500});
     const changed=Number(itemResult.meta?.changes||0)+featureChanges+Number(result.meta?.changes||0);
     if(changed)await markProfileDirty(env,"explicit_interest_ingested");
-    const recompute=changed?await maybeRecomputePersonal(env,{priorityExplicit:true}):{recomputed:false,status:"unchanged"};
+    // ACK only after exact event readback; expensive v4 profile/scores
+    // recomputation is a separate guarded operation. A recompute timeout
+    // must never turn an already committed Interest event into a failed save.
+    const materializationDeferred=changed>0;
     return Response.json({
       ok:true,
       durable:true,
@@ -207,8 +210,9 @@ async function handleInterestIngest(request,env){
       feature_model:FEATURE_MODEL_VERSION,
       model_version:PERSONAL_MODEL_VERSION,
       semantic_enrichment:"deferred",
-      profile_recomputed:Boolean(recompute.recomputed),
-      materialization_status:recompute.recomputed?recompute.status:(recompute.status||(changed?"dirty":"unchanged"))
+      profile_recomputed:false,
+      materialization_deferred:materializationDeferred,
+      materialization_status:materializationDeferred?"dirty":"unchanged"
     });
   }catch(err){return Response.json({ok:false,error:String(err?.message||err)},{status:400});}
 }

@@ -8,6 +8,8 @@ import urllib.request
 
 BASE = "https://api.cloudflare.com/client/v4"
 HARD_LIMIT = 100000
+READ_HARD_LIMIT = 5000000
+READ_SAFE_CEILING = 4000000
 
 def request_json(url, headers, method="GET", payload=None):
     body = json.dumps(payload).encode() if payload is not None else None
@@ -27,10 +29,14 @@ def main():
     account = os.environ["CF_ACCOUNT"]
     planned = int(os.environ.get("D1_PLANNED_ROWS", "0"))
     ceiling = int(os.environ.get("D1_SAFE_CEILING", "70000"))
+    planned_reads = int(os.environ.get("D1_PLANNED_READ_ROWS", "0"))
+    read_ceiling = int(os.environ.get("D1_READ_SAFE_CEILING", "4000000"))
     if planned < 0:
         raise SystemExit("D1_PLANNED_ROWS must be >= 0")
     if not (1 <= ceiling < HARD_LIMIT):
         raise SystemExit("D1_SAFE_CEILING must be between 1 and 99999")
+    if planned_reads < 0 or not (1 <= read_ceiling <= READ_SAFE_CEILING):
+        raise SystemExit("Invalid D1 read budget")
 
     headers = {
         "Authorization": "Bearer " + token,
@@ -73,18 +79,25 @@ def main():
         sums = row.get("sum") or {}
         cur = per_db.setdefault(
             dbid,
-            {"databaseId": dbid, "database": inventory.get(dbid, dbid), "rowsWritten": 0, "writeQueries": 0},
+            {"databaseId": dbid, "database": inventory.get(dbid, dbid), "rowsRead": 0, "readQueries": 0, "rowsWritten": 0, "writeQueries": 0},
         )
+        cur["rowsRead"] += int(sums.get("rowsRead") or 0)
+        cur["readQueries"] += int(sums.get("readQueries") or 0)
         cur["rowsWritten"] += int(sums.get("rowsWritten") or 0)
         cur["writeQueries"] += int(sums.get("writeQueries") or 0)
 
     databases = sorted(per_db.values(), key=lambda x: x["rowsWritten"], reverse=True)
     current = sum(x["rowsWritten"] for x in databases)
+    current_reads = sum(x["rowsRead"] for x in databases)
     projected = current + planned
-    allowed = projected <= ceiling
+    projected_reads = current_reads + planned_reads
+    allowed = projected <= ceiling and projected_reads <= read_ceiling
     result = {
         "ok": allowed,
         "dateUtc": today,
+        "currentRowsRead": current_reads,
+        "projectedRowsRead": projected_reads,
+        "readSafeCeiling": read_ceiling,
         "currentRowsWritten": current,
         "plannedRows": planned,
         "projectedRowsWritten": projected,
@@ -98,11 +111,11 @@ def main():
     if not allowed:
         print(
             f"::error::D1_BUDGET_BLOCKED current={current} planned={planned} "
-            f"projected={projected} ceiling={ceiling}",
+            f"projected={projected} ceiling={ceiling} rowsRead={current_reads} projectedReads={projected_reads} readCeiling={read_ceiling}",
             file=sys.stderr,
         )
         raise SystemExit(3)
-    print(f"D1_BUDGET_PASS current={current} planned={planned} projected={projected} ceiling={ceiling}")
+    print(f"D1_BUDGET_PASS write={projected}/{ceiling} read={projected_reads}/{read_ceiling}")
 
 if __name__ == "__main__":
     main()
