@@ -191,6 +191,22 @@ def cmd_recompute(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_guarded_recompute(args: argparse.Namespace) -> int:
+    """Use the canonical v4 dirty/debounce/lease materializer only.
+
+    Unlike the legacy 'recompute' command this intentionally does NOT invoke
+    the unconditional /scores/recompute endpoint on clean profiles.
+    """
+    if args.model_version != DEFAULT_PERSONAL_MODEL:
+        raise SystemExit("personal-v4 model required")
+    result = request_json("POST", "/content-intelligence/profile/recompute",
+                          {"model_version": args.model_version}, core_url=args.core_url)
+    if result.get("model_version") != DEFAULT_PERSONAL_MODEL or result.get("guarded") is not True:
+        raise RuntimeError("canonical v4 guarded recompute response required")
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0 if result.get("ok") is True else 1
+
+
 def cmd_profile(args: argparse.Namespace) -> int:
     result = request_json("GET", f"/content-intelligence/profile?limit={args.limit}", core_url=args.core_url)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -265,6 +281,10 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("recompute")
     r.add_argument("--model-version", default=DEFAULT_PERSONAL_MODEL)
     r.set_defaults(func=cmd_recompute)
+    gguard = sub.add_parser("guarded-recompute")
+    gguard.add_argument("--model-version", default=DEFAULT_PERSONAL_MODEL)
+    gguard.set_defaults(func=cmd_guarded_recompute)
+
     g = sub.add_parser("profile")
     g.add_argument("--limit", type=int, default=100)
     g.set_defaults(func=cmd_profile)
