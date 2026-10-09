@@ -16,6 +16,8 @@ on:
       - 'scripts/content_intelligence_client.py'
       - 'scripts/d1_account_quota_preflight.py'
       - 'tests/test_d1_account_dual_quota_guard.py'
+      - 'tests/test_content_v4_guarded_materialize.py'
+      - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/verify_recommendation_chunking.mjs'
       - 'scripts/verify_interest_profile_promotion.mjs'
@@ -35,6 +37,8 @@ on:
       - 'scripts/content_intelligence_client.py'
       - 'scripts/d1_account_quota_preflight.py'
       - 'tests/test_d1_account_dual_quota_guard.py'
+      - 'tests/test_content_v4_guarded_materialize.py'
+      - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/verify_interest_profile_promotion.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
@@ -67,6 +71,7 @@ jobs:
           python3 -m py_compile scripts/content_intelligence_client.py
           python3 -m unittest discover -s tests -p test_personal_score_keyset.py
           python3 -m unittest discover -s tests -p test_d1_account_dual_quota_guard.py
+          python3 -m unittest discover -s tests -p test_content_v4_guarded_materialize.py
           node scripts/verify_runner3_d1_quota_guards.mjs
           node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_personal_score_sql_size.mjs
