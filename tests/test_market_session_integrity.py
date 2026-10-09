@@ -50,6 +50,18 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         )
         self.assertTrue(all(x["last_date"] == "2026-10-07" for x in records))
 
+
+    def test_skip_current_open_session_but_accept_prior_completed_session(self):
+        idx = pd.to_datetime(["2026-10-07", "2026-10-08", "2026-10-09"])
+        h = {"AAPL": pd.DataFrame(
+            {"Close": [98.0, 99.0, 100.0],
+             "Adj Close": [98.0, 99.0, 100.0],
+             "Volume": [100.0, 200.0, 300.0]}, index=idx)}
+        fresh, stale = scanner.partition_fresh_market_history(h, "2026-10-08")
+        self.assertEqual(stale, 0)
+        self.assertEqual(scanner.price_metrics(fresh["AAPL"])["last_date"], "2026-10-08")
+        self.assertEqual(len(fresh["AAPL"]), 2)
+
     def test_old_market_session_remains_degraded(self):
         self.assertEqual(
             scanner.classify_source_session("2026-10-06", "2026-10-07"),
