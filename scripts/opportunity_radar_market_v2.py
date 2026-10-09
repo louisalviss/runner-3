@@ -731,12 +731,14 @@ def main() -> None:
 
         print("[4/4] Building V2 raw pricing signals")
         expected_session_date = expected_latest_completed_us_session(generated_at_dt)
-        source_session_date = latest_valid_market_session(history)
-        if source_session_date is None:
-            raise RuntimeError("no valid market session in fetched history")
         fresh_history, stale_history_suppressed = partition_fresh_market_history(
             history, expected_session_date
         )
+        source_session_date = latest_valid_market_session(fresh_history)
+        if source_session_date is None:
+            source_session_date = latest_valid_market_session(history)
+        if source_session_date is None:
+            raise RuntimeError("no valid market session in fetched history")
         fresh_history_coverage = len(fresh_history) / max(1, len(eligible))
         # Build all decision-facing artifacts from one common, accepted session.
         # Never relabel a stale symbol with the aggregate freshest market date.
