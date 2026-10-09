@@ -79,3 +79,23 @@ This is a fresh non-destructive rerun on existing HawKHost migration stack, `wp2
 - No new domain, VPS, D1, public bucket, credential, account, or scheduled job created in this continuation.
 
 **Verdict remains: PARTIAL / NOT YET A→Z PRODUCTION READY.**
+
+## Continuation — 2026-10-10 VN: full WordPress application clone + reversible deploy PASS
+
+**New canonical reusable acceptance:** `louisalviss/vps-control` main at `tests/website_a2z_wp2_restore_acceptance.py`, source commit `a36fd9486677ad2368d8aebce4392b55ca234783`. This uses the existing VPS/HawkHost migration fixture `wp2`, not `jeff-vn.com`.
+
+### Fully isolated live run (2026-10-10 ~01:20 VN)
+- Dumped source `wp2` MariaDB using single-transaction **read-only**. SQL 1,706,887 bytes. Full source file archive 116,695,040 bytes.
+- Created a brand-new MariaDB 10.11 container with temporary credentials and database `a2zclone`. Restored **19** WordPress tables from dump.
+- Created a brand-new Apache/PHP 8.1 container with the extracted site and modified **clone-only** `wp-config.php`; staged home/siteurl set to `http://127.0.0.1`, disabled cron/external HTTP/automatic updates.
+- New **internal Docker network**, **no published host ports**, resource-bounded containers. All ephemeral PHP/SQL resources removed after test.
+- Real HTTP application smoke: `/` 200; `/wp-login.php` 200; `/?rest_route=/` 200.
+- Reversible candidate: create **clone-only** WordPress mu-plugin that adds HTTP response header `X-A2Z-Isolated-Candidate`. Deployment confirmation **PASS**; remove that plugin and verify header absent while HTTP remains 200: **ROLLBACK PASS**.
+- Execution 9.81 seconds; final JSON verdict `PASS`.
+- Cleanup verified separately: no `a2z-wp-*` or `azweb-*` containers/networks/temp dirs. Original `hawkhost-db` and `hawkhost-web56/web74/web81` running with **restartCount=0**; MariaDB healthy; Nginx syntax test PASS.
+
+### Overall status
+**VPS self-hosted WordPress component recovery, full isolated boot, admin/login + REST health, disposable candidate deploy, and rollback: PASS.**
+
+**Still NOT a complete autonomous production A→Z deployment:** a durable encrypted full-site WordPress+MariaDB backup in private R2, R2 read-back + decrypt + disaster recovery verification, and a persistent optimizer authority replacing the retired `runner3-wp-optimizer` D1 have not passed current acceptance. Existing `vps-state-backup` covers select SQLite only. Its `verify-latest` must use the existing systemd credential unit; direct CLI missed systemd LoadCredential. SentinelX service-start policy disallows direct start of `vps-state-backup-verify.service`; do not bypass or alter policies implicitly. No source WordPress data/settings/containers were changed, no domain/VPS purchased, no `jeff-vn.com` operations.
+
