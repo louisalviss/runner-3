@@ -133,3 +133,23 @@ Scope: existing `wp2` WordPress fixture on `runner-vps1` **only**. No operations
 5. Site2 Wasmer flow is distinct from VPS-hosted `wp2`; do not conflate identities. `jeff-vn.com` is excluded.
 
 **Current verdict: core VPS A→Z technical primitives verified; unattended multi-site website manager NOT YET production-ready.**
+
+## Continuation — 2026-10-10 VN: unified manager and safe schedule preflight
+
+### Completed
+- Implemented an operator entry point in `louisalviss/vps-control:stack/website_a2z_manager.py` (subcommands `status`, `scheduled`, `backup`, `verify`, `acceptance`). Installed module set on runner-vps1 under `/opt/website-a2z/app/`. Live `status` PASS: MariaDB healthy, PHP81 container running, private R2 backup pointer resolves correctly.
+- `scheduled` design: source SQL dump SHA + WordPress file metadata fingerprint; skip creating a new snapshot when unchanged and last backup < 7d old; instead rerun independent R2/decrypt/restore verification. New backup otherwise. Requires >2 GiB MemAvailable, single-site flock, `--run`.
+- Added independent verifier `vps-control:stack/website_a2z_verify_backup.py`, on-demand test from existing R2 ciphertext PASS (R2 SHA, decrypt, 7,102 files, 19 MariaDB tables, temporary schema cleanup).
+- Added no-secret CI `vps-control:tests/test_website_a2z_manager_schedule.py` and workflow `website-a2z-code-qa.yml` (GitHub Actions run 38002602747 PASS). Subsequent manager refactor also passed Python compile check on VPS.
+- Staged `vps-control:deploy/systemd/website-a2z-wp2.service` and `.timer`. VPS timezone `Asia/Ho_Chi_Minh`; templates validated with `systemd-analyze verify` (PASS). **Not installed or enabled**, as the credentialed `scheduled --run` smoke is not verified. Automated backup is NOT active.
+- All four other legacy D1-dependent Site2 workflows (`site2-realistic-fixture`, `site2-optimizer-baseline`, `site2-performance-diagnose`, `site2-hero-preload-ab`) explicitly `if: false` fail-closed, supplementing previously paused retired D1 bootstrap. They are historic code, not yet ported to the R2 query/measurement contract. Avoid accidental Wasmer mutation.
+- Canonical manager document in `vps-control:docs/website-a2z-manager.md`.
+
+### Open gates / safety boundary
+- Credentialed manager `scheduled --run` live test remains BLOCKED / unverified. A SentinelX tool request involving runtime secret material was rejected by safety controls; do not route around it through a timer or alternate execution transport.
+- Do not enable `website-a2z-wp2.timer` or claim automatic daily backup until approved live smoke + sandbox/notification verification succeeds.
+- R2 ciphertext→decrypted WordPress **running application** restore as one E2E route is still pending; completed component SQL/file recovery and a separate local-source full-app clone must not be conflated.
+- Retention/error alerting and Site2 PageSpeed baseline/R2 read semantics require future work before production A→Z.
+- Strictly no `jeff-vn.com` operations.
+
+**Verdict:** VPS manager installed and healthy; immutable R2 optimizer ledger, cryptographic WP backup/restore, isolated reversible canary PASS individually; unified scheduling production gate NOT PASS.
