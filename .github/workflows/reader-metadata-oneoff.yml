@@ -1,0 +1,34 @@
+name: Reader Metadata Diagnostic One-Off
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+    steps:
+      - name: Read library creator metadata without editing data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,hashlib,json,urllib.request
+          tok=os.environ["RUNNER3_CORE_TOKEN"].strip()
+          if not tok: raise SystemExit("missing_token")
+          cookie=hashlib.sha256(("runner3-artifact-library-v1:"+tok).encode()).hexdigest()
+          base="https://runner3-core.ducduy2411.workers.dev"
+          for route in ("/artifact-library/api/list?refresh=1","/artifact-library/api/list"):
+              req=urllib.request.Request(base+route,headers={"Cookie":"r3_artifact_library="+cookie,"Accept":"application/json"})
+              with urllib.request.urlopen(req,timeout=25) as response:
+                  payload=json.load(response)
+              objects=payload.get("objects") or []
+              missing=[{"scope":str(o.get("scope") or "")[:100],"title":str(o.get("title") or "")[:150],"key":str(o.get("key") or "")[:160],"fields":sorted(o.keys())} for o in objects if not str(o.get("creator") or "").strip()]
+              print(json.dumps({"endpoint":route,"ok":payload.get("ok"),"source":payload.get("source"),"objects_count":len(objects),"missing_creator_count":len(missing),"missing_creator_items":missing[:30]},ensure_ascii=False))
+              if not payload.get("ok"):raise SystemExit("library_api_not_ok")
+          PY
