@@ -1,0 +1,38 @@
+name: Content Intelligence v4 Guarded Materialize
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: content-intelligence-v4-guarded-materialize
+  cancel-in-progress: false
+
+jobs:
+  guarded-materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_SAFE_CEILING: '70000'
+      D1_PLANNED_ROWS: '25000'
+      D1_READ_SAFE_CEILING: '4000000'
+      D1_PLANNED_READ_ROWS: '500000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Stop before account-wide D1 read/write budget breach
+        run: python3 scripts/d1_account_quota_preflight.py
+      - name: Guarded canonical personal-v4 materialization
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
+          python3 scripts/content_intelligence_client.py guarded-recompute --model-version personal-v4
