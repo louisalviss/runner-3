@@ -655,10 +655,15 @@ def partition_fresh_market_history(
     """
     fresh: dict[str, pd.DataFrame] = {}
     stale = 0
+    cutoff = date.fromisoformat(expected_session_date)
     for symbol, frame in history.items():
-        # Matches the adjusted/raw aligned close used by signal_from().
-        if price_metrics(frame).get("last_date") == expected_session_date:
-            fresh[symbol] = frame
+        if frame is None or frame.empty:
+            stale += 1
+            continue
+        dates = pd.DatetimeIndex(pd.to_datetime(frame.index)).date
+        completed = frame.loc[dates <= cutoff]
+        if not completed.empty and price_metrics(completed).get("last_date") == expected_session_date:
+            fresh[symbol] = completed
         else:
             stale += 1
     return fresh, stale
