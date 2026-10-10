@@ -210,13 +210,14 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             raise ValueError("UPSTREAM_STAGE_MISMATCH")
         upstream_rows = upstream.get("records") or []
         names = [x.get("symbol") for x in upstream_rows]
-        if len(names) != upstream.get("listed_total") or len(names) != len(set(names)):
+        name_set = set(names)
+        if len(names) != upstream.get("listed_total") or len(names) != len(name_set):
             raise ValueError("UPSTREAM_STAGE_LISTING_MISMATCH")
         upstream_reasons = dict(Counter(x.get("reason") for x in upstream_rows))
         if (
             upstream_reasons != upstream.get("reason_counts")
             or upstream_reasons.get("ELIGIBLE_FRESH", 0) != audit_rows_count
-            or any(x["symbol"] not in set(names) for x in rows)
+            or any(x["symbol"] not in name_set for x in rows)
         ):
             raise ValueError("UPSTREAM_STAGE_COVERAGE_MISMATCH")
     return {
