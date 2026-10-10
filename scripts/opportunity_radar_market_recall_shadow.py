@@ -238,6 +238,20 @@ def audit(health: dict, prefilter: dict, signals: dict) -> dict:
 
 def main() -> None:
     health = json.loads((DATA / "market-health.json").read_text())
+    # Do not reuse an older full-universe prefilter when the new market lane
+    # degraded. Persist only a bounded failure status, not false audit results.
+    if health.get("status") != "COMPLETE" or health.get("complete") is not True:
+        OUT.write_text(json.dumps({
+            "schema": "opportunity-radar-market-recall-shadow-v1",
+            "status": "SOURCE_DEGRADED_NOT_EVALUATED",
+            "source_session_date": health.get("source_session_date"),
+            "generated_at": health.get("generated_at"),
+            "reason_code": health.get("reason_code"),
+            "records": [],
+            "trading_gates_unchanged": True,
+        }, indent=2) + "\\n", encoding="utf-8")
+        print("Recall shadow withheld: MARKET_PRICING not COMPLETE")
+        return
     prefilter_path = DATA / "market-prefilter.json"
     prefilter_bytes = prefilter_path.read_bytes()
     if hashlib.sha256(prefilter_bytes).hexdigest() != health.get("prefilter_sha256"):
