@@ -120,7 +120,7 @@ def classify_baseline(rec: dict, selected: bool) -> str:
     return "BELOW_BASELINE_DISCOVERY_RULE"
 
 
-def audit(health: dict, prefilter: dict, signals: dict) -> dict:
+def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = None) -> dict:
     session = health.get("source_session_date")
     if (
         health.get("status") != "COMPLETE"
@@ -199,6 +199,26 @@ def audit(health: dict, prefilter: dict, signals: dict) -> dict:
     status_counts = Counter(r["shadow_selection"] for r in rows)
     source_stats = signals.get("stats") or {}
     audit_rows_count = len(rows)
+    upstream_reasons: dict[str, int] | None = None
+    upstream_rows: list[dict] = []
+    if upstream is not None:
+        if (
+            upstream.get("schema") != "opportunity-radar-recall-universe-stage-v1"
+            or upstream.get("source_session_date") != session
+            or upstream.get("fresh_eligible") != audit_rows_count
+        ):
+            raise ValueError("UPSTREAM_STAGE_MISMATCH")
+        upstream_rows = upstream.get("records") or []
+        names = [x.get("symbol") for x in upstream_rows]
+        if len(names) != upstream.get("listed_total") or len(names) != len(set(names)):
+            raise ValueError("UPSTREAM_STAGE_LISTING_MISMATCH")
+        upstream_reasons = dict(Counter(x.get("reason") for x in upstream_rows))
+        if (
+            upstream_reasons != upstream.get("reason_counts")
+            or upstream_reasons.get("ELIGIBLE_FRESH", 0) != audit_rows_count
+            or any(x["symbol"] not in set(names) for x in rows)
+        ):
+            raise ValueError("UPSTREAM_STAGE_COVERAGE_MISMATCH")
     return {
         "schema": "opportunity-radar-market-recall-shadow-v1",
         "status": "SHADOW_AUDIT_ONLY",
@@ -216,8 +236,15 @@ def audit(health: dict, prefilter: dict, signals: dict) -> dict:
             "history_requested": health.get("history_requested"),
             "history_returned": health.get("history_returned"),
             "fresh_audited": audit_rows_count,
-            "upstream_symbol_exclusion_reason_coverage": "COUNTS_ONLY_NOT_PER_SYMBOL",
-            "universe_truncation_note": "No claims about symbols outside this fresh prefilter; upstream exclusions remain a separate audit gap.",
+            "upstream_symbol_exclusion_reason_coverage": (
+                "FULL_PER_SYMBOL" if upstream is not None else "COUNTS_ONLY_NOT_PER_SYMBOL"
+            ),
+            "upstream_disposition_counts": upstream_reasons,
+            "universe_truncation_note": (
+                "Per-symbol prehistory selection/disposition captured from source scanner."
+                if upstream is not None else
+                "No claims about symbols outside this fresh prefilter; upstream exclusions remain a separate audit gap."
+            ),
         },
         "counts": {
             "baseline_emitted": len(selected_set),
@@ -236,6 +263,7 @@ def audit(health: dict, prefilter: dict, signals: dict) -> dict:
             "or causality. No backdated point-in-time discovery."
         ),
         "records": rows,
+        "universe_dispositions": upstream_rows,
     }
 
 
@@ -261,7 +289,9 @@ def main() -> None:
         raise ValueError("PREFILTER_SHA256_MISMATCH")
     prefilter = json.loads(prefilter_bytes)
     signals = json.loads((DATA / "market-signals.json").read_text())
-    result = audit(health, prefilter, signals)
+    stage_path = DATA / ".market-recall-universe-stage.json"
+    upstream = json.loads(stage_path.read_text()) if stage_path.exists() else None
+    result = audit(health, prefilter, signals, upstream=upstream)
     OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({
         "status": result["status"], "session": result["source_session_date"],
