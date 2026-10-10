@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - scripts/opportunity_radar_market_v2.py
+      - scripts/opportunity_radar_market_recall_shadow.py
       - .github/workflows/opportunity-radar-market-v2.yml
   schedule:
     # 21:02 UTC Mon-Fri = 04:02 Asia/Ho_Chi_Minh next day Tue-Sat.
@@ -82,6 +83,9 @@ jobs:
       - name: Run Opportunity Radar V2 market scanner
         run: python scripts/opportunity_radar_market_v2.py
 
+      - name: Read-only two-sided recall and exclusion audit
+        run: python scripts/opportunity_radar_market_recall_shadow.py
+
       - name: Stage market outputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -90,6 +94,7 @@ jobs:
             data/opportunity-radar/market-signals.json
             data/opportunity-radar/market-health.json
             data/opportunity-radar/market-prefilter.json
+            data/opportunity-radar/market-recall-shadow.json
           if-no-files-found: error
           retention-days: 1
 
@@ -116,7 +121,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json data/opportunity-radar/market-prefilter.json
+          git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json data/opportunity-radar/market-prefilter.json data/opportunity-radar/market-recall-shadow.json
           if git diff --cached --quiet; then
             echo 'No market output changes.'
             exit 0
