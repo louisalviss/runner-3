@@ -249,7 +249,7 @@ def main() -> None:
             "reason_code": health.get("reason_code"),
             "records": [],
             "trading_gates_unchanged": True,
-        }, indent=2) + "\\n", encoding="utf-8")
+        }, indent=2), encoding="utf-8")
         print("Recall shadow withheld: MARKET_PRICING not COMPLETE")
         return
     prefilter_path = DATA / "market-prefilter.json"
