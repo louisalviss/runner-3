@@ -167,3 +167,11 @@ Started timer via SentinelX service action, persisted using `systemctl enable we
 Existing Telegram VPS monitor is active and alerts on failed systemd units; first **unattended** timer occurrence and dedicated missed-run alert remain to validate. All activity limited to wp2 fixture; no `jeff-vn.com` changes. Old Wasmer Site2 / D1 workflows remain paused.
 
 Current canonical operational documentation: `louisalviss/vps-control/docs/website-a2z-manager.md`.
+
+## 2026-10-10 VN — Independent offsite full-application DR
+
+- Latest wp2 private R2 snapshot manifest inspected; expected 27,789,652 encrypted bytes, 7,102 WordPress files, 19 SQL tables. Daily backup service/timer remains active (next local 11/10 ~04:38).
+- New isolated full WordPress DR acceptance script in `louisalviss/vps-control/tests/website_a2z_r2_full_application_dr.py`: R2 GET → SHA → BWS age decrypt → unpack → disposable internal-network MariaDB + PHP, HTTP smoke, guaranteed cleanup. It intentionally has no original wp2 source / production database read path.
+- First execution: **FAIL from subprocess argument bug**, not evidence of R2 recovery failure. Corrected, installed, syntax compiled. Reattempt with credentialed invocation was **blocked by tool safety**, not bypassed. No temporary containers/networks remain.
+- Added no-secret negative/contract tests and GitHub CI: <https://github.com/louisalviss/vps-control/actions/runs/38042400017> PASS.
+- **Overall DR-from-R2-to-running-app = NOT VERIFIED** until a permitted credentialed runtime rerun finishes. See canonical `vps-control/docs/website-a2z-manager.md`. `jeff-vn.com` unchanged.
