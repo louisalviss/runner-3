@@ -84,3 +84,22 @@ Intermediate QA snapshot on 2026-10-09: 24,610 candidate size records spanning 4
 - Final release manifest embeds a machine-readable coverage audit.
 
 The deliberately incomplete Geometry Geeks preflight was run on 2026-10-09 at 01:59 VN and correctly returned nonzero `SOURCE_NONTERMINAL:geometrygeeks`, proving the fail-closed gate. Full PASS is expected only when all source releases are terminal; do not claim it before then.
+
+
+## FINAL STATUS — 10 October 2026 (supersedes in-progress notes above)
+
+**Acquisition and publication are complete.** The earlier pending/inactive status descriptions above are historical checkpoints, not current blockers. Verified directly against VPS release receipts and D1 remote state:
+
+| Dataset | Saved records | Publication evidence |
+|---|---:|---|
+| Bike Insights | 18,528 | D1 `published`, Telegram Data manifest **#307** |
+| RideInsights | 1,423 | D1 `published`, Telegram Data manifest **#193** |
+| SRAM | 2,931 | D1 `published`, Telegram Data manifest **#207** |
+| Geometry Geeks | **27,984** | 237,347,337-byte R2 archive, D1 `published`, Telegram 76 chunks + manifest **#400** |
+| Normalized geometry (derived) | **1,887,175 metrics** | 79,272,848-byte R2 archive, D1 `published`, Telegram 26 chunks + manifest **#428** |
+
+The final release's `coverage_audit.ok` is true, and all source record rowid watermarks match the derived geometry/QA watermarks. It includes 25,207 candidate stack/reach size records matching 4,741 distinct Biklo model-year URLs; measurement conflicts are marked, not silently overwritten. No production cron or new data collection is required after these immutable releases.
+
+**Reproducible Python prerequisites:** `python3 -m pip install -r tools/bike-niche/requirements.txt`. The collector and inventory scripts use requests and BeautifulSoup. Runtime additionally requires `tar`, `zstd`, Wrangler configured for the existing private R2/D1, and the separately preconfigured secure Telegram MTProto wrapper. Never store credentials in this repository. Tests: `cd tools/bike-niche && python3 -m unittest discover -s tests -v` (**13/13 PASS** on VPS on 10 October 2026).
+
+**Collector drift fixed:** checked deployed source against this branch; missing `geometrygeeks` path admission was added to `collector.py` and protected with `tests/test_collector_routes.py`. Merging code archives into `main` does not by itself redeploy, recrawl or alter the already-published dataset.
