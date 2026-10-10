@@ -15,7 +15,8 @@ ALLOWED={
  "rideinsights":lambda p: p.startswith("/parts/"),
  "sram":lambda p: p.startswith("/en/service/") or (
       p.startswith(("/en/sram/","/en/rockshox/","/en/zipp/")) and
-      any(x in p for x in ("/products/","/series/","/collections/")))
+      any(x in p for x in ("/products/","/series/","/collections/"))),
+ "geometrygeeks":lambda p: p.startswith("/bike/"),
 }
 
 def now():return datetime.datetime.now(datetime.timezone.utc).isoformat()
