@@ -61,6 +61,9 @@ def shadow_triggers(rec: dict) -> list[str]:
 
 
 def shadow_group(rec: dict, triggers: list[str]) -> str | None:
+    # Corporate-action guard applies to all ranking paths including EARLY.
+    if is_corporate_action(rec):
+        return None
     # One symbol gets at most one shadow ranking slot. Current-session move
     # determines direction when a reversal satisfies opposite 5D threshold.
     one = number(rec.get("ret_1d_pct"))
