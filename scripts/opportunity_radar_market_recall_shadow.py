@@ -196,6 +196,10 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             row["shadow_rank"] = rank
             row["shadow_selection"] = "SELECTED" if rank <= quota else "SHADOW_QUOTA"
     shadow_selected = {r["symbol"] for r in rows if r["shadow_selection"] == "SELECTED"}
+    shadow_hit_counts = Counter(
+        hit for row in rows if row["shadow_selection"] == "SELECTED"
+        for hit in row["shadow_triggers"]
+    )
     status_counts = Counter(r["shadow_selection"] for r in rows)
     source_stats = signals.get("stats") or {}
     audit_rows_count = len(rows)
@@ -253,6 +257,7 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             "baseline_reason": dict(sorted(baseline_counts.items())),
             "qualified_price_moves": dict(sorted(hit_counts.items())),
             "baseline_emitted_price_moves": dict(sorted(emitted_hit_counts.items())),
+            "shadow_selected_price_moves": dict(sorted(shadow_hit_counts.items())),
             "shadow_group_eligible": {k: len(v) for k, v in groups.items()},
             "shadow_selection": dict(sorted(status_counts.items())),
             "shadow_selected_total": len(shadow_selected),
