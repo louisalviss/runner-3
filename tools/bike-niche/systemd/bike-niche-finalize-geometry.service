@@ -1,0 +1,18 @@
+[Unit]
+Description=Final verified bicycle geometry dataset release (R2 D1 Telegram)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/bike-niche-corpus/finalize_geometry.py
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/opt/bike-niche-corpus
+ExecStart=/usr/bin/python3 /opt/bike-niche-corpus/finalize_geometry.py
+Restart=on-failure
+RestartSec=900s
+CPUQuota=70%
+MemoryMax=1800M
+TimeoutStopSec=90s
+UMask=0077
