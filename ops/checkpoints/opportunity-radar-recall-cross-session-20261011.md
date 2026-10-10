@@ -34,6 +34,17 @@ On the October 9 frozen packet alone:
 
 Forward capture is added to the regular market shadow diagnostic only: `market-recall-shadow.json` now includes `protected_review_queue.added` and `protected_review_queue.displaced`, baseline trigger evidence, signed returns, volume ratios and reason counts. **Live 80 Signals, D1, Sheet, execution, paper-trade orders and existing selection rules remain unchanged.**
 
+## First forward price-reaction diagnostic — added vs displaced
+
+Read-only archived replay PR #397 (GitHub Actions run 38095420978), 8/8 deterministic tests PASS.
+
+For 2026-10-08 selected raw signals, strictly validated adjacent completed session 2026-10-09:
+- `PROTECTED_PUMP_ADDITIONS`: 10/10 adjusted one-day next-close returns observed, **9 positive / 1 negative**, mean **+4.4001%**, median **+4.1768%**.
+- `DISPLACED_SECTOR_ONLY_BASELINE`: 10/10 observed, **5 positive / 5 negative**, mean **+0.1209%**, median **+0.3767%**.
+- 2026-10-09 additions/displacements: 24/24 each remain **UNOBSERVED** because the archive has no independently verified subsequent completed market session yet.
+
+Critical limitations: these numbers are **non-executable next-close price-reaction labels** only, not portfolio gains, mark-to-market entry P&L, R/R, mispricing or verified tradable alpha. In particular, 2026-10-08 archived packet's publishing/recording time may have been after the next session opened; no retroactive fill at the original close or next open is implied. Single forward session, n=10/group, cannot support rule promotion. Next check needs 5D/20D when eligible, independent economic catalyst verification, signal capture latency, provider split/dividend guards, venue/exchange calendar validation and measured trading costs. Missing symbols/future sessions must stay unavailable, never filled with current hindsight prices.
+
 ## Validity boundaries
 - 2 verified sessions is not an independent out-of-sample evaluation, and same stock can occur on both days: no precision, false-positive economics, alpha, or expected P&L is demonstrated.
 - Archive claim is limited to symbols with valid same-session adjusted price data, not all listed stocks.

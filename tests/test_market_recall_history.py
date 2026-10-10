@@ -82,6 +82,35 @@ class HistoryTests(unittest.TestCase):
         self.assertGreater(result["emitted"]["protected_shock_early"]["1D_PUMP"],0)
         self.assertLessEqual(result["protected_n"],80)
 
+    def test_next_session_reaction_keeps_missing_symbols_explicit(self):
+        selected = [{"symbol": "PUMP"}, {"symbol": "MISSING"}]
+        future = {
+            "PUMP": rec("PUMP", r1=5.25, r5=16.0),
+        }
+        result = m.forward_reaction(selected, future, "2026-10-09")
+        self.assertEqual(result["selected"], 2)
+        self.assertEqual(result["observed"], 1)
+        self.assertEqual(result["coverage"], 0.5)
+        self.assertEqual(result["median_adj_return_pct"], 5.25)
+        self.assertEqual(result["marked"][1]["status"], "MISSING_NEXT_SESSION_PREFILTER")
+        self.assertTrue(all(x["not_executable_return"] for x in result["marked"]))
+
+    def test_unverified_corporate_action_never_receives_forward_label(self):
+        result = m.forward_reaction(
+            [{"symbol": "SPLT"}],
+            {"SPLT": rec("SPLT", r1=45, corporate_action_unverified=True)},
+            "2026-10-09",
+        )
+        self.assertEqual(result["observed"], 0)
+        self.assertIsNone(result["mean_adj_return_pct"])
+        self.assertEqual(result["marked"][0]["status"], "CORPORATE_ACTION_NOT_RELIABLY_COMPARABLE")
+
+    def test_calendar_adjacency_conservative_on_missing_sessions(self):
+        self.assertTrue(m.adjacent_regular_session_proxy("2026-10-08", "2026-10-09"))
+        self.assertTrue(m.adjacent_regular_session_proxy("2026-10-09", "2026-10-12"))
+        self.assertFalse(m.adjacent_regular_session_proxy("2026-10-08", "2026-10-12"))
+        self.assertFalse(m.adjacent_regular_session_proxy("2026-10-09", "2026-10-13"))
+
     def test_corporate_action_raw_pump_is_not_a_new_trigger(self):
         r=rec("SPLIT",45,50,10,corporate_action_unverified=True)
         self.assertEqual(m.triggers(r),[])
