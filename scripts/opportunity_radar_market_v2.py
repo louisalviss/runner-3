@@ -364,6 +364,56 @@ def recover_fresh_market_history(
     return recovered, stats
 
 
+
+def universe_recall_disposition(
+    listings: dict[str, dict[str, Any]],
+    snapshot: dict[str, dict[str, Any]],
+    eligible: list[str],
+    history: dict[str, pd.DataFrame],
+    fresh_history: dict[str, pd.DataFrame],
+    session: str,
+) -> dict[str, Any]:
+    """Diagnostic only; classify the exact universe without altering selection."""
+    eligible_set, history_set, fresh_set = set(eligible), set(history), set(fresh_history)
+    reasons: dict[str, int] = {}
+    rows: list[dict[str, str]] = []
+    for symbol, listing in listings.items():
+        if listing.get("etf") or listing.get("test"):
+            reason = "ETF_OR_TEST_ISSUE"
+        elif EXCLUDE_NAME.search(str(listing.get("name") or "")):
+            reason = "NON_COMMON_SECURITY_CLASS"
+        elif not re.fullmatch(r"[A-Z0-9.-]+", symbol):
+            reason = "UNSUPPORTED_SYMBOL_SYNTAX"
+        else:
+            snap = snapshot.get(symbol, {})
+            cap = num(snap.get("marketCap") if "marketCap" in snap else snap.get("marketcap"))
+            price, vol = num(snap.get("lastsale")), num(snap.get("volume"))
+            dollar = price * vol if price and vol else None
+            if snapshot and cap is not None and cap < CFG["min_market_cap_usd"]:
+                reason = "MARKET_CAP_FILTER"
+            elif snapshot and dollar is not None and dollar < CFG["min_snapshot_dollar_volume_usd"]:
+                reason = "SNAPSHOT_DOLLAR_VOLUME_FILTER"
+            elif symbol not in eligible_set:
+                reason = "HISTORY_SCAN_LIMIT"
+            elif symbol not in history_set:
+                reason = "HISTORY_MISSING"
+            elif symbol not in fresh_set:
+                reason = "STALE_SOURCE_SESSION"
+            else:
+                reason = "ELIGIBLE_FRESH"
+        rows.append({"symbol": symbol, "reason": reason})
+        reasons[reason] = reasons.get(reason, 0) + 1
+    return {
+        "schema": "opportunity-radar-recall-universe-stage-v1",
+        "source_session_date": session,
+        "listed_total": len(listings),
+        "eligible_requested": len(eligible),
+        "fresh_eligible": len(fresh_set),
+        "reason_counts": reasons,
+        "records": rows,
+    }
+
+
 def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
     raw_close = pd.to_numeric(df["Close"], errors="coerce")
     adj_available = "Adj Close" in df.columns
@@ -956,6 +1006,15 @@ def main() -> None:
         )
         print(f"Wrote {SIGNALS_OUT} ({len(signals)} signals)")
         print(f"Wrote {PREFILTER_OUT} ({len(prefilter_records)} pre-filter records)")
+        # Temporary diagnostic handoff to recall shadow; never enters the
+        # authority D1 contract, market-prefilter SHA, or live signal selection.
+        recall_stage = universe_recall_disposition(
+            listings, snapshot, eligible, history, fresh_history, source_session_date
+        )
+        (OUT_DIR / ".market-recall-universe-stage.json").write_text(
+            json.dumps(recall_stage, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
         print(f"Wrote {HEALTH_OUT}")
     except Exception as exc:
         write_health(

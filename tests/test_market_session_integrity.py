@@ -136,6 +136,39 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         self.assertEqual(stats["retry_unattempted"], 0)
 
 
+    def test_universe_selection_reasons_are_exhaustive_and_do_not_modify_selection(self):
+        listings = {
+            "T": {"symbol": "T", "name": "AT&T Inc.", "etf": False, "test": False},
+            "SPY": {"symbol": "SPY", "name": "SPDR S&P 500 ETF", "etf": True, "test": False},
+            "P": {"symbol": "P", "name": "P Inc.", "etf": False, "test": False},
+            "V": {"symbol": "V", "name": "V Inc.", "etf": False, "test": False},
+            "X": {"symbol": "X", "name": "X Inc.", "etf": False, "test": False},
+            "LIMIT": {"symbol": "LIMIT", "name": "LIMIT Inc.", "etf": False, "test": False},
+        }
+        snapshot = {
+            "T": {"marketCap": "1000000000", "lastsale": "$10", "volume": "1000000"},
+            "P": {"marketCap": "200000000", "lastsale": "$10", "volume": "1000000"},
+            "V": {"marketCap": "1000000000", "lastsale": "$10", "volume": "10000"},
+            "X": {"marketCap": "1000000000", "lastsale": "$10", "volume": "1000000"},
+            "LIMIT": {"marketCap": "1000000000", "lastsale": "$10", "volume": "1000000"},
+        }
+        source = {"T": frame("2026-10-09"), "X": frame("2026-10-08")}
+        fresh = {"T": source["T"]}
+        result = scanner.universe_recall_disposition(
+            listings, snapshot, ["T", "X"], source, fresh, "2026-10-09"
+        )
+        out = {x["symbol"]: x["reason"] for x in result["records"]}
+        self.assertEqual(out, {
+            "T": "ELIGIBLE_FRESH",
+            "SPY": "ETF_OR_TEST_ISSUE",
+            "P": "MARKET_CAP_FILTER",
+            "V": "SNAPSHOT_DOLLAR_VOLUME_FILTER",
+            "X": "STALE_SOURCE_SESSION",
+            "LIMIT": "HISTORY_SCAN_LIMIT",
+        })
+        self.assertEqual(sum(result["reason_counts"].values()), len(listings))
+        self.assertEqual(result["fresh_eligible"], 1)
+
     def test_old_market_session_remains_degraded(self):
         self.assertEqual(
             scanner.classify_source_session("2026-10-06", "2026-10-07"),
