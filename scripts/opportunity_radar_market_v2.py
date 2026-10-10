@@ -382,7 +382,7 @@ def universe_recall_disposition(
             reason = "ETF_OR_TEST_ISSUE"
         elif EXCLUDE_NAME.search(str(listing.get("name") or "")):
             reason = "NON_COMMON_SECURITY_CLASS"
-        elif not re.fullmatch(r"[A-Z0-9.\\-]+", symbol):
+        elif not re.fullmatch(r"[A-Z0-9.-]+", symbol):
             reason = "UNSUPPORTED_SYMBOL_SYNTAX"
         else:
             snap = snapshot.get(symbol, {})
