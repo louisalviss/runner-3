@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import os
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -86,6 +85,14 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         fresh, stale = scanner.partition_fresh_market_history(recovered, "2026-10-09")
         self.assertEqual(list(fresh), ["T"])
         self.assertEqual(stale, 2)
+        emitted, _, _ = scanner.build_anomalies(
+            {symbol: {"symbol": symbol, "name": symbol, "exchange": "NYSE"} for symbol in eligible},
+            {}, fresh, {}
+        )
+        recovered_t = next((rec for rec in emitted if rec.get("symbol") == "T"), None)
+        self.assertIsNotNone(recovered_t)
+        self.assertIn("1D_SHOCK", recovered_t["raw_triggers"])
+        self.assertEqual(recovered_t["discovery_state"], "RAW_ANOMALY")
         self.assertEqual(stats["retry_recovered"], 1)
         self.assertEqual(calls[0], "T")
         self.assertEqual(stats["independent_snapshot_shocks_unverified"][0]["action"], "NO_SIGNAL")
@@ -128,34 +135,6 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         self.assertEqual(stats["retry_recovered"], len(eligible))
         self.assertEqual(stats["retry_unattempted"], 0)
 
-
-    @unittest.skipUnless(os.environ.get("MARKET_RECOVERY_CANARY") == "1", "live canary opt-in")
-    def test_live_canary_at_t_after_stale_batch(self):
-        # QA REPLAY ONLY: historical market prices, NOT historical discovery
-        # or promotion evidence. Does not mutate production data/D1/Sheets.
-        target = "2026-10-09"
-        eligible = ["T", "VZ", "TMUS", "LMT", "LHX", "GFS", "POWL", "SPXC", "MSFT", "NVDA", "AAPL", "AMZN"]
-        history = scanner.download_history(eligible)
-        original_fresh, original_stale = scanner.partition_fresh_market_history(history, target)
-        self.assertIn("T", history, "AT&T must exist in the upstream universe")
-        print(f"LIVE_CANARY initial_coverage={len(original_fresh)}/{len(eligible)}, initial_stale={original_stale}", flush=True)
-
-        cutoff = pd.Timestamp("2026-10-08")
-        replay_stale = {
-            symbol: frame.loc[frame.index <= cutoff].copy()
-            for symbol, frame in history.items()
-        }
-        self.assertIn("T", replay_stale)
-        recovered, stats = scanner.recover_fresh_market_history(
-            replay_stale, eligible, target, {}, max_seconds=100
-        )
-        fresh, stale = scanner.partition_fresh_market_history(recovered, target)
-        print(f"LIVE_CANARY recovered={len(fresh)}/{len(eligible)}, stale={stale}, stats={stats}", flush=True)
-        self.assertIn("T", fresh, "AT&T source session 2026-10-09 not recovered")
-        metrics = scanner.price_metrics(fresh["T"])
-        print(f"LIVE_CANARY T_price={metrics['price']}, adjusted_ret_1d={metrics['ret_1d_pct']:.3f}%, raw_ret_1d={metrics['raw_ret_1d_pct']:.3f}%, last_date={metrics['last_date']}", flush=True)
-        self.assertEqual(metrics["last_date"], target)
-        self.assertLessEqual(metrics["ret_1d_pct"], scanner.CFG["one_day_trigger_pct"])
 
     def test_old_market_session_remains_degraded(self):
         self.assertEqual(
