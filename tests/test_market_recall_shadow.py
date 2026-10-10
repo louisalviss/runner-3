@@ -100,6 +100,30 @@ class ShadowAuditTests(unittest.TestCase):
         self.assertEqual(result["records"][0]["shadow_group"], "PUMP")
         self.assertEqual(result["counts"]["shadow_selected_total"], 1)
 
+    def test_full_upstream_dispositions_match_fresh_prefilter(self):
+        rows = [rec("T", -9.8, -7.69, 3.9)]
+        h, p, signals = fixture(rows, selected=["T"])
+        upstream = {
+            "schema": "opportunity-radar-recall-universe-stage-v1",
+            "source_session_date": "2026-10-09", "listed_total": 3,
+            "fresh_eligible": 1, "eligible_requested": 1,
+            "reason_counts": {
+                "ELIGIBLE_FRESH": 1, "ETF_OR_TEST_ISSUE": 1,
+                "SNAPSHOT_DOLLAR_VOLUME_FILTER": 1,
+            },
+            "records": [
+                {"symbol": "T", "reason": "ELIGIBLE_FRESH"},
+                {"symbol": "SPY", "reason": "ETF_OR_TEST_ISSUE"},
+                {"symbol": "MICRO", "reason": "SNAPSHOT_DOLLAR_VOLUME_FILTER"},
+            ],
+        }
+        result = m.audit(h, p, signals, upstream=upstream)
+        self.assertEqual(result["universe_funnel"]["upstream_symbol_exclusion_reason_coverage"], "FULL_PER_SYMBOL")
+        self.assertEqual(len(result["universe_dispositions"]), 3)
+        upstream["records"][2]["reason"] = "MARKET_CAP_FILTER"
+        with self.assertRaisesRegex(ValueError, "UPSTREAM_STAGE_COVERAGE_MISMATCH"):
+            m.audit(h, p, signals, upstream=upstream)
+
     def test_degraded_or_cross_session_source_fails_closed(self):
         h,p,s=fixture([rec("T",-10,-10,4)],selected=["T"])
         h["complete"]=False
