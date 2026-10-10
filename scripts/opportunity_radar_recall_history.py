@@ -13,6 +13,8 @@ import json
 import math
 import subprocess
 from collections import Counter
+from datetime import date, timedelta
+from statistics import median
 from pathlib import Path
 
 PREFILTER = "data/opportunity-radar/market-prefilter.json"
@@ -215,10 +217,60 @@ def assess(h: dict, p: dict, s: dict, commit: str) -> dict:
     }
 
 
+
+def adjacent_regular_session_proxy(previous: str, candidate: str) -> bool:
+    """Conservative candidate check; does not assert an exchange-holiday calendar."""
+    older, newer = date.fromisoformat(previous), date.fromisoformat(candidate)
+    if older.weekday() in (0, 1, 2, 3):
+        return newer == older + timedelta(days=1)
+    if older.weekday() == 4:
+        return newer == older + timedelta(days=3)
+    return False
+
+
+def forward_reaction(
+    selected: list[dict],
+    later_prefilter: dict[str, dict] | None,
+    later_session: str | None,
+) -> dict:
+    """Observe later archived 1D adjusted close return. NOT a fill or P&L."""
+    marked = []
+    for chosen in selected:
+        symbol = chosen["symbol"]
+        observed = later_prefilter.get(symbol) if later_prefilter is not None else None
+        status = "NEXT_ACCEPTED_SESSION_NOT_AVAILABLE"
+        ret = None
+        if later_prefilter is not None:
+            if observed is None:
+                status = "MISSING_NEXT_SESSION_PREFILTER"
+            elif observed.get("corporate_action_suspected") or observed.get("corporate_action_unverified"):
+                status = "CORPORATE_ACTION_NOT_RELIABLY_COMPARABLE"
+            else:
+                ret = number(observed.get("ret_1d_pct"))
+                status = "OBSERVED_ADJUSTED_NEXT_CLOSE" if ret is not None else "MISSING_ADJUSTED_RETURN"
+        marked.append({
+            "symbol": symbol, "status": status,
+            "future_completed_session": later_session if later_prefilter is not None else None,
+            "adjusted_close_to_next_close_return_pct": ret,
+            "not_executable_return": True,
+        })
+    valid = [r["adjusted_close_to_next_close_return_pct"] for r in marked if r["status"] == "OBSERVED_ADJUSTED_NEXT_CLOSE"]
+    return {
+        "selected": len(selected), "observed": len(valid),
+        "coverage": len(valid) / len(selected) if selected else None,
+        "positive_next_close": sum(v > 0 for v in valid),
+        "negative_next_close": sum(v < 0 for v in valid),
+        "median_adj_return_pct": median(valid) if valid else None,
+        "mean_adj_return_pct": sum(valid) / len(valid) if valid else None,
+        "marked": marked,
+    }
+
+
 def replay(max_commits: int = 60) -> dict:
     lines = git("log", "--format=%H|%cI", "--", PREFILTER).decode().splitlines()[:max_commits]
     observations: list[dict] = []
     accepted: dict[str, dict] = {}
+    accepted_prefilter_by_session: dict[str, dict[str, dict]] = {}
     rejected = Counter()
     for line in reversed(lines):  # earliest actual git snapshot first
         sha, commit_time = line.split("|", 1)
@@ -236,12 +288,44 @@ def replay(max_commits: int = 60) -> dict:
             item = assess(h, p, s, sha)
             item["git_committed_at"] = commit_time
             accepted[date] = item
+            accepted_prefilter_by_session[date] = {str(r["symbol"]): r for r in p["records"]}
             observations.append({"sha":sha[:12],"committed_at":commit_time,"source_session_date":date,"accepted":True})
         except Exception as exc:
             rejected["FETCH_OR_PARSE_FAILED"] += 1
             observations.append({"sha":sha[:12], "committed_at":commit_time, "errors":["FETCH_OR_PARSE_FAILED"],"error_type":type(exc).__name__})
 
     sessions = [accepted[k] for k in sorted(accepted)]
+    forward_audit_counts = Counter()
+    for i, item in enumerate(sessions):
+        later = sessions[i+1] if i+1 < len(sessions) else None
+        truly_adjacent = bool(
+            later and adjacent_regular_session_proxy(
+                item["source_session_date"], later["source_session_date"]
+            )
+        )
+        later_data = (
+            accepted_prefilter_by_session[later["source_session_date"]]
+            if truly_adjacent else None
+        )
+        later_date = later["source_session_date"] if truly_adjacent else None
+        item["forward_close_diagnostic"] = {
+            "status": ("ADJACENT_ACCEPTED_SESSION" if truly_adjacent
+                       else "NEXT_ACCEPTED_REGULAR_SESSION_UNVERIFIED"),
+            "next_completed_session": later_date,
+            "added_pumps": forward_reaction(
+                item["protected_added_pumps"], later_data, later_date
+            ),
+            "displaced_baseline": forward_reaction(
+                item["protected_displaced_baseline"], later_data, later_date
+            ),
+            "warning": ("Non-executable next-close reaction, not entry/PnL/alpha. "
+                        "No future labels used to select or rank any symbol."),
+        }
+        if truly_adjacent:
+            forward_audit_counts["adjacent_sessions"] += 1
+            for group in ("added_pumps", "displaced_baseline"):
+                forward_audit_counts[group+"_selected"] += item["forward_close_diagnostic"][group]["selected"]
+                forward_audit_counts[group+"_observed"] += item["forward_close_diagnostic"][group]["observed"]
     trigger_keys = ("1D_PUMP", "5D_PUMP", "1D_SHOCK", "5D_SHOCK")
     aggregate = {
         "denominator": {t: sum(x["denominator"][t] for x in sessions) for t in trigger_keys},
@@ -274,6 +358,8 @@ def replay(max_commits: int = 60) -> dict:
         "protected_pump_budget": PROTECTED_PUMP_BUDGET,
         "git_snapshot_commits_considered": len(lines),
         "accepted_independent_sessions": len(sessions),
+        "forward_reaction_label_counts": dict(sorted(forward_audit_counts.items())),
+        "forward_reaction_label_contract": "NEXT_COMPLETED_SESSION_ADJUSTED_RETURN_NOT_EXECUTABLE_NOT_PNL",
         "rejected_reason_counts": dict(rejected),
         "aggregate": aggregate,
         "sessions": sessions,
@@ -289,6 +375,15 @@ def main() -> None:
         "status":data["status"], "accepted":data["accepted_independent_sessions"],
         "rejected":data["rejected_reason_counts"],
         "aggregate":data["aggregate"],
+        "forward_reaction_label_counts":data["forward_reaction_label_counts"],
+        "forward_next_close": [
+            {
+                "session":x["source_session_date"],
+                "next":x["forward_close_diagnostic"]["next_completed_session"],
+                "added":{k:v for k,v in x["forward_close_diagnostic"]["added_pumps"].items() if k!="marked"},
+                "displaced":{k:v for k,v in x["forward_close_diagnostic"]["displaced_baseline"].items() if k!="marked"},
+            } for x in data["sessions"]
+        ],
         "accepted_dates":[x["source_session_date"] for x in data["sessions"]],
     }, ensure_ascii=False))
     if not data["accepted_independent_sessions"]:
