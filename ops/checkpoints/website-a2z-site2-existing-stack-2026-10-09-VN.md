@@ -153,3 +153,17 @@ Scope: existing `wp2` WordPress fixture on `runner-vps1` **only**. No operations
 - Strictly no `jeff-vn.com` operations.
 
 **Verdict:** VPS manager installed and healthy; immutable R2 optimizer ledger, cryptographic WP backup/restore, isolated reversible canary PASS individually; unified scheduling production gate NOT PASS.
+
+## 2026-10-10 VN — wp2 daily backup automation ACTIVATED (explicit user approval)
+
+The user approved adding only `website-a2z-wp2.service` and `website-a2z-wp2.timer` to SentinelX's service policy. Applied using native `sentinel_edit`, YAML validated; agent reconnected and advertised both service entries with actions `[status,start,is-active,is-enabled]`. Original policy backed up; no unrelated service permissions changed.
+
+Started the wp2 oneshot using native `sentinel_service_start` twice:
+- First run: **new encrypted R2 backup** `snapshots/20261010T002231Z-171cd0/site.tar.zst.age`, 27,789,652 encrypted bytes, fingerprint prefix `14089e74e53d`; R2 download/decrypt/SQL restore PASS, service result SUCCESS/exit 0 (20.11s, ~496.8 MiB memory peak).
+- Second run: **verify_unchanged** PASS (6.29s); same ciphertext, no duplicate R2 upload.
+
+Started timer via SentinelX service action, persisted using `systemctl enable website-a2z-wp2.timer`; verified **active + enabled**, next execution 2026-10-11 04:38:15 +07. `website_a2z_manager.py status` now returns PASS, healthy wp2, fingerprinted fresh backup, active timer, no pending checks.
+
+Existing Telegram VPS monitor is active and alerts on failed systemd units; first **unattended** timer occurrence and dedicated missed-run alert remain to validate. All activity limited to wp2 fixture; no `jeff-vn.com` changes. Old Wasmer Site2 / D1 workflows remain paused.
+
+Current canonical operational documentation: `louisalviss/vps-control/docs/website-a2z-manager.md`.
