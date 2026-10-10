@@ -161,6 +161,42 @@ def assess(h: dict, p: dict, s: dict, commit: str) -> dict:
     for t in ("1D_SHOCK", "5D_SHOCK"):
         assert counts["protected_shock_early"][t] >= counts["baseline"][t]
 
+    original_by_symbol = {q["affected_assets"]: q for q in sigs}
+    replaced = [x for x in baseline_list if x not in safe]
+    added = [x for x in safe_list if x not in baseline]
+    replaced_causes = Counter()
+    for symbol in replaced:
+        source = original_by_symbol[symbol].get("source") or {}
+        raw = source.get("raw_triggers") or by[symbol].get("raw_triggers") or []
+        if source.get("discovery_state") == "EARLY_WATCH":
+            replaced_causes["EARLY_WATCH"] += 1
+        elif any(t in raw for t in ("1D_SHOCK", "5D_SHOCK")):
+            replaced_causes["SHOCK"] += 1
+        elif raw == ["SECTOR_UNDERPERFORM"]:
+            replaced_causes["SECTOR_ONLY"] += 1
+        elif raw:
+            replaced_causes["OTHER_RAW_ANOMALY"] += 1
+        else:
+            replaced_causes["UNCLASSIFIED"] += 1
+
+    def describe(symbol: str) -> dict:
+        rec = by[symbol]
+        base_source = (original_by_symbol.get(symbol) or {}).get("source") or {}
+        return {
+            "symbol": symbol,
+            "baseline_selected": symbol in baseline,
+            "baseline_state": base_source.get("discovery_state"),
+            "baseline_raw_triggers": base_source.get("raw_triggers"),
+            "shadow_group": classes[symbol],
+            "shadow_triggers": rt[symbol],
+            "ret_1d_pct": number(rec.get("ret_1d_pct")),
+            "ret_5d_pct": number(rec.get("ret_5d_pct")),
+            "volume_ratio": number(rec.get("volume_ratio")),
+            "raw_priority": number(rec.get("raw_priority")),
+            "sector_relative_5d_pct": number(rec.get("sector_relative_5d_pct")),
+            "corporate_action_guard": bool(rec.get("corporate_action_suspected") or rec.get("corporate_action_unverified")),
+        }
+
     return {
         "source_session_date": h["source_session_date"], "source_commit": commit,
         "generated_at": h.get("generated_at"), "fresh_symbols": len(rows),
@@ -171,6 +207,9 @@ def assess(h: dict, p: dict, s: dict, commit: str) -> dict:
         "fixed_removed": len(baseline - fixed),
         "protected_additions": len(safe - baseline),
         "protected_removed": len(baseline - safe),
+        "protected_displacement_reasons": dict(sorted(replaced_causes.items())),
+        "protected_displaced_baseline": [describe(x) for x in replaced],
+        "protected_added_pumps": [describe(x) for x in added],
         "baseline_early": len(old_early),
         "protected_preserved_early": len(old_early & safe),
     }
@@ -216,6 +255,9 @@ def replay(max_commits: int = 60) -> dict:
         "protected_removed": sum(x["protected_removed"] for x in sessions),
         "baseline_early": sum(x["baseline_early"] for x in sessions),
         "protected_preserved_early": sum(x["protected_preserved_early"] for x in sessions),
+        "protected_displacement_reasons": dict(sorted(
+            sum((Counter(x["protected_displacement_reasons"]) for x in sessions), Counter()).items()
+        )),
     }
     return {
         "schema": "opportunity-radar-multi-session-recall-diagnostic-v1",

@@ -101,6 +101,75 @@ def priority(rec: dict, group: str) -> tuple[float, float, float, str]:
     return (severity, min(vr, 10), math.log10(max(adv, 1)), str(rec["symbol"]))
 
 
+
+def protect_baseline_shock_early(
+    records: list[dict],
+    signals: list[dict],
+    ordered_groups: dict[str, list[dict]],
+    max_packet: int,
+    new_pump_budget: int = 24,
+) -> tuple[set[str], set[str], set[str], dict[str, int]]:
+    """Counterfactual only: protect emitted Shock/EARLY, then add Pump, then fill.
+
+    Keep the baseline output order for deterministic displacement analysis.
+    Importantly, this does not change the actual live signal publisher.
+    """
+    ordered_baseline = [str(x["affected_assets"]) for x in signals]
+    baseline_set = set(ordered_baseline)
+    rec_by_symbol = {str(r["symbol"]): r for r in records}
+    if len(ordered_baseline) > max_packet:
+        raise ValueError("BASELINE_EXCEEDS_COMPARABLE_PACKET_CAP")
+    protected = []
+    for signal in signals:
+        symbol = str(signal["affected_assets"])
+        rec = rec_by_symbol[symbol]
+        source = signal.get("source") or {}
+        is_early = source.get("discovery_state") == "EARLY_WATCH"
+        is_shock = any(t in shadow_triggers(rec) for t in ("1D_SHOCK", "5D_SHOCK"))
+        if is_early or is_shock:
+            protected.append(symbol)
+    if len(protected) > max_packet:
+        raise ValueError("PROTECTED_SIGNALS_EXCEED_PACKET_CAP")
+    selected = list(protected)
+    for rec in ordered_groups["PUMP"]:
+        symbol = str(rec["symbol"])
+        if len(selected) >= max_packet:
+            break
+        if symbol in selected:
+            continue
+        if symbol not in baseline_set and sum(x not in baseline_set for x in selected) >= new_pump_budget:
+            break
+        selected.append(symbol)
+    for symbol in ordered_baseline:
+        if len(selected) >= max_packet:
+            break
+        if symbol not in selected:
+            selected.append(symbol)
+    final = set(selected)
+    displaced = baseline_set - final
+    additions = final - baseline_set
+    if len(final) != len(selected):
+        raise ValueError("PROTECTED_DUPLICATE_SELECTION")
+    breakdown: Counter = Counter()
+    for signal in signals:
+        symbol = str(signal["affected_assets"])
+        if symbol not in displaced:
+            continue
+        tr = (signal.get("source") or {}).get("raw_triggers") or rec_by_symbol[symbol].get("raw_triggers") or []
+        state = (signal.get("source") or {}).get("discovery_state")
+        if state == "EARLY_WATCH":
+            breakdown["EARLY_WATCH"] += 1
+        elif any(t in tr for t in ("1D_SHOCK", "5D_SHOCK")):
+            breakdown["SHOCK"] += 1
+        elif tr == ["SECTOR_UNDERPERFORM"]:
+            breakdown["SECTOR_ONLY"] += 1
+        elif tr:
+            breakdown["OTHER_RAW_ANOMALY"] += 1
+        else:
+            breakdown["UNCLASSIFIED"] += 1
+    return final, displaced, additions, dict(sorted(breakdown.items()))
+
+
 def classify_baseline(rec: dict, selected: bool) -> str:
     state = rec.get("discovery_state")
     if selected:
@@ -154,6 +223,7 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
         raise ValueError("SOURCE_SIGNAL_NOT_IN_PREFILTER")
 
     selected_set = set(selected)
+    record_lookup = {str(r["symbol"]): r for r in records}
     groups: dict[str, list[dict]] = {name: [] for name in SHADOW["selection_quotas"]}
     rows: list[dict] = []
     baseline_counts: Counter = Counter()
@@ -195,9 +265,33 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
         for rank, (_, row) in enumerate(candidates, 1):
             row["shadow_rank"] = rank
             row["shadow_selection"] = "SELECTED" if rank <= quota else "SHADOW_QUOTA"
+    ordered_groups = {
+        group: [rec for _, row in candidates for rec in (record_lookup[row["symbol"]],)]
+        for group, candidates in groups.items()
+    }
+    protected_selected, protected_removed, protected_added, protected_reasons = (
+        protect_baseline_shock_early(
+            records, source_signals, ordered_groups,
+            max_packet=int((prefilter.get("config_snapshot") or {}).get("max_candidates") or 80),
+        )
+    )
+    for row in rows:
+        sym = row["symbol"]
+        if sym in protected_added:
+            row["protected_comparison"] = "ADDED_PUMP_SHADOW_ONLY"
+        elif sym in protected_removed:
+            row["protected_comparison"] = "DISPLACED_BASELINE"
+        elif sym in protected_selected and sym in selected_set:
+            row["protected_comparison"] = "PRESERVED_BASELINE"
+        else:
+            row["protected_comparison"] = "NOT_SELECTED"
     shadow_selected = {r["symbol"] for r in rows if r["shadow_selection"] == "SELECTED"}
     shadow_hit_counts = Counter(
         hit for row in rows if row["shadow_selection"] == "SELECTED"
+        for hit in row["shadow_triggers"]
+    )
+    protected_hit_counts = Counter(
+        hit for row in rows if row["symbol"] in protected_selected
         for hit in row["shadow_triggers"]
     )
     status_counts = Counter(r["shadow_selection"] for r in rows)
@@ -258,6 +352,11 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             "qualified_price_moves": dict(sorted(hit_counts.items())),
             "baseline_emitted_price_moves": dict(sorted(emitted_hit_counts.items())),
             "shadow_selected_price_moves": dict(sorted(shadow_hit_counts.items())),
+            "protected_selected_price_moves": dict(sorted(protected_hit_counts.items())),
+            "protected_selected_total": len(protected_selected),
+            "protected_new_pumps": len(protected_added),
+            "protected_displaced_baseline": len(protected_removed),
+            "protected_displacement_reasons": protected_reasons,
             "shadow_group_eligible": {k: len(v) for k, v in groups.items()},
             "shadow_selection": dict(sorted(status_counts.items())),
             "shadow_selected_total": len(shadow_selected),
@@ -271,6 +370,31 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
         ),
         "records": rows,
         "universe_dispositions": upstream_rows,
+        "protected_review_queue": {
+            "added": [
+                {
+                    "symbol": row["symbol"],
+                    "ret_1d_pct": row["ret_1d_pct"],
+                    "ret_5d_pct": row["ret_5d_pct"],
+                    "volume_ratio": row["volume_ratio"],
+                    "economic_catalyst_verified": False,
+                    "disposition": "REQUIRES_HARD_PERSIST_REVIEW",
+                } for row in rows if row["symbol"] in protected_added
+            ],
+            "displaced": [
+                {
+                    "symbol": row["symbol"],
+                    "ret_1d_pct": row["ret_1d_pct"],
+                    "ret_5d_pct": row["ret_5d_pct"],
+                    "baseline_priority": row["raw_priority"],
+                    "baseline_triggers": (
+                        next((sig.get("source", {}).get("raw_triggers") for sig in source_signals
+                              if sig["affected_assets"] == row["symbol"]), [])
+                    ),
+                    "disposition": "VALUE_NOT_YET_ASSESSED",
+                } for row in rows if row["symbol"] in protected_removed
+            ],
+        },
     }
 
 

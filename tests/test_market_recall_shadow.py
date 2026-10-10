@@ -36,9 +36,19 @@ def fixture(rows, selected=()):
         "scanner_version": "2.2-freshness-recovery",
     }
     p = {"status": "COMPLETE", "complete": True, "source_session_date": "2026-10-09", "records": rows}
+    by = {r["symbol"]: r for r in rows}
     s = {
         "status": "COMPLETE", "complete": True, "source_session_date": "2026-10-09",
-        "signals": [{"affected_assets": ticker, "source": {"last_date": "2026-10-09"}} for ticker in selected],
+        "signals": [
+            {
+                "affected_assets": ticker,
+                "source": {
+                    "last_date": "2026-10-09",
+                    "discovery_state": by[ticker].get("discovery_state") if ticker in by else None,
+                    "raw_triggers": by[ticker].get("raw_triggers") if ticker in by else None,
+                },
+            } for ticker in selected
+        ],
         "stats": {"listed_securities": 5, "common_like_universe": 4, "snapshot_rows": 3},
     }
     return h, p, s
@@ -132,6 +142,42 @@ class ShadowAuditTests(unittest.TestCase):
         h["complete"]=True
         p["source_session_date"]="2026-10-08"
         with self.assertRaisesRegex(ValueError, "SOURCE_NOT_COMPLETE"):
+            m.audit(h,p,s)
+
+    def test_protected_pump_policy_preserves_raw_shock_and_early_and_explains_displacement(self):
+        shocks = [
+            {**rec(f"S{i}", -8-i/100, -16, 3, state="RAW_ANOMALY"),
+             "raw_triggers": ["1D_SHOCK", "5D_SHOCK"]} for i in range(16)
+        ]
+        early = [
+            {**rec(f"E{i}", 4, 2, 3, state="EARLY_WATCH"),
+             "raw_triggers": ["EARLY_WATCH_PRICE"]} for i in range(16)
+        ]
+        sector = [
+            {**rec(f"R{i}", -1, -5, 1, state="RAW_ANOMALY", relative=-11),
+             "raw_triggers": ["SECTOR_UNDERPERFORM"]} for i in range(48)
+        ]
+        pump = [rec(f"P{i}", 10+i/10, 18+i/10, 1.8) for i in range(50)]
+        rows = shocks + early + sector + pump
+        baseline = [r["symbol"] for r in shocks+early+sector]
+        result = m.audit(*fixture(rows, selected=baseline))
+        c = result["counts"]
+        self.assertEqual(c["protected_selected_total"], 80)
+        self.assertEqual(c["protected_new_pumps"], 24)
+        self.assertEqual(c["protected_displaced_baseline"], 24)
+        self.assertEqual(c["protected_displacement_reasons"], {"SECTOR_ONLY": 24})
+        self.assertEqual(len(result["protected_review_queue"]["added"]), 24)
+        self.assertEqual(len(result["protected_review_queue"]["displaced"]), 24)
+        selected = {r["symbol"] for r in result["records"] if r["protected_comparison"] in ("PRESERVED_BASELINE", "ADDED_PUMP_SHADOW_ONLY")}
+        self.assertTrue({r["symbol"] for r in shocks+early}.issubset(selected))
+        self.assertEqual(c["protected_selected_price_moves"]["1D_SHOCK"], 16)
+
+    def test_protected_policy_fails_closed_if_source_exceeds_actual_cap(self):
+        rows = [rec("A", -8, 0, 2, state="RAW_ANOMALY"),
+                rec("B", 8, 0, 2, state="EARLY_WATCH")]
+        h,p,s = fixture(rows, selected=["A","B"])
+        p["config_snapshot"] = {"max_candidates": 1}
+        with self.assertRaisesRegex(ValueError, "BASELINE_EXCEEDS_COMPARABLE_PACKET_CAP"):
             m.audit(h,p,s)
 
     def test_missing_selected_signal_and_duplicate_prefilter_rejected(self):

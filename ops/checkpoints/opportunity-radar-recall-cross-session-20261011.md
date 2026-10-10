@@ -22,6 +22,18 @@ Can MARKET_PRICING capture broad 1D/5D price dumps and pumps without dropping pr
 
 The fixed 28/28/16/8 quota **FAILS Shock non-regression**. Do not promote it. The protected-policy diagnostic preserved 40/40 historical baseline EARLY_WATCH labels and 48/48 1D / 43/43 5D Shock detections; 34 new symbols would be substituted for 34 old baseline symbols across the 2 sessions. Those displaced signals may include valuable sector/noise-adjusted setups; evaluate first.
 
+## Displaced-signal audit — 2026-10-11 follow-up
+
+A reproducible two-session PIT replay now emits full *per-symbol* evidence for every baseline displacement and each proposed Pump addition. **34/34 displaced baseline signals were `SECTOR_UNDERPERFORM` only**; none belonged to the already-emitted direct 1D/5D Shock or EARLY_WATCH groups. This is an attribution, **not** evidence that sector divergence signals are low quality.
+
+On the October 9 frozen packet alone:
+- Baseline 1D Pump 8/42, 5D Pump 6/38; direct 1D Shock 17/18, 5D Shock 23/24.
+- Protected Shock/Early + up to 24 new Pumps yields 1D Pump **23/42**, 5D Pump **22/38**, and retains 1D Shock **17/18** and 5D Shock **23/24**.
+- 24 baseline `SECTOR_UNDERPERFORM`-only entries are displaced by 24 raw Pump candidates. Each added item remains `REQUIRES_HARD_PERSIST_REVIEW`; displaced signals are `VALUE_NOT_YET_ASSESSED`.
+- A separate fixed-quota design continues to fail Shock non-regression.
+
+Forward capture is added to the regular market shadow diagnostic only: `market-recall-shadow.json` now includes `protected_review_queue.added` and `protected_review_queue.displaced`, baseline trigger evidence, signed returns, volume ratios and reason counts. **Live 80 Signals, D1, Sheet, execution, paper-trade orders and existing selection rules remain unchanged.**
+
 ## Validity boundaries
 - 2 verified sessions is not an independent out-of-sample evaluation, and same stock can occur on both days: no precision, false-positive economics, alpha, or expected P&L is demonstrated.
 - Archive claim is limited to symbols with valid same-session adjusted price data, not all listed stocks.
