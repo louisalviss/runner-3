@@ -43,7 +43,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 SIGNALS_OUT = OUT_DIR / "market-signals.json"
 HEALTH_OUT = OUT_DIR / "market-health.json"
 PREFILTER_OUT = OUT_DIR / "market-prefilter.json"
-SCANNER_VERSION = "2.1-prefilter-v1"
+SCANNER_VERSION = "2.2-freshness-recovery"
 PREFILTER_SOURCE = "data/opportunity-radar/market-prefilter.json"
 D1_CHECKPOINT_BINDING = {
     "project": "opportunity-radar-v2",
@@ -261,6 +261,107 @@ def download_history(symbols: list[str]) -> dict[str, pd.DataFrame]:
                 result[mapping[ticker]] = frame
         time.sleep(0.1)
     return result
+
+
+
+def recover_fresh_market_history(
+    history: dict[str, pd.DataFrame],
+    eligible: list[str],
+    expected_session_date: str,
+    snapshot: dict[str, dict[str, Any]],
+    *,
+    downloader: Any = None,
+    max_seconds: float = 420,
+) -> tuple[dict[str, pd.DataFrame], dict[str, Any]]:
+    """Bounded same-session recovery; never promote a stale quote into pricing.
+
+    Nasdaq's quote snapshot is independent *triage only*, not verified session
+    history. Yahoo is re-queried with an explicit inclusive session window in
+    small serial batches. Zero/low probe recovery aborts instead of hammering
+    the provider or silently declaring a partial universe complete.
+    """
+    downloader = downloader or yf.download
+    started = time.monotonic()
+    initial_fresh, _ = partition_fresh_market_history(history, expected_session_date)
+    missing = [symbol for symbol in eligible if symbol not in initial_fresh]
+    ranked = sorted(
+        missing,
+        key=lambda symbol: -abs(num((snapshot.get(symbol) or {}).get("pctchange")) or 0),
+    )
+    independent_snapshot_shocks = [
+        {"symbol": symbol, "pctchange": num((snapshot.get(symbol) or {}).get("pctchange")),
+         "verification": "UNVERIFIED_SNAPSHOT_ONLY", "action": "NO_SIGNAL"}
+        for symbol in ranked
+        if abs(num((snapshot.get(symbol) or {}).get("pctchange")) or 0)
+        >= abs(CFG["one_day_trigger_pct"])
+    ][:30]
+    stats: dict[str, Any] = {
+        "stale_before_retry": len(missing),
+        "retry_attempted": 0,
+        "retry_recovered": 0,
+        "retry_errors": 0,
+        "retry_unattempted": 0,
+        "retry_source": "YAHOO_EXPLICIT_WINDOW_SERIAL",
+        "independent_snapshot_shocks_unverified": independent_snapshot_shocks,
+        "wide_retry_skipped_reason": None,
+    }
+    if not missing:
+        return history, stats
+
+    # Always probe the largest independent quote moves; also sample the
+    # breadth so a stale whole-universe outage is distinguishable from a few
+    # broken tickers. The snapshot is never allowed to set source_session_date.
+    stride = max(1, len(missing) // 32)
+    probe = list(dict.fromkeys(ranked[:32] + missing[::stride][:32]))
+    if len(missing) <= len(probe):
+        probe = missing
+    remaining = [symbol for symbol in ranked if symbol not in set(probe)]
+    start = (date.fromisoformat(expected_session_date) - timedelta(days=45)).isoformat()
+    end = (date.fromisoformat(expected_session_date) + timedelta(days=1)).isoformat()
+    recovered = dict(history)
+
+    def attempt(targets: list[str]) -> int:
+        success = 0
+        for batch in chunks(targets, 24):
+            if time.monotonic() - started >= max_seconds:
+                break
+            mapping = {yf_symbol(symbol): symbol for symbol in batch}
+            stats["retry_attempted"] += len(batch)
+            try:
+                raw = downloader(
+                    list(mapping), start=start, end=end, interval="1d",
+                    group_by="ticker", auto_adjust=False, actions=False,
+                    progress=False, threads=False, timeout=20,
+                )
+            except Exception as exc:
+                stats["retry_errors"] += 1
+                print(f"freshness retry batch failed ({len(batch)} tickers): {type(exc).__name__}", file=sys.stderr)
+                continue
+            for ticker, original in mapping.items():
+                frame = extract_frame(raw, ticker, len(mapping))
+                if frame is None or frame.empty or "Close" not in frame.columns:
+                    continue
+                fresh, _ = partition_fresh_market_history({original: frame}, expected_session_date)
+                if original in fresh:
+                    recovered[original] = fresh[original]
+                    stats["retry_recovered"] += 1
+                    success += 1
+            time.sleep(0.15)
+        return success
+
+    probe_success = attempt(probe)
+    if remaining and probe_success / max(1, stats["retry_attempted"]) >= 0.30:
+        attempt(remaining)
+    elif remaining:
+        stats["wide_retry_skipped_reason"] = "LOW_PROBE_RECOVERY"
+    stats["retry_unattempted"] = max(0, len(missing) - stats["retry_attempted"])
+    print(
+        "freshness recovery: "
+        f"{stats['retry_recovered']}/{stats['retry_attempted']} recovered, "
+        f"{stats['retry_unattempted']} unattempted; "
+        f"snapshot shock suspects={len(independent_snapshot_shocks)}"
+    )
+    return recovered, stats
 
 
 def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
@@ -725,12 +826,15 @@ def main() -> None:
 
         print(f"[3/4] Downloading 1mo daily history for {len(eligible)} symbols")
         history = download_history(eligible)
+        expected_session_date = expected_latest_completed_us_session(generated_at_dt)
+        history, recovery_stats = recover_fresh_market_history(
+            history, eligible, expected_session_date, snapshot
+        )
         coverage = len(history) / max(1, len(eligible))
         if coverage < CFG["min_history_coverage"]:
             raise RuntimeError(f"history coverage too low: {len(history)}/{len(eligible)} ({coverage:.1%})")
 
         print("[4/4] Building V2 raw pricing signals")
-        expected_session_date = expected_latest_completed_us_session(generated_at_dt)
         fresh_history, stale_history_suppressed = partition_fresh_market_history(
             history, expected_session_date
         )
@@ -770,6 +874,7 @@ def main() -> None:
             "history_coverage": coverage,
             "fresh_history_coverage": fresh_history_coverage,
             "stale_history_suppressed": stale_history_suppressed,
+            "freshness_recovery": recovery_stats,
             "config_snapshot": dict(CFG),
             "records": prefilter_records,
         }
@@ -806,6 +911,7 @@ def main() -> None:
                 "history_coverage": coverage,
                 "fresh_history_coverage": fresh_history_coverage,
                 "stale_history_suppressed": stale_history_suppressed,
+            "freshness_recovery": recovery_stats,
                 "signal_count": len(signals),
                 "volume_confirmed": sum(1 for x in anomalies if x.get("volume_confirmation")),
                 **guard_stats,
@@ -837,6 +943,7 @@ def main() -> None:
             history_coverage=coverage,
             fresh_history_coverage=fresh_history_coverage,
             stale_history_suppressed=stale_history_suppressed,
+            freshness_recovery=recovery_stats,
             snapshot_ok=bool(snapshot),
             snapshot_error=snapshot_error,
             early_watch=guard_stats["early_watch"],

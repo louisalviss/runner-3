@@ -10,8 +10,8 @@ on:
   schedule:
     # 21:02 UTC Mon-Fri = 04:02 Asia/Ho_Chi_Minh next day Tue-Sat.
     # In US DST this is ~62m after regular close; in standard time it is ~2m after close.
-    # The NYSE-calendar + SPY preflight below waits for the latest completed session
-    # to become visible before running the full universe scan, including holiday handling.
+    # SPY preflight checks only a benchmark. The scanner independently verifies
+    # every symbol's latest completed session and enforces 80% universe coverage.
     - cron: '2 21 * * 1-5'
 
 # Bootstrap trigger after the workflow exists on main.
@@ -129,3 +129,18 @@ jobs:
             sleep $((attempt * 3))
           done
           exit 1
+
+      - name: Enforce freshness gate after diagnostic packet is persisted
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('data/opportunity-radar/market-health.json').read_text())
+          status = health.get('status')
+          coverage = float(health.get('fresh_history_coverage') or 0)
+          recovery = health.get('freshness_recovery') or {}
+          print(f'Coverage={coverage:.2%}, status={status}, recovery={recovery.get("retry_recovered", 0)}/{recovery.get("retry_attempted", 0)}')
+          if status != 'COMPLETE' or health.get('complete') is not True:
+              raise SystemExit('Market-pricing DEGRADED: preserve diagnostics; no valid current-session packet')
+          PY
