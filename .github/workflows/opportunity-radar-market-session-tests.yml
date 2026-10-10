@@ -22,7 +22,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 27
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -35,3 +35,34 @@ jobs:
         env:
           MARKET_RECOVERY_CANARY: '1'
         run: python -m unittest discover -s tests -p test_market_session_integrity.py -k test_live_canary_at_t_after_stale_batch -v
+
+      - name: QA canary - full market scan (PR branch only, no production persistence)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/opportunity-radar-freshness-recovery-20261011' }}
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          python scripts/opportunity_radar_market_v2.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('data/opportunity-radar')
+          health = json.loads((root / 'market-health.json').read_text())
+          signals = json.loads((root / 'market-signals.json').read_text())
+          prefilter = json.loads((root / 'market-prefilter.json').read_text())
+          observed = next((r for r in prefilter['records'] if r.get('symbol') == 'T'), None)
+          detected = [s for s in signals['signals'] if s.get('affected_assets') == 'T']
+          print('FULL_CANARY', json.dumps({
+              'source_session': health.get('source_session_date'),
+              'expected_session': health.get('expected_latest_completed_us_session'),
+              'status': health.get('status'),
+              'requested': health.get('history_requested'),
+              'fresh_coverage': health.get('fresh_history_coverage'),
+              'recovered': (health.get('freshness_recovery') or {}).get('retry_recovered'),
+              'T_prefilter': observed,
+              'T_signals': detected,
+          }, default=str), flush=True)
+          assert health.get('status') == 'COMPLETE', 'Global freshness not recovered'
+          assert float(health.get('fresh_history_coverage') or 0) >= 0.8, 'Coverage < 80%'
+          assert observed and observed.get('last_date') == '2026-10-09', 'AT&T missing verified history'
+          assert any('1D_SHOCK' in ((sig.get('source') or {}).get('raw_triggers') or []) for sig in detected), 'AT&T 1D Shock detection missing'
+          PY
