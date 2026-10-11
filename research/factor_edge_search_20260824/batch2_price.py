@@ -2,6 +2,7 @@ import backtest
 
 # New follow-up hypotheses. These are evaluated after the first batch and therefore
 # require a fresh 2025-2026 OOS gate before any production claim.
+# diagnostic trigger: 2026-08-24
 backtest.SPECS = {
     "LOWVOL20": {
         "signal": lambda x: x.vol_pct <= 0.20,
