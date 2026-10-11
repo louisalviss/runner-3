@@ -1,0 +1,148 @@
+name: Public SABA Lobby Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-saba-lobby-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -q playwright
+          mkdir -p evidence
+          google-chrome --version
+
+      - name: Open public SABA cards normally
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,pathlib
+          from playwright.sync_api import sync_playwright
+
+          OUT=pathlib.Path('evidence')
+          sites=[
+            ('bunny','https://www.bunny-online.com/'),
+            ('uwu4d','https://uwu4d.com/'),
+          ]
+          KW=re.compile(r'saba|outright|outrights|future|top\s*4|top\s*6|relegat|goal.?scorer|golden boot|winner|champion',re.I)
+          BLOCK=re.compile(r'captcha|verify you are human|security verification|access denied|cloudflare|just a moment',re.I)
+          net=[]; results=[]; hits=[]
+
+          with sync_playwright() as p:
+            browser=p.chromium.launch(channel='chrome',headless=True)
+            ctx=browser.new_context(locale='en-US',viewport={'width':1440,'height':900})
+
+            def req(r):
+              if r.resource_type in ('document','xhr','fetch'):
+                net.append({'kind':'request','method':r.method,'type':r.resource_type,'url':r.url,'post':(r.post_data or '')[:12000]})
+            def resp(r):
+              if r.request.resource_type not in ('document','xhr','fetch'): return
+              net.append({'kind':'response','status':r.status,'type':r.request.resource_type,'url':r.url})
+              try:
+                if 'json' in (r.headers.get('content-type') or '').lower():
+                  t=r.text()
+                  if len(t)<2500000 and KW.search(t):
+                    for m in list(KW.finditer(t))[:8]:
+                      hits.append({'source':'json','url':r.url,'status':r.status,'snippet':t[max(0,m.start()-700):min(len(t),m.end()+3500)]})
+              except Exception: pass
+            ctx.on('request',req); ctx.on('response',resp)
+
+            for label,url in sites:
+              pg=ctx.new_page(); rec={'site':label,'start_url':url}
+              try:
+                r=pg.goto(url,wait_until='domcontentloaded',timeout=35000)
+                pg.wait_for_timeout(7000)
+                text=pg.locator('body').inner_text(timeout=8000)
+                rec.update({'status':r.status if r else None,'url':pg.url,'title':pg.title(),'text':text[:40000]})
+                if BLOCK.search(text[:6000]):
+                  rec['blocked']=True
+                  results.append(rec); pg.close(); continue
+                rec['blocked']=False
+
+                # Visible SABA Sports / SABA Sports Lobby only. No hidden-link guessing.
+                saba=pg.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*SABA\s+Sports(?:\s+LOBBY)?\s*$',re.I))
+                rec['saba_count']=saba.count()
+                clicked=False
+                for i in range(min(saba.count(),50)):
+                  el=saba.nth(i)
+                  try:
+                    if not el.is_visible(): continue
+                    rec['saba_control']={'tag':el.evaluate('e=>e.tagName'),'text':el.inner_text()[:300],'href':el.evaluate('e=>e.href||e.closest("a")?.href||""'),'html':el.evaluate('e=>e.outerHTML')[:6000]}
+                    before=set(ctx.pages); before_url=pg.url
+                    el.click(timeout=6000); pg.wait_for_timeout(10000)
+                    new=[x for x in ctx.pages if x not in before]
+                    target=new[-1] if new else pg
+                    try: target.wait_for_load_state('domcontentloaded',timeout=15000)
+                    except Exception: pass
+                    target.wait_for_timeout(5000)
+                    t=target.locator('body').inner_text(timeout=8000)
+                    rec['launch']={'before':before_url,'after':target.url,'title':target.title(),'text':t[:70000],'frames':[{'name':f.name,'url':f.url} for f in target.frames]}
+                    target.screenshot(path=str(OUT/f'{label}-saba.png'),full_page=False)
+                    clicked=True
+                    if BLOCK.search(t[:8000]):
+                      rec['launch_blocked']=True
+                      break
+                    # If login is visibly required, record and stop. Do not authenticate.
+                    if re.search(r'\b(Log In|Login|Username|Password|Sign In)\b',t[:12000],re.I) and not re.search(r'\bOutright',t,re.I):
+                      rec['login_gate']=True
+                      break
+                    # Ordinary public UI Outright click.
+                    cand=target.locator('a,button,[role=button],div,span').filter(has_text=re.compile(r'^\s*(Outright|Outrights|Futures?)\s*$',re.I))
+                    rec['outright_count']=cand.count()
+                    for j in range(min(cand.count(),50)):
+                      oe=cand.nth(j)
+                      try:
+                        if not oe.is_visible(): continue
+                        rec['outright_control']={'tag':oe.evaluate('e=>e.tagName'),'text':oe.inner_text()[:300],'html':oe.evaluate('e=>e.outerHTML')[:5000]}
+                        oe.click(timeout=6000); target.wait_for_timeout(10000)
+                        ot=target.locator('body').inner_text(timeout=8000)
+                        rec['outright']={'url':target.url,'text':ot[:120000]}
+                        target.screenshot(path=str(OUT/f'{label}-outright.png'),full_page=False)
+                        for line in ot.splitlines():
+                          if KW.search(line): hits.append({'source':'visible','url':target.url,'snippet':line[:2000]})
+                        break
+                      except Exception as e: rec.setdefault('outright_errors',[]).append(repr(e)[:500])
+                    break
+                  except Exception as e: rec.setdefault('saba_errors',[]).append(repr(e)[:500])
+                rec['clicked_saba']=clicked
+                pg.screenshot(path=str(OUT/f'{label}-home.png'),full_page=False)
+              except Exception as e:
+                rec['error']=repr(e)
+              results.append(rec)
+              try: pg.close()
+              except Exception: pass
+            browser.close()
+
+          OUT.joinpath('results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2))
+          OUT.joinpath('network.json').write_text(json.dumps(net,ensure_ascii=False,indent=2))
+          OUT.joinpath('hits.json').write_text(json.dumps(hits,ensure_ascii=False,indent=2))
+          for r in results:
+            print('RESULT',json.dumps({k:r.get(k) for k in ['site','status','url','title','blocked','saba_count','saba_control','clicked_saba','launch','launch_blocked','login_gate','outright_count','outright_control','outright','error']},ensure_ascii=False)[:50000])
+          print('HITS',len(hits))
+          for h in hits[:60]: print('HIT',json.dumps(h,ensure_ascii=False)[:4000])
+          print('NETWORK_HINTS')
+          seen=set()
+          for x in net:
+            u=x.get('url','')
+            if u in seen: continue
+            seen.add(u)
+            if re.search(r'saba|sport|odds|market|event|launch|api',u,re.I): print(x.get('kind'),x.get('status',''),x.get('method',''),u)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-saba-lobby-${{ github.run_id }}
+          path: evidence/
+          retention-days: 7
