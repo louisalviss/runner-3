@@ -60,6 +60,23 @@ def shadow_triggers(rec: dict) -> list[str]:
     return result
 
 
+
+def intraday_shadow_triggers(rec: dict) -> list[str]:
+    """Completed daily high/low only: never a real-time entry signal."""
+    if is_corporate_action(rec) or rec.get("intraday_extremes_verified") is not True:
+        return []
+    hi = number(rec.get("intraday_high_vs_prior_adjusted_close_pct"))
+    lo = number(rec.get("intraday_low_vs_prior_adjusted_close_pct"))
+    if hi is None or lo is None or hi < lo:
+        return []
+    found = []
+    if hi >= SHADOW["one_day_pump_pct"]:
+        found.append("INTRADAY_HIGH_PUMP")
+    if lo <= SHADOW["one_day_shock_pct"]:
+        found.append("INTRADAY_LOW_SHOCK")
+    return found
+
+
 def shadow_group(rec: dict, triggers: list[str]) -> str | None:
     # Corporate-action guard applies to all ranking paths including EARLY.
     if is_corporate_action(rec):
@@ -229,11 +246,15 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
     baseline_counts: Counter = Counter()
     hit_counts: Counter = Counter()
     emitted_hit_counts: Counter = Counter()
+    intraday_hit_counts: Counter = Counter()
+    intraday_emitted_counts: Counter = Counter()
+    intraday_reverted_close_counts: Counter = Counter()
 
     for rec in records:
         symbol = str(rec["symbol"])
         emitted = symbol in selected_set
         triggers = shadow_triggers(rec)
+        intraday_triggers = intraday_shadow_triggers(rec)
         group = shadow_group(rec, triggers)
         status = classify_baseline(rec, emitted)
         baseline_counts[status] += 1
@@ -248,6 +269,10 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             "baseline_discovery_state": rec.get("discovery_state"),
             "baseline_explanation": status,
             "shadow_triggers": triggers,
+            "shadow_intraday_triggers": intraday_triggers,
+            "intraday_high_vs_prior_adjusted_close_pct": number(rec.get("intraday_high_vs_prior_adjusted_close_pct")),
+            "intraday_low_vs_prior_adjusted_close_pct": number(rec.get("intraday_low_vs_prior_adjusted_close_pct")),
+            "intraday_extremes_verified": rec.get("intraday_extremes_verified") is True,
             "shadow_group": group,
             "shadow_selection": "NOT_SELECTED",
         }
@@ -256,6 +281,14 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             hit_counts[hit] += 1
             if emitted:
                 emitted_hit_counts[hit] += 1
+        for hit in intraday_triggers:
+            intraday_hit_counts[hit] += 1
+            if emitted:
+                intraday_emitted_counts[hit] += 1
+            if hit == "INTRADAY_HIGH_PUMP" and "1D_PUMP" not in triggers:
+                intraday_reverted_close_counts[hit] += 1
+            if hit == "INTRADAY_LOW_SHOCK" and "1D_SHOCK" not in triggers:
+                intraday_reverted_close_counts[hit] += 1
         if group:
             groups[group].append((priority(rec, group), row))
 
@@ -350,6 +383,10 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             "baseline_emitted": len(selected_set),
             "baseline_reason": dict(sorted(baseline_counts.items())),
             "qualified_price_moves": dict(sorted(hit_counts.items())),
+            "intraday_daily_ohlc_extreme_moves": dict(sorted(intraday_hit_counts.items())),
+            "intraday_extremes_already_emitted_baseline": dict(sorted(intraday_emitted_counts.items())),
+            "intraday_extremes_not_reaching_corresponding_close_threshold": dict(sorted(intraday_reverted_close_counts.items())),
+            "intraday_adjusted_ohlc_coverage": sum(r["intraday_extremes_verified"] for r in rows),
             "baseline_emitted_price_moves": dict(sorted(emitted_hit_counts.items())),
             "shadow_selected_price_moves": dict(sorted(shadow_hit_counts.items())),
             "protected_selected_price_moves": dict(sorted(protected_hit_counts.items())),
@@ -364,7 +401,7 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             "baseline_symbols_not_in_shadow": len(selected_set - shadow_selected),
         },
         "scope_warning": (
-            "Discovery recall only: 1D/5D price magnitude is a screening proxy. "
+            "Discovery recall only: 1D/5D price magnitude and completed-bar daily OHLC "
             "It cannot prove event value, alpha, viability, BUY/SHORT eligibility, "
             "or causality. No backdated point-in-time discovery."
         ),
