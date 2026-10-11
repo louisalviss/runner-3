@@ -1,0 +1,84 @@
+name: World of Horror Reader R2 Deploy
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/world-of-horror-reader/**'
+      - '.github/workflows/world-of-horror-r2-deploy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: world-of-horror-reader-r2
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: world-of-horror-reader
+      READER_URL: https://world-of-horror-reader.ducduy2411.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ensure isolated R2 bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets"
+          code=$(curl -sS -o /tmp/woh-bucket.json -w '%{http_code}' "${api}/${BUCKET}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+          if [ "$code" != 200 ]; then
+            echo "Creating dedicated bucket"
+            code=$(curl -sS -o /tmp/woh-create.json -w '%{http_code}' -X POST "$api" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" --data "{\"name\":\"${BUCKET}\"}")
+            if [ "$code" != 200 ]; then cat /tmp/woh-create.json; exit 1; fi
+          fi
+      - name: Upload static site objects to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/world-of-horror-reader/public
+          count=0
+          while IFS= read -r -d '' f; do
+            key="${f#./}"
+            case "$key" in
+              *.html) mime='text/html; charset=utf-8' ;;
+              *.json) mime='application/json' ;;
+              *.webp) mime='image/webp' ;;
+              *.png) mime='image/png' ;;
+              *) echo "Unexpected file $key"; exit 1 ;;
+            esac
+            encoded=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe="/"))' "$key")
+            url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${BUCKET}/objects/${encoded}"
+            code=$(curl -sS -o /tmp/woh-put.json -w '%{http_code}' -X PUT "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: $mime" --data-binary "@$f")
+            if [ "$code" != 200 ]; then echo "Upload failed $key: $code"; cat /tmp/woh-put.json; exit 1; fi
+            count=$((count+1))
+          done < <(find . -type f -print0)
+          echo "Uploaded $count files into R2"
+      - name: Publish separate Worker backed by R2
+        shell: bash
+        working-directory: apps/world-of-horror-reader/worker
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy --config wrangler.toml
+      - name: Verify permanent URL and exact asset SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in index.html chapter-1.html chapter-2.html assets/town.webp assets/school.webp assets/hospital.webp; do
+            expect=$(sha256sum "apps/world-of-horror-reader/public/$path" | awk '{print $1}')
+            pass=false
+            for i in 1 2 3 4 5; do
+              code=$(curl --connect-timeout 8 --max-time 40 -sS -o /tmp/woh-download -w '%{http_code}' "$READER_URL/$path" || true)
+              if [ "$code" = "200" ] && [ "$(sha256sum /tmp/woh-download | awk '{print $1}')" = "$expect" ]; then pass=true; break; fi
+              sleep 3
+            done
+            test "$pass" = true || { echo "Readback failed: $path"; exit 2; }
+            echo "PASS $path"
+          done
+          echo "### World of Horror Reader" >> "$GITHUB_STEP_SUMMARY"
+          echo "Live URL: $READER_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Cloudflare R2 bucket: $BUCKET; six SHA256 verification checks passed." >> "$GITHUB_STEP_SUMMARY"
