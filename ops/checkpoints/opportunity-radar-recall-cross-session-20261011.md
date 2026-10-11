@@ -57,3 +57,12 @@ Critical limitations: these numbers are **non-executable next-close price-reacti
 2. Compare protected Shock/Early + Pump, fixed quota, and baseline on cross-session **prospective** recall of corporate-action-clean moves and economic-catalyst quality.
 3. Review displaced sector signals, false-positive rate, freshness failure modes and all hard Persist decisions. Only nominate a single production rule when passing both recall nonregression and precision/cost/tail-risk gates.
 4. Keep original `Rule_Experiments!4` status `SHADOW` and Replay N=0 promotion-grade; valid historical diagnostics = 2 sessions (not 2 trade outcomes).
+
+## 2026-10-12 operational follow-up — keep *all* raw Pump/Shock predicates
+
+- PR [#398](https://github.com/louisalviss/runner-3/pull/398) merged at `2b5ad4a3`, introducing `scripts/opportunity_radar_market_event_ledger.py` and `data/opportunity-radar/market-move-events.jsonl`.
+- The append-only ledger records each `source-session|ticker|1D_PUMP/5D_PUMP/1D_SHOCK/5D_SHOCK` predicate from the COMPLETE same-session adjusted-price shadow, **even if omitted from the capped live top-80 signals**. Early source generated timestamps are retained; append time is actual, never backdated.
+- QA historical October 09 packet: **122 direct price-predicate observations** (42 1D Pump +38 5D Pump +18 1D Shock +24 5D Shock; distinct predicates, not 122 unique tickers). 26/26 suite PASS (market source/session 9, shadow selection 11, append-only ledger 6), including duplicate-ticker, degraded source, tampered threshold and idempotent re-run protections.
+- Production scan schedule shifted from `21:02 UTC` to **`22:45 UTC Mon–Fri` = `05:45 Asia/Ho_Chi_Minh Tue–Sat`**, at least 105 minutes after US standard-time close instead of 2 minutes, with per-symbol freshness gate unchanged.
+- Ledger is immutable first-observed raw *screening* evidence only: **NOT** a trade, ranking, edge, prediction, backtest fill, BUY or SHORT. Entry, Hard Persist, Curated Signals, D1 and execution remain unchanged. The historical initial 2026-10-09 population is NOT a retroactive live alert.
+- Forward validation: compare per-session direct-event coverage to all eligible price flags; continue measuring independent economic catalyst/false positives, close-to-close follow-through and real capture latency. Do not auto-promote 28/28/16/8 quota or protected Pump policy without qualification.
