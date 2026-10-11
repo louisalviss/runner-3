@@ -1,0 +1,40 @@
+name: WR TradingView Range Client
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/wr-tv-range-client.yml'
+      - 'wave-rider-verify/tv_range_fetch.mjs'
+      - 'wave-rider-verify/wr_tv_parity.py'
+      - 'wave-rider-verify/wr_tv_parity_from_range.py'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --no-save @ch99q/twc ws
+      - run: pip install websocket-client requests
+      - name: Fetch TradingView date range
+        run: node wave-rider-verify/tv_range_fetch.mjs
+      - name: Fetch frozen WR reference
+        run: curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Compare against manual TradingView oracle
+        run: python3 wave-rider-verify/wr_tv_parity_from_range.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-tv-range-client
+          path: |
+            wave-rider-verify/output/tv-range
+            wave-rider-verify/output/tv-parity-range-client
+          retention-days: 14

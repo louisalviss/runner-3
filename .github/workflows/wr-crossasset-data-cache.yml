@@ -1,0 +1,155 @@
+name: WR Cross Asset Data Cache
+
+on:
+  push:
+    branches: [wr-crossasset-20260821]
+    paths:
+      - 'wave-rider-verify/wr_crossasset_cache.py'
+      - '.github/workflows/wr-crossasset-data-cache.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wr-crossasset-data-cache
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: '1'
+  DATA_TAG: market-data-crossasset-m5-20260821
+
+jobs:
+  cache:
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        symbol: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, EURJPY, GBPJPY, EURGBP, XAUUSD, US500, NAS100, AAPL, MSFT, NVDA, AMZN, META, TSLA]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install data dependencies
+        run: pip install --disable-pip-version-check dukascopy-python pandas pyarrow
+      - name: Build canonical M5 cache for ${{ matrix.symbol }}
+        run: python wave-rider-verify/wr_crossasset_cache.py --symbol '${{ matrix.symbol }}' --out /tmp/cache
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cache-${{ matrix.symbol }}
+          path: /tmp/cache
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    needs: cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cache-*
+          path: /tmp/cache
+          merge-multiple: true
+      - name: Build global manifest and validate cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, hashlib
+          root=pathlib.Path('/tmp/cache')
+          entries=[]
+          for f in sorted(root.glob('manifest_entry_*.json')):
+              entries.append(json.load(open(f)))
+          if len(entries)!=19:
+              raise SystemExit(f'expected 19 manifest entries, got {len(entries)}')
+          for e in entries:
+              p=root/e['file']
+              if not p.exists(): raise SystemExit(f'missing {p}')
+              h=hashlib.sha256(p.read_bytes()).hexdigest()
+              if h!=e['sha256']: raise SystemExit(f'checksum mismatch {e["symbol"]}')
+          manifest={
+              'schema_version':1,
+              'dataset_id':'market-data-crossasset-m5-20260821',
+              'source':'Dukascopy public historical data',
+              'offer_side':'BID',
+              'timeframe':'5m',
+              'timezone':'UTC',
+              'requested_coverage':'2021-12-01T00:00:00Z through 2026-08-21T00:00:00Z exclusive',
+              'assets':entries,
+              'asset_count':len(entries),
+              'groups':{
+                  'FX':[e['symbol'] for e in entries if e['group']=='FX'],
+                  'METAL':[e['symbol'] for e in entries if e['group']=='METAL'],
+                  'INDEX_CFD':[e['symbol'] for e in entries if e['group']=='INDEX_CFD'],
+                  'US_STOCK_CFD':[e['symbol'] for e in entries if e['group']=='US_STOCK_CFD']
+              },
+              'usage_rules':[
+                  'Use these raw M5 BID OHLC files as the common immutable price cache for future strategy tests.',
+                  'Do not refetch or silently substitute another vendor when comparing strategies unless a new dataset version is explicitly created.',
+                  'For 10m, aggregate only exactly two contiguous M5 children at bucket t and t+5m; reject incomplete buckets.',
+                  'Record strategy-specific spread/commission/slippage separately; the cached OHLC is BID data and contains no execution-cost model.',
+                  'US500/NAS100 are Dukascopy index CFDs; US stocks are Dukascopy stock CFDs.'
+              ]
+          }
+          pathlib.Path('/tmp/manifest.json').write_text(json.dumps(manifest,indent=2))
+          lines=['# Cross-Asset M5 Research Cache','',f"Dataset ID: `{manifest['dataset_id']}`",'',
+                 'Source: Dukascopy public historical M5 BID OHLC.',
+                 'Coverage requested: 2021-12-01 through 2026-08-21 UTC (exclusive end).',
+                 'Files are Zstandard-compressed Parquet with UTC timestamps and OHLC columns.','',
+                 '## Universe','']
+          for g,syms in manifest['groups'].items(): lines.append(f'- **{g}**: '+', '.join(syms))
+          lines += ['', '## Rules for reuse',''] + [f'- {x}' for x in manifest['usage_rules']]
+          pathlib.Path('/tmp/README_DATA.md').write_text('\n'.join(lines)+'\n')
+          print(json.dumps({'asset_count':len(entries),'groups':manifest['groups']}))
+          PY
+      - name: Create or update persistent GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$DATA_TAG" >/dev/null 2>&1; then
+            echo "release exists: $DATA_TAG"
+          else
+            gh release create "$DATA_TAG" --target "$GITHUB_SHA" --title "Cross-Asset M5 Research Cache 2026-08-21" --notes-file /tmp/README_DATA.md
+          fi
+          gh release upload "$DATA_TAG" /tmp/cache/*.parquet /tmp/manifest.json /tmp/README_DATA.md --clobber
+          gh release view "$DATA_TAG" --json url,tagName,name,assets > /tmp/release.json
+          cat /tmp/release.json
+      - name: Persist release catalog on research branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin wr-crossasset-20260821
+          git checkout -B wr-crossasset-20260821 origin/wr-crossasset-20260821
+          mkdir -p wave-rider-verify/data
+          cp /tmp/manifest.json wave-rider-verify/data/crossasset_m5_manifest.json
+          python - <<'PY'
+          import json, pathlib, hashlib, datetime
+          rel=json.load(open('/tmp/release.json'))
+          man=json.load(open('/tmp/manifest.json'))
+          out={
+              'dataset_id':man['dataset_id'],
+              'release_tag':rel['tagName'],
+              'release_url':rel['url'],
+              'asset_count':man['asset_count'],
+              'groups':man['groups'],
+              'manifest_sha256':hashlib.sha256(open('/tmp/manifest.json','rb').read()).hexdigest(),
+              'published_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'status':'PERSISTED_GITHUB_RELEASE'
+          }
+          pathlib.Path('wave-rider-verify/data/crossasset_m5_catalog.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          git add wave-rider-verify/data/crossasset_m5_manifest.json wave-rider-verify/data/crossasset_m5_catalog.json
+          if git diff --cached --quiet; then
+            echo 'catalog unchanged'
+          else
+            git commit -m 'data: catalog persistent cross-asset M5 cache'
+            git push origin wr-crossasset-20260821
+          fi
