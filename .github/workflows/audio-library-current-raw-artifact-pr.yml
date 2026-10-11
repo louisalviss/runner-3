@@ -1,48 +1,151 @@
-name: Audio Library Current Raw Artifact PR
+name: WR US Stocks 30m M5 Execution Research Launcher
 
 on:
   pull_request:
+    branches: [main]
     paths:
-      - 'ops/audio-library/triggers/current-raw-pr.txt'
       - '.github/workflows/audio-library-current-raw-artifact-pr.yml'
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: wr-stock-30m-m5-launcher-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  extract:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
+  exec30:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0,1,2,3,4,5,6,7]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install extraction dependencies
-        run: python -m pip install -q requests beautifulsoup4 lxml pypdf 'cryptography>=45,<47'
-      - name: Extract current public Reddit source
-        shell: bash
+      - run: pip install -q pandas websocket-client requests dukascopy-python
+      - name: Fetch and patch frozen execution simulator to M5 same-sample mode
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/audio-current-raw
-          python - <<'PY'
-          import json,sys
+          mkdir -p /tmp/wr-audit
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_execution_audit.py' -o /tmp/wr-audit/wr_dukascopy_execution_audit.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-audit/wr_dukascopy_expanded_matrix.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-audit/wr_tv_parity.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+          python3 - <<'PY'
           from pathlib import Path
-          sys.path.insert(0,'scripts')
-          import audio_library_extract_for_chatgpt as a
-          req=json.loads(Path('ops/audio-library/reddit-read-request.json').read_text(encoding='utf-8'))
-          url=str(req['url'])
-          title,text,label,canonical=a.extract_reddit(url)
-          out={'inputUrl':url,'title':title,'sourceLabel':label,'canonicalUrl':canonical,'rawText':text}
-          Path('/tmp/audio-current-raw/source.json').write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
-          print(json.dumps({'status':'ready','inputUrl':url,'title':title,'chars':len(text),'canonicalUrl':canonical},ensure_ascii=False))
+          p=Path('/tmp/wr-audit/wr_dukascopy_execution_audit.py'); s=p.read_text()
+          for a,b in {
+            "exp.fetch_side(instrument,bidc,a,b,1)":"exp.fetch_side(instrument,bidc,a,b,5)",
+            "exp.fetch_side(instrument,askc,a,b,1)":"exp.fetch_side(instrument,askc,a,b,5)",
+            "exp.aggregate(mid1,1,tf)":"exp.aggregate(mid1,5,tf)",
+            "exp.aggregate(bid1,1,tf)":"exp.aggregate(bid1,5,tf)",
+            "exp.aggregate(ask1,1,tf)":"exp.aggregate(ask1,5,tf)",
+            "pd.Timedelta(minutes=1)":"pd.Timedelta(minutes=5)",
+            "1m executable-side":"5m executable-side",
+            "1m BID/ASK":"5m BID/ASK",
+            "simulated on 1m":"simulated on 5m",
+            "1m quote":"5m quote"
+          }.items(): s=s.replace(a,b)
+          p.write_text(s)
+          assert 'fetch_side(instrument,bidc,a,b,1)' not in s
+          assert 'exp.aggregate(mid1,1,tf)' not in s
+          print('M5 SAME-SAMPLE PATCH OK')
+          PY
+      - name: Run frozen WR 30m actual BID ASK audit
+        env:
+          SHARD: ${{ matrix.shard }}
+          WR_OUT: /tmp/wr-exec30
+        run: |
+          python3 - <<'PY'
+          import os,subprocess
+          symbols='AAPL ADBE ADI ADP ADSK AEP ALNY AMAT AMD AMGN AMZN AVGO BKR CDNS CMCSA COST CPRT CSCO CSGP CSX CTSH DXCM EA EXC FANG FTNT GILD GOOG GOOGL HON IDXX INTC INTU ISRG KHC LRCX MAR MCHP MDLZ META MPWR MRVL MSFT MU NFLX NVDA ODFL ORLY PANW PAYX PCAR PEP PLTR PYPL QCOM REGN ROST SBUX SNPS TMUS TSLA TTWO TXN VRTX WDAY WDC WMT ZS'.split()
+          shard=int(os.environ['SHARD']); mine=[s for i,s in enumerate(symbols) if i%8==shard]
+          env=os.environ.copy(); env.update({'PYTHONPATH':'/tmp/wr-audit','TF_MIN':'30','WR_OUT':'/tmp/wr-exec30'})
+          print('SHARD',shard,'SYMBOLS',mine,flush=True)
+          for sym in mine:
+              env['SYMBOL']=sym; print('AUDIT_START',sym,flush=True)
+              subprocess.run(['python3','/tmp/wr-audit/wr_dukascopy_execution_audit.py'],env=env,check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wr-exec30-m5-shard-${{ matrix.shard }}
+          path: /tmp/wr-exec30
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: exec30
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wr-exec30-m5-shard-*
+          path: /tmp/all
+          merge-multiple: false
+      - name: Build final validation report
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,statistics,datetime
+          root=pathlib.Path('/tmp/all');out=pathlib.Path('/tmp/final');out.mkdir(parents=True,exist_ok=True)
+          rows=[];trades=[]
+          for p in root.rglob('audit-*-30m.json'):
+              try: rows.append(json.loads(p.read_text()))
+              except: pass
+          for p in root.rglob('trades-*-30m.jsonl'):
+              sym=p.name[len('trades-'):-len('-30m.jsonl')]
+              for line in p.read_text().splitlines():
+                  try:
+                      x=json.loads(line);x['_symbol']=sym;trades.append(x)
+                  except: pass
+          rows.sort(key=lambda x:x.get('symbol',''));trades.sort(key=lambda x:int(x.get('signal',0)));ok=[x for x in rows if x.get('status')=='OK']
+          def metric(ts):
+              vals=[float(x['R_exec']) for x in sorted(ts,key=lambda z:int(z['signal']))]
+              if not vals:return {'n':0,'R':0.0,'avg_R':None,'PF':None,'win_rate':None,'max_DD_R':0.0}
+              gp=sum(max(v,0) for v in vals);gl=sum(max(-v,0) for v in vals);eq=peak=0.;dd=0.
+              for v in vals:eq+=v;peak=max(peak,eq);dd=min(dd,eq-peak)
+              return {'n':len(vals),'R':sum(vals),'avg_R':sum(vals)/len(vals),'PF':gp/gl if gl else None,'win_rate':100*sum(v>0 for v in vals)/len(vals),'max_DD_R':dd}
+          def year(x):return int(x.get('signal_year') or datetime.datetime.fromtimestamp(int(x['signal'])/1000,datetime.timezone.utc).year)
+          def side(x):return str(x.get('side','')).upper()
+          years={}
+          for y in range(2022,2027):
+              yy=[x for x in trades if year(x)==y];years[str(y)]={'overall':metric(yy),'long':metric([x for x in yy if side(x)=='L']),'short':metric([x for x in yy if side(x)=='S'])}
+          symrows={}
+          for s in sorted(set(x['_symbol'] for x in trades)):
+              ss=[x for x in trades if x['_symbol']==s];symrows[s]={'overall':metric(ss),'long':metric([x for x in ss if side(x)=='L']),'short':metric([x for x in ss if side(x)=='S'])}
+          folds=[]
+          for te,oos in [(2023,2024),(2024,2025),(2025,2026)]:
+              folds.append({'train_years':f'2022-{te}','oos_year':oos,'train_actual':metric([x for x in trades if 2022<=year(x)<=te]),'oos_actual':metric([x for x in trades if year(x)==oos])})
+          pre=[x for x in trades if year(x)<=2025];actual=metric(trades);longm=metric([x for x in trades if side(x)=='L']);shortm=metric([x for x in trades if side(x)=='S'])
+          audit_mid={'n':sum(int(x.get('n_mid',0)) for x in ok),'R':sum(float(x.get('R_mid',0)) for x in ok)};execsum={'n':sum(int(x.get('n_exec',0)) for x in ok),'R':sum(float(x.get('R_exec',0)) for x in ok)}
+          ent=[float(x['entry_spread_bps']) for x in trades if x.get('entry_spread_bps') is not None];ext=[float(x['exit_spread_bps']) for x in trades if x.get('exit_spread_bps') is not None]
+          pos=sum(v['overall']['R']>0 for v in symrows.values());neg=sum(v['overall']['R']<0 for v in symrows.values());poos=sum(years[str(y)]['overall']['R']>0 for y in (2024,2025,2026))
+          same=len(ok)==68 and audit_mid['n']==2056 and abs(audit_mid['R']-63.3832)<0.5
+          gates={'same_sample_reconciled':same,'actual_R_positive':actual['R']>0,'actual_PF_gt_1':actual['PF'] is not None and actual['PF']>1,'pre2026_nonnegative':metric(pre)['R']>=0,'positive_oos_folds_2024_2026':poos,'chronology_gate':metric(pre)['R']>=0 or poos>=2}
+          report={'status':'COMPLETE','candidate':'WR 2.5.13 frozen base — US stocks 30m','validation':'same-sample Dukascopy M5 BID/ASK execution + chronological diagnostic','expected_symbols':68,'ok_symbols':len(ok),'prior_midpoint_reference':{'run':32657035483,'n':2056,'R':63.3832,'R_0.5bps':44.7797,'R_1bps':26.1762,'PF':1.0704},'audit_midpoint_M5':audit_mid,'actual':actual,'long_actual':longm,'short_actual':shortm,'years':years,'pre2026_actual':metric(pre),'walk_forward':folds,'symbol_breadth':{'symbols':len(symrows),'positive':pos,'negative':neg,'positive_fraction':pos/len(symrows) if symrows else None},'median_entry_spread_bps':statistics.median(ent) if ent else None,'median_exit_spread_bps':statistics.median(ext) if ext else None,'midpoint_to_actual_R_delta':execsum['R']-audit_mid['R'],'gate_flags':gates,'symbols':symrows,'raw_symbol_summaries':rows}
+          (out/'report.json').write_text(json.dumps(report,indent=2));
+          with (out/'execution-trades.jsonl').open('w') as f:
+              for x in trades:f.write(json.dumps(x)+'\n')
+          print('OK',len(ok),'MID',audit_mid,'ACTUAL',actual,'LONG',longm,'SHORT',shortm);print('YEARS',{y:v['overall'] for y,v in years.items()});print('PRE2026',report['pre2026_actual'],'BREADTH',report['symbol_breadth'],'SPREADS',report['median_entry_spread_bps'],report['median_exit_spread_bps'],'GATES',gates)
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: audio-current-raw
-          path: /tmp/audio-current-raw/source.json
-          retention-days: 1
-          if-no-files-found: error
+          name: wr-stock-30m-m5-launcher-final
+          path: /tmp/final
+          retention-days: 30
+      - name: Enforce same-sample coverage
+        run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open('/tmp/final/report.json'))
+          assert r['ok_symbols']==68,(r['ok_symbols'],68)
+          assert r['gate_flags']['same_sample_reconciled'],r['audit_midpoint_M5']
+          print('SAME-SAMPLE PASS')
+          PY
