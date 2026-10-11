@@ -66,3 +66,17 @@ Critical limitations: these numbers are **non-executable next-close price-reacti
 - Production scan schedule shifted from `21:02 UTC` to **`22:45 UTC Mon–Fri` = `05:45 Asia/Ho_Chi_Minh Tue–Sat`**, at least 105 minutes after US standard-time close instead of 2 minutes, with per-symbol freshness gate unchanged.
 - Ledger is immutable first-observed raw *screening* evidence only: **NOT** a trade, ranking, edge, prediction, backtest fill, BUY or SHORT. Entry, Hard Persist, Curated Signals, D1 and execution remain unchanged. The historical initial 2026-10-09 population is NOT a retroactive live alert.
 - Forward validation: compare per-session direct-event coverage to all eligible price flags; continue measuring independent economic catalyst/false positives, close-to-close follow-through and real capture latency. Do not auto-promote 28/28/16/8 quota or protected Pump policy without qualification.
+
+
+## 2026-10-12 completed-session High/Low reversal audit (PR #399)
+
+Production readback: [PR #399](https://github.com/louisalviss/runner-3/pull/399), squash merge `d61e66ce7cb750fcffa3f58744ffe9922ae16e85`; [Actions run 38175608778](https://github.com/louisalviss/runner-3/actions/runs/38175608778) **scan/persist/freshness SUCCESS**. US source session **2026-10-09** (not a fresh Oct-12 market session). `market-health.json` COMPLETE; valid adjusted OHLC for 2,763 securities, same 99.855% close-session coverage. 33/33 regression tests PASS.
+
+- `INTRADAY_HIGH_PUMP` ≥ +7% relative to preceding session's adjusted close at the *completed daily High*: **95** event predicates, of which **53** did not also meet +7% at the same-day adjusted Close.
+- `INTRADAY_LOW_SHOCK` ≤ −7% at completed daily Low: **29** event predicates, of which **11** did not also meet −7% at same-day adjusted Close.
+- The **64** close-reverted threshold hits are counts of *predicate observations*, not necessarily 64 distinct tickers, and not executable intraday alerts. OHLC has no event timestamp. Adjusted high/low is today's raw high/low × (`Adj Close / Close`), compared with prior adjusted close, with fail-closed OHLC integrity and corporate-action guards.
+- Existing 1D/5D close-based event ledger: **122** records preserved byte-for-byte; new completed-bar High/Low events: **124**; append-only `market-move-events.jsonl` now **246 unique event IDs**, source-session only, no backdating of actual log time.
+- Live `market-signals.json` still **80/80**; ordered symbol + raw trigger identity exactly unchanged compared with the pre-PR saved packet. D1, Google Sheet curated Signals, Paper Trades, Entry/Execution and production selection algorithm unchanged.
+- Source of truth: `data/opportunity-radar/market-recall-shadow.json` has `intraday_daily_ohlc_extreme_moves` and `intraday_extremes_not_reaching_corresponding_close_threshold`; append-only evidence in `data/opportunity-radar/market-move-events.jsonl`.
+
+**Limit:** This solves missing *within-session completed-bar extremes* (ex post), NOT live market intraday alerting. Cannot recover securities outside the eligible/fresh universe, or moves from unsupported pre/after-hours data. No score/BUY rule promotion. Future work is prospective multi-session false-positive and catalyst/forward return review before deciding on expensive real-time quote coverage.
