@@ -449,9 +449,42 @@ def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
     latest_vol = num(volume.loc[latest_idx]) if latest_idx in volume.index else None
     avg_vol = float(prior_vol.mean()) if not prior_vol.empty else None
 
+    # The completed daily High/Low can expose a move that reverted before
+    # close. Normalize today's unadjusted daily extrema with today's
+    # Adj Close / Close factor and compare to yesterday's adjusted close.
+    # Without verified adjusted OHLC, do not emit a raw intraday flag.
+    extreme_high, extreme_low, high_change, low_change = None, None, None, None
+    intraday_extremes_verified = False
+    if (
+        adj_available and "High" in df.columns and "Low" in df.columns
+        and last_raw > 0 and last_adj > 0 and float(adj.iloc[-2]) > 0
+    ):
+        hi = num(pd.to_numeric(df["High"], errors="coerce").loc[latest_idx])
+        lo = num(pd.to_numeric(df["Low"], errors="coerce").loc[latest_idx])
+        if (
+            hi is not None and lo is not None and hi > 0 and lo > 0
+            and lo <= last_raw * 1.0001 and hi >= last_raw * 0.9999
+            and hi >= lo
+            and not corporate_action_suspected
+            and not corporate_action_unverified
+        ):
+            factor = last_adj / last_raw
+            extreme_high, extreme_low = hi * factor, lo * factor
+            high_change = pct(extreme_high, float(adj.iloc[-2]))
+            low_change = pct(extreme_low, float(adj.iloc[-2]))
+            intraday_extremes_verified = bool(
+                high_change is not None and low_change is not None
+                and extreme_high >= extreme_low > 0
+            )
+
     return {
         "price": last_raw,
         "adjusted_price": last_adj,
+        "adjusted_intraday_high": extreme_high if intraday_extremes_verified else None,
+        "adjusted_intraday_low": extreme_low if intraday_extremes_verified else None,
+        "intraday_high_vs_prior_adjusted_close_pct": high_change if intraday_extremes_verified else None,
+        "intraday_low_vs_prior_adjusted_close_pct": low_change if intraday_extremes_verified else None,
+        "intraday_extremes_verified": intraday_extremes_verified,
         "last_date": str(latest_idx.date()) if hasattr(latest_idx, "date") else str(latest_idx),
         "ret_1d_pct": adj_r1,
         "ret_5d_pct": pct(last_adj, float(adj.iloc[-6])) if len(adj) >= 6 else None,
