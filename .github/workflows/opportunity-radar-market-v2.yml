@@ -9,11 +9,11 @@ on:
       - scripts/opportunity_radar_market_recall_shadow.py
       - .github/workflows/opportunity-radar-market-v2.yml
   schedule:
-    # 21:02 UTC Mon-Fri = 04:02 Asia/Ho_Chi_Minh next day Tue-Sat.
-    # In US DST this is ~62m after regular close; in standard time it is ~2m after close.
-    # SPY preflight checks only a benchmark. The scanner independently verifies
-    # every symbol's latest completed session and enforces 80% universe coverage.
-    - cron: '2 21 * * 1-5'
+    # 22:45 UTC Mon-Fri = 05:45 Asia/Ho_Chi_Minh next day Tue-Sat.
+    # At least 105 min after standard-time NYSE close, ~165 min after DST close.
+    # Avoid winter's prior +2-minute scan that often hit upstream session staleness.
+    # SPY preflight is only a benchmark: verify every symbol and >=80% fresh coverage.
+    - cron: '45 22 * * 1-5'
 
 # Bootstrap trigger after the workflow exists on main.
 concurrency:
