@@ -80,3 +80,6 @@ Production readback: [PR #399](https://github.com/louisalviss/runner-3/pull/399)
 - Source of truth: `data/opportunity-radar/market-recall-shadow.json` has `intraday_daily_ohlc_extreme_moves` and `intraday_extremes_not_reaching_corresponding_close_threshold`; append-only evidence in `data/opportunity-radar/market-move-events.jsonl`.
 
 **Limit:** This solves missing *within-session completed-bar extremes* (ex post), NOT live market intraday alerting. Cannot recover securities outside the eligible/fresh universe, or moves from unsupported pre/after-hours data. No score/BUY rule promotion. Future work is prospective multi-session false-positive and catalyst/forward return review before deciding on expensive real-time quote coverage.
+
+
+**Confirmed symbol-level close-reverted gap** (2026-10-12 readback): 53 HIGH trigger observations + 11 LOW observations = 64 predicates on **63 distinct securities**, one security triggers both. **52/63 securities were absent from the actual 80 raw Signals**; the other 11 were detected for other baseline reasons. Of the 52 not emitted: **41** `BELOW_EARLY_VOLUME`, **8** `BELOW_BASELINE_DISCOVERY_RULE`, **3** `RANK_CAP_RAW`. These are disjoint classification counts for unique symbols; they do not imply economic catalysts, mispricing or tradeable opportunities.
