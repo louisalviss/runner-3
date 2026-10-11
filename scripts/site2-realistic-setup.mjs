@@ -15,6 +15,7 @@ if (!/^[a-z0-9-]+$/.test(fixturePluginSlug)) throw new Error('invalid FIXTURE_PL
 
 const expectedHost = new URL(target).host;
 const liveconfigUrl = `${target}/?rest_route=/wasmer/v1/liveconfig`;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function sanitize(value) {
   return String(value || '')
@@ -61,8 +62,6 @@ async function gotoAdminHref(page, locator) {
 }
 
 function fixtureRow(page) {
-  // Match the exact package basename through its plugin action links. This avoids
-  // ambiguity when an older partial upload has the same Plugin Name.
   return page.locator('tr').filter({
     has: page.locator(`a[href*="${fixturePluginSlug}"]`),
   });
@@ -133,6 +132,27 @@ async function ensureFixturePlugin(page) {
   return 'installed';
 }
 
+function parseFixtureSummary(message) {
+  const marker = 'RUNNER3_SETUP_DONE';
+  const idx = String(message || '').indexOf(marker);
+  if (idx < 0) throw new Error('fixture success marker missing');
+  const jsonText = String(message).slice(idx + marker.length).trim();
+  let summary;
+  try { summary = JSON.parse(jsonText); }
+  catch { throw new Error(`fixture summary JSON invalid: ${jsonText.slice(0, 500)}`); }
+  const required = {
+    theme: summary?.theme === 'astra',
+    woocommerce: Boolean(summary?.woocommerce),
+    media: Number(summary?.media) >= 6,
+    products: Number(summary?.products) >= 36,
+    posts: Number(summary?.posts) >= 12,
+    pages: Number(summary?.pages) >= 5,
+  };
+  const failed = Object.entries(required).filter(([, ok]) => !ok).map(([key]) => key);
+  if (failed.length) throw new Error(`fixture summary incomplete (${failed.join(',')}): ${JSON.stringify(summary)}`);
+  return summary;
+}
+
 async function runFixture(page) {
   await page.goto(`${target}/wp-admin/tools.php?page=runner3-site2-fixture`, {
     waitUntil: 'domcontentloaded',
@@ -144,12 +164,13 @@ async function runFixture(page) {
   await button.click({ timeout: 30_000 });
   await page.waitForLoadState('domcontentloaded', { timeout: 300_000 }).catch(() => {});
   await page.getByText('RUNNER3_SETUP_DONE').waitFor({ state: 'visible', timeout: 300_000 });
-  return (await page.getByText('RUNNER3_SETUP_DONE').locator('xpath=..').innerText()).slice(0, 3000);
+  const message = (await page.getByText('RUNNER3_SETUP_DONE').locator('xpath=..').innerText()).slice(0, 5000);
+  return { message, summary: parseFixtureSummary(message) };
 }
 
 async function verifyFrontend(page) {
   const checks = {};
-  for (const path of ['/', '/shop/', '/about/', '/contact/', '/faq/', '/field-note-1/']) {
+  for (const path of ['/', '/shop/', '/about/', '/contact/', '/faq/', '/field-note-1/', '/cart/', '/checkout/', '/my-account/']) {
     const response = await page.goto(`${target}${path}?__fixture_verify=${Date.now()}`, {
       waitUntil: 'domcontentloaded',
       timeout: 90_000,
@@ -172,6 +193,16 @@ async function verifyFrontend(page) {
   return checks;
 }
 
+async function readPostCleanupLiveconfig() {
+  let compact = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    compact = compactLiveconfig(await readLiveconfig());
+    if (!(compact.active_plugins || []).includes(fixturePluginSlug)) return { compact, attempts: attempt, stale: false };
+    if (attempt < 6) await sleep(3000);
+  }
+  return { compact, attempts: 6, stale: true };
+}
+
 const result = {
   target,
   fixture: 'astra-woo-v1',
@@ -182,10 +213,14 @@ const result = {
   after: null,
   plugin_action: null,
   fixture_message: null,
+  fixture_summary: null,
   frontend: null,
   fixture_helper_cleanup: null,
   fixture_helper_active_after_setup: null,
   fixture_helper_liveconfig_active_after_setup: null,
+  fixture_helper_liveconfig_stale_after_admin_cleanup: false,
+  liveconfig_cleanup_poll_attempts: 0,
+  optimization_plugins_active_after_setup: [],
 };
 
 let browser;
@@ -218,17 +253,29 @@ try {
   }
 
   result.plugin_action = await ensureFixturePlugin(page);
-  result.fixture_message = await runFixture(page);
+  const fixtureRun = await runFixture(page);
+  result.fixture_message = fixtureRun.message;
+  result.fixture_summary = fixtureRun.summary;
   result.fixture_helper_cleanup = await deactivateFixtureHelper(page);
   result.frontend = await verifyFrontend(page);
 
-  result.after = compactLiveconfig(await readLiveconfig());
+  const liveconfigAfterCleanup = await readPostCleanupLiveconfig();
+  result.after = liveconfigAfterCleanup.compact;
+  result.liveconfig_cleanup_poll_attempts = liveconfigAfterCleanup.attempts;
   const plugins = new Set(result.after.active_plugins || []);
   result.fixture_helper_active_after_setup = !result.fixture_helper_cleanup?.verified_inactive;
   result.fixture_helper_liveconfig_active_after_setup = plugins.has(fixturePluginSlug);
+  result.fixture_helper_liveconfig_stale_after_admin_cleanup = Boolean(
+    result.fixture_helper_cleanup?.verified_inactive && result.fixture_helper_liveconfig_active_after_setup
+  );
+  const optimizerPattern = /(litespeed|wp-super-cache|w3-total-cache|autoptimize|wp-optimize|wp-rocket|perfmatters|nitropack|sg-cachepress)/i;
+  result.optimization_plugins_active_after_setup = [...plugins].filter((name) => optimizerPattern.test(String(name)));
   if (result.after.active_theme !== 'astra') throw new Error(`expected active theme astra, got ${result.after.active_theme}`);
   if (!plugins.has('woocommerce')) throw new Error('WooCommerce is not active after fixture setup');
-  if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive before baseline');
+  if (result.fixture_helper_active_after_setup) throw new Error('fixture helper must be inactive in authoritative wp-admin state before baseline');
+  if (result.optimization_plugins_active_after_setup.length) {
+    throw new Error(`optimization/cache plugins active before baseline: ${result.optimization_plugins_active_after_setup.join(',')}`);
+  }
 
   result.status = 'ready';
   result.completed_at = new Date().toISOString();
