@@ -1,48 +1,58 @@
-name: Audio Library Current Raw Artifact PR
+name: WR 30m Hyperliquid HIP-3 Validation
 
 on:
   pull_request:
+    branches: [main]
     paths:
-      - 'ops/audio-library/triggers/current-raw-pr.txt'
       - '.github/workflows/audio-library-current-raw-artifact-pr.yml'
+      - 'research/wr_hyperliquid_30m_20260824/**'
 
 permissions:
   contents: read
 
+concurrency:
+  group: wr-hl30-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  extract:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install extraction dependencies
-        run: python -m pip install -q requests beautifulsoup4 lxml pypdf 'cryptography>=45,<47'
-      - name: Extract current public Reddit source
-        shell: bash
+      - name: Install dependencies
+        run: pip install -q pandas requests websocket-client dukascopy-python
+      - name: Fetch frozen WR 2.5.13 engine
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/audio-current-raw
+          mkdir -p /tmp/wr-helper
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_dukascopy_expanded_matrix.py' -o /tmp/wr-helper/wr_dukascopy_expanded_matrix.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/3f11639856334ecb1636d26f26ae61e5fa600c9a/wave-rider-verify/wr_tv_parity.py' -o /tmp/wr-helper/wr_tv_parity.py
+          curl -fsSL 'https://raw.githubusercontent.com/louisalviss/runner-3/8192984ad6a3e5f99b49020c79b5758ef2ac44a7/wave-rider-verify/reference_verify.py' -o /tmp/reference_verify.py
+      - name: Run Hyperliquid HIP-3 discovery, 30m replay, fee L2 and funding validation
+        env:
+          WR_OUT: /tmp/wr-hl30
+        run: python research/wr_hyperliquid_30m_20260824/run_validation.py
+      - name: Inspect final report
+        run: |
           python - <<'PY'
-          import json,sys
-          from pathlib import Path
-          sys.path.insert(0,'scripts')
-          import audio_library_extract_for_chatgpt as a
-          req=json.loads(Path('ops/audio-library/reddit-read-request.json').read_text(encoding='utf-8'))
-          url=str(req['url'])
-          title,text,label,canonical=a.extract_reddit(url)
-          out={'inputUrl':url,'title':title,'sourceLabel':label,'canonicalUrl':canonical,'rawText':text}
-          Path('/tmp/audio-current-raw/source.json').write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
-          print(json.dumps({'status':'ready','inputUrl':url,'title':title,'chars':len(text),'canonicalUrl':canonical},ensure_ascii=False))
+          import json
+          r=json.load(open('/tmp/wr-hl30/report.json'))
+          print(json.dumps({
+            'verdict':r['verdict'],
+            'overlap':r['live_exact_overlap_selected'],
+            'trades':r['trade_rows'],
+            'metrics':r['metrics'],
+            'breadth':r['symbol_breadth_fee_l2_1k'],
+            'l2_coverage':r['l2_trade_coverage_fraction']
+          },indent=2))
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: audio-current-raw
-          path: /tmp/audio-current-raw/source.json
-          retention-days: 1
+          name: wr-hyperliquid-30m-validation
+          path: /tmp/wr-hl30
+          retention-days: 30
           if-no-files-found: error
