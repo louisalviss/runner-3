@@ -18,7 +18,7 @@ DATA = ROOT / "data" / "opportunity-radar"
 SHADOW_PATH = DATA / "market-recall-shadow.json"
 HEALTH_PATH = DATA / "market-health.json"
 LEDGER_PATH = DATA / "market-move-events.jsonl"
-ALLOWED = frozenset({"1D_PUMP", "5D_PUMP", "1D_SHOCK", "5D_SHOCK"})
+ALLOWED = frozenset({"1D_PUMP", "5D_PUMP", "1D_SHOCK", "5D_SHOCK", "INTRADAY_HIGH_PUMP", "INTRADAY_LOW_SHOCK"})
 SCHEMA = "market-pricing-append-only-raw-move-event-v1"
 
 
@@ -57,17 +57,35 @@ def source_events(shadow: dict, health: dict, captured_at: str) -> list[dict]:
         if symbol in seen_symbols:
             raise ValueError("DUPLICATE_SOURCE_PRICE_EVENT")
         seen_symbols.add(symbol)
-        triggers = row.get("shadow_triggers") or []
-        if not isinstance(triggers, list) or len(triggers) != len(set(triggers)):
+        daily_triggers = row.get("shadow_triggers") or []
+        intraday_triggers = row.get("shadow_intraday_triggers") or []
+        if not isinstance(daily_triggers, list) or not isinstance(intraday_triggers, list):
+            raise ValueError("INVALID_PRICE_TRIGGER_FORMAT")
+        triggers = daily_triggers + intraday_triggers
+        if len(triggers) != len(set(triggers)):
             raise ValueError("INVALID_OR_DUPLICATE_PRICE_TRIGGER")
         if any(t not in ALLOWED for t in triggers):
             raise ValueError("UNKNOWN_PRICE_TRIGGER")
+        if intraday_triggers and row.get("intraday_extremes_verified") is not True:
+            raise ValueError("INTRADAY_OHLC_NOT_VERIFIED")
+        if any(t.startswith("INTRADAY_") for t in daily_triggers):
+            raise ValueError("MISCLASSIFIED_INTRADAY_TRIGGER")
+        if any(not t.startswith("INTRADAY_") for t in intraday_triggers):
+            raise ValueError("MISCLASSIFIED_CLOSE_TRIGGER")
         for trigger in triggers:
-            change = finite_or_none(row.get("ret_1d_pct") if trigger.startswith("1D_") else row.get("ret_5d_pct"))
-            if change is None or not (
-                (trigger.endswith("_PUMP") and change >= (7 if trigger.startswith("1D_") else 15))
-                or (trigger.endswith("_SHOCK") and change <= (-7 if trigger.startswith("1D_") else -15))
-            ):
+            if trigger == "INTRADAY_HIGH_PUMP":
+                change = finite_or_none(row.get("intraday_high_vs_prior_adjusted_close_pct"))
+                valid = change is not None and change >= 7
+            elif trigger == "INTRADAY_LOW_SHOCK":
+                change = finite_or_none(row.get("intraday_low_vs_prior_adjusted_close_pct"))
+                valid = change is not None and change <= -7
+            else:
+                change = finite_or_none(row.get("ret_1d_pct") if trigger.startswith("1D_") else row.get("ret_5d_pct"))
+                valid = change is not None and (
+                    (trigger.endswith("_PUMP") and change >= (7 if trigger.startswith("1D_") else 15))
+                    or (trigger.endswith("_SHOCK") and change <= (-7 if trigger.startswith("1D_") else -15))
+                )
+            if not valid:
                 raise ValueError("PRICE_TRIGGER_INCONSISTENT_WITH_ADJUSTED_MOVE")
             event_id = f"{session}|{symbol}|{trigger}"
             if event_id in ids:
@@ -81,6 +99,13 @@ def source_events(shadow: dict, health: dict, captured_at: str) -> list[dict]:
                 "predicate": trigger,
                 "adjusted_return_1d_pct_first_seen": finite_or_none(row.get("ret_1d_pct")),
                 "adjusted_return_5d_pct_first_seen": finite_or_none(row.get("ret_5d_pct")),
+                "completed_daily_extreme_adjusted_return_pct_first_seen": (
+                    change if trigger.startswith("INTRADAY_") else None
+                ),
+                "intraday_basis": (
+                    "COMPLETED_DAILY_BAR_HIGH_LOW_NOT_REALTIME"
+                    if trigger.startswith("INTRADAY_") else None
+                ),
                 "volume_ratio_first_seen": finite_or_none(row.get("volume_ratio")),
                 "baseline_emitted": row.get("baseline_emitted") is True,
                 "baseline_exclusion_reason": row.get("baseline_explanation"),

@@ -86,6 +86,34 @@ class ShadowAuditTests(unittest.TestCase):
         self.assertEqual(result["records"][0]["baseline_explanation"], "CORPORATE_ACTION_SUPPRESSED")
         self.assertEqual(result["records"][0]["shadow_selection"], "NOT_SELECTED")
 
+    def test_intraday_extremes_with_flat_close_do_not_change_production_group(self):
+        r = rec("REVERSAL", 1.0, 2.0, 0.9)
+        r.update({
+            "intraday_extremes_verified": True,
+            "intraday_high_vs_prior_adjusted_close_pct": 12.5,
+            "intraday_low_vs_prior_adjusted_close_pct": -9.8,
+        })
+        result = m.audit(*fixture([r]))
+        row = result["records"][0]
+        self.assertEqual(row["shadow_triggers"], [])
+        self.assertEqual(row["shadow_intraday_triggers"], ["INTRADAY_HIGH_PUMP", "INTRADAY_LOW_SHOCK"])
+        self.assertEqual(row["shadow_group"], None)
+        self.assertEqual(result["counts"]["intraday_daily_ohlc_extreme_moves"],
+                         {"INTRADAY_HIGH_PUMP":1, "INTRADAY_LOW_SHOCK":1})
+        self.assertEqual(result["counts"]["intraday_extremes_not_reaching_corresponding_close_threshold"],
+                         {"INTRADAY_HIGH_PUMP":1, "INTRADAY_LOW_SHOCK":1})
+
+    def test_intraday_corporate_action_and_unverified_ohlc_ignored(self):
+        x = rec("SPLIT", 0.0, 0.0, 2.0, corp=True)
+        y = rec("UNVERIFIED", 0.0, 0.0, 2.0)
+        for r in (x, y):
+            r["intraday_high_vs_prior_adjusted_close_pct"]=45.0
+            r["intraday_low_vs_prior_adjusted_close_pct"]=-33.0
+        x["intraday_extremes_verified"]=True
+        result = m.audit(*fixture([x,y]))
+        self.assertEqual(result["counts"]["intraday_daily_ohlc_extreme_moves"], {})
+        self.assertEqual(result["counts"]["intraday_adjusted_ohlc_coverage"],1)
+
     def test_reverse_5d_pump_caught_even_when_last_day_flat(self):
         rows = [rec("PCRX", -0.20, 44.0, 2.38)]
         result = m.audit(*fixture(rows))

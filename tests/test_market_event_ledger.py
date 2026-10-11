@@ -41,6 +41,41 @@ class MoveLedgerTests(unittest.TestCase):
         self.assertFalse(events[0]["baseline_emitted"])
         self.assertEqual(events[-1]["state"],"RAW_MOVE_ONLY_NOT_TRADE")
 
+    def test_completed_daily_intraday_high_low_logged_without_close_signal(self):
+        shadow, health = packet()
+        # Quiet at the close, but intraday extremes exceeded both thresholds.
+        row = shadow["records"][2]
+        row.update({
+            "intraday_extremes_verified": True,
+            "intraday_high_vs_prior_adjusted_close_pct": 11.2,
+            "intraday_low_vs_prior_adjusted_close_pct": -9.1,
+            "shadow_intraday_triggers": ["INTRADAY_HIGH_PUMP", "INTRADAY_LOW_SHOCK"],
+        })
+        events = m.source_events(shadow, health, "2026-10-12T04:00:00Z")
+        by = {e["event_id"]:e for e in events}
+        self.assertEqual(len(events), 6)
+        high = by["2026-10-09|QUIET|INTRADAY_HIGH_PUMP"]
+        low = by["2026-10-09|QUIET|INTRADAY_LOW_SHOCK"]
+        self.assertEqual(high["completed_daily_extreme_adjusted_return_pct_first_seen"], 11.2)
+        self.assertEqual(low["completed_daily_extreme_adjusted_return_pct_first_seen"], -9.1)
+        self.assertEqual(high["intraday_basis"], "COMPLETED_DAILY_BAR_HIGH_LOW_NOT_REALTIME")
+        self.assertFalse(high["baseline_emitted"])
+
+    def test_unverified_or_tampered_intraday_event_fails_closed(self):
+        shadow, health = packet()
+        row = shadow["records"][2]
+        row.update({
+            "intraday_extremes_verified": False,
+            "intraday_high_vs_prior_adjusted_close_pct": 11.2,
+            "shadow_intraday_triggers": ["INTRADAY_HIGH_PUMP"],
+        })
+        with self.assertRaisesRegex(ValueError, "INTRADAY_OHLC_NOT_VERIFIED"):
+            m.source_events(shadow, health, "now")
+        row["intraday_extremes_verified"] = True
+        row["intraday_high_vs_prior_adjusted_close_pct"] = 3.0
+        with self.assertRaisesRegex(ValueError, "PRICE_TRIGGER_INCONSISTENT"):
+            m.source_events(shadow, health, "now")
+
     def test_idempotent_append_same_session_and_preserve_first_seen(self):
         a,h=packet();e=m.source_events(a,h,"2026-10-11T23:00:00+00:00")
         first,c=m.append_unseen("",e)
