@@ -116,12 +116,18 @@ jobs:
           name: opportunity-radar-market-v2
           path: data/opportunity-radar
 
+      - name: Append verified Shock/Pump price events (outside capped Signals)
+        run: python scripts/opportunity_radar_market_event_ledger.py
+
       - name: Commit current market packet
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json data/opportunity-radar/market-prefilter.json data/opportunity-radar/market-recall-shadow.json
+          if test -f data/opportunity-radar/market-move-events.jsonl; then
+            git add data/opportunity-radar/market-move-events.jsonl
+          fi
           if git diff --cached --quiet; then
             echo 'No market output changes.'
             exit 0
