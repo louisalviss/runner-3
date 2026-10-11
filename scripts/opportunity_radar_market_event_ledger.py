@@ -46,6 +46,7 @@ def source_events(shadow: dict, health: dict, captured_at: str) -> list[dict]:
         raise ValueError("SHADOW_PREFILTER_COUNT_MISMATCH")
 
     ids: set[str] = set()
+    seen_symbols: set[str] = set()
     out: list[dict] = []
     for row in records:
         if row.get("source_session_date") != session:
@@ -53,6 +54,9 @@ def source_events(shadow: dict, health: dict, captured_at: str) -> list[dict]:
         symbol = str(row.get("symbol") or "")
         if not symbol or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-" for c in symbol):
             raise ValueError("INVALID_SYMBOL")
+        if symbol in seen_symbols:
+            raise ValueError("DUPLICATE_SOURCE_PRICE_EVENT")
+        seen_symbols.add(symbol)
         triggers = row.get("shadow_triggers") or []
         if not isinstance(triggers, list) or len(triggers) != len(set(triggers)):
             raise ValueError("INVALID_OR_DUPLICATE_PRICE_TRIGGER")
