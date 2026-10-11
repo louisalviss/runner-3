@@ -63,6 +63,45 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         self.assertEqual(scanner.price_metrics(fresh["AAPL"])["last_date"], "2026-10-08")
         self.assertEqual(len(fresh["AAPL"]), 2)
 
+    def test_adjusted_completed_bar_extremes_detect_reverted_moves(self):
+        idx = pd.to_datetime(["2026-10-08", "2026-10-09"])
+        df = pd.DataFrame({
+            "Close": [100., 100.],
+            "Adj Close": [98., 100.],
+            "High": [101., 108.],
+            "Low": [99., 90.],
+            "Volume": [1000., 2000.],
+        }, index=idx)
+        m = scanner.price_metrics(df)
+        self.assertTrue(m["intraday_extremes_verified"])
+        self.assertAlmostEqual(m["intraday_high_vs_prior_adjusted_close_pct"], 100*(108/98-1))
+        self.assertAlmostEqual(m["intraday_low_vs_prior_adjusted_close_pct"], 100*(90/98-1))
+        self.assertLess(abs(m["ret_1d_pct"]), 7)
+        self.assertFalse(m["corporate_action_suspected"])
+
+    def test_adjusted_ohlc_missing_fails_closed_without_fabricating_spikes(self):
+        idx = pd.to_datetime(["2026-10-08", "2026-10-09"])
+        data = {"Close": [100., 100.], "High": [101., 120.],
+                "Low": [99., 80.], "Volume": [1000., 2000.]}
+        raw = scanner.price_metrics(pd.DataFrame(data, index=idx))
+        self.assertFalse(raw["intraday_extremes_verified"])
+        self.assertIsNone(raw["intraday_high_vs_prior_adjusted_close_pct"])
+        data["Adj Close"] = [100., 100.]
+        data["High"] = [101., 98.]  # impossible high below 100 close
+        invalid = scanner.price_metrics(pd.DataFrame(data, index=idx))
+        self.assertFalse(invalid["intraday_extremes_verified"])
+
+    def test_split_dividend_discontinuity_suppresses_daily_extremes(self):
+        idx = pd.to_datetime(["2026-10-08", "2026-10-09"])
+        df = pd.DataFrame({
+            "Close": [100., 90.], "Adj Close": [100., 100.],
+            "High": [101., 115.], "Low": [99., 85.],
+            "Volume": [1000., 2000.]
+        }, index=idx)
+        m = scanner.price_metrics(df)
+        self.assertTrue(m["corporate_action_suspected"])
+        self.assertFalse(m["intraday_extremes_verified"])
+
     def test_freshness_retry_recovers_actual_completed_session_only(self):
         eligible = ["T", "OTHER", "STILL_STALE"]
         history = {symbol: frame("2026-10-08") for symbol in eligible}
