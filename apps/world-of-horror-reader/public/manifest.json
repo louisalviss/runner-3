@@ -1,23 +1,43 @@
 {
-  "name": "World of Horror Reader",
-  "version": "live-r2-beta-1",
+  "release": "V4",
+  "type": "illustrated prose novel",
+  "volume_count": 2,
+  "source": "Dropbox canonical World of Horror Extended Novel V01/V02",
+  "illustrations_are": "single inline figures between full prose; not comic panels",
   "volumes": [
     {
-      "volume": 1,
-      "source_words": 6909,
-      "paragraphs": 249,
-      "images": 5,
-      "bytes": 54319
+      "vol": 1,
+      "paragraphs": 267,
+      "illustrations": 7,
+      "words": 8429,
+      "original_words": 6909,
+      "images": [
+        "official-shiokawa.webp",
+        "town.webp",
+        "hospital.webp",
+        "school.webp",
+        "kouji.webp",
+        "ramen.webp",
+        "meeting.webp"
+      ],
+      "file_bytes": 68195
     },
     {
-      "volume": 2,
-      "source_words": 6976,
-      "paragraphs": 304,
-      "images": 5,
-      "bytes": 56049
+      "vol": 2,
+      "paragraphs": 314,
+      "illustrations": 6,
+      "words": 7919,
+      "original_words": 6976,
+      "images": [
+        "original-school-hall.webp",
+        "stairs-five.webp",
+        "scissor-woman.webp",
+        "scissor-tools.webp",
+        "kouji-camera.webp",
+        "original-shiokawa-dawn.webp"
+      ],
+      "file_bytes": 66616
     }
   ],
-  "storage": "Cloudflare R2",
-  "progress_storage": "localStorage (per browser)",
-  "note": "Prose is canonical Dropbox; original source images used initially; add AI scenes after V4 asset stage recovered."
+  "self_contained": true
 }
