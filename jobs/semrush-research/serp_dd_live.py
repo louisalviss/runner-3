@@ -100,6 +100,8 @@ def gate(serps):
     avg_tool=sum(x['exact_tool_top10'] for x in serps)/len(serps)
     avg_info=sum(x['article_top10'] for x in serps)/len(serps)
     avg_unknown=sum(x['unknown_top10'] for x in serps)/len(serps)
+    if len(serps)>1 and any(x['article_top10']>=6 for x in serps) and any(x['exact_tool_top10']>=5 for x in serps):
+        return 'WATCH_MIXED_INTENT_SERP'
     if avg_tool>=7:return 'DROP_SERP_SATURATED'
     if avg_tool>=5:return 'WATCH_COMPETITION'
     if avg_info>=5:return 'WATCH_INFORMATIONAL_SERP'
