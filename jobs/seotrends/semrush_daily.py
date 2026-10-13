@@ -12,7 +12,11 @@ BASE = pathlib.Path('/var/lib/seotrends-public')
 SCANS = BASE / 'scans'
 EXPORTER_PY = '/opt/chatgpt-bridge/venv/bin/python'
 EXPORTER = '/opt/dhs-control/executors/semrush_dpa_export.py'
-GLOBAL_BLOCKERS = ('SEM_RUSH_SM2_APIKEY_MISSING', 'SEM_RUSH_NO_USABLE_SERVER', 'GUARDIAN_DENIED', 'PROFILE_LAUNCH_TIMEOUT')
+GLOBAL_BLOCKERS = (
+    'SEM_RUSH_SM2_APIKEY_MISSING', 'SEM_RUSH_NO_USABLE_SERVER', 'GUARDIAN_DENIED',
+    'PROFILE_LAUNCH_TIMEOUT', 'SEMRUSH_LIVE_AUTH_UNAVAILABLE',
+    'NOX_LOGIN_FORM_MISSING', 'NOX_LOGIN_CHALLENGE', 'SEMRUSH_HUMAN_HANDOFF_ACTIVE',
+)
 
 
 def now_iso() -> str:
@@ -249,7 +253,7 @@ def main() -> int:
             lines.append(f'- **{d}** — {st} — {r.get("reason", "-")}')
     md_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(json.dumps({k: payload[k] for k in ('date','status','queue_count','pass_count','fail_count','not_run_count','global_blocker')}, ensure_ascii=False))
-    return 0
+    return 0 if status in ('PASS','PASS_EMPTY') else 3
 
 
 if __name__ == '__main__':

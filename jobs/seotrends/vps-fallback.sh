@@ -12,12 +12,30 @@ log(){ printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 run_semrush(){
   log "Consuming SeoTrends Semrush queue for $DAY"
-  timeout 20m python3 "$BASE/scripts/semrush_daily.py" --date "$DAY" || log 'Semrush current batch returned non-zero'
+  timeout 20m python3 "$BASE/scripts/semrush_daily.py" --date "$DAY" || log 'Semrush current batch nonterminal; inspect result JSON'
 }
 run_terminal(){
   log "Running exact SERP terminal gate for $DAY"
   timeout 25m python3 "$BASE/scripts/terminal_funnel.py" --date "$DAY" || log 'Terminal gate returned degraded/non-zero'
 }
+is_auth_blocked(){
+  python3 - "$BASE/scans/$DAY-semrush-results.json" <<'PY'
+import json,sys
+try: j=json.load(open(sys.argv[1],encoding='utf-8'))
+except Exception: j={}
+why=str(j.get('global_blocker') or '')
+print('yes' if j.get('status')=='BLOCKED' and any(x in why for x in ('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_LOGIN_FORM_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE')) else 'no')
+PY
+}
+terminal_status(){
+  python3 - "$BASE/scans/$DAY-terminal-verdicts.json" <<'PY'
+import json,sys
+try: j=json.load(open(sys.argv[1],encoding='utf-8'))
+except Exception: j={}
+print(j.get('status','MISSING'))
+PY
+}
+
 already_done(){
   python3 - "$STATE" "$BASE/scans/$DAY-terminal-verdicts.json" "$DAY" <<'PY'
 import json,sys
@@ -41,13 +59,23 @@ python3 "$BASE/scripts/refresh.py"
 python3 "$BASE/scripts/daily_scan.py" --workers 16 --timeout 5
 run_semrush
 run_terminal
-timeout 35m python3 "$BASE/scripts/repair_backlog.py" --days 14 --exclude-today || log 'Backlog repair returned non-zero'
-timeout 10m python3 "$BASE/scripts/backfill_sync.py" || log 'Backfill Telegram sync returned non-zero'
+if [[ "$(is_auth_blocked)" == yes ]]; then
+  log "Semrush authentication unavailable; skipping repeated historical broker calls"
+else
+  timeout 35m python3 "$BASE/scripts/repair_backlog.py" --days 14 --exclude-today || log 'Backlog repair returned non-zero'
+  timeout 10m python3 "$BASE/scripts/backfill_sync.py" || log 'Backfill Telegram sync returned non-zero'
+fi
 timeout 10m /usr/local/sbin/seotrends-telegram-sync || log 'Telegram sync returned non-zero'
-python3 - "$STATE" "$DAY" <<'PY'
+STATUS=$(terminal_status)
+python3 - "$STATE" "$DAY" "$STATUS" <<'PY'
 import json,sys,os
-p,day=sys.argv[1:]; t=p+'.tmp'
-open(t,'w').write(json.dumps({'date':day,'source':'vps-primary'},indent=2)+'\n')
+p,day,status=sys.argv[1:]; t=p+'.tmp'
+with open(t,'w') as f:
+ json.dump({'date':day,'source':'vps-primary','terminal_status':status},f,indent=2)
 os.replace(t,p)
 PY
-log "VPS canonical SeoTrends batch finished for $DAY"
+log "VPS canonical SeoTrends batch finished for $DAY: terminal=$STATUS"
+if [[ "$STATUS" != PASS ]]; then
+  log "BLOCKED/DEGRADED is not systemd SUCCESS; daily public data and status were saved"
+  exit 3
+fi
