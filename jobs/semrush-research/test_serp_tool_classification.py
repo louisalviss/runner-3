@@ -1,7 +1,8 @@
 import sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from serp_dd_live import url_kind,classify_serp,gate
+sys.path.insert(0,str(Path(__file__).resolve().parents[1] / 'seotrends'))
+from serp_intent_shadow import url_kind,classify_serp,gate
 
 def make(keyword,urls):
     return classify_serp(keyword,[{'position':i+1,'url':url,'domain':url.split('/')[2],'kind':None,'features':[]} for i,url in enumerate(urls)])
