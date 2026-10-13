@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Offline gate/regression tests for the daily merger: no browser or API calls."""
+import importlib.util, json, pathlib, tempfile, unittest
+SCRIPT=str(pathlib.Path(__file__).resolve().parent/"opportunity_daily.py")
+spec=importlib.util.spec_from_file_location("opportunity_daily",SCRIPT)
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+def save(path,data):path.write_text(json.dumps(data));return path
+class DailyGates(unittest.TestCase):
+ def setUp(self):
+  self.tmp=tempfile.TemporaryDirectory();self.d=pathlib.Path(self.tmp.name)
+  self.oldids=[str(x) for x in range(10000000,10000500)]
+  self.newids=self.oldids[1:]+["14451431"]
+  self.cards={"14451431":{"id":"14451431","heading":"Small app","pt":"SaaS","p":9000,"pr":650,"vet":1,"title":"organic utility","raw_text":"organic calculator","href":"https://flippa.com/14451431"}}
+  self.old={"first_done":True,"recent_done":True,"first_ids":["1"],"recent_ids":self.oldids,"pages":[{"status":200,"challenge":"NONE"}]*7}
+  self.cur={"first_done":True,"recent_done":True,"first_ids":["1","2"],"recent_ids":self.newids,"recent_rows":self.cards,"pages":[{"status":200,"challenge":"NONE"}]*7}
+  self.oldfile=save(self.d/"old.json",self.old)
+  self.curfile=save(self.d/"current.json",self.cur)
+ def tearDown(self):self.tmp.cleanup()
+ def test_delta_and_no_sold_claim(self):
+  r=m.read_flippa(self.curfile,self.oldfile)
+  self.assertEqual(r["status"],"PASS")
+  self.assertEqual(r["stats"]["entered_recent_window"],1)
+  self.assertEqual(r["stats"]["exited_recent_window"],1)
+  self.assertEqual(r["new"][0]["verdict"],"WATCH_RESEARCH")
+ def test_no_prior_not_all_new(self):
+  r=m.read_flippa(self.curfile)
+  self.assertEqual(r["stats"]["entered_recent_window"],0)
+  self.assertEqual(r["new"],[])
+ def test_challenge_fails_closed(self):
+  self.cur["pages"][-1]["challenge"]="TURNSTILE";save(self.curfile,self.cur)
+  self.assertEqual(m.read_flippa(self.curfile,self.oldfile)["status"],"BLOCKED_SOURCE")
+ def test_out_of_budget_reserve(self):
+  deep=save(self.d/"deep.json",[{"id":"14451431","status":200,"challenge":"NONE","reserve":"15,000","subs":"80","churn":"0%"}])
+  x=m.read_flippa(self.curfile,self.oldfile,deep)["new"][0]
+  self.assertEqual(x["verdict"],"DROP_BUY_CAP")
+ def test_small_n_not_buy(self):
+  deep=save(self.d/"deep.json",[{"id":"14451431","status":200,"challenge":"NONE","reserve":"6,500","subs":"4","churn":"0%"}])
+  x=m.read_flippa(self.curfile,self.oldfile,deep)["new"][0]
+  self.assertEqual(x["verdict"],"WATCH_SMALL_N")
+ def test_churn_not_buy(self):
+  deep=save(self.d/"deep.json",[{"id":"14451431","status":200,"challenge":"NONE","reserve":"6,500","subs":"120","churn":"35%"}])
+  x=m.read_flippa(self.curfile,self.oldfile,deep)["new"][0]
+  self.assertEqual(x["verdict"],"WATCH_CHURN")
+ def test_social_channel_not_buy(self):
+  self.cards["14451431"]["pt"]="YouTube Channel";save(self.curfile,self.cur)
+  self.assertEqual(m.read_flippa(self.curfile,self.oldfile)["new"],[])
+ def test_semrush_error_no_zero_demand(self):
+  self.assertTrue(m.auth_blocked({"reason":"BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE"}))
+  self.assertFalse(m.auth_blocked({"reason":"DPA:-32098 Limits exceeded"}))
+ def test_normalizer(self):
+  self.assertEqual(m.normalize_domain("https://www.Example.com/a"),"example.com")
+ def test_report_has_safety(self):
+  d={"date_vn":"2026-10-13","overall":"PARTIAL_BLOCKED","seo":{"scanned":206,"added":206,"items":[],"provider_status":"FAIL","terminal_status":"BLOCKED"},"flippa":{"stats":{"first_access":130,"recent":500,"entered_recent_window":23}},"research_queue":[]}
+  self.assertIn("automated purchases/bids: 0",m.format_report(d))
+if __name__=="__main__":unittest.main(verbosity=2)
