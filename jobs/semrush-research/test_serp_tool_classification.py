@@ -46,6 +46,6 @@ class SerpToolV3Tests(unittest.TestCase):
               'https://i.com/blog/top-ai-tools','https://j.com/generator']
         x=make('ai review generator',urls)
         self.assertEqual(x['exact_tool_top10'],5)
-        self.assertEqual(x['article_top10'],4)
+        self.assertEqual(x['article_top10'],5)
         self.assertEqual(gate([x]),'WATCH_COMPETITION')
 if __name__=='__main__':unittest.main()
