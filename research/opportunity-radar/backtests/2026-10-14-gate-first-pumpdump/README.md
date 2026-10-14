@@ -7,3 +7,7 @@ https://docs.google.com/spreadsheets/d/1a8Sc3oJjb9D8IQHbk8jNtenzdwrW0CQApjv25wmT
 ## As-of research extension
 
 See [GATE_FIRST_TRIAGE_REPORT.md](GATE_FIRST_TRIAGE_REPORT.md), research_triage_326.csv, verified_primary_cases.csv, nextopen_price_only_326.json and evidence snapshots. These are non-trading research checkpoints; nothing has been promoted to a production Gate decision.
+
+## SEC as-of fundamental extension
+
+See [ASOF_SEC_FUNDAMENTALS_REPORT.md](ASOF_SEC_FUNDAMENTALS_REPORT.md), asof_fundamental_priority_queue_326.csv, and asof_financial_fields_326.json for historical SEC-accepted PIT data and exploratory next-open outcomes. No Gate was promoted or trade created.
