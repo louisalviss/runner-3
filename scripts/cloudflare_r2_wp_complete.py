@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import cloudflare_r2_native_batch as batch
-from cloudflare_r2_native_canary import GateError, source_list, source_properties
+from cloudflare_r2_native_canary import GateError, source_list, source_properties, verify_properties
 from cloudflare_r2_native_large import stream_source, verify_s3_read_only
 from cloudflare_r2_wp_autopilot import verify_existing_read_only
 
@@ -59,6 +59,27 @@ def manifest_signature(items):
             )
         })
     return result
+
+
+def preflight_existing_metadata(client, source, target):
+    """Fail BEFORE any PUT if known existing target metadata already differs.
+
+    This is only a HEAD-based metadata preflight, not SHA payload parity.
+    Final source/target GET SHA verification remains mandatory.
+    """
+    existing, _ = batch.preflight(source, target)
+    verified = 0
+    for obj in existing:
+        expected = source_properties(obj)
+        try:
+            head = client.head_object(Bucket=BUCKET, Key=obj["key"])
+        except Exception:
+            raise GateError("WP_PREFLIGHT_TARGET_HEAD_FAILED") from None
+        if head.get("ContentLength") != obj["size"]:
+            raise GateError("WP_PREFLIGHT_TARGET_SIZE_DRIFT")
+        verify_properties(expected, head)
+        verified += 1
+    return verified
 
 
 def verify_full_snapshot(client, token, start, state):
@@ -127,6 +148,11 @@ def main_run():
             raise GateError("SOURCE_CREDENTIAL_NOT_READY")
         source, _ = bounded_source(token)
         client = batch.target_s3()
+        initial_target = batch.target_list(client)
+        state["preflight_existing_metadata_count"] = preflight_existing_metadata(
+            client, source, initial_target
+        )
+        save(state)
         for _ in range(MAX_OPERATIONS):
             if time.monotonic() - start >= MAX_SECONDS:
                 raise GateError("WP_COMPLETE_WALLCLOCK_BUDGET")
