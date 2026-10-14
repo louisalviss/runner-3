@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily SEO and Flippa source-owned opportunity handoff
+Wants=network-online.target
+After=network-online.target seotrends-public-refresh.service
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/lib/acquisition-radar-scan
+ExecStartPre=-/usr/local/bin/acquisition-radar-sync-pending
+ExecStart=/usr/bin/python3 /var/lib/acquisition-radar-scan/opportunity_daily.py --run-flippa
+ExecStartPost=/usr/bin/python3 /var/lib/acquisition-radar-scan/daily_acceptance.py
+TimeoutStartSec=25min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
