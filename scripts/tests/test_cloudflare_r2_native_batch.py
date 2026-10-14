@@ -67,3 +67,45 @@ class LoopClient:
 try: m.target_list(LoopClient());assert False
 except m.GateError as err:assert str(err)=="TARGET_CURSOR_INVALID"
 print("PASS target-cursor-loop-abort")
+
+
+# Native source reader is capped at 20 MB. Medium mode must be one
+# object per operation, and must never select >20MB or missing metadata.
+medium, stats = m.medium_plan([
+    ob("small", 123),
+    ob("medium", 15_000_000, custom_metadata={"flow": "safe"}),
+    ob("oversize", m.MAX_NATIVE_SOURCE_BYTES + 1),
+    ob("unicode", 11_000_000, custom_metadata={"unencodable": "π"}),
+])
+assert [x["key"] for x in medium] == ["medium"]
+assert stats["medium_native_eligible_count"] == 1
+assert stats["over_native_source_limit_count"] == 1
+assert stats["medium_metadata_unsupported_count"] == 1
+print("PASS medium-native-size-and-metadata-gates")
+
+medium_client = FakeClient()
+medium_source = [ob("medium", 15_000_000)]
+with patch.dict(os.environ, env, clear=True), patch.object(m, "target_s3", return_value=medium_client), \
+     patch.object(m, "source_list", return_value=medium_source), \
+     patch.object(m, "copy_one", side_effect=mock_copy):
+    aud = m.run("audit")
+    assert aud["medium_native_eligible_count"] == 1
+    assert aud["planned_count"] == 0
+    result = m.run("medium-one")
+    assert result["result"] == "BOUNDED_MEDIUM_VERIFIED"
+    assert result["uploaded_count"] == 1 and result["verified_bytes"] == 15_000_000
+    assert result["full_bucket_parity_verified"] is False
+    assert result["source_deleted"] is False and result["overwritten"] is False
+print("PASS medium-one uses signed verified copier without cutover")
+
+# An >20 MB object cannot be copied through this legacy in-memory API.
+oversize_client = FakeClient()
+with patch.dict(os.environ, env, clear=True), patch.object(m, "target_s3", return_value=oversize_client), \
+     patch.object(m, "source_list", return_value=[ob("oversize", m.MAX_NATIVE_SOURCE_BYTES + 1)]), \
+     patch.object(m, "copy_one", side_effect=AssertionError("SHOULD_NOT_COPY")):
+    a = m.run("audit")
+    assert a["over_native_source_limit_count"] == 1
+    b = m.run("medium-one")
+    assert b["result"] == "NO_ELIGIBLE_BATCH_OBJECTS"
+    assert not oversize_client.keys
+print("PASS over-20MB requires separate approved streaming route")
