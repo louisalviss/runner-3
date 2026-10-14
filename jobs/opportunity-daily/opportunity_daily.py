@@ -59,6 +59,11 @@ def run_flippa(day):
         raise RuntimeError("FLIPPA_SCAN_FAILED: see source run log")
     return state
 
+def resolve_deep(day, specified=None):
+    if specified: return specified
+    candidate = ROOT / ("flippa-deep-" + day.replace("-","") + ".json")
+    return str(candidate) if candidate.is_file() else None
+
 def auth_blocked(item):
     s = str(item.get("reason", "")).upper()
     return any(x in s for x in ["AUTH_UNAVAILABLE", "NOX_LOGIN_CHALLENGE", "KEYWORD_UNIVERSE_FAILED", "BLOCKED_AUTH"])
@@ -217,7 +222,7 @@ def main(argv=None):
             scan_error = type(exc).__name__ + ": " + str(exc)[:180]
             current = default_current
     prev = pathlib.Path(args.previous_state) if args.previous_state else next(iter(existing_flippa_states(current)),None)
-    value = build(args.date,current,prev,args.deep)
+    value = build(args.date,current,prev,resolve_deep(args.date,args.deep))
     if scan_error:
         value["flippa"]["source_error"] = scan_error
         value["overall"] = "PARTIAL_BLOCKED"
