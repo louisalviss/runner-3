@@ -57,12 +57,17 @@ def inspect(day,flippa,deep_path=None,output_root=ROOT,max_domains=2,exporter=No
         if len(selected)>=max_domains:break
     directory=root/('flippa-sem-'+day.replace('-',''))
     directory.mkdir(parents=True,exist_ok=True)
+    previous_path=root/('flippa-semDD-'+day.replace('-','')+'.json')
+    try:
+        old_items=json.loads(previous_path.read_text(encoding='utf8')).get('items') or []
+    except (ValueError,OSError):old_items=[]
+    prior={str(x.get('domain') or ''):x for x in old_items if isinstance(x,dict)}
     results=[];blocked=False
     for row,domain in selected:
         out=directory/(domain+'.json')
         item={'id':row['id'],'listing_identity':row['identity'],'domain':domain,'provider':'Semrush','db':'us'}
         if valid_cached(out,domain):
-            item.update({'status':'PASS','source':'cached-existing-export','metrics':summary_metrics(out)})
+            item.update({'status':'PASS','source':(prior.get(domain) or {}).get('source') or 'cached-existing-export','metrics':summary_metrics(out)})
         elif blocked:
             item.update({'status':'NOT_RUN','reason':'UPSTREAM_BLOCKED'})
         else:
