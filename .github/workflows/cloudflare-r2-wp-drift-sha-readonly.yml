@@ -1,0 +1,39 @@
+name: Cloudflare WP Drift SHA Read-only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-target-r2-native-canary
+  cancel-in-progress: false
+
+jobs:
+  targeted-sha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_TARGET_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_TARGET_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install read-only S3 client
+        run: python3 -m pip install --quiet boto3
+      - name: Offline security and targeted SHA tests
+        run: |
+          python3 -m py_compile scripts/cloudflare_r2_wp_targeted_sha.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_targeted_sha.py
+      - name: Compare only exact SHA-keyed drift object, read-only
+        run: python3 scripts/cloudflare_r2_wp_targeted_sha.py
+      - name: Preserve sanitized SHA and missing-size receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-wp-targeted-sha-readonly
+          path: migration-out/wp-targeted-sha.json
+          if-no-files-found: warn
+          retention-days: 7
