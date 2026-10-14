@@ -20,6 +20,9 @@ from cloudflare_r2_native_canary import (
     SOURCE_ACCOUNT, TARGET_ACCOUNT, GateError, source_list, source_properties,
     copy_one, MAX_BYTES as MAX_NATIVE_SOURCE_BYTES,
 )
+from cloudflare_r2_native_large import (
+    copy_one_large, MAX_BYTES as MAX_STREAM_SOURCE_BYTES,
+)
 
 BUCKET = "runner3-wp-media"
 MAX_BATCH_OBJECTS = 5
@@ -157,8 +160,34 @@ def medium_plan(missing):
     })
 
 
+def large_plan(missing):
+    """One >20 MB to <=256 MB object, source bytes streamed to a temporary file."""
+    large = []
+    above_stream = 0
+    unsupported = 0
+    for obj in missing:
+        if obj["size"] <= MAX_NATIVE_SOURCE_BYTES:
+            continue
+        if obj["size"] > MAX_STREAM_SOURCE_BYTES:
+            above_stream += 1
+            continue
+        try:
+            source_properties(obj)
+        except GateError:
+            unsupported += 1
+            continue
+        large.append(obj)
+    large.sort(key=lambda x: (x["size"], x["key"]))
+    return large[:1], {
+        "large_stream_eligible_count": len(large),
+        "large_stream_eligible_bytes": sum(x["size"] for x in large),
+        "over_stream_limit_count": above_stream,
+        "large_metadata_unsupported_count": unsupported,
+    }
+
+
 def run(mode):
-    if mode not in ("audit", "batch", "medium-one"):
+    if mode not in ("audit", "batch", "medium-one", "large-one"):
         raise GateError("MODE_NOT_ALLOWED")
     source_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
     if not source_token or os.environ.get("CLOUDFLARE_ACCOUNT_ID") != SOURCE_ACCOUNT:
@@ -169,10 +198,11 @@ def run(mode):
     existing, missing = preflight(src, target)
     planned, details = plan_batch(missing)
     medium, medium_info = medium_plan(missing)
-    if mode == "medium-one":
-        planned = medium
-        details["planned_count"] = len(medium)
-        details["planned_bytes"] = sum(x["size"] for x in medium)
+    large, large_info = large_plan(missing)
+    if mode in ("medium-one", "large-one"):
+        planned = medium if mode == "medium-one" else large
+        details["planned_count"] = len(planned)
+        details["planned_bytes"] = sum(x["size"] for x in planned)
     receipt = {
         "status": "PASS", "mode": mode, "bucket": BUCKET,
         "source_inventory_count": len(src), "target_inventory_count_before": len(target),
@@ -182,7 +212,7 @@ def run(mode):
         "cutover_ready": False, "full_bucket_parity_verified": False,
         "credential_values_exposed": False,
         "time_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
-        **details, **medium_info,
+        **details, **medium_info, **large_info,
     }
     if mode == "audit":
         receipt["result"] = "READ_ONLY_AUDIT"
@@ -194,14 +224,20 @@ def run(mode):
         return receipt
     verified = []
     for obj in planned:
-        verified.append(copy_one(client, source_token, BUCKET, obj))
+        if mode == "large-one":
+            verified.append(copy_one_large(client, source_token, obj))
+        else:
+            verified.append(copy_one(client, source_token, BUCKET, obj))
     # Independently re-list destination and ensure all touched keys exist.
     after = target_list(client)
     for obj in planned:
         if obj["key"] not in after or after[obj["key"]] != obj["size"]:
             raise GateError("TARGET_POST_BATCH_LIST_MISMATCH")
     receipt.update({
-        "result": "BOUNDED_MEDIUM_VERIFIED" if mode == "medium-one" else "BOUNDED_BATCH_VERIFIED",
+        "result": (
+            "BOUNDED_LARGE_VERIFIED" if mode == "large-one"
+            else ("BOUNDED_MEDIUM_VERIFIED" if mode == "medium-one" else "BOUNDED_BATCH_VERIFIED")
+        ),
         "verified_count": len(verified),
         "uploaded_count": sum(item["uploaded"] for item in verified),
         "already_present_verified_count": sum(not item["uploaded"] for item in verified),
@@ -216,7 +252,7 @@ def run(mode):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("audit", "batch", "medium-one"), required=True)
+    parser.add_argument("--mode", choices=("audit", "batch", "medium-one", "large-one"), required=True)
     args = parser.parse_args()
     try:
         receipt = run(args.mode)
