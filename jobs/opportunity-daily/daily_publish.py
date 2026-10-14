@@ -42,6 +42,20 @@ def render_current(value:dict,report:str)->str:
         '- Older reports remain separately archived. Recovery must preserve original daily source snapshots.',
         '',
     ]
+    # Keep all candidate decisions in CURRENT; earlier full reports remain in History.
+    candidates=(value.get('qualification') or {}).get('candidates') or []
+    if candidates:
+        prefix += ['## All scoped candidate decisions', '', '| Candidate | Source | BUY | BUILD | Decision |', '|---|---|---|---|---|']
+        for x in candidates:
+            title=str(x.get('title') or x.get('identity') or '')[:80].replace('|','/')
+            buy=str((x.get('buy') or {}).get('state') or '-')
+            build=str((x.get('build') or {}).get('state') or '-')
+            prefix.append('| '+title+' | '+str(x.get('source') or '-')+' | '+buy+' | '+build+' | '+str(x.get('category') or '-')+' |')
+        prefix += ['', '### Full source evidence and DD boundaries', '',
+                   '- Machine-readable candidate evidence: /var/lib/opportunity-daily/'+day+'-research-queue.json',
+                   '- Semantic business DD (if present): '+str((value.get('qualification') or {}).get('source_semantic_path') or 'NOT_RUN'),
+                   '- Historical checkpoints: History/ (including detailed 2026-10-14-buildbuy-v2-current.md)',
+                   '']
     return '\n'.join(prefix)
 
 def publish(day:str,value:dict,report:str,out=OUT,runner=None):
