@@ -1,0 +1,8 @@
+[Unit]
+Description=Independent check that Acquisition daily actually completed
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=opportunity-daily-acceptance.service
+[Install]
+WantedBy=timers.target
