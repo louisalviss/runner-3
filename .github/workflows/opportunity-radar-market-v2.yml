@@ -25,7 +25,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -80,8 +80,42 @@ jobs:
               )
           PY
 
-      - name: Run Opportunity Radar V2 market scanner
-        run: python scripts/opportunity_radar_market_v2.py
+      - name: Run market scanner with bounded completed-session freshness retry
+        shell: bash
+        run: |
+          # Yahoo can publish SPY's bar long before the broad universe is fresh.
+          # Re-run the same scanner (no separate flow or state) on a bounded delay.
+          # The scanner writes diagnostic DEGRADED packets; persist enforces the
+          # existing gate and still fails if no COMPLETE run can be obtained.
+          for attempt in 1 2 3; do
+            echo "Full-universe scan attempt $attempt/3"
+            python scripts/opportunity_radar_market_v2.py
+            if python - <<'PY'
+          import json
+          from pathlib import Path
+          h = json.loads(Path("data/opportunity-radar/market-health.json").read_text())
+          is_fresh = (
+              h.get("status") == "COMPLETE"
+              and h.get("complete") is True
+              and h.get("source_session_date") == h.get("expected_latest_completed_us_session")
+              and float(h.get("fresh_history_coverage") or 0) >= 0.80
+          )
+          print("Accepted current-session market coverage:",
+                round(100 * float(h.get("fresh_history_coverage") or 0), 2),
+                "status:", h.get("status"))
+          raise SystemExit(0 if is_fresh else 1)
+          PY
+            then
+              echo "Fresh completed-session coverage accepted."
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Coverage DEGRADED; waiting 7 minutes for provider bars to update."
+              sleep 420
+            else
+              echo "Coverage still DEGRADED after bounded retries; persist diagnostics but do not accept signals."
+            fi
+          done
 
       - name: Read-only two-sided recall and exclusion audit
         run: python scripts/opportunity_radar_market_recall_shadow.py
