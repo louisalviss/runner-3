@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        description: Auto small (default), read-only audit, one small batch, or one guarded 10-20MB object
+        description: Auto small default, read-only audit, one 10-20MB/20-256MB object, or verified full snapshot
         required: true
         default: auto-small
         options:
@@ -13,6 +13,8 @@ on:
           - audit
           - batch
           - medium-one
+          - large-one
+          - auto-complete
 
 permissions:
   contents: read
@@ -36,15 +38,19 @@ jobs:
         run: python3 -m pip install --quiet boto3
       - name: Validate Python and bounded migration contracts
         run: |
-          python3 -m py_compile scripts/cloudflare_r2_native_canary.py scripts/cloudflare_r2_native_batch.py scripts/cloudflare_r2_wp_autopilot.py
+          python3 -m py_compile scripts/cloudflare_r2_native_canary.py scripts/cloudflare_r2_native_batch.py scripts/cloudflare_r2_wp_autopilot.py scripts/cloudflare_r2_native_large.py scripts/cloudflare_r2_wp_complete.py
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_native_batch.py
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_autopilot.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_native_large.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_complete.py
       - name: Audit, one batch, or one bounded auto-resume session
         shell: bash
         run: |
           set -euo pipefail
           if [[ "${{ inputs.mode }}" == "auto-small" ]]; then
             python3 scripts/cloudflare_r2_wp_autopilot.py
+          elif [[ "${{ inputs.mode }}" == "auto-complete" ]]; then
+            python3 scripts/cloudflare_r2_wp_complete.py
           else
             python3 scripts/cloudflare_r2_native_batch.py --mode "${{ inputs.mode }}"
           fi
@@ -55,5 +61,6 @@ jobs:
           path: |
             migration-out/receipt.json
             migration-out/wp-auto-progress.json
+            migration-out/wp-complete-progress.json
           if-no-files-found: error
           retention-days: 3
