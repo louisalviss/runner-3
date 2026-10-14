@@ -55,6 +55,11 @@ class DailyPipelineGates(unittest.TestCase):
   self.assertIn("STATUS: DAILY_CHECK_PASS_NO_BUY_NO_BUILD",txt)
   self.assertIn("LAST_SCAN: 2026-10-14 09:15 +07:00",txt)
   self.assertIn("zero promotions",txt)
+ def test_render_keeps_every_scoped_candidate(self):
+  x={**self.val,'qualification':{'status':'PASS','candidates':[{'identity':'alpha.com','title':'Alpha','source':'SEOTRENDS','buy':{'state':'NOT_LISTED'},'build':{'state':'DROP'},'category':'DROP'},{'identity':'flippa:10','title':'Beta','source':'FLIPPA','buy':{'state':'DEFER'},'build':{'state':'REFERENCE_ONLY'},'category':'REFERENCE_ONLY'}]}}
+  t=render_current(x,'Evidence')
+  self.assertIn('Alpha | SEOTRENDS | NOT_LISTED | DROP | DROP',t)
+  self.assertIn('Beta | FLIPPA | DEFER | REFERENCE_ONLY | REFERENCE_ONLY',t)
  def test_render_blocked_not_claim_pass(self):
   x={**self.val,"overall":"PARTIAL_BLOCKED"}
   self.assertIn("STATUS: DAILY_PARTIAL_BLOCKED_NEEDS_REVIEW",render_current(x,"blocked"))
