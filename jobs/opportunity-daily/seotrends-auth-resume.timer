@@ -1,0 +1,9 @@
+[Unit]
+Description=Hourly conditional check for completed Semrush human handoff
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=120s
+Persistent=false
+Unit=seotrends-auth-resume.service
+[Install]
+WantedBy=timers.target
