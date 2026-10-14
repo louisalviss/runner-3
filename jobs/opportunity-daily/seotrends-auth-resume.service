@@ -1,0 +1,11 @@
+[Unit]
+Description=Resume current SeoTrends Semrush shortlist only after verified human handoff
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/lib/acquisition-radar-scan
+ExecStart=/usr/bin/python3 /var/lib/acquisition-radar-scan/auth_resume.py
+TimeoutStartSec=50min
+Nice=10
