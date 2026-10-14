@@ -43,4 +43,25 @@ jobs:
       - run: python scripts/opportunity_radar_market_recall_shadow.py
       - run: python scripts/opportunity_radar_market_event_ledger.py
       - run: python -c 'from pathlib import Path; import json; p=Path("data/opportunity-radar/market-move-events.jsonl"); rows=[json.loads(x) for x in p.read_text().splitlines()]; assert len(rows)>0 and all(r["state"]=="RAW_MOVE_ONLY_NOT_TRADE" for r in rows); print("Logged raw price predicates",len(rows))'
-      - run: python -c 'import json; from pathlib import Path; p=json.loads(Path("data/opportunity-radar/market-recall-shadow.json").read_text()); assert p["status"] == "SHADOW_AUDIT_ONLY"; print("Shadow session",p["source_session_date"],"audited",len(p["records"]),"recall",p["counts"]["qualified_price_moves"])'
+      - name: Verify recall shadow follows market freshness authority
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = Path("data/opportunity-radar")
+          health = json.loads((data / "market-health.json").read_text())
+          audit = json.loads((data / "market-recall-shadow.json").read_text())
+          if health["status"] == "COMPLETE" and health.get("complete") is True:
+              assert audit["status"] == "SHADOW_AUDIT_ONLY"
+              assert audit["source_session_date"] == health["source_session_date"]
+              assert len(audit["records"]) == health["prefilter_count"]
+              print("Valid shadow audit", len(audit["records"]), "records")
+          else:
+              assert audit["status"] == "SOURCE_DEGRADED_NOT_EVALUATED"
+              assert audit["source_session_date"] == health["source_session_date"]
+              assert audit["reason_code"] == health["reason_code"]
+              assert audit["records"] == []
+              assert audit["trading_gates_unchanged"] is True
+              print("Fail-closed shadow verified:", health["reason_code"])
+          PY

@@ -102,6 +102,60 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         self.assertTrue(m["corporate_action_suspected"])
         self.assertFalse(m["intraday_extremes_verified"])
 
+    def test_nasdaq_raw_shock_probe_is_review_only_and_session_verified(self):
+        class Response:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "status": {"rCode": 200},
+                    "data": {"tradesTable": {"rows": [
+                        {"date": "10/13/2026", "close": "$22.85", "volume": "48,730,490"},
+                        {"date": "10/12/2026", "close": "$25.85", "volume": "23,000,000"},
+                    ]}},
+                }
+
+        calls = []
+        def fake_get(url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+
+        result = scanner.nasdaq_completed_raw_shock_probe(
+            ["T", "UNRELATED"],
+            {"T": {"pctchange": "-12.5%"}, "UNRELATED": {"pctchange": "1%"}},
+            "2026-10-13",
+            requester=fake_get,
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["requested"], 1)
+        self.assertEqual(len(result["confirmed_raw_moves"]), 1)
+        item = result["confirmed_raw_moves"][0]
+        self.assertEqual(item["symbol"], "T")
+        self.assertEqual(item["session"], "2026-10-13")
+        self.assertFalse(item["adjustment_verified"])
+        self.assertEqual(item["action"], "NO_SIGNAL")
+        self.assertEqual(result["policy"], "DIAGNOSTIC_ONLY_NOT_ADJUSTED_NO_SIGNALS_NO_COVERAGE_CREDIT")
+
+    def test_nasdaq_raw_probe_does_not_accept_prior_session_as_fresh(self):
+        class Response:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {
+                    "status": {"rCode": 200},
+                    "data": {"tradesTable": {"rows": [
+                        {"date": "10/12/2026", "close": "$22", "volume": "100"},
+                        {"date": "10/09/2026", "close": "$25", "volume": "100"},
+                    ]}},
+                }
+
+        result = scanner.nasdaq_completed_raw_shock_probe(
+            ["T"], {"T": {"pctchange": "-10%"}},
+            "2026-10-13", requester=lambda *args, **kwargs: Response(),
+        )
+        self.assertEqual(result["confirmed_raw_moves"], [])
+        self.assertEqual(result["unverified"][0]["reason"], "MISSING_COMPLETED_SESSION_BAR")
+
     def test_freshness_retry_recovers_actual_completed_session_only(self):
         eligible = ["T", "OTHER", "STILL_STALE"]
         history = {symbol: frame("2026-10-08") for symbol in eligible}
