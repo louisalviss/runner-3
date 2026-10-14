@@ -5,13 +5,14 @@ on:
     inputs:
       mode:
         type: choice
-        description: Auto-run bounded copy of all eligible small WP objects; audit is read-only
+        description: Auto small (default), read-only audit, one small batch, or one guarded 10-20MB object
         required: true
         default: auto-small
         options:
           - auto-small
           - audit
           - batch
+          - medium-one
 
 permissions:
   contents: read
