@@ -1,0 +1,123 @@
+{
+  "quality": {
+    "N": 326,
+    "any_field_gt185": 108,
+    "core_fourplus_old_count": 295,
+    "core_fourplus_fresh_count": 281,
+    "stale_by_field": {
+      "debt_long": 59,
+      "cash": 15,
+      "assets": 14,
+      "liabilities": 18,
+      "equity": 26,
+      "revenue": 17,
+      "net_income": 20,
+      "operating_cash": 16,
+      "capital_expenditures": 36,
+      "operating_income": 19
+    },
+    "stale_does_not_imply_zero_or_failed_gate": true
+  },
+  "scenarios": {
+    "GNRC": {
+      "asof_shares": {
+        "shares": 59006361,
+        "period_end": "2026-07-31",
+        "acc": "0001437749-26-025669",
+        "filing_date": "2026-08-04",
+        "sec_tag": "dei.EntityCommonStockSharesOutstanding",
+        "asof_sec_url": "https://www.sec.gov/Archives/edgar/data/1474735/000143774926025669/gnrc20260630_10q.htm"
+      },
+      "source_day": "2026-09-17",
+      "next_open": 209.52,
+      "SEC_8k_source": "https://www.sec.gov/Archives/edgar/data/1474735/000143774926030550/gnrc20260915_8k.htm",
+      "Q2_2026_original_asof_revenue_usd": 1173510000,
+      "Q2_2026_net_income_usd": 143244000,
+      "first_expected_delivery_revenue_2027_2028_total_usd": 2400000000.0,
+      "up_to_gross_customer_payments_warrant_vesting_usd": 8000000000.0,
+      "Amazon_warrant_shares_max": 1693745,
+      "Amazon_warrant_shares_initially_vested": 307954,
+      "Amazon_warrant_exercise_price_usd": 200.9266,
+      "warrant_shares_pct_of_original": 2.87,
+      "warrant_post_issue_ownership_dilution_pct": 2.79,
+      "next_open_rr2_min_target_only_under_prejump_reversion": 279.388,
+      "incremental_equity_value_required_from_entry_usd": 4122656430,
+      "incremental_value_vs_2point4b_first_delivery_sales_ratio": 1.718,
+      "net_aftertax_profit_margin_scenarios_on_2point4b": {
+        "5%": {
+          "undiscounted_2yr_total_net_profit_usd": 120000000,
+          "PV_at_12pct_mid_2027_2028_usd": 101240484
+        },
+        "10%": {
+          "undiscounted_2yr_total_net_profit_usd": 240000000,
+          "PV_at_12pct_mid_2027_2028_usd": 202480968
+        },
+        "15%": {
+          "undiscounted_2yr_total_net_profit_usd": 360000000,
+          "PV_at_12pct_mid_2027_2028_usd": 303721452
+        },
+        "20%": {
+          "undiscounted_2yr_total_net_profit_usd": 480000000,
+          "PV_at_12pct_mid_2027_2028_usd": 404961935
+        }
+      },
+      "max_8b_gross_at_20pct_net_undiscounted_usd": 1600000000.0,
+      "cannot_treat_gross_deliveries_as_profit": true
+    },
+    "OKLO": {
+      "asof_shares": {
+        "shares": 186017650,
+        "period_end": "2026-08-04",
+        "acc": "0001628280-26-054571",
+        "filing_date": "2026-08-07",
+        "sec_tag": "dei.EntityCommonStockSharesOutstanding",
+        "asof_sec_url": "https://www.sec.gov/Archives/edgar/data/1849056/000162828026054571/oklo-20260630.htm"
+      },
+      "source_day": "2026-09-11",
+      "next_open": 34.95,
+      "at_the_market_capacity_usd": 1000000000.0,
+      "hypothetical_new_shares_if_full_capacity_sold_at_next_open": 28612303,
+      "hypothetical_new_shares_pct_of_asof_base": 15.381,
+      "post_issuance_ownership_reduction_pct": 13.331,
+      "not_an_executed_issue_or_prediction": true,
+      "SEC_8k_source": "https://www.sec.gov/Archives/edgar/data/1849056/000110465926106897/tm2625056d1_8k.htm"
+    },
+    "PLSE": {
+      "asof_shares": {
+        "shares": 71322607,
+        "period_end": "2026-07-31",
+        "acc": "0001437749-26-026288",
+        "filing_date": "2026-08-06",
+        "sec_tag": "dei.EntityCommonStockSharesOutstanding",
+        "asof_sec_url": "https://www.sec.gov/Archives/edgar/data/1625101/000143774926026288/plse20260630_10q.htm"
+      },
+      "source_day": "2026-09-16",
+      "next_open": 49.46,
+      "at_the_market_capacity_usd": 85000000.0,
+      "hypothetical_new_shares_if_full_capacity_sold_at_next_open": 1718560,
+      "hypothetical_new_shares_pct_of_asof_base": 2.41,
+      "post_issuance_ownership_reduction_pct": 2.353,
+      "not_an_executed_issue_or_prediction": true,
+      "SEC_8k_source": "https://www.sec.gov/Archives/edgar/data/1625101/000143774926030456/plse20260914_8k.htm"
+    },
+    "LEU": {
+      "source_day": "2026-09-11",
+      "next_open": 150.0,
+      "asof_common_stock_outstanding": "NOT_PROVEN_SEC_ENTITY_TAG_ASOF",
+      "reference_shares_from_market_cap_divided_by_source_close": 19233908,
+      "offer_common_shares": 500000,
+      "pre_funded_warrant_share_capacity": 2005513,
+      "conditional_common_warrant_share_capacity": 6992382,
+      "common_warrant_shares_not_automatically_issued": true,
+      "SEC_source": "https://www.sec.gov/Archives/edgar/data/1065059/000110465926107103/tm2625019d5_8k.htm",
+      "common_and_prefunded_capacity_pct_of_proxy_base": 13.027,
+      "additional_common_warrant_capacity_pct_of_proxy_base": 36.354
+    }
+  },
+  "assumptions": {
+    "cost_reference": ".5 percentage points",
+    "gnrc_target_is_algebraic_requirement_not_valuation": true,
+    "contract_net_margin_5_10_15_20_is_illustrative": true,
+    "discount_rate_12pct_illustrative": true
+  }
+}
