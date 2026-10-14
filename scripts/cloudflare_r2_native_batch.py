@@ -18,7 +18,7 @@ from botocore.exceptions import ClientError
 
 from cloudflare_r2_native_canary import (
     SOURCE_ACCOUNT, TARGET_ACCOUNT, GateError, source_list, source_properties,
-    copy_one,
+    copy_one, MAX_BYTES as MAX_NATIVE_SOURCE_BYTES,
 )
 
 BUCKET = "runner3-wp-media"
@@ -130,8 +130,35 @@ def plan_batch(missing):
     }
 
 
+def medium_plan(missing):
+    """One object strictly above the 10MB small-batch cap, at most 20MB."""
+    medium = []
+    unsupported = 0
+    above_native = 0
+    for obj in missing:
+        size = obj["size"]
+        if size <= MAX_BATCH_BYTES:
+            continue
+        if size > MAX_NATIVE_SOURCE_BYTES:
+            above_native += 1
+            continue
+        try:
+            source_properties(obj)
+        except GateError:
+            unsupported += 1
+            continue
+        medium.append(obj)
+    medium.sort(key=lambda x: (x["size"], x["key"]))
+    return (medium[:1], {
+        "medium_native_eligible_count": len(medium),
+        "medium_native_eligible_bytes": sum(obj["size"] for obj in medium),
+        "over_native_source_limit_count": above_native,
+        "medium_metadata_unsupported_count": unsupported,
+    })
+
+
 def run(mode):
-    if mode not in ("audit", "batch"):
+    if mode not in ("audit", "batch", "medium-one"):
         raise GateError("MODE_NOT_ALLOWED")
     source_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
     if not source_token or os.environ.get("CLOUDFLARE_ACCOUNT_ID") != SOURCE_ACCOUNT:
@@ -141,6 +168,11 @@ def run(mode):
     target = target_list(client)
     existing, missing = preflight(src, target)
     planned, details = plan_batch(missing)
+    medium, medium_info = medium_plan(missing)
+    if mode == "medium-one":
+        planned = medium
+        details["planned_count"] = len(medium)
+        details["planned_bytes"] = sum(x["size"] for x in medium)
     receipt = {
         "status": "PASS", "mode": mode, "bucket": BUCKET,
         "source_inventory_count": len(src), "target_inventory_count_before": len(target),
@@ -150,7 +182,7 @@ def run(mode):
         "cutover_ready": False, "full_bucket_parity_verified": False,
         "credential_values_exposed": False,
         "time_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
-        **details,
+        **details, **medium_info,
     }
     if mode == "audit":
         receipt["result"] = "READ_ONLY_AUDIT"
@@ -169,7 +201,7 @@ def run(mode):
         if obj["key"] not in after or after[obj["key"]] != obj["size"]:
             raise GateError("TARGET_POST_BATCH_LIST_MISMATCH")
     receipt.update({
-        "result": "BOUNDED_BATCH_VERIFIED",
+        "result": "BOUNDED_MEDIUM_VERIFIED" if mode == "medium-one" else "BOUNDED_BATCH_VERIFIED",
         "verified_count": len(verified),
         "uploaded_count": sum(item["uploaded"] for item in verified),
         "already_present_verified_count": sum(not item["uploaded"] for item in verified),
@@ -184,7 +216,7 @@ def run(mode):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("audit", "batch"), required=True)
+    parser.add_argument("--mode", choices=("audit", "batch", "medium-one"), required=True)
     args = parser.parse_args()
     try:
         receipt = run(args.mode)
