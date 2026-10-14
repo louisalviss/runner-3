@@ -56,3 +56,10 @@ For each exact source Worker, independently collect:
 - Cloudflare API: `GET /accounts/{account_id}/workers/scripts`
 - Cloudflare Worker metrics: aggregate request/invocation counts; absence of traffic alone insufficient
 - Cloudflare API: `DELETE /accounts/{account_id}/workers/scripts/{script_name}` (**no force**)
+
+
+## 2026-10-14 — service-binding and tail-consumer safe-graph extension (STAGED)
+- Investigated latest Cloudflare Workers API documentation: `GET /workers/scripts/{name}/settings` exposes binding types (including service and Durable Object script references); `GET /workers/scripts/{name}/script-settings` exposes tail-consumer metadata. These are read-only endpoints and do not authorize deleting scripts.
+- Extended `scripts/cloudflare_workers_source_audit.py` commit `89d318ee3021df6c77f4db5728f43b10aac730a8`. For each script, extracts only Worker service target names and Durable Object `script_name` references, generates in-account outbound/inbound graph and flags inbound-referenced scripts as `REFERENCED_DO_NOT_DELETE`. Queries script-settings and captures only `tail_consumer_count`. Does not serialize binding secret values, access tokens, arbitrary DO namespaces, script source or target API response bodies. A missing endpoint becomes `PARTIAL_UNKNOWN`; no deletion eligibility arises from this.
+- Extended offline fake-network regression `scripts/tests/test_cloudflare_workers_source_audit.py` commit `c4a0306e3e3bb22c4e85c7c050e796dd6dfb0bf1` to assert a service-bound callee is protected even if unused directly, secret value is omitted, and a tail-consumer permissions denial remains fail-closed. These tests are **STAGED/NOT EXECUTED**; static GitHub update alone is not a PASS.
+- The entire source account Worker inventory workflow `.github/workflows/cloudflare-workers-source-readonly-audit.yml` still has **zero live runs** at latest GH listing. Until a formally permitted invocation returns an artifact, all classifications from prior source code references remain provisional and **no Worker is DELETE_ELIGIBLE**.
