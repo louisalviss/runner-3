@@ -42,7 +42,7 @@ class DailyPipelineGates(unittest.TestCase):
   self.assertEqual(v["status"],"PASS")
   self.assertEqual(v["counts"]["PASS"],1)
   v2=inspect("2026-10-14",self.flippa,self.d/'deep.json',output_root=self.d,exporter=self.d/'missing.py')
-  self.assertEqual(v2["items"][0]["source"],"cached-existing-export")
+  self.assertEqual(v2["items"][0]["source"],"fresh-export")
  def test_auth_failure_blocks_and_no_zero_demand(self):
   f=self.d/'fake_block.py'
   f.write_text("import json\nprint(json.dumps({'status':'FAIL','reason':'BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE'}))\n")
