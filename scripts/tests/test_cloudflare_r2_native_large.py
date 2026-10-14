@@ -98,3 +98,41 @@ for o in [{"key": "too-small", "size": m.MIN_BYTES_EXCLUSIVE},
     except m.GateError as err:
         assert str(err) == "LARGE_OBJECT_SIZE_GATE"
 print("PASS strict large object size bounds")
+
+
+# Verify streaming HEAD and GET checks the entire object without any PUT.
+class StreamBody:
+    def __init__(self, byte): self.remaining = N; self.byte = byte
+    def read(self, n):
+        size = min(n, self.remaining)
+        self.remaining -= size
+        return self.byte * size
+    def close(self): pass
+
+class ReadbackClient:
+    def __init__(self, byte):
+        self.byte = byte
+        self.writes = 0
+    def head_object(self, **kw):
+        return {"ContentLength": N, "Metadata": {"flow": "proof"},
+                "StorageClass": "STANDARD"}
+    def get_object(self, **kw):
+        return {"Body": StreamBody(self.byte)}
+    def put_object(self, **kw):
+        self.writes += 1
+        raise AssertionError("READONLY_VERIFIER_MUST_NOT_PUT")
+
+expected_put = {"Metadata": {"flow": "proof"}, "StorageClass": "STANDARD"}
+good_read = ReadbackClient(b"A")
+verified = m.verify_s3_read_only(good_read, OBJ, hashlib.sha256(DATA).hexdigest(), expected_put)
+assert verified == N and good_read.writes == 0
+print("PASS stream full target SHA and metadata without PUT")
+
+bad_read = ReadbackClient(b"B")
+try:
+    m.verify_s3_read_only(bad_read, OBJ, hashlib.sha256(DATA).hexdigest(), expected_put)
+    raise AssertionError("corrupt target should fail")
+except m.GateError as err:
+    assert str(err) == "LARGE_TARGET_SHA256_MISMATCH"
+    assert bad_read.writes == 0
+print("PASS same-size corrupt large destination aborts without PUT")
