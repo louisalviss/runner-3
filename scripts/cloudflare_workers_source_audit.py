@@ -79,8 +79,10 @@ def inventory(reader):
         schedules, cs = get_result(reader, p + "/schedules")
         subdomain, ds = get_result(reader, p + "/subdomain")
         deployments, vs = get_result(reader, p + "/deployments")
+        script_settings, ts = get_result(reader, p + "/script-settings")
 
         bindings = []
+        outbound_workers = set()
         if ss == "OK" and isinstance(settings, dict) and isinstance(settings.get("bindings"), list):
             for binding in settings["bindings"]:
                 if not isinstance(binding, dict):
@@ -91,6 +93,16 @@ def inventory(reader):
                 if not isinstance(kind, str) or not isinstance(label, str):
                     raise AuditBlocked("BINDING_NAME_INVALID")
                 bindings.append({"type": kind[:60], "name": label[:100]})
+                # Service and cross-script Durable Object references are names,
+                # NOT credentials. They form only a partial outbound graph.
+                if kind == "service":
+                    target = binding.get("service")
+                    if isinstance(target, str) and SAFE_NAME.fullmatch(target):
+                        outbound_workers.add(target)
+                elif kind == "durable_object_namespace":
+                    target = binding.get("script_name")
+                    if isinstance(target, str) and SAFE_NAME.fullmatch(target):
+                        outbound_workers.add(target)
         elif ss == "OK":
             ss = "INCOMPLETE"
 
@@ -112,13 +124,29 @@ def inventory(reader):
         elif vs == "OK":
             vs = "INCOMPLETE"
 
-        statuses = {"settings": ss, "cron": cs, "subdomain": ds, "deployments": vs}
+        tail_consumer_count = None
+        if ts == "OK" and isinstance(script_settings, dict):
+            consumers = script_settings.get("tail_consumers")
+            if isinstance(consumers, list):
+                tail_consumer_count = len(consumers)
+            elif consumers is None:
+                tail_consumer_count = 0
+            else:
+                ts = "INCOMPLETE"
+        elif ts == "OK":
+            ts = "INCOMPLETE"
+
+        statuses = {"settings": ss, "cron": cs, "subdomain": ds,
+                    "deployments": vs, "tail_consumers": ts}
         items.append({
             "name": name,
             "created_on": script.get("created_on") if isinstance(script.get("created_on"), str) else None,
             "modified_on": script.get("modified_on") if isinstance(script.get("modified_on"), str) else None,
             "checks": statuses,
             "binding_names_and_types_only": bindings,
+            "outbound_worker_refs": sorted(outbound_workers),
+            "inbound_worker_refs": [],
+            "tail_consumer_count": tail_consumer_count,
             "cron_count": cron_count,
             "workers_dev_enabled": publicly_enabled,
             "deployment_count": deployments_count,
@@ -128,6 +156,16 @@ def inventory(reader):
             "cleanup_classification": "HOLD_NOT_DELETE",
         })
     items.sort(key=lambda x: x["name"])
+    by_name = {item["name"]: item for item in items}
+    for item in items:
+        for target in item["outbound_worker_refs"]:
+            if target in by_name:
+                by_name[target]["inbound_worker_refs"].append(item["name"])
+    for item in items:
+        item["inbound_worker_refs"].sort()
+        # This is only a positive-evidence graph, never proof of no callers.
+        if item["inbound_worker_refs"]:
+            item["cleanup_classification"] = "REFERENCED_DO_NOT_DELETE"
     all_ok = all(all(status == "OK" for status in x["checks"].values()) for x in items)
     return {
         "schema": "cf-worker-source-readonly-audit-v1",
