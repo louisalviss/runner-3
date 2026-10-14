@@ -54,6 +54,7 @@ with tempfile.TemporaryDirectory() as folder:
          patch.object(m.batch, "target_s3", return_value=FakeClient()), \
          patch.object(m.batch, "target_list", side_effect=lambda client: dict(dest)), \
          patch.object(m.batch, "run", side_effect=fake_run), \
+         patch.object(m, "preflight_existing_metadata", return_value=0), \
          patch.object(m, "verify_existing_read_only", side_effect=lambda client, token, obj: obj["size"]), \
          patch.object(m, "stream_source", return_value=("sha", "md5")), \
          patch.object(m, "verify_s3_read_only", side_effect=lambda client, obj, sha, meta: obj["size"]):
@@ -78,6 +79,7 @@ with tempfile.TemporaryDirectory() as folder:
     }), patch.object(m, "source_list", return_value=SRC), \
          patch.object(m.batch, "target_s3", return_value=FakeClient()), \
          patch.object(m.batch, "target_list", return_value={x["key"]: x["size"] for x in SRC}), \
+         patch.object(m, "preflight_existing_metadata", return_value=3), \
          patch.object(m, "verify_existing_read_only", side_effect=m.GateError("HASH_MISMATCH")):
         state = m.main_run()
         assert state["status"] == "BLOCKED"
@@ -85,3 +87,39 @@ with tempfile.TemporaryDirectory() as folder:
         assert state["cutover_ready"] is False
         assert state["snapshot_keyspace_sha_metadata_parity"] is False
 print("PASS final verification aborts on corrupt target, cannot cut over")
+
+
+# Existing target with differing CacheControl is detected by HEAD first.
+# The full one-shot migration must refuse new object PUTs until resolved.
+class HeaderClient:
+    def head_object(self, **kwargs):
+        return {"ContentLength": 5, "Metadata": {},
+                "CacheControl": "public, max-age=111", "StorageClass": "STANDARD"}
+
+drift = [{"key": "existing", "size": 5,
+          "http_metadata": {"cacheControl": "public, max-age=222"}}]
+try:
+    m.preflight_existing_metadata(HeaderClient(), drift, {"existing": 5})
+    raise AssertionError("pre-existing drift must be rejected")
+except m.GateError as exc:
+    assert str(exc) == "TARGET_HTTP_METADATA_MISMATCH_CACHECONTROL"
+print("PASS early Cache-Control drift HEAD refuses replay")
+
+with tempfile.TemporaryDirectory() as folder:
+    m.OUT = Path(folder)
+    m.RECEIPT = m.OUT / "receipt.json"
+    m.PROGRESS = m.OUT / "progress.json"
+    with patch.dict("os.environ", {
+        "CLOUDFLARE_API_TOKEN": "dummy",
+        "CLOUDFLARE_ACCOUNT_ID": m.batch.SOURCE_ACCOUNT,
+    }), patch.object(m, "source_list", return_value=drift), \
+         patch.object(m.batch, "target_s3", return_value=HeaderClient()), \
+         patch.object(m.batch, "target_list", return_value={"existing": 5}), \
+         patch.object(m.batch, "run", side_effect=AssertionError("MUST_NOT_PUT")):
+        state = m.main_run()
+        assert state["status"] == "BLOCKED"
+        assert state["reason"] == "TARGET_HTTP_METADATA_MISMATCH_CACHECONTROL"
+        assert state["uploaded_objects"] == 0
+        assert state["source_deleted"] is False and state["overwritten"] is False
+        assert state["cutover_ready"] is False
+print("PASS existing metadata mismatch halts before any batch PUT")
