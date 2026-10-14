@@ -2,6 +2,8 @@
 """Daily SEO + acquisition join. Source scanners remain independent owners."""
 import argparse, datetime as dt, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
 from build_buy_decision import qualify
+from flippa_semrush_bridge import inspect as inspect_flippa_semrush
+from daily_publish import publish as publish_daily
 from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path("/var/lib/acquisition-radar-scan")
@@ -208,7 +210,7 @@ def format_report(v):
     qualification=v.get("qualification") or {}
     if qualification:
         c=qualification.get("counts") or {}
-        lines += ["", "## Unified BUILD or BUY qualification", "- Qualification status: "+qualification["status"]+"; candidates actually checked: "+str(qualification["evaluated"])+" (not every Flippa card).", "- BUY approved: 0; BUILD approved: 0; DD shortlist: "+str(len(qualification["actionable_dd"]))+"; study/reference: "+str(len(qualification["study_queue"]))+".", "- Evidence status counts: "+", ".join(str(k)+"="+str(c[k]) for k in sorted(c)), "- Seller card earnings are NOT audited earnings; source domain traffic is NOT transferable to a new site.", "", "### DD candidates (not approval)"]
+        lines += ["", "## Unified BUILD or BUY qualification", "- Scanner/evidence gate: "+qualification["status"]+"; candidates evaluated: "+str(qualification["evaluated"])+" (not every Flippa card).", "- Semantic business evidence: "+str(qualification.get('business_semantic_source_status') or 'NOT_RUN')+"; end-to-end business DD: "+str(qualification.get('end_to_end_business_dd') or 'NOT_RUN')+"; X/Facebook/Reddit validation: "+str(qualification.get('end_to_end_social_check') or 'NOT_RUN')+".", "- BUY approved: 0; BUILD approved: 0; DD shortlist: "+str(len(qualification["actionable_dd"]))+"; study/reference: "+str(len(qualification["study_queue"]))+".", "- Evidence status counts: "+", ".join(str(k)+"="+str(c[k]) for k in sorted(c)), "- Seller card earnings are NOT audited earnings; source domain traffic is NOT transferable to a new site.", "", "### DD candidates (not approval)"]
         for x in qualification["actionable_dd"]:
             lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; BUY="+x["buy"]["state"]+" / BUILD="+x["build"]["state"]+"; verify: "+", ".join(x["missing"][:3]))
         if not qualification["actionable_dd"]: lines.append("- None: zero candidates have enough evidence to enter a focused DD shortlist.")
@@ -219,6 +221,14 @@ def format_report(v):
         lines += ["", "### Archived and not presented as an opportunity", "- "+str(qualification["evaluated"]-len(qualification["actionable_dd"])-len(qualification["study_queue"]))+" candidates remain fully documented in machine-readable qualification.candidates."]
     else:
         lines += ["", "## Unified BUILD or BUY qualification", "- NOT_RUN; no BUILD/BUY promotion possible."]
+    cross=v.get("flippa_semrush") or {}
+    if cross:
+        lines += ["", "## Flippa independent Semrush cross-check", "- Status: "+str(cross.get("status"))+"; eligible verified domains: "+str(cross.get("eligible"))+"; counts: "+str(cross.get("counts"))+"."]
+        for item in cross.get("items") or []:
+            m=item.get("metrics") or {}
+            lines.append("- "+item["domain"]+": "+item["status"]+"; modeled US organic traffic: "+str(m.get("estimated_us_organic_visits","N/A"))+"; organic keyword rows: "+str(m.get("organic_keyword_rows","N/A"))+"; "+str(item.get("reason") or "Source estimates, not buyer analytics"))
+    else:
+        lines += ["", "## Flippa independent Semrush cross-check", "- NOT_RUN; cannot certify Flippa keyword/SERP evidence."]
     lines += ["", "## Enforcement", "- Source results cannot be promoted by traffic/revenue headline alone; Semrush auth failure is BLOCKED, never zero demand.","- First Access/recent-window absence is NOT delisted/sold.", "- All social verification is candidate-targeted through existing source-owned adapters.", "- This is a machine-readable handoff. Human/semantic DD and source-local durability remain separately owned."]
     return "\n".join(lines)+"\n"
 
@@ -241,7 +251,30 @@ def main(argv=None):
             scan_error = type(exc).__name__ + ": " + str(exc)[:180]
             current = default_current
     prev = pathlib.Path(args.previous_state) if args.previous_state else next(iter(existing_flippa_states(current)),None)
-    value = build(args.date,current,prev,resolve_deep(args.date,args.deep))
+    deep_path=resolve_deep(args.date,args.deep)
+    value = build(args.date,current,prev,deep_path)
+    semcross_path=ROOT/("flippa-semDD-"+args.date.replace("-","")+".json")
+    if args.run_flippa and not args.dry_run and value["flippa"]["status"]=="PASS":
+        try:
+            value["flippa_semrush"]=inspect_flippa_semrush(args.date,value["flippa"],deep_path,max_domains=2)
+        except Exception as exc:
+            value["flippa_semrush"]={"status":"BLOCKED","eligible":None,"counts":{},"items":[],"reason":"BRIDGE_EXCEPTION:"+type(exc).__name__}
+    elif semcross_path.is_file():
+        value["flippa_semrush"]=load(semcross_path,{})
+    cross=value.get("flippa_semrush") or {}
+    cross_by_listing={x.get('listing_identity'):x for x in cross.get('items') or []}
+    for candidate in value['qualification'].get('candidates') or []:
+        if candidate.get('source')=='FLIPPA':
+            c=cross_by_listing.get(candidate.get('identity'))
+            candidate['evidence']['semrush_crosscheck']=(
+                {'status':c.get('status'),'domain':c.get('domain'),'metrics':c.get('metrics'),'modeled_not_analytics':True}
+                if c else {'status':'NOT_RUN_OR_UNVERIFIED_DOMAIN'}
+            )
+    value['qualification']['end_to_end_social_check']='NOT_RUN'
+    value['qualification']['end_to_end_business_dd']='NOT_AUTOMATED'
+    value['qualification']['business_semantic_source_status']=value['qualification'].get('semantic_dd_status')
+    if cross.get('status')=='BLOCKED':
+        value["overall"]="PARTIAL_BLOCKED"
     if scan_error:
         value["flippa"]["source_error"] = scan_error
         value["overall"] = "PARTIAL_BLOCKED"
@@ -255,16 +288,26 @@ def main(argv=None):
     OUT.mkdir(parents=True,exist_ok=True)
     # Fingerprint the decision output as well as inputs, so a fixed classifier cannot
     # be hidden behind a stale same-date checkpoint with identical source files.
-    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"flippa_semrush":value.get("flippa_semrush"),"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     target = OUT/(args.date+"-manifest.json")
     prior = load(target,{})
     if prior.get("source_sha256") == source_hash:
         print("ALREADY_CHECKPOINTED",target)
+        if args.run_flippa:
+            p=publish_daily(args.date,value,txt)
+            print("DAILY_DROPBOX",json.dumps({"status":p["status"],"label":p.get("label")}))
+            if p["status"] not in ("PASS","ALREADY_PUBLISHED"):
+                return 4
         return 0
     atomic(OUT/(args.date+"-report.md"),txt)
     atomic(OUT/(args.date+"-research-queue.json"),json.dumps(value,ensure_ascii=False,indent=2))
     atomic(target,json.dumps({"date":args.date,"source_sha256":source_hash,"status":value["overall"],"flippa_state":str(current),"previous_state":str(prev) if prev else None,"research_count":len(value["research_queue"]),"qualification_status":value["qualification"]["status"],"qualified_dd_count":len(value["qualification"]["actionable_dd"]),"approved_buy":0,"approved_build":0},indent=2))
     print("CHECKPOINT_PASS",target,"status",value["overall"],"research",len(value["research_queue"]))
+    if args.run_flippa:
+        p=publish_daily(args.date,value,txt)
+        print("DAILY_DROPBOX",json.dumps({"status":p["status"],"label":p.get("label")}))
+        if p["status"] not in ("PASS","ALREADY_PUBLISHED"):
+            return 4
     return 0
 
 if __name__ == "__main__":
