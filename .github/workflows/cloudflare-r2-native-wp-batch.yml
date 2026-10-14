@@ -5,10 +5,12 @@ on:
     inputs:
       mode:
         type: choice
-        description: Auto small default, read-only audit, one 10-20MB/20-256MB object, or verified full snapshot
+        description: Read-only source-to-target Cache-Control/HTTP metadata diagnosis
         required: true
-        default: auto-small
+        default: verify-metadata
         options:
+          - verify-metadata
+          - auto-complete
           - auto-small
           - audit
           - batch
@@ -43,11 +45,15 @@ jobs:
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_autopilot.py
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_native_large.py
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_complete.py
+          python3 -m py_compile scripts/cloudflare_r2_wp_metadata_drift.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_metadata_drift.py
       - name: Audit, one batch, or one bounded auto-resume session
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.mode }}" == "auto-small" ]]; then
+          if [[ "${{ inputs.mode }}" == "verify-metadata" ]]; then
+            python3 scripts/cloudflare_r2_wp_metadata_drift.py
+          elif [[ "${{ inputs.mode }}" == "auto-small" ]]; then
             python3 scripts/cloudflare_r2_wp_autopilot.py
           elif [[ "${{ inputs.mode }}" == "auto-complete" ]]; then
             python3 scripts/cloudflare_r2_wp_complete.py
@@ -62,5 +68,6 @@ jobs:
             migration-out/receipt.json
             migration-out/wp-auto-progress.json
             migration-out/wp-complete-progress.json
+            migration-out/wp-metadata-drift.json
           if-no-files-found: error
           retention-days: 3
