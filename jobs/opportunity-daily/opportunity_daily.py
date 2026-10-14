@@ -4,6 +4,7 @@ import argparse, datetime as dt, hashlib, json, os, pathlib, re, subprocess, sys
 from build_buy_decision import qualify
 from flippa_semrush_bridge import inspect as inspect_flippa_semrush
 from daily_publish import publish as publish_daily
+from flippa_deep_daily import capture as capture_flippa_deep, candidates_for_daily
 from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path("/var/lib/acquisition-radar-scan")
@@ -221,6 +222,9 @@ def format_report(v):
         lines += ["", "### Archived and not presented as an opportunity", "- "+str(qualification["evaluated"]-len(qualification["actionable_dd"])-len(qualification["study_queue"]))+" candidates remain fully documented in machine-readable qualification.candidates."]
     else:
         lines += ["", "## Unified BUILD or BUY qualification", "- NOT_RUN; no BUILD/BUY promotion possible."]
+    detail=v.get('flippa_detail') or {}
+    if detail:
+        lines += ['', '## Flippa automatic verified detail DD', '- Status: '+str(detail.get('status'))+'; requested '+str(detail.get('requested',detail.get('items')))+'; verified/cached items '+str(detail.get('items'))+'.']
     cross=v.get("flippa_semrush") or {}
     if cross:
         lines += ["", "## Flippa independent Semrush cross-check", "- Status: "+str(cross.get("status"))+"; eligible verified domains: "+str(cross.get("eligible"))+"; counts: "+str(cross.get("counts"))+"."]
@@ -252,7 +256,18 @@ def main(argv=None):
             current = default_current
     prev = pathlib.Path(args.previous_state) if args.previous_state else next(iter(existing_flippa_states(current)),None)
     deep_path=resolve_deep(args.date,args.deep)
+    detail_check=None
+    if args.run_flippa and not args.dry_run and not args.deep:
+        preliminary=read_flippa(current,prev)
+        if preliminary.get('status')=='PASS':
+            ids=candidates_for_daily(preliminary,limit=3)
+            detail_check=capture_flippa_deep(ids,args.date)
+            deep_path=resolve_deep(args.date)
     value = build(args.date,current,prev,deep_path)
+    if detail_check is not None:
+        value['flippa_detail']=detail_check
+        if detail_check.get('status') not in ('PASS','PASS_EMPTY'):
+            value['overall']='PARTIAL_BLOCKED'
     semcross_path=ROOT/("flippa-semDD-"+args.date.replace("-","")+".json")
     if args.run_flippa and not args.dry_run and value["flippa"]["status"]=="PASS":
         try:
@@ -288,7 +303,7 @@ def main(argv=None):
     OUT.mkdir(parents=True,exist_ok=True)
     # Fingerprint the decision output as well as inputs, so a fixed classifier cannot
     # be hidden behind a stale same-date checkpoint with identical source files.
-    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"flippa_semrush":value.get("flippa_semrush"),"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"flippa_semrush":value.get("flippa_semrush"),"flippa_detail":value.get("flippa_detail"),"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     target = OUT/(args.date+"-manifest.json")
     prior = load(target,{})
     if prior.get("source_sha256") == source_hash:
