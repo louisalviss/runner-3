@@ -109,3 +109,39 @@ with patch.dict(os.environ, env, clear=True), patch.object(m, "target_s3", retur
     assert b["result"] == "NO_ELIGIBLE_BATCH_OBJECTS"
     assert not oversize_client.keys
 print("PASS over-20MB requires separate approved streaming route")
+
+
+# >20 MB up to 256 MB objects are offered only to the bounded,
+# disk-streamed, SHA-readback verifier. All earlier paths are unchanged.
+large, stats = m.large_plan([
+    ob("low", 20_000_000),
+    ob("large-safe", 21_000_000, custom_metadata={"flow": "ok"}),
+    ob("oversize", 256_000_001),
+    ob("unsupported", 22_000_000, custom_metadata={"bad": "π"}),
+])
+assert [x["key"] for x in large] == ["large-safe"]
+assert stats["large_stream_eligible_count"] == 1
+assert stats["large_stream_eligible_bytes"] == 21_000_000
+assert stats["over_stream_limit_count"] == 1
+assert stats["large_metadata_unsupported_count"] == 1
+print("PASS large stream size and metadata gates")
+
+large_client = FakeClient()
+source_large = [ob("large-safe", 21_000_000)]
+def fake_large(client, token, obj):
+    assert obj["key"] not in client.keys
+    client.keys[obj["key"]] = obj["size"]
+    return {"object_bytes": obj["size"], "uploaded": True, "verified": True}
+
+with patch.dict(os.environ, env, clear=True), patch.object(m, "target_s3", return_value=large_client), \
+     patch.object(m, "source_list", return_value=source_large), \
+     patch.object(m, "copy_one_large", side_effect=fake_large), \
+     patch.object(m, "copy_one", side_effect=AssertionError("large must stream")):
+    plan = m.run("audit")
+    assert plan["large_stream_eligible_count"] == 1 and plan["planned_count"] == 0
+    completed = m.run("large-one")
+    assert completed["result"] == "BOUNDED_LARGE_VERIFIED"
+    assert completed["uploaded_count"] == 1 and completed["verified_bytes"] == 21_000_000
+    assert completed["full_bucket_parity_verified"] is False
+    assert completed["source_deleted"] is False and completed["overwritten"] is False
+print("PASS large-one guarded streaming route")
