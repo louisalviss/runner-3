@@ -6,6 +6,8 @@ on:
       - scripts/opportunity_radar_market_v2.py
       - scripts/opportunity_radar_market_recall_shadow.py
       - scripts/opportunity_radar_market_event_ledger.py
+      - scripts/opportunity_radar_dump_forward_shadow.py
+      - tests/test_market_dump_forward_shadow.py
       - tests/test_market_event_ledger.py
       - tests/test_market_recall_shadow.py
       - scripts/opportunity_radar_market_checkpoint.py
@@ -17,6 +19,8 @@ on:
       - scripts/opportunity_radar_market_v2.py
       - scripts/opportunity_radar_market_recall_shadow.py
       - scripts/opportunity_radar_market_event_ledger.py
+      - scripts/opportunity_radar_dump_forward_shadow.py
+      - tests/test_market_dump_forward_shadow.py
       - tests/test_market_event_ledger.py
       - tests/test_market_recall_shadow.py
       - scripts/opportunity_radar_market_checkpoint.py
@@ -40,6 +44,7 @@ jobs:
       - run: python -m unittest discover -s tests -p test_market_session_integrity.py -v
       - run: python -m unittest discover -s tests -p test_market_recall_shadow.py -v
       - run: python -m unittest discover -s tests -p test_market_event_ledger.py -v
+      - run: python -m unittest discover -s tests -p test_market_dump_forward_shadow.py -v
       - run: python scripts/opportunity_radar_market_recall_shadow.py
       - run: python scripts/opportunity_radar_market_event_ledger.py
       - run: python -c 'from pathlib import Path; import json; p=Path("data/opportunity-radar/market-move-events.jsonl"); rows=[json.loads(x) for x in p.read_text().splitlines()]; assert len(rows)>0 and all(r["state"]=="RAW_MOVE_ONLY_NOT_TRADE" for r in rows); print("Logged raw price predicates",len(rows))'

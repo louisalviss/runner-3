@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/opportunity_radar_market_v2.py
       - scripts/opportunity_radar_market_recall_shadow.py
+      - scripts/opportunity_radar_dump_forward_shadow.py
       - .github/workflows/opportunity-radar-market-v2.yml
   schedule:
     # 22:45 UTC Mon-Fri = 05:45 Asia/Ho_Chi_Minh next day Tue-Sat.
@@ -153,6 +154,14 @@ jobs:
       - name: Append verified Shock/Pump price events (outside capped Signals)
         run: python scripts/opportunity_radar_market_event_ledger.py
 
+      - name: Install NYSE calendar for prospective forward-shadow
+        continue-on-error: true
+        run: python -m pip install 'pandas-market-calendars>=4.4,<6'
+
+      - name: Update immutable dump forward-shadow reference ledger (research only)
+        continue-on-error: true
+        run: python scripts/opportunity_radar_dump_forward_shadow.py
+
       - name: Commit current market packet
         shell: bash
         run: |
@@ -161,6 +170,12 @@ jobs:
           git add data/opportunity-radar/market-signals.json data/opportunity-radar/market-health.json data/opportunity-radar/market-prefilter.json data/opportunity-radar/market-recall-shadow.json
           if test -f data/opportunity-radar/market-move-events.jsonl; then
             git add data/opportunity-radar/market-move-events.jsonl
+          fi
+          if test -f data/opportunity-radar/market-dump-forward-shadow.jsonl; then
+            git add data/opportunity-radar/market-dump-forward-shadow.jsonl
+          fi
+          if test -f data/opportunity-radar/market-dump-forward-shadow-status.json; then
+            git add data/opportunity-radar/market-dump-forward-shadow-status.json
           fi
           if git diff --cached --quiet; then
             echo 'No market output changes.'
