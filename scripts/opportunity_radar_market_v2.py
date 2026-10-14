@@ -43,7 +43,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 SIGNALS_OUT = OUT_DIR / "market-signals.json"
 HEALTH_OUT = OUT_DIR / "market-health.json"
 PREFILTER_OUT = OUT_DIR / "market-prefilter.json"
-SCANNER_VERSION = "2.2-freshness-recovery"
+SCANNER_VERSION = "2.3-nasdaq-raw-review"
 PREFILTER_SOURCE = "data/opportunity-radar/market-prefilter.json"
 D1_CHECKPOINT_BINDING = {
     "project": "opportunity-radar-v2",
@@ -370,6 +370,7 @@ def recover_fresh_market_history(
     small serial batches. Zero/low probe recovery aborts instead of hammering
     the provider or silently declaring a partial universe complete.
     """
+    live_source = downloader is None
     downloader = downloader or yf.download
     started = time.monotonic()
     initial_fresh, _ = partition_fresh_market_history(history, expected_session_date)
@@ -449,7 +450,7 @@ def recover_fresh_market_history(
     # anomalies. An independent Nasdaq OHLC read provides bounded review leads
     # without treating unadjusted data as accepted pricing or signal authority.
     refreshed, _ = partition_fresh_market_history(recovered, expected_session_date)
-    if len(refreshed) / max(1, len(eligible)) < CFG["min_history_coverage"]:
+    if live_source and len(refreshed) / max(1, len(eligible)) < CFG["min_history_coverage"]:
         stats["nasdaq_raw_shock_probe"] = nasdaq_completed_raw_shock_probe(
             ranked, snapshot, expected_session_date
         )
