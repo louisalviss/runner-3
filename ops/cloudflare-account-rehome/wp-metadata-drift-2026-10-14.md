@@ -1,0 +1,17 @@
+# WP Media R2 — one CacheControl drift / eight missing objects
+
+Status: READ_ONLY_DIAGNOSIS_COMPLETE | NO_REPAIR_YET | NO_CUTOVER
+Captured: 2026-10-14 14:10 UTC (21:10 Vietnam)
+
+## Actual cloud evidence
+- Authorized user-triggered [GitHub Actions run 38578113417](https://github.com/louisalviss/runner-3/actions/runs/38578113417) completed SUCCESS. Input mode `verify-metadata`, read-only; local synthetic security tests PASS and live source Cloudflare API + target S3 HEAD comparison PASS as a read-only diagnosis.
+- Downloaded exact artifact `11902436570` (ZIP sha256 `33fa1f2d8797ee0582264479c8d9cb5cbcedba7dc70cd36f13afc40b279ff141`), file `wp-metadata-drift.json`: `source_count=285`, `target_count=277`, `existing_key_count=277`, `verified_metadata_count=276`, `metadata_mismatch_count=1`, `missing_count=8`, `unsupported_metadata_count=0`. Snapshot status `METADATA_MISMATCH_REQUIRES_REVIEW`.
+- Exact mismatched target object key SHA256: `9be9cf6df328bac92b6ca3391cb7ffa61765ed5d5ec52b7c08d9848b13695a16`. **Only differing metadata field: `CacheControl`**. Object key string, source/target metadata values and payload were intentionally not emitted by the artifact.
+- `sha256_bytes_parity_verified=false` — important: this run compared metadata from source manifest to HEAD destination only, not object payload SHA. A metadata mismatch does not by itself imply content bytes differ or are equal.
+- Previous [run 38575546891](https://github.com/louisalviss/runner-3/actions/runs/38575546891) in `auto-small` mode copied 5 missing objects / 45,757,136 bytes (verified), reaching destination 277/285; final full-read verifier compared 213 objects before stopping at `TARGET_HTTP_METADATA_MISMATCH_CACHECONTROL`. Remaining 8 missing were >10 MB at last audit, some potentially 10–20 MB and some 20–256 MB; exact size bands not yet verified. Source not deleted, target not overwritten, cutover false.
+
+## No data-loss action
+- DO NOT overwrite the mismatched key blindly, delete any source, or set `cutover_ready`.
+- Target may contain a historic canary or may have diverged after copy; **cause unproven**. Need an authorized bounded read-only source/target SHA comparison for the specific key before any surgical metadata repair. Repair must preserve byte identity and prove conditional consistency / restorable backup.
+- Since a known existing-object metadata mismatch would cause full WP parity to fail after more copying, `scripts/cloudflare_r2_wp_complete.py` now performs read-only HEAD metadata preflight **before any PUT**; GitHub commit `bbfae0aa2130f95777044fccb4a4d789136e4c4d`. Offline fake-network contracts added `scripts/tests/test_cloudflare_r2_wp_complete.py` commit `3216b3214ccbaeb5af97e4efb200e74221acafbe`. These changes are STAGED; no new runtime tests or live copy after the successful diagnostic. The existing workflow `verify-metadata` is still the default selection to avoid unintended writes.
+- Workers source inventory separate: actual authenticated count 38, 5 cron Workers, 4 in-account callers to `runner3-rss-fastlane`, no safe deletions. Full R2/D1 account-to-account parity/cutover remains pending.
