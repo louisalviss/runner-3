@@ -5,18 +5,18 @@ on:
     inputs:
       mode:
         type: choice
-        description: Read-only source-to-target Cache-Control/HTTP metadata diagnosis
+        description: Diagnose exact Cache-Control drift object SHA-256, read-only by default
         required: true
-        default: verify-metadata
+        default: verify-sha
         options:
+          - verify-sha
           - verify-metadata
-          - auto-complete
-          - auto-small
           - audit
-          - batch
+          - auto-small
           - medium-one
           - large-one
           - auto-complete
+          - batch
 
 permissions:
   contents: read
@@ -47,11 +47,15 @@ jobs:
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_complete.py
           python3 -m py_compile scripts/cloudflare_r2_wp_metadata_drift.py
           PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_metadata_drift.py
+          python3 -m py_compile scripts/cloudflare_r2_wp_targeted_sha.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_r2_wp_targeted_sha.py
       - name: Audit, one batch, or one bounded auto-resume session
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.mode }}" == "verify-metadata" ]]; then
+          if [[ "${{ inputs.mode }}" == "verify-sha" ]]; then
+            python3 scripts/cloudflare_r2_wp_targeted_sha.py
+          elif [[ "${{ inputs.mode }}" == "verify-metadata" ]]; then
             python3 scripts/cloudflare_r2_wp_metadata_drift.py
           elif [[ "${{ inputs.mode }}" == "auto-small" ]]; then
             python3 scripts/cloudflare_r2_wp_autopilot.py
@@ -69,5 +73,6 @@ jobs:
             migration-out/wp-auto-progress.json
             migration-out/wp-complete-progress.json
             migration-out/wp-metadata-drift.json
+            migration-out/wp-targeted-sha.json
           if-no-files-found: error
           retention-days: 3
