@@ -294,7 +294,10 @@ def main(argv=None):
     if prior.get("source_sha256") == source_hash:
         print("ALREADY_CHECKPOINTED",target)
         if args.run_flippa:
-            p=publish_daily(args.date,value,txt)
+            persisted=load(OUT/(args.date+"-research-queue.json"),{})
+            saved=OUT/(args.date+"-report.md")
+            saved_text=saved.read_text(encoding="utf-8") if saved.is_file() else txt
+            p=publish_daily(args.date,persisted or value,saved_text)
             print("DAILY_DROPBOX",json.dumps({"status":p["status"],"label":p.get("label")}))
             if p["status"] not in ("PASS","ALREADY_PUBLISHED"):
                 return 4
