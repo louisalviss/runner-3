@@ -1,0 +1,35 @@
+name: Cloudflare Source Workers Read-only Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-source-workers-readonly-inventory
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Local security and contract tests
+        run: |
+          python3 -m py_compile scripts/cloudflare_workers_source_audit.py
+          python3 scripts/tests/test_cloudflare_workers_source_audit.py
+      - name: Fetch source Worker configuration READ ONLY
+        run: python3 scripts/cloudflare_workers_source_audit.py
+      - name: Preserve sanitized inventory even on permission errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-source-workers-readonly-inventory
+          path: migration-out/workers-source-audit.json
+          if-no-files-found: warn
+          retention-days: 7
