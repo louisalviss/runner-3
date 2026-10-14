@@ -15,6 +15,16 @@ The 14 episodes that drop below the 4-of-6 fresh-core threshold are NOT confirme
 
 Mark all as NEEDS_ALTERNATIVE_PIT_REPORT_EXTRACTION. Inspect original 6-K/10-Q contemporaneous exhibits, not just CompanyFacts. Never remove these issuers from Gate-first or label FAIL because extracted fields lack freshness. File asof_fundamental_missing_interim_14.csv has time-correct SEC document URLs and classification. This is a DATA COVERAGE test, NOT a fundamental judgment or production gate.
 
+
+### Initial alternative 6-K recovery (source availability proven)
+
+The newer SEC foreign-issuer interim exhibits are accessible before these original market snapshots; a standardized US-GAAP feed is not the only way to underwrite:
+- ODD: September 9, 2026 Form 6-K Exhibit 99.1 reports June-Q2 **$181m revenue** and **$13m net income**, June 30 cash and cash equivalents **$167.274m**, and approximately **$561m cash plus marketable securities**. The latter cannot be counted as pure cash. Original exhibit https://www.sec.gov/Archives/edgar/data/1907085/000110465926106126/tm2624995d1_ex99-1.htm
+- CAMT: August 10, 2026 6-K provides Q2 **$133.2m revenue**, **$23.3m GAAP net income**, **$12.2m operating cashflow**, and **$815.8m combined cash/deposits/marketable securities**. Original https://www.sec.gov/Archives/edgar/data/1109138/000117891326003975/zk2635905.htm
+- GENI: August 6, 2026 6-K Exhibit 99.1 shows June 30 cash **$155.076m** in its interim balance sheet; remaining financial values still need manual validation. Original https://www.sec.gov/Archives/edgar/data/1834489/000119312526336663/geni-ex99_1.htm
+
+All 3 were accepted before their historical market packet. These primary-document examples prove recovery is feasible. They do NOT certify complete economic underwriting, a 4-of-6 repaired financial screen for every original record, or historical Gate PASS. Machine-readable exhibit pointers/selected validated values are in asof_interim_6k_recovery_3.csv.
+
 ## GNRC Sep17 — economic hurdle instead of fabricated valuation target
 
 SEC Sep16 8-K confirms Amazon long-term generator supply agreement, **expected initial deliveries totaling $2.4bn in 2027-28**, and aggregate up-to-$8bn contingent **payment milestones linked to warrants**; the latter is NOT $8bn of binding profit, revenue, or incremental guaranteed orders. Warrants allow purchase of up to 1,693,745 GNRC shares at $200.9266, with 307,954 vested on issuance.
