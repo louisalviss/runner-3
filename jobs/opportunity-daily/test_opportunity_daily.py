@@ -89,4 +89,16 @@ class DailyGates(unittest.TestCase):
    self.assertEqual(m.resolve_deep("2026-10-14"),str(deep))
    self.assertEqual(m.resolve_deep("2026-10-14","manual.json"),"manual.json")
   finally:m.ROOT=old
+ def test_terminal_drop_does_not_consume_dd_slots(self):
+  original_seo,original_flippa=m.read_seo,m.read_flippa
+  try:
+   entries=[{"source":"SEOTRENDS","identity":"d"+str(i)+".com","domain":"d"+str(i)+".com","title":"candidate","score":10-i,"verdict":"DROP" if i in (0,1,2) else ("WATCH_DD" if i in (6,7) else "WATCH_RESEARCH"),"reason":"test","research":["serp"]} for i in range(10)]
+   m.read_seo=lambda day:{"items":entries,"added":10,"scanned":10,"pending":0,"source_complete":True,"terminal_status":"PASS","provider_status":"PASS"}
+   m.read_flippa=lambda *args,**kwargs:{"status":"PASS","new":[],"stats":{"first_access":0,"recent":0,"entered_recent_window":0}}
+   rows=m.build("2026-10-14",self.curfile)["research_queue"]
+   names=[r["domain"] for r in rows]
+   self.assertEqual(len(rows),5)
+   self.assertEqual(names[:2],["d6.com","d7.com"])
+   self.assertFalse(any(r["verdict"]=="DROP" for r in rows))
+  finally:m.read_seo,m.read_flippa=original_seo,original_flippa
 if __name__=="__main__":unittest.main(verbosity=2)
