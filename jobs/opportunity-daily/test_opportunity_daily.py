@@ -80,4 +80,13 @@ class DailyGates(unittest.TestCase):
   self.assertEqual(v["verdict"],"DROP_TRAFFIC_WEAK")
   self.assertEqual(v["bin_verified"],599)
   self.assertEqual(v["pageviews_verified"],114)
+ def test_auto_deep_reused_on_daily_timer(self):
+  old=m.ROOT
+  try:
+   m.ROOT=self.d
+   self.assertIsNone(m.resolve_deep("2026-10-14"))
+   deep=save(self.d/"flippa-deep-20261014.json",[])
+   self.assertEqual(m.resolve_deep("2026-10-14"),str(deep))
+   self.assertEqual(m.resolve_deep("2026-10-14","manual.json"),"manual.json")
+  finally:m.ROOT=old
 if __name__=="__main__":unittest.main(verbosity=2)
