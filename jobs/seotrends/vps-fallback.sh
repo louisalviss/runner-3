@@ -54,9 +54,24 @@ if [[ "$(already_done)" == yes ]]; then
   timeout 10m /usr/local/sbin/seotrends-telegram-sync || log 'Telegram sync returned non-zero'
   exit 0
 fi
-log 'Running VPS canonical SeoTrends daily compute'
-python3 "$BASE/scripts/refresh.py"
-python3 "$BASE/scripts/daily_scan.py" --workers 16 --timeout 5
+SOURCE_ALREADY_COMPLETE=$(python3 - "$BASE/scans/$DAY-semrush-queue.json" "$DAY" <<'PY'
+import json,sys
+try: j=json.load(open(sys.argv[1],encoding="utf-8"))
+except Exception: j={}
+ok=(j.get("date")==sys.argv[2] and j.get("scan_terminal") is True
+    and int(j.get("added_total") or 0)>0
+    and int(j.get("scanned") or 0)==int(j.get("added_total") or 0)
+    and int(j.get("count") or 0)==len(j.get("items") or []))
+print("yes" if ok else "no")
+PY
+)
+if [[ "$SOURCE_ALREADY_COMPLETE" == yes ]]; then
+  log "SeoTrends $DAY original source already complete; preserving added delta and 14-day snapshot on same-day replay"
+else
+  log 'Running VPS canonical SeoTrends daily compute'
+  python3 "$BASE/scripts/refresh.py"
+  python3 "$BASE/scripts/daily_scan.py" --workers 16 --timeout 5
+fi
 run_semrush
 run_terminal
 if [[ "$(is_auth_blocked)" == yes ]]; then

@@ -24,6 +24,10 @@ def atomic(path, content):
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, path)
 
+def parse_amount(x):
+    try: return float(str(x).replace(",","")) if x is not None and str(x).strip() else None
+    except (ValueError, TypeError): return None
+
 def normalize_domain(s):
     s = str(s or "").lower().strip()
     s = re.sub(r"^https?://", "", s).split("/")[0]
@@ -65,15 +69,27 @@ def read_seo(day):
     final = load(SEO / (day + "-terminal-verdicts.json"), {})
     items = list(queue.get("items", []))
     statuses = {normalize_domain(x.get("domain")): x for x in sem.get("items", [])}
+    terminals = {normalize_domain(x.get("domain")):x for x in final.get("verdicts", [])}
     rows = []
     for x in items:
         domain = normalize_domain(x.get("domain"))
         provider = statuses.get(domain, {})
         reason = str(provider.get("reason", ""))
-        state = "BLOCKED_PROVIDER" if auth_blocked(provider) or final.get("status") == "BLOCKED" else "WATCH_RESEARCH"
-        if provider.get("status") == "PASS" and final.get("status") != "BLOCKED":
-            state = "WATCH_DD"
-        rows.append({"identity":domain, "domain":domain, "source":"SEOTRENDS", "title":x.get("title", ""), "score":x.get("discovery_score",0), "verdict":state, "reason":reason[:200], "research":["Semrush existing broker","exact SERP","business/Niche DD"]})
+        terminal = terminals.get(domain, {})
+        terminal_verdict = str(terminal.get("verdict") or "")
+        if auth_blocked(provider) or final.get("status") == "BLOCKED" or (provider.get("status") not in ("PASS",) and final.get("status") != "PASS"):
+            state = "BLOCKED_PROVIDER"
+        elif terminal_verdict == "DROP":
+            state = "DROP"
+        elif terminal_verdict == "BUILD":
+            state = "SEO_BUILD_TEST"
+        elif terminal_verdict == "WATCH":
+            state = "WATCH_DD" if terminal.get("product_intent_checked") else "WATCH_RESEARCH"
+        elif provider.get("status") == "PASS":
+            state = "WATCH_RESEARCH"
+        else:
+            state = "BLOCKED_PROVIDER"
+        rows.append({"identity":domain, "domain":domain, "source":"SEOTRENDS", "title":x.get("title", ""), "score":x.get("discovery_score",0), "verdict":state, "reason":(terminal.get("reason") or reason)[:200], "metrics":terminal.get("metrics") or {}, "research":["Semrush existing broker","exact SERP","business/Niche DD"]})
     return {"items":rows, "added":queue.get("added_total"),"scanned":queue.get("scanned"),"pending":queue.get("pending"),"source_complete":bool(queue.get("scan_terminal")),"provider_status":sem.get("status","MISSING"),"terminal_status":final.get("status","MISSING")}
 
 def read_flippa(current_path, previous_path=None, deep_path=None):
@@ -101,7 +117,7 @@ def read_flippa(current_path, previous_path=None, deep_path=None):
         vetted = bool(card.get("vet"))
         if cost is not None and cost > MAX_BUY:
             continue
-        if not isinstance(profit,(int,float)) or profit < 0:
+        if isinstance(profit,(int,float)) and profit < 0:
             continue
         title = (card.get("heading") or card.get("title") or "")[:110]
         desc = (card.get("raw_text") or card.get("title") or "").lower()
@@ -109,12 +125,14 @@ def read_flippa(current_path, previous_path=None, deep_path=None):
         kind = str(card.get("pt") or "").lower()
         if any(w in kind for w in ("youtube channel", "twitter account", "facebook page", "ecommerce", "shopify store")):
             continue
-        if profit < 100 and not seo_hint:
+        if (profit is None or profit < 100) and not seo_hint:
             continue
         direct = deep.get(key, {})
         confirmed = direct.get("status") == 200 and direct.get("challenge") == "NONE"
-        reserve_s = direct.get("reserve")
-        reserve = float(reserve_s.replace(",","")) if reserve_s else None
+        reserve = parse_amount(direct.get("reserve"))
+        bin_price = parse_amount(direct.get("bin"))
+        asking_price = parse_amount(direct.get("asking"))
+        pageviews = parse_amount(direct.get("pageviews"))
         churn_s = direct.get("churn")
         churn = float(churn_s.rstrip("%")) if churn_s else None
         subs = int(direct.get("subs")) if str(direct.get("subs") or "").isdigit() else None
@@ -122,6 +140,10 @@ def read_flippa(current_path, previous_path=None, deep_path=None):
         reason = "Card only; auction start is not reserve"
         if confirmed and reserve is not None and reserve > MAX_BUY:
             verdict, reason = "DROP_BUY_CAP", "Verified reserve exceeds $10k cap"
+        elif confirmed and profit is None and pageviews is not None and pageviews < 200:
+            verdict, reason = "DROP_TRAFFIC_WEAK", "Under 200 monthly pageviews and no verified profits"
+        elif profit is None and seo_hint:
+            verdict, reason = "BUILD_REFERENCE", "SEO utility concept; no earnings or traffic proof, and auction card is not reserve"
         elif confirmed and churn is not None and churn >= 25:
             verdict, reason = "WATCH_CHURN", "Direct listing shows high churn"
         elif confirmed and subs is not None and subs < 20:
@@ -133,8 +155,8 @@ def read_flippa(current_path, previous_path=None, deep_path=None):
         elif confirmed and vetted and isinstance(profit,(int,float)) and profit >= 250:
             verdict, reason = "BUY_DD", "Economics need proof of recurring profit and transferability"
         research = ["direct current listing/attainable reserve","GSC/GA + Semrush + exact SERP","unit economics/processor/cohorts","BUY vs BUILD","selective independent Reddit/X/Facebook evidence"]
-        rows.append({"identity":"flippa:"+key, "id":key,"title":title,"url":card.get("href",""),"ask_card":cost,"profit_card":profit,"vetted_card":vetted,"reserve_verified":reserve,"subscriber_count":subs,"churn":churn,"source":"FLIPPA","verdict":verdict,"reason":reason,"research":research,"verified_detail":confirmed,"score":round((5 if vetted else 0) + min(5,max(0,profit)/200) + (2 if seo_hint else 0),2)})
-    rows.sort(key=lambda x:(x["verdict"] not in ("SEO_BUY_DD","BUY_DD"),-x["score"],x["identity"]))
+        rows.append({"identity":"flippa:"+key, "id":key,"title":title,"url":card.get("href",""),"ask_card":cost,"profit_card":profit,"vetted_card":vetted,"reserve_verified":reserve,"bin_verified":bin_price,"asking_verified":asking_price,"pageviews_verified":pageviews,"subscriber_count":subs,"churn":churn,"source":"FLIPPA","verdict":verdict,"reason":reason,"research":research,"verified_detail":confirmed,"score":round((5 if vetted else 0) + min(5,max(0,profit or 0)/200) + (2 if seo_hint else 0),2)})
+    rows.sort(key=lambda x:(x["verdict"] not in ("SEO_BUY_DD","BUY_DD","BUILD_REFERENCE"),-x["score"],x["identity"]))
     return {"status":"PASS","new":rows,"stats":{"first_access":len(set(current["first_ids"])),"recent":len(curr_ids),"entered_recent_window":len(delta),"exited_recent_window":len(prev_ids - curr_ids),"first_access_delta":len(set(current["first_ids"])-set(old.get("first_ids",[]))),"source_pages":len(pages)}}
 
 def build(day, flippa_current, previous=None, deep=None):
@@ -143,7 +165,7 @@ def build(day, flippa_current, previous=None, deep=None):
     queue = []
     # Explicit quotas prevent 10k domains or a full market crawl from overwhelming the provider.
     for x in flippa["new"]:
-        if x["verdict"] not in ("DROP_BUY_CAP",):
+        if x["verdict"] not in ("DROP_BUY_CAP","DROP_TRAFFIC_WEAK","DROP"):
             queue.append(x)
         if len([v for v in queue if v["source"] == "FLIPPA"]) >= 5: break
     for x in seo["items"]:
