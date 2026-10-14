@@ -581,7 +581,14 @@ def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
                 and extreme_high >= extreme_low > 0
             )
 
+    # A completed-session-only prospective reference entry needs the
+    # next session's adjusted open, never an assumed same-day close fill.
+    opening = num(pd.to_numeric(df.get("Open", pd.Series(index=df.index, dtype=float)), errors="coerce").loc[latest_idx]) if "Open" in df.columns else None
+    adj_open = opening * (last_adj / last_raw) if adj_available and opening and opening > 0 and last_raw > 0 else None
+
     return {
+        "open": opening,
+        "adjusted_open": adj_open,
         "price": last_raw,
         "adjusted_price": last_adj,
         "adjusted_intraday_high": extreme_high if intraday_extremes_verified else None,
