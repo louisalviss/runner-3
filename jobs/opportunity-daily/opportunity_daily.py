@@ -173,7 +173,14 @@ def build(day, flippa_current, previous=None, deep=None):
         if x["verdict"] not in ("DROP_BUY_CAP","DROP_TRAFFIC_WEAK","DROP"):
             queue.append(x)
         if len([v for v in queue if v["source"] == "FLIPPA"]) >= 5: break
-    for x in seo["items"]:
+    # A final DROP is a terminal decision, not a pending-research slot.
+    # Prioritize verified product-intent WATCH/BUILD_TEST before unmatched research.
+    priority = {"SEO_BUILD_TEST":0, "WATCH_DD":1, "WATCH_RESEARCH":2, "BLOCKED_PROVIDER":3}
+    seo_pending = sorted(
+        (x for x in seo["items"] if x["verdict"] != "DROP"),
+        key=lambda x:(priority.get(x["verdict"], 4), -float(x.get("score") or 0), x["identity"]),
+    )
+    for x in seo_pending:
         text = (x["title"]+" "+x["domain"]).lower()
         if any(w in text for w in ("bankfive", "news analysis", "electric motors", "it services and digital transformation", "digicom it services")):
             continue
@@ -234,7 +241,9 @@ def main(argv=None):
         print("RESULT", json.dumps({"overall":value["overall"],"research_count":len(value["research_queue"]),"flippa":value["flippa"]["stats"],"seo":len(value["seo"]["items"])}))
         return 0
     OUT.mkdir(parents=True,exist_ok=True)
-    source_hash = hashlib.sha256((json.dumps(value["seo"],sort_keys=True)+json.dumps(value["flippa"],sort_keys=True)).encode()).hexdigest()
+    # Fingerprint the decision output as well as inputs, so a fixed classifier cannot
+    # be hidden behind a stale same-date checkpoint with identical source files.
+    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"limits":value["limits"]},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     target = OUT/(args.date+"-manifest.json")
     prior = load(target,{})
     if prior.get("source_sha256") == source_hash:
