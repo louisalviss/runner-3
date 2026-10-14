@@ -8,6 +8,13 @@ Historical 326 liquid, volume-abnormal P/D episodes, 301 companies. Data from ac
 
 Prior "positive NI + CFO" vs "negative NI + CFO" 5D research check already guarded **both signs by <=185d freshness**: comparison remains **+0.879% N117** vs **-2.650% N68** after assumed 50bps; matched 11-source-date bootstrap CI [-0.857,+4.531]pp includes zero. Not a gate or investable positive alpha; all these signed NI/CFO cases fall inside 281 with >=4 fresh core fields.
 
+
+### Do not equate stale extracted fields with stale company reporting
+
+The 14 episodes that drop below the 4-of-6 fresh-core threshold are NOT confirmed to lack newer company disclosures. Thirteen are foreign-issuer observations with newer Form 6-K interim filings not covered by standardized US-GAAP CompanyFacts (ODD, TEN, NVMI, CAMT, BULL, GENI, ZTO, NICE, NBIS, ARCO, FUTU; repeat issuers). The one other case, HUM Oct09, has a 2026-Q2 10-Q accepted July29 even though the SEC CompanyFacts endpoint does not contain its Q2 observations for selected US-GAAP keys (confirmed by re-query).
+
+Mark all as NEEDS_ALTERNATIVE_PIT_REPORT_EXTRACTION. Inspect original 6-K/10-Q contemporaneous exhibits, not just CompanyFacts. Never remove these issuers from Gate-first or label FAIL because extracted fields lack freshness. File asof_fundamental_missing_interim_14.csv has time-correct SEC document URLs and classification. This is a DATA COVERAGE test, NOT a fundamental judgment or production gate.
+
 ## GNRC Sep17 — economic hurdle instead of fabricated valuation target
 
 SEC Sep16 8-K confirms Amazon long-term generator supply agreement, **expected initial deliveries totaling $2.4bn in 2027-28**, and aggregate up-to-$8bn contingent **payment milestones linked to warrants**; the latter is NOT $8bn of binding profit, revenue, or incremental guaranteed orders. Warrants allow purchase of up to 1,693,745 GNRC shares at $200.9266, with 307,954 vested on issuance.
