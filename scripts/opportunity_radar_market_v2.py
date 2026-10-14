@@ -264,6 +264,96 @@ def download_history(symbols: list[str]) -> dict[str, pd.DataFrame]:
 
 
 
+
+def nasdaq_completed_raw_shock_probe(
+    ranked_stale: list[str],
+    snapshot: dict[str, dict[str, Any]],
+    expected_session_date: str,
+    *,
+    requester: Any = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Read-only second-source rescue triage, never accepted market-price authority.
+
+    Nasdaq historical OHLC is *raw*: cash dividends and splits are not
+    independently reconciled. Thus these bars can establish a contemporaneous
+    abnormal raw move, but cannot set adjusted returns, complete coverage,
+    source_session, BUY_SIGNAL, or any trading/learning decision.
+    """
+    requester = requester or requests.get
+    target_date = date.fromisoformat(expected_session_date)
+    start = (target_date - timedelta(days=42)).isoformat()
+    selected = [
+        s for s in ranked_stale
+        if abs(num((snapshot.get(s) or {}).get("pctchange")) or 0)
+        >= abs(CFG["one_day_trigger_pct"])
+    ][:limit]
+    report: dict[str, Any] = {
+        "source": "NASDAQ_PUBLIC_HISTORICAL_RAW_OHLC",
+        "source_session_date": expected_session_date,
+        "policy": "DIAGNOSTIC_ONLY_NOT_ADJUSTED_NO_SIGNALS_NO_COVERAGE_CREDIT",
+        "requested": len(selected),
+        "confirmed_raw_moves": [],
+        "unverified": [],
+        "errors": 0,
+    }
+    for symbol in selected:
+        try:
+            response = requester(
+                f"https://api.nasdaq.com/api/quote/{symbol}/historical",
+                params={"assetclass": "stocks", "limit": "80",
+                        "fromdate": start, "todate": (target_date + timedelta(days=1)).isoformat()},
+                headers=HEADERS, timeout=7,
+            )
+            response.raise_for_status()
+            body = response.json()
+            if (body.get("status") or {}).get("rCode") != 200:
+                raise ValueError("NASDAQ_HISTORY_RESPONSE_NOT_OK")
+            rows = (((body.get("data") or {}).get("tradesTable") or {}).get("rows") or [])
+            bars: list[tuple[date, float, float]] = []
+            for row in rows:
+                try:
+                    row_date = datetime.strptime(str(row["date"]), "%m/%d/%Y").date()
+                    close, volume = num(row.get("close")), num(row.get("volume"))
+                    if row_date <= target_date and close is not None and close > 0 and volume is not None and volume > 0:
+                        bars.append((row_date, close, volume))
+                except (ValueError, KeyError, TypeError):
+                    continue
+            bars.sort(key=lambda x: x[0], reverse=True)
+            if len(bars) < 2 or bars[0][0] != target_date:
+                report["unverified"].append({"symbol": symbol, "reason": "MISSING_COMPLETED_SESSION_BAR"})
+                continue
+            today, previous = bars[:2]
+            raw_pct = pct(today[1], previous[1])
+            if raw_pct is None or abs(raw_pct) < abs(CFG["one_day_trigger_pct"]):
+                report["unverified"].append({"symbol": symbol, "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"})
+                continue
+            prior_volumes = [b[2] for b in bars[1:21]]
+            report["confirmed_raw_moves"].append({
+                "symbol": symbol,
+                "session": today[0].isoformat(),
+                "previous_session": previous[0].isoformat(),
+                "close_raw": round(today[1], 6),
+                "previous_close_raw": round(previous[1], 6),
+                "raw_return_1d_pct": round(raw_pct, 5),
+                "volume": today[2],
+                "volume_ratio_20d_raw": (
+                    round(today[2] / (sum(prior_volumes) / 20), 4)
+                    if len(prior_volumes) == 20 and sum(prior_volumes) > 0 else None
+                ),
+                "adjustment_verified": False,
+                "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+                "action": "NO_SIGNAL",
+            })
+        except Exception as exc:
+            report["errors"] += 1
+            report["unverified"].append({
+                "symbol": symbol, "reason": f"FETCH_OR_PARSE_{type(exc).__name__}"
+            })
+    return report
+
+
+
 def recover_fresh_market_history(
     history: dict[str, pd.DataFrame],
     eligible: list[str],
@@ -355,6 +445,19 @@ def recover_fresh_market_history(
     elif remaining:
         stats["wide_retry_skipped_reason"] = "LOW_PROBE_RECOVERY"
     stats["retry_unattempted"] = max(0, len(missing) - stats["retry_attempted"])
+    # A failed Yahoo-wide refresh must not erase high-conviction raw market
+    # anomalies. An independent Nasdaq OHLC read provides bounded review leads
+    # without treating unadjusted data as accepted pricing or signal authority.
+    refreshed, _ = partition_fresh_market_history(recovered, expected_session_date)
+    if len(refreshed) / max(1, len(eligible)) < CFG["min_history_coverage"]:
+        stats["nasdaq_raw_shock_probe"] = nasdaq_completed_raw_shock_probe(
+            ranked, snapshot, expected_session_date
+        )
+    else:
+        stats["nasdaq_raw_shock_probe"] = {
+            "policy": "NOT_NEEDED_FRESH_COVERAGE_PASS",
+            "requested": 0, "confirmed_raw_moves": [],
+        }
     print(
         "freshness recovery: "
         f"{stats['retry_recovered']}/{stats['retry_attempted']} recovered, "
