@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Daily SEO + acquisition join. Source scanners remain independent owners."""
 import argparse, datetime as dt, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+from build_buy_decision import qualify
 from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path("/var/lib/acquisition-radar-scan")
@@ -94,7 +95,7 @@ def read_seo(day):
             state = "WATCH_RESEARCH"
         else:
             state = "BLOCKED_PROVIDER"
-        rows.append({"identity":domain, "domain":domain, "source":"SEOTRENDS", "title":x.get("title", ""), "score":x.get("discovery_score",0), "verdict":state, "reason":(terminal.get("reason") or reason)[:200], "metrics":terminal.get("metrics") or {}, "research":["Semrush existing broker","exact SERP","business/Niche DD"]})
+        rows.append({"identity":domain, "domain":domain, "source":"SEOTRENDS", "title":x.get("title", ""), "score":x.get("discovery_score",0), "verdict":state, "reason":(terminal.get("reason") or reason)[:200], "metrics":terminal.get("metrics") or {}, "product_intent_checked":terminal.get("product_intent_checked") is True, "serp_gate":terminal.get("serp_gate"), "terminal_verdict":terminal_verdict or None, "research":["Semrush existing broker","exact SERP","business/Niche DD"]})
     return {"items":rows, "added":queue.get("added_total"),"scanned":queue.get("scanned"),"pending":queue.get("pending"),"source_complete":bool(queue.get("scan_terminal")),"provider_status":sem.get("status","MISSING"),"terminal_status":final.get("status","MISSING")}
 
 def read_flippa(current_path, previous_path=None, deep_path=None):
@@ -192,7 +193,8 @@ def build(day, flippa_current, previous=None, deep=None):
         identity = x["identity"]
         if identity in seen:continue
         seen.add(identity);deduped.append(x)
-    payload = {"schema":"opportunity-daily-v1","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if seo["terminal_status"]=="BLOCKED" or flippa["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
+    decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
+    payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"qualification":decision,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
     return payload
 
 def format_report(v):
@@ -202,11 +204,21 @@ def format_report(v):
         "## Coverage",
         "- SeoTrends: "+str(s["scanned"])+"/"+str(s["added"])+" daily added domains, "+str(len(s["items"]))+" shortlist; Semrush "+str(s["provider_status"])+"; terminal "+str(s["terminal_status"]),
         "- Flippa: "+str(f["stats"].get("first_access","?"))+" First Access, "+str(f["stats"].get("recent","?"))+" Recent-500; "+str(f["stats"].get("entered_recent_window","?"))+" entrants vs previous window (NOT necessarily newly listed).",
-        "- Research queue: "+str(len(v["research_queue"]))+"; automated purchases/bids: 0.","",
-        "## Prioritized research handoff (NOT BUY NOW / BUILD APPROVED)"]
-    for x in v["research_queue"][:12]:
-        val = x.get("url",x.get("domain",""))
-        lines.append("- **"+x["title"]+"** ["+x["source"]+" / "+x["verdict"]+"] "+val+"; "+x.get("reason","")+"; next: "+", ".join(x["research"][:3]))
+        "- Legacy source watch queue (not qualified DD): "+str(len(v["research_queue"]))+"; automated purchases/bids: 0.",""]
+    qualification=v.get("qualification") or {}
+    if qualification:
+        c=qualification.get("counts") or {}
+        lines += ["", "## Unified BUILD or BUY qualification", "- Qualification status: "+qualification["status"]+"; candidates actually checked: "+str(qualification["evaluated"])+" (not every Flippa card).", "- BUY approved: 0; BUILD approved: 0; DD shortlist: "+str(len(qualification["actionable_dd"]))+"; study/reference: "+str(len(qualification["study_queue"]))+".", "- Evidence status counts: "+", ".join(str(k)+"="+str(c[k]) for k in sorted(c)), "- Seller card earnings are NOT audited earnings; source domain traffic is NOT transferable to a new site.", "", "### DD candidates (not approval)"]
+        for x in qualification["actionable_dd"]:
+            lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; BUY="+x["buy"]["state"]+" / BUILD="+x["build"]["state"]+"; verify: "+", ".join(x["missing"][:3]))
+        if not qualification["actionable_dd"]: lines.append("- None: zero candidates have enough evidence to enter a focused DD shortlist.")
+        lines += ["", "### Study or reference only (not approved)"]
+        for x in qualification["study_queue"]:
+            lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; "+x["build"]["why"])
+        if not qualification["study_queue"]: lines.append("- None.")
+        lines += ["", "### Archived and not presented as an opportunity", "- "+str(qualification["evaluated"]-len(qualification["actionable_dd"])-len(qualification["study_queue"]))+" candidates remain fully documented in machine-readable qualification.candidates."]
+    else:
+        lines += ["", "## Unified BUILD or BUY qualification", "- NOT_RUN; no BUILD/BUY promotion possible."]
     lines += ["", "## Enforcement", "- Source results cannot be promoted by traffic/revenue headline alone; Semrush auth failure is BLOCKED, never zero demand.","- First Access/recent-window absence is NOT delisted/sold.", "- All social verification is candidate-targeted through existing source-owned adapters.", "- This is a machine-readable handoff. Human/semantic DD and source-local durability remain separately owned."]
     return "\n".join(lines)+"\n"
 
@@ -243,7 +255,7 @@ def main(argv=None):
     OUT.mkdir(parents=True,exist_ok=True)
     # Fingerprint the decision output as well as inputs, so a fixed classifier cannot
     # be hidden behind a stale same-date checkpoint with identical source files.
-    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"limits":value["limits"]},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     target = OUT/(args.date+"-manifest.json")
     prior = load(target,{})
     if prior.get("source_sha256") == source_hash:
@@ -251,7 +263,7 @@ def main(argv=None):
         return 0
     atomic(OUT/(args.date+"-report.md"),txt)
     atomic(OUT/(args.date+"-research-queue.json"),json.dumps(value,ensure_ascii=False,indent=2))
-    atomic(target,json.dumps({"date":args.date,"source_sha256":source_hash,"status":value["overall"],"flippa_state":str(current),"previous_state":str(prev) if prev else None,"research_count":len(value["research_queue"])},indent=2))
+    atomic(target,json.dumps({"date":args.date,"source_sha256":source_hash,"status":value["overall"],"flippa_state":str(current),"previous_state":str(prev) if prev else None,"research_count":len(value["research_queue"]),"qualification_status":value["qualification"]["status"],"qualified_dd_count":len(value["qualification"]["actionable_dd"]),"approved_buy":0,"approved_build":0},indent=2))
     print("CHECKPOINT_PASS",target,"status",value["overall"],"research",len(value["research_queue"]))
     return 0
 
