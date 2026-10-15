@@ -22,7 +22,7 @@
       "current_live_target_verified": false,
       "schema_parity_verified": false,
       "primary_key_and_row_digest_parity_verified": false,
-      "retention_review": "CALIBRATION_WORKER_D1_LINK_UNVERIFIED_KEEP_DATA"
+      "retention_review": "ISOLATED_STAGING_D1_OWNER_CONFIG_VERIFIED_NO_DELETE_UNTIL_REVIEW"
     },
     {
       "name": "clm-copilot-v1",
@@ -131,9 +131,22 @@
       "d1_binding_name": "DB",
       "stage_database_reference_variable": "CLM_STAGE_DB_UUID",
       "worker_has_cron": false,
-      "actual_binding_db_uuid_verified": false,
-      "actual_calibration_db_owner_confirmed": false,
-      "classification": "REVIEW_KEEP_PENDING_D1_SCHEMA_DEPENDENCY"
+      "actual_binding_db_uuid_verified": true,
+      "actual_calibration_db_owner_confirmed": true,
+      "classification": "ISOLATED_STAGING_D1_OWNER_CONFIG_VERIFIED_PRESERVE_PENDING_RETENTION_DECISION",
+      "actual_binding_source_config_verified": true,
+      "actual_binding_source_config_uuid": "7a7498ce-ece3-4fdd-9588-49e41834b942",
+      "verification_scope": "CODE_CONFIG_AND_STAGING_CHECKPOINT_ONLY_NOT_CURRENT_LIVE_WORKER_SETTINGS",
+      "source_branch": "louisalviss/android-secure-input-bridge:clm-calibration-isolated-staging-20261009",
+      "source_branch_wrangler_sha": "3c5e4ed346e1f92a318bc760c1d69150c784d0da",
+      "staging_pr": "https://github.com/louisalviss/android-secure-input-bridge/pull/13",
+      "staging_pr_state_as_checked": "OPEN_DRAFT_NOT_MERGED",
+      "staging_checkpoint_vps": "/opt/clm-clef-calibration-qa/ops/checkpoints/clm-calibration-staging-2026-10-09.md",
+      "staging_health_passed_historically": true,
+      "staging_post_inference_verified": false,
+      "production_d1_separate": "clm-copilot-v1",
+      "eligible_for_deletion": false,
+      "migrate_automatically": false
     },
     "context_index": {
       "source_cleanup_checkpoint": "ops/checkpoints/d1-review-merge-cleanup-2026-10-08-0515-VN.md",
