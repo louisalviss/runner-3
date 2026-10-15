@@ -61,3 +61,18 @@ These tables include live control-plane, authentication, mailbox, permalink and 
 - R2 `CLOUDFLARE-R2-COST-001` canonical Dropbox rev7: residual artifacts PUT source unattributed; GitHub seven R2 migration workflows offline HOLD-gated. No R2 LIST/PUT/GET made for this reconstruction.
 - Offline RSA use was solely to decode the previously generated source schema/count receipt on the same VPS; no Cloudflare bearer token, browser profile, cookie, or RSA private bytes copied or displayed.
 - D1 table counts represent **October 8 2026 only**. Treat Oct15 Watch 9 DB and write-rate as latest source presence evidence, not fresh content parity.
+
+
+## Source Worker cutover dependency cross-check (historical target)
+
+A separate static cross-check of authenticated source Worker inventory Oct14 versus Oct8 historical **six target Worker names** finds **18 source scripts classified PROTECT**, including service-bound `runner3-rss-fastlane`; 6 were present by name in the historical target snapshot. **12 retained/PROTECT workers had no same-named match in that old target snapshot**:
+
+`clm-conversation-copilot-api`, `ema-forward-monitor`, `media-library`, `rss-proxy`, `runner3-audio-chatgpt-bridge`, `runner3-audio-library`, `runner3-autocontent-ai`, `runner3-core`, `runner3-rss-fastlane`, `vbth-free-editorial-ai`, `wordpress-edge-proxy`, `wordpress-edge-proxy-v2`.
+
+This is **not current proof of 12 missing scripts**; target Oct8 list is stale and even matching names can have different code, cron, secrets and bindings. This defines the read-only parity backlog, NOT a deploy/delete list.
+
+Five source scheduled Workers: `rss-proxy`, `runner3-audio-library`, `runner3-core`, `runner3-core-reader-v33-preview`, `wave-rider-scanner`. `runner3-core-reader-v33-preview` has cron despite being classified REVIEW; no Worker is delete-eligible. `runner3-rss-fastlane` has **four inbound service bindings** and must not be omitted even with zero direct requests.
+
+Current GitHub `cloudflare/runner3-core/wrangler.jsonc` uses SOURCE account D1 UUIDs and Worker origin `https://runner3-core.ducduy2411.workers.dev`, cron `17 * * * *`, D1 bindings `DB`, `OPPORTUNITY_DB`, `LIBRARY_DB`, `BUSINESS_OPPORTUNITY_DB`, `TASK_CONTEXT_DB`, `CONTEXT_INDEX_DB`, `CONTENT_DB`, `RSS_DB`; R2 `ARTIFACTS=runner3-artifacts` and `AUDIO_MEDIA=runner3-wp-media`; Worker service `RSS_FASTLANE=runner3-rss-fastlane`. Binding the new target Worker without fresh target D1/R2, service and endpoint parity would point active production to incomplete data and could restart previously held R2 polling; **forbid blind deploy**.
+
+**Safe sequencing remains**: (a) fresh target name/metadata read-only audit by an explicitly permitted existing connected path, (b) live source+target D1 schema/primary-key/last-delta parity, (c) target Workers code/bindings/secrets references/cron staging with no production cron duplicates, (d) end-to-end rollback-ready smoke then user-approved reversible cutover, (e) old source cleanup last. R2 migration still blocked by billing policy.
