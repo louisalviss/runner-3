@@ -1,0 +1,75 @@
+{
+  "strict_comparable_after_original_6K_recovery": {
+    "OTHER_MIXED": 60,
+    "LOSS_AND_CASH_BURN": 78,
+    "MISSING_COMPARABLE": 48,
+    "POSITIVE_NI_AND_CFO": 140
+  },
+  "updated_from_missing_to_positive": [
+    {
+      "symbol": "TEN",
+      "date": "2026-09-11",
+      "before": "MISSING_COMPARABLE",
+      "after": "POSITIVE_NI_AND_CFO",
+      "net5": "7.235"
+    },
+    {
+      "symbol": "NVMI",
+      "date": "2026-09-14",
+      "before": "MISSING_COMPARABLE",
+      "after": "POSITIVE_NI_AND_CFO",
+      "net5": "5.865"
+    },
+    {
+      "symbol": "CAMT",
+      "date": "2026-09-14",
+      "before": "MISSING_COMPARABLE",
+      "after": "POSITIVE_NI_AND_CFO",
+      "net5": "10.132"
+    },
+    {
+      "symbol": "ZTO",
+      "date": "2026-09-21",
+      "before": "MISSING_COMPARABLE",
+      "after": "POSITIVE_NI_AND_CFO",
+      "net5": "-1.157"
+    },
+    {
+      "symbol": "NICE",
+      "date": "2026-09-21",
+      "before": "MISSING_COMPARABLE",
+      "after": "POSITIVE_NI_AND_CFO",
+      "net5": "-5.845"
+    },
+    {
+      "symbol": "TEN",
+      "date": "2026-09-23",
+      "before": "MISSING_COMPARABLE",
+      "after": "POSITIVE_NI_AND_CFO",
+      "net5": "0.743"
+    }
+  ],
+  "reported_periods_not_comparable": [
+    "NBIS 2026-09-24: Q2 net loss -$190.4m versus H1 CFO +$4,504.1m; remain MISSING_COMPARABLE"
+  ],
+  "before_positive": {
+    "mature_N": 117,
+    "mean_5D_net": 0.879
+  },
+  "after_positive": {
+    "mature_N": 123,
+    "mean_5D_net": 0.974
+  },
+  "after_burn": {
+    "mature_N": 68,
+    "mean_5D_net": -2.65
+  },
+  "paired_dates": 11,
+  "mean_matched_gap_pp": 1.581,
+  "95pct_day_bootstrap_pp": [
+    -0.917,
+    4.489
+  ],
+  "win_matched_days": 7,
+  "not_actionable_gate": true
+}
