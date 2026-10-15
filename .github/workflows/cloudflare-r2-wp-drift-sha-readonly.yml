@@ -21,6 +21,8 @@ jobs:
       CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
+      - name: Enforce global R2 Class A billing HOLD before any R2 request
+        run: python3 scripts/cloudflare_r2_migration_gate.py
       - name: Install read-only S3 client
         run: python3 -m pip install --quiet boto3
       - name: Offline security and targeted SHA tests
