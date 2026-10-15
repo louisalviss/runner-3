@@ -1,0 +1,23 @@
+{
+  "status": "PASS",
+  "event_rows": 14,
+  "distinct_issuers": 12,
+  "distinct_original_documents": 13,
+  "asof_timestamp_verified": 14,
+  "digit_matches_in_original_docs": 42,
+  "format_cases_verified": [
+    {
+      "ticker": "NBIS",
+      "type": "negative_parentheses",
+      "field": "net_income_millions"
+    },
+    {
+      "ticker": "ARCO",
+      "type": "1.3B_equivalent_1300M",
+      "field": "revenue_millions"
+    }
+  ],
+  "total_numeric_fields_checked": 44,
+  "period_consistency_exception": "NBIS Q2 net loss vs H1 CFO; no NI/CFO sign classification",
+  "BUY_SIGNAL_added": 0
+}
