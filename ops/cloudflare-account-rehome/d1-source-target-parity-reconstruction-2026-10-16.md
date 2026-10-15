@@ -76,3 +76,12 @@ Five source scheduled Workers: `rss-proxy`, `runner3-audio-library`, `runner3-co
 Current GitHub `cloudflare/runner3-core/wrangler.jsonc` uses SOURCE account D1 UUIDs and Worker origin `https://runner3-core.ducduy2411.workers.dev`, cron `17 * * * *`, D1 bindings `DB`, `OPPORTUNITY_DB`, `LIBRARY_DB`, `BUSINESS_OPPORTUNITY_DB`, `TASK_CONTEXT_DB`, `CONTEXT_INDEX_DB`, `CONTENT_DB`, `RSS_DB`; R2 `ARTIFACTS=runner3-artifacts` and `AUDIO_MEDIA=runner3-wp-media`; Worker service `RSS_FASTLANE=runner3-rss-fastlane`. Binding the new target Worker without fresh target D1/R2, service and endpoint parity would point active production to incomplete data and could restart previously held R2 polling; **forbid blind deploy**.
 
 **Safe sequencing remains**: (a) fresh target name/metadata read-only audit by an explicitly permitted existing connected path, (b) live source+target D1 schema/primary-key/last-delta parity, (c) target Workers code/bindings/secrets references/cron staging with no production cron duplicates, (d) end-to-end rollback-ready smoke then user-approved reversible cutover, (e) old source cleanup last. R2 migration still blocked by billing policy.
+
+
+## 2026-10-16 — Offline validation update
+
+- Fixed D1 inventory completeness validation in `scripts/cloudflare_target_readonly_inventory.py` (commit `36e32f75`). It now verifies page 1, result count and total_count, and fails closed if a first page might be incomplete; it does not silently accept missing pagination metadata.
+- Expanded synthetic tests in `scripts/tests/test_cloudflare_target_readonly_inventory.py` (commit `f055f20b`) to cover truncated first pages and missing pagination metadata.
+- Executed the synthetic tests on VPS with no Cloudflare calls: PASS for absent-token behavior, redacted bindings, incomplete/missing D1 pagination, and invalid bindings. Test process exited 0.
+- Executed the offline R2 migration guard tests: PASS. With current `COST_HOLD`, the guard exits 3 as designed before any Cloudflare request.
+- These are local test results, not proof of live target D1/Workers parity. No migration, production cutover, R2 operation, or source deletion occurred.
