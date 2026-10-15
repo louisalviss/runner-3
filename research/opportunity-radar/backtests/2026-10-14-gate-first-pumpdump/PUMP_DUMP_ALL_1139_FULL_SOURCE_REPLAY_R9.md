@@ -32,7 +32,7 @@ SEC point-in-time: selected CompanyFacts data only if associated SEC 10-Q/10-K/2
 
 ## Price-only hypothetical next NYSE open, NOT Gate trading
 
-Reference buy at the first NYSE regular-session 09:30 America/New_York open strictly after the original archived packet timestamp, then exit at the 1st/5th/20th regular-session close. Yahoo adjusted OHLC and matching SPY, subtract 0.50 percentage points round-trip cost. Price availability 703/708 chart series (707 stocks and SPY), 1,126/1,139 reference entries; five unavailable tickers. Last considered completed US session is Oct15 2026.
+Reference buy at the first NYSE regular-session 09:30 America/New_York open strictly after the original archived packet timestamp, then exit at the 1st/5th/20th regular-session close. Yahoo adjusted OHLC and matching SPY, subtract 0.50 percentage points round-trip cost. Price availability 703/708 chart series (707 stocks and SPY), 1,126/1,139 reference entries; five unavailable tickers. Last completed US session at audit capture (2026-10-16 01:57 UTC+07, Oct15 14:57 NY) is Oct14 2026. The cached Oct15 DAILY BAR WAS INTRADAY, therefore all Oct15 exits were discarded.
 
 | Research cohort | Fully matured 5D observations | Mean 5D net | % positive | Excess vs SPY |
 |---|---:|---:|---:|---:|
@@ -48,7 +48,7 @@ Reference buy at the first NYSE regular-session 09:30 America/New_York open stri
 
 **Financial-sign hypothesis:** Positive minus negative group spread +3.417 percentage points per event over 5D. However, only 12 independent source dates matured; positive-group mean becomes -0.475% using equal weights for dates. In 12 matched dates, mean difference +2.726pp, 9/12 positive, cluster-bootstrap 95% CI **[-0.128,+5.449]pp contains zero**. One event per issuer and 2.5/97.5% winsorized checks are in the robustness JSON. Correlation, sector mix and ex-post grouping remain unresolved. Do NOT promote an entry rule on this basis.
 
-Matured 1D: 1,126 cases, mean -1.438% net after assumed cost. Matured 20D: only 432 cases from five independent source dates, mean -4.043% and SPY-excess -6.149pp; too concentrated and immature to certify strategy profitability.
+Matured 1D: 1,126 cases, mean -1.438% net after assumed cost. Matured 20D: only 326 cases from four original source days, mean -0.356% after cost; 106 previous 20D exits dated Oct15 were prematurely marked complete and are now REMOVED. This is too concentrated to certify strategy profitability.
 
 There is **no confirmed original Gate-compliant limit fill in these 1,139 rows**, because original numeric entry zones and execution-state evidence are missing. The price-only returns are not actual or paper trading P&L.
 
