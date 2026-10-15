@@ -1,3 +1,4 @@
+import { traceR2PutCompleted } from "./r2-put-provenance.js";
 const RESTRICTED_DIRECT_ONLY = new Set(["projectsyndicate", "economist", "theatlantic"]);
 const ESSENTIAL_KINDS = new Set(["chart", "diagram", "screenshot"]);
 const MAX_SELECTED_IMAGES = 6;
@@ -231,6 +232,7 @@ async function cacheOneImage(env, article, item, reason) {
         sourceHash: token,
       },
     });
+    traceR2PutCompleted(env, "rss-cache-image");
   }
 
   return {
@@ -258,6 +260,7 @@ async function putArtifact(env, article, artifact, objectMetadata = {}) {
       cachedImageCount: String(images.filter((x) => x.cache_status === "cached").length),
     },
   });
+  traceR2PutCompleted(env, "rss-cache-original-rewrite");
 }
 
 async function articleForImages(env, articleId) {
