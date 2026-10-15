@@ -28,10 +28,6 @@
     "PT|LHX|BUY_SIGNAL|2026-09-15T10:42+07",
     "PT|LHX|BUY_SIGNAL|2026-09-16T09:14+07"
   ],
-  "historical_20d_net_mean_pct": -6.0501,
-  "historical_5d_net_mean_pct": -1.8024,
-  "historical_20d_winners": 0,
-  "historical_20d_SPY_excess_mean_pp": -8.7491,
   "hypothetical_capital_base_1000_cash_remaining_70percent_due_to_3_allocations": {
     "20d_total_model_pct": -1.815,
     "interpretation": "Constant $1000 initial capital, each paper signal $100 reference notional, assume three entries may overlap, no reinvestment, NO real broker fills or portfolio NAV calculation."
@@ -57,5 +53,17 @@
     }
   ],
   "drive_revisions_metadata_count": 159,
-  "revision_replay_coverage": "Only selected archived revisions were text-inspected; entire 159 revisions NOT exhaustively content-replayed."
+  "revision_replay_coverage": "Only selected archived revisions were text-inspected; entire 159 revisions NOT exhaustively content-replayed.",
+  "non_gate_compliant_nextopen_historical_20d_net_mean_pct": -6.0501,
+  "non_gate_compliant_nextopen_historical_5d_net_mean_pct": -1.8024,
+  "non_gate_compliant_nextopen_historical_20d_winners": 0,
+  "non_gate_compliant_nextopen_historical_20d_SPY_excess_mean_pp": -8.7491,
+  "authoritative_R4_limit_fill_source": "research/opportunity-radar/backtests/2026-10-14-gate-first-pumpdump/gate_first_limit_fills_3.csv",
+  "all_3_market_open_above_entry_limit": true,
+  "gate_valid_undisputed_broker_fills": 0,
+  "conditional_limit_fill_model": true,
+  "conditional_limit_5d_net50_mean_pct": -1.4797,
+  "conditional_limit_20d_net50_mean_pct": -5.7407,
+  "conditional_limit_20d_winners": 0,
+  "historical_entry_correction": "None of 3 next market opens was inside allowed archived zone. An OHLC low touching cap establishes only conditional limit-price possibility, not actual broker fill. No full 3,035 Gate backtest."
 }

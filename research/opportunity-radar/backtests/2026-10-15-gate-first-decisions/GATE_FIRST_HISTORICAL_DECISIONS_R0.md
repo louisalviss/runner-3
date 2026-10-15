@@ -1,30 +1,44 @@
-# Opportunity Radar — Gate-first historical decision audit (15 October 2026)
+# Gate-first candidate census and execution-corrected decision ledger — R5 companion
 
-**SHADOW RESEARCH.** Gate-first always comes FIRST across eligible issuers, whether or not any Pump/Dump is present. Pump/Dump is SECONDARY discovery and never substitutes for the same original Hard Persist, Master Score, MQ, net RR>=2, Entry and Execution Gate. No production change.
+Research SHADOW, 15 October 2026. Canonical original price-zone execution audit: **research/opportunity-radar/backtests/2026-10-14-gate-first-pumpdump/GATE_FIRST_EXECUTION_CORRECTED_R4.md** and companion **gate_first_limit_fills_3.csv**, merged in PR #416. This supplement does not supersede those results.
 
-## Historical sources and coverage
+## Priority and historical completeness
+Gate-first has priority #1 across all tickers without any Pump/Dump requirement. Pump/Dump is priority #2, additional discovery and passes EXACT SAME Hard Persist, Score>=80, MQ>=3, realistic R/R>=2, Entry and Execution. No production changes or new BUY.
 
-1. Native Google Sheet Opportunity Radar V2 Drive has **159 version-history revision metadata records**, Aug09–Oct15. Only selected revision export bodies were accessed, NOT the complete 159-revision replay (rate-limited). Revision 270 captured original LMT BUY Sep10 17:52 +07, revision 291 original LHX BUY Sep15 10:42 +07, revision 293 original LHX BUY Sep16 09:14 +07. Each revision was timestamped after the BUY but before the next market session was lost. Revision 298 Oct04 still retained all three paper IDs.
-2. Current Oct15 Candidates: **43 rows for 43 unique ticker symbols**. Score>=80 and MQ>=3 currently 7 symbols (**LHX, NOC, LMT, RTX, MRVL, P, SPXC**); all seven NOW have Entry NOT_READY, zero current BUY_SIGNAL. A CURRENT state cannot be backdated to previous triggers.
-3. Original Paper_Trades has 3 advisory BUY event IDs, 2 distinct issuers, both LHX entries overlapping and correlated. Paper marks represent prior US session closing reference, NOT real executed orders.
-4. Historic Git price prefilter: 15 complete timing-valid sessions, 3,035 symbols, 41,244 symbol-session price observations. No original PIT Score/MQ/catalyst, two-sided valuation, price-specific R/R, approved execution venue or Entry Gate for each of 3,035 symbols. **Unobserved full Gate = UNKNOWN, NOT FAIL**. The 43 curated rows cannot stand for 3,035 issuer economic underwrites.
+Drive Opportunity Radar native file lists 159 revision metadata records Aug09–Oct15; only selected revision exports were readable (some 429 rate-limited), NOT all 159 backtested. Three original BUY_SIGNAL timestamp events were verified using revision content and the original Paper_Trades ledger: LMT Sep10 17:52 +07, LHX Sep15 10:42 +07, LHX Sep16 09:14 +07. No signed real broker order/fill.
 
-## Original paper BUYs replayed with a tradable-time reference
+Current Oct15 Candidates has 43 curated rows; 7 are now Score>=80 + MQ>=3: **LHX, NOC, LMT, RTX, MRVL, P, SPXC**, all presently Entry NOT_READY. Do NOT backdate current Score/Entry into earlier snapshots. Market price archive has 3,035 ticker identities over 15 timing-qualified sessions and 41,244 symbol-session observations, not 3,035 archived economic Gate decisions. Unreviewed/absent Gate = UNKNOWN, never FAIL.
 
-Signal timestamp precedes US 09:30 New York opening; next actual US regular-session adjusted OPEN is reference entry. Exit at 1D/5D/20D session CLOSE, subtract assumed total 50bps, compare SPY over matching interval:
+## Execution corrections from canonical R4
+CRITICAL: **All three original following-market opens EXCEEDED their archived upper Entry caps.** Next-open market BUY reference in older price backtests is NOT allowed as a Gate-executable fill.
 
-| Signal +07 | Issuer | Next entry | Net 1D | Net 5D | Net 20D | 20D excess vs SPY |
-|---|---|---|---|---|---|---|
-| Sep10 17:52 | LMT | Sep10 $526.01 | +0.281% | +1.637% | **-5.593%** | -8.379pp |
-| Sep15 10:42 | LHX | Sep15 $251.90 | -1.389% | -2.473% | **-5.919%** | -8.538pp |
-| Sep16 09:14 | LHX | Sep16 $250.07 | -0.232% | -4.571% | **-6.638%** | -9.330pp |
+| Original advisory | Next US market open | Entry cap | Intraday US low | Market-open Gate eligible? | Limit cap touched by daily low? |
+|---|---:|---:|---:|---|---|
+| LMT Sep10 | $526.01 | $525 | $524.09 | NO | YES |
+| LHX Sep15 | $251.90 | $250 | $247.87 | NO | YES |
+| LHX Sep16 | $250.07 | $250 | $248.14 | NO | YES |
 
-Mean net 5D **-1.802%**, mean net 20D **-6.050%**, mean 20D excess vs SPY **-8.749pp**, 0/3 positive at 20D. Only **two independent companies**, correlated signals; not a statistically tested edge. With 10% original-capital weight per virtual signal and uninvested remaining 70%, summed 20D labels imply -1.815% of starting capital, **NOT actual time-aligned portfolio NAV** because exit dates differ, positions overlap and there are no broker fills.
+With a hypothetical resting limit order exactly at cap, if accepted/fillable at touch, after 0.5% total cost:
 
-Original BUY_SIGNAL lane was Deep Bottleneck (Gate-first). No historically documented P/D-origin plus FULL-Gate BUYs, but this does not prove all other unknown P/D candidates would fail if PIT inputs existed.
+| Original advisory | Day 5 | Day 20 |
+|---|---:|---:|
+| LMT Sep10 | +1.833% | -5.410% |
+| LHX Sep15 | -1.728% | -5.200% |
+| LHX Sep16 | -4.544% | -6.612% |
+| Mean 3 advisories, only 2 issuers | **-1.480%** | **-5.741%** |
 
-## Correct inference and next dependency
+No broker fills were observed, and OHLC does not prove queue priority, order submission before touch, spreads, or actual executable price. No independent three-position sample: two LHX tickets overlap, each nominal 10% of $1000 paper benchmark, meaning 20% same-issuer nominal virtual exposure, requiring issuer-level concentration/dedup review before real portfolio implementation. The non-Gate-valid next-open results have been segregated as **non_gate_valid_open_counterfactual_3.csv**; they are NOT official Gate entries.
 
-Source reconstruction now supports a **verified historical decision BUY ledger**, not an exhaustive full economic Gate backtest over all 3,035 issuers. Reusing current Gate scores/entry status for all past days or calling all other source-price tickers rejects is invalid. A proper test requires immutable snapshot at every detection of original as-of documents, catalyst thesis, score, MQ, bull/base/bear valuation, net RR, entry zone, binary blackout, venue and model version. Then replay exact BUY transitions and use next executable NYSE prices with matched SPY and capital allocation; measure incremental P/D+Gate without weakening Gate. Use untouched later sessions for independent validation.
+NOC historical revision 260: Score85.6 MQ4 and estimated RR2.09, but $515.57 > $515 max entry. Following day's low $516.00 did not touch that cap: actionable no-trade. This demonstrates Score/MQ and R/R are necessary, never sufficient alone.
 
-Saved data: candidate_current_gate_census.csv (Oct15, NOT historical), original_buy_signal_ledger.json, historical_buy_nextopen_returns_3.csv, gatefirst_documented_decisions_summary.json and QA_READBACK.json. NO edits to live Candidates, Paper_Trades, Gate, scan top80 or production.
+Historical 5 original Dropbox ORSNAP objects checked by R4: 3 decision_hash valid, 2 LMT mismatches; quarantine two LMT objects for immutable standalone evidence (hash mismatch does not prove tampering). Independent native sheet revision for original LMT BUY and Paper_Trades still exists; this report does not use mismatched LMT ORSNAP as a verified proof.
+
+## Results/limits
+- Gate-first historical documented advisory BUYs: 3 signals, 2 issuers.
+- Immediate next-open MARKET purchase meeting zone: 0/3.
+- Next-session intraday conditional resting limit touch: 3/3, no proven broker fills.
+- Conditional limit 20D net outcome reference: mean -5.741%, 0/3 positive. This remains conditional, not realized P&L.
+- Documented Pump/Dump+same FULL Gate BUYs: 0. Unknown P/D underwriting cannot be treated as FAIL.
+- Exhaustive 3,035 symbol economic Gate backtest is unavailable without complete contemporaneous economic research/score/downside/entry decisions; do not manufacture historical buys or reuse current prices.
+
+Artifacts: candidate_current_gate_census.csv (live Oct15 as-of only), original_buy_signal_ledger.json (original advisory IDs), non_gate_valid_open_counterfactual_3.csv (formerly nextopen ref, explicitly disallowed as full Gate purchases), gatefirst_documented_decisions_summary.json, QA_READBACK.json. For real executable limit scenarios, refer to R4 gate_first_limit_fills_3.csv. Production unchanged.
