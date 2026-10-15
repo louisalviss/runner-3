@@ -59,6 +59,6 @@ for (const [file,n] of expected) {
   assert.ok(s.startsWith('import { traceR2PutCompleted } from "./r2-put-provenance.js";'),file);
 }
 const rootEntry=readFileSync(path.join(root,"cloudflare/runner3-core/rss-reader-read-fast-entry.js"),"utf8");
-assert.equal((rootEntry.match(/traceR2PutCompleted\\(env, "/g)||[]).length,4,"seotrends entry");
+assert.equal((rootEntry.match(/traceR2PutCompleted\(env, "/g)||[]).length,4,"seotrends entry");
 assert.ok(rootEntry.startsWith('import { traceR2PutCompleted } from "./src/r2-put-provenance.js";'));
 console.log("PASS r2-put-provenance: opt-in, no sensitive payload, error isolation, writer-site coverage");
