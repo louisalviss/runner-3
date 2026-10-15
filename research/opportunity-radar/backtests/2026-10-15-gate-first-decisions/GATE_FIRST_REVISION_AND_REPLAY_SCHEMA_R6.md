@@ -34,3 +34,16 @@ Canonical merged PR416 R4 shows all three original following-day MARKET opens ab
 This does not imply 3,035 market price tickers had completed Score/MQ/valuation Gate decisions. Missing original point-in-time economic underwriting means UNKNOWN, never FAIL or backfilled BUY. Gate-first first, Pump/Dump plus SAME Gate secondary, zero verified historical original P/D-origin BUY. Live and paper execution unchanged.
 
 Data: gatefirst_revision_sampled_10_summary.csv; gatefirst_highscore_revision_states_10.csv; entry_ready_no_buy_near_miss_3.csv; replay_schema_compatibility_5.json. R4 and R5 in main remain authoritative for Entry and 43 current Candidates respectively.
+
+
+## Optional non-trading classifier implementation (follow-up)
+
+To prevent ENTRY_READY/Score from being promoted to fictional BUY, the separate
+louisalviss/opportunity-radar research PR #24 adds replay/archived_buy_intent.py
+and tests, with **no changes to replay/engine.py or the active scanner**.
+All existing 51 repository tests plus eight new tests passed, total 59/59.
+Re-tested on the five original archived Dropbox objects: exactly two
+QUARANTINE_HASH, three NO_ORIGINAL_BUY, zero claimed fills. The output and
+source pointers are in failclosed_adapter_original5_QA.json. This remains an
+intent classifier and does not solve missing PIT economic source data nor
+normalize a mismatched original snapshot into a valid BUY.
