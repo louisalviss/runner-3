@@ -34,3 +34,10 @@ Used Python `sqlite3.connect(':memory:')` (SQLite 3.46.1) on SQL texts in lexica
 Cross-reference: `ops/cloudflare-account-rehome/d1-source-target-parity-reconstruction-2026-10-16.md`, `ops/checkpoints/cloudflare-account-migration-2026-10-08.md`.
 
 **Outcome:** Static audit and scratch run executed, but **zero account-to-account D1 tables or Workers migrated in this pass**. This report is not approval to run remote migration SQL.
+
+
+## 26/26 Git blob integrity check
+
+- Separately queried GitHub `main` recursive Git tree and the preexisting VPS checkout `git ls-tree -r HEAD` without modifying either repository.
+- Compared exact SHA-1 Git **blob IDs** of every file under `cloudflare/runner3-core/migrations/*.sql`: **26/26 MATCH**, no paths added/missing. Therefore the full 26-SQL-file offline scan and scratch SQLite test used byte-identical SQL to GitHub `main` at this check. This does **not** establish Cloudflare D1 production applied-ledger, live schema parity, or safety of executing migrations.
+- GitHub compare reported 318 commits between local checkout and `main`, so **other non-migration files may have changed**; this validation is specifically limited to the 26 SQL file blobs.
