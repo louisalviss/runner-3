@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "status": "HISTORICAL_DRAFT_READ_ONLY_NO_DEPLOY",
+  "source_account_id": "7415a87f6bce7884e73ad7cfed5782df",
+  "target_account_id": "748a80810f77f447ee476543ef0e5014",
+  "worker": "runner3-core",
+  "source_wrangler_path": "cloudflare/runner3-core/wrangler.jsonc",
+  "source_wrangler_blob_sha": "c8b1b84e9d503954e1933b4aacc4e34fa887ff82",
+  "target_inventory_asof": "2026-10-08",
+  "target_inventory_vps_path": "/var/lib/cloudflare-migration/2026-10-08/target-d1-map.json",
+  "bindings": [
+    {
+      "binding": "DB",
+      "database_name": "runner3-core",
+      "source_database_id": "514a2c61-3f7a-44d0-a51b-e07525d32a5d",
+      "historical_target_database_id": "477fc6b8-4dec-4e15-afa7-eefa3846fba1",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "OPPORTUNITY_DB",
+      "database_name": "runner3-opportunity-radar",
+      "source_database_id": "823fccf7-0d71-4849-b262-4974ffbc49f2",
+      "historical_target_database_id": "9a593680-ca8d-4842-84e0-2bfe10e798f6",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "LIBRARY_DB",
+      "database_name": "personal-library",
+      "source_database_id": "739f4891-7aa1-4381-a5f7-fff91d794609",
+      "historical_target_database_id": "22590669-9a89-4d07-831f-190b6f6b90ca",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "BUSINESS_OPPORTUNITY_DB",
+      "database_name": "runner3-opportunity-radar",
+      "source_database_id": "823fccf7-0d71-4849-b262-4974ffbc49f2",
+      "historical_target_database_id": "9a593680-ca8d-4842-84e0-2bfe10e798f6",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "TASK_CONTEXT_DB",
+      "database_name": "louis-task-context",
+      "source_database_id": "c38edfd8-fe68-4ff6-bfda-3ee2aac45352",
+      "historical_target_database_id": "a45b4bc9-82bf-41ee-9116-89dc3c2af5a6",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "CONTEXT_INDEX_DB",
+      "database_name": "louis-task-context",
+      "source_database_id": "c38edfd8-fe68-4ff6-bfda-3ee2aac45352",
+      "historical_target_database_id": "a45b4bc9-82bf-41ee-9116-89dc3c2af5a6",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "CONTENT_DB",
+      "database_name": "runner3-content-intelligence",
+      "source_database_id": "9cbec4ec-c930-459d-9499-9c66166c9241",
+      "historical_target_database_id": "82613659-8d08-455f-b6e7-f8f6e4312e22",
+      "current_target_parity_verified": false
+    },
+    {
+      "binding": "RSS_DB",
+      "database_name": "runner3-rss",
+      "source_database_id": "ddc46c3b-c463-4f91-a298-0bc73152901f",
+      "historical_target_database_id": "5b733890-ccfa-4472-95c4-8c2d97d0aa02",
+      "current_target_parity_verified": false
+    }
+  ],
+  "counts": {
+    "bindings": 8,
+    "unique_databases": 6
+  },
+  "same_database_aliases": [
+    [
+      "OPPORTUNITY_DB",
+      "BUSINESS_OPPORTUNITY_DB"
+    ],
+    [
+      "TASK_CONTEXT_DB",
+      "CONTEXT_INDEX_DB"
+    ]
+  ],
+  "r2": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket": "runner3-artifacts",
+      "parity_verified": false
+    },
+    {
+      "binding": "AUDIO_MEDIA",
+      "bucket": "runner3-wp-media",
+      "parity_verified": false
+    }
+  ],
+  "service_bindings": [
+    {
+      "binding": "RSS_FASTLANE",
+      "service": "runner3-rss-fastlane",
+      "target_verified": false
+    }
+  ],
+  "source_cron_expressions": [
+    "17 * * * *"
+  ],
+  "target_cron_enable_allowed": false,
+  "source_production_cutover_allowed": false,
+  "target_d1_migration_allowed": false,
+  "verified_current_live": false,
+  "r2_cost_hold": true,
+  "zero_source_delete": true,
+  "blocking_gates": [
+    "fresh_target_d1_inventory",
+    "live_source_target_schema_and_rows",
+    "pk_and_content_digest_parity",
+    "delta_sync",
+    "target_worker_code_and_service_and_secret_refs",
+    "r2_parity_and_cost_hold_release",
+    "cron_deduplication_and_reversible_cutover"
+  ]
+}
