@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "gate_id": "CLOUDFLARE-R2-COST-001",
+  "account_source": "7415a87f6bce7884e73ad7cfed5782df",
+  "account_target": "748a80810f77f447ee476543ef0e5014",
+  "status": "HOLD",
+  "permit_r2_migration": false,
+  "rule": "Block manual R2 migration and R2 inspection workflows BEFORE any Cloudflare R2 request. Read-only GitHub/D1/Worker research allowed.",
+  "release_requirements": [
+    "CLOUDFLARE-R2-COST-001 canonical D1+Dropbox rev reports incident controlled",
+    "Residual runner3-artifacts PUT traced or cost impact explicitly approved",
+    "Explicit user authorization for one bounded R2 migration and operation budget",
+    "GitHub source gate file reviewed and changed only with documented approval"
+  ],
+  "last_verified": "2026-10-15",
+  "canonical_task": "/Task/active/CLOUDFLARE-R2-COST-001.md"
+}
