@@ -1,6 +1,15 @@
 #!/opt/chatgpt-bridge/venv/bin/python
 from __future__ import annotations
 import argparse, json, pathlib, re, socket, time
+
+COOLDOWN_PATH = pathlib.Path('/var/lib/semrush-research/config/provider-rate-limit.json')
+
+def cooldown_remaining():
+    try:
+        val = json.loads(COOLDOWN_PATH.read_text())
+        return max(0, int(float(val.get('until_epoch') or 0) - time.time()))
+    except (OSError, ValueError, TypeError):
+        return 0
 from urllib.parse import urlparse
 from collections import Counter
 
@@ -100,6 +109,11 @@ def main():
         for kw in kws:
             if (r['cluster_id'],kw) not in done: pending.append((r['cluster_id'],kw))
     try:
+        if pending and cooldown_remaining() > 0:
+            state.update(stage='BLOCKED_RATE_LIMIT', blocker='PERSISTED_COOLDOWN', retry_after_seconds=cooldown_remaining(), updated_at=ts())
+            persist_state(statep, state)
+            print(json.dumps({'status':'BLOCKED','reason':'PERSISTED_COOLDOWN','state':state},ensure_ascii=False))
+            return 5
         if pending:
             try:
                 runtime_preflight=require_semrush_preflight()
@@ -119,8 +133,10 @@ def main():
             state['runtime_preflight']={'status':'SKIPPED_NO_PENDING'}
             persist_state(statep,state)
         with rawp.open('a',encoding='utf-8') as f:
-            for i in range(0,len(pending),6):
-                batch=pending[i:i+6]
+            for i in range(0,len(pending),1):
+                if i > 0:
+                    time.sleep(8.0)
+                batch=pending[i:i+1]
                 calls=[{'tag':cid+'\t'+kw,'method':'serp.GetURLs','args':{'phrase':kw,'device':0,'currency':'USD','database':'us','location':0,'date':''}} for cid,kw in batch]
                 vals=rpc_many(calls); by={v.get('tag'):v for v in vals}
                 batch_errors=[v.get('error') for v in vals if isinstance(v,dict) and v.get('error') is not None]
