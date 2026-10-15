@@ -1,0 +1,69 @@
+{
+  "asof": "2026-10-15",
+  "sheet_id": "1a8Sc3oJjb9D8IQHbk8jNtenzdwrW0CQApjv25wmTtNQ",
+  "current_candidate_count": 43,
+  "current_unique_symbols": 43,
+  "current_score80": 7,
+  "score80_symbols": [
+    "LHX",
+    "NOC",
+    "LMT",
+    "RTX",
+    "MRVL",
+    "P",
+    "SPXC"
+  ],
+  "current_score80_mq3": 7,
+  "current_entry_not_ready": 36,
+  "current_exec_buy": 0,
+  "paper_buy_count": 3,
+  "paper_unique_issuers": 2,
+  "notes": [
+    "Current candidate record is not archived at each prior detection point",
+    "No original full economic Gate evaluation for every source universe ticker; do not label missing as FAIL",
+    "Two overlapping LHX paper signals count as one underlying issuer"
+  ],
+  "source_ledger_buy_ids": [
+    "PT|LMT|BUY_SIGNAL|2026-09-10T17:52+07",
+    "PT|LHX|BUY_SIGNAL|2026-09-15T10:42+07",
+    "PT|LHX|BUY_SIGNAL|2026-09-16T09:14+07"
+  ],
+  "hypothetical_capital_base_1000_cash_remaining_70percent_due_to_3_allocations": {
+    "20d_total_model_pct": -1.815,
+    "interpretation": "Constant $1000 initial capital, each paper signal $100 reference notional, assume three entries may overlap, no reinvestment, NO real broker fills or portfolio NAV calculation."
+  },
+  "original_revision_proof": [
+    {
+      "rev": "270",
+      "modified_utc": "2026-09-11T00:44:14.637Z",
+      "symbol": "LMT",
+      "execution_buy_emitted_plus07": "2026-09-10T17:52:00+07:00"
+    },
+    {
+      "rev": "291",
+      "modified_utc": "2026-09-15T03:47:39.724Z",
+      "symbol": "LHX",
+      "execution_buy_emitted_plus07": "2026-09-15T10:42:00+07:00"
+    },
+    {
+      "rev": "293",
+      "modified_utc": "2026-09-16T02:15:58.542Z",
+      "symbol": "LHX",
+      "execution_buy_emitted_plus07": "2026-09-16T09:14:00+07:00"
+    }
+  ],
+  "drive_revisions_metadata_count": 159,
+  "revision_replay_coverage": "Only selected archived revisions were text-inspected; entire 159 revisions NOT exhaustively content-replayed.",
+  "non_gate_compliant_nextopen_historical_20d_net_mean_pct": -6.0501,
+  "non_gate_compliant_nextopen_historical_5d_net_mean_pct": -1.8024,
+  "non_gate_compliant_nextopen_historical_20d_winners": 0,
+  "non_gate_compliant_nextopen_historical_20d_SPY_excess_mean_pp": -8.7491,
+  "authoritative_R4_limit_fill_source": "research/opportunity-radar/backtests/2026-10-14-gate-first-pumpdump/gate_first_limit_fills_3.csv",
+  "all_3_market_open_above_entry_limit": true,
+  "gate_valid_undisputed_broker_fills": 0,
+  "conditional_limit_fill_model": true,
+  "conditional_limit_5d_net50_mean_pct": -1.4797,
+  "conditional_limit_20d_net50_mean_pct": -5.7407,
+  "conditional_limit_20d_winners": 0,
+  "historical_entry_correction": "None of 3 next market opens was inside allowed archived zone. An OHLC low touching cap establishes only conditional limit-price possibility, not actual broker fill. No full 3,035 Gate backtest."
+}
