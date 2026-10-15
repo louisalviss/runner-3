@@ -1,0 +1,80 @@
+{
+  "n_5d_matured": 951,
+  "positive_vs_negative_financial_sign_per_event_pp": 3.417,
+  "matched_date_count": 12,
+  "matched_date_gap_pp": 2.726,
+  "matched_date_days_positive": 9,
+  "95pct_day_cluster_bootstrap_pp": [
+    -0.128,
+    5.449
+  ],
+  "matched_date_gaps": {
+    "2026-09-11": 9.47,
+    "2026-09-14": -0.009,
+    "2026-09-15": -6.07,
+    "2026-09-16": 4.159,
+    "2026-09-17": 2.332,
+    "2026-09-18": -5.789,
+    "2026-09-21": 2.534,
+    "2026-09-22": 4.03,
+    "2026-09-23": 1.329,
+    "2026-09-24": 2.232,
+    "2026-09-25": 10.176,
+    "2026-10-05": 8.316
+  },
+  "first_issuer_and_Pump_or_Dump": {
+    "first_unique_issuer": {
+      "POSITIVE_NET_INCOME_AND_OPERATING_CF": {
+        "N": 210,
+        "mean": 1.21,
+        "median": 0.491,
+        "pct_positive": 53.3
+      },
+      "NEGATIVE_NET_INCOME_AND_OPERATING_CF": {
+        "N": 178,
+        "mean": -1.937,
+        "median": -2.243,
+        "pct_positive": 37.1
+      }
+    },
+    "Pump_or_Dump": {
+      "PUMP": {
+        "POSITIVE_NET_INCOME_AND_OPERATING_CF": {
+          "N": 138,
+          "mean": -0.195,
+          "median": -0.288,
+          "pct_positive": 48.6
+        },
+        "NEGATIVE_NET_INCOME_AND_OPERATING_CF": {
+          "N": 158,
+          "mean": -2.423,
+          "median": -3.834,
+          "pct_positive": 38.6
+        }
+      },
+      "DUMP": {
+        "POSITIVE_NET_INCOME_AND_OPERATING_CF": {
+          "N": 156,
+          "mean": 2.234,
+          "median": 1.721,
+          "pct_positive": 58.3
+        },
+        "NEGATIVE_NET_INCOME_AND_OPERATING_CF": {
+          "N": 128,
+          "mean": -2.199,
+          "median": -2.419,
+          "pct_positive": 35.9
+        }
+      }
+    }
+  },
+  "return_winsor_bounds": [
+    -22.317,
+    22.069
+  ],
+  "winsor_means": {
+    "POSITIVE_NET_INCOME_AND_OPERATING_CF": 0.976,
+    "NEGATIVE_NET_INCOME_AND_OPERATING_CF": -2.23
+  },
+  "warning": "All observational ex-post buckets, no Gate BUY. 12 or fewer source days, clustered issuers and date effect, per-company financial sign may reflect year-to-date cash flows."
+}
