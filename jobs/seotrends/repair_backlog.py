@@ -20,10 +20,17 @@ def atomic(path,payload):
 def run(cmd,timeout):
     p=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=False)
     return {'rc':p.returncode,'stdout':(p.stdout or '')[-1000:],'stderr':(p.stderr or '')[-1000:]}
+def quota_blocked(day):
+    term=load(SCANS/f'{day}-serp-dd-product-v2/state.json')
+    sem=load(SCANS/f'{day}-semrush-results.json')
+    return (term.get('stage')=='BLOCKED_QUOTA_LIMIT' or
+            'SEMRUSH_REPORT_LIMIT' in str(sem.get('global_blocker') or '') or
+            '-2004' in str(sem.get('global_blocker') or ''))
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--days',type=int,default=14); ap.add_argument('--exclude-today',action='store_true'); a=ap.parse_args()
     today=datetime.now(timezone.utc).date(); report=[]
-    for delta in range(a.days,-1,-1):
+    for delta in range(0,a.days+1):
         d=today-timedelta(days=delta)
         if a.exclude_today and d==today: continue
         day=d.isoformat(); q=SCANS/f'{day}-semrush-queue.json'
@@ -46,10 +53,13 @@ def main():
         terminal_after=load(tr).get('status'); rec['terminal_after']=terminal_after
         rec['changed']=(before!=after) or (terminal_before!=terminal_after)
         report.append(rec)
+        if quota_blocked(day):
+            rec['status']='BLOCKED_QUOTA_LIMIT'
+            break
         if cooldown_remaining()>0:
             rec['status']='BLOCKED_RATE_LIMIT'
             rec['retry_after_seconds']=cooldown_remaining()
             break
-    payload={'status':('BLOCKED_RATE_LIMIT' if report and report[-1].get('status')=='BLOCKED_RATE_LIMIT' else 'PASS'),'generated_at':datetime.now(timezone.utc).isoformat(),'window_days':a.days,'exclude_today':a.exclude_today,'checked':len(report),'changed_dates':[r['date'] for r in report if r.get('changed')],'report':report}
+    payload={'status':(report[-1]['status'] if report and report[-1].get('status') in ('BLOCKED_RATE_LIMIT','BLOCKED_QUOTA_LIMIT') else 'PASS'),'generated_at':datetime.now(timezone.utc).isoformat(),'window_days':a.days,'exclude_today':a.exclude_today,'checked':len(report),'changed_dates':[r['date'] for r in report if r.get('changed')],'report':report}
     atomic(REPORT,payload); print(json.dumps(payload,ensure_ascii=False)); return 0
 if __name__=='__main__': raise SystemExit(main())
