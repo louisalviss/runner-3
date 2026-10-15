@@ -1,0 +1,22 @@
+{
+  "all": 1139,
+  "pump": 579,
+  "dump": 560,
+  "nextopen_reference_available": 1126,
+  "pump_have_downside_to_prejump_scenario": 571,
+  "pump_no_downside_scenario": 8,
+  "required_bull_target_growth_buckets": {
+    ">=50%": 10,
+    "10-20%": 331,
+    "30-50%": 48,
+    "<10%": 31,
+    "20-30%": 151
+  },
+  "no_gate_certified": true,
+  "caveats": [
+    "Source daily return uses previous close derived from source record and is a technical reversion proxy, not economically justified downside.",
+    "Scenario target values are required hurdle only, not independently researched fair value.",
+    "Next session OPEN is only a synthetic reference; original Entry zone, market recheck, commissions and broker fill remain unverified.",
+    "For DUMP the previous-day close is upside reference only, never downside."
+  ]
+}
