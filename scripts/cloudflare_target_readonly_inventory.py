@@ -97,10 +97,23 @@ def read_inventory(token):
     if TARGET == SOURCE:
         raise AuditBlocked("SOURCE_TARGET_NOT_DISTINCT")
     data = get(token, "/d1/database?per_page=100&page=1")
-    paging = data.get("result_info") or {}
-    if int(paging.get("total_pages") or 1) != 1:
-        raise AuditBlocked("D1_PAGINATION_UNVERIFIED")
+    # D1 List is paginated. API result_info.total_count is the documented
+    # completeness signal; total_pages is OPTIONAL and must not be assumed 1.
+    # Never silently accept a truncated first page as a full account inventory.
     d1 = limited_unique(data.get("result"), "name", MAX_DATABASES, "D1")
+    paging = data.get("result_info")
+    if not isinstance(paging, dict):
+        raise AuditBlocked("D1_PAGINATION_UNKNOWN")
+    expected = paging.get("total_count")
+    page = paging.get("page")
+    count = paging.get("count")
+    if type(expected) is not int or type(page) is not int or type(count) is not int:
+        raise AuditBlocked("D1_PAGINATION_INVALID")
+    if page != 1 or expected != len(d1) or count != len(d1):
+        raise AuditBlocked("D1_INVENTORY_INCOMPLETE")
+    total_pages = paging.get("total_pages")
+    if total_pages is not None and (type(total_pages) is not int or total_pages != 1):
+        raise AuditBlocked("D1_PAGINATION_INCOMPLETE")
     d1_names = [x["name"] for x in d1]
     scripts_data = get(token, "/workers/scripts")
     worker_list = limited_unique(scripts_data.get("result"), "id", MAX_WORKERS, "WORKER")
