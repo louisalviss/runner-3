@@ -1,0 +1,296 @@
+{
+  "policy": "Do not fill at next open if outside original zone; conditional resting limit only if later OHLC range includes zone, no order/fill evidence",
+  "fee_total_roundtrip_pct_points": 0.5,
+  "signal_count": 3,
+  "distinct_tickers": 2,
+  "cases": [
+    {
+      "symbol": "LMT",
+      "source_session": "2026-09-09",
+      "signal": "2026-09-10T17:52:00+07:00",
+      "expiration": "2026-09-11T03:00:00+07:00",
+      "NYSE_session": "2026-09-10",
+      "entry_zone": [
+        515.0,
+        525.0
+      ],
+      "historical_reference": 524.46,
+      "OHLC": {
+        "open": 526.01,
+        "high": 531.0,
+        "low": 524.09,
+        "close": 530.12
+      },
+      "opens_in_zone": false,
+      "touches_zone": true,
+      "touches_reference": true,
+      "conditional_limit_cap": 525.0,
+      "user_real_execution": false,
+      "outcomes": {
+        "1D_open_regardless_gate": {
+          "net50_pct": 0.281,
+          "exit_session": "2026-09-10"
+        },
+        "1D_zone_cap_conditional_limit": {
+          "net50_pct": 0.475,
+          "exit_session": "2026-09-10"
+        },
+        "1D_prior_close_reference_if_touched": {
+          "net50_pct": 0.579,
+          "exit_session": "2026-09-10"
+        },
+        "5D_open_regardless_gate": {
+          "net50_pct": 1.637,
+          "exit_session": "2026-09-16"
+        },
+        "5D_zone_cap_conditional_limit": {
+          "net50_pct": 1.833,
+          "exit_session": "2026-09-16"
+        },
+        "5D_prior_close_reference_if_touched": {
+          "net50_pct": 1.939,
+          "exit_session": "2026-09-16"
+        },
+        "20D_open_regardless_gate": {
+          "net50_pct": -5.593,
+          "exit_session": "2026-10-07"
+        },
+        "20D_zone_cap_conditional_limit": {
+          "net50_pct": -5.41,
+          "exit_session": "2026-10-07"
+        },
+        "20D_prior_close_reference_if_touched": {
+          "net50_pct": -5.313,
+          "exit_session": "2026-10-07"
+        }
+      }
+    },
+    {
+      "symbol": "LHX",
+      "source_session": "2026-09-14",
+      "signal": "2026-09-15T10:42:00+07:00",
+      "expiration": "2026-09-16T03:00:00+07:00",
+      "NYSE_session": "2026-09-15",
+      "entry_zone": [
+        245.0,
+        250.0
+      ],
+      "historical_reference": 248.93,
+      "OHLC": {
+        "open": 251.9,
+        "high": 253.12,
+        "low": 247.87,
+        "close": 249.66
+      },
+      "opens_in_zone": false,
+      "touches_zone": true,
+      "touches_reference": true,
+      "conditional_limit_cap": 250.0,
+      "user_real_execution": false,
+      "outcomes": {
+        "1D_open_regardless_gate": {
+          "net50_pct": -1.389,
+          "exit_session": "2026-09-15"
+        },
+        "1D_zone_cap_conditional_limit": {
+          "net50_pct": -0.636,
+          "exit_session": "2026-09-15"
+        },
+        "1D_prior_close_reference_if_touched": {
+          "net50_pct": -0.207,
+          "exit_session": "2026-09-15"
+        },
+        "5D_open_regardless_gate": {
+          "net50_pct": -2.473,
+          "exit_session": "2026-09-21"
+        },
+        "5D_zone_cap_conditional_limit": {
+          "net50_pct": -1.728,
+          "exit_session": "2026-09-21"
+        },
+        "5D_prior_close_reference_if_touched": {
+          "net50_pct": -1.303,
+          "exit_session": "2026-09-21"
+        },
+        "20D_open_regardless_gate": {
+          "net50_pct": -5.919,
+          "exit_session": "2026-10-12"
+        },
+        "20D_zone_cap_conditional_limit": {
+          "net50_pct": -5.2,
+          "exit_session": "2026-10-12"
+        },
+        "20D_prior_close_reference_if_touched": {
+          "net50_pct": -4.79,
+          "exit_session": "2026-10-12"
+        }
+      }
+    },
+    {
+      "symbol": "LHX",
+      "source_session": "2026-09-15",
+      "signal": "2026-09-16T09:14:00+07:00",
+      "expiration": "2026-09-17T03:00:00+07:00",
+      "NYSE_session": "2026-09-16",
+      "entry_zone": [
+        245.0,
+        250.0
+      ],
+      "historical_reference": 249.66,
+      "OHLC": {
+        "open": 250.07,
+        "high": 251.92,
+        "low": 248.14,
+        "close": 250.74
+      },
+      "opens_in_zone": false,
+      "touches_zone": true,
+      "touches_reference": true,
+      "conditional_limit_cap": 250.0,
+      "user_real_execution": false,
+      "outcomes": {
+        "1D_open_regardless_gate": {
+          "net50_pct": -0.232,
+          "exit_session": "2026-09-16"
+        },
+        "1D_zone_cap_conditional_limit": {
+          "net50_pct": -0.204,
+          "exit_session": "2026-09-16"
+        },
+        "1D_prior_close_reference_if_touched": {
+          "net50_pct": -0.067,
+          "exit_session": "2026-09-16"
+        },
+        "5D_open_regardless_gate": {
+          "net50_pct": -4.571,
+          "exit_session": "2026-09-22"
+        },
+        "5D_zone_cap_conditional_limit": {
+          "net50_pct": -4.544,
+          "exit_session": "2026-09-22"
+        },
+        "5D_prior_close_reference_if_touched": {
+          "net50_pct": -4.413,
+          "exit_session": "2026-09-22"
+        },
+        "20D_open_regardless_gate": {
+          "net50_pct": -6.638,
+          "exit_session": "2026-10-13"
+        },
+        "20D_zone_cap_conditional_limit": {
+          "net50_pct": -6.612,
+          "exit_session": "2026-10-13"
+        },
+        "20D_prior_close_reference_if_touched": {
+          "net50_pct": -6.484,
+          "exit_session": "2026-10-13"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "1D_zone_cap_conditional_limit": {
+      "N": 3,
+      "mean_net_pct": -0.122,
+      "pct_positive": 33.3
+    },
+    "5D_zone_cap_conditional_limit": {
+      "N": 3,
+      "mean_net_pct": -1.48,
+      "pct_positive": 33.3
+    },
+    "20D_zone_cap_conditional_limit": {
+      "N": 3,
+      "mean_net_pct": -5.741,
+      "pct_positive": 0.0
+    }
+  },
+  "observed_gate_versions": [
+    {
+      "revision": "260",
+      "modified_UTC": "2026-09-10T10:14:09.677Z",
+      "ticker": "LMT",
+      "score": 84,
+      "MQ": 4,
+      "RR_estimate": 2.4,
+      "entry_status": "ENTRY_READY",
+      "execution_signal": "NONE",
+      "reference_price": 524.46,
+      "entry_zone": "515-525"
+    },
+    {
+      "revision": "260",
+      "modified_UTC": "2026-09-10T10:14:09.677Z",
+      "ticker": "NOC",
+      "score": 85.6,
+      "MQ": 4,
+      "RR_estimate": 2.09,
+      "entry_status": "ENTRY_READY",
+      "execution_signal": "NONE",
+      "reference_price": 515.57,
+      "entry_zone": "505-515",
+      "source_note": "NO SIGNAL because 515.57 is 0.57 above strict 515 trigger-zone ceiling"
+    },
+    {
+      "revision": "261",
+      "modified_UTC": "2026-09-10T11:02:00.819Z",
+      "ticker": "LMT",
+      "score": 84,
+      "MQ": 4,
+      "RR_estimate": 2.4,
+      "entry_status": "ENTRY_READY",
+      "execution_signal": "BUY_SIGNAL",
+      "reference_price": 524.46,
+      "entry_zone": "515-525",
+      "source_note": "BUY_SIGNAL at 2026-09-10 17:52 +07, paper only"
+    },
+    {
+      "revision": "291",
+      "modified_UTC": "2026-09-15T03:47:39.724Z",
+      "ticker": "LHX",
+      "score": 85.8,
+      "MQ": 4,
+      "RR_estimate": 2.13,
+      "entry_status": "ENTRY_READY",
+      "execution_signal": "BUY_SIGNAL",
+      "reference_price": 248.93,
+      "entry_zone": "245-250"
+    },
+    {
+      "revision": "293",
+      "modified_UTC": "2026-09-16T02:15:58.542Z",
+      "ticker": "LHX",
+      "score": 85.8,
+      "MQ": 4,
+      "RR_estimate": 2.02,
+      "entry_status": "ENTRY_READY",
+      "execution_signal": "BUY_SIGNAL",
+      "reference_price": 249.66,
+      "entry_zone": "245-250"
+    }
+  ],
+  "immutable_decision_snapshot_QA": {
+    "n": 5,
+    "sha_valid": 3,
+    "sha_invalid": 2,
+    "invalid_tickers": [
+      "LMT",
+      "LMT"
+    ],
+    "note": "LMT Dropbox snapshots fail SHA integrity; quarantine them as standalone Gate evidence, but Google Sheet revisions and paper ledger provide independent BUY record"
+  },
+  "historical_coverage": {
+    "drive_revisions_listed": 159,
+    "drive_revision_period": "2026-08-09 to 2026-10-15",
+    "revisions_directly_sampled": 6,
+    "current_sheet_candidate_issuers_all_lanes": 43,
+    "market_universe_distinct_listed": 3035,
+    "full_asof_gate_for_3035": "NOT_REPLAYABLE_FROM_STORED_PRICE_ONLY_ROWS"
+  },
+  "risk_flags": [
+    "Repeated LHX paper BUY_SIGNAL on Sep15 and Sep16 while both shadow positions marked OPEN; each $100 on $1000 virtual base, aggregate 20% LHX paper exposure. Check per-idea sizing and issuer de-dup, do not assume original Gate deployment was allowed.",
+    "All three opening prices outside certified entry zones: prior open-at-market counterfactual violates execution gate.",
+    "Intraday low at/under limit cap only proves theoretical opportunity to enter, not an actual submitted, resting, or filled order.",
+    "Two Dropbox LMT decision snapshot hashes do not match canonical decision digest; source should be quarantined and regenerated."
+  ]
+}
