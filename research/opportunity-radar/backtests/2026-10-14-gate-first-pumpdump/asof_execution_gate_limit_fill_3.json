@@ -1,0 +1,191 @@
+{
+  "policy": "Do not fill at next open if outside original zone; conditional resting limit only if later OHLC range includes zone, no order/fill evidence",
+  "fee_total_roundtrip_pct_points": 0.5,
+  "signal_count": 3,
+  "distinct_tickers": 2,
+  "cases": [
+    {
+      "symbol": "LMT",
+      "source_session": "2026-09-09",
+      "signal": "2026-09-10T17:52:00+07:00",
+      "expiration": "2026-09-11T03:00:00+07:00",
+      "NYSE_session": "2026-09-10",
+      "entry_zone": [
+        515.0,
+        525.0
+      ],
+      "historical_reference": 524.46,
+      "OHLC": {
+        "open": 526.01,
+        "high": 531.0,
+        "low": 524.09,
+        "close": 530.12
+      },
+      "opens_in_zone": false,
+      "touches_zone": true,
+      "touches_reference": true,
+      "conditional_limit_cap": 525.0,
+      "user_real_execution": false,
+      "outcomes": {
+        "1D_open_regardless_gate": {
+          "net50_pct": 0.281,
+          "exit_session": "2026-09-10"
+        },
+        "1D_zone_cap_conditional_limit": {
+          "net50_pct": 0.475,
+          "exit_session": "2026-09-10"
+        },
+        "1D_prior_close_reference_if_touched": {
+          "net50_pct": 0.579,
+          "exit_session": "2026-09-10"
+        },
+        "5D_open_regardless_gate": {
+          "net50_pct": 1.637,
+          "exit_session": "2026-09-16"
+        },
+        "5D_zone_cap_conditional_limit": {
+          "net50_pct": 1.833,
+          "exit_session": "2026-09-16"
+        },
+        "5D_prior_close_reference_if_touched": {
+          "net50_pct": 1.939,
+          "exit_session": "2026-09-16"
+        },
+        "20D_open_regardless_gate": {
+          "net50_pct": -5.593,
+          "exit_session": "2026-10-07"
+        },
+        "20D_zone_cap_conditional_limit": {
+          "net50_pct": -5.41,
+          "exit_session": "2026-10-07"
+        },
+        "20D_prior_close_reference_if_touched": {
+          "net50_pct": -5.313,
+          "exit_session": "2026-10-07"
+        }
+      }
+    },
+    {
+      "symbol": "LHX",
+      "source_session": "2026-09-14",
+      "signal": "2026-09-15T10:42:00+07:00",
+      "expiration": "2026-09-16T03:00:00+07:00",
+      "NYSE_session": "2026-09-15",
+      "entry_zone": [
+        245.0,
+        250.0
+      ],
+      "historical_reference": 248.93,
+      "OHLC": {
+        "open": 251.9,
+        "high": 253.12,
+        "low": 247.87,
+        "close": 249.66
+      },
+      "opens_in_zone": false,
+      "touches_zone": true,
+      "touches_reference": true,
+      "conditional_limit_cap": 250.0,
+      "user_real_execution": false,
+      "outcomes": {
+        "1D_open_regardless_gate": {
+          "net50_pct": -1.389,
+          "exit_session": "2026-09-15"
+        },
+        "1D_zone_cap_conditional_limit": {
+          "net50_pct": -0.636,
+          "exit_session": "2026-09-15"
+        },
+        "1D_prior_close_reference_if_touched": {
+          "net50_pct": -0.207,
+          "exit_session": "2026-09-15"
+        },
+        "5D_open_regardless_gate": {
+          "net50_pct": -2.473,
+          "exit_session": "2026-09-21"
+        },
+        "5D_zone_cap_conditional_limit": {
+          "net50_pct": -1.728,
+          "exit_session": "2026-09-21"
+        },
+        "5D_prior_close_reference_if_touched": {
+          "net50_pct": -1.303,
+          "exit_session": "2026-09-21"
+        },
+        "20D_open_regardless_gate": {
+          "net50_pct": -5.919,
+          "exit_session": "2026-10-12"
+        },
+        "20D_zone_cap_conditional_limit": {
+          "net50_pct": -5.2,
+          "exit_session": "2026-10-12"
+        },
+        "20D_prior_close_reference_if_touched": {
+          "net50_pct": -4.79,
+          "exit_session": "2026-10-12"
+        }
+      }
+    },
+    {
+      "symbol": "LHX",
+      "source_session": "2026-09-15",
+      "signal": "2026-09-16T09:14:00+07:00",
+      "expiration": "2026-09-17T03:00:00+07:00",
+      "NYSE_session": "2026-09-16",
+      "entry_zone": [
+        245.0,
+        250.0
+      ],
+      "historical_reference": 249.66,
+      "OHLC": {
+        "open": 250.07,
+        "high": 251.92,
+        "low": 248.14,
+        "close": 250.74
+      },
+      "opens_in_zone": false,
+      "touches_zone": true,
+      "touches_reference": true,
+      "conditional_limit_cap": 250.0,
+      "user_real_execution": false,
+      "outcomes": {
+        "1D_open_regardless_gate": {
+          "net50_pct": -0.232,
+          "exit_session": "2026-09-16"
+        },
+        "1D_zone_cap_conditional_limit": {
+          "net50_pct": -0.204,
+          "exit_session": "2026-09-16"
+        },
+        "1D_prior_close_reference_if_touched": {
+          "net50_pct": -0.067,
+          "exit_session": "2026-09-16"
+        },
+        "5D_open_regardless_gate": {
+          "net50_pct": -4.571,
+          "exit_session": "2026-09-22"
+        },
+        "5D_zone_cap_conditional_limit": {
+          "net50_pct": -4.544,
+          "exit_session": "2026-09-22"
+        },
+        "5D_prior_close_reference_if_touched": {
+          "net50_pct": -4.413,
+          "exit_session": "2026-09-22"
+        },
+        "20D_open_regardless_gate": {
+          "net50_pct": -6.638,
+          "exit_session": "2026-10-13"
+        },
+        "20D_zone_cap_conditional_limit": {
+          "net50_pct": -6.612,
+          "exit_session": "2026-10-13"
+        },
+        "20D_prior_close_reference_if_touched": {
+          "net50_pct": -6.484,
+          "exit_session": "2026-10-13"
+        }
+      }
+    }
+  ]
+}
