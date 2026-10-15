@@ -36,6 +36,19 @@ print(j.get('status','MISSING'))
 PY
 }
 
+is_provider_limited(){
+  python3 - "$BASE/scans/$DAY-terminal-verdicts.json" "$BASE/scans/$DAY-semrush-results.json" <<'PY'
+import json,sys
+try: t=json.load(open(sys.argv[1],encoding='utf-8'))
+except (OSError,ValueError):t={}
+try: s=json.load(open(sys.argv[2],encoding='utf-8'))
+except (OSError,ValueError):s={}
+run=t.get('serp_run') or {}
+err=str(run.get('reason') or '')+' '+str((run.get('state') or {}).get('blocker') or '')
+err+=' '+str(s.get('global_blocker') or '')
+print('yes' if any(x in err for x in ('SEMRUSH_RATE_LIMIT','SEMRUSH_REPORT_LIMIT','-2002','-2004')) else 'no')
+PY
+}
 already_done(){
   python3 - "$STATE" "$BASE/scans/$DAY-terminal-verdicts.json" "$DAY" <<'PY'
 import json,sys
@@ -74,8 +87,8 @@ else
 fi
 run_semrush
 run_terminal
-if [[ "$(is_auth_blocked)" == yes ]]; then
-  log "Semrush authentication unavailable; skipping repeated historical broker calls"
+if [[ "$(is_auth_blocked)" == yes || "$(is_provider_limited)" == yes ]]; then
+  log "Semrush auth/provider-limit blocker; skipping repeated historical broker calls"
 else
   timeout 35m python3 "$BASE/scripts/repair_backlog.py" --days 14 --exclude-today || log 'Backlog repair returned non-zero'
   timeout 10m python3 "$BASE/scripts/backfill_sync.py" || log 'Backfill Telegram sync returned non-zero'
