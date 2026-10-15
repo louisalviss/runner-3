@@ -101,3 +101,11 @@ Other billing incident reported for old account `Ducduy2411`:
 - Read-only GitHub Actions run metadata from 2026-10-15 00:30–02:00 UTC found **25** `runner-3` runs and **26** `vps-control` runs; these runs alone cannot attribute the 23–29 R2 PUT per 15min.
 - Prepared local read-only Cloudflare GraphQL query `/opt/dhs-control/r2-log-window-comparison-20261016.graphql.json` remains **NOT EXECUTED** because authorized Cloudflare access was unavailable. Existing 203-row export has 0 native PUT; absence alone cannot establish zero actual billing.
 - **Unresolved**: compare source R2 PutObject Cloudflare Analytics with native Data Access Logs same 15-min window; DO NOT bypass a blocked credential boundary, claim a culprit without evidence, or reenable held tasks.
+
+## 2026-10-16 06:14 VN — VBTH mirror SHA simulation, no deploy
+- **D1/Dropbox authority**: task `CLOUDFLARE-R2-COST-001` rev11, Dropbox `/Task/active/CLOUDFLARE-R2-COST-001.md` VERIFIED.
+- Source `/opt/browser-stack/bin/youtube_story_r2_mirror.py` calls `put_file()` unconditionally for 23 present inputs (17 pilot JSON and six state/report files), then for `R2_MIRROR_STATE.json`, even when inputs are identical.
+- Source `/opt/artifact-r2-seed/r2_durable_commit.py` `durable_put_file()` **unconditionally calls `_put_artifact_file_raw()`** before readback (lines 187–228). No content-idempotency check in that helper.
+- Offline **six of six simulations PASS** using SHA256 of actual local input files and no Cloudflare network operations: first verified sync 24; identical idle next run 0; one changed file 2; retry after simulated failure 2; untrusted old mirror-state forces 24; progress-only changes mirror receipt 1. The algorithm is **not deployed** and does not prove live cost reductions.
+- GitHub source file `louisalviss/vps-control:stack/youtube_story_r2_mirror.py` is 13 lines behind VPS installed source (pilot JSON feature); reconcile before making an approved patch. Prior attempted code change was blocked by safety review, **do not circumvent**.
+- R2 Class A `COST_HOLD` still applies; no held services restarted, release marker absent, source poststop 23–29 PUT/15min remains unattributed because Cloudflare Analytics access is unavailable. Do not conflate this historical residual with the already-held mirror.
