@@ -1,16 +1,16 @@
 {
   "schema_version": 2.0,
-  "generated_at": "2026-10-15T08:17:04.487953+07:00",
+  "generated_at": "2026-10-16T01:54:27.383609+07:00",
   "source_session_date": "2026-10-14",
   "expected_latest_completed_us_session": "2026-10-14",
-  "status": "DEGRADED",
-  "reason_code": "INSUFFICIENT_FRESH_SESSION_COVERAGE",
-  "complete": false,
+  "status": "COMPLETE",
+  "reason_code": null,
+  "complete": true,
   "signal_count": 80,
-  "prefilter_count": 1579,
+  "prefilter_count": 2748,
   "prefilter_schema": "opportunity-radar-market-prefilter-v1",
-  "prefilter_sha256": "4c01d58a3bbcb76f33322864d8478e30bbff8890187fb2b2aa169df4e9be3bc3",
-  "prefilter_built_utc": "2026-10-15T01:17:04.487953+00:00",
+  "prefilter_sha256": "eb40a219fe5d8c8b38702b4a850c111eecd4e5cff179b5af30cf2f694fda285d",
+  "prefilter_built_utc": "2026-10-15T18:54:27.383609+00:00",
   "prefilter_source": "data/opportunity-radar/market-prefilter.json",
   "scanner_version": "2.3-nasdaq-raw-review",
   "d1_checkpoint_binding": {
@@ -21,343 +21,31 @@
   "checkpoint_project": "opportunity-radar-v2",
   "checkpoint_scope": "market-pricing",
   "checkpoint_source": "opportunity-radar-market-v2",
-  "history_requested": 2709,
-  "history_returned": 2709,
+  "history_requested": 2753,
+  "history_returned": 2753,
   "history_coverage": 1.0,
-  "fresh_history_coverage": 0.5828719084533038,
-  "stale_history_suppressed": 1130,
+  "fresh_history_coverage": 0.9981837994914639,
+  "stale_history_suppressed": 5,
   "freshness_recovery": {
-    "stale_before_retry": 1130,
-    "retry_attempted": 63,
+    "stale_before_retry": 5,
+    "retry_attempted": 5,
     "retry_recovered": 0,
     "retry_errors": 0,
-    "retry_unattempted": 1067,
+    "retry_unattempted": 0,
     "retry_source": "YAHOO_EXPLICIT_WINDOW_SERIAL",
-    "independent_snapshot_shocks_unverified": [
-      {
-        "symbol": "BMBL",
-        "pctchange": 56.579,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ANL",
-        "pctchange": -17.335,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "OMDA",
-        "pctchange": -16.324,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SNDX",
-        "pctchange": -15.71,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "FRMI",
-        "pctchange": 14.462,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "EFXT",
-        "pctchange": 14.369,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "TSHA",
-        "pctchange": -13.527,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SLDB",
-        "pctchange": -13.264,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CIFR",
-        "pctchange": -12.769,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "PS",
-        "pctchange": -12.117,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "GENB",
-        "pctchange": -11.452,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CDNL",
-        "pctchange": -10.994,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "DSGN",
-        "pctchange": -10.357,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "STTK",
-        "pctchange": -9.852,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "VSTM",
-        "pctchange": -9.697,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "KARD",
-        "pctchange": -9.617,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SMMT",
-        "pctchange": -9.399,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SGMT",
-        "pctchange": -9.318,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "AVTX",
-        "pctchange": -9.29,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CHRN",
-        "pctchange": -8.781,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ASTS",
-        "pctchange": -8.541,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ANRO",
-        "pctchange": -8.53,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "AGBK",
-        "pctchange": 8.37,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "DMRA",
-        "pctchange": -8.368,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "EVH",
-        "pctchange": 8.235,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ZVRA",
-        "pctchange": -8.216,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "IMNM",
-        "pctchange": -8.198,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "PARR",
-        "pctchange": 8.133,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BETA",
-        "pctchange": -8.123,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SLN",
-        "pctchange": -8.083,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      }
-    ],
-    "wide_retry_skipped_reason": "LOW_PROBE_RECOVERY",
+    "independent_snapshot_shocks_unverified": [],
+    "wide_retry_skipped_reason": null,
     "nasdaq_raw_shock_probe": {
-      "source": "NASDAQ_PUBLIC_HISTORICAL_RAW_OHLC",
-      "source_session_date": "2026-10-14",
-      "policy": "DIAGNOSTIC_ONLY_NOT_ADJUSTED_NO_SIGNALS_NO_COVERAGE_CREDIT",
-      "requested": 20,
-      "confirmed_raw_moves": [
-        {
-          "symbol": "ANL",
-          "session": "2026-10-14",
-          "previous_session": "2026-10-13",
-          "close_raw": 10.88,
-          "previous_close_raw": 11.755,
-          "raw_return_1d_pct": -7.44364,
-          "volume": 378006.0,
-          "volume_ratio_20d_raw": 1.5741,
-          "adjustment_verified": false,
-          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
-          "action": "NO_SIGNAL"
-        },
-        {
-          "symbol": "FRMI",
-          "session": "2026-10-14",
-          "previous_session": "2026-10-13",
-          "close_raw": 3.16,
-          "previous_close_raw": 3.72,
-          "raw_return_1d_pct": -15.05376,
-          "volume": 28541450.0,
-          "volume_ratio_20d_raw": 1.3788,
-          "adjustment_verified": false,
-          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
-          "action": "NO_SIGNAL"
-        },
-        {
-          "symbol": "CIFR",
-          "session": "2026-10-14",
-          "previous_session": "2026-10-13",
-          "close_raw": 9.94,
-          "previous_close_raw": 11.34,
-          "raw_return_1d_pct": -12.34568,
-          "volume": 94755840.0,
-          "volume_ratio_20d_raw": 2.4698,
-          "adjustment_verified": false,
-          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
-          "action": "NO_SIGNAL"
-        },
-        {
-          "symbol": "CDNL",
-          "session": "2026-10-14",
-          "previous_session": "2026-10-13",
-          "close_raw": 16.46,
-          "previous_close_raw": 18.62,
-          "raw_return_1d_pct": -11.60043,
-          "volume": 2301581.0,
-          "volume_ratio_20d_raw": 2.5078,
-          "adjustment_verified": false,
-          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
-          "action": "NO_SIGNAL"
-        },
-        {
-          "symbol": "CHRN",
-          "session": "2026-10-14",
-          "previous_session": "2026-10-13",
-          "close_raw": 14.88,
-          "previous_close_raw": 16.31,
-          "raw_return_1d_pct": -8.76763,
-          "volume": 214853.0,
-          "volume_ratio_20d_raw": 1.7262,
-          "adjustment_verified": false,
-          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
-          "action": "NO_SIGNAL"
-        }
-      ],
-      "unverified": [
-        {
-          "symbol": "BMBL",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "OMDA",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "SNDX",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "EFXT",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "TSHA",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "SLDB",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "PS",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "GENB",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "DSGN",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "STTK",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "VSTM",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "KARD",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "SMMT",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "SGMT",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        },
-        {
-          "symbol": "AVTX",
-          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
-        }
-      ],
-      "errors": 0
+      "policy": "NOT_NEEDED_FRESH_COVERAGE_PASS",
+      "requested": 0,
+      "confirmed_raw_moves": []
     }
   },
   "snapshot_ok": true,
   "snapshot_error": null,
-  "early_watch": 21,
-  "early_watch_emitted": 21,
-  "raw_anomaly_emitted": 59,
+  "early_watch": 33,
+  "early_watch_emitted": 24,
+  "raw_anomaly_emitted": 56,
   "continuation": 0,
   "corporate_action_suppressed": 0,
   "corporate_action_unverified_suppressed": 0,
