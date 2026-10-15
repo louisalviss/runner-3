@@ -1,0 +1,23 @@
+{
+  "QA": "PASS",
+  "n_events": 1139,
+  "n_symbols": 707,
+  "n_financial_core4_fresh": 963,
+  "n_5d_matured": 951,
+  "n_20d_matured": 432,
+  "n_nextopen_valid": 1126,
+  "verified_full_GATE_PASS": 0,
+  "num_verified_original_P_D_BUY": 0,
+  "no_future_SEC_documents": true,
+  "no_pre_signal_entry_open": true,
+  "all_matured_horizons_bounded_at": "2026-10-15",
+  "missing_future_20d": 707,
+  "compressed_source_cache_count": 12,
+  "warnings": [
+    "Full economic RR/Score/MQ/Entry never stored for 1139 event-dates; NULL not FAIL",
+    "Source SEC current symbol-to-CIK may miss renamed/delisted tickers",
+    "No guarantee of limit-entry fill; hypothetical market-open price-only results cannot be classified as Gate trades",
+    "Foreign 6-K may not map into standardized US-GAAP fields",
+    "Only 15 source dates, 5 for matured 20D, severe dependence and retrospective exploration"
+  ]
+}
