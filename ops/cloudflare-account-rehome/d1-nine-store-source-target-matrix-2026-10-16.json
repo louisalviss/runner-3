@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "status": "MIXED_DATE_OFFLINE_RECONCILIATION_NO_MIGRATION",
+  "source_account_id": "7415a87f6bce7884e73ad7cfed5782df",
+  "target_account_id": "748a80810f77f447ee476543ef0e5014",
+  "source_inventory_provenance": "GitHub D1 Account Usage Watch run 38822449766 2026-10-15T23:15Z inventoryCount=9 (source only)",
+  "target_inventory_provenance": "VPS /var/lib/cloudflare-migration/2026-10-08/target-d1-map.json (historic, not live)",
+  "counts": {
+    "source_inventory_names": 9,
+    "historical_target_inventory_names": 9,
+    "name_matched": 8,
+    "source_only": 1,
+    "target_only": 1
+  },
+  "stores": [
+    {
+      "name": "clm-copilot-calibration",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": false,
+      "target_historical_uuid": null,
+      "status": "SOURCE_ONLY_IN_MIXED_DATE_SNAPSHOTS",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": "CALIBRATION_WORKER_D1_LINK_UNVERIFIED_KEEP_DATA"
+    },
+    {
+      "name": "clm-copilot-v1",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "81050db3-de12-4825-96b1-836d2eb9ca03",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "louis-context-index",
+      "source_observed_oct15_2026": false,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "57674018-43af-40f6-ba97-85a253d6ffae",
+      "status": "TARGET_ONLY_IN_MIXED_DATE_SNAPSHOTS",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": "SOURCE_MERGED_12_CONTEXT_CHECKPOINTS_TARGET_CONTENT_UNVERIFIED_NO_DELETE"
+    },
+    {
+      "name": "louis-task-context",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "a45b4bc9-82bf-41ee-9116-89dc3c2af5a6",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "personal-library",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "22590669-9a89-4d07-831f-190b6f6b90ca",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "runner3-content-intelligence",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "82613659-8d08-455f-b6e7-f8f6e4312e22",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "runner3-core",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "477fc6b8-4dec-4e15-afa7-eefa3846fba1",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "runner3-opportunity-radar",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "9a593680-ca8d-4842-84e0-2bfe10e798f6",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "runner3-rss",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "5b733890-ccfa-4472-95c4-8c2d97d0aa02",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    },
+    {
+      "name": "volamidle-rogue-data",
+      "source_observed_oct15_2026": true,
+      "target_historical_observed_oct08_2026": true,
+      "target_historical_uuid": "fd4d33bf-a56a-4c78-8697-f991fdc8030a",
+      "status": "NAME_MATCH_ONLY",
+      "current_live_target_verified": false,
+      "schema_parity_verified": false,
+      "primary_key_and_row_digest_parity_verified": false,
+      "retention_review": null
+    }
+  ],
+  "owner_evidence": {
+    "calibration": {
+      "worker": "clm-conversation-copilot-calibration",
+      "source_worker_artifact": "GH Actions source Worker audit 38575674555 / artifact 11899043830 (Oct14)",
+      "d1_binding_name": "DB",
+      "stage_database_reference_variable": "CLM_STAGE_DB_UUID",
+      "worker_has_cron": false,
+      "actual_binding_db_uuid_verified": false,
+      "actual_calibration_db_owner_confirmed": false,
+      "classification": "REVIEW_KEEP_PENDING_D1_SCHEMA_DEPENDENCY"
+    },
+    "context_index": {
+      "source_cleanup_checkpoint": "ops/checkpoints/d1-review-merge-cleanup-2026-10-08-0515-VN.md",
+      "source_12_checkpoints_merged_to": "louis-task-context",
+      "production_alias_bindings": [
+        "TASK_CONTEXT_DB",
+        "CONTEXT_INDEX_DB"
+      ],
+      "target_old_db_contains_unique_data_verified": false,
+      "target_deletion_permitted": false
+    }
+  },
+  "account_migration_authorized": false,
+  "live_parity_verified": false,
+  "all_data_retained": true,
+  "source_deletion_permitted": false,
+  "target_legacy_deletion_permitted": false,
+  "d1_remote_writes_permitted": false,
+  "r2_cost_hold": true,
+  "worker_deploy_or_cron_enable_permitted": false,
+  "next_gate": "Fresh legitimately authorized target D1 metadata/schema and exact calibration Worker DB binding, then scoped PK/row-digest deltas before any write"
+}
