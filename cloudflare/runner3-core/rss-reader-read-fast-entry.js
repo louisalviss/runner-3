@@ -1,3 +1,4 @@
+import { traceR2PutCompleted } from "./src/r2-put-provenance.js";
 import { handleRssReader } from "./src/rss-reader.js";
 import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
@@ -46,15 +47,18 @@ async function seotrendsEmergencyArchive(env, state) {
   const urls = seotrendsDatabaseSitemaps(indexXml);
   const prefix = `seotrends-watchdog/emergency/${state.day}`;
   await env.ARTIFACTS.put(`${prefix}/sitemap.xml`, indexXml, { httpMetadata: { contentType: "application/xml" } });
+  traceR2PutCompleted(env, "seotrends-emergency-sitemap");
   const results = await Promise.all(urls.map(async (url) => {
     const response = await fetch(url, { headers: { "User-Agent": SEOTRENDS_WATCHDOG_UA } });
     if (!response.ok) return { url, ok: false, status: response.status };
     const name = url.split("/").pop();
     await env.ARTIFACTS.put(`${prefix}/${name}`, response.body, { httpMetadata: { contentType: "application/xml" } });
+    traceR2PutCompleted(env, "seotrends-emergency-item");
     return { url, ok: true, status: response.status };
   }));
   const manifest = { ...state, archived_at: new Date().toISOString(), source_index: SEOTRENDS_INDEX, sitemap_count: urls.length, results };
   await env.ARTIFACTS.put(`${prefix}/manifest.json`, JSON.stringify(manifest, null, 2), { httpMetadata: { contentType: "application/json" } });
+  traceR2PutCompleted(env, "seotrends-emergency-manifest");
   return manifest;
 }
 
@@ -70,6 +74,7 @@ async function runSeotrendsWatchdog(env) {
   const status = { ...state, checked_at: new Date().toISOString(), emergency_archived: Boolean(emergency) };
   if (env.ARTIFACTS) {
     await env.ARTIFACTS.put(`seotrends-watchdog/status/${state.day}.json`, JSON.stringify(status, null, 2), { httpMetadata: { contentType: "application/json" } });
+    traceR2PutCompleted(env, "seotrends-status");
   }
   return status;
 }
