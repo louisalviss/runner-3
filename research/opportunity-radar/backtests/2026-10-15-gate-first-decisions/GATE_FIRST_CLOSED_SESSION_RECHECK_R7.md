@@ -16,6 +16,8 @@ Original Drive revision 282 (modified 2026-09-12T02:55:58Z):
 - No Google Sheet revision was recorded between Sep12 (rev282) and Sep15 (rev291); the next archived original LHX BUY_SIGNAL is timestamped Sep15 10:42 +07, i.e. after the Mon Sep14 US regular session. No archived original BUY before Monday opening.
 - Classification: POTENTIAL_MISSED_LIVE_RECHECK, not MISSED_BUY. Daily OHLC never proves eToro live price, event blackout, execution context, broker acceptance or actual fill.
 
+At that Mon open $247.81, merely REUSING the last documented $300 base target / $225 bear from the Sep12 record would mechanically yield ~20.560% remaining upside after 50bps and ~9.205% bear-price downside, hence ~2.234x R/R; this is still above 2x. This is a mathematical consistency test of the unchanged last-known assumptions, NOT an independently refreshed valuation or certified live Gate at Sep14. No fresh eToro execution quote is archived.
+
 For diagnostic context ONLY: hypothetical long Sep14 open $247.81, exit fifth US regular-session close, 50bps roundtrip = -0.710%; 20th close = -4.874%, SPY-relative 20D = -7.707 percentage points. NON-EXECUTED and NON-GATE-AUTHORIZED price-only counterfactual. Do not count this as a backtested Radar purchase.
 
 ## Other no-touch gate checks

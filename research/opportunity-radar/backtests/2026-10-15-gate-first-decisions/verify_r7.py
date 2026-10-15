@@ -30,4 +30,5 @@ assert all(r["actual_BUY_SIGNAL_before_open"] == "False" for r in rows)
 summary = json.loads((ROOT / "QA_REVISION_R7.json").read_text(encoding="utf-8"))
 assert summary["union_distinct_revision_bodies"] == 20
 assert summary["no_new_historical_BUY_discovered"] is True
+assert 2.23 < summary["LHX_2026_09_14_old_bull_bear_math_RR_50bps"] < 2.24
 print("R7_OFFLINE_QA_PASS")
