@@ -48,6 +48,8 @@ jobs:
       LIMIT_OBJECTS: ${{ inputs.limit_objects }}
     steps:
       - uses: actions/checkout@v4
+      - name: Enforce global R2 Class A billing HOLD before any R2 request
+        run: python3 scripts/cloudflare_r2_migration_gate.py
       - name: Install encryption library
         run: python3 -m pip install --quiet cryptography
       - name: Package encrypted, bounded R2 source objects
