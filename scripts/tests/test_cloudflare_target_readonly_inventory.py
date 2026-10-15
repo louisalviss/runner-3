@@ -10,7 +10,7 @@ def fake_get(token, path):
     if path.startswith("/d1/database?"):
         return {"success":True,"result":[{"name":"runner3-core","uuid":"hidden1"},
                                           {"name":"clm-copilot-calibration","uuid":"hidden2"}],
-                "result_info":{"total_pages":1}}
+                "result_info":{"page":1,"count":2,"per_page":100,"total_count":2}}
     if path == "/workers/scripts":
         return {"success":True,"result":[{"id":"runner3-core"},{"id":"runner3-rss-fastlane"}]}
     if path.endswith("/settings"):
@@ -48,6 +48,38 @@ assert "PRIVATE_KEY" in flat
 assert "runner3-rss-fastlane" in flat
 assert not any("r2" in p for p in calls)
 print("PASS target read-only metadata, secret redaction and conservative parity flags")
+
+# Cloudflare D1 API reports total_count even when total_pages is absent.
+# The first page must NEVER be accepted as the whole account if truncated.
+def partial_list(token, path):
+    if path.startswith("/d1/database?"):
+        value=fake_get(token,path)
+        value["result_info"]={"page":1,"count":2,"per_page":2,"total_count":9}
+        return value
+    return fake_get(token,path)
+
+with patch.object(m,"get",side_effect=partial_list):
+    try:
+        m.read_inventory("fake-only-target-read-scope-token")
+        raise AssertionError("Incomplete D1 page must fail closed")
+    except m.AuditBlocked as e:
+        assert str(e) == "D1_INVENTORY_INCOMPLETE"
+
+def missing_page_info(token,path):
+    value=fake_get(token,path)
+    if path.startswith("/d1/database?"):
+        value.pop("result_info")
+    return value
+
+with patch.object(m,"get",side_effect=missing_page_info):
+    try:
+        m.read_inventory("fake-only-target-read-scope-token")
+        raise AssertionError("Missing D1 result_info must fail closed")
+    except m.AuditBlocked as e:
+        assert str(e) == "D1_PAGINATION_UNKNOWN"
+
+print("PASS incomplete or unknown D1 API pagination fails closed")
+
 
 bad=[{"type":"secret_text","name":"","text":"bad"}]
 try:
