@@ -31,6 +31,8 @@ jobs:
       CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_TARGET_R2_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
+      - name: Enforce global R2 Class A billing HOLD before any R2 request
+        run: python3 scripts/cloudflare_r2_migration_gate.py
       - name: Install R2 native SDK
         run: python3 -m pip install --quiet boto3
       - name: Probe or copy one custom-metadata object without overwrite
