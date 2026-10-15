@@ -28,7 +28,7 @@ assert by=={'POSITIVE_NET_INCOME_AND_OPERATING_CF':336,
  'NEGATIVE_NET_INCOME_AND_OPERATING_CF':365,'MIXED_SIGNS':227,'MISSING_OR_STALE_SIGN':211},by
 assert sum(bool(x['hypothetical_entry_next_NYSE_open_day']) for x in price)==1126
 assert sum(x.get('price_only_nextopen_5d_net50_pct') not in ('',None) for x in price)==951
-assert sum(x.get('price_only_nextopen_20d_net50_pct') not in ('',None) for x in price)==432
+assert sum(x.get('price_only_nextopen_20d_net50_pct') not in ('',None) for x in price)==326
 for e in market:
  assert e['at_P_D_session_full_Gate_status']=='UNKNOWN_NOT_FULL_PIT_ECONOMIC_GATE'
  assert e['original_PD_origin_BUY_SIGNAL_verified']=='False'
@@ -39,7 +39,7 @@ for e in price:
  assert after>datetime.datetime.fromisoformat(e['packet_generated']).astimezone(datetime.timezone.utc)
  for h in (1,5,20):
   v=e.get(f'price_only_exit_{h}d_date')
-  if v:assert v<='2026-10-15'
+  if v:assert v<='2026-10-14'
 stats=json.loads((P/'PD_ALL_1139_PRICE_ONLY_OUTCOME_SUMMARY.json').read_text())
 assert stats['by_group']['all']['5D']['N']==951
 assert abs(stats['by_group']['all']['5D']['mean_net_pct']+.482)<.0001
